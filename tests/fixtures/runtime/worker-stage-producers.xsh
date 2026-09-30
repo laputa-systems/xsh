@@ -70,27 +70,27 @@ proc main() [io, fs, env, error] {
 
   # A worker stage over a producer: the mapped values are the producer's rows,
   # every row was produced exactly once, and the defer ran once.
-  let mapped = open_counted(root, "map")? |> par-map --jobs=2 { |value| value * 2 } |> collect()
-  print f"mapped=${mapped.len()} first=${mapped.get(0, -1)} rows=${count_present(root, "row-map-")} closed=${exists(fp"${root}/closed-map")}"
+  let mapped = open_counted(root, "map")? |> par-map(jobs: 2) { |value| value * 2 } |> collect()
+  print f"mapped=${mapped.len()} first=${mapped.get(0) ?? -1} rows=${count_present(root, "row-map-")} closed=${exists(fp"${root}/closed-map")}"
 
   # A bounded terminal after the stage: the stage's own result is a `List`, so
   # the producer is consumed there, and it is still stopped exactly once.
-  let taken = open_counted(root, "take")? |> par-map --jobs=2 { |value| value * 2 } |> first()
+  let taken = open_counted(root, "take")? |> par-map(jobs: 2) { |value| value * 2 } |> first()
   print f"taken=${taken ?? -1} rows=${count_present(root, "row-take-")} closed=${exists(fp"${root}/closed-take")}"
 
   # The fused worker path consumes the producer the same way.
   let fused = open_counted(root, "fuse")?
-    |> par-map --jobs=2 { |value| [{bucket: "all", count: 1, total: value}] }
+    |> par-map(jobs: 2) { |value| [{bucket: "all", count: 1, total: value}] }
     |> flat-map { |rows| rows }
-    |> reduce-by --sum { |row| {key: row.bucket, value: {count: row.count, total: row.total}} }
-  print f"fused=${fused.get("all", {count: 0, total: 0}).total} rows=${count_present(root, "row-fuse-")} closed=${exists(fp"${root}/closed-fuse")}"
+    |> reduce-by(sum: true) { |row| {key: row.bucket, value: {count: row.count, total: row.total}} }
+  print f"fused=${(fused.get("all") ?? {count: 0, total: 0}).total} rows=${count_present(root, "row-fuse-")} closed=${exists(fp"${root}/closed-fuse")}"
 
   # A producer that fails mid-stream fails the stage, and its defer still runs
   # exactly once; the run's exit status and the closed marker are what the Rust
   # test asserts for this case.
   let expect_failure = env.get_or("XSH_WORKER_STAGE_EXPECT_FAILURE", "")? == "1"
   if expect_failure {
-    let accepted = open_checked(root, "check")? |> par-map --jobs=2 { |value| value * 2 } |> collect()
+    let accepted = open_checked(root, "check")? |> par-map(jobs: 2) { |value| value * 2 } |> collect()
     print f"checked accepted=${accepted.len()}"
   }
 }

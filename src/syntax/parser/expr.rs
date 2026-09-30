@@ -6,7 +6,7 @@ use super::{
     Parser, StreamStageKind, TokenKindMatch, TokenTag, UnaryOp, decode_bytes_literal_for, literal,
 };
 use crate::syntax::arena::{
-    ArenaCallArgInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
+    ArenaCompQualifier, ArenaCallArgInput, ArenaListElementInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
     ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId,
 };
 use std::sync::Arc;
@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         self.bump();
         arena.begin_if_expr_branches();
-        let Some(condition) = self.parse_precedence_arena_only(0, arena) else {
+        let Some(condition) = self.parse_condition_arena_only(arena) else {
             arena.discard_if_expr_branches();
             return None;
         };
@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
         let mut else_value = None;
         while self.consume_keyword(Keyword::Else).is_some() {
             if self.consume_keyword(Keyword::If).is_some() {
-                let Some(condition) = self.parse_precedence_arena_only(0, arena) else {
+                let Some(condition) = self.parse_condition_arena_only(arena) else {
                     arena.discard_if_expr_branches();
                     return None;
                 };
@@ -196,24 +196,17 @@ impl<'a> Parser<'a> {
 
     fn parse_braced_value_expr_arena_only(
         &mut self,
-        context: &str,
+        _context: &str,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<(ArenaOnlyExpr, usize)> {
-        self.expect(
-            TokenKindMatch::LBrace,
-            &format!("expected `{{` to start {context}"),
-        )?;
-        self.skip_separators();
-        let value = self.parse_precedence_arena_only(0, arena)?;
-        self.skip_separators();
-        let end = self
-            .expect(
-                TokenKindMatch::RBrace,
-                &format!("expected `}}` to close {context}"),
-            )
-            .map(|span| span.end())
-            .unwrap_or_else(|| self.previous_end());
-        Some((value, end))
+        let start = self.current_start();
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        Some((ArenaOnlyExpr {
+            id: arena.push_value_block_expr(block, span),
+            span,
+            bare_ident: None,
+        }, span.end()))
     }
 
     fn parse_match_expr_arena_only(
@@ -257,7 +250,15 @@ impl<'a> Parser<'a> {
             None
         };
         self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
-        let value = self.parse_expr_id_arena_only(arena)?;
+        let value = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_record_value() {
+            self.parse_braced_value_expr_arena_only("match arm", arena)?.0.id
+        } else {
+            let previous = self.unbraced_match_arm_depth;
+            self.unbraced_match_arm_depth = Some((self.block_depth, self.parenthesized_expr_depth));
+            let value = self.parse_expr_id_arena_only(arena);
+            self.unbraced_match_arm_depth = previous;
+            value?
+        };
         let value_end = self.previous_end();
         if self.consume(TokenKindMatch::Comma).is_some() {
             self.skip_newlines();
@@ -265,6 +266,69 @@ impl<'a> Parser<'a> {
         let span = self.span(start, value_end);
         arena.push_match_expr_arm_input_id(pattern, guard, value, span);
         Some(())
+    }
+
+    fn brace_starts_record_value(&self) -> bool {
+        let mut offset = 1;
+        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+        if self.peek_tag(offset) == Some(TokenTag::RBrace)
+            || (self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_tag(offset + 1) == Some(TokenTag::Dot)) { return true; }
+        if self.peek_tag(offset) == Some(TokenTag::LBracket) {
+            let mut depth = 1;
+            offset += 1;
+            while depth > 0 {
+                match self.peek_tag(offset) {
+                    Some(TokenTag::LBracket) => depth += 1,
+                    Some(TokenTag::RBracket) => depth -= 1,
+                    None | Some(TokenTag::Eof) => return false,
+                    _ => {}
+                }
+                offset += 1;
+            }
+            while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+            return self.peek_tag(offset) == Some(TokenTag::Colon);
+        }
+        let mut shorthand = self.peek_tag(offset) == Some(TokenTag::Ident)
+            || (self.peek_tag(offset) == Some(TokenTag::Keyword)
+                && !matches!(self.peek_keyword(offset), Some(Keyword::True | Keyword::False | Keyword::Null | Keyword::Return | Keyword::Break | Keyword::Continue)));
+        if self.peek_label_name(offset).is_none() && self.peek_tag(offset) != Some(TokenTag::String) { return false; }
+        offset += 1;
+        while self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_label_name(offset + 1).is_some() {
+            shorthand = false;
+            offset += 2;
+        }
+        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+        self.peek_tag(offset) == Some(TokenTag::Colon)
+            || (shorthand && matches!(self.peek_tag(offset), Some(TokenTag::Comma | TokenTag::RBrace)))
+    }
+
+    pub(super) fn parse_condition_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        let previous = self.condition_expr;
+        self.condition_expr = true;
+        let condition = (|| {
+            let start = self.current_start();
+            if self.consume_keyword(Keyword::Let).is_some() {
+                self.skip_newlines();
+                let (pattern, _) = self.parse_pattern_arena_only(arena)?;
+                self.skip_newlines();
+                self.expect(TokenKindMatch::Equals, "expected `=` after condition pattern");
+                self.skip_newlines();
+                let value = self.parse_precedence_arena_only(0, arena)?;
+                let span = self.span(start, value.span.end());
+                Some(ArenaOnlyExpr {
+                    id: arena.push_pattern_condition_expr(value.id, pattern, span),
+                    span,
+                    bare_ident: None,
+                })
+            } else {
+                self.parse_precedence_arena_only(0, arena)
+            }
+        })();
+        self.condition_expr = previous;
+        condition
     }
 
     pub(super) fn parse_expr_id_arena_only(
@@ -380,13 +444,17 @@ impl<'a> Parser<'a> {
             if !continues_pipeline && let Some(pending) = pending_pipeline.take() {
                 left.id = pending.seal(arena, left.span);
             }
-            if self.at(TokenKindMatch::Question) && self.peek_tag(1) == Some(TokenTag::Dot) {
+            if self.at(TokenKindMatch::Question) && self.peek_tag(1) == Some(TokenTag::Dot)
+                && self.peek_start(1) == Some(self.current_end())
+            {
                 let try_end = self.current_end();
                 self.bump();
                 self.bump();
                 let name = self.expect_member_name("expected field name after `?.`")?;
                 if name == "require" && self.consume(TokenKindMatch::LParen).is_some() {
-                    let schema = self.parse_type_expr(arena)?;
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                    let schema = if self.at(TokenKindMatch::RParen) { None } else { Some(self.parse_type_expr(arena)?) };
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
                     self.expect(TokenKindMatch::RParen, "expected `)` after require schema");
                     let try_span = self.span(left.span.start(), try_end);
                     let try_id = arena.push_try_expr(left.id, try_span);
@@ -407,6 +475,9 @@ impl<'a> Parser<'a> {
                     };
                 }
             } else if self.at(TokenKindMatch::Question)
+                && !(self.current_start() == left.span.end()
+                    && self.peek_tag(1) == Some(TokenTag::LBracket)
+                    && self.peek_start(1) == Some(self.current_end()))
                 && (self.current_start() == left.span.end()
                     || (self.trailing_statement_try && self.question_is_trailing_statement_try()))
             {
@@ -441,14 +512,18 @@ impl<'a> Parser<'a> {
             } else if self.at(TokenKindMatch::Dot) && self.peek_tag(1) != Some(TokenTag::Dot) {
                 self.bump();
                 let name = self.expect_member_name("expected field name after `.`")?;
-                let is_compat_module_call = left
+                // These receivers also name user callable fields and removed
+                // contract calls; ordinary arguments reach semantic resolution.
+                let is_contract_call = left
                     .bare_ident
                     .is_some_and(|module| matches!(module.as_str().as_str(), "record" | "module"));
                 if name == "require"
-                    && !is_compat_module_call
+                    && !is_contract_call
                     && self.consume(TokenKindMatch::LParen).is_some()
                 {
-                    let schema = self.parse_type_expr(arena)?;
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                    let schema = if self.at(TokenKindMatch::RParen) { None } else { Some(self.parse_type_expr(arena)?) };
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
                     self.expect(TokenKindMatch::RParen, "expected `)` after require schema");
                     let span = self.span(left.span.start(), self.previous_end());
                     let id = arena.push_require_expr(left.id, schema, span);
@@ -466,7 +541,14 @@ impl<'a> Parser<'a> {
                         bare_ident: None,
                     };
                 }
-            } else if self.consume(TokenKindMatch::LBracket).is_some() {
+            } else if self.at(TokenKindMatch::LBracket)
+                || (self.at(TokenKindMatch::Question)
+                    && self.current_start() == left.span.end()
+                    && self.peek_tag(1) == Some(TokenTag::LBracket)
+                    && self.peek_start(1) == Some(self.current_end()))
+            {
+                let guarded = self.consume(TokenKindMatch::Question).is_some();
+                self.expect(TokenKindMatch::LBracket, "expected `[` after `?`");
                 let (start, end) = if self.consume_dot_dot() {
                     let end = if self.at(TokenKindMatch::RBracket) {
                         None
@@ -489,7 +571,7 @@ impl<'a> Parser<'a> {
                             "expected `]` after index expression",
                         );
                         let span = self.span(left.span.start(), self.previous_end());
-                        let id = arena.push_index_expr(left.id, first.id, span);
+                        let id = if guarded { arena.push_guarded_index_expr(left.id, first.id, span) } else { arena.push_index_expr(left.id, first.id, span) };
                         left = ArenaOnlyExpr {
                             id,
                             span,
@@ -503,7 +585,7 @@ impl<'a> Parser<'a> {
                     "expected `]` after index expression",
                 );
                 let span = self.span(left.span.start(), self.previous_end());
-                let id = arena.push_slice_expr(left.id, start, end, span);
+                let id = if guarded { arena.push_guarded_slice_expr(left.id, start, end, span) } else { arena.push_slice_expr(left.id, start, end, span) };
                 left = ArenaOnlyExpr {
                     id,
                     span,
@@ -534,6 +616,36 @@ impl<'a> Parser<'a> {
                 if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
                     self.skip_newlines();
                 }
+                // At an unbraced arm boundary, a leading `is` starts the next
+                // type pattern. Nested blocks and groups still allow continuation.
+                if self.current_tag() == TokenTag::Newline
+                    && self.unbraced_match_arm_depth != Some((self.block_depth, self.parenthesized_expr_depth))
+                {
+                    let mut offset = 1;
+                    while self.peek_tag(offset) == Some(TokenTag::Newline) { offset += 1; }
+                    if self.peek_name(offset).is_some_and(|name| name == "is") { self.skip_newlines(); }
+                }
+                if self.at_ident("is") {
+                    if min_prec > 3 { break; }
+                    if let Some(pending) = pending_pipeline.take() { left.id = pending.seal(arena, left.span); }
+                    self.bump();
+                    self.skip_newlines();
+                    let (pattern, pattern_span) = self.parse_pattern_test_arena_only(arena)?;
+                    let span = self.span(left.span.start(), pattern_span.end());
+                    let inner_span = arena.expr_span(left.id);
+                    let grouped = left.span.start() < inner_span.start() && left.span.end() > inner_span.end();
+                    if !grouped && matches!(arena.expr_kind(left.id), ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { op: BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge, .. }) {
+                        self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing pattern tests")
+                            .with_code("parse.mixed-comparison")
+                            .with_label(Label::primary(span, "add parentheses around the intended comparison")));
+                    }
+                    left = ArenaOnlyExpr {
+                        id: arena.push_pattern_test_expr(left.id, pattern, span),
+                        span,
+                        bare_ident: None,
+                    };
+                    continue;
+                }
                 let unsupported_integer_division = self.report_unsupported_integer_division();
                 let (op, prec, tokens) = if let Some(tokens) = unsupported_integer_division {
                     (BinaryOp::Div, 6, tokens)
@@ -557,10 +669,49 @@ impl<'a> Parser<'a> {
                 self.skip_newlines();
                 let right = self.parse_precedence_arena_only(right_min_prec, arena)?;
                 let span = self.span(left.span.start(), right.span.end());
-                let id = arena.push_binary_expr(op, left.id, right.id, span);
+                let ordering = |op| matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge);
+                let comparison_kind = |kind| match kind {
+                    ArenaExprKind::ComparisonChain(_) => Some(true),
+                    ArenaExprKind::PatternTest { .. } => Some(false),
+                    ArenaExprKind::Binary { op, .. } if ordering(op) => Some(true),
+                    ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn, .. } => Some(false),
+                    _ => None,
+                };
+                if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn) {
+                    for operand in [left, right] {
+                        let inner_span = arena.expr_span(operand.id);
+                        let grouped = operand.span.start() < inner_span.start() && operand.span.end() > inner_span.end();
+                        if !grouped && comparison_kind(arena.expr_kind(operand.id)).is_some_and(|inner_ordering| inner_ordering != ordering(op)) {
+                            self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing equality, membership, or pattern tests")
+                                .with_code("parse.mixed-comparison")
+                                .with_label(Label::primary(span, "add parentheses around the intended comparison")));
+                        }
+                    }
+                }
+                let mut id = arena.push_binary_expr(op, left.id, right.id, span);
+                if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) {
+                    let mut pairs = vec![id];
+                    let mut previous = right;
+                    loop {
+                        if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
+                            self.skip_newlines();
+                        }
+                        let Some((next_op, next_prec, next_tokens)) = self.current_binary_op() else { break };
+                        if next_prec != prec || !matches!(next_op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) { break }
+                        for _ in 0..next_tokens { self.bump(); }
+                        self.skip_newlines();
+                        let next = self.parse_precedence_arena_only(prec + 1, arena)?;
+                        let pair_span = self.span(previous.span.start(), next.span.end());
+                        pairs.push(arena.push_binary_expr(next_op, previous.id, next.id, pair_span));
+                        previous = next;
+                    }
+                    if pairs.len() > 1 {
+                        id = arena.push_comparison_chain_expr(&pairs, self.span(left.span.start(), previous.span.end()));
+                    }
+                }
                 left = ArenaOnlyExpr {
                     id,
-                    span,
+                    span: self.span(span.start(), self.previous_end()),
                     bare_ident: None,
                 };
             }
@@ -599,11 +750,56 @@ impl<'a> Parser<'a> {
         self.parse_primary_arena_only(arena)
     }
 
+    fn brace_starts_parameter_block(&self) -> bool {
+        let mut offset = 1;
+        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+        self.peek_tag(offset) == Some(TokenTag::Pipe)
+    }
+
+    pub(super) fn lookahead_is_context_scope(&self) -> bool {
+        if !self.current_name().is_some_and(|name| name == "cd" || name == "env") || self.peek_tag(1) != Some(TokenTag::LParen) { return false; }
+        let mut depth = 0;
+        let mut offset = 1;
+        while let Some(tag) = self.peek_tag(offset) {
+            match tag {
+                TokenTag::LParen => depth += 1,
+                TokenTag::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        offset += 1;
+                        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+                        return self.peek_tag(offset) == Some(TokenTag::LBrace);
+                    }
+                }
+                TokenTag::Eof => return false,
+                _ => {}
+            }
+            offset += 1;
+        }
+        false
+    }
+
+    pub(super) fn parse_context_scope_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>, value_body: bool) -> Option<ArenaOnlyExpr> {
+        let start = self.current_start();
+        let kind = if self.current_name()? == "cd" { crate::syntax::arena::ContextScopeKind::Cwd } else { crate::syntax::arena::ContextScopeKind::Env };
+        self.bump();
+        self.expect(TokenKindMatch::LParen, "expected `(` before scoped context input")?;
+        let input = self.parse_expr_id_arena_only(arena)?;
+        self.expect(TokenKindMatch::RParen, "expected `)` after scoped context input")?;
+        self.skip_separators();
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        Some(ArenaOnlyExpr { id: arena.push_context_scope_expr(kind, input, block, value_body, span), span, bare_ident: None })
+    }
+
     pub(super) fn parse_primary_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
         let span = self.current_span();
+        if self.current_tag() == TokenTag::Ident && self.lookahead_is_context_scope() {
+            return self.parse_context_scope_arena_only(arena, true);
+        }
         match (self.current_tag(), self.current_keyword()) {
             (TokenTag::Keyword, Some(Keyword::Null)) => {
                 self.bump();
@@ -628,6 +824,18 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 })
+            }
+            (TokenTag::Ident | TokenTag::ProcIdent, _) if self.lookahead_is_ctx_block() => {
+                let start = self.current_start();
+                self.bump();
+                let previous = self.condition_expr;
+                self.condition_expr = true;
+                let message = self.parse_precedence_arena_only(0, arena);
+                self.condition_expr = previous;
+                let message = message?;
+                let block = self.parse_block_arena_only(arena)?;
+                let span = self.span(start, self.previous_end());
+                Some(ArenaOnlyExpr { id: arena.push_error_context_expr(message.id, block, span), span, bare_ident: None })
             }
             (TokenTag::Ident, _) => {
                 let name = self
@@ -656,6 +864,12 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 })
+            }
+            (TokenTag::Keyword, Some(Keyword::Try)) => {
+                self.bump();
+                let block = self.parse_block_arena_only(arena)?;
+                let span = self.span(span.start(), self.previous_end());
+                Some(ArenaOnlyExpr { id: arena.push_capture_expr(block, span), span, bare_ident: None })
             }
             (TokenTag::Keyword, Some(Keyword::Retry)) => {
                 self.parse_retry_expr_arena_only(span.start(), arena)
@@ -726,6 +940,15 @@ impl<'a> Parser<'a> {
                 let value: Arc<str> = self.decoded_quoted_text(span, flags.raw_literal);
                 Some(ArenaOnlyExpr {
                     id: arena.push_str_expr(&value, span),
+                    span,
+                    bare_ident: None,
+                })
+            }
+            (TokenTag::Regex, _) => {
+                let span = self.bump();
+                let pattern = self.decoded_quoted_text(span, true);
+                Some(ArenaOnlyExpr {
+                    id: arena.push_regex_expr(&pattern, self.span_text(span), span),
                     span,
                     bare_ident: None,
                 })
@@ -815,13 +1038,30 @@ impl<'a> Parser<'a> {
                 })
             }
             (TokenTag::LBracket, _) => self.parse_list_arena_only(arena),
-            (TokenTag::LBrace, _) => self.parse_record_arena_only(arena),
+            (TokenTag::LBrace, _) if self.brace_starts_parameter_block() => {
+                let block = self.parse_block_arena_only(arena)?;
+                let span = self.span(span.start(), self.previous_end());
+                if arena.block_parameter_count(block) == 0 {
+                    self.diagnostics.push(Diagnostic::error("error fallback block requires an error parameter")
+                        .with_code("parse.fallback-block-params")
+                        .with_label(Label::primary(span, "use one name or `_` between the pipes")));
+                }
+                Some(ArenaOnlyExpr { id: arena.push_value_block_expr(block, span), span, bare_ident: None })
+            }
+            (TokenTag::LBrace, _) if self.brace_starts_record_value() => self.parse_record_arena_only(arena),
+            (TokenTag::LBrace, _) => self.parse_braced_value_expr_arena_only("lexical block", arena).map(|(expr, _)| expr),
             (TokenTag::LParen, _) => {
                 self.bump();
-                let expr = self.parse_precedence_arena_only(0, arena)?;
+                self.skip_newlines();
+                // A grouped expression owns its closing delimiter, including run argv.
+                self.parenthesized_expr_depth += 1;
+                let expr = self.parse_precedence_arena_only(0, arena);
+                self.parenthesized_expr_depth -= 1;
+                let expr = expr?;
                 self.skip_newlines();
                 self.expect(TokenKindMatch::RParen, "expected `)` after expression");
                 Some(ArenaOnlyExpr {
+                    span: self.span(span.start(), self.previous_end()),
                     bare_ident: None,
                     ..expr
                 })
@@ -891,7 +1131,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         self.bump();
-        self.skip_newlines();
+        self.skip_comp_layout();
         if self.at(TokenKindMatch::RBracket) || self.at(TokenKindMatch::Eof) {
             let end = self
                 .expect(TokenKindMatch::RBracket, "expected `]` after list")
@@ -904,37 +1144,41 @@ impl<'a> Parser<'a> {
                 bare_ident: None,
             });
         }
+        let first_start = self.current_start();
+        let first_splice = self.consume(TokenKindMatch::At).is_some();
+        self.skip_comp_layout();
         let first = self.parse_precedence_arena_only(0, arena)?;
-        self.skip_newlines();
-        if self.at_keyword(Keyword::For) {
+        self.skip_comp_layout();
+        if self.at_keyword(Keyword::For) && !first_splice {
             return self.parse_list_comp_arena_only(arena, start, first.id);
         }
-        arena.begin_expr_ids();
-        arena.push_expr_id_input(first.id);
+        arena.begin_list_elements();
+        arena.push_list_element_input(ArenaListElementInput {
+            value: first.id,
+            splice_span: first_splice.then(|| self.span(first_start, first.span.end())),
+        });
         while self.consume(TokenKindMatch::Comma).is_some() {
-            self.skip_newlines();
-            if self.at(TokenKindMatch::RBracket) || self.at(TokenKindMatch::Eof) {
-                break;
-            }
+            self.skip_comp_layout();
+            if self.at(TokenKindMatch::RBracket) || self.at(TokenKindMatch::Eof) { break; }
+            let item_start = self.current_start();
+            let splice = self.consume(TokenKindMatch::At).is_some();
+            self.skip_comp_layout();
             let Some(item) = self.parse_precedence_arena_only(0, arena) else {
-                arena.discard_expr_ids();
+                arena.discard_list_elements();
                 return None;
             };
-            arena.push_expr_id_input(item.id);
-            self.skip_newlines();
+            arena.push_list_element_input(ArenaListElementInput {
+                value: item.id,
+                splice_span: splice.then(|| self.span(item_start, item.span.end())),
+            });
+            self.skip_comp_layout();
         }
-        self.skip_newlines();
-        let end = self
-            .expect(TokenKindMatch::RBracket, "expected `]` after list")
-            .map(|span| span.end())
-            .unwrap_or_else(|| self.previous_end());
-        let items = arena.finish_expr_ids();
+        self.skip_comp_layout();
+        let end = self.expect(TokenKindMatch::RBracket, "expected `]` after list")
+            .map(|span| span.end()).unwrap_or_else(|| self.previous_end());
+        let items = arena.finish_list_elements();
         let span = self.span(start, end);
-        Some(ArenaOnlyExpr {
-            id: arena.push_list_expr_range(items, span),
-            span,
-            bare_ident: None,
-        })
+        Some(ArenaOnlyExpr { id: arena.push_list_elements(items, span), span, bare_ident: None })
     }
 
     fn parse_list_comp_arena_only(
@@ -943,20 +1187,7 @@ impl<'a> Parser<'a> {
         start: usize,
         expr: ExprId,
     ) -> Option<ArenaOnlyExpr> {
-        self.bump(); // consume `for`
-        let target = self.parse_binding_target_arena_only(
-            "expected binding target in list comprehension",
-            arena,
-        )?;
-        self.expect_keyword(Keyword::In, "expected `in` in list comprehension");
-        let iter = self.parse_expr_id_arena_only(arena)?;
-        self.skip_newlines();
-        let condition = if self.consume_keyword(Keyword::If).is_some() {
-            Some(self.parse_expr_id_arena_only(arena)?)
-        } else {
-            None
-        };
-        self.skip_newlines();
+        let qualifiers = self.parse_comp_qualifiers_arena_only(arena)?;
         let end = self
             .expect(
                 TokenKindMatch::RBracket,
@@ -966,7 +1197,7 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.previous_end());
         let span = self.span(start, end);
         Some(ArenaOnlyExpr {
-            id: arena.push_list_comp_expr(expr, target, iter, condition, span),
+            id: arena.push_list_comp_expr(expr, qualifiers, span),
             span,
             bare_ident: None,
         })
@@ -978,7 +1209,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         self.bump();
-        self.skip_newlines();
+        self.skip_comp_layout();
         arena.begin_record_fields();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
             let field_start = self.current_start();
@@ -997,52 +1228,69 @@ impl<'a> Parser<'a> {
                     expr: expr.id,
                     span: self.span(field_start, expr.span.end()),
                 });
-                self.skip_newlines();
+                self.skip_comp_layout();
                 if self.consume(TokenKindMatch::Comma).is_none() {
                     break;
                 }
-                self.skip_newlines();
+                self.skip_comp_layout();
                 continue;
             }
-            let name = match self.current_tag() {
-                TokenTag::Ident => self.current_name().expect("record key token has payload"),
-                TokenTag::Keyword => {
-                    let name = self
-                        .current_keyword()
-                        .expect("keyword record key token has payload")
-                        .as_str();
-                    self.diagnostics.push(
-                        Diagnostic::error(format!("record field `{name}` is reserved"))
-                            .with_code("parse.reserved-record-field")
-                            .with_label(Label::primary(
-                                self.current_span(),
-                                "use a non-reserved field name",
-                            )),
-                    );
-                    Name::intern(name)
+            if self.consume(TokenKindMatch::LBracket).is_some() {
+                self.skip_comp_layout();
+                let Some(key) = self.parse_precedence_arena_only(0, arena) else {
+                    arena.discard_record_fields(); return None;
+                };
+                self.skip_comp_layout();
+                self.expect(TokenKindMatch::RBracket, "expected `]` after computed map key");
+                self.expect(TokenKindMatch::Colon, "expected `:` after computed map key");
+                let Some(value) = self.parse_precedence_arena_only(0, arena) else {
+                    arena.discard_record_fields(); return None;
+                };
+                self.skip_comp_layout();
+                if self.at_keyword(Keyword::For) {
+                    arena.discard_record_fields();
+                    return self.parse_map_comp_tail_arena_only(arena, start, key.id, value.id);
                 }
-                TokenTag::String => {
-                    let flags = self
-                        .token_table
-                        .string_flags_at(self.index)
-                        .expect("record string key has flags payload");
-                    Name::intern(self.decoded_quoted_text(self.current_span(), flags.raw_literal))
+                arena.push_record_field_input(ArenaRecordFieldInput::Computed {
+                    key: key.id, value: value.id, span: self.span(field_start, value.span.end()),
+                });
+                self.skip_comp_layout();
+                if self.at_keyword(Keyword::For) {
+                    self.diagnostics.push(Diagnostic::error("computed entries are only valid in ordinary Map literals")
+                        .with_code("parse.computed-map-comprehension")
+                        .with_label(Label::primary(self.current_span(), "use an unbracketed key in a Map comprehension")));
+                    arena.discard_record_fields();
+                    return None;
                 }
-                _ => {
-                    self.diagnostic_here("expected record field", "parse.expected-record-field");
-                    break;
-                }
+                if self.consume(TokenKindMatch::Comma).is_none() { break; }
+                self.skip_comp_layout();
+                continue;
+            }
+            let label_tag = self.current_tag();
+            let label_span = self.current_span();
+            let name = if label_tag == TokenTag::String {
+                let flags = self.token_table.string_flags_at(self.index).expect("record string key has flags payload");
+                let name = Name::intern(self.decoded_quoted_text(label_span, flags.raw_literal));
+                self.bump();
+                name
+            } else {
+                let Some(name) = self.expect_label_name("expected record field label") else {
+                    arena.discard_record_fields();
+                    return None;
+                };
+                name
             };
-            self.bump();
             let mut key_id =
                 arena.push_ident_expr(name, self.span(field_start, self.previous_end()));
             let mut dotted_key = false;
+            let mut path = vec![name];
             while self.consume(TokenKindMatch::Dot).is_some() {
                 dotted_key = true;
-                let Some(field_name) = self.expect_ident("expected field name") else {
+                let Some(field_name) = self.expect_label_name("expected field name") else {
                     break;
                 };
                 let end = self.previous_end();
+                path.push(field_name);
                 key_id = arena.push_field_expr(key_id, field_name, self.span(field_start, end));
             }
             if self.consume(TokenKindMatch::Colon).is_some() {
@@ -1050,43 +1298,44 @@ impl<'a> Parser<'a> {
                     arena.discard_record_fields();
                     return None;
                 };
-                self.skip_newlines();
+                self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
                     arena.discard_record_fields();
                     return self.parse_map_comp_tail_arena_only(arena, start, key_id, value.id);
                 }
                 if dotted_key {
-                    self.diagnostic_here(
-                        "dotted record fields are only valid in map comprehensions",
-                        "parse.expected-map-comprehension",
-                    );
-                    break;
+                    arena.push_record_field_input(ArenaRecordFieldInput::Path {
+                        path, value: value.id, span: self.span(field_start, value.span.end()),
+                    });
+                } else {
+                    arena.push_record_field_input(ArenaRecordFieldInput::Named {
+                        name, value: value.id, span: self.span(field_start, value.span.end()),
+                    });
                 }
-                arena.push_record_field_input(ArenaRecordFieldInput::Named {
-                    name,
-                    value: value.id,
-                    span: self.span(field_start, value.span.end()),
-                });
             } else {
                 if dotted_key {
                     self.diagnostic_here(
-                        "dotted record fields are only valid in map comprehensions",
-                        "parse.expected-map-comprehension",
+                        "dotted update paths require `:` and a replacement value",
+                        "parse.expected-record-update-value",
                     );
                     break;
+                }
+                if !self.require_label_binding_name(label_tag, label_span) {
+                    arena.discard_record_fields();
+                    return None;
                 }
                 arena.push_record_field_input(ArenaRecordFieldInput::Shorthand {
                     name,
                     span: self.span(field_start, self.previous_end()),
                 });
             }
-            self.skip_newlines();
+            self.skip_comp_layout();
             if self.consume(TokenKindMatch::Comma).is_none() {
                 break;
             }
-            self.skip_newlines();
+            self.skip_comp_layout();
         }
-        self.skip_newlines();
+        self.skip_comp_layout();
         let end = self
             .expect(TokenKindMatch::RBrace, "expected `}` after record")
             .map(|span| span.end())
@@ -1107,20 +1356,7 @@ impl<'a> Parser<'a> {
         key: ExprId,
         value: ExprId,
     ) -> Option<ArenaOnlyExpr> {
-        self.expect_keyword(Keyword::For, "expected `for` in map comprehension");
-        let target = self.parse_binding_target_arena_only(
-            "expected binding target in map comprehension",
-            arena,
-        )?;
-        self.expect_keyword(Keyword::In, "expected `in` in map comprehension");
-        let iter = self.parse_expr_id_arena_only(arena)?;
-        self.skip_newlines();
-        let condition = if self.consume_keyword(Keyword::If).is_some() {
-            Some(self.parse_expr_id_arena_only(arena)?)
-        } else {
-            None
-        };
-        self.skip_newlines();
+        let qualifiers = self.parse_comp_qualifiers_arena_only(arena)?;
         let end = self
             .expect(
                 TokenKindMatch::RBrace,
@@ -1130,10 +1366,38 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.previous_end());
         let span = self.span(start, end);
         Some(ArenaOnlyExpr {
-            id: arena.push_map_comp_expr(key, value, target, iter, condition, span),
+            id: arena.push_map_comp_expr(key, value, qualifiers, span),
             span,
             bare_ident: None,
         })
+    }
+
+    fn skip_call_argument_trivia(&mut self) {
+        while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+            self.bump();
+        }
+    }
+
+    fn skip_comp_layout(&mut self) {
+        while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+    }
+
+    fn parse_comp_qualifiers_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>) -> Option<ArenaRange> {
+        let mut qualifiers = Vec::new();
+        loop {
+            self.skip_comp_layout();
+            let start = self.current_start();
+            if self.consume_keyword(Keyword::For).is_some() {
+                let target = self.parse_binding_target_arena_only("expected binding target in comprehension", arena)?;
+                self.expect_keyword(Keyword::In, "expected `in` in comprehension");
+                let iter = self.parse_expr_id_arena_only(arena)?;
+                qualifiers.push(ArenaCompQualifier::For { target, iter, span: self.span(start, self.previous_end()) });
+            } else if self.consume_keyword(Keyword::If).is_some() {
+                let condition = self.parse_expr_id_arena_only(arena)?;
+                qualifiers.push(ArenaCompQualifier::If { condition, span: self.span(start, self.previous_end()) });
+            } else { break; }
+        }
+        Some(arena.push_comp_qualifiers(qualifiers))
     }
 
     pub(super) fn parse_call_args_arena_only(
@@ -1141,10 +1405,19 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> crate::syntax::arena::ArenaRange {
         arena.begin_call_args();
-        self.skip_newlines();
+        self.skip_call_argument_trivia();
         while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
-            if self.consume(TokenKindMatch::At).is_some() {
-                let start = self.previous_start();
+            if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot)
+                && self.peek_tag(2) == Some(TokenTag::Dot) {
+                let start = self.current_start();
+                self.bump(); self.bump(); self.bump();
+                self.skip_call_argument_trivia();
+                let Some(value) = self.parse_precedence_arena_only(0, arena) else { break; };
+                arena.push_call_arg_input(ArenaCallArgInput::NamedSpread {
+                    value: value.id, span: self.span(start, value.span.end()),
+                });
+            } else if self.consume(TokenKindMatch::At).is_some() {
+                let start = self.previous_end().saturating_sub(1);
                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
                     break;
                 };
@@ -1153,19 +1426,33 @@ impl<'a> Parser<'a> {
                     span: self.span(start, value.span.end()),
                 });
             } else {
-                let named = self.current_tag() == TokenTag::Ident
+                let named = self.current_label_name().is_some()
                     && self.peek_tag(1) == Some(TokenTag::Colon);
                 if named {
                     let start = self.current_start();
-                    let name = self.expect_ident("expected named argument").unwrap();
+                    let name_span = self.current_span();
+                    let label_tag = self.current_tag();
+                    let name = self.expect_label_name("expected named argument").unwrap();
                     self.bump();
-                    let Some(value) = self.parse_precedence_arena_only(0, arena) else {
-                        break;
+                    let colon_end = self.previous_end();
+                    self.skip_call_argument_trivia();
+                    let (value, end) = if self.at(TokenKindMatch::Comma)
+                        || self.at(TokenKindMatch::RParen)
+                    {
+                        if !self.require_label_binding_name(label_tag, name_span) { break; }
+                        // The implied value is an ordinary lexical identifier; its
+                        // span stays on the written name for resolution diagnostics.
+                        (arena.push_ident_expr(name, name_span), colon_end)
+                    } else {
+                        let Some(value) = self.parse_precedence_arena_only(0, arena) else {
+                            break;
+                        };
+                        (value.id, self.previous_end())
                     };
                     arena.push_call_arg_input(ArenaCallArgInput::Named {
                         name,
-                        value: value.id,
-                        span: self.span(start, value.span.end()),
+                        value,
+                        span: self.span(start, end),
                     });
                 } else if let Some(expr) = self.parse_precedence_arena_only(0, arena) {
                     arena.push_call_arg_input(ArenaCallArgInput::Positional(expr.id));
@@ -1173,11 +1460,11 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            self.skip_newlines();
+            self.skip_call_argument_trivia();
             if self.consume(TokenKindMatch::Comma).is_none() {
                 break;
             }
-            self.skip_newlines();
+            self.skip_call_argument_trivia();
         }
         arena.finish_call_args()
     }
@@ -1191,6 +1478,11 @@ impl<'a> Parser<'a> {
             let expr_id =
                 self.with_pipe_boundary(|parser| parser.parse_expr_id_arena_only(arena))?;
             let span = self.span(start, self.previous_end());
+            if let Err(hole_span) = arena.value_pipeline_hole(expr_id) {
+                self.diagnostics.push(Diagnostic::new(super::Severity::Error, "a value pipeline call requires exactly one whole argument placeholder")
+                    .with_code("parse.pipeline-hole")
+                    .with_label(Label::primary(hole_span, "place `_` as one positional argument or named argument value of the immediate call")));
+            }
             return Some((ArenaPipeStageKind::Expr(expr_id), span));
         }
         let start = self.current_start();
@@ -1216,8 +1508,7 @@ impl<'a> Parser<'a> {
             self.diagnostic_previous("unknown stream stage", "parse.unknown-stream-stage");
             StreamStageKind::Map
         });
-        let options = self.parse_stream_stage_options_arena_only(arena)?;
-        let mut args = ArenaRange::default();
+        let mut args = self.parse_legacy_stream_stage_flags_arena_only(arena)?;
         if self.consume(TokenKindMatch::LParen).is_some() {
             args = self.parse_call_args_arena_only(arena);
             self.expect(TokenKindMatch::RParen, "expected `)` after stage arguments");
@@ -1231,7 +1522,7 @@ impl<'a> Parser<'a> {
         };
         let end = self.previous_end();
         let span = self.span(start, end);
-        Some(arena.build_stream_stage(kind, options, block, args, span))
+        Some(arena.build_stream_stage(kind, block, args, span))
     }
 
     fn parse_inline_stream_block_arena_only(
@@ -1246,11 +1537,14 @@ impl<'a> Parser<'a> {
         Some(arena.finish_block(&[], span))
     }
 
-    fn parse_stream_stage_options_arena_only(
+    fn parse_legacy_stream_stage_flags_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaRange> {
-        arena.begin_stream_stage_options();
+        arena.begin_call_args();
+        let migration_start = self.current_start();
+        let mut named_arguments = Vec::new();
+        let mut migration_end = migration_start;
         while self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus) {
             let start = self.current_start();
             self.bump();
@@ -1258,34 +1552,57 @@ impl<'a> Parser<'a> {
             let Some(name) = self.expect_stream_option_name() else {
                 break;
             };
+            let mut value_text = "true".to_string();
             let value = if self.consume(TokenKindMatch::Equals).is_some() {
                 if self.consume(TokenKindMatch::DollarLBrace).is_some() {
+                    let value_start = self.current_start();
                     let Some(value) = self.parse_expr_id_arena_only(arena) else {
-                        arena.discard_stream_stage_options();
+                        let _ = arena.finish_call_args();
                         return None;
                     };
+                    value_text = self.source[value_start..self.previous_end()].to_string();
                     self.expect(
                         TokenKindMatch::RBrace,
                         "expected `}` after option interpolation",
                     );
                     Some(value)
                 } else {
-                    let Some(value) = self.parse_stream_option_expr_arena_only(arena) else {
-                        arena.discard_stream_stage_options();
+                    let value_start = self.current_start();
+                    let Some(value) = self.parse_legacy_stream_option_expr_arena_only(arena) else {
+                        let _ = arena.finish_call_args();
                         return None;
                     };
+                    value_text = self.source[value_start..self.previous_end()].to_string();
                     Some(value)
                 }
             } else {
                 None
             };
             let end = self.previous_end();
-            arena.push_stream_stage_option_input(name, value, self.span(start, end));
+            let value = value.unwrap_or_else(|| arena.push_bool_expr(true, self.span(start, end)));
+            arena.push_call_arg_input(ArenaCallArgInput::Named {
+                name: Name::intern(name.as_str().replace('-', "_").as_str()),
+                value,
+                span: self.span(start, end),
+            });
+            named_arguments.push(format!("{}: {value_text}", name.as_str().replace('-', "_")));
+            migration_end = end;
         }
-        Some(arena.finish_stream_stage_options())
+        if !named_arguments.is_empty() {
+            let span = self.span(migration_start, migration_end);
+            let mut diagnostic = Diagnostic::error("structured stream options use ordinary named arguments")
+                .with_code("parse.stream-option-migration")
+                .with_label(Label::primary(span, "replace stage flags with named arguments"));
+            if !self.source[span.range()].contains('#') && !self.at(TokenKindMatch::LParen) {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use named stage arguments", format!("({})", named_arguments.join(", "))));
+            }
+            self.diagnostics.push(diagnostic);
+        }
+        Some(arena.finish_call_args())
     }
 
-    fn parse_stream_option_expr_arena_only(
+    // Only migration recovery reads expressions outside an ordinary argument list.
+    fn parse_legacy_stream_option_expr_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ExprId> {
@@ -1481,6 +1798,20 @@ impl<'a> Parser<'a> {
             arena.discard_expr_ids();
             return None;
         }
+        let pattern = if self.current_name().is_some_and(|name| name == "on") {
+            self.bump();
+            let parsed = (|| {
+                if !self.at(TokenKindMatch::LParen) {
+                    self.expect(TokenKindMatch::LParen, "expected `(` after retry `on`")?;
+                }
+                self.parse_pattern_test_arena_only(arena)
+            })();
+            let Some((pattern, _)) = parsed else {
+                arena.discard_expr_ids();
+                return None;
+            };
+            Some(pattern)
+        } else { None };
         let Some(block_id) = self.parse_block_arena_only(arena) else {
             arena.discard_expr_ids();
             return None;
@@ -1488,7 +1819,7 @@ impl<'a> Parser<'a> {
         let span = self.span(start, self.previous_end());
         let delays = arena.finish_expr_ids();
         Some(ArenaOnlyExpr {
-            id: arena.push_retry_expr(delays, block_id, span),
+            id: arena.push_retry_expr(delays, pattern, block_id, span),
             span,
             bare_ident: None,
         })

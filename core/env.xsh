@@ -60,7 +60,7 @@ proc main(...raw: List[Str]) [process, env, error] {
 
   while index < argv.len() and is_assignment(argv[index]) {
     let parts = argv[index].split("=", maxsplit: 1)
-    let value = parts.get(1, "")
+    let value = (parts.get(1) ?? "")
 
     match parts[0] {
       "PATH" => path_update = value

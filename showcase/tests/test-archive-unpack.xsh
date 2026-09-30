@@ -1,4 +1,4 @@
-proc test_archive_unpack(ctx: TestContext) [fs, process, error] {
+test test_archive_unpack [fs, process, error] { |ctx|
   let src = test.temp_dir(ctx, name: "arc-src")?
   fp"${src}/a.txt".write("alpha")?
   fp"${src}/b.txt".write("beta")?
@@ -13,7 +13,7 @@ proc test_archive_unpack(ctx: TestContext) [fs, process, error] {
   "usage:" in usage
 }
 
-proc test_archive_unpack_failure_leaves_existing_destination_untouched(ctx: TestContext) [fs, process, error] {
+test test_archive_unpack_failure_leaves_existing_destination_untouched [fs, process, error] { |ctx|
   let src = test.temp_dir(ctx, name: "partial-src")?
   fp"${src}/a.txt".write("first")?
   fp"${src}/b.txt".write("second")?
@@ -29,7 +29,7 @@ proc test_archive_unpack_failure_leaves_existing_destination_untouched(ctx: Test
   fp"${out}/b.txt/marker".read_text()? == "untouched"
 }
 
-proc test_archive_unpack_cleans_partial_staging_after_unsafe_member(ctx: TestContext) [fs, process, error] {
+test test_archive_unpack_cleans_partial_staging_after_unsafe_member [fs, process, error] { |ctx|
   let src = test.temp_dir(ctx, name: "unsafe-src")?
   fp"${src}/a.txt".write("first")?
   fs.symlink(../outside, fp"${src}/bad")?
@@ -44,7 +44,7 @@ proc test_archive_unpack_cleans_partial_staging_after_unsafe_member(ctx: TestCon
   test.ok(! pending.exists()?, "failed extraction must clean its staging directory")?
 }
 
-proc test_archive_unpack_compress_and_decompress_publish_files(ctx: TestContext) [fs, process, error] {
+test test_archive_unpack_compress_and_decompress_publish_files [fs, process, error] { |ctx|
   let source = test.temp_file(ctx, name: "compress.txt", contents: b"round trip")?
   run.text "xsh" "showcase/archive-unpack.xsh" -- --compress $source --dry-run=false ?
   let compressed = fp"${source}.gz"
@@ -55,7 +55,7 @@ proc test_archive_unpack_compress_and_decompress_publish_files(ctx: TestContext)
   ! fp"${restored.parent}/.${restored.name()}.xsh-stage".exists()?
 }
 
-proc test_archive_unpack_cancellation_during_compression_cleans_staging(ctx: TestContext) [fs, process, time, error] {
+test test_archive_unpack_cancellation_during_compression_cleans_staging [fs, process, time, error] { |ctx|
   let source = test.temp_path(ctx, name: "compress-fifo")
   fs.mkfifo(source, 0o600)?
   let dest = fp"${source}.gz"

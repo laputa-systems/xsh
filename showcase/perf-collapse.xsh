@@ -112,7 +112,7 @@ pure parse_options(argv: List[Str]) -> Result[Options] {
       },
     },
   )?
-  let input = parsed.operands.get(0, "")
+  let input = (parsed.operands.get(0) ?? "")
 
   if parsed.operands.len() != 1 {
     return Err(ScriptError.Failed("usage", usage()))
@@ -141,7 +141,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
         let key = stack_key(current_stack, opts.leaf_first)?
 
         if include_re.matches(key) and ! exclude_re.matches(key) {
-          counts[key] = counts.get(key, 0) + 1
+          counts[key] = (counts.get(key) ?? 0) + 1
         }
       }
 
@@ -164,7 +164,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
       let key = stack_key(current_stack, opts.leaf_first)?
 
       if include_re.matches(key) and ! exclude_re.matches(key) {
-        counts[key] = counts.get(key, 0) + 1
+        counts[key] = (counts.get(key) ?? 0) + 1
       }
     }
 
@@ -176,7 +176,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
     let key = stack_key(current_stack, opts.leaf_first)?
 
     if include_re.matches(key) and ! exclude_re.matches(key) {
-      counts[key] = counts.get(key, 0) + 1
+      counts[key] = (counts.get(key) ?? 0) + 1
     }
   }
 
@@ -184,8 +184,8 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
 }
 
 proc print_folded(counts: Map[Int], top: Int) [error] {
-  let rows = [{stack: key, count: counts.get(key, 0)} for key in counts.keys()]
-  let sorted = rows |> sort-by --desc .count
+  let rows = [{stack: key, count: (counts.get(key) ?? 0)} for key in counts.keys()]
+  let sorted = rows |> sort-by(desc: true) .count
   let limit = if top <= 0 or top > sorted.len() { sorted.len() } else { top }
 
   for row in sorted |> take(limit) {

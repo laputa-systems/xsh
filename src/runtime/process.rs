@@ -18,6 +18,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const CAPTURE_LIMIT: usize = 16 * 1024 * 1024;
@@ -314,6 +315,72 @@ impl From<ProcessSegmentStatusKind> for ProcessStatusKind {
     }
 }
 
+/// Validated ordinary process exit codes. Signals and execution failures never
+/// enter this set, even when their shell-style status number would match.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AcceptedExitCodes([u64; 4]);
+
+impl AcceptedExitCodes {
+    pub fn new(codes: &[i64]) -> Result<Self, RunError> {
+        if codes.is_empty() {
+            return Err(RunError::new("accept-policy", "accepted exit codes must be a nonempty List[Int]"));
+        }
+        let mut bits = [0u64; 4];
+        for code in codes {
+            let code = u8::try_from(*code).map_err(|_| RunError::new("accept-policy", "accepted exit codes must be in 0..255"))?;
+            let slot = &mut bits[usize::from(code / 64)];
+            let mask = 1u64 << (code % 64);
+            if *slot & mask != 0 {
+                return Err(RunError::new("accept-policy", "accepted exit codes must not contain duplicates"));
+            }
+            *slot |= mask;
+        }
+        Ok(Self(bits))
+    }
+
+    fn accepts(self, segment: &ProcessSegmentStatus) -> bool {
+        segment.kind == ProcessSegmentStatusKind::Exit && segment.code.and_then(|code| u8::try_from(code).ok())
+            .is_some_and(|code| self.0[usize::from(code / 64)] & (1u64 << (code % 64)) != 0)
+    }
+}
+
+pub(crate) fn rejected_segment<'a>(
+    status: &'a ProcessStatus,
+    policies: &[Option<AcceptedExitCodes>],
+    require_zero: bool,
+) -> Option<&'a ProcessSegmentStatus> {
+    let require_zero = require_zero || policies.len() > 1 && policies.iter().any(Option::is_some);
+    status.segments.iter().find(|segment| {
+        policies.get(segment.index).copied().flatten()
+            .map_or(require_zero && !segment.success, |policy| !policy.accepts(segment))
+    })
+}
+
+pub(crate) fn completion_error(
+    status: &ProcessStatus,
+    policies: &[Option<AcceptedExitCodes>],
+    require_zero: bool,
+) -> Option<RunError> {
+    let segment = rejected_segment(status, policies, require_zero)?;
+    if policies.iter().all(Option::is_none) {
+        return Some(RunError::from_status(status.clone()));
+    }
+    if segment.kind == ProcessSegmentStatusKind::Exit
+        && policies.get(segment.index).is_some_and(Option::is_some)
+    {
+        return Some(RunError::new(
+            if status.segments.len() > 1 { "pipeline-failure" } else { "unexpected-exit" },
+            format!("pipeline segment {} `{}` exited with unaccepted status {}", segment.index,
+                String::from_utf8_lossy(&segment.target), segment.code.unwrap_or_default()),
+        ).with_status(status.clone()));
+    }
+    let mut error = RunError::from_status(ProcessStatus::from_segments(vec![segment.clone()]));
+    if status.segments.len() > 1 && segment.error_kind.is_none() {
+        error.kind = "pipeline-failure".to_string();
+    }
+    Some(error.with_status(status.clone()))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessInvocation {
     pub target: Vec<u8>,
@@ -324,10 +391,12 @@ pub struct ProcessInvocation {
     pub redirections: Vec<ProcessRedirection>,
     pub timeout: Option<Duration>,
     pub cpu_max: Option<i64>,
+    pub accepted_exit_codes: Option<AcceptedExitCodes>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProcessRedirection {
+    Input { bytes: Arc<[u8]> },
     File {
         stream: RedirectionStream,
         mode: FileRedirectionMode,
@@ -453,6 +522,52 @@ impl SpawnManagedOptions {
     }
 }
 
+// The process owner retains one immutable payload and advances a bounded write
+// at polling checkpoints, so capture reads and cancellation continue to run.
+struct InputDelivery {
+    writer: Option<std::process::ChildStdin>,
+    bytes: Arc<[u8]>,
+    offset: usize,
+}
+
+impl InputDelivery {
+    fn start(child: &mut std::process::Child, invocation: &ProcessInvocation, group: ProcessGroup) -> Result<Option<Self>, RunError> {
+        let Some(bytes) = invocation.redirections.iter().find_map(|item| match item {
+            ProcessRedirection::Input { bytes } => Some(bytes.clone()), _ => None,
+        }) else { return Ok(None); };
+        let Some(writer) = child.stdin.take() else {
+            group.kill(); let _ = child.kill(); let _ = child.wait();
+            return Err(RunError::new("io", "missing Bytes input pipe"));
+        };
+        if let Err(error) = set_nonblocking(writer.as_fd()) {
+            group.kill(); let _ = child.kill(); let _ = child.wait(); return Err(error);
+        }
+        Ok(Some(Self { writer: Some(writer), bytes, offset: 0 }))
+    }
+
+    fn pump(&mut self) -> Result<(), RunError> {
+        let Some(writer) = self.writer.as_ref() else { return Ok(()); };
+        if self.offset == self.bytes.len() { self.writer = None; return Ok(()); }
+        let end = self.offset.saturating_add(65536).min(self.bytes.len());
+        match rio::write(writer, &self.bytes[self.offset..end]) {
+            Ok(0) => return Err(RunError::new("io", "stdin write made no progress")),
+            Ok(count) => { self.offset += count; if self.offset == self.bytes.len() { self.writer = None; } }
+            Err(rustix::io::Errno::PIPE) => self.writer = None,
+            Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => {}
+            Err(error) => return Err(RunError::new("io", error.to_string())),
+        }
+        Ok(())
+    }
+}
+
+fn feed_input(input: &mut Option<InputDelivery>) -> Result<(), RunError> {
+    if let Some(delivery) = input.as_mut() {
+        delivery.pump()?;
+        if delivery.writer.is_none() { *input = None; }
+    }
+    Ok(())
+}
+
 #[allow(dead_code)]
 pub struct ManagedChild {
     child: std::process::Child,
@@ -466,9 +581,16 @@ pub struct ManagedChild {
     pub detached: bool,
     pub consumed: bool,
     cgroup: CgroupScope,
+    input: Option<InputDelivery>,
+    input_error: Option<RunError>,
+    accepted_exit_codes: Option<AcceptedExitCodes>,
 }
 
 impl ManagedChild {
+    pub(crate) fn completion_error(&self, status: &ProcessStatus) -> Option<RunError> {
+        completion_error(status, &[self.accepted_exit_codes], false)
+    }
+
     pub fn process_group(&self) -> ProcessGroup {
         ProcessGroup { pgid: self.pgid }
     }
@@ -547,6 +669,9 @@ pub fn run_pipeline_inherit_with_policy(
         return run_inherit_with_policy(&invocations[0], policy);
     }
 
+    if invocations.iter().skip(1).any(|invocation| invocation.redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. }))) {
+        return Err(RunError::new("redirection", "Bytes input is only valid on the first byte pipeline segment"));
+    }
     let mut children: Vec<StartedChild> = Vec::new();
     let mut previous_stdout: Option<ChildStdout> = None;
     let mut segment_statuses: Vec<Option<ProcessSegmentStatus>> = vec![None; invocations.len()];
@@ -616,7 +741,12 @@ pub fn run_pipeline_inherit_with_policy(
                 } else {
                     child.stdout.take()
                 };
+                let input = match InputDelivery::start(&mut child, invocation, group) {
+                    Ok(input) => input,
+                    Err(error) => { group.kill(); for started in &mut children { let _ = started.child.wait(); } return Err(error); }
+                };
                 children.push(StartedChild {
+                    input,
                     index,
                     target: invocation.target.clone(),
                     pid,
@@ -724,6 +854,7 @@ fn run_capture_stdio(
         return Err(map_cgroup_error(error));
     }
     let _foreground = ForegroundTerminal::take(group);
+    let mut input = InputDelivery::start(&mut child, invocation, group)?;
     let stdout = child.stdout.take();
     let stderr = if capture_stderr {
         child.stderr.take()
@@ -746,6 +877,9 @@ fn run_capture_stdio(
     let mut buf = [0u8; 8192];
 
     let status = loop {
+        if let Err(error) = feed_input(&mut input) {
+            group.kill(); let _ = child.wait(); return Err(error);
+        }
         if let Some(stdout_fd) = stdout_fd {
             drain_capture_fd(
                 stdout_fd,
@@ -801,6 +935,9 @@ fn run_capture_stdio(
         }
 
         let mut pollfds = Vec::new();
+        if let Some(writer) = input.as_ref().and_then(|input| input.writer.as_ref()) {
+            pollfds.push(revent::PollFd::new(writer, revent::PollFlags::OUT));
+        }
         if let Some(stdout_fd) = stdout_fd {
             let stdout = unsafe { BorrowedFd::borrow_raw(stdout_fd) };
             pollfds.push(revent::PollFd::from_borrowed_fd(
@@ -833,6 +970,7 @@ fn run_capture_stdio(
         return Err(cancellation.error(Some(status)));
     }
     policy.process_group_finished(group);
+    if let Some(error) = completion_error(&status, &[invocation.accepted_exit_codes], false) { return Err(error); }
     Ok(ProcessOutput {
         end: ProcessEnd {
             pid,
@@ -909,7 +1047,8 @@ pub fn spawn_managed(
         let _ = child.wait();
         return Err(map_cgroup_error(error));
     }
-    Ok(ManagedChild {
+    let input = InputDelivery::start(&mut child, invocation, group)?;
+    let mut managed = ManagedChild {
         child,
         pid,
         pgid: group.pgid,
@@ -921,7 +1060,114 @@ pub fn spawn_managed(
         detached: options.spawn.detach || options.spawn.new_session,
         consumed: false,
         cgroup,
-    })
+        input,
+        input_error: None,
+        accepted_exit_codes: invocation.accepted_exit_codes,
+    };
+    drive_managed_input(&mut managed)?;
+    Ok(managed)
+}
+
+pub(crate) fn drive_managed_input(child: &mut ManagedChild) -> Result<(), RunError> {
+    if let Some(error) = &child.input_error { return Err(error.clone()); }
+    if let Err(error) = feed_input(&mut child.input) {
+        child.process_group().kill(); let _ = child.child.wait(); child.consumed = true;
+        child.input = None; child.input_error = Some(error.clone()); return Err(error);
+    }
+    Ok(())
+}
+
+/// An owned stdout cursor keeps input delivery, cancellation, and reaping with
+/// the same child while consumers suspend between pulls.
+pub(crate) struct ProcessStream {
+    child: ManagedChild,
+    stdout: Option<std::process::ChildStdout>,
+    status: Option<ProcessStatus>,
+    cancellation: Option<Cancellation>,
+    captured: usize,
+    _foreground: Option<ForegroundTerminal>,
+}
+
+impl ProcessStream {
+    pub(crate) fn start(invocation: &ProcessInvocation) -> Result<Self, RunError> {
+        let mut options = SpawnManagedOptions::inherited_process_group();
+        options.stdout = ManagedStdio::Piped;
+        let mut child = spawn_managed(invocation, options)?;
+        let stdout = child.child.stdout.take();
+        if let Some(stdout) = &stdout {
+            if let Err(error) = set_nonblocking(stdout.as_fd()) {
+                child.process_group().kill(); let _ = child.child.wait(); child.consumed = true;
+                return Err(error);
+            }
+        }
+        let foreground = ForegroundTerminal::take(child.process_group());
+        Ok(Self { child, stdout, status: None, cancellation: None, captured: 0, _foreground: foreground })
+    }
+
+    pub(crate) fn next(&mut self, policy: &mut dyn CancellationPolicy) -> Result<Option<Vec<u8>>, RunError> {
+        loop {
+            drive_managed_input(&mut self.child)?;
+            if let Some(stdout) = &self.stdout {
+                let mut bytes = vec![0; 8192];
+                match rio::read(stdout.as_fd(), &mut bytes) {
+                    Ok(0) => self.stdout = None,
+                    Ok(count) => {
+                        self.captured += count;
+                        if self.captured > CAPTURE_LIMIT { return Err(RunError::new("capture-limit", "streamed stdout exceeded the capture limit")); }
+                        bytes.truncate(count); return Ok(Some(bytes));
+                    }
+                    Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => {},
+                    Err(error) => return Err(RunError::new("io", error.to_string())),
+                }
+            }
+            if self.status.is_none() {
+                match poll_managed(&mut self.child)? {
+                    ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) => {
+                        self.child.consumed = true; self.status = Some(status);
+                        policy.process_group_finished(self.child.process_group());
+                    }
+                    _ => {},
+                }
+            }
+            if self.status.is_some() && self.stdout.is_none() {
+                let status = self.status.as_ref().expect("completed stream child has status");
+                if let Some(cancellation) = &self.cancellation { return Err(cancellation.error(Some(status.clone()))); }
+                if let Some(error) = completion_error(status, &[self.child.accepted_exit_codes], false) { return Err(error); }
+                return Ok(None);
+            }
+            if timeout_elapsed(self.child.deadline) {
+                self.child.process_group().kill(); let status = self.child.child.wait().map_err(map_wait_error)?;
+                self.child.consumed = true;
+                let status = process_status(status, 0, &self.child.target, Some(self.child.pid)); self.status = Some(status.clone());
+                return Err(RunError::new("timeout", "process timed out").with_status(status));
+            }
+            check_cancellation(self.child.process_group(), &mut self.cancellation, policy);
+            std::thread::sleep(WAIT_POLL);
+        }
+    }
+
+    pub(crate) fn process_group(&self) -> ProcessGroup { self.child.process_group() }
+
+    pub(crate) fn end(&self, error: Option<RunError>) -> ProcessEnd {
+        ProcessEnd { pid: Some(self.child.pid), status: self.status.clone().or_else(|| error.as_ref().and_then(|error| error.status.as_deref().cloned())), error }
+    }
+
+    pub(crate) fn cancel(&mut self) {
+        // Descendants can retain stdout after the direct child has been reaped.
+        // Closing that cursor must still terminate its owned process group.
+        if self.stdout.is_some() || !self.child.consumed {
+            self.child.process_group().kill();
+        }
+        if !self.child.consumed {
+            if let Ok(status) = self.child.child.wait() { self.status = Some(process_status(status, 0, &self.child.target, Some(self.child.pid))); }
+            self.child.consumed = true;
+        }
+        self.stdout = None; self.child.input = None;
+    }
+}
+
+impl Drop for ProcessStream {
+    fn drop(&mut self) { self.cancel(); }
 }
 
 #[allow(dead_code)]
@@ -947,6 +1193,12 @@ pub fn wait_managed(
                 ) {
                     policy.process_group_finished(child.process_group());
                     child.consumed = true;
+                }
+                if cancellation.is_none()
+                    && let ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) = &outcome
+                    && let Some(error) = child.completion_error(status)
+                {
+                    return Err(error);
                 }
                 return Ok((outcome, cancellation));
             }
@@ -1005,6 +1257,7 @@ pub fn release_to_reaper(mut child: ManagedChild) {
 }
 
 struct StartedChild {
+    input: Option<InputDelivery>,
     index: usize,
     target: Vec<u8>,
     pid: Option<u32>,
@@ -1121,7 +1374,13 @@ fn wait_children(
             if segment_statuses[started.index].is_some() {
                 continue;
             }
+            if let Err(error) = feed_input(&mut started.input) {
+                group.kill();
+                for started in children.iter_mut() { let _ = started.child.wait(); }
+                return Err(error);
+            }
             if let Some(status) = started.child.try_wait().map_err(map_wait_error)? {
+                started.input = None;
                 segment_statuses[started.index] = Some(process_segment_status(
                     status,
                     started.index,
@@ -1159,11 +1418,13 @@ fn wait_children(
 }
 
 fn waitpid_managed(child: &mut ManagedChild, mode: WaitMode) -> Result<ChildWaitOutcome, RunError> {
+    drive_managed_input(child)?;
     if child.consumed {
         return Ok(ChildWaitOutcome::StillRunning);
     }
     let flags = match mode {
         WaitMode::Script => rprocess::WaitOptions::NOHANG,
+        WaitMode::InteractiveForeground if child.input.is_some() => rprocess::WaitOptions::NOHANG | rprocess::WaitOptions::UNTRACED,
         WaitMode::InteractiveForeground => rprocess::WaitOptions::UNTRACED,
         WaitMode::Nonblocking => rprocess::WaitOptions::NOHANG | rprocess::WaitOptions::UNTRACED,
     };
@@ -1182,6 +1443,7 @@ fn waitpid_managed(child: &mut ManagedChild, mode: WaitMode) -> Result<ChildWait
                     ChildWaitOutcome::Exited(_) | ChildWaitOutcome::Signaled(_)
                 ) {
                     child.consumed = true;
+                    child.input = None;
                 }
                 return Ok(outcome);
             }
@@ -1199,8 +1461,9 @@ fn waitpid_managed(child: &mut ManagedChild, mode: WaitMode) -> Result<ChildWait
 
 fn waitpid_blocking_until_exit(child: &mut ManagedChild) -> Result<ChildWaitOutcome, RunError> {
     loop {
-        match waitpid_managed(child, WaitMode::InteractiveForeground)? {
-            ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning => continue,
+        let mode = if child.input.is_some() { WaitMode::Script } else { WaitMode::InteractiveForeground };
+        match waitpid_managed(child, mode)? {
+            ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning => { std::thread::sleep(WAIT_POLL); continue; },
             outcome => return Ok(outcome),
         }
     }
@@ -1478,6 +1741,9 @@ fn command_with_managed_stdio(
     configure_managed_child(&mut command, options);
     if options.apply_redirections {
         apply_redirections(&mut command, &invocation.redirections)?;
+    } else if invocation.redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. })) {
+        validate_input_sources(&invocation.redirections)?;
+        command.stdin(Stdio::piped());
     }
     Ok(command)
 }
@@ -1681,10 +1947,21 @@ fn exec_failure_segment(index: usize, target: &[u8], error: RunError) -> Process
     }
 }
 
+fn validate_input_sources(redirections: &[ProcessRedirection]) -> Result<(), RunError> {
+    if redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. }))
+        && redirections.iter().filter(|item| matches!(item, ProcessRedirection::Input { .. }
+            | ProcessRedirection::File { stream: RedirectionStream::Stdin, .. }
+            | ProcessRedirection::Dup { stream: RedirectionStream::Stdin, .. }
+            | ProcessRedirection::ChildDup { stream: RedirectionStream::Stdin, .. })).count() != 1
+    { return Err(RunError::new("redirection", "Bytes input cannot compete with another stdin source")); }
+    Ok(())
+}
+
 fn apply_redirections(
     command: &mut Command,
     redirections: &[ProcessRedirection],
 ) -> Result<(), RunError> {
+    validate_input_sources(redirections)?;
     // A `ChildDup` copies whatever its source descriptor is at that point in
     // the list, so it and everything after it must run in the child, in order,
     // on top of the streams the parent has already set up. Files are opened
@@ -1697,6 +1974,7 @@ fn apply_redirections(
     apply_parent_redirections(command, parent_side)?;
     for redirection in child_side {
         match redirection {
+            ProcessRedirection::Input { .. } => { command.stdin(Stdio::piped()); }
             ProcessRedirection::File { stream, mode, path } => {
                 let file = file_redirection_file(path, *mode)?;
                 child_dup_owned(command, *stream, rustix::fd::OwnedFd::from(file));
@@ -1753,6 +2031,7 @@ fn apply_parent_redirections(
 
         let redirection = &redirections[index];
         match redirection {
+            ProcessRedirection::Input { .. } => { command.stdin(Stdio::piped()); }
             ProcessRedirection::File { stream, mode, path } => {
                 let stdio = file_redirection(path, *mode)?;
                 apply_file_stdio(command, *stream, stdio);
@@ -1930,7 +2209,7 @@ fn map_cgroup_error(error: CgroupError) -> RunError {
 fn setup_error_is_hard(error: &RunError) -> bool {
     matches!(
         error.kind.as_str(),
-        "redirection" | "cgroup" | "unsupported-platform"
+        "redirection" | "cgroup" | "unsupported-platform" | "io"
     )
 }
 
@@ -2015,6 +2294,7 @@ mod tests {
             }],
             timeout: None,
             cpu_max: None,
+            accepted_exit_codes: None,
         };
 
         let output = run_capture_with_stderr(&invocation).expect("capture redirected process");
@@ -2054,6 +2334,7 @@ mod tests {
                 redirections,
                 timeout: None,
                 cpu_max: None,
+            accepted_exit_codes: None,
             };
             run_capture_with_stderr(&invocation).expect("capture process")
         };
@@ -2086,6 +2367,7 @@ mod tests {
             redirections: Vec::new(),
             timeout: None,
             cpu_max: None,
+            accepted_exit_codes: None,
         };
         let options = SpawnManagedOptions {
             stdin: ManagedStdio::Null,
@@ -2108,4 +2390,21 @@ mod tests {
             .expect("cancellation status");
         assert!(!status.success);
     }
+    #[test]
+    fn accepted_exit_codes_validate_bounds_and_keep_actual_status() {
+        for invalid in [vec![], vec![-1], vec![256], vec![0, 0]] {
+            assert!(AcceptedExitCodes::new(&invalid).is_err());
+        }
+        let accepted = AcceptedExitCodes::new(&[0, 1, 255]).unwrap();
+        let status = ProcessStatus::exited(1);
+        assert!(completion_error(&status, &[Some(accepted)], true).is_none());
+        assert!(!status.success);
+        assert_eq!(status.code, Some(1));
+        let rejected_zero = completion_error(&ProcessStatus::exited(0), &[Some(AcceptedExitCodes::new(&[1]).unwrap())], false).unwrap();
+        assert_eq!(rejected_zero.kind, "unexpected-exit");
+        let signaled = ProcessStatus::signaled(libc::SIGTERM);
+        let set = AcceptedExitCodes::new(&[0, 128 + i64::from(libc::SIGTERM)]).unwrap();
+        assert_eq!(completion_error(&signaled, &[Some(set)], false).unwrap().kind, "signal");
+    }
+
 }

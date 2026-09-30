@@ -1,4 +1,4 @@
-proc test_dns_module_with_mocks(ctx: TestContext) [net, error] {
+test test_dns_module_with_mocks [net, error] { |ctx|
   test.mock(
     ctx,
     "dns.lookup",
@@ -21,14 +21,14 @@ proc test_dns_module_with_mocks(ctx: TestContext) [net, error] {
   test.eq(test.calls(ctx, "dns.reverse")[0].args.addr, "127.0.0.1")?
 }
 
-proc test_dns_module_rejects_invalid_arguments() [net, error] {
+test test_dns_module_rejects_invalid_arguments [net, error] {
   test.error_kind(dns.lookup("", "A"), "dns-name")?
   test.error_kind(dns.lookup("example.test", "TXT"), "dns-record")?
   test.error_kind(dns.resolve_host("127.0.0.1", "bogus"), "dns-family")?
   test.error_kind(dns.reverse("not-an-ip-address"), "dns-address")?
 }
 
-proc test_dns_explicit_server_transport() [net, env, error] {
+test test_dns_explicit_server_transport [net, env, error] {
   let server = env.get_or("XSH_DNS_TEST_SERVER", "")?
   if server == "" {
     test.skip("requires XSH_DNS_TEST_SERVER fixture")

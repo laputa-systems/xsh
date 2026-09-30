@@ -1,6 +1,6 @@
 let root_handle = fs.tempdir()?
-defer fs.close_root(root_handle)?
-let root = fs.root_path(root_handle)?
+defer root_handle.close()?
+let root = root_handle.host_path()?
 let src = fp"${root}/src"
 src.mkdir()
 let docs = fp"${root}/docs"

@@ -12,7 +12,7 @@ pure repo_path(root: Path, value: Str) -> Path {
   return fp"${root}/${value}"
 }
 
-proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
+proc env_path(root: Path, name: Str, default: Path) [env, error] -> Result[Path] {
   let value = env.get_or(name, "")?.trim()
 
   if value == "" {
@@ -22,7 +22,7 @@ proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
   return repo_path(root, value)
 }
 
-proc cargo_bin_dir(root: Path) [process, env] -> Path {
+proc cargo_bin_dir(root: Path) [process, env, error] -> Result[Path] {
   let configured = env.get_or("XSH_COV_CARGO_BIN", "")?.trim()
 
   if configured != "" {
@@ -123,8 +123,8 @@ pure cov_args(profdata: Path, objects: List[Str]) -> List[Str] {
 
 proc main() [fs, process, env, error, io] {
   let root = fs.cwd()?
-  let target_dir = env_path(root, "CARGO_TARGET_DIR", fp"${root}/target")
-  let out_dir = env_path(root, "XSH_COV_OUT_DIR", fp"${root}/target/cov")
+  let target_dir = env_path(root, "CARGO_TARGET_DIR", fp"${root}/target")?
+  let out_dir = env_path(root, "XSH_COV_OUT_DIR", fp"${root}/target/cov")?
   let raw_dir = fp"${out_dir}/raw"
   let api_dir = fp"${out_dir}/xsh-api"
   let html_dir = fp"${out_dir}/html"
@@ -140,7 +140,7 @@ proc main() [fs, process, env, error, io] {
   let xshi = fp"${debug_dir}/xshi"
   let llvm_profdata = find_llvm_tool("llvm-profdata")?
   let llvm_cov = find_llvm_tool("llvm-cov")?
-  let cargo_bin = cargo_bin_dir(root)
+  let cargo_bin = cargo_bin_dir(root)?
   remove_dir(raw_dir)?
   remove_dir(api_dir)?
   remove_dir(html_dir)?

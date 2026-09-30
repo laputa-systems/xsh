@@ -20,8 +20,8 @@ mod stmt;
 mod types;
 
 pub(in crate::syntax::parser) use self::literals::{
-    decode_bytes_literal_for, decode_interpolation_text_for, dollar_shorthand_end,
-    interpolation_diagnostic, is_ident_start, parse_interpolation_expr_arena_only_for,
+    decode_bytes_literal_for, decode_interpolation_text_for,
+    parse_interpolation_expr_arena_only_for,
 };
 pub(in crate::syntax::parser) use self::types::{result_unit_type_expr, unknown_type_expr};
 
@@ -48,7 +48,10 @@ pub struct Parser<'a> {
     pipe_is_boundary: bool,
     trailing_statement_try: bool,
     command_arg_expr: bool,
+    condition_expr: bool,
+    unbraced_match_arm_depth: Option<(usize, usize)>,
     block_depth: usize,
+    parenthesized_expr_depth: usize,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -140,7 +143,10 @@ impl<'a> Parser<'a> {
             pipe_is_boundary: false,
             trailing_statement_try: true,
             command_arg_expr: false,
+            condition_expr: false,
+            unbraced_match_arm_depth: None,
             block_depth: 0,
+            parenthesized_expr_depth: 0,
             diagnostics: Vec::new(),
         }
     }
@@ -283,14 +289,20 @@ impl<'a> Parser<'a> {
             || self.at(TokenKindMatch::LBrace)
             || self.at(TokenKindMatch::Pipe)
             || self.at(TokenKindMatch::PipeGt)
+            || (self.parenthesized_expr_depth > 0 && self.at(TokenKindMatch::RParen))
     }
 
     pub(in crate::syntax::parser) fn at_pipe_stage_end(&mut self) -> bool {
         self.skip_comments();
         self.at_terminator() || self.at(TokenKindMatch::Eof) || self.at(TokenKindMatch::PipeGt)
+            || self.at(TokenKindMatch::RParen) || self.at(TokenKindMatch::RBracket)
+            || self.at(TokenKindMatch::Comma)
     }
 
     pub(in crate::syntax::parser) fn is_word_part_start(&self) -> bool {
+        if self.parenthesized_expr_depth > 0 && self.current_tag() == TokenTag::RParen {
+            return false;
+        }
         !matches!(
             self.current_tag(),
             TokenTag::Eof
@@ -307,15 +319,32 @@ impl<'a> Parser<'a> {
         )
     }
 
+    pub(in crate::syntax::parser) fn lookahead_is_ctx_block(&self) -> bool {
+        if !self.at_ident("ctx") || self.peek_start(1) == Some(self.current_end()) { return false; }
+        let mut depth = 0usize;
+        for offset in 1.. {
+            match self.peek_tag(offset) {
+                Some(TokenTag::LParen | TokenTag::LBracket) => depth += 1,
+                Some(TokenTag::RParen | TokenTag::RBracket) if depth > 0 => depth -= 1,
+                Some(TokenTag::LBrace) if depth == 0 => return true,
+                Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::Equals | TokenTag::RBrace) | None if depth == 0 => return false,
+                Some(TokenTag::Dot) if offset == 1 => return false,
+                None => return false,
+                _ => {}
+            }
+        }
+        unreachable!()
+    }
+
     pub(in crate::syntax::parser) fn lookahead_is_assignment(&self) -> bool {
         let mut offset = 1;
         loop {
             match self.peek_tag(offset) {
                 Some(TokenTag::Dot) if self.peek_tag(offset + 1) != Some(TokenTag::Dot) => {
-                    match self.peek_tag(offset + 1) {
-                        Some(TokenTag::Ident | TokenTag::ProcIdent) => offset += 2,
-                        _ => return false,
-                    }
+                    if self.peek_label_name(offset + 1).is_some()
+                        || self.peek_tag(offset + 1) == Some(TokenTag::ProcIdent) {
+                        offset += 2;
+                    } else { return false; }
                 }
                 Some(TokenTag::LBracket) => {
                     offset += 1;
@@ -330,7 +359,7 @@ impl<'a> Parser<'a> {
                                     break;
                                 }
                             }
-                            TokenTag::Eof | TokenTag::Newline | TokenTag::Semicolon => {
+                            TokenTag::Eof => {
                                 return false;
                             }
                             _ => {}
@@ -408,6 +437,7 @@ impl<'a> Parser<'a> {
                         | TokenTag::Slash
                         | TokenTag::Percent
                         | TokenTag::QuestionQuestion
+                        | TokenTag::PipeGt
                 )
                 && !matches!(
                     self.token_table.keyword_at(index + 1),
@@ -452,12 +482,17 @@ impl<'a> Parser<'a> {
                     | (TokenTag::Star, _)
                     | (TokenTag::Slash, _)
                     | (TokenTag::Percent, _)
+                    | (TokenTag::QuestionQuestion, _)
                     | (TokenTag::Keyword, Some(Keyword::And))
                     | (TokenTag::Keyword, Some(Keyword::Or))
                     | (TokenTag::Keyword, Some(Keyword::In))
                     | (TokenTag::Keyword, Some(Keyword::Not))
             )
-        }) || self.lookahead_past_newlines_is_pipe_gt()
+        }) || (self.peek_tag(1) == Some(TokenTag::Minus)
+            && (self.peek_start(1) == Some(self.current_end())
+                || self.peek_start(2) != self.peek_end(1)))
+            || self.peek_name(1).is_some_and(|name| name == "is")
+            || self.lookahead_past_newlines_is_pipe_gt()
     }
 
     pub(in crate::syntax::parser) fn lookahead_past_newlines_is_pipe_gt(&self) -> bool {
@@ -596,6 +631,32 @@ impl<'a> Parser<'a> {
         Some(name)
     }
 
+    /// Explicit labels retain their token spelling without declaring lexical names.
+    pub(in crate::syntax::parser) fn current_label_name(&self) -> Option<Name> {
+        self.peek_label_name(0)
+    }
+
+    pub(in crate::syntax::parser) fn peek_label_name(&self, distance: usize) -> Option<Name> {
+        self.token_table.label_text_at(self.index + distance).map(Name::intern)
+    }
+
+    pub(in crate::syntax::parser) fn expect_label_name(&mut self, message: &str) -> Option<Name> {
+        let Some(name) = self.current_label_name() else {
+            self.diagnostic_here(message, "parse.expected-label");
+            return None;
+        };
+        self.bump();
+        Some(name)
+    }
+
+    pub(in crate::syntax::parser) fn require_label_binding_name(&mut self, tag: TokenTag, span: Span) -> bool {
+        if tag == TokenTag::Ident { return true; }
+        self.diagnostics.push(Diagnostic::error("field labels cannot declare a keyword binding")
+            .with_code("parse.keyword-label-binding")
+            .with_label(Label::primary(span, "supply an explicit value or rename this field to a legal binding name")));
+        false
+    }
+
     pub(in crate::syntax::parser) fn expect_member_name(&mut self, message: &str) -> Option<Name> {
         let Some(name) = self.current_member_name() else {
             self.diagnostic_here(message, "parse.expected-ident");
@@ -606,13 +667,8 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn current_member_name(&self) -> Option<Name> {
-        match self.current_tag() {
-            TokenTag::Ident | TokenTag::ProcIdent => self.current_name(),
-            TokenTag::Keyword => self
-                .current_keyword()
-                .map(|keyword| Name::intern(keyword.as_str())),
-            _ => None,
-        }
+        if self.current_tag() == TokenTag::ProcIdent { self.current_name() }
+        else { self.current_label_name() }
     }
 
     pub(in crate::syntax::parser) fn expect_proc_ident(&mut self, message: &str) -> Option<Name> {

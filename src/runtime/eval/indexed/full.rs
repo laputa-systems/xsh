@@ -9,16 +9,16 @@ use crate::runtime::eval::{
     BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredCallArg,
-    LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    LoweredAssignPath, LoweredAssignStep, LoweredCompQualifier, LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
-    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredReturnKind, LoweredRunArg,
+    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind, LoweredRunArg,
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
-    LoweredValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
+    LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
 };
-use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
+use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, RegexValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
@@ -29,7 +29,7 @@ use crate::syntax::node::{
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 use std::rc::Rc;
@@ -115,13 +115,17 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprBool,
     ExprStr,
     ExprBytes,
+    ExprPreparedRegex,
+    ExprPreparedConstant,
     ExprPath,
     ExprFunctionRef,
     ExprPathFrom,
     ExprParam,
     ExprAssert,
+    ExprComparisonChain,
     ExprBinary,
     ExprIf,
+    ExprPatternIf,
     ExprMatch,
     ExprStrMatch,
     ExprTagMatch,
@@ -131,7 +135,10 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprGlob,
     ExprLastStatus,
     ExprRecord,
+    ExprMapLiteral,
+    ExprRecordUpdate,
     ExprList,
+    ExprListBuild,
     ExprEmptyMap,
     ExprBytesConcat,
     ExprRange,
@@ -148,11 +155,16 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprStrPredicate,
     ExprRegexCompile,
     ExprRequire,
+    ExprCheckedValue,
     ExprRunCapture,
     ExprRunPipeline,
     ExprSpawnRun,
     ExprSpawnCommand,
     ExprWait,
+    ExprCapture,
+    ExprValueBlock,
+    ExprErrorContext,
+    ExprContextScope,
     ExprLoop,
     ExprRetry,
     ExprFsFiles,
@@ -195,19 +207,24 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprSelfCall,
     StmtLet,
     StmtGuard,
+    StmtWith,
     StmtLetInt,
     StmtLetBool,
     StmtAssign,
     StmtAssignField,
     StmtAssignFieldInt,
-    StmtAssignIndex,
+    StmtAssignPath,
     StmtAssignInt,
     StmtAssignBool,
+    StmtValue,
+    StmtAssert,
     StmtExpr,
     StmtIf,
     StmtIfBool,
     StmtWhile,
     StmtWhileBool,
+    StmtPatternIf,
+    StmtPatternWhile,
     StmtMatch,
     StmtStrMatch,
     StmtTagMatch,
@@ -225,15 +242,25 @@ pub(in crate::runtime::eval) enum FullTag {
     StmtLoop,
     StmtReturn,
     StmtYield,
+    StmtYieldDelegate,
     StmtBreak,
     StmtBreakValue,
     StmtContinue,
     StmtDefer,
+    StmtDefaultParameter,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::runtime::eval) enum FullPatternTag {
+    Alias,
+    Alternation,
+    List,
+    TagType,
+    RecordTest,
+    ResultTest,
+    TagTest,
+    ErrorTest,
     Wildcard,
     Bind,
     Type,
@@ -260,15 +287,18 @@ pub(in crate::runtime::eval) enum FullStageTag {
     BatchCount,
     BatchMaxArgv,
     BatchMaxBytes,
+    BatchLimits,
     Shuffle,
     Fold,
     ReduceBy,
+    ReduceByConfigured,
     ParMap,
     ParMapBlock,
     ParMapFlatMapReduceBy,
     Tee,
     Each,
     TablePrint,
+    TablePrintConfigured,
     Enumerate,
     Zip,
     Sort,
@@ -304,6 +334,7 @@ pub(in crate::runtime::eval) enum FullValueTag {
     Bool,
     Str,
     Bytes,
+    Regex,
     Path,
     Record,
     RecordVec,
@@ -472,6 +503,11 @@ struct FullStore {
     string_bytes: Vec<u8>,
     bytes: Vec<IrRange>,
     byte_data: Vec<u8>,
+    prepared_regexes: Vec<RegexValue>,
+    prepared_constants: Vec<PreparedConstantValue>,
+    wire_enums: Vec<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+    prepared_schemas: Vec<Arc<super::super::require::PreparedSchema>>,
+    prepared_cli_plans: Vec<Arc<crate::modules::cli::CliDescriptorPlan>>,
     locations: Vec<IrLocation>,
     location_sources: Vec<SourceId>,
     runtime_ops: Vec<RuntimeOp>,
@@ -513,6 +549,11 @@ impl Default for FullStore {
             string_bytes: Vec::new(),
             bytes: Vec::new(),
             byte_data: Vec::new(),
+            prepared_regexes: Vec::new(),
+            prepared_constants: Vec::new(),
+            wire_enums: Vec::new(),
+            prepared_schemas: Vec::new(),
+            prepared_cli_plans: Vec::new(),
             locations: Vec::new(),
             location_sources: Vec::new(),
             runtime_ops: Vec::new(),
@@ -642,6 +683,12 @@ impl FullStore {
             + self.string_bytes.capacity()
             + self.bytes.capacity() * size_of::<IrRange>()
             + self.byte_data.capacity()
+            + self.prepared_constants.capacity() * size_of::<PreparedConstantValue>()
+            + self.prepared_schemas.capacity() * size_of::<Arc<super::super::require::PreparedSchema>>()
+            + self.wire_enums.capacity() * size_of::<Arc<crate::sema::wire_enums::WireEnumMapping>>()
+            + self.prepared_cli_plans.capacity() * size_of::<Arc<crate::modules::cli::CliDescriptorPlan>>()
+            + self.prepared_regexes.capacity() * size_of::<RegexValue>()
+            + self.prepared_regexes.iter().map(|value| value.pattern.capacity()).sum::<usize>()
             + self.locations.capacity() * size_of::<IrLocation>()
             + self.location_sources.capacity() * size_of::<SourceId>()
             + self.runtime_ops.capacity() * size_of::<RuntimeOp>()
@@ -691,6 +738,11 @@ impl FullStore {
         self.string_bytes.shrink_to_fit();
         self.bytes.shrink_to_fit();
         self.byte_data.shrink_to_fit();
+        self.prepared_regexes.shrink_to_fit();
+        self.prepared_constants.shrink_to_fit();
+        self.wire_enums.shrink_to_fit();
+        self.prepared_schemas.shrink_to_fit();
+        self.prepared_cli_plans.shrink_to_fit();
         self.locations.shrink_to_fit();
         self.location_sources.shrink_to_fit();
         self.runtime_ops.shrink_to_fit();
@@ -1096,6 +1148,7 @@ impl FullProgram {
             instruction_range,
             block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
             slot_count: step.slot_count,
+            pattern_ceiling: Cell::new(usize::MAX),
             verified: false,
         };
         let location_words = [step.location];
@@ -1139,7 +1192,8 @@ impl FullProgram {
             }
             FullDriverTag::LetRecord => {
                 BuildExprRow::verify(&decoder, &mut payload)?;
-                Vec::<Name>::verify(&decoder, &mut payload)?;
+                Vec::<(Name, usize)>::verify(&decoder, &mut payload)?;
+                LoweredCompTarget::verify(&decoder, &mut payload)?;
                 bool::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
@@ -1271,12 +1325,15 @@ impl<'a> FullFunctionView<'a> {
                     .get(validation_id as usize)
                     .ok_or_else(|| IrVerifyError::new("validation id is out of bounds"))?;
                 Some(LoweredTypeCheck {
+                    schema: None,
                     ty: self.program.store.semantic.to_type(validation.type_id)?,
                     name: Arc::from(self.program.store.string(validation.name)?),
                 })
             });
             param_rest.push(param.flags & 1 != 0);
-            param_defaults.push(if cold.is_none_or(|cold| cold.default == IR_NONE) {
+            param_defaults.push(if param.flags & 4 != 0 {
+                Some(LoweredValue::OmittedArgument)
+            } else if cold.is_none_or(|cold| cold.default == IR_NONE) {
                 None
             } else {
                 let raw = [cold.expect("checked above").default];
@@ -1301,6 +1358,9 @@ impl<'a> FullFunctionView<'a> {
                 .semantic
                 .signature_return_type(function.signature)?,
         )?;
+        let return_check = return_type.has_unsigned_constraint().then(|| LoweredTypeCheck {
+            name: Arc::from(return_type.to_string()), ty: return_type.clone(), schema: None,
+        });
         let return_kind = match return_type {
             Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
             ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
@@ -1313,6 +1373,7 @@ impl<'a> FullFunctionView<'a> {
             param_defaults,
             captures: decoded_captures,
             return_kind,
+            return_check,
             slot_count: function.slot_count as usize,
         })
     }
@@ -1329,6 +1390,7 @@ impl<'a> FullFunctionView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: function.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: true,
             },
         })
@@ -1383,6 +1445,7 @@ impl<'a> FullDriverStepView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: step.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: true,
             },
         })
@@ -1453,6 +1516,11 @@ struct FullCheckpoint {
     string_bytes: usize,
     bytes: usize,
     byte_data: usize,
+    prepared_regexes: usize,
+    prepared_constants: usize,
+    wire_enums: usize,
+    prepared_schemas: usize,
+    prepared_cli_plans: usize,
     locations: usize,
     runtime_ops: usize,
     assign_ops: usize,
@@ -1734,7 +1802,6 @@ impl FullBuilder {
             source,
             &sources,
             &functions,
-            true,
         );
         let source_statements = program.statement_ids().collect::<Vec<_>>();
         drop(pures);
@@ -1798,6 +1865,7 @@ impl FullBuilder {
                 let type_id = self.intern_lowered_type(body.param_kinds[index])?;
                 let default = body.param_defaults[index]
                     .as_ref()
+                    .filter(|value| !matches!(value, LoweredValue::OmittedArgument))
                     .map(|value| self.encode_value_id(value))
                     .transpose()?
                     .unwrap_or(IR_NONE);
@@ -1807,7 +1875,8 @@ impl FullBuilder {
                     .transpose()?
                     .unwrap_or(IR_NONE);
                 let flags = u8::from(body.param_rest[index])
-                    | u8::from(body.param_defaults[index].is_some()) << 1;
+                    | u8::from(body.param_defaults[index].is_some()) << 1
+                    | u8::from(matches!(body.param_defaults[index], Some(LoweredValue::OmittedArgument))) << 2;
                 let name_id = self.intern_string(&name.as_str())?.raw();
                 let param = u32::try_from(self.store.params.len())
                     .map_err(|_| IrBuildError::format("parameter_overflow", None, 0, 0))?;
@@ -1824,7 +1893,7 @@ impl FullBuilder {
                         validation,
                     });
                 }
-                signature_params.push((name, type_id, u32::from(flags)));
+                signature_params.push((name, type_id, u32::from(flags & 0b11)));
             }
             for capture in &body.captures {
                 let slot = u32::try_from(capture.slot)
@@ -1837,7 +1906,9 @@ impl FullBuilder {
                     slot_and_flags: slot | u32::from(capture.mutable) << 31,
                 });
             }
-            let return_type = self.intern_return_type(body.return_kind)?;
+            let return_type = if let Some(check) = &body.return_check {
+                self.semantic.intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
+            } else { self.intern_return_type(body.return_kind)? };
             let signature = self.semantic.intern_signature_parts(
                 &mut self.store.semantic,
                 &signature_params,
@@ -2226,11 +2297,13 @@ impl FullBuilder {
             Some(BuildTopKind::LetRecord {
                 source,
                 fields,
+                target,
                 mutable,
                 span,
             }) => {
                 source.encode(self, &mut payload)?;
                 fields.encode(self, &mut payload)?;
+                target.encode(self, &mut payload)?;
                 mutable.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::LetRecord
@@ -2570,6 +2643,11 @@ impl FullBuilder {
             string_bytes: self.store.string_bytes.len(),
             bytes: self.store.bytes.len(),
             byte_data: self.store.byte_data.len(),
+            prepared_regexes: self.store.prepared_regexes.len(),
+            prepared_constants: self.store.prepared_constants.len(),
+            wire_enums: self.store.wire_enums.len(),
+            prepared_schemas: self.store.prepared_schemas.len(),
+            prepared_cli_plans: self.store.prepared_cli_plans.len(),
             locations: self.store.locations.len(),
             runtime_ops: self.store.runtime_ops.len(),
             assign_ops: self.store.assign_ops.len(),
@@ -2608,6 +2686,11 @@ impl FullBuilder {
         self.store.string_bytes.truncate(checkpoint.string_bytes);
         self.store.bytes.truncate(checkpoint.bytes);
         self.store.byte_data.truncate(checkpoint.byte_data);
+        self.store.prepared_regexes.truncate(checkpoint.prepared_regexes);
+        self.store.prepared_constants.truncate(checkpoint.prepared_constants);
+        self.store.wire_enums.truncate(checkpoint.wire_enums);
+        self.store.prepared_schemas.truncate(checkpoint.prepared_schemas);
+        self.store.prepared_cli_plans.truncate(checkpoint.prepared_cli_plans);
         self.store.locations.truncate(checkpoint.locations);
         self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
@@ -2660,6 +2743,7 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
     tags.iter().fold(0, |effects, tag| {
         effects
             | match tag {
+                FullTag::ExprContextScope => EFFECT_CWD | EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
                 FullTag::StmtCd => EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE,
                 FullTag::StmtEnv => EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
                 FullTag::ExprRunCapture
@@ -2708,12 +2792,15 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 | FullTag::ExprArchiveTarList
                 | FullTag::ExprArchiveTarExtract
                 | FullTag::ExprTry
-                | FullTag::StmtGuard => EFFECT_PROPAGATE | EFFECT_TRACE,
+                | FullTag::StmtGuard
+                | FullTag::StmtWith => EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::StmtDefer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::ExprLoop
                 | FullTag::StmtLoop
                 | FullTag::StmtWhile
                 | FullTag::StmtWhileBool
+                | FullTag::StmtPatternIf
+                | FullTag::StmtPatternWhile
                 | FullTag::StmtFor
                 | FullTag::StmtForRecord
                 | FullTag::StmtForStrLines
@@ -2741,14 +2828,15 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Command => Type::Command,
         LoweredType::ProcessHandle => Type::ProcessHandle,
         LoweredType::NetJob => Type::NetJob,
+        LoweredType::FsRoot => Type::FsRoot,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
         LoweredType::Pure => Type::Pure,
         LoweredType::Proc => Type::Proc,
         LoweredType::Error => Type::Error,
-        LoweredType::Record => Type::Record(BTreeMap::new()),
-        LoweredType::Module => Type::Module(BTreeMap::new()),
+        LoweredType::Record => Type::ErasedRecord,
+        LoweredType::Module => Type::DynamicModule,
         LoweredType::List => Type::List(Box::new(Type::Any)),
-        LoweredType::Map => Type::Map(Box::new(Type::Any)),
+        LoweredType::Map => Type::Map(Box::new(Type::Str), Box::new(Type::Any)),
         LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
         LoweredType::Tag => Type::Tag(Name::intern("<tag>")),
     })
@@ -2761,7 +2849,7 @@ fn executable_type(ty: &Type) -> Type {
     match ty {
         Type::Unknown | Type::Invalid => Type::Any,
         Type::List(inner) => Type::List(Box::new(executable_type(inner))),
-        Type::Map(inner) => Type::Map(Box::new(executable_type(inner))),
+        Type::Map(key, inner) => Type::Map(Box::new(executable_type(key)), Box::new(executable_type(inner))),
         Type::Stream(inner) => Type::Stream(Box::new(executable_type(inner))),
         Type::Optional(inner) => Type::Optional(Box::new(executable_type(inner))),
         Type::Result(ok, error) => Type::Result(
@@ -2821,7 +2909,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     Ok(match ty {
         Type::Any | Type::Unknown => LoweredType::Any,
         Type::Unit => LoweredType::Unit,
-        Type::Int => LoweredType::Int,
+        Type::Int | Type::UInt => LoweredType::Int,
         Type::Float => LoweredType::Float,
         Type::Duration => LoweredType::Duration,
         Type::Bool => LoweredType::Bool,
@@ -2834,20 +2922,21 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Command => LoweredType::Command,
         Type::ProcessHandle => LoweredType::ProcessHandle,
         Type::NetJob => LoweredType::NetJob,
+        Type::FsRoot => LoweredType::FsRoot,
         Type::Stream(_) => LoweredType::Stream,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
             LoweredType::Error
         }
-        Type::Record(_) => LoweredType::Record,
+        Type::ErasedRecord | Type::Record(_) => LoweredType::Record,
         Type::Module(_) | Type::DynamicModule => LoweredType::Module,
         Type::List(_) => LoweredType::List,
-        Type::Map(_) => LoweredType::Map,
+        Type::Map(_, _) => LoweredType::Map,
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) => LoweredType::Any,
-        Type::Invalid | Type::EnvPathList | Type::ProcessError => {
+        Type::BuiltinParameter(_) | Type::Inference(_) | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
             return Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ));
@@ -2912,6 +3001,7 @@ impl<'a> FullExecution<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: self.decoder.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: self.decoder.verified,
             },
         }
@@ -3284,6 +3374,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     instruction_states: Option<RefCell<Vec<u8>>>,
     block_states: Option<RefCell<Vec<u8>>>,
     slot_count: u32,
+    pattern_ceiling: Cell<usize>,
     verified: bool,
 }
 
@@ -3295,6 +3386,65 @@ impl<'a> FullDecoder<'a> {
         } else {
             FullCursor::new(words)
         }
+    }
+
+    fn pattern_list_cursor(&self, input: &mut FullCursor<'_>) -> Result<FullCursor<'a>, IrVerifyError> {
+        let block = IrBlockId::from_raw(input.raw()?).ok_or_else(|| IrVerifyError::new("pattern child list id is invalid"))?;
+        let block = self.store.blocks.get(block.index()).ok_or_else(|| IrVerifyError::new("pattern child list id is out of bounds"))?;
+        // Inspection follows structural verification and must not claim block
+        // ownership a second time while reading the same capture contract.
+        Ok(FullCursor::new(self.store.payload(block.instructions)?))
+    }
+
+    fn pattern_capture_slots(&self, pattern: usize) -> Result<BTreeSet<usize>, IrVerifyError> {
+        let mut slots = BTreeSet::new();
+        let mut pending = vec![pattern];
+        while let Some(pattern) = pending.pop() {
+            let tag = *self.store.patterns.get(pattern).ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+            let mut payload = FullCursor::new(self.store.payload(self.store.pattern_data[pattern].range())?);
+            let mut captures = Vec::new();
+            match tag {
+                FullPatternTag::Bind => captures.push(usize::decode(self, &mut payload)?),
+                FullPatternTag::Alias => { pending.push(payload.raw()? as usize); captures.push(usize::decode(self, &mut payload)?); }
+                FullPatternTag::Type => { Type::decode(self, &mut payload)?; captures.extend(Option::<usize>::decode(self, &mut payload)?); }
+                FullPatternTag::ResultOk | FullPatternTag::ResultErr => captures.extend(Option::<usize>::decode(self, &mut payload)?),
+                FullPatternTag::ResultTest => { bool::decode(self, &mut payload)?; pending.push(payload.raw()? as usize); }
+                FullPatternTag::Tag => {
+                    // Enum payloads retain both the declaring type and variant names.
+                    Name::decode(self, &mut payload)?;
+                    Name::decode(self, &mut payload)?;
+                    captures.extend(BuildPatternIdSlots::decode(self, &mut payload)?.into_iter().flatten());
+                }
+                FullPatternTag::ErrorVariant => {
+                    Name::decode(self, &mut payload)?; Name::decode(self, &mut payload)?;
+                    captures.extend(Box::<LoweredErrorPatternFields>::decode(self, &mut payload)?.iter().filter_map(|(_, slot)| *slot));
+                }
+                FullPatternTag::List | FullPatternTag::TagTest | FullPatternTag::Alternation => {
+                    if tag == FullPatternTag::TagTest {
+                        Name::decode(self, &mut payload)?;
+                        Name::decode(self, &mut payload)?;
+                    }
+                    let mut children = self.pattern_list_cursor(&mut payload)?;
+                    let count = children.raw()? as usize;
+                    for index in 0..count {
+                        let child = children.raw()? as usize;
+                        if tag != FullPatternTag::Alternation || index == 0 { pending.push(child); }
+                    }
+                    if tag == FullPatternTag::List && bool::decode(self, &mut payload)? { pending.push(payload.raw()? as usize); }
+                }
+                FullPatternTag::RecordTest | FullPatternTag::ErrorTest => {
+                    if tag == FullPatternTag::ErrorTest { Name::decode(self, &mut payload)?; Name::decode(self, &mut payload)?; }
+                    let mut children = self.pattern_list_cursor(&mut payload)?;
+                    let count = children.raw()? as usize;
+                    for _ in 0..count { Name::decode(self, &mut children)?; pending.push(children.raw()? as usize); }
+                }
+                _ => {}
+            }
+            for slot in captures {
+                if !slots.insert(slot) { return Err(IrVerifyError::new("pattern writes the same capture slot twice")); }
+            }
+        }
+        Ok(slots)
     }
 
     #[inline(always)]
@@ -3420,6 +3570,30 @@ impl<'a> FullDecoder<'a> {
     }
 
     #[inline(always)]
+    fn verify_comparison_chain_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        let id = IrBlockId::from_raw(payload.raw()?).ok_or_else(|| IrVerifyError::new("comparison chain block id is invalid"))?;
+        let block = self.store.blocks.get(id.index()).ok_or_else(|| IrVerifyError::new("comparison chain block is missing"))?;
+        let mut pairs = self.cursor(self.store.payload(block.instructions)?);
+        let len = pairs.raw()? as usize;
+        if len < 2 { return Err(IrVerifyError::new("comparison chain requires at least two pairs")); }
+        for _ in 0..len {
+            let pair = pairs.raw()? as usize;
+            if self.store.tags.get(pair) != Some(&FullTag::ExprBinary) { return Err(IrVerifyError::new("comparison chain requires binary pairs")); }
+            let mut pair_payload = self.cursor(self.store.payload(self.store.data[pair].range())?);
+            let op = BinaryOp::decode(self, &mut pair_payload)?;
+            if !matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) { return Err(IrVerifyError::new("comparison chain requires ordering operators")); }
+        }
+        pairs.finish()
+    }
+
+    fn verify_retry_selection(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        payload.raw()?;
+        if bool::decode(self, &mut payload)? && !self.pattern_capture_slots(payload.raw()? as usize)?.is_empty() {
+            return Err(IrVerifyError::new("retry selection pattern cannot bind slots"));
+        }
+        Ok(())
+    }
+
     fn finish_instruction(&self, index: usize) {
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
@@ -3505,7 +3679,7 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                 })?)?,
             )?
         }
-        FullTag::StmtIf | FullTag::StmtIfBool => {
+        FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtPatternIf => {
             let branches = block(
                 *payload
                     .first()
@@ -3528,14 +3702,19 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                     return Err(IrVerifyError::new("return-analysis if body is missing"));
                 };
                 all_return &= indexed_block_can_return(store, block(body)?)?;
-                branch_words = rest;
+                branch_words = if tag == FullTag::StmtPatternIf {
+                    rest.get(1..).ok_or_else(|| IrVerifyError::new("return-analysis captures are missing"))?
+                } else { rest };
             }
             if !branch_words.is_empty() {
                 return Err(IrVerifyError::new(
                     "return-analysis if branches have trailing data",
                 ));
             }
-            let else_returns = match payload.get(1..).unwrap_or_default() {
+            let else_payload = if tag == FullTag::StmtPatternIf {
+                payload.get(1..payload.len().saturating_sub(1)).unwrap_or_default()
+            } else { payload.get(1..).unwrap_or_default() };
+            let else_returns = match else_payload {
                 [1, body] => indexed_block_can_return(store, block(*body)?)?,
                 [0] => false,
                 _ => {
@@ -3545,6 +3724,12 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                 }
             };
             all_return && else_returns
+        }
+        FullTag::StmtWith => {
+            let body = *payload.get(1).ok_or_else(|| IrVerifyError::new("return-analysis with body is missing"))?;
+            let else_index = match payload.get(2) { Some(0) => 3, Some(1) => 4, _ => return Err(IrVerifyError::new("return-analysis with parameter is invalid")) };
+            let else_body = *payload.get(else_index).ok_or_else(|| IrVerifyError::new("return-analysis with handler is missing"))?;
+            indexed_block_can_return(store, block(body)?)? && indexed_block_can_return(store, block(else_body)?)?
         }
         FullTag::StmtMatch => {
             let arms =
@@ -3688,6 +3873,15 @@ impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
+        let mut wire_types = rustc_hash::FxHashSet::default();
+        for mapping in &store.wire_enums {
+            if mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len() {
+                return Err(IrVerifyError::new("wire enum mapping is empty or has duplicate strings"));
+            }
+            if !wire_types.insert(mapping.type_name) {
+                return Err(IrVerifyError::new("wire enum declaring identity has multiple mappings"));
+            }
+        }
         if store.tags.len() != store.data.len()
             || store.patterns.len() != store.pattern_data.len()
             || store.stages.len() != store.stage_data.len()
@@ -3809,7 +4003,7 @@ impl FullVerifier {
             for param in &store.params[params.clone()] {
                 store.string(param.name)?;
                 store.semantic.type_tag(param.type_id)?;
-                if param.flags & !0b11 != 0 {
+                if param.flags & !0b111 != 0 {
                     return Err(IrVerifyError::new("parameter flags are invalid"));
                 }
             }
@@ -3830,6 +4024,7 @@ impl FullVerifier {
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
                 block_states: Some(RefCell::new(vec![0; store.blocks.len()])),
                 slot_count: function.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: false,
             };
             let body_id = IrBlockId::from_raw(function.body)
@@ -3864,6 +4059,36 @@ impl FullVerifier {
             }
             decoder.finish_function()?;
             let body_payload = store.payload(body_block.instructions)?;
+            let mut default_slots = BTreeSet::new();
+            let mut entry_open = true;
+            let mut previous_default = None;
+            for &instruction in body_payload.iter().skip(1) {
+                let tag = store.tags[instruction as usize];
+                if tag != FullTag::StmtDefaultParameter { entry_open = false; continue; }
+                if !entry_open { return Err(IrVerifyError::new("parameter defaults must precede the callable body")); }
+                let words = store.payload(store.data[instruction as usize].range())?;
+                let slot = words[0] as usize;
+                if slot >= params.len() || store.params[params.start + slot].flags & 4 == 0
+                    || previous_default.is_some_and(|previous| slot <= previous) {
+                    return Err(IrVerifyError::new("parameter default entry does not match its parameter"));
+                }
+                previous_default = Some(slot);
+                default_slots.insert(slot);
+            }
+            let entry_count = store.tags[decoder.instruction_range.clone()].iter()
+                .filter(|tag| **tag == FullTag::StmtDefaultParameter).count();
+            if entry_count != default_slots.len() { return Err(IrVerifyError::new("parameter default entry must belong to its callable prefix")); }
+            for (slot, param) in store.params[params.clone()].iter().enumerate() {
+                if param.flags & 4 != 0 {
+                    if param.flags & 2 == 0 || param.flags & 1 != 0 || !default_slots.contains(&slot) {
+                        return Err(IrVerifyError::new("expression default metadata requires a non-rest defaulted parameter entry"));
+                    }
+                    if store.param_cold.binary_search_by_key(&((params.start + slot) as u32), |cold| cold.param).ok()
+                        .is_some_and(|index| store.param_cold[index].default != IR_NONE) {
+                        return Err(IrVerifyError::new("expression defaults cannot also carry a prepared literal"));
+                    }
+                }
+            }
             if body_payload.first().copied() == Some(0) {
                 return Err(IrVerifyError::new(format!(
                     "function {index} has an empty body"
@@ -4113,6 +4338,13 @@ macro_rules! impl_word_codec {
 }
 
 impl_word_codec!(u32, |value: &u32| Ok(*value), |raw| raw);
+impl_word_codec!(crate::syntax::arena::ContextScopeKind,
+    |value: &crate::syntax::arena::ContextScopeKind| Ok(match value { crate::syntax::arena::ContextScopeKind::Cwd => 0, crate::syntax::arena::ContextScopeKind::Env => 1 }),
+    |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| match raw {
+        0 => Ok(crate::syntax::arena::ContextScopeKind::Cwd),
+        1 => Ok(crate::syntax::arena::ContextScopeKind::Env),
+        _ => Err(IrVerifyError::new("context scope kind is invalid")),
+    }));
 impl FullCodec for usize {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         if builder.current_owner.is_none() {
@@ -4635,6 +4867,131 @@ impl_copy_pool_codec!(BinaryOp, binary_ops, "binary operation");
 impl_copy_pool_codec!(RunKind, run_kinds, "run kind");
 impl_copy_pool_codec!(RedirectionKind, redirection_kinds, "redirection kind");
 
+impl FullCodec for PreparedConstantValue {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = u32::try_from(builder.store.prepared_constants.len())
+            .map_err(|_| IrBuildError::format("constant pool overflow", None, 0, 0))?;
+        visit_value_wire_mappings(&self.0, &mut |mapping| {
+            register_wire_mapping(builder, mapping);
+            true
+        });
+        builder.store.prepared_constants.push(self.clone());
+        output.push(index);
+        Ok(())
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        decoder.store.prepared_constants.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared constant is out of bounds"))
+    }
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
+        let value = decoder.store.prepared_constants.get(input.raw()? as usize)
+            .ok_or_else(|| IrVerifyError::new("prepared constant is out of bounds"))?;
+        if !prepared_constant_is_data(&value.0, 0) {
+            return Err(IrVerifyError::new("prepared constant contains a runtime value"));
+        }
+        if !visit_value_wire_mappings(&value.0, &mut |mapping| wire_mapping_matches_pool(mapping, decoder.store)) {
+            return Err(IrVerifyError::new("prepared constant has a contradictory wire mapping"));
+        }
+        Ok(())
+    }
+}
+
+// Constructors, constants, and schema conversions share one declaring mapping.
+// Verification rejects independently altered copies before they can disagree at a boundary.
+fn register_wire_mapping(builder: &mut FullBuilder, mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>) {
+    if !builder.store.wire_enums.iter().any(|stored| Arc::ptr_eq(stored, mapping)) {
+        builder.store.wire_enums.push(mapping.clone());
+    }
+}
+
+fn wire_mapping_matches_pool(mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>, store: &FullStore) -> bool {
+    store.wire_enums.iter().find(|stored| stored.type_name == mapping.type_name)
+        .is_some_and(|stored| stored.as_ref() == mapping.as_ref())
+}
+
+fn visit_value_wire_mappings(value: &LoweredValue, visit: &mut impl FnMut(&Arc<crate::sema::wire_enums::WireEnumMapping>) -> bool) -> bool {
+    match value {
+        LoweredValue::Tag(tag) => tag.wire.as_ref().is_none_or(&mut *visit)
+            && tag.fields.iter().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::List(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::SharedList(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::Record(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::Map(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
+        _ => true,
+    }
+}
+
+impl FullCodec for Arc<crate::modules::cli::CliDescriptorPlan> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = if let Some(index) = builder.store.prepared_cli_plans.iter().position(|plan| Arc::ptr_eq(plan, self)) { index }
+            else { let index = builder.store.prepared_cli_plans.len(); builder.store.prepared_cli_plans.push(Arc::clone(self)); index };
+        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("CLI plan pool overflow", None, 0, 0))?);
+        Ok(())
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        decoder.store.prepared_cli_plans.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared CLI descriptor plan is out of bounds"))
+    }
+}
+
+fn prepared_constant_is_data(value: &LoweredValue, depth: usize) -> bool {
+    if depth > 128 { return false; }
+    match value {
+        LoweredValue::Null | LoweredValue::Bool(_) | LoweredValue::Int(_) | LoweredValue::Float(_)
+        | LoweredValue::Duration(_) | LoweredValue::Str(_) | LoweredValue::Bytes(_)
+        | LoweredValue::Path(_) | LoweredValue::Regex(_) => true,
+        LoweredValue::List(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::SharedList(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Record(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Map(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Tag(value) => value.fields.iter().all(|value| prepared_constant_is_data(value, depth + 1))
+            && value.wire.as_ref().is_none_or(|mapping| value.fields.is_empty()
+                && mapping.type_name == value.type_name
+                && mapping.variants.contains_key(&Name::intern(value.name.as_ref()))
+                && !mapping.variants.is_empty()
+                && mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() == mapping.variants.len()),
+        _ => false,
+    }
+}
+
+impl FullCodec for Arc<crate::sema::wire_enums::WireEnumMapping> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = if let Some(index) = builder.store.wire_enums.iter().position(|mapping| Arc::ptr_eq(mapping, self)) {
+            index
+        } else {
+            let index = builder.store.wire_enums.len();
+            builder.store.wire_enums.push(self.clone());
+            index
+        };
+        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("wire enum pool overflow", None, 0, 0))?);
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let mapping = decoder.store.wire_enums.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("wire enum mapping is out of bounds"))?;
+        if !decoder.verified && (mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len()) {
+            return Err(IrVerifyError::new("wire enum mapping is empty or has duplicate strings"));
+        }
+        Ok(mapping)
+    }
+}
+
+impl FullCodec for RegexValue {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = u32::try_from(builder.store.prepared_regexes.len())
+            .map_err(|_| IrBuildError::format("regex pool overflow", None, 0, 0))?;
+        builder.store.prepared_regexes.push(self.clone());
+        output.push(index);
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        decoder.store.prepared_regexes.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared regex is out of bounds"))
+    }
+}
+
 impl FullCodec for LoweredStrPredicate {
     fn encode(
         &self,
@@ -4785,20 +5142,53 @@ impl FullCodec for LoweredType {
     }
 }
 
+impl FullCodec for Arc<super::super::require::PreparedSchema> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = if let Some(index) = builder.store.prepared_schemas.iter().position(|schema| Arc::ptr_eq(schema, self)) {
+            index
+        } else {
+            let index = builder.store.prepared_schemas.len();
+            self.visit_wire_mappings(&mut |mapping| {
+                register_wire_mapping(builder, mapping);
+                true
+            });
+            builder.store.prepared_schemas.push(self.clone());
+            index
+        };
+        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("schema pool overflow", None, 0, 0))?);
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let schema = decoder.store.prepared_schemas.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared schema is out of bounds"))?;
+        if !decoder.verified && (!schema.valid() || !schema.visit_wire_mappings(&mut |mapping| wire_mapping_matches_pool(mapping, decoder.store))) {
+            return Err(IrVerifyError::new("prepared schema has an invalid or contradictory wire mapping"));
+        }
+        Ok(schema)
+    }
+}
+
 impl FullCodec for LoweredTypeCheck {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.ty.encode(builder, output)?;
-        self.name.encode(builder, output)
+        self.name.encode(builder, output)?;
+        self.schema.encode(builder, output)
     }
 
     fn decode(
         decoder: &FullDecoder<'_>,
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
+        let check = Self {
             ty: Type::decode(decoder, input)?,
             name: Arc::<str>::decode(decoder, input)?,
-        })
+            schema: Option::decode(decoder, input)?,
+        };
+        if !decoder.verified && check.schema.as_ref().is_some_and(|schema| !schema.matches_type(&check.ty)) {
+            return Err(IrVerifyError::new("prepared schema does not match its checked type"));
+        }
+        Ok(check)
     }
 }
 
@@ -4892,12 +5282,25 @@ macro_rules! impl_btree_codec {
 }
 
 impl_btree_codec!(String, LoweredValue);
+impl_btree_codec!(crate::map_key::MapKey, LoweredValue);
+
+impl FullCodec for crate::map_key::MapKey {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        crate::runtime::eval::lowered_ops::lowered_map_key_value(self).encode(builder, output)
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let value = LoweredValue::decode(decoder, input)?;
+        crate::runtime::eval::lowered_ops::lowered_map_key_ref(&value, crate::source::Span::at(crate::source::SourceId::new(0), 0))
+            .map(|key| key.to_owned()).map_err(|_| IrVerifyError::new("map payload contains an invalid scalar key"))
+    }
+}
 impl_btree_codec!(Arc<str>, LoweredValue);
 
 impl FullCodec for LoweredValue {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
+            Self::OmittedArgument => return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0)),
             Self::Null => FullValueTag::Null,
             Self::Unit => FullValueTag::Unit,
             Self::Int(value) => {
@@ -4978,6 +5381,8 @@ impl FullCodec for LoweredValue {
                 FullValueTag::Map
             }
             Self::Tag(value) => {
+                value.type_name.encode(builder, &mut payload)?;
+                value.wire.encode(builder, &mut payload)?;
                 value.name.encode(builder, &mut payload)?;
                 value.fields.encode(builder, &mut payload)?;
                 FullValueTag::Tag
@@ -4986,13 +5391,17 @@ impl FullCodec for LoweredValue {
                 value.encode(builder, &mut payload)?;
                 FullValueTag::ResultOk
             }
+            Self::Regex(value) => {
+                value.as_ref().encode(builder, &mut payload)?;
+                FullValueTag::Regex
+            }
             Self::Digest(_)
-            | Self::Regex(_)
             | Self::Status(_)
             | Self::FsEntry(_)
             | Self::Command(_)
             | Self::ProcessHandle(_)
             | Self::NetJob(_)
+            | Self::FsRoot(_)
             | Self::Stream(_)
             | Self::Pure(_)
             | Self::Proc(_)
@@ -5034,6 +5443,7 @@ impl FullCodec for LoweredValue {
             FullValueTag::Bool => Self::Bool(bool::decode(decoder, &mut payload)?),
             FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
             FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
+            FullValueTag::Regex => Self::Regex(Box::new(RegexValue::decode(decoder, &mut payload)?)),
             FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
             FullValueTag::Record => Self::Record(Arc::new(
                 BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
@@ -5048,7 +5458,7 @@ impl FullCodec for LoweredValue {
             },
             FullValueTag::StatsBlob => Self::StatsBlob(Box::new(LoweredStatsValue {
                 blanks: i64::decode(decoder, &mut payload)?,
-                blobs: BTreeMap::<String, LoweredValue>::decode(decoder, &mut payload)?,
+                blobs: BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(decoder, &mut payload)?,
                 code: i64::decode(decoder, &mut payload)?,
                 comments: i64::decode(decoder, &mut payload)?,
             })),
@@ -5056,11 +5466,13 @@ impl FullCodec for LoweredValue {
                 BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
             )),
             FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
-            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<String, LoweredValue>::decode(
+            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(
                 decoder,
                 &mut payload,
             )?)),
             FullValueTag::Tag => Self::Tag(Box::new(LoweredTagValue {
+                type_name: Name::decode(decoder, &mut payload)?,
+                wire: Option::decode(decoder, &mut payload)?,
                 name: Arc::<str>::decode(decoder, &mut payload)?,
                 fields: Vec::<LoweredValue>::decode(decoder, &mut payload)?,
             })),
@@ -5090,6 +5502,7 @@ impl FullCodec for LoweredValue {
             FullValueTag::Bool => bool::verify(decoder, &mut payload)?,
             FullValueTag::Str => Arc::<str>::verify(decoder, &mut payload)?,
             FullValueTag::Bytes => Arc::<[u8]>::verify(decoder, &mut payload)?,
+            FullValueTag::Regex => RegexValue::verify(decoder, &mut payload)?,
             FullValueTag::Path => PathValue::verify(decoder, &mut payload)?,
             FullValueTag::Record => {
                 BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
@@ -5116,6 +5529,8 @@ impl FullCodec for LoweredValue {
                 BTreeMap::<String, LoweredValue>::verify(decoder, &mut payload)?;
             }
             FullValueTag::Tag => {
+                Name::verify(decoder, &mut payload)?;
+                Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::verify(decoder, &mut payload)?;
                 Arc::<str>::verify(decoder, &mut payload)?;
                 Vec::<LoweredValue>::verify(decoder, &mut payload)?;
             }
@@ -5173,6 +5588,27 @@ macro_rules! impl_node_codec {
                 input: &mut FullCursor<'_>,
             ) -> Result<(), IrVerifyError> {
                 let (instruction, tag, mut payload) = decoder.instruction(input)?;
+                if tag == FullTag::ExprModuleCall {
+                    let mut metadata = payload;
+                    let op = RuntimeOp::decode(decoder, &mut metadata)?;
+                    let plan = Option::<Arc<crate::modules::cli::CliDescriptorPlan>>::decode(decoder, &mut metadata)?;
+                    if plan.as_ref().is_some_and(|plan| !plan.matches_operation(op)) {
+                        return Err(IrVerifyError::new("prepared CLI plan operation policy does not match its instruction"));
+                    }
+                }
+                if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
+                if tag == FullTag::ExprTag {
+                    let mut metadata = payload;
+                    let type_name = Name::decode(decoder, &mut metadata)?;
+                    let name = Arc::<str>::decode(decoder, &mut metadata)?;
+                    let fields_id = IrBlockId::from_raw(metadata.raw()?).ok_or_else(|| IrVerifyError::new("tag fields block id is invalid"))?;
+                    let fields = decoder.store.blocks.get(fields_id.index()).ok_or_else(|| IrVerifyError::new("tag fields block is out of bounds"))?;
+                    let field_count = decoder.store.payload(fields.instructions)?.first().copied().ok_or_else(|| IrVerifyError::new("tag fields length is missing"))?;
+                    let wire = Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::decode(decoder, &mut metadata)?;
+                    if wire.as_ref().is_some_and(|mapping| mapping.type_name != type_name || field_count != 0 || !mapping.variants.contains_key(&Name::intern(name.as_ref()))) {
+                        return Err(IrVerifyError::new("wire enum constructor identity or payload is invalid"));
+                    }
+                }
                 match tag {
                     $(
                         FullTag::$tag => {
@@ -5184,6 +5620,10 @@ macro_rules! impl_node_codec {
                     _ => return Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
                 }
                 payload.finish()?;
+                if tag == FullTag::ExprRetry {
+                    let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
+                    decoder.verify_retry_selection(payload)?;
+                }
                 decoder.finish_instruction(instruction);
                 Ok(())
             }
@@ -5351,11 +5791,15 @@ const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 
 impl_vec_codec!(BuildStmtId, BLOCK_STATEMENTS);
 impl_vec_codec!(BuildExprId, BLOCK_LIST);
+impl_vec_codec!((usize, BuildExprId), BLOCK_LIST);
+impl_vec_codec!(Option<BuildExprId>, BLOCK_LIST);
+impl_vec_codec!((bool, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(BuildPatternId, BLOCK_LIST);
 impl_vec_codec!(LoweredPipelineStage, BLOCK_LIST);
 impl_vec_codec!(LoweredValue, BLOCK_LIST);
 impl_vec_codec!(LoweredFmtPart, BLOCK_LIST);
 impl_vec_codec!(LoweredRecordEntry, BLOCK_LIST);
+impl_vec_codec!((Option<BuildExprId>, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(LoweredCallArg, BLOCK_LIST);
 impl_vec_codec!(LoweredRunArg, BLOCK_LIST);
 impl_vec_codec!(LoweredRunEnv, BLOCK_LIST);
@@ -5367,11 +5811,32 @@ impl_vec_codec!(LoweredModuleExport, BLOCK_LIST);
 impl_vec_codec!(LoweredTopLevelSlot, BLOCK_LIST);
 impl_vec_codec!(String, BLOCK_LIST);
 impl_vec_codec!(Name, BLOCK_LIST);
+impl_vec_codec!((Vec<Name>, BuildExprId, Span), BLOCK_LIST);
+
+impl FullCodec for LoweredRecordUpdates {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        self.0.encode(builder, output)
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let updates = Vec::<(Vec<Name>, BuildExprId, Span)>::decode(decoder, input)?;
+        for (index, (path, _, _)) in updates.iter().enumerate() {
+            if path.is_empty() || updates[..index].iter().any(|(other, _, _)| path.starts_with(other) || other.starts_with(path)) {
+                return Err(IrVerifyError::new("record update paths must be nonempty and disjoint"));
+            }
+        }
+        Ok(Self(updates))
+    }
+}
+
 impl_vec_codec!((Name, usize), BLOCK_LIST);
+impl_vec_codec!((Name, BuildPatternId), BLOCK_LIST);
 impl_vec_codec!((Name, LoweredValue), BLOCK_LIST);
 impl_vec_codec!((Arc<str>, BuildExprId), BLOCK_LIST);
 impl_vec_codec!((Arc<str>, Vec<BuildStmtId>), BLOCK_LIST);
+impl_vec_codec!(usize, BLOCK_LIST);
 impl_vec_codec!((BuildExprId, BuildExprId), BLOCK_LIST);
+impl_vec_codec!((BuildExprId, BuildExprId, Vec<usize>), BLOCK_LIST);
+impl_vec_codec!((BuildExprId, Vec<BuildStmtId>, Vec<usize>), BLOCK_LIST);
 impl_vec_codec!((BuildExprId, Vec<BuildStmtId>), BLOCK_LIST);
 impl_vec_codec!((BuildBoolId, Vec<BuildStmtId>), BLOCK_LIST);
 impl_vec_codec!(
@@ -5466,6 +5931,7 @@ impl_fx_map_codec!(Vec<BuildStmtId>);
 impl FullCodec for LoweredCompTarget {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
+            Self::Discard => { output.push(2); Ok(()) }
             Self::Slot(slot) => {
                 output.push(0);
                 slot.encode(builder, output)
@@ -5482,6 +5948,7 @@ impl FullCodec for LoweredCompTarget {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         match input.raw()? {
+            2 => Ok(Self::Discard),
             0 => Ok(Self::Slot(usize::decode(decoder, input)?)),
             1 => Ok(Self::Record {
                 fields: SmallVec::decode(decoder, input)?,
@@ -5490,6 +5957,64 @@ impl FullCodec for LoweredCompTarget {
         }
     }
 }
+
+impl FullCodec for LoweredAssignPath {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        self.0.encode(builder, output)
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let steps = Vec::<LoweredAssignStep>::decode(decoder, input)?;
+        if steps.is_empty() { return Err(IrVerifyError::new("assignment path must select an element")); }
+        Ok(Self(steps))
+    }
+}
+impl FullCodec for LoweredAssignStep {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        match self {
+            Self::Field(name) => { output.push(0); name.encode(builder, output) }
+            Self::Index(expr) => { output.push(1); expr.encode(builder, output) }
+        }
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(Self::Field(Name::decode(decoder, input)?)),
+            1 => Ok(Self::Index(BuildExprId::decode(decoder, input)?)),
+            _ => Err(IrVerifyError::new("assignment path step tag is invalid")),
+        }
+    }
+}
+impl_vec_codec!(LoweredAssignStep, BLOCK_LIST);
+
+impl FullCodec for LoweredCompQualifiers {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        self.0.encode(builder, output)
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let qualifiers = Vec::<LoweredCompQualifier>::decode(decoder, input)?;
+        if !matches!(qualifiers.first(), Some(LoweredCompQualifier::For { .. })) {
+            return Err(IrVerifyError::new("comprehension qualifiers must start with for"));
+        }
+        Ok(Self(qualifiers))
+    }
+}
+
+impl FullCodec for LoweredCompQualifier {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        match self {
+            Self::For { target, iter, span } => { output.push(0); target.encode(builder, output)?; iter.encode(builder, output)?; span.encode(builder, output) }
+            Self::If { condition, span } => { output.push(1); condition.encode(builder, output)?; span.encode(builder, output) }
+        }
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(Self::For { target: Box::decode(decoder, input)?, iter: BuildExprId::decode(decoder, input)?, span: Span::decode(decoder, input)? }),
+            1 => Ok(Self::If { condition: BuildExprId::decode(decoder, input)?, span: Span::decode(decoder, input)? }),
+            _ => Err(IrVerifyError::new("comprehension qualifier tag is invalid")),
+        }
+    }
+}
+impl_vec_codec!(LoweredCompQualifier, BLOCK_LIST);
 
 impl FullCodec for LoweredRecordEntry {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
@@ -5524,6 +6049,11 @@ impl FullCodec for LoweredRecordEntry {
 impl FullCodec for LoweredCallArg {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
+            Self::Default(slot) => {
+                // This is a callable parameter index, not a caller frame slot.
+                output.push(2);
+                u32::try_from(*slot).map_err(|_| IrBuildError::format("argument_slot_overflow", None, 0, 0))?.encode(builder, output)
+            }
             Self::Single(value) => {
                 output.push(0);
                 value.encode(builder, output)
@@ -5542,6 +6072,7 @@ impl FullCodec for LoweredCallArg {
         match input.raw()? {
             0 => Ok(Self::Single(BuildExprId::decode(decoder, input)?)),
             1 => Ok(Self::Splice(BuildExprId::decode(decoder, input)?)),
+            2 => Ok(Self::Default(u32::decode(decoder, input)? as usize)),
             _ => Err(IrVerifyError::new("call argument tag is invalid")),
         }
     }
@@ -5666,7 +6197,8 @@ impl FullCodec for LoweredRunPipelineSegment {
         self.env.encode(builder, output)?;
         self.redirections.encode(builder, output)?;
         self.timeout.encode(builder, output)?;
-        self.cpu_max.encode(builder, output)
+        self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)
     }
 
     fn decode(
@@ -5681,6 +6213,7 @@ impl FullCodec for LoweredRunPipelineSegment {
             redirections: Vec::decode(decoder, input)?,
             timeout: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
         })
     }
 }
@@ -5780,6 +6313,7 @@ impl FullCodec for LoweredProcessCommandArgv {
         self.new_session.encode(builder, output)?;
         self.ignore_hup.encode(builder, output)?;
         self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)?;
         self.span.encode(builder, output)
     }
 
@@ -5802,6 +6336,7 @@ impl FullCodec for LoweredProcessCommandArgv {
             new_session: Option::decode(decoder, input)?,
             ignore_hup: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
             span: Span::decode(decoder, input)?,
         })
     }
@@ -5816,6 +6351,7 @@ impl FullCodec for LoweredRunCapture {
         self.redirections.encode(builder, output)?;
         self.timeout.encode(builder, output)?;
         self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)?;
         self.propagate.encode(builder, output)?;
         self.assert_success.encode(builder, output)?;
         self.span.encode(builder, output)
@@ -5833,6 +6369,7 @@ impl FullCodec for LoweredRunCapture {
             redirections: Vec::decode(decoder, input)?,
             timeout: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
             propagate: bool::decode(decoder, input)?,
             assert_success: bool::decode(decoder, input)?,
             span: Span::decode(decoder, input)?,
@@ -5848,6 +6385,7 @@ impl FullCodec for LoweredSpawnRun {
         self.redirections.encode(builder, output)?;
         self.timeout.encode(builder, output)?;
         self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)?;
         self.span.encode(builder, output)
     }
 
@@ -5862,6 +6400,7 @@ impl FullCodec for LoweredSpawnRun {
             redirections: Vec::decode(decoder, input)?,
             timeout: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
             span: Span::decode(decoder, input)?,
         })
     }
@@ -5882,6 +6421,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
                 env,
                 timeout,
                 cpu_max,
+                accept,
                 span,
             } => {
                 output.push(1);
@@ -5890,6 +6430,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
                 env.encode(builder, output)?;
                 timeout.encode(builder, output)?;
                 cpu_max.encode(builder, output)?;
+                accept.encode(builder, output)?;
                 span.encode(builder, output)
             }
         }
@@ -5911,6 +6452,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
                 env: Vec::decode(decoder, input)?,
                 timeout: Option::decode(decoder, input)?,
                 cpu_max: Option::decode(decoder, input)?,
+                accept: Option::decode(decoder, input)?,
                 span: Span::decode(decoder, input)?,
             }),
             _ => Err(IrVerifyError::new(
@@ -5967,6 +6509,42 @@ impl FullCodec for BuildPatternRow {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
+            Self::TagType { type_name, variants } => { type_name.encode(builder, &mut payload)?; variants.encode(builder, &mut payload)?; FullPatternTag::TagType }
+            Self::RecordTest { fields } => {
+                fields.encode(builder, &mut payload)?;
+                FullPatternTag::RecordTest
+            }
+            Self::ResultTest { ok, inner } => {
+                ok.encode(builder, &mut payload)?;
+                inner.encode(builder, &mut payload)?;
+                FullPatternTag::ResultTest
+            }
+            Self::TagTest { type_name, name, fields } => {
+                type_name.encode(builder, &mut payload)?;
+                name.encode(builder, &mut payload)?;
+                fields.encode(builder, &mut payload)?;
+                FullPatternTag::TagTest
+            }
+            Self::ErrorTest { family, variant, fields } => {
+                family.encode(builder, &mut payload)?;
+                variant.encode(builder, &mut payload)?;
+                fields.encode(builder, &mut payload)?;
+                FullPatternTag::ErrorTest
+            }
+            Self::List { elements, rest } => {
+                elements.encode(builder, &mut payload)?;
+                rest.encode(builder, &mut payload)?;
+                FullPatternTag::List
+            }
+            Self::Alias { pattern, slot } => {
+                pattern.encode(builder, &mut payload)?;
+                slot.encode(builder, &mut payload)?;
+                FullPatternTag::Alias
+            }
+            Self::Alternation { patterns } => {
+                patterns.encode(builder, &mut payload)?;
+                FullPatternTag::Alternation
+            }
             Self::Wildcard => FullPatternTag::Wildcard,
             Self::Bind { slot } => {
                 slot.encode(builder, &mut payload)?;
@@ -6011,7 +6589,8 @@ impl FullCodec for BuildPatternRow {
                 result_wrapped.encode(builder, &mut payload)?;
                 FullPatternTag::Facet
             }
-            Self::Tag { name, slots } => {
+            Self::Tag { type_name, name, slots } => {
+                type_name.encode(builder, &mut payload)?;
                 name.encode(builder, &mut payload)?;
                 slots.encode(builder, &mut payload)?;
                 FullPatternTag::Tag
@@ -6037,6 +6616,17 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         let pattern = match tag {
+            FullPatternTag::TagType => Self::TagType { type_name: Name::decode(decoder, &mut payload)?, variants: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::RecordTest => Self::RecordTest { fields: Box::decode(decoder, &mut payload)? },
+            FullPatternTag::ResultTest => Self::ResultTest { ok: bool::decode(decoder, &mut payload)?, inner: BuildPatternId::decode(decoder, &mut payload)? },
+            FullPatternTag::TagTest => Self::TagTest { type_name: Name::decode(decoder, &mut payload)?, name: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::ErrorTest => Self::ErrorTest { family: Name::decode(decoder, &mut payload)?, variant: Name::decode(decoder, &mut payload)?, fields: Box::decode(decoder, &mut payload)? },
+            FullPatternTag::List => Self::List {
+                elements: Vec::decode(decoder, &mut payload)?,
+                rest: Option::decode(decoder, &mut payload)?,
+            },
+            FullPatternTag::Alias => Self::Alias { pattern: BuildPatternId::decode(decoder, &mut payload)?, slot: usize::decode(decoder, &mut payload)? },
+            FullPatternTag::Alternation => Self::Alternation { patterns: Vec::decode(decoder, &mut payload)? },
             FullPatternTag::Wildcard => Self::Wildcard,
             FullPatternTag::Bind => Self::Bind {
                 slot: usize::decode(decoder, &mut payload)?,
@@ -6065,6 +6655,7 @@ impl FullCodec for BuildPatternRow {
                 result_wrapped: bool::decode(decoder, &mut payload)?,
             },
             FullPatternTag::Tag => Self::Tag {
+                type_name: Name::decode(decoder, &mut payload)?,
                 name: Name::decode(decoder, &mut payload)?,
                 slots: SmallVec::decode(decoder, &mut payload)?,
             },
@@ -6075,6 +6666,13 @@ impl FullCodec for BuildPatternRow {
 
     fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         let index = input.raw()? as usize;
+        let parent = decoder.pattern_ceiling.get();
+        // Child patterns are committed first. Descending IDs rule out cycles
+        // while allowing immutable children to be shared by multiple parents.
+        if index >= parent {
+            return Err(IrVerifyError::new("nested pattern must precede its parent"));
+        }
+        decoder.pattern_ceiling.set(index);
         let tag = decoder
             .store
             .patterns
@@ -6084,6 +6682,55 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         match tag {
+            FullPatternTag::TagType => { Name::verify(decoder, &mut payload)?; Vec::<Name>::verify(decoder, &mut payload)?; },
+            FullPatternTag::RecordTest => Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?,
+            FullPatternTag::ResultTest => {
+                bool::verify(decoder, &mut payload)?;
+                BuildPatternId::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::TagTest => {
+                Name::verify(decoder, &mut payload)?;
+                Name::verify(decoder, &mut payload)?;
+                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::ErrorTest => {
+                Name::verify(decoder, &mut payload)?;
+                Name::verify(decoder, &mut payload)?;
+                Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::List => {
+                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
+                let mut rest_payload = payload;
+                if bool::decode(decoder, &mut rest_payload)? {
+                    let rest = rest_payload.raw()? as usize;
+                    if !matches!(decoder.store.patterns.get(rest), Some(FullPatternTag::Wildcard | FullPatternTag::Bind)) {
+                        return Err(IrVerifyError::new("list rest must be a wildcard or binding"));
+                    }
+                }
+                Option::<BuildPatternId>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::Alias => {
+                BuildPatternId::verify(decoder, &mut payload)?;
+                usize::verify(decoder, &mut payload)?;
+                decoder.pattern_capture_slots(index)?;
+            }
+            FullPatternTag::Alternation => {
+                let mut alternatives = payload;
+                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
+                let mut children = decoder.pattern_list_cursor(&mut alternatives)?;
+                let count = children.raw()? as usize;
+                if count < 2 { return Err(IrVerifyError::new("alternative pattern requires at least two choices")); }
+                let mut common = None;
+                for _ in 0..count {
+                    let child = children.raw()? as usize;
+                    let captures = decoder.pattern_capture_slots(child)?;
+                    if common.as_ref().is_some_and(|common| common != &captures) {
+                        return Err(IrVerifyError::new("pattern alternatives must publish identical capture slots"));
+                    }
+                    common = Some(captures);
+                }
+                children.finish()?;
+            }
             FullPatternTag::Wildcard => {}
             FullPatternTag::Bind => usize::verify(decoder, &mut payload)?,
             FullPatternTag::Type => {
@@ -6107,10 +6754,13 @@ impl FullCodec for BuildPatternRow {
             }
             FullPatternTag::Tag => {
                 Name::verify(decoder, &mut payload)?;
+                Name::verify(decoder, &mut payload)?;
                 BuildPatternIdSlots::verify(decoder, &mut payload)?;
             }
         }
-        payload.finish()
+        payload.finish()?;
+        decoder.pattern_ceiling.set(parent);
+        Ok(())
     }
 }
 
@@ -6243,6 +6893,9 @@ impl_stage_codec! {
     LoweredPipelineStage::BatchMaxBytes { max_bytes } => BatchMaxBytes {
         max_bytes: BuildExprId,
     } => LoweredPipelineStage::BatchMaxBytes { max_bytes },
+    LoweredPipelineStage::BatchLimits { configuration } => BatchLimits {
+        configuration: BuildExprId,
+    } => LoweredPipelineStage::BatchLimits { configuration },
     LoweredPipelineStage::Shuffle { seed } => Shuffle {
         seed: Option<BuildExprId>,
     } => LoweredPipelineStage::Shuffle { seed },
@@ -6284,6 +6937,12 @@ impl_stage_codec! {
         op,
         jobs,
     },
+    LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration } => ReduceByConfigured {
+        item_slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+        configuration: BuildExprId,
+    } => LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration },
     LoweredPipelineStage::ParMap { slot, jobs, value } => ParMap {
         slot: usize,
         jobs: Option<BuildExprId>,
@@ -6353,6 +7012,9 @@ impl_stage_codec! {
     LoweredPipelineStage::TablePrint { columns } => TablePrint {
         columns: Option<Vec<String>>,
     } => LoweredPipelineStage::TablePrint { columns },
+    LoweredPipelineStage::TablePrintConfigured { columns } => TablePrintConfigured {
+        columns: BuildExprId,
+    } => LoweredPipelineStage::TablePrintConfigured { columns },
     LoweredPipelineStage::Enumerate => Enumerate {} => LoweredPipelineStage::Enumerate,
     LoweredPipelineStage::Zip { other } => Zip {
         other: BuildExprId,
@@ -6440,6 +7102,12 @@ impl_node_codec! {
         BuildExprRow::Str(value) => ExprStr {
             value: Arc<str>,
         } => BuildExprRow::Str(value),
+        BuildExprRow::PreparedConstant(value) => ExprPreparedConstant {
+            value: PreparedConstantValue,
+        } => BuildExprRow::PreparedConstant(value),
+        BuildExprRow::PreparedRegex(value) => ExprPreparedRegex {
+            value: RegexValue,
+        } => BuildExprRow::PreparedRegex(value),
         BuildExprRow::Bytes(value) => ExprBytes {
             value: Arc<[u8]>,
         } => BuildExprRow::Bytes(value),
@@ -6461,6 +7129,10 @@ impl_node_codec! {
             value: BuildExprId,
             span: Span,
         } => BuildExprRow::Assert { value, span },
+        BuildExprRow::ComparisonChain { pairs, assertion } => ExprComparisonChain {
+            pairs: Vec<BuildExprId>,
+            assertion: bool,
+        } => BuildExprRow::ComparisonChain { pairs, assertion },
         BuildExprRow::Binary {
             op,
             left,
@@ -6490,6 +7162,11 @@ impl_node_codec! {
             else_value,
             span,
         },
+        BuildExprRow::PatternIf { branches, else_value, span } => ExprPatternIf {
+            branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
+            else_value: BuildExprId,
+            span: Span,
+        } => BuildExprRow::PatternIf { branches, else_value, span },
         BuildExprRow::MatchExpr { value, arms, span } => ExprMatch {
             value: BuildExprId,
             arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
@@ -6545,12 +7222,21 @@ impl_node_codec! {
         BuildExprRow::LastStatus { span } => ExprLastStatus {
             span: Span,
         } => BuildExprRow::LastStatus { span },
+        BuildExprRow::MapLiteral(entries) => ExprMapLiteral {
+            entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>,
+        } => BuildExprRow::MapLiteral(entries),
+        BuildExprRow::RecordUpdate { base, updates, span } => ExprRecordUpdate {
+            base: BuildExprId, updates: LoweredRecordUpdates, span: Span,
+        } => BuildExprRow::RecordUpdate { base, updates, span },
         BuildExprRow::Record(entries) => ExprRecord {
             entries: Vec<LoweredRecordEntry>,
         } => BuildExprRow::Record(entries),
         BuildExprRow::List(values) => ExprList {
             values: Vec<BuildExprId>,
         } => BuildExprRow::List(values),
+        BuildExprRow::ListBuild(values) => ExprListBuild {
+            values: Vec<(bool, BuildExprId, Span)>,
+        } => BuildExprRow::ListBuild(values),
         BuildExprRow::EmptyMap => ExprEmptyMap {} => BuildExprRow::EmptyMap,
         BuildExprRow::BytesConcat { arg, span } => ExprBytesConcat {
             arg: BuildExprId,
@@ -6561,51 +7247,23 @@ impl_node_codec! {
             end: BuildExprId,
             span: Span,
         } => BuildExprRow::Range { start, end, span },
-        BuildExprRow::Tag { name, fields } => ExprTag {
+        BuildExprRow::Tag { type_name, name, fields, wire } => ExprTag {
+            type_name: Name,
             name: Arc<str>,
             fields: Vec<BuildExprId>,
-        } => BuildExprRow::Tag { name, fields },
-        BuildExprRow::ListComp {
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        } => ExprListComp {
+            wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+        } => BuildExprRow::Tag { type_name, name, fields, wire },
+        BuildExprRow::ListComp { value, qualifiers, span } => ExprListComp {
             value: BuildExprId,
-            target: Box<LoweredCompTarget>,
-            iter: BuildExprId,
-            condition: Option<BuildExprId>,
+            qualifiers: LoweredCompQualifiers,
             span: Span,
-        } => BuildExprRow::ListComp {
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        },
-        BuildExprRow::MapComp {
-            key,
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        } => ExprMapComp {
+        } => BuildExprRow::ListComp { value, qualifiers, span },
+        BuildExprRow::MapComp { key, value, qualifiers, span } => ExprMapComp {
             key: BuildExprId,
             value: BuildExprId,
-            target: Box<LoweredCompTarget>,
-            iter: BuildExprId,
-            condition: Option<BuildExprId>,
+            qualifiers: LoweredCompQualifiers,
             span: Span,
-        } => BuildExprRow::MapComp {
-            key,
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        },
+        } => BuildExprRow::MapComp { key, value, qualifiers, span },
         BuildExprRow::ListPipeline {
             input,
             stages,
@@ -6668,17 +7326,14 @@ impl_node_codec! {
         BuildExprRow::StrByteAt {
             receiver,
             index,
-            default,
             span,
         } => ExprStrByteAt {
             receiver: BuildExprId,
             index: BuildExprId,
-            default: Option<BuildExprId>,
             span: Span,
         } => BuildExprRow::StrByteAt {
             receiver,
             index,
-            default,
             span,
         },
         BuildExprRow::StrPredicate {
@@ -6701,6 +7356,11 @@ impl_node_codec! {
             pattern: BuildExprId,
             span: Span,
         } => BuildExprRow::RegexCompile { pattern, span },
+        BuildExprRow::CheckedValue { value, check, span } => ExprCheckedValue {
+            value: BuildExprId,
+            check: LoweredTypeCheck,
+            span: Span,
+        } => BuildExprRow::CheckedValue { value, check, span },
         BuildExprRow::Require { value, check, span } => ExprRequire {
             value: BuildExprId,
             check: LoweredTypeCheck,
@@ -6733,15 +7393,28 @@ impl_node_codec! {
             target: BuildExprId,
             span: Span,
         } => BuildExprRow::Wait { target, span },
+        BuildExprRow::Capture { body, span } => ExprCapture {
+            body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::Capture { body, span },
+        BuildExprRow::ErrorContext { message, body, span } => ExprErrorContext {
+            message: BuildExprId, body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::ErrorContext { message, body, span },
+        BuildExprRow::ContextScope { kind, input, body, span } => ExprContextScope {
+            kind: crate::syntax::arena::ContextScopeKind, input: BuildExprId, body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::ContextScope { kind, input, body, span },
+        BuildExprRow::ValueBlock { body, span } => ExprValueBlock {
+            body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::ValueBlock { body, span },
         BuildExprRow::Loop { body, span } => ExprLoop {
             body: Vec<BuildStmtId>,
             span: Span,
         } => BuildExprRow::Loop { body, span },
-        BuildExprRow::Retry { delays, body, span } => ExprRetry {
+        BuildExprRow::Retry { delays, pattern, body, span } => ExprRetry {
             delays: Vec<BuildExprId>,
+            pattern: Option<BuildPatternId>,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => BuildExprRow::Retry { delays, body, span },
+        } => BuildExprRow::Retry { delays, pattern, body, span },
         BuildExprRow::FsFiles {
             root,
             gitignore,
@@ -6962,11 +7635,12 @@ impl_node_codec! {
             dest: BuildExprId,
             span: Span,
         } => BuildExprRow::ArchiveTarExtract { path, dest, span },
-        BuildExprRow::ModuleCall { op, args, span } => ExprModuleCall {
+        BuildExprRow::ModuleCall { op, cli_plan, args, span } => ExprModuleCall {
             op: RuntimeOp,
-            args: Vec<BuildExprId>,
+            cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
+            args: Vec<Option<BuildExprId>>,
             span: Span,
-        } => BuildExprRow::ModuleCall { op, args, span },
+        } => BuildExprRow::ModuleCall { op, cli_plan, args, span },
         BuildExprRow::ProcessCommandArgv(value) => ExprProcessCommandArgv {
             value: Box<LoweredProcessCommandArgv>,
         } => BuildExprRow::ProcessCommandArgv(value),
@@ -6994,9 +7668,10 @@ impl_node_codec! {
         BuildExprRow::Ok(value) => ExprOk {
             value: BuildExprId,
         } => BuildExprRow::Ok(value),
-        BuildExprRow::Err(value) => ExprErr {
+        BuildExprRow::Err { value, cause } => ExprErr {
             value: BuildExprId,
-        } => BuildExprRow::Err(value),
+            cause: Option<BuildExprId>,
+        } => BuildExprRow::Err { value, cause },
         BuildExprRow::Error(value) => ExprError {
             value: Box<LoweredErrorExpr>,
         } => BuildExprRow::Error(value),
@@ -7056,29 +7731,44 @@ impl_node_codec! {
 
 impl_node_codec! {
     BuildStmtRow {
+        BuildStmtRow::DefaultParameter { slot, value, kind, check, span } => StmtDefaultParameter {
+            slot: usize,
+            value: BuildExprId,
+            kind: LoweredType,
+            check: Option<LoweredTypeCheck>,
+            span: Span,
+        } => BuildStmtRow::DefaultParameter { slot, value, kind, check, span },
         BuildStmtRow::Let { slot, value } => StmtLet {
             slot: usize,
             value: BuildExprId,
         } => BuildStmtRow::Let { slot, value },
         BuildStmtRow::Guard {
-            slot,
+            target,
             value,
             else_param_slot,
             else_body,
             span,
         } => StmtGuard {
-            slot: usize,
+            target: LoweredCompTarget,
             value: BuildExprId,
             else_param_slot: Option<usize>,
             else_body: Vec<BuildStmtId>,
             span: Span,
         } => BuildStmtRow::Guard {
-            slot,
+            target,
             value,
             else_param_slot,
             else_body,
             span,
         },
+        BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span } => StmtWith {
+            bindings: Vec<(usize, BuildExprId)>,
+            body: Vec<BuildStmtId>,
+            else_param_slot: Option<usize>,
+            else_body: Vec<BuildStmtId>,
+            captures: Vec<usize>,
+            span: Span,
+        } => BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span },
         BuildStmtRow::LetInt { slot, value } => StmtLetInt {
             slot: usize,
             value: BuildIntId,
@@ -7091,16 +7781,19 @@ impl_node_codec! {
             slot,
             op,
             value,
+            check,
             span,
         } => StmtAssign {
             slot: usize,
             op: AssignOp,
             value: BuildExprId,
+            check: Option<LoweredTypeCheck>,
             span: Span,
         } => BuildStmtRow::Assign {
             slot,
             op,
             value,
+            check,
             span,
         },
         BuildStmtRow::AssignField {
@@ -7141,25 +7834,14 @@ impl_node_codec! {
             value,
             span,
         },
-        BuildStmtRow::AssignIndex {
-            slot,
-            index,
-            op,
-            value,
-            span,
-        } => StmtAssignIndex {
+        BuildStmtRow::AssignPath { slot, path, op, value, check, span } => StmtAssignPath {
             slot: usize,
-            index: BuildExprId,
+            path: LoweredAssignPath,
             op: AssignOp,
             value: BuildExprId,
+            check: Option<LoweredTypeCheck>,
             span: Span,
-        } => BuildStmtRow::AssignIndex {
-            slot,
-            index,
-            op,
-            value,
-            span,
-        },
+        } => BuildStmtRow::AssignPath { slot, path, op, value, check, span },
         BuildStmtRow::AssignInt {
             slot,
             op,
@@ -7180,6 +7862,8 @@ impl_node_codec! {
             slot: usize,
             value: BuildBoolId,
         } => BuildStmtRow::AssignBool { slot, value },
+        BuildStmtRow::Value { value } => StmtValue { value: BuildExprId } => BuildStmtRow::Value { value },
+        BuildStmtRow::Assert { value, message, span } => StmtAssert { value: BuildExprId, message: Option<BuildExprId>, span: Span } => BuildStmtRow::Assert { value, message, span },
         BuildStmtRow::Expr { value, span } => StmtExpr {
             value: BuildExprId,
             span: Span,
@@ -7204,6 +7888,17 @@ impl_node_codec! {
             branches,
             else_body,
         },
+        BuildStmtRow::PatternIf { branches, else_body, span } => StmtPatternIf {
+            branches: Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>,
+            else_body: Option<Vec<BuildStmtId>>,
+            span: Span,
+        } => BuildStmtRow::PatternIf { branches, else_body, span },
+        BuildStmtRow::PatternWhile { condition, body, captures, span } => StmtPatternWhile {
+            condition: BuildExprId,
+            body: Vec<BuildStmtId>,
+            captures: Vec<usize>,
+            span: Span,
+        } => BuildStmtRow::PatternWhile { condition, body, captures, span },
         BuildStmtRow::While { condition, body } => StmtWhile {
             condition: BuildExprId,
             body: Vec<BuildStmtId>,
@@ -7267,29 +7962,29 @@ impl_node_codec! {
         },
         BuildStmtRow::LetRecord {
             source,
-            fields,
+            target,
             span,
         } => StmtLetRecord {
             source: BuildExprId,
-            fields: Vec<(Name, usize)>,
+            target: LoweredCompTarget,
             span: Span,
         } => BuildStmtRow::LetRecord {
             source,
-            fields,
+            target,
             span,
         },
         BuildStmtRow::ForRecord {
-            fields,
+            target,
             iter,
             body,
             span,
         } => StmtForRecord {
-            fields: Vec<(Name, usize)>,
+            target: LoweredCompTarget,
             iter: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
         } => BuildStmtRow::ForRecord {
-            fields,
+            target,
             iter,
             body,
             span,
@@ -7389,6 +8084,10 @@ impl_node_codec! {
         BuildStmtRow::Return { value } => StmtReturn {
             value: BuildExprId,
         } => BuildStmtRow::Return { value },
+        BuildStmtRow::YieldDelegate { value, span } => StmtYieldDelegate {
+            value: BuildExprId,
+            span: Span,
+        } => BuildStmtRow::YieldDelegate { value, span },
         BuildStmtRow::Yield { value } => StmtYield {
             value: BuildExprId,
         } => BuildStmtRow::Yield { value },
@@ -7430,9 +8129,9 @@ while index < 3 {
   index += 1
 }
 
-env {
-  TOP_LEVEL_DRIVER_BOUNDARY = "indexed"
-} {
+env ({
+  TOP_LEVEL_DRIVER_BOUNDARY: "indexed",
+}) {
   print "indexed"
 }
 
@@ -7491,6 +8190,119 @@ run true
 
     fn program_name(program: &FullProgram, text: &str) -> Name {
         program.symbol_owner().with_current(|| Name::intern(text))
+    }
+
+    #[test]
+    fn builtin_templates_execute_checked_calls_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/builtin-templates.xsh");
+            let program = Arc::new(fixture("builtin-templates.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                for (name, expected) in [("nested_templates", Value::Int(7)), ("fresh_templates", Value::Int(8)), ("absent_templates", Value::Bool(true)), ("materialized_templates", Value::Int(6)), ("discarded_templates", Value::Unit)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("template function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn stage_callable_ordinary_calls_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = "pure increment(item: Int, amount: Int = 2) -> Int { item + amount }\npure positive(item: Int) -> Bool { item > 3 }\npure result(item: Int) -> Result[Int] { Ok(item) }\npure value() -> Int { [1, 2, 3] |> map(increment) |> where(positive) |> sum }\npure results() -> Bool { let values = [3] |> map(result); values[0] is Ok(3) }\n";
+            let program = fixture("stage-callable.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            assert!(!program.store.tags.contains(&FullTag::ExprFunctionRef));
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                for (name, expected) in [("value", Value::Int(9)), ("results", Value::Bool(true))] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    ).expect("stage callable function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn typed_cause_indexed_codec_preserves_metadata_and_verifies_optional_child() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/typed-causes.xsh");
+        let program = fixture("typed-causes.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.tags.iter().position(|tag| *tag == FullTag::ExprErr).unwrap();
+        let range = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[range.start + 1], 1);
+        for (offset, value) in [(1, 2), (2, u32::MAX)] {
+            let mut invalid = program.clone();
+            invalid.store.extra[range.start + offset] = value;
+            assert!(FullVerifier::verify(&invalid).is_err());
+        }
+        let mut cycle = program.clone();
+        cycle.store.extra[range.start + 2] = row as u32;
+        assert!(FullVerifier::verify(&cycle).is_err());
+        let program = Arc::new(program);
+        for recursive in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let mut call = || evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "translated_cause")), LoweredFunctionKind::Pure,
+                &[], Span::at(program.store.source_id, 0),
+            ).expect("typed constructor function exists");
+            let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() }.unwrap();
+            let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else { panic!("constructor returns Result data") };
+            let Value::Error(outer) = error.as_ref() else { panic!("nominal outer error") };
+            assert_eq!(outer.family, "OuterCauseError");
+            let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else { panic!("typed cause") };
+            assert_eq!(inner.family, "InnerCauseError");
+            assert_eq!(inner.span, None);
+        }
+    }
+
+    #[test]
+    fn empty_map_fold_inference_publishes_concrete_accumulator_types() {
+        let source = "let counts = [\"one\", \"two\", \"one\"] |> fold(map.empty()) { |acc, item| acc.set(item, (acc.get(item) ?? 0) + 1) }\nprint ${counts.get(\"one\") ?? 0}\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "full: {:?}", checked.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        assert!(declarations.diagnostics.is_empty(), "decl: {:?}", declarations.diagnostics);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(bodies.diagnostics.is_empty(), "compact: {:?}", bodies.diagnostics);
+        assert!(bodies.expr_types.values().all(|ty| !ty.contains_inference()));
+        let _ = fixture("empty-map-fold.xsh", source);
+    }
+
+    #[test]
+    fn local_collection_inference_publishes_concrete_indexed_call_and_slot_types() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/local-inference.xsh");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        parsed.arena.symbol_owner().with_current(|| {
+            let function = parsed.arena.arena.function_defs.iter().find(|function| function.name == "gather").unwrap();
+            let body_span = parsed.arena.arena.span(parsed.arena.arena.block(function.body).span);
+            assert_eq!(declarations.function_return_types[&body_span], Type::List(Box::new(Type::Path)));
+            assert!(declarations.local_binding_types.values().all(|ty| !ty.contains_inference()));
+            assert!(declarations.local_binding_types.values().any(|ty| *ty == Type::List(Box::new(Type::Path))));
+        });
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(bodies.expr_types.values().all(|ty| !ty.contains_inference()));
+        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(&parsed.arena, &declarations, &bodies, source);
+        assert_eq!(constructed.blocker_events, 0, "{constructed:?}");
+        let _ = fixture("local-inference.xsh", source);
     }
 
     /// A loop reuses its statement list rather than allocating per iteration.
@@ -7620,6 +8432,38 @@ proc main() [error] {
     }
 
     #[test]
+    fn enum_payload_alias_and_alternation_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"enum Event { Added(Str), Changed(Str), Count(Int) }
+pure render(event: Event) -> Str {
+  match event {
+    (Added(file) | Changed(file)) as original => {
+      let typed: Event = original
+      if typed is Added(_) { file } else { file }
+    }
+    Count(_) => "other"
+  }
+}
+pure selected() -> Str {
+  render(Added("one")) + ":" + render(Changed("two")) + ":" + render(Count(3))
+}
+"#;
+            let program = fixture("enum-payload-alias-and-alternation.xsh", source);
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("enum payload function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Str("one:two:other".into()));
+            }
+        });
+    }
+
+    #[test]
     fn tokei_showcase_contains_scan_lines_fast_paths() {
         let program = fixture(
             "showcase/tokei.xsh",
@@ -7727,6 +8571,96 @@ proc main() [error] {
             std::mem::take(&mut evaluator.stdout),
             normalize_traces(&evaluator.trace_events),
         )
+    }
+
+    #[test]
+    fn prepared_constant_pool_reuses_data_and_rejects_invalid_values() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("prepared-constant.xsh", "const data: List[Int] = [1, 2]\nproc constant() -> List[Int] { data }\n"));
+            program.symbol_owner().with_current(|| {
+                let header = program.function_view(LoweredFunctionKey::Name(Name::intern("constant")), LoweredFunctionKind::Proc).unwrap().unwrap().header().unwrap();
+                assert!(header.captures.iter().all(|capture| capture.name != Name::intern("data")));
+            });
+            let (result, _, _) = run_full(Arc::clone(&program), program_name(&program, "constant"));
+            assert_eq!(result.unwrap(), Value::List(vec![Value::Int(1), Value::Int(2)]));
+            let shared = program.store.prepared_constants.iter().find_map(|constant| match &constant.0 {
+                LoweredValue::SharedList(values) => Some(Arc::clone(values)), _ => None,
+            }).expect("prepared list pool");
+            let decoder = FullDecoder { store: &program.store, owner: 0, instruction_range: 0..0, instruction_states: None, block_states: None, slot_count: 0, pattern_ceiling: Cell::new(usize::MAX), verified: false };
+            let mut words = vec![0];
+            let mut cursor = FullCursor::new(&words);
+            let decoded = PreparedConstantValue::decode(&decoder, &mut cursor).unwrap();
+            let LoweredValue::SharedList(values) = decoded.0 else { panic!("shared list"); };
+            assert!(Arc::ptr_eq(&shared, &values));
+            let mut broken = (*program).clone();
+            broken.store.prepared_constants.clear();
+            assert!(FullVerifier::verify(&broken).is_err());
+            let mut broken = (*program).clone();
+            broken.store.prepared_constants[0] = PreparedConstantValue(LoweredValue::Unit);
+            assert!(FullVerifier::verify(&broken).is_err());
+            let mut builder = FullBuilder::new(SourceId::new(0));
+            let checkpoint = builder.checkpoint();
+            PreparedConstantValue(LoweredValue::Int(1)).encode(&mut builder, &mut words).unwrap();
+            builder.rewind(checkpoint);
+            assert!(builder.store.prepared_constants.is_empty());
+        });
+    }
+
+    #[test]
+    fn prepared_cli_plan_pool_rewinds_with_builder_checkpoint() {
+        run_with_large_stack(|| {
+            let program = fixture("cli-constant-descriptors.xsh", include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"));
+            let plan = Arc::clone(&program.store.prepared_cli_plans[0]);
+            let mut builder = FullBuilder::new(SourceId::new(0));
+            let checkpoint = builder.checkpoint();
+            plan.encode(&mut builder, &mut Vec::new()).unwrap();
+            assert_eq!(builder.store.prepared_cli_plans.len(), 1);
+            builder.rewind(checkpoint);
+            assert!(builder.store.prepared_cli_plans.is_empty());
+        });
+    }
+
+    #[test]
+    fn prepared_regex_pool_rewinds_with_builder_checkpoint() {
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        let checkpoint = builder.checkpoint();
+        let value = RegexValue {
+            pattern: "[a-z]+".to_string(),
+            regex: Arc::new(crate::modules::regex::compile("[a-z]+", Span::new(SourceId::new(0), 0, 0)).unwrap()),
+        };
+        let mut words = Vec::new();
+        value.encode(&mut builder, &mut words).unwrap();
+        assert_eq!(builder.store.prepared_regexes.len(), 1);
+        builder.rewind(checkpoint);
+        assert!(builder.store.prepared_regexes.is_empty());
+    }
+
+    #[test]
+    fn prepared_regex_pool_survives_frontend_and_evaluator_reuse() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("prepared-regex.xsh", "proc literal() -> Regex { rx\"[a-z]+\" }\n"));
+            let prepared = Arc::clone(&program.store.prepared_regexes[0].regex);
+            let name = program_name(&program, "literal");
+            for _ in 0..3 {
+                let (result, _, _) = run_full(Arc::clone(&program), name);
+                let Value::Regex(value) = result.unwrap() else { panic!("expected prepared regex"); };
+                assert!(Arc::ptr_eq(&prepared, &value.regex));
+                assert!(value.regex.is_match("text"));
+            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for _ in 0..3 {
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                let Value::Regex(value) = result else { panic!("expected prepared regex"); };
+                assert!(Arc::ptr_eq(&prepared, &value.regex));
+            }
+            let mut broken = (*program).clone();
+            broken.store.prepared_regexes.clear();
+            assert!(FullVerifier::verify(&broken).is_err());
+        });
     }
 
     #[test]
@@ -7992,6 +8926,166 @@ proc main() [error] {
     }
 
     #[test]
+    fn verifier_rejects_empty_record_update_path_and_bad_replacement_reference() {
+        run_with_large_stack(|| {
+            let program = fixture("record-update.xsh", "pure value() -> Int { let base = {a: {b: 1, c: 0}}; return {...base, a.b: 2, a.c: 3}.a.b }\n");
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRecordUpdate).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let updates = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+            let entries = program.store.blocks[updates.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let path = IrBlockId::from_raw(program.store.extra[entries.start + 1]).unwrap();
+            let names = program.store.blocks[path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut empty = program.clone();
+            empty.store.extra[names.start] = 0;
+            empty.store.blocks[path.index()].instructions.len = 1;
+            let error = FullVerifier::verify(&empty).unwrap_err();
+            assert!(error.message.contains("nonempty and disjoint"), "{}", error.message);
+            let mut bad_child = program.clone();
+            bad_child.store.extra[entries.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_child).is_err());
+            let mut overlapping = program.clone();
+            let second_path = IrBlockId::from_raw(program.store.extra[entries.start + 4]).unwrap();
+            let second_names = program.store.blocks[second_path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            overlapping.store.extra[second_names.start + 2] = program.store.extra[names.start + 2];
+            let error = FullVerifier::verify(&overlapping).unwrap_err();
+            assert!(error.message.contains("nonempty and disjoint"), "{}", error.message);
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "value")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("update function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(2));
+            }
+        });
+    }
+
+    #[test]
+    fn fs_root_methods_keep_opaque_identity_and_defaults_on_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/fs-root-methods.xsh");
+            let program = Arc::new(fixture("fs-root-methods.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "root_methods")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("filesystem root fixture exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("payload"))));
+            }
+        });
+    }
+
+    #[test]
+    fn cli_command_descriptor_plans_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-commands.xsh");
+            let program = fixture("cli-constant-commands.xsh", source);
+            assert_eq!(program.store.prepared_cli_plans.len(), 1);
+            assert!(program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliCommands));
+            assert!(!program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliParse));
+            FullVerifier::verify(&program).unwrap();
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "command_values")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("command descriptor function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("workspace/build"))));
+            }
+        });
+    }
+
+    #[test]
+    fn cli_descriptor_plans_share_preparation_and_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh");
+            let program = fixture("cli-constant-descriptors.xsh", source);
+            assert_eq!(program.store.prepared_cli_plans.len(), 2);
+            FullVerifier::verify(&program).unwrap();
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprModuleCall).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut broken = program.clone();
+            broken.store.extra[payload.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&broken).unwrap_err().message.contains("CLI descriptor plan is out of bounds"));
+            let mut wrong_policy = program.clone();
+            let applet = program.store.prepared_cli_plans.iter().position(|plan| plan.matches_operation(RuntimeOp::CliApplet)).unwrap();
+            wrong_policy.store.extra[payload.start + 2] = applet as u32;
+            assert!(FullVerifier::verify(&wrong_policy).unwrap_err().message.contains("operation policy"));
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "descriptor_values")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("descriptor function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("6/4/3"))));
+            }
+        });
+    }
+
+    #[test]
+    fn native_path_interpolation_executes_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/${value}/../end\" }\nproc native_plan(value: Path) [process, error] -> Command { return process.command { stdin = fp\"before/${value}\"; stdout = fp\"${value}/after\"; run true \"--target=$value\" } }\n";
+            let program = Arc::new(fixture("native-path-interpolation.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let argument = Value::Path(PathValue::new(b"raw\xff name".to_vec()).unwrap());
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "native_path")),
+                    LoweredFunctionKind::Pure, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
+                ).expect("native path function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Path(PathValue::new(b"prefix/raw\xff name/../end".to_vec()).unwrap()));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "native_plan")),
+                    LoweredFunctionKind::Proc, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
+                ).expect("native command plan exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                let Value::Command(plan) = result.unwrap() else { panic!("command plan"); };
+                assert_eq!(plan.argv.last().unwrap(), b"--target=raw\xff name");
+                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[0] else { panic!("file input redirection"); };
+                assert_eq!(path.bytes, b"before/raw\xff name");
+                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[1] else { panic!("file output redirection"); };
+                assert_eq!(path.bytes, b"raw\xff name/after");
+            }
+        });
+    }
+
+    #[test]
+    fn verifier_rejects_empty_or_unknown_comprehension_qualifiers() {
+        let program = fixture("indexed-comprehension.xsh", "pure values() -> List[Int] { return [inner for outer in [1] if outer > 0 for inner in [outer]] }\n");
+        let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprListComp).unwrap();
+        let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+        let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+        let entries = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+
+        let mut empty = program.clone();
+        empty.store.extra[entries.start] = 0;
+        empty.store.blocks[block.index()].instructions.len = 1;
+        let error = FullVerifier::verify(&empty).unwrap_err();
+        assert!(error.message.contains("must start with for"), "{}", error.message);
+
+        let mut unknown = program;
+        unknown.store.extra[entries.start + 1] = u32::MAX;
+        let error = FullVerifier::verify(&unknown).unwrap_err();
+        assert!(error.message.contains("qualifier tag is invalid"), "{}", error.message);
+    }
+
+    #[test]
     fn verifier_rejects_cross_function_instruction_ownership() {
         let mut program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
         let target = program.store.function_instruction_starts[0];
@@ -8045,6 +9139,196 @@ proc main() [error] {
             "function {function}: {}",
             error.message
         );
+    }
+
+    #[test]
+    fn pattern_aliases_and_alternatives_publish_only_complete_capture_sets() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let program = fixture("pattern-aliases.xsh", source);
+        program.symbol_owner().with_current(|| {
+            let view = program.function_view(LoweredFunctionKey::Name(Name::intern("select")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            let execution = view.execution().unwrap();
+            let mut slots = vec![LoweredValue::Unit; view.header().unwrap().slot_count];
+            let pattern = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::Alias).unwrap() as u32;
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let failed = LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(1)]), LoweredValue::List(vec![LoweredValue::Int(2)])]);
+            assert!(!Evaluator::indexed_pattern_matches(&execution, pattern, &failed, &mut slots, span).unwrap());
+            assert!(slots.iter().all(|slot| matches!(slot, LoweredValue::Unit)));
+            let matched = LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(99)]), LoweredValue::List(vec![LoweredValue::Int(7), LoweredValue::Int(8)])]);
+            assert!(Evaluator::indexed_pattern_matches(&execution, pattern, &matched, &mut slots, span).unwrap());
+            assert!(slots.iter().any(|slot| *slot == LoweredValue::Int(7)));
+            assert!(slots.iter().any(|slot| *slot == LoweredValue::List(vec![LoweredValue::Int(8)])));
+            assert!(slots.iter().any(|slot| *slot == matched));
+        });
+    }
+
+    #[test]
+    fn pattern_aliases_compact_facts_preserve_captured_subject_and_element_types() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        parsed.arena.symbol_owner().with_current(|| {
+            for (id, ty) in &bodies.expr_types {
+                match parsed.arena.arena.expr(*id).kind {
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "value" || name == "left" || name == "right" => assert_eq!(*ty, Type::Int),
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "tail" => assert_eq!(*ty, Type::List(Box::new(Type::Int))),
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "original" => assert_eq!(*ty, Type::List(Box::new(Type::List(Box::new(Type::Int))))),
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn verifier_rejects_incompatible_alternative_and_alias_capture_slots() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let program = fixture("pattern-aliases.xsh", source);
+        let alias = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::Alias).unwrap();
+        let alias_payload = program.store.pattern_data[alias].range().bounds(program.store.extra.len()).unwrap();
+        let mut bad_alias = program.clone();
+        bad_alias.store.extra[alias_payload.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&bad_alias).is_err());
+        let mut alias_cycle = program.clone();
+        alias_cycle.store.extra[alias_payload.start] = alias as u32;
+        assert!(FullVerifier::verify(&alias_cycle).unwrap_err().message.contains("nested pattern"));
+        let bind = program.store.patterns.iter().rposition(|tag| *tag == FullPatternTag::Bind).unwrap();
+        let range = program.store.pattern_data[bind].range().bounds(program.store.extra.len()).unwrap();
+        let mut duplicate = program.clone();
+        duplicate.store.extra[range.start] = 0;
+        assert!(FullVerifier::verify(&duplicate).is_err());
+    }
+
+    #[test]
+    fn direct_scalar_iteration_runs_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/scalar-iteration.xsh");
+            let program = Arc::new(fixture("scalar-iteration.xsh", source));
+            for recursive in [false, true] {
+                let execute = |name: &str| {
+                    let name = program_name(&program, name);
+                    let work = || run_full(program.clone(), name).0.unwrap();
+                    if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(work) } else { work() }
+                };
+                for (name, expected) in [("scalar_count", 261), ("scalar_comp", 3)] {
+                    assert_eq!(execute(name), Value::Int(expected));
+                }
+                let Value::Result(crate::runtime::value::ResultValue::Ok(value)) = execute("scalar_result") else { panic!("Result iterable") };
+                assert_eq!(*value, Value::Int(255));
+                let Value::Result(crate::runtime::value::ResultValue::Err(error)) = execute("scalar_failure") else { panic!("source failure") };
+                let Value::Error(error) = *error else { panic!("nominal source failure") };
+                assert_eq!(error.kind, "ScalarFailure.Missing");
+                assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), [Some("scalar source")]);
+            }
+        });
+    }
+
+    #[test]
+    fn lexical_ctx_indexed_execution_preserves_context_order_and_region_spans() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/error-context.xsh");
+        let program = Arc::new(fixture("error-context.xsh", source));
+        let value = program_name(&program, "contextual_value");
+        assert_eq!(run_full(program.clone(), value).0.unwrap(), Value::Int(7));
+        let failure = program_name(&program, "contextual_failure");
+        let Value::Result(crate::runtime::value::ResultValue::Err(error)) = run_full(program, failure).0.unwrap() else { panic!("expected propagated error") };
+        let Value::Error(error) = *error else { panic!("expected error") };
+        assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), vec![Some("inner"), Some("outer")]);
+        assert!(error.contexts.iter().all(|context| context.span.is_some_and(|span| source.get(span.range()).is_some_and(|text| text.starts_with("ctx ")))));
+        assert_eq!(error.kind, "validation");
+    }
+
+    #[test]
+    fn list_patterns_validate_before_publishing_capture_slots() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-patterns.xsh");
+        let program = fixture("list-patterns.xsh", source);
+        program.symbol_owner().with_current(|| {
+            let view = program.function_view(LoweredFunctionKey::Name(Name::intern("nested")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            let execution = view.execution().unwrap();
+            let count = view.header().unwrap().slot_count;
+            let pattern = program.store.patterns.iter().rposition(|tag| *tag == FullPatternTag::List).unwrap() as u32;
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let list = |last| LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(2)]), LoweredValue::List(vec![LoweredValue::Int(last)])]);
+            let mut slots = vec![LoweredValue::Unit; count];
+            assert!(!Evaluator::indexed_pattern_matches(&execution, pattern, &list(3), &mut slots, span).unwrap());
+            assert!(slots.iter().all(|value| matches!(value, LoweredValue::Unit)));
+            assert!(Evaluator::indexed_pattern_matches(&execution, pattern, &list(99), &mut slots, span).unwrap());
+            assert!(slots.iter().any(|value| *value == LoweredValue::Int(1)));
+            assert!(slots.iter().any(|value| *value == LoweredValue::List(vec![LoweredValue::Int(2)])));
+        });
+    }
+
+    #[test]
+    fn verifier_rejects_binding_and_missing_retry_selection_patterns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/selective-retry.xsh");
+        let program = fixture("selective-retry.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let retry = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRetry).unwrap();
+        let payload = program.store.data[retry].range().bounds(program.store.extra.len()).unwrap();
+        let binding = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::ResultOk).unwrap();
+        let mut invalid = program.clone();
+        invalid.store.extra[payload.start + 2] = binding as u32;
+        assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("cannot bind"));
+        let mut missing = program.clone();
+        missing.store.extra[payload.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&missing).is_err());
+    }
+
+    #[test]
+    fn verifier_rejects_invalid_list_rest_patterns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-patterns.xsh");
+        let program = fixture("list-patterns.xsh", source);
+        let parent = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::List).unwrap();
+        let range = program.store.pattern_data[parent].range().bounds(program.store.extra.len()).unwrap();
+        let mut invalid = program.clone();
+        invalid.store.extra[range.start + 2] = parent as u32;
+        assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("list rest"));
+        let mut missing = program.clone();
+        missing.store.extra[range.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&missing).is_err());
+    }
+
+    #[test]
+    fn verifier_checks_with_binding_slots_and_both_branch_returns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/block-parameters.xsh");
+        let program = fixture("block-parameters.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.tags.iter().position(|tag| *tag == FullTag::StmtWith).unwrap();
+        let payload = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        let bindings = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+        let bindings = program.store.blocks[bindings.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut bad_slot = program.clone();
+        bad_slot.store.extra[bindings.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&bad_slot).unwrap_err().message.contains("slot"));
+        assert!(indexed_stmt_can_return(&program.store, row).unwrap());
+    }
+
+    #[test]
+    fn verifier_checks_pattern_condition_capture_slots_and_branch_returns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-conditionals.xsh");
+        let program = fixture("pattern-conditionals.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.tags.iter().position(|tag| *tag == FullTag::StmtPatternWhile).unwrap();
+        let payload = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        let capture_block = IrBlockId::from_raw(program.store.extra[payload.start + 2]).unwrap();
+        let captures = program.store.blocks[capture_block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut bad_slot = program.clone();
+        bad_slot.store.extra[captures.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&bad_slot).unwrap_err().message.contains("slot"));
+    }
+
+    #[test]
+    fn verifier_rejects_nested_pattern_cycles_and_missing_children() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-tests.xsh");
+        let program = fixture("pattern-tests.xsh", source);
+        let parent = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::ResultTest).unwrap();
+        let range = program.store.pattern_data[parent].range().bounds(program.store.extra.len()).unwrap();
+        let mut cycle = program.clone();
+        cycle.store.extra[range.start + 1] = parent as u32;
+        assert!(FullVerifier::verify(&cycle).unwrap_err().message.contains("nested pattern"));
+        let mut missing = program.clone();
+        missing.store.extra[range.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&missing).is_err());
     }
 
     #[test]
@@ -8114,6 +9398,510 @@ proc main() [error] {
     }
 
     #[test]
+    fn constant_key_projection_preserves_index_and_get_both_routes() {
+        run_with_large_stack(|| {
+            let source = "type Config = {workers: Int}\nconst field = \"workers\"\npure counts() -> Int {\n  let config: Config = {workers: 4}\n  (config.get(field) ?? 0) + config[field]\n}\n";
+            let program = Arc::new(fixture("constant-key-projection.xsh", source));
+            assert!(program.store.tags.contains(&FullTag::ExprIndex));
+            assert!(program.store.tags.contains(&FullTag::ExprMethod));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("known field function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(8));
+            }
+        });
+    }
+
+    #[test]
+    fn uint_mutation_checks_execute_both_indexed_routes_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("uint-mutation.xsh", include_str!("../../../../tests/fixtures/frontend-indexed/uint-mutation.xsh")));
+            FullVerifier::verify(&program).unwrap();
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCheckedValue).expect("constructors and method operands retain checked values");
+            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut malformed = (*program).clone();
+            malformed.store.extra[words.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).is_err(), "checked value types must refer to the semantic pool");
+            for recursive in [false, true] {
+                for name in ["scalar_failure", "compound_failure", "record_failure", "list_failure", "map_failure", "append_failure", "valid_updates", "argument_failure", "return_failure", "tail_failure", "default_failure", "list_default_failure", "list_return_failure", "map_return_failure", "record_return_failure", "list_argument_failure", "map_argument_failure", "record_argument_failure", "map_default_failure", "record_default_failure", "result_return_failure", "producer_failure", "nested_producer_failure", "accept", "negative_return", "defaulted", "list_defaulted", "map_defaulted", "record_defaulted", "tag_failure", "error_failure", "method_list_failure", "method_map_failure", "method_fallback_failure", "method_map_push_failure", "inferred_if_failure", "inferred_match_failure", "builtin_creation_failure", "branch_creation_failure"] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let args = if matches!(name, "argument_failure" | "return_failure" | "list_return_failure" | "map_return_failure" | "record_return_failure" | "list_argument_failure" | "map_argument_failure" | "record_argument_failure" | "result_return_failure" | "producer_failure" | "nested_producer_failure" | "accept" | "negative_return" | "tag_failure" | "error_failure" | "method_list_failure" | "method_map_failure" | "method_fallback_failure" | "method_map_push_failure" | "inferred_if_failure" | "inferred_match_failure" | "builtin_creation_failure" | "branch_creation_failure") { vec![Value::Int(-1)] } else { Vec::new() };
+                    let kind = if matches!(name, "producer_failure" | "nested_producer_failure") { LoweredFunctionKind::Proc } else { LoweredFunctionKind::Pure };
+                    let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, name)), kind, &args, Span::new(program.store.source_id, 0, 0)).expect("UInt function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    if name == "valid_updates" { assert_eq!(result.unwrap(), Value::Int(8)); }
+                    else {
+                        let error = result.unwrap_err();
+                        assert_eq!(error.kind, "type-error", "{name}");
+                        assert!(error.message.contains("UInt") || error.message.contains("UnsignedRow"), "{name}: {}", error.message);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn typed_map_keys_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure counts() -> Int {\n  var values: Map[Int, Int] = {[20]: 2, [3]: 1}\n  let older = values\n  values[3] = 9\n  let keys: List[Int] = values.keys()\n  return keys[0] + older[3] + (values.get(3) ?? 0)\n}\n";
+            let program = fixture("typed-map.xsh", source);
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("typed Map function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(13));
+            }
+        });
+    }
+
+    #[test]
+    fn absence_lookups_execute_nullable_and_integer_slots_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = "pure nullable(text: Str, position: Int) -> Int? { let byte = text.byte_at(position); byte }\npure sentinel(text: Str, position: Int) -> Int { let byte = text.byte_at(position) ?? -1; byte }\npure find(text: Str, position: Int) -> Int? { text.find(\":\", position) }\npure present() -> Int? { let entries: Map[Int?] = {present: null}; entries.get(\"present\") ?? 7 }\n";
+            let program = fixture("absence-lookups.xsh", source);
+            assert!(program.store.tags.contains(&FullTag::ExprStrByteAt));
+            assert!(program.store.tags.contains(&FullTag::IntStrByteAtSlot));
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for (name, text, index, expected) in [
+                    ("nullable", "é", 0, Value::Int(195)), ("nullable", "é", 2, Value::Null),
+                    ("nullable", "é", -1, Value::Null), ("sentinel", "é", 0, Value::Int(195)),
+                    ("sentinel", "é", 2, Value::Int(-1)), ("find", ":x", 0, Value::Int(0)),
+                    ("find", "é:x", 0, Value::Int(2)), ("find", "é:x", 3, Value::Null),
+                ] {
+                    let args = [Value::Str(Arc::from(text)), Value::Int(index)];
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &args,
+                        Span::new(program.store.source_id, 0, 0),
+                    ).expect("lookup function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected, "{name} index {index} recursive {recursive}");
+                }
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "present")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("present function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Null);
+            }
+        });
+    }
+
+    #[test]
+    fn map_literals_verify_entry_flags_and_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure counts() -> Int {\n  let source: Map[Int] = {beta: 3}\n  let values: Map[Int] = {[\"alpha\"]: 1, alpha: 2, ...source}\n  return (values.get(\"alpha\") ?? 0) + (values.get(\"beta\") ?? 0)\n}\n";
+            let program = fixture("computed-map.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprMapLiteral).expect("Map literal instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+            let entries = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut bad_flag = program.clone();
+            bad_flag.store.extra[entries.start + 1] = 2;
+            assert!(FullVerifier::verify(&bad_flag).is_err());
+            let mut bad_key = program.clone();
+            bad_key.store.extra[entries.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_key).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("Map function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(5));
+            }
+        });
+    }
+
+    #[test]
+    fn list_assignment_verifies_paths_and_executes_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-assignment.xsh");
+            let program = fixture("list-assignment.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssignPath).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+            let steps = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut malformed = program.clone();
+            malformed.store.extra[steps.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("assignment path step"));
+            let mut bad_index = program.clone();
+            bad_index.store.extra[steps.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_index).is_err());
+            let mut empty = program.clone();
+            empty.store.extra[steps.start] = 0;
+            assert!(FullVerifier::verify(&empty).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "updated")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("assignment function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(16));
+            }
+        });
+    }
+
+    #[test]
+    fn list_splicing_verifies_payload_and_executes_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure spliced() -> Int {\n  let middle = [2, 3]\n  let result = [1, @[], @middle, 4]\n  return result[0] + result[3]\n}\n";
+            let program = fixture("list-splicing.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprListBuild).expect("mixed list instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+            let elements = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut malformed = program.clone();
+            malformed.store.extra[elements.start + 1] = 2;
+            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("boolean payload"));
+            let mut bad_child = program.clone();
+            bad_child.store.extra[elements.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_child).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "spliced")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("splice function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(5));
+            }
+        });
+    }
+
+    #[test]
+    fn try_capture_verifies_body_ownership_and_preserves_result_data_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = fixture("try-capture.xsh", "proc capture() [error] -> Result[Int] {\n  let nested = try { Ok(7) }?\n  nested\n}\n");
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCapture).expect("capture instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut missing_body = program.clone();
+            missing_body.store.extra[payload.start] = u32::MAX;
+            assert!(FullVerifier::verify(&missing_body).is_err());
+            let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+            let mut wrong_kind = program.clone();
+            wrong_kind.store.blocks[block.index()].flags = BLOCK_LIST;
+            assert!(FullVerifier::verify(&wrong_kind).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "capture")), LoweredFunctionKind::Proc,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("capture function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
+            }
+        });
+    }
+
+    #[test]
+    fn stage_named_configuration_verifies_children_and_executes_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = r#"
+proc configured() [] -> Int {
+  let limits = {count: 2, max_bytes: 4, max_argv: false}
+  let batches = ["aa", "bb", "cc"] |> batch(...limits)
+  let mode = true
+  let totals = [1, 2] |> reduce-by(sum: mode) { |item| {key: "all", value: item} }
+  let columns = ["name"]
+  [{name: "row"}] |> table.print(columns:)
+  return batches.len() + (totals.get("all") ?? 0)
+}
+"#;
+            let program = fixture("stage-named-configuration.xsh", source);
+            for (tag, configuration_offset) in [(FullStageTag::BatchLimits, 0), (FullStageTag::ReduceByConfigured, 3), (FullStageTag::TablePrintConfigured, 0)] {
+                let stage = program.store.stages.iter().position(|actual| *actual == tag).expect("configured stage opcode");
+                let payload = program.store.stage_data[stage].range().bounds(program.store.extra.len()).unwrap();
+                let mut malformed = program.clone();
+                malformed.store.extra[payload.start + configuration_offset] = u32::MAX;
+                assert!(FullVerifier::verify(&malformed).is_err());
+            }
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "configured")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("configuration function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(5));
+                assert!(String::from_utf8(evaluator.stdout.clone()).unwrap().contains("row"));
+            }
+        });
+    }
+
+    #[test]
+    fn core_assert_verifier_rejects_invalid_message_presence_and_expression() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/assert.xsh");
+        let program = fixture("assert.xsh", source);
+        let assertion = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssert).unwrap();
+        let payload = program.store.data[assertion].range().bounds(program.store.extra.len()).unwrap();
+        let mut invalid_presence = program.clone();
+        invalid_presence.store.extra[payload.start + 1] = 2;
+        assert!(FullVerifier::verify(&invalid_presence).unwrap_err().message.contains("optional payload"));
+        let mut invalid_message = program.clone();
+        invalid_message.store.extra[payload.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&invalid_message).is_err());
+        let mut statement_message = program;
+        statement_message.store.extra[payload.start + 2] = assertion as u32;
+        assert!(FullVerifier::verify(&statement_message).is_err());
+    }
+
+    #[test]
+    fn core_assert_executes_lazy_context_and_preserves_diagnostics_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/assert.xsh");
+            let program = Arc::new(fixture("assert.xsh", source));
+            for recursive in [false, true] {
+                for (name, detail) in [("passes", None), ("fails", Some("1 == 2")), ("chain_fails", Some("3 < 2")), ("short_circuit_fails", Some("right operand skipped"))] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("assertion function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    if let Some(detail) = detail {
+                        let error = result.expect_err("false assertion fails");
+                        assert_eq!(error.family, "AssertionError");
+                        assert_eq!(error.variant, "Failed");
+                        assert_eq!(error.kind, "AssertionError.Failed");
+                        assert!(error.message.contains(detail), "{}", error.message);
+                        assert!(error.message.contains("context"));
+                        assert!(!error.message.contains("division-by-zero"));
+                    } else {
+                        assert_eq!(result.unwrap(), Value::ok(Value::Int(7)));
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn comparison_chain_verifier_rejects_short_chains_and_non_ordering_pairs() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
+        let program = fixture("comparison-chain.xsh", source);
+        let chain = program.store.tags.iter().position(|tag| *tag == FullTag::ExprComparisonChain).unwrap();
+        let payload = program.store.data[chain].range().bounds(program.store.extra.len()).unwrap();
+        let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+        let pairs = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut short = program.clone();
+        short.store.extra[pairs.start] = 1;
+        assert!(FullVerifier::verify(&short).unwrap_err().message.contains("at least two pairs"));
+        let first_pair = program.store.extra[pairs.start + 1] as usize;
+        let pair_payload = program.store.data[first_pair].range().bounds(program.store.extra.len()).unwrap();
+        let mut mixed = program;
+        let op = mixed.store.extra[pair_payload.start] as usize;
+        mixed.store.binary_ops[op] = BinaryOp::Eq;
+        assert!(FullVerifier::verify(&mixed).unwrap_err().message.contains("ordering operators"));
+    }
+
+    #[test]
+    fn comparison_chain_assertion_reports_only_evaluated_failed_pair_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
+            let mut program = fixture("comparison-chain.xsh", source);
+            for (index, tag) in program.store.tags.iter().enumerate() {
+                if *tag == FullTag::ExprComparisonChain {
+                    let payload = program.store.data[index].range().bounds(program.store.extra.len()).unwrap();
+                    program.store.extra[payload.start + 1] = 1;
+                }
+            }
+            FullVerifier::verify(&program).unwrap();
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                for (name, message) in [("skipped", "3 < 2"), ("failed_last", "2 < 1")] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("chain function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    let error = result.expect_err("asserted chain fails");
+                    assert_eq!(error.kind, "AssertionError.Failed");
+                    assert_eq!(error.family, "AssertionError");
+                    assert_eq!(error.variant, "Failed");
+                    assert!(error.message.contains(message), "{}", error.message);
+                    let failed_source = &source[error.span.unwrap().range()];
+                    assert_eq!(failed_source, message);
+                    assert!(!error.message.contains("division"));
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn record_proof_precise_types_and_unreachable_fallback_survive_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/proof-provenance.xsh");
+            let program = Arc::new(fixture("proof-provenance.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "verified")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("proof function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Str("ready".into()));
+            }
+        });
+    }
+
+    #[test]
+    fn duration_arithmetic_retains_checked_operands_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/duration-arithmetic.xsh");
+            let program = Arc::new(fixture("duration-arithmetic.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                let duration = |millis| Value::Duration(crate::runtime::value::DurationValue { millis });
+                for (name, args, expected) in [
+                    ("intervals", vec![duration(7000), duration(2000)], Value::Int(3)),
+                    ("pause", vec![duration(250), Value::Int(3)], duration(751)),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &args, Span::new(program.store.source_id, 0, 0),
+                    ).expect("Duration function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected);
+                }
+                for (name, code, expression) in [
+                    ("underflow", "duration-underflow", "0ms - 1ms"),
+                    ("overflow", "duration-overflow", "18446744073709551615ms + 1ms"),
+                    ("count_overflow", "integer-overflow", "18446744073709551615ms / 1ms"),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("Duration function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    let error = result.expect_err("checked arithmetic failure");
+                    assert_eq!(error.kind, code);
+                    assert_eq!(&source[error.span.unwrap().range()], expression);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn wire_enum_preparation_survives_frontend_drop_and_executes_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/wire-enums.xsh");
+            let program = Arc::new(fixture("wire-enums.xsh", source));
+            assert_eq!(program.store.wire_enums.len(), 1, "constructors share one declaring mapping");
+            FullVerifier::verify(&program).unwrap();
+            let mut malformed = (*program).clone();
+            Arc::make_mut(&mut malformed.store.wire_enums[0]).variants.insert(program_name(&program, "Duplicate"), Arc::from("ready"));
+            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("duplicate strings"));
+            let mut missing = (*program).clone();
+            missing.store.wire_enums.clear();
+            assert!(FullVerifier::verify(&missing).is_err());
+            let mut mismatched = (*program).clone();
+            mismatched.store.prepared_schemas[0] = Arc::new(super::super::super::require::PreparedSchema::Validate(Type::Int));
+            assert!(FullVerifier::verify(&mismatched).unwrap_err().message.contains("does not match"));
+            let mut missing_schema = (*program).clone();
+            missing_schema.store.prepared_schemas.clear();
+            assert!(FullVerifier::verify(&missing_schema).is_err());
+            fn change_mapping(schema: &mut super::super::super::require::PreparedSchema) -> bool {
+                use super::super::super::require::PreparedSchema;
+                match schema {
+                    PreparedSchema::WireEnum(mapping) => {
+                        let mapping = Arc::make_mut(mapping);
+                        *mapping.variants.values_mut().next().unwrap() = Arc::from("different");
+                        true
+                    }
+                    PreparedSchema::Record(fields) => fields.iter_mut().any(|(_, schema)| change_mapping(Arc::make_mut(schema))),
+                    PreparedSchema::List(schema) | PreparedSchema::Map(_, schema) | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
+                    PreparedSchema::Validate(_) => false,
+                }
+            }
+            let mut contradictory = (*program).clone();
+            assert!(change_mapping(Arc::make_mut(&mut contradictory.store.prepared_schemas[0])));
+            assert!(FullVerifier::verify(&contradictory).is_err(), "schema and constructor mappings must agree");
+            let mut duplicate = (*program).clone();
+            duplicate.store.wire_enums.push(duplicate.store.wire_enums[0].clone());
+            assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("multiple mappings"));
+            let mut changed_constant = (*program).clone();
+            let tag = changed_constant.store.prepared_constants.iter_mut().find_map(|value| match &mut value.0 {
+                LoweredValue::Tag(tag) if tag.wire.is_some() => Some(tag),
+                _ => None,
+            }).expect("prepared enum constant");
+            *Arc::make_mut(tag.wire.as_mut().unwrap()).variants.values_mut().next().unwrap() = Arc::from("forged");
+            assert!(FullVerifier::verify(&changed_constant).unwrap_err().message.contains("contradictory"));
+            let raw = "{\"state\":\"ready\",\"values\":[\"\"],\"optional\":null}";
+            for recursive in [false, true] {
+                for (name, arguments, expected) in [
+                    ("wire_direct", Vec::new(), "\"ready\""),
+                    ("wire_prepared", Vec::new(), "\"ready\""),
+                    ("wire_typed_map", Vec::new(), "[\"ready\",\"\"]"),
+                    ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
+                    ("wire_nested", vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))], "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}"),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &arguments, Span::new(program.store.source_id, 0, 0),
+                    ).expect("wire enum function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn inferred_require_targets_survive_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/inferred-require.xsh");
+            let program = Arc::new(fixture("inferred-require.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            assert_eq!(program.store.prepared_schemas.iter().filter(|schema| matches!(schema.as_ref(), super::super::super::require::PreparedSchema::Record(_))).count(), 1, "both validation sites share the same checked record schema: {:?}", program.store.prepared_schemas);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let raw = program.symbols.with_current(|| Value::Record(BTreeMap::from([(Arc::from("jobs"), Value::Int(4))]).into()));
+                let arguments = vec![raw];
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "inferred_requirement_via_parameter")), LoweredFunctionKind::Pure,
+                    &arguments, Span::new(program.store.source_id, 0, 0),
+                ).expect("prepared function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Int(4)));
+            }
+        });
+    }
+
+    #[test]
     fn locations_preserve_imported_source_identity() {
         let mut sources = SourceMap::new();
         let root_id = sources.add_file("root.xsh", "use module\n");
@@ -8149,7 +9937,9 @@ proc main() [error] {
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("compact_import.xsh"),
-            "let suffix = \"!\"\n\
+            "##! Imported label provider.\n\
+             let suffix = \"!\"\n\
+             ## Build a label with the retained suffix.\n\
              export pure label(value: Str) -> Str {\n\
                return value + suffix\n\
              }\n",
@@ -8220,4 +10010,267 @@ proc main() [error] {
 
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn yield_delegation_verifies_operands_and_preserves_nominal_error_payload() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/yield-delegation.xsh");
+            let program = fixture("yield-delegation.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::StmtYieldDelegate).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut malformed = program.clone();
+            malformed.store.extra[payload.start] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).is_err());
+            let mut malformed = program.clone();
+            malformed.store.extra[payload.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).is_err());
+            let program = Arc::new(program);
+            program.symbol_owner().with_current(|| {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let span = Span::new(program.store.source_id, 0, 0);
+                let value = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "parent")), LoweredFunctionKind::Pure, &[], span,
+                ).expect("producer function").expect("producer creation");
+                let Value::Stream(mut stream) = value else { panic!("producer returns stream"); };
+                for expected in [1, 2, 3] {
+                    assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(expected)));
+                }
+                let error = evaluator.stream_next(&mut stream, span).expect_err("late delegated error");
+                assert_eq!(error.family, "RowsError");
+                assert_eq!(error.variant, "Late");
+                assert_eq!(error.payload.get("row"), Some(&Value::Int(4)));
+                assert_eq!(source[error.span.unwrap().range()].trim(), "fail()?");
+                assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
+            });
+        });
+    }
+
+    #[test]
+    fn accept_policy_operands_are_verified_on_capture_spawn_and_command_rows() {
+        run_with_large_stack(|| {
+            let program = fixture("accept-policy-rows.xsh", r#"
+proc checked() [process, error] {
+  let text = run.text --accept=[0,1] sh -c "exit 1" ?
+  let child = spawn run --accept=[0,1] sh -c "exit 1" ?
+  let command = process.command_argv("sh", ["sh", "-c", "exit 1"], accept: [0,1])
+  print $text $child.pid
+  let status = process.run(command)?
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            for (tag, value_offset) in [(FullTag::ExprRunCapture, 4), (FullTag::ExprSpawnRun, 2), (FullTag::ExprProcessCommandArgv, 2)] {
+                let instruction = program.store.tags.iter().position(|actual| *actual == tag).expect("process row");
+                let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+                assert_eq!(program.store.extra[payload.end - value_offset - 1], 1, "policy is present");
+                let mut invalid_value = program.clone();
+                invalid_value.store.extra[payload.end - value_offset] = u32::MAX;
+                assert!(FullVerifier::verify(&invalid_value).is_err());
+                let mut invalid_presence = program.clone();
+                invalid_presence.store.extra[payload.end - value_offset - 1] = 2;
+                assert!(FullVerifier::verify(&invalid_presence).is_err());
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_escape_walks_long_shared_error_causes_without_a_depth_limit() {
+        use crate::runtime::value::RuntimeError;
+
+        let symbols = crate::symbol::SymbolOwner::default();
+        let _symbols = symbols.enter();
+        let mut leaf = RuntimeError::new("inner", "resource payload");
+        leaf.payload = crate::runtime::value::RecordMap::from([("job".into(),
+            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7 })))]);
+        let mut chain = Value::Error(Box::new(leaf));
+        for _ in 0..100_000 {
+            chain = Value::Error(Box::new(RuntimeError::new("outer", "translation")))
+                .with_error_cause(chain).unwrap();
+        }
+        let process = Value::RunError(Box::new(crate::runtime::value::RunError::from_status(
+            crate::runtime::process::ProcessStatus::exited(7))))
+            .with_error_cause(chain).unwrap();
+        let shared = Value::List(vec![process.clone(), process]);
+        assert!(Evaluator::context_scope_runtime_value_escapes(&shared));
+        assert!(Evaluator::context_scope_value_escapes(&LoweredValue::ResultErr(Box::new(shared))));
+    }
+
+    #[test]
+    fn context_scope_dynamic_outer_assignment_is_rejected_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"stream rows() [] -> Stream[Int] { yield 1 }
+proc hidden() [] -> Any { rows() }
+proc scoped() [env, error] -> Int {
+  var output: Any = null
+  let ignored = env ({XSH_SCOPE_ASSIGNMENT: "inner"}) { output = hidden(); 7 }
+  99
+}
+proc local() [env, error] -> Int {
+  env ({XSH_SCOPE_ASSIGNMENT: "inner"}) { var output: Any = null; output = hidden(); 7 }?
+}
+"#;
+            let program = Arc::new(fixture("context-scope-assignment.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_SCOPE_ASSIGNMENT".to_vec(), b"outer".to_vec());
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap_err().kind, "context-scope-escape");
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "local")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(7));
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_force_abort_restores_evaluator_state_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"proc fail() [io, error] -> Int { abort(23, force: true); 9 }
+proc scoped() [io, error] -> Int {
+  let ignored = cd (p"/") {
+    let ignored = env ({XSH_FORCE_SCOPE: "inner"}) { fail() }
+    7
+  }
+  99
+}
+"#;
+            let program = Arc::new(fixture("context-scope-force.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_FORCE_SCOPE".to_vec(), b"outer".to_vec())
+                    .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
+                let original_cwd = evaluator.cwd.clone();
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert!(result.unwrap_err().abort.is_some_and(|signal| signal.force));
+                assert_eq!(evaluator.cwd, original_cwd);
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_verifies_payload_and_preserves_native_environment_bytes() {
+        run_with_large_stack(|| {
+            let source = "proc selected(value: Path) [env, error] -> Result[Int] { env ({XSH_NATIVE_SCOPE: value}) { 7 } }\n";
+            let program = fixture("context-scope-native.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprContextScope).expect("scope instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut bad_kind = program.clone();
+            bad_kind.store.extra[payload.start] = 2;
+            assert!(FullVerifier::verify(&bad_kind).is_err());
+            let mut bad_input = program.clone();
+            bad_input.store.extra[payload.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_input).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let argument = Value::Path(PathValue::new(b"raw\xfe name".to_vec()).unwrap());
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Proc, &[argument.clone()],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert!(result.is_ok(), "{result:?}");
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_fatal_body_restores_state_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"proc fatal() [env, error] -> Int {
+  let ignored = cd (p"/") {
+    let ignored = env ({XSH_FATAL_SCOPE: "inner"}) { let zero = 0; 1 / zero }
+    7
+  }
+  99
+}
+"#;
+            let program = Arc::new(fixture("context-scope-fatal.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_FATAL_SCOPE".to_vec(), b"outer".to_vec());
+                let original_cwd = evaluator.cwd.clone();
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "fatal")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert!(result.unwrap_err().abort.is_none());
+                assert_eq!(evaluator.cwd, original_cwd);
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            }
+        });
+    }
+
+    #[test]
+    fn default_parameter_calls_preserve_both_indexed_execution_routes_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
+            let program = Arc::new(fixture("default-parameters.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                for (name, expected) in [("choose", 4), ("nested", 5), ("supplied", 9), ("alias_default", 4), ("alias_named", 11)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("defaulted function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), Value::Int(expected));
+                }
+                for (name, succeeds) in [("caught", false), ("skipped", true)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("defaulted Result function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert!(matches!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(_))) == succeeds);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn default_parameter_verifier_rejects_missing_or_inconsistent_entry_metadata() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
+        let program = fixture("default-parameters.xsh", source);
+        let parameter = program.store.params.iter().position(|param| param.flags & 4 != 0).unwrap();
+        let mut missing_default = program.clone();
+        missing_default.store.params[parameter].flags &= !2;
+        assert!(FullVerifier::verify(&missing_default).unwrap_err().message.contains("non-rest defaulted parameter entry"));
+        let mut inconsistent_entry = program.clone();
+        inconsistent_entry.store.params[parameter].flags &= !4;
+        assert!(FullVerifier::verify(&inconsistent_entry).unwrap_err().message.contains("entry does not match"));
+        let mut rest_default = program;
+        rest_default.store.params[parameter].flags |= 1;
+        assert!(FullVerifier::verify(&rest_default).unwrap_err().message.contains("non-rest defaulted parameter entry"));
+    }
+
 }

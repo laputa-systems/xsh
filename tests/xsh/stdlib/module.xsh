@@ -4,7 +4,7 @@ type Plugin = module {
   export proc execute(root: Path) [fs, error] -> Result[Unit]
 }
 
-proc test_module_load(ctx: TestContext) [fs, error] {
+test test_module_load [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module")?
   let plugin_path = fp"${root}/plugin.xsh"
 
@@ -35,7 +35,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   fp"${root}/out.txt".read_text()? == "demo"
 }
 
-proc test_module_load_exports_private_fields_and_contract_errors(ctx: TestContext) [fs, error] {
+test test_module_load_exports_private_fields_and_contract_errors [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "dynamic-module-contract")?
   fp"${root}/helper.xsh".write(r"""
 ##! Dynamic helper module.
@@ -52,7 +52,7 @@ export pure helper_label(value: Str) -> Str {
 ##! Dynamic package module.
 use helper
 
-let prefix = helper_name
+let prefix = helper.helper_name
 
 pure label_private(value: Str) -> Str {
   return f"${prefix}-${value}"
@@ -129,7 +129,7 @@ match loaded.require(BadPackage) {
   test.ok(mismatch.success, mismatch.stderr)?
 }
 
-proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] {
+test test_module_load_rejects_undocumented_export [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "undocumented-module")?
   let plugin_path = fp"${root}/undocumented.xsh"
   fs.write(
@@ -148,7 +148,7 @@ proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] 
   "undocumented exports" in output.stderr
 }
 
-proc test_module_load_rejects_forbidden_top_level_forms(ctx: TestContext) [fs, error] {
+test test_module_load_rejects_forbidden_top_level_forms [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-top-level")?
   for fixture in [
     {
@@ -197,7 +197,7 @@ export let name = "bad"
   hook.name() in output.stderr
 }
 
-proc test_static_and_loaded_modules_reject_the_same_contract_mismatches(ctx: TestContext) [fs, error] {
+test test_static_and_loaded_modules_reject_the_same_contract_mismatches [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-contract-mismatches")?
   let optional_path = fp"${root}/bad_optional.xsh"
   let effect_path = fp"${root}/bad_effect.xsh"
@@ -216,13 +216,11 @@ export proc execute() [fs, process, error] -> Result[Unit] {
 }
 """)?
 
-  let optional_contract = """
-type Plugin = module {
+  let optional_contract = """\ntype Plugin = module {
   export optional let description: Str
 }
 """
-  let effect_contract = """
-type Runner = module {
+  let effect_contract = """\ntype Runner = module {
   export proc execute() [fs, error] -> Result[Unit]
 }
 """
@@ -248,7 +246,7 @@ let _ = module.load(p"${effect_path}")?.require(Runner)?
   }
 }
 
-proc test_static_module_namespace_satisfies_the_same_contract(ctx: TestContext) [fs, error] {
+test test_static_module_namespace_satisfies_the_same_contract [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "static-module-contract")?
   fp"${root}/runner.xsh".write("""
 ##! Static runner fixture.
@@ -281,7 +279,7 @@ main()?
   fp"${root}/out.txt".read_text()? == "static"
 }
 
-proc test_same_basename_modules_keep_separate_top_level_bindings(ctx: TestContext) [fs, error] {
+test test_same_basename_modules_keep_separate_top_level_bindings [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "same-basename-modules")?
   fp"${root}/alpha".mkdir()?
   fp"${root}/beta".mkdir()?
@@ -329,7 +327,7 @@ print ${beta.count_words()}
 """
 }
 
-proc test_imported_local_args_shadows_predeclared_script_arguments(ctx: TestContext) [fs, error] {
+test test_imported_local_args_shadows_predeclared_script_arguments [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "imported-if-list")?
   fp"${root}/selector.xsh".write("""
 ##! Selects a list in an imported function.
@@ -354,7 +352,58 @@ print ${selector.select(["unknown"]).len()}
 """
 }
 
-proc test_static_module_exports_bind_one_namespace(ctx: TestContext) [fs, error] {
+test test_imported_error_constructor_named_fields_preserve_identity_and_order [fs, error] { |ctx|
+  let root = test.temp_dir(ctx)?
+  fp"${root}/helper.xsh".write(r"""
+##! Imported error constructor fixture.
+## A checked failure with two named fields.
+export error HelperError = Failed(detail: Str, code: Int) : Temporary
+## Constructs a failure inside the defining module.
+export pure failure() -> Result[Unit] {
+  Err(HelperError.Failed(detail: "loaded", code: 9))
+}
+""")?
+  let result = test.run_script(ctx, r"""
+use helper
+var order = 0
+let failure = helper.HelperError.Failed(
+  code: { order = order * 10 + 1; 7 },
+  detail: { order = order * 10 + 2; "failed" },
+)
+match failure {
+  helper.HelperError.Failed {detail, code} => print $detail $code $order
+  _ => print "wrong family"
+}
+let dynamic: Any = failure
+match dynamic {
+  _ is helper.Temporary => print "temporary"
+  _ => print "wrong facet"
+}
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "failed 7 12\ntemporary\n")?
+  let aliased = test.run_script(ctx, r"""
+use helper as h
+let failure = h.HelperError.Failed(detail: "aliased", code: 8)
+match failure {
+  h.HelperError.Failed {detail, code} => print $detail $code
+  _ => print "wrong family"
+}
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(aliased.success, aliased.stderr)?
+  test.eq(aliased.stdout, "aliased 8\n")?
+  let loaded = test.run_script(ctx, f"""
+type FailureProvider = module {
+  export pure failure() -> Result[Unit]
+}
+let provider = module.load(p"${root.display()}/helper.xsh")?.require(FailureProvider)?
+print \${provider.failure() is Err(_)}
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(loaded.success, loaded.stderr)?
+  test.eq(loaded.stdout, "true\n")?
+}
+
+test test_static_module_exports_bind_one_namespace [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-namespace")?
   fp"${root}/helper.xsh".write("""
 ##! Namespace-only static module fixture.
@@ -374,7 +423,7 @@ export stream numbers() [] -> Stream[Int] {
   yield 1
 }
 ## A tagged union export.
-export type State = Ready | Stopped(Str)
+export enum State { Ready, Stopped(Str) }
 ## An error family export with an error facet.
 export error HelperError = Failed(detail: Str) : Temporary
 """)?
@@ -477,7 +526,7 @@ HelperError.Failed(detail: "failed")
   }
 }
 
-proc test_qualified_module_functions_remain_callable_as_values(ctx: TestContext) [fs, error] {
+test test_qualified_module_functions_remain_callable_as_values [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-functions")?
   fp"${root}/package.xsh".write(r"""
 ##! Qualified values fixture module.
@@ -518,7 +567,7 @@ pkg:demo
 """
 }
 
-proc test_qualified_record_fields_pass_to_effectful_module_proc(ctx: TestContext) [fs, error] {
+test test_qualified_record_fields_pass_to_effectful_module_proc [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-record")?
   fp"${root}/target.xsh".write(r"""
 ##! Target fixture module.
@@ -564,7 +613,7 @@ l.normalize(context)?
 """
 }
 
-proc test_module_proc_call_preserves_runtime_cwd(ctx: TestContext) [fs, error] {
+test test_module_proc_call_preserves_runtime_cwd [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-proc-cwd")?
   let src = fp"${root}/src"
   let out = fp"${root}/cwd.txt"
@@ -573,18 +622,21 @@ proc test_module_proc_call_preserves_runtime_cwd(ctx: TestContext) [fs, error] {
   callee.write(r"""
 ##! CWD writer module.
 ## Writes the active runtime working directory.
-export proc write_cwd(out: Path) [fs, error] {
+export proc write_cwd(out: Path) [fs, error] -> Result[Unit] {
   fs.write(out, fs.cwd()?.display())?
 }
 """)?
   fp"${root}/caller.xsh".write(f"""
 ##! CWD caller module.
+type Writer = module {
+  export proc write_cwd(out: Path) [fs, error] -> Result[Unit]
+}
+
 ## Loads the writer and invokes it within the requested directory.
-export proc invoke(src: Path, out: Path) [fs, error] {
-  let module_exports = module.load(p"${callee.display()}")?
+export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {
+  let module_exports = module.load(p"${callee.display()}")?.require(Writer)?
   cd src {
-    let write_cwd: Proc = module_exports.get("write_cwd")?
-    write_cwd.call(out)?
+    module_exports.write_cwd(out)?
   } ?
 }
 """)?
@@ -602,7 +654,7 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
   out.read_text()? == src.display()
 }
 
-proc test_module_path_resolves_nested_module_with_default_alias(ctx: TestContext) [fs, error] {
+test test_module_path_resolves_nested_module_with_default_alias [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "nested-module-path")?
   let lib = fp"${root}/lib"
   fp"${lib}/pm".mkdir()?
@@ -630,7 +682,7 @@ print ${configure.label("pkgconf")}
   output.stderr == ""
 }
 
-proc test_module_import_alias_trace_and_cycle(ctx: TestContext) [fs, error] {
+test test_module_import_alias_trace_and_cycle [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-imports")?
   fp"${root}/helper.xsh".write(r"""
 ##! Helper fixture module.
@@ -663,17 +715,16 @@ export type Package = {name: Str, root: Path}
 export let pkg: Package = {name: "demo", root: Path("src")}
 """)?
 
-  let source = r"""
-use helper
+  let source = """\nuse helper
 use package as p
-helper.greet("world")?
-helper.greet("namespace")?
+helper.greet(\"world\")?
+helper.greet(\"namespace\")?
 helper.show(p.pkg)?
-print ${p.pkg.name}
-match p.get("Package") {
+print \${p.pkg.name}
+match p.get(\"Package\") {
   Err(error) => {
-    test.error_kind(error, "missing-field")?
-    print "missing-field"
+    test.error_kind(error, \"missing-field\")?
+    print \"missing-field\"
   }
 }
 """
@@ -714,7 +765,7 @@ export let value = 2
   "parse.module-cycle" in cycle.stderr
 }
 
-proc test_package_hook_module_calls_keep_dynamic_and_static_cwd(ctx: TestContext) [fs, error] {
+test test_package_hook_module_calls_keep_dynamic_and_static_cwd [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "package-hook-modules")?
   let dynamic_out = fp"${root}/dynamic-out"
   let static_src = fp"${root}/static-src"
@@ -771,7 +822,7 @@ main(@args)?
 """
 }
 
-proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
+test test_stream_exports_are_namespace_members_not_module_contract_members [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""
 export stream numbers() [] -> Stream[Int] {

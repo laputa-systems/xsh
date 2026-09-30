@@ -44,35 +44,36 @@ type Scan = {stats: Stats, deep: Stats}
 
 type FileReport = {stats: Stats, name: Str}
 
-type Language =
-    LangUnknown
-  | LangBash
-  | LangCss
-  | LangDockerfile
-  | LangForgeConfig
-  | LangHtml
-  | LangIni
-  | LangJavaScript
-  | LangJson
-  | LangLess
-  | LangLua
-  | LangMakefile
-  | LangMarkdown
-  | LangMdx
-  | LangModelica
-  | LangPlainText
-  | LangPoFile
-  | LangPython
-  | LangReStructuredText
-  | LangRust
-  | LangShell
-  | LangSvg
-  | LangTempl
-  | LangToml
-  | LangTsx
-  | LangTypeScript
-  | LangXml
-  | LangYaml
+enum Language {
+    LangUnknown,
+    LangBash,
+    LangCss,
+    LangDockerfile,
+    LangForgeConfig,
+    LangHtml,
+    LangIni,
+    LangJavaScript,
+    LangJson,
+    LangLess,
+    LangLua,
+    LangMakefile,
+    LangMarkdown,
+    LangMdx,
+    LangModelica,
+    LangPlainText,
+    LangPoFile,
+    LangPython,
+    LangReStructuredText,
+    LangRust,
+    LangShell,
+    LangSvg,
+    LangTempl,
+    LangToml,
+    LangTsx,
+    LangTypeScript,
+    LangXml,
+    LangYaml,
+}
 
 type SummaryTotals = {
   files: Int,
@@ -122,7 +123,7 @@ pure blob_deep(stats: Stats) -> Stats {
   var comments = stats.comments
 
   for key in stats.blobs.keys() {
-    let nested = stats.blobs.get(key, zero_stats()).require(Stats) ?? zero_stats()
+    let nested = ({ let lookup_receiver_6 = stats.blobs; let lookup_index_6 = key; let lookup_fallback_6 = zero_stats(); lookup_receiver_6.get(lookup_index_6) ?? lookup_fallback_6 }).require(Stats) ?? zero_stats()
     let deep = blob_deep(nested)
     blanks += deep.blanks
     code += deep.code
@@ -657,8 +658,8 @@ pure count_slash_plain(text: Bytes) -> Scan {
         var escaped = false
 
         while index < line_len {
-          let ch = line.byte_at(index)
-          let next = line.byte_at(index + 1)
+          let ch = (line.byte_at(index) ?? -1)
+          let next = (line.byte_at(index + 1) ?? -1)
 
           if block_depth > 0 {
             comment_seen = true
@@ -772,8 +773,8 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
         var escaped = false
 
         while index < line_len {
-          let ch = line.byte_at(index)
-          let next = line.byte_at(index + 1)
+          let ch = (line.byte_at(index) ?? -1)
+          let next = (line.byte_at(index + 1) ?? -1)
 
           if block_depth > 0 {
             comment_seen = true
@@ -1228,7 +1229,7 @@ proc blob_stats(report: FileReport, language: Str) [error] -> Result[Stats] {
   return report.stats.blobs.get(language)?.require(Stats)?
 }
 
-proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[Any]] {
+proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[List[FileReport]]] {
   var children: Map[List[FileReport]] = {}
 
   for report in reports {
@@ -1289,7 +1290,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
       {language, report: {stats: scan.stats, name: candidate.path.display()}, deep: scan.deep}
     }
     |> where .language != LangUnknown
-    |> reduce-by --sum { |scanned|
+    |> reduce-by(sum: true) { |scanned|
       {
         key: language_label(scanned.language),
         value: {
@@ -1314,9 +1315,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
 
   for language in languages() {
     let label = language_label(language)
-    let aggregate = aggregates.get(
-      label,
-      {
+    let aggregate = (aggregates.get(label) ?? {
         blanks: 0,
         code: 0,
         comments: 0,
@@ -1324,8 +1323,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
         total_code: 0,
         total_comments: 0,
         reports: [],
-      },
-    )
+      })
     let reports = aggregate.reports
     continue when reports.len() == 0
     let children = children_from_reports(reports)?
@@ -1454,7 +1452,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
           if has_child_blobs {
             for child in scan.stats.blobs.keys() {
-              let blob = scan.stats.blobs.get(child, zero_stats()).require(Stats) ?? zero_stats()
+              let blob = ({ let lookup_receiver_7 = scan.stats.blobs; let lookup_index_7 = child; let lookup_fallback_7 = zero_stats(); lookup_receiver_7.get(lookup_index_7) ?? lookup_fallback_7 }).require(Stats) ?? zero_stats()
               let cs = blob_deep(blob)
 
               out = out.push({
@@ -1476,7 +1474,7 @@ proc main(...argv: List[Str]) [fs, error] {
       |> flat-map { |rows|
         rows
       }
-      |> reduce-by --sum { |item|
+      |> reduce-by(sum: true) { |item|
         {
           key: item.key,
           value: {
@@ -1500,7 +1498,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
     for language in sorted_languages() {
       let label = language_label(language)
-      let totals = summary.get(label, zero_summary)
+      let totals = (summary.get(label) ?? zero_summary)
       continue when totals.files == 0
       total_files += totals.files
       total_blanks += totals.total_blanks
@@ -1510,7 +1508,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
       for child in sorted_languages() {
         let clabel = language_label(child)
-        let cagg = summary.get(f"${label}\t${clabel}", zero_summary)
+        let cagg = (summary.get(f"${label}\t${clabel}") ?? zero_summary)
         continue when cagg.files == 0
         let clines = cagg.blanks + cagg.code + cagg.comments
 

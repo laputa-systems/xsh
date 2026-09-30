@@ -179,6 +179,7 @@ pub struct ModuleFnSig {
     pub pure: bool,
     pub command: bool,
     pub arg_check: ApiArgCheck,
+    pub semantic_rule: SemanticRule,
     pub op: RuntimeOp,
     pub binding: ImplBinding,
 }
@@ -196,13 +197,7 @@ impl ModuleFnSig {
 #[derive(Clone, Debug)]
 pub struct MethodSig {
     pub sig: ModuleFnSig,
-    pub return_ty: MethodReturn,
-}
-
-#[derive(Clone, Debug)]
-pub enum MethodReturn {
-    Type(Type),
-    Receiver,
+    pub receiver_ty: Option<Type>,
 }
 
 #[derive(Clone, Debug)]
@@ -210,6 +205,28 @@ pub struct ParamSig {
     pub name: &'static str,
     pub ty: Type,
     pub defaulted: bool,
+}
+
+/// Preparation facts that refine a callable beyond structural type substitution.
+/// Dynamic arguments keep the declared result when no checked fact is available.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SemanticRule {
+    Standard,
+    SchemaValidation,
+    ConstantKeyProjection,
+    CliDescriptor,
+    CliCommands,
+}
+
+impl SemanticRule {
+    fn for_operation(op: RuntimeOp) -> Self {
+        match op {
+            RuntimeOp::CliCommands => Self::CliCommands,
+            RuntimeOp::RecordGet => Self::ConstantKeyProjection,
+            RuntimeOp::CliParse | RuntimeOp::CliApplet | RuntimeOp::CliParseFull => Self::CliDescriptor,
+            _ => Self::Standard,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -240,6 +257,7 @@ pub enum MethodReceiver {
     Regex,
     ProcessHandle,
     NetJob,
+    FsRoot,
 }
 
 #[derive(Clone, Debug)]
@@ -252,6 +270,23 @@ pub struct MethodReceiverSig {
 pub struct NamedMethodSigs {
     pub name: &'static str,
     pub overloads: Vec<MethodSig>,
+}
+
+/// Removed module spellings used only for checked migration diagnostics.
+/// Receiver promotion must preserve source evaluation order and capability identity.
+pub fn legacy_fs_root_method(function: &str) -> Option<&'static str> {
+    match function {
+        "close_root" => Some("close"), "root_path" => Some("host_path"),
+        "root" => Some("open_root"), "root_read" => Some("read_bytes"),
+        "root_read_text" => Some("read_text"), "root_read_result" => Some("read_result"),
+        "root_filesystem_stats" => Some("filesystem_stats"), "root_children" => Some("children"),
+        "root_write" => Some("write"), "root_write_atomic" => Some("write_atomic"),
+        "root_metadata" => Some("metadata"), "root_exists" => Some("exists"),
+        "root_mkdir" => Some("mkdir"), "root_remove" => Some("remove"),
+        "root_readlink" => Some("readlink"), "root_readlink_result" => Some("readlink_result"),
+        "root_symlink" => Some("symlink"), "root_chmod" => Some("chmod"),
+        _ => None,
+    }
 }
 
 pub fn api_spec() -> &'static ApiSpec {
@@ -291,6 +326,7 @@ pub fn sig(params: Vec<ParamSig>, return_ty: Type, pure: bool, op: RuntimeOp) ->
         pure,
         command,
         arg_check: ApiArgCheck::Standard,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Native,
     }
@@ -315,6 +351,7 @@ pub fn script_sig(
         return_ty,
         pure,
         arg_check: ApiArgCheck::Standard,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Script(ScriptImpl { module, function }),
     }
@@ -336,6 +373,7 @@ pub fn script_sig_with_arg_check(
         return_ty,
         pure,
         arg_check,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Script(ScriptImpl { module, function }),
     }
@@ -354,6 +392,7 @@ fn sig_with_arg_check(
         return_ty,
         pure,
         arg_check,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Native,
     }
@@ -401,6 +440,25 @@ mod tests {
             assert!(api_spec().docs(&super::module_api_id(module, name)).is_none());
         }
         assert!(crate::errors::builtin_error_families().iter().any(|family| family.name == "AssertionError"));
+    }
+
+    #[test]
+    fn semantic_preparation_rules_follow_canonical_operations() {
+        use super::{MethodReceiver, SemanticRule};
+        let spec = api_spec();
+        let cli = spec.modules.iter().find(|entry| entry.name == "cli").unwrap();
+        for name in ["parse", "applet", "parse_full"] {
+            let entry = cli.sig.functions.iter().find(|entry| entry.name == name).unwrap();
+            assert!(entry.overloads.iter().all(|sig| sig.semantic_rule == SemanticRule::CliDescriptor));
+        }
+        let commands = cli.sig.functions.iter().find(|entry| entry.name == "commands").unwrap();
+        assert!(commands.overloads.iter().all(|sig| sig.semantic_rule == SemanticRule::CliCommands));
+        let record = spec.methods.iter().find(|entry| entry.receiver == MethodReceiver::Record).unwrap();
+        let get = record.methods.iter().find(|entry| entry.name == "get").unwrap();
+        assert!(get.overloads.iter().all(|sig| sig.sig.semantic_rule == SemanticRule::ConstantKeyProjection));
+        let list = spec.methods.iter().find(|entry| entry.receiver == MethodReceiver::List).unwrap();
+        let get = list.methods.iter().find(|entry| entry.name == "get").unwrap();
+        assert!(get.overloads.iter().all(|sig| sig.sig.semantic_rule == SemanticRule::Standard));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-proc test_rev_lines_files_and_stdin(ctx: TestContext) [fs, process, env, error] {
+test test_rev_lines_files_and_stdin [fs, process, env, error] { |ctx|
   let input = test.temp_file(ctx, name: "rev.txt", contents: b"abc\ncaf\xc3\xa9\n")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/rev.xsh" -- $input ?
 
@@ -19,7 +19,7 @@ owt
 """
 }
 
-proc test_rev_rejects_options(ctx: TestContext) [fs, process, env, error] {
+test test_rev_rejects_options [fs, process, env, error] { |ctx|
   let err = test.temp_path(ctx, name: "rev.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/rev.xsh" -- -z 2> $err
   ! status.exited_with(0)

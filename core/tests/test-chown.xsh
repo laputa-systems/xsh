@@ -1,4 +1,4 @@
-proc test_chown_current_user(ctx: TestContext) [fs, process, env, error] {
+test test_chown_current_user [fs, process, env, error] { |ctx|
   let target = test.temp_file(ctx, name: "owned.txt", contents: b"payload")?
   let current = user.current()?
   let name = current.name

@@ -168,8 +168,7 @@ let records = """{"name":"small"}
   |> sort-by .name
 print ${records[0].name}
 
-let module_source = """
-export proc execute(root: Path) [fs, error] -> Result[Unit] {
+let module_source = """\nexport proc execute(root: Path) [fs, error] -> Result[Unit] {
   let status = {raw: true}
 }
 """
@@ -266,8 +265,8 @@ fn xsht_check_accepts_directories_and_reports_failures() {
 }
 
 #[test]
-fn xsht_check_strict_fails_on_strict_warnings_only() {
-    let path = temp_xsh_path("check-strict-any");
+fn xsht_check_dynamic_boundaries_are_default() {
+    let path = temp_xsh_path("check-dynamic-boundary");
     std::fs::write(
         &path,
         r#"
@@ -282,13 +281,14 @@ let row: Row = json.decode("{\"name\":\"demo\"}")?
         .output()
         .expect("run xsht strict");
     assert_exit(&strict, 2);
-    assert_stderr_contains(&strict, "warn[check.strict-any]");
+    assert_stderr_contains(&strict, "`xsht check --strict` was removed");
 
     let normal = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", path.to_str().unwrap()])
         .output()
         .expect("run xsht check");
-    assert_ok(&normal);
+    assert_exit(&normal, 2);
+    assert_stderr_contains(&normal, "err[check.dynamic-boundary]");
 
     std::fs::remove_file(path).expect("remove temp script");
 }
@@ -466,18 +466,18 @@ fn xsht_check_annotate_rewrites_only_requested_script() {
 }
 
 #[test]
-fn xsht_check_annotate_does_not_write_on_strict_diagnostics() {
-    let path = temp_xsh_path("check-annotate-strict");
+fn xsht_check_annotate_does_not_write_on_dynamic_boundary_errors() {
+    let path = temp_xsh_path("check-annotate-dynamic-boundary");
     let source = r#"
 type Row = {name: Str}
 let row: Row = json.decode("{\"name\":\"demo\"}")?
 "#;
     std::fs::write(&path, source).expect("write temp script");
 
-    let output = xsht(["check", "--strict", "--annotate", path.to_str().unwrap()]);
+    let output = xsht(["check", "--annotate", path.to_str().unwrap()]);
 
     assert_exit(&output, 2);
-    assert_stderr_contains(&output, "warn[check.strict-any]");
+    assert_stderr_contains(&output, "err[check.dynamic-boundary]");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
 
     std::fs::remove_file(path).expect("remove temp script");
@@ -975,11 +975,11 @@ fn xsht_test_discovers_tests_from_current_directory() {
     std::fs::write(
         root.join("tests/sub/main.xsh"),
         r#"
-proc test_alpha() [error] {
+test test_alpha [error] {
   test.eq("a", "a")?
 }
 
-proc test_beta() [error] {
+test test_beta [error] {
   test.eq("b", "b")?
 }
 "#,
@@ -1072,7 +1072,7 @@ export pure value() -> Str {
         root.join("tests/main.xsh"),
         r#"use helper
 
-proc test_imported_helper() [error] {
+test test_imported_helper [error] {
   test.eq(helper.value(), "ok")?
 }
 "#,
@@ -1119,7 +1119,7 @@ export pure value() -> Str {
         root.join("tests/main.xsh"),
         r#"use helper
 
-proc test_imported_helper() [error] {
+test test_imported_helper [error] {
   test.eq(helper.value(), "ok")?
 }
 "#,
@@ -1155,7 +1155,7 @@ fn xsht_test_reports_failures_and_can_keep_temp_roots() {
     std::fs::write(
         root.join("tests/main.xsh"),
         r#"
-proc test_alpha(ctx: TestContext) [fs, io, error] {
+test test_alpha [fs, io, error] { |ctx|
   print ${ctx.temp_root.display()}
   print "alpha stdout"
   eprint "alpha stderr"
@@ -1163,7 +1163,7 @@ proc test_alpha(ctx: TestContext) [fs, io, error] {
   test.fail("alpha failed")?
 }
 
-proc test_beta() [error] {
+test test_beta [error] {
   test.fail("beta should not run")?
 }
 "#,
@@ -1230,7 +1230,7 @@ fn xsht_test_captures_process_output_by_default() {
     std::fs::write(
         root.join("tests/main.xsh"),
         r#"
-proc test_process_output() [process, error] {
+test test_process_output [process, error] {
   let command = process.command_argv(
     "sh",
     ["sh", "-c", "printf process-stdout; printf process-stderr >&2"],
@@ -1388,7 +1388,7 @@ fn xsht_test_cov_json_includes_nested_xsh_processes() {
         root.join("tests/main.xsh"),
         format!(
             r#"
-proc test_child_coverage() [process, error] {{
+test test_child_coverage [process, error] {{
   let output = run.text (Path({})) (Path({})) ?
   test.ok(output.trim().parse_int()? > 0)?
 }}

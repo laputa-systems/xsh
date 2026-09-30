@@ -3,7 +3,7 @@ use crate::xsht::cli::{
     is_path_excluded, load_config, nearest_config_for_file, text_bytes,
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
-use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits};
+use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code};
 use crate::xsht::lint::{LintOptions, Linter};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
@@ -304,6 +304,7 @@ struct WorkspaceLoader {
     builder: ArenaProgramBuilder<'static>,
     modules: FxHashMap<String, WorkspaceModule>,
     stack: Vec<String>,
+    source_overrides: FxHashMap<String, Vec<u8>>,
 }
 
 impl WorkspaceLoader {
@@ -313,6 +314,7 @@ impl WorkspaceLoader {
             builder: ArenaProgramBuilder::with_token_capacity(4096),
             modules: FxHashMap::default(),
             stack: Vec::new(),
+            source_overrides: FxHashMap::default(),
         }
     }
 
@@ -323,6 +325,7 @@ impl WorkspaceLoader {
         module_roots: Vec<PathBuf>,
     ) -> Result<String, String> {
         let key = module_key(&path);
+        let bytes = self.source_overrides.get(&key).cloned().unwrap_or(bytes);
         if self.modules.contains_key(&key) {
             return Ok(key);
         }
@@ -610,7 +613,7 @@ fn lint_workspace_root(
             relevant_diagnostics.extend(module.diagnostics.iter().cloned());
         }
     }
-    if !relevant_diagnostics.is_empty() {
+    if relevant_diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_none()) {
         return vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
@@ -631,14 +634,23 @@ fn lint_workspace_root(
             type_program.clone(),
         )
     });
-    if !fix && checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() != Some("check.removed-membership")) {
+    let unrelated_check_error = checked.diagnostics.iter().any(|diagnostic|
+        migration_lint_code(diagnostic.code.as_deref()).is_none()
+            && diagnostic.code.as_deref() != Some("check.removed-membership"));
+    if !checked.diagnostics.is_empty() && unrelated_check_error && (!fix || !relevant_diagnostics.is_empty()) {
+        relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
         return vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
-                diagnostics: render_diagnostics_with_keys(&checked.diagnostics, &workspace.sources),
+                diagnostics: render_diagnostics_with_keys(&relevant_diagnostics, &workspace.sources),
             },
         }];
+    }
+
+    if fix && (!relevant_diagnostics.is_empty() || checked.diagnostics.iter().any(|diagnostic|
+        migration_lint_code(diagnostic.code.as_deref()).is_some())) {
+        return migrate_workspace_syntax(workspace, root, &reachable, linted_modules, &checked.diagnostics);
     }
 
     let mut keys = reachable
@@ -667,18 +679,46 @@ fn lint_workspace_root(
             bundle.modules.clear();
         }
         let mut options = module.config.lint_options.clone();
+        options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
+        options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
+        options.requirement_targets = checked.requirement_targets.clone();
+        options.requirement_expected_targets = checked.requirement_expected_targets.clone();
+        options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
+        options.function_effect_facts = checked.function_effect_facts.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.assertion_effect_spans = checked.assertion_effect_spans.clone();
         options.statement_expression_spans = checked.statement_expression_spans.clone();
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
-        let linted = if key == root {
+        options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
+        options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
+        let mut linted = if key == root {
             Linter::lint(bundle, &module.text, options)
         } else {
             Linter::lint_module(bundle, &module.text, options)
         };
+        if !module.diagnostics.is_empty() {
+            linted.diagnostics.clear();
+        }
+        for diagnostic in &module.diagnostics {
+            if let Some(code) = migration_lint_code(diagnostic.code.as_deref()) {
+                let mut diagnostic = diagnostic.clone();
+                diagnostic.severity = Severity::Warning;
+                diagnostic.code = Some(code.to_string());
+                linted.diagnostics.push(diagnostic);
+            }
+        }
+        for diagnostic in checked.diagnostics.iter().filter(|diagnostic|
+            diagnostic_mentions_source(diagnostic, module.source_id)) {
+            if let Some(code) = migration_lint_code(diagnostic.code.as_deref()) {
+                let mut diagnostic = diagnostic.clone();
+                diagnostic.severity = Severity::Warning;
+                diagnostic.code = Some(code.to_string());
+                linted.diagnostics.push(diagnostic);
+            }
+        }
         let check_diagnostics = checked
             .diagnostics
             .iter()
@@ -692,6 +732,7 @@ fn lint_workspace_root(
                 &linted.diagnostics,
                 &check_diagnostics,
                 &workspace.sources,
+                key != root,
             )
         } else if linted.diagnostics.is_empty() {
             LintResult {
@@ -713,6 +754,80 @@ fn lint_workspace_root(
         results.push(result);
     }
     results
+}
+
+/// Validate the complete rewritten import graph before publishing any migration
+/// edit. Multiple entries may share a module; each source is emitted once.
+fn migrate_workspace_syntax(
+    workspace: &LintWorkspace,
+    root: &str,
+    reachable: &FxHashSet<String>,
+    linted_modules: &Mutex<FxHashSet<String>>,
+    checked_diagnostics: &[Diagnostic],
+) -> Vec<LintResult> {
+    let failure = |diagnostics: Vec<RenderedDiagnostic>, stderr: String, status| vec![LintResult {
+        index: 0,
+        kind: LintResultKind::FixDiagnostics { status, diagnostics, stderr },
+    }];
+    let mut rewritten = FxHashMap::default();
+    let mut loader = WorkspaceLoader::new();
+    for key in reachable {
+        let module = &workspace.modules[key];
+        let mut migration_diagnostics = module.diagnostics.clone();
+        migration_diagnostics.extend(checked_diagnostics.iter().filter(|diagnostic|
+            diagnostic_mentions_source(diagnostic, module.source_id)
+                && migration_lint_code(diagnostic.code.as_deref()).is_some()).cloned());
+        let text = if migration_diagnostics.is_empty() {
+            module.text.clone()
+        } else {
+            let fixes = collect_fix_spans_for_source(&migration_diagnostics, module.source_id);
+            let edits = fixes.into_iter().map(|(start, end, replacement)| SourceEdit { start, end, replacement }).collect::<Vec<_>>();
+            match apply_cst_guarded_migration_edits(&module.path.to_string_lossy(), &module.text, &edits) {
+                Ok(Some(text)) => text,
+                Ok(None) | Err(_) => {
+                    let mut diagnostics = migration_diagnostics;
+                    for diagnostic in &mut diagnostics {
+                        diagnostic.severity = Severity::Warning;
+                        diagnostic.code = migration_lint_code(diagnostic.code.as_deref()).map(str::to_string);
+                    }
+                    return failure(render_diagnostics_with_keys(&diagnostics, &workspace.sources), String::new(), 1);
+                }
+            }
+        };
+        if text != module.text { rewritten.insert(key.clone(), text.clone()); }
+        loader.source_overrides.insert(key.clone(), text.into_bytes());
+    }
+    let root_module = &workspace.modules[root];
+    if let Err(message) = loader.load(root_module.path.clone(), root_module.text.as_bytes().to_vec(), root_module.module_roots.clone()) {
+        return failure(Vec::new(), message, 2);
+    }
+    let (sources, program, modules) = loader.finish();
+    let candidate = LintWorkspace { sources, program, modules, roots: vec![root.to_string()], input_errors: Vec::new() };
+    let diagnostics = candidate.modules.values().flat_map(|module| module.diagnostics.iter().cloned()).collect::<Vec<_>>();
+    if !diagnostics.is_empty() {
+        return failure(render_diagnostics_with_keys(&diagnostics, &candidate.sources), String::new(), 2);
+    }
+    let mut program = candidate.program.clone();
+    candidate.configure_program_for(root, &candidate.reachable_modules(root), &mut program);
+    let checked = xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
+        &program, &candidate.modules[root].text, CheckOptions::default(), Arc::new(program.clone()),
+    );
+    if !checked.diagnostics.is_empty() {
+        return failure(render_diagnostics_with_keys(&checked.diagnostics, &candidate.sources), String::new(), 2);
+    }
+    let mut keys = rewritten.keys().cloned().collect::<Vec<_>>();
+    keys.sort_unstable();
+    let mut emitted = linted_modules.lock().expect("linted module set mutex poisoned");
+    keys.into_iter().filter_map(|key| {
+        if !emitted.insert(key.clone()) { return None; }
+        Some(LintResult {
+            index: 0,
+            kind: LintResultKind::Write {
+                file: workspace.modules[&key].path.to_string_lossy().into_owned(),
+                text: rewritten.remove(&key).unwrap(), status: 0, diagnostics: Vec::new(), stderr: String::new(),
+            },
+        })
+    }).collect()
 }
 
 fn worker_count(file_count: usize) -> usize {
@@ -943,6 +1058,7 @@ fn lint_workspace_node_with_fixes(
     lint_diagnostics: &[Diagnostic],
     check_diagnostics: &[Diagnostic],
     sources: &SourceMap,
+    is_module: bool,
 ) -> LintResult {
     let mut fixes = collect_fix_spans_for_source(lint_diagnostics, module.source_id);
     fixes.extend(collect_fix_spans_for_source(
@@ -975,7 +1091,7 @@ fn lint_workspace_node_with_fixes(
 
     let config = &module.config;
     let final_text =
-        match apply_cst_fixes(&module.path.to_string_lossy(), &module.text, &fixes, config) {
+        match apply_cst_fixes(&module.path.to_string_lossy(), &module.text, &fixes, config, check_diagnostics, is_module) {
             Ok(Some(text)) => text,
             Ok(None) => {
                 return LintResult {
@@ -1050,17 +1166,37 @@ fn lint_config_for_file(
     let tool_config = FileToolConfig { config_dir, config };
     let line_width = tool_config.line_width();
     let module_roots = tool_config.module_roots();
+    let configured_return_annotations = tool_config.config.check.annotate.as_ref()
+        .and_then(|classes| super::check::AnnotationPolicy::from_names(classes.iter().map(String::as_str)).ok())
+        .is_some_and(super::check::AnnotationPolicy::annotates_returns);
+    let native_test_file = Path::new(file).canonicalize().ok().is_some_and(|file| {
+        let roots = if tool_config.config.test_roots.is_empty() { vec!["tests".to_owned()] }
+            else { tool_config.config.test_roots.clone() };
+        roots.iter().any(|root| tool_config.config_dir.join(root).canonicalize().ok()
+            .is_some_and(|root| file.starts_with(root)))
+    });
     let lint_options = LintOptions {
+        native_test_file,
+        prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns && !configured_return_annotations,
+        prefer_inferred_private_effects: tool_config.config.lint.prefer_inferred_private_effects,
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
+        function_return_types: Default::default(),
         expr_types: Default::default(),
+        proven_nonnull_fallback_receivers: Default::default(),
+        requirement_targets: Default::default(),
+        requirement_expected_targets: Default::default(),
+        statement_positions: Default::default(),
         callable_effects: Default::default(),
+        function_effect_facts: Default::default(),
         terminating_call_spans: Default::default(),
         assertion_effect_spans: Default::default(),
         statement_expression_spans: Default::default(),
         membership_migration_spans: Default::default(),
         standard_call_spans: Default::default(),
+        statically_resolved_call_spans: Default::default(),
+        definitely_exiting_block_spans: Default::default(),
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1119,13 +1255,21 @@ fn lint_one_file_with_fixes(
         .as_ref()
         .expect("checked program after clean parse");
     let mut lint_options = config.lint_options.clone();
+    lint_options.function_return_types = checked.function_return_types.clone();
     lint_options.expr_types = checked.expr_types.clone();
+    lint_options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
+    lint_options.requirement_targets = checked.requirement_targets.clone();
+    lint_options.requirement_expected_targets = checked.requirement_expected_targets.clone();
+    lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
+    lint_options.function_effect_facts = checked.function_effect_facts.clone();
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
     lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
+    lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
+    lint_options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
@@ -1169,7 +1313,7 @@ fn lint_one_file_with_fixes(
         };
     }
 
-    let final_text = match apply_cst_fixes(file, &text, &ast_fixes, config) {
+    let final_text = match apply_cst_fixes(file, &text, &ast_fixes, config, &checked.diagnostics, false) {
         Ok(Some(text)) => text,
         Ok(None) => {
             return LintResult {
@@ -1292,16 +1436,69 @@ fn apply_cst_fixes(
     text: &str,
     fixes: &[(usize, usize, String)],
     config: &ResolvedLintConfig,
+    original_check_diagnostics: &[Diagnostic],
+    is_module: bool,
 ) -> Result<Option<String>, String> {
-    let edits = fixes
-        .iter()
-        .map(|(start, end, replacement)| SourceEdit {
+    let migrating_syntax = Parser::parse_source_arena_only(SourceId::new(0), text)
+        .diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_some());
+    let mut candidate = text.to_owned();
+    let mut fixes = fixes.to_vec();
+    let mut seen = FxHashSet::default();
+    seen.insert(candidate.clone());
+    // Outer edits can expose safe inner edits. Every round uses fresh checked
+    // facts and source spans; a rejected round never reaches the filesystem.
+    for _ in 0..64 {
+        let edits = fixes.iter().map(|(start, end, replacement)| SourceEdit {
             start: *start,
             end: *end,
             replacement: replacement.clone(),
-        })
-        .collect::<Vec<_>>();
-    apply_cst_guarded_edits(file, text, &edits, config.line_width)
+        }).collect::<Vec<_>>();
+        let Some(next) = apply_cst_guarded_edits(file, &candidate, &edits, config.line_width)? else {
+            return Ok(None);
+        };
+        if next == candidate { return Ok(Some(candidate)); }
+        if !seen.insert(next.clone()) {
+            return Err(format!("xsht: safe fixes for {file} do not converge\n"));
+        }
+        candidate = next;
+        let symbols = SymbolOwner::new();
+        let program = symbols.with_current(|| parse_load_check_text(
+            file, candidate.clone(), config.module_roots.clone(), CheckOptions::default(),
+        ));
+        if !program.parsed.diagnostics.is_empty() {
+            return Err(DiagnosticRenderer::new().render(&program.parsed.diagnostics, &program.sources));
+        }
+        let checked = program.checked.as_ref().expect("checked program after clean parse");
+        if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
+            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
+        }
+        if migrating_syntax { return Ok(Some(candidate)); }
+        let mut options = config.lint_options.clone();
+        options.function_return_types = checked.function_return_types.clone();
+        options.expr_types = checked.expr_types.clone();
+        options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
+        options.requirement_targets = checked.requirement_targets.clone();
+        options.requirement_expected_targets = checked.requirement_expected_targets.clone();
+        options.statement_positions = checked.statement_positions.clone();
+        options.callable_effects = checked.callable_effects.clone();
+        options.function_effect_facts = checked.function_effect_facts.clone();
+        options.terminating_call_spans = checked.terminating_call_spans.clone();
+        options.assertion_effect_spans = checked.assertion_effect_spans.clone();
+        options.statement_expression_spans = checked.statement_expression_spans.clone();
+        options.membership_migration_spans = checked.membership_migration_spans.clone();
+        options.standard_call_spans = checked.standard_call_spans.clone();
+        options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
+        options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
+        let linted = if is_module {
+            Linter::lint_module(&program.parsed.arena, &candidate, options)
+        } else {
+            Linter::lint(&program.parsed.arena, &candidate, options)
+        };
+        fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
+        fixes.extend(collect_fix_spans_for_source(&checked.diagnostics, SourceId::new(0)));
+        if fixes.is_empty() { return Ok(Some(candidate)); }
+    }
+    Err(format!("xsht: safe fixes for {file} exceeded the convergence limit\n"))
 }
 
 fn render_diagnostics_with_keys(
@@ -1556,6 +1753,19 @@ export proc map_etcsums(etcsums: List[EtcSum]) [error] -> Result[Map[Str]] {
     }
 
     #[test]
+    fn lint_fix_half_open_slices_converges_for_nested_calls() {
+        let source = "let part = b\"abcdef\".slice(0, 5).slice(0, 2)\nprint part.base64()\n";
+        let config = config();
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
+        let LintResultKind::Write { text, .. } = result.kind else {
+            panic!("expected fixed slices");
+        };
+        assert!(text.contains("b\"abcdef\"[..5][..2]"), "{text}");
+        let second = lint_one_file_with_fixes(0, "fixture.xsh", text, &config);
+        assert!(matches!(second.kind, LintResultKind::Clean));
+    }
+
+    #[test]
     fn lint_fix_declines_comment_bearing_spans() {
         let source = "\
 let value = 1
@@ -1572,6 +1782,8 @@ print ${value}
                 "let value = 2\nprint ${value}\n".to_string(),
             )],
             &config,
+            &[],
+            false,
         )
         .expect("apply fixes");
 
@@ -1580,19 +1792,20 @@ print ${value}
 
     #[test]
     fn lint_fix_rewrites_empty_map_initializer_through_ast() {
-        let source = r#"
-let counts: Map[Int] = map.empty()
-print ${counts.has("x")}
-"#;
-        let config = config();
-        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
-        let LintResultKind::Write { text, .. } = result.kind else {
-            panic!("expected fixed source to be written");
-        };
+        for (map_type, key) in [("Map[Int]", "\"x\""), ("Map[Int, Str]", "1")] {
+            let source = format!("let counts: {map_type} = map.empty()\nprint ${{counts.has({key})}}\n");
+            let config = config();
+            let result = lint_one_file_with_fixes(0, "fixture.xsh", source, &config);
+            let LintResultKind::Write { text, .. } = result.kind else {
+                panic!("expected fixed source to be written");
+            };
 
-        assert!(text.contains("let counts = {}"));
-        assert!(text.contains("print counts.has(\"x\")"));
-        assert!(!text.contains("map.empty()"));
+            assert!(text.contains(&format!("counts: {map_type} = {{}}")), "{text}");
+            assert!(text.contains(&format!("print counts.has({key})")), "{text}");
+            assert!(!text.contains("map.empty()"));
+            let second = lint_one_file_with_fixes(0, "fixture.xsh", text, &config);
+            assert!(matches!(second.kind, LintResultKind::Clean));
+        }
     }
 
     #[test]
@@ -1607,7 +1820,7 @@ print ${name}
             panic!("expected fixed source to be written");
         };
 
-        assert!(text.contains("let name = \"pkg\""));
+        assert!(text.contains("const name = \"pkg\""), "{text}");
         assert!(!text.contains(": Str"));
     }
 
@@ -1652,7 +1865,7 @@ proc overlap(left: List[Str], right: List[Str]) -> List[Str] {
             panic!("expected fixed source to be written");
         };
 
-        assert!(text.contains("  [item for item in left if right.contains(item)]"));
+        assert!(text.contains("  [item for item in left if item in right]"), "{text}");
         assert!(!text.contains("var values"));
         assert!(!text.contains("return values"));
     }

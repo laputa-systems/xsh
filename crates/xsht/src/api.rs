@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
 use xsh::api::api_spec;
-use xsh::api::{MethodReceiver, MethodReturn, ModuleFnSig};
+use xsh::api::{MethodReceiver, ModuleFnSig};
 use xsh::frontend::check::Type;
 use xsh::frontend::check::record_schemas;
 use xsh_registry::reference::language_references;
@@ -770,13 +770,10 @@ fn method_signature(
     method: &str,
     signature: &xsh::api::MethodSig,
 ) -> String {
-    let return_type = match &signature.return_ty {
-        MethodReturn::Type(ty) => render_type(ty),
-        MethodReturn::Receiver => "Self".to_string(),
-    };
+    let return_type = render_type(&signature.sig.return_ty);
     format!(
         "{}.{method}({}) -> {return_type}",
-        receiver_name(receiver),
+        signature.receiver_ty.as_ref().map(render_type).unwrap_or_else(|| receiver_name(receiver).to_string()),
         render_params(&signature.sig.params)
     )
 }
@@ -794,12 +791,15 @@ fn render_params(params: &[xsh::api::ParamSig]) -> String {
 
 fn render_type(ty: &Type) -> String {
     match ty {
+        Type::BuiltinParameter(parameter) => parameter.label().to_string(),
+        Type::Inference(_) => "<type needs an annotation>".to_string(),
         Type::Any => "Any".to_string(),
         Type::Unknown => "Unknown".to_string(),
         Type::Invalid => "<invalid>".to_string(),
         Type::Null => "Null".to_string(),
         Type::Bool => "Bool".to_string(),
         Type::Int => "Int".to_string(),
+        Type::UInt => "UInt".to_string(),
         Type::Float => "Float".to_string(),
         Type::Duration => "Duration".to_string(),
         Type::Str => "Str".to_string(),
@@ -808,9 +808,11 @@ fn render_type(ty: &Type) -> String {
         Type::Regex => "Regex".to_string(),
         Type::Path => "Path".to_string(),
         Type::List(inner) => format!("List[{}]", render_type(inner)),
-        Type::Map(inner) => format!("Map[{}]", render_type(inner)),
+        Type::Map(key, inner) if matches!(key.as_ref(), Type::Unknown) && matches!(inner.as_ref(), Type::Any) => "Map[K, V]".to_string(),
+        Type::Map(key, inner) => if matches!(key.as_ref(), Type::Str) { format!("Map[{}]", render_type(inner)) } else { format!("Map[{}, {}]", render_type(key), render_type(inner)) },
         Type::Stream(inner) => format!("Stream[{}]", render_type(inner)),
-        Type::Record(fields) if fields.is_empty() => "Record".to_string(),
+        Type::ErasedRecord => "Record".to_string(),
+        Type::Record(fields) if fields.is_empty() => "{}".to_string(),
         Type::Record(fields) => format!(
             "{{{}}}",
             fields
@@ -833,6 +835,7 @@ fn render_type(ty: &Type) -> String {
         Type::Command => "Command".to_string(),
         Type::ProcessHandle => "ProcessHandle".to_string(),
         Type::NetJob => "NetJob".to_string(),
+        Type::FsRoot => "FsRoot".to_string(),
         Type::Unit => "Unit".to_string(),
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),

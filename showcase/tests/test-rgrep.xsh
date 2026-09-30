@@ -1,4 +1,4 @@
-proc test_rgrep(ctx: TestContext) [fs, process, error] {
+test test_rgrep [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "rgrep-root")?
   fp"${root}/a.xsh".write("proc hello() {}")?
   fp"${root}/b.xsh".write("proc world() {}")?

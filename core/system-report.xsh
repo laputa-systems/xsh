@@ -58,7 +58,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   if options.section != "" {
     match system_report.parse_report_section(options.section) {
       Ok(_) => {}
-      Err(error) => return Err(SystemReportCliError.Usage(error.message))
+      Err(error) => return Err(SystemReportCliError.Usage(error.message), cause: error)
     }
   }
 
@@ -85,16 +85,15 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   }
 
   let input_path = fp"${options.from_report}"
-  guard let input_root = fs.open_root(input_path.parent()) else |error| {
+  guard let input_root = fs.open_root(input_path.parent()) else { |error|
     return Err(SystemReportCliError.InvalidInput(f"system-report: cannot open replay file parent: ${error.message}"))
   }
 
-  defer fs.close_root(input_root)?
-  guard let input = fs.root_read_result(
-    input_root,
+  defer input_root.close()?
+  guard let input = input_root.read_result(
     fp"${input_path.name()}",
     max_bytes: 16777216,
-  ) else |error| {
+  ) else { |error|
     return Err(SystemReportCliError.InvalidInput(f"system-report: cannot read replay file: ${error.message}"))
   }
 
@@ -119,17 +118,17 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     return Err(SystemReportCliError.InvalidInput("system-report: replay read produced no bytes"))
   }
 
-  guard let source = input.data.utf8() else |error| {
+  guard let source = input.data.utf8() else { |error|
     return Err(SystemReportCliError.InvalidInput(f"system-report: replay file is not valid UTF-8: ${error.message}"))
   }
 
-  guard let report = system_report.decode_report_json(source) else |error| {
+  guard let report = system_report.decode_report_json(source) else { |error|
     return Err(SystemReportCliError.InvalidInput(f"system-report: invalid replay report: ${error.message}"))
   }
 
   var selected: Record = report
   if options.section != "" {
-    guard let projected = system_report.select_report_section(report, options.section) else |error| {
+    guard let projected = system_report.select_report_section(report, options.section) else { |error|
       return Err(SystemReportCliError.Usage(error.message))
     }
 

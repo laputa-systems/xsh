@@ -96,7 +96,6 @@ pub enum RuntimeOp {
     MapValues,
     RecordGet,
     RecordKeys,
-    RecordRequire,
     /// Private diagnostic bridge: the baseline's type name for a runtime value.
     ///
     /// A ported policy reproduces the baseline's error messages, which name the
@@ -133,7 +132,6 @@ pub enum RuntimeOp {
     FsWalk,
     FsFiles,
     FsDirs,
-    FsLs,
     FsChildren,
     FsDu,
     FsMetadata,
@@ -371,7 +369,6 @@ pub enum RuntimeOp {
     TextCountLines,
     TextCountWords,
     TextCountChars,
-    TextCountBytes,
     TextByteLen,
     TextByteAt,
     TextByteSlice,

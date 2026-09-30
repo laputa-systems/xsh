@@ -6,10 +6,11 @@ use targets
 use verify
 
 # Closed Docker execution policy.
-type DockerPolicy =
-    Auto
-  | Always
-  | Never
+enum DockerPolicy {
+    Auto,
+    Always,
+    Never,
+}
 
 ## Decodes the CLI Docker policy before distribution dispatch.
 export pure parse_docker_policy(value: Str) -> Result[DockerPolicy] {
@@ -82,28 +83,25 @@ export proc native_dist(ctx: context.Context, build_std_variable: Str) [fs, proc
     "--locked",
     "--profile",
     ctx.profile,
-  ].extend(build_std)
-    .extend(
-      [
-        "--target",
-        ctx.target.triple,
-        "-p",
-        "xsh",
-        "-p",
-        "xsht",
-        "-p",
-        "xshi",
-        "--no-default-features",
-        "--features",
-        targets.distribution_features,
-        "--bin",
-        "xsh",
-        "--bin",
-        "xsht",
-        "--bin",
-        "xshi",
-      ],
-    )
+    @build_std,
+    "--target",
+    ctx.target.triple,
+    "-p",
+    "xsh",
+    "-p",
+    "xsht",
+    "-p",
+    "xshi",
+    "--no-default-features",
+    "--features",
+    targets.distribution_features,
+    "--bin",
+    "xsh",
+    "--bin",
+    "xsht",
+    "--bin",
+    "xshi",
+  ]
   stages.execute(
     stages.command(
       "dist-build",

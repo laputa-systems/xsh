@@ -1,4 +1,4 @@
-proc test_group_lookup_and_mutation_contracts(ctx: TestContext) [fs, process, error] {
+test test_group_lookup_and_mutation_contracts [fs, process, error] { |ctx|
   let group_file = test.temp_path(ctx, name: "group")
 
   fs.write(

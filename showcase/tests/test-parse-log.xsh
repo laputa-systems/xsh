@@ -1,4 +1,4 @@
-proc test_parse_log(ctx: TestContext) [fs, process, error] {
+test test_parse_log [fs, process, error] { |ctx|
   let input = test.temp_file(
     ctx,
     name: "app.log",

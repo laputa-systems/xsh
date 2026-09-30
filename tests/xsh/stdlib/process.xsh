@@ -1,4 +1,4 @@
-proc test_process_module() [fs, process, error] {
+test test_process_module [fs, process, error] {
   let current_pid = process.current_pid()?
   (current_pid > 0)
   test.ok(process.list()? |> any .pid == current_pid, "process list should contain current pid")?
@@ -52,7 +52,7 @@ proc test_process_module() [fs, process, error] {
   handle.cancel(signal: "TERM", kill_after: 10ms)?
 }
 
-proc test_process_command_argv_requires_argv0(ctx: TestContext) [error] {
+test test_process_command_argv_requires_argv0 [error] { |ctx|
   let output = test.run_script(
     ctx,
     """let command = process.command_argv("echo", [])
@@ -74,7 +74,7 @@ pure argv_words_message(result: Result[List[Str]]) -> Str {
 
 # Every case the native `argv_words` unit test covered, plus whitespace runs,
 # empty quoted arguments, and quote concatenation.
-proc test_process_argv_words_parses_quotes_and_escapes() [process, error] {
+test test_process_argv_words_parses_quotes_and_escapes [process, error] {
   process.argv_words("cmd 'two words' \"double quoted\" escaped\\ space 'literal *'")? == ["cmd", "two words", "double quoted", "escaped space", "literal *"]
 
   # Whitespace, including runs and leading or trailing whitespace, separates
@@ -124,7 +124,7 @@ proc test_process_argv_words_parses_quotes_and_escapes() [process, error] {
 
 # Every case the native `argv_words` unit test covered, plus each shell syntax
 # character, the rejection messages, and unterminated input.
-proc test_process_argv_words_rejects_shell_syntax() [process, error] {
+test test_process_argv_words_rejects_shell_syntax [process, error] {
   for text in [
     "echo hi | wc",
     "echo $HOME",
@@ -189,7 +189,7 @@ proc test_process_argv_words_rejects_shell_syntax() [process, error] {
 
 # Unicode text: multi-byte characters stay inside a word, and every character
 # the baseline treats as whitespace separates words.
-proc test_process_argv_words_reads_unicode_text() [process, error] {
+test test_process_argv_words_reads_unicode_text [process, error] {
   process.argv_words("h\u{e9}llo w\u{f6}rld")? == ["h\u{e9}llo", "w\u{f6}rld"]
   process.argv_words("'h\u{e9}llo w\u{f6}rld'")? == ["h\u{e9}llo w\u{f6}rld"]
   process.argv_words("\u{65e5}\u{672c} \u{8a9e}")? == ["\u{65e5}\u{672c}", "\u{8a9e}"]
@@ -218,7 +218,7 @@ proc test_process_argv_words_reads_unicode_text() [process, error] {
   process.argv_words("\u{3b1}\u{3000}\u{3b2} \u{3b3}")? == ["\u{3b1}", "\u{3b2}", "\u{3b3}"]
 }
 
-proc test_process_command_redirections(ctx: TestContext) [fs, process, error] {
+test test_process_command_redirections [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "process-redirections")?
   let input = fp"${root}/input.txt"
   let log = fp"${root}/combined.log"
@@ -244,7 +244,7 @@ proc test_process_command_redirections(ctx: TestContext) [fs, process, error] {
   builder_log.read_text()? == "builder-outbuilder-err"
 }
 
-proc test_process_timeout_errors() [process, error] {
+test test_process_timeout_errors [process, error] {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   match process.run(command) {
     Err(ProcessError.Timeout {message: message}) => test.ok("timed out" in message)?
@@ -254,7 +254,7 @@ proc test_process_timeout_errors() [process, error] {
   }
 }
 
-proc test_process_wait_and_handle_contracts() [process, error] {
+test test_process_wait_and_handle_contracts [process, error] {
   let ok = spawn run true ?
   let ok_status = wait ok?
   let bad = spawn run false ?
@@ -295,7 +295,7 @@ proc test_process_wait_and_handle_contracts() [process, error] {
   }
 }
 
-proc test_process_spawn_setup_errors() [process, env, error] {
+test test_process_spawn_setup_errors [process, env, error] {
   env PATH="/bin:/usr/bin" {
     match spawn run xsh-definitely-missing-command {
       Err(ProcessError.NotFound {message: message}) => ("not found" in message)
@@ -330,7 +330,7 @@ proc process_handle_from_list() [process, error] -> Result[List[ProcessHandle]] 
   return [nested]
 }
 
-proc test_process_spawn_timeout_and_return_transfer() [process, time, error] {
+test test_process_spawn_timeout_and_return_transfer [process, time, error] {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   let handle = spawn command?
   time.sleep(50ms)?
@@ -354,9 +354,8 @@ proc test_process_spawn_timeout_and_return_transfer() [process, time, error] {
   list_status[0].ok
 }
 
-proc test_process_spawn_traces(ctx: TestContext) [process, error] {
-  let source = """
-let h = spawn run sh -c "exit 7" ?
+test test_process_spawn_traces [process, error] { |ctx|
+  let source = """\nlet h = spawn run sh -c "exit 7" ?
 let status = wait h?
 let c = spawn run sleep 1 ?
 c.cancel(signal: "TERM", kill_after: 0ms)?
@@ -396,4 +395,48 @@ print \${status.exit_code()?}
   "\"handle_id\":1" in json_trace.stderr
   "\"handle_id\":2" in json_trace.stderr
   "\"code\":7" in json_trace.stderr
+}
+
+test test_bytes_stdin_redirection_is_exact_and_explicit [process, error] {
+  let payload = b"a\0\xff\n"
+  let echoed = run.bytes cat < (payload) ?
+  test.eq(echoed, payload)?
+  test.eq(run.bytes cat < b"" ?, b"")?
+  let text = "text without a newline"
+  test.eq(run.text cat < (bytes.from_text(text)) ?, text)?
+}
+
+test test_bytes_stdin_rejects_invalid_targets_and_sources [error] { |ctx|
+  for source in [
+    "run cat > b\"output\"\n",
+    "run cat < b\"first\" < b\"second\"\n",
+    "run cat | run cat < b\"second\"\n",
+    "let payload: Result[Bytes] = Ok(b\"input\")\nrun cat < (payload)\n",
+    "let command = process.command {stdout = b\"output\"; run cat}\n",
+  ] {
+    let checked = test.run_xsh(ctx, source)?
+    test.eq(checked.status, 2, checked.stderr)?
+  }
+}
+
+test test_bytes_stdin_path_strings_and_once_only_expression [fs, process, error] { |ctx|
+  let root = test.temp_dir(ctx, name: "bytes-stdin-path")?
+  let input = fp"${root}/input"
+  input.write("file content")?
+  let file_name = input.display()
+  test.eq(run.text cat < (file_name) ?, "file content")?
+  let result = test.run_script(ctx, r"""proc payload() [io] -> Bytes {print preparing; return b"content"}
+let copied = run.bytes cat < (payload()) ?
+print ${copied.utf8()?}
+""")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "preparing\ncontent\n")?
+}
+
+test test_bytes_stdin_trace_does_not_include_payload [error] { |ctx|
+  let result = test.run_xsht_trace(ctx, r"""let copied = run.bytes cat < b"private-input-payload" ?
+print ${copied.len()}
+""", ["--trace", "--raw", "--trace-format", "jsonl"])?
+  test.ok(result.success, result.stderr)?
+  test.ok("private-input-payload" not in result.stderr, result.stderr)?
 }

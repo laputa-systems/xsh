@@ -1,3 +1,6 @@
 let command = process.command {
-  run true
+  stdin = b"hello\n"
+  accept = [0]
+  run cat
 }
+let status = process.run(command)?

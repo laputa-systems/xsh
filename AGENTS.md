@@ -29,7 +29,7 @@ before editing.
   changed. Do not rebuild or edit generated documentation unless the user
   explicitly asks; it creates large generated churn.
 - Prefer an `xsht` native test first for XSH behavior: add or extend a
-  `proc test_*` under `tests/**/*.xsh` or `showcase/tests/**/*.xsh` when the
+  `test NAME { ... }` declaration under `tests/**/*.xsh` or `showcase/tests/**/*.xsh` when the
   contract can be expressed through XSH, using `test.run_script`,
   `test.run_xsh`, `test.run_xsht_trace`, temp resources, and mocks as needed.
   Keep Rust integration tests for host or CLI boundaries, exact process or

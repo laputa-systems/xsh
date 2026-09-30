@@ -1,4 +1,4 @@
-proc test_diff_unified(ctx: TestContext) [fs, error] {
+test test_diff_unified [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "diff")?
   let original = fp"${root}/original.txt"
   let modified = fp"${root}/modified.txt"

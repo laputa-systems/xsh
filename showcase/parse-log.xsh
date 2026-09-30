@@ -19,8 +19,8 @@ proc main(input: Str = "") [fs, error] {
   let source = if input == "" { sample } else { fp"${input}".read_text()? }
 
   # compile patterns once
-  let log_re = regex.compile("^(\\S+)\\s+(INFO|WARN|ERROR|DEBUG)\\s+\\[(\\w+)\\]\\s+(.+)$")?
-  let ip_re = regex.compile("\\b(\\d{1,3}\\.){3}\\d{1,3}\\b")?
+  let log_re = rx"^(\S+)\s+(INFO|WARN|ERROR|DEBUG)\s+\[(\w+)\]\s+(.+)$"
+  let ip_re = rx"\b(\d{1,3}\.){3}\d{1,3}\b"
 
   # parse each line into a typed record, dropping blanks and unparseable lines
   let entries: List[LogEntry] = source.lines()
@@ -35,7 +35,7 @@ proc main(input: Str = "") [fs, error] {
   var counts: Map[Int] = {}
 
   for entry in entries {
-    counts[entry.level] = counts.get(entry.level, 0) + 1
+    counts[entry.level] = (counts.get(entry.level) ?? 0) + 1
   }
 
   print f"parsed ${entries.len()} entries"

@@ -14,12 +14,18 @@ impl Checker {
         if self.retry_attempt_depth > 0 {
             return self.check_attempt_propagation(ty, span);
         }
+        if let Some(errors) = &mut self.with_initializer_errors
+            && let Some((_, error)) = result_types(ty) {
+            errors.push(error.clone());
+        }
         if matches!(ty, Type::Unknown | Type::Invalid) {
             return ty.clone();
         }
         if matches!(ty, Type::Any) {
+            self.check_opaque_callable_effects("opaque Result propagation", span);
             return Type::Any;
         }
+        self.record_required_effect(Effect::Error);
         if let Some(effs) = &self.current_effects
             && !effs.contains(&Effect::Error)
         {
@@ -46,7 +52,9 @@ impl Checker {
                 .as_ref()
                 .is_none_or(|return_ty| return_ty.is_result())
             || self.current_yield.is_some();
-        if !allowed {
+        let inferring = self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown);
+        if inferring { self.inferred_propagations.push((err.clone(), span)); }
+        if !allowed && !inferring {
             self.error(
                 span,
                 "`?` requires a Result-returning context",
@@ -75,7 +83,7 @@ impl Checker {
         if matches!(ty, Type::Any) {
             return Type::Any;
         }
-        let Some((ok, _)) = result_types(ty) else {
+        let Some((ok, err)) = result_types(ty) else {
             self.error(
                 span,
                 "`?` can be applied only to Result values",
@@ -83,7 +91,55 @@ impl Checker {
             );
             return Type::Unknown;
         };
+        if let Some(errors) = self.error_boundary_errors.last_mut() { errors.push((err, span)); }
         ok
+    }
+
+    pub(super) fn begin_error_boundary(&mut self) {
+        self.retry_attempt_depth += 1;
+        self.error_boundary_errors.push(Vec::new());
+    }
+
+    pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>) -> Type {
+        self.retry_attempt_depth -= 1;
+        let errors = self.error_boundary_errors.pop().expect("checked error boundary");
+        let mut inferred = expected.cloned();
+        for (error, span) in errors {
+            if let Some(current) = &inferred {
+                if error.matches_expected(current) { continue; }
+                if expected.is_none() && current.matches_expected(&error) { inferred = Some(error); continue; }
+                if expected.is_none() {
+                    let family = match (current, &error) {
+                        (Type::ErrorVariant { family: left, .. } | Type::ErrorFamily(left), Type::ErrorVariant { family: right, .. } | Type::ErrorFamily(right)) if left == right => Some(*left),
+                        _ => None,
+                    };
+                    inferred = Some(family.map(Type::ErrorFamily).unwrap_or(Type::Error));
+                }
+                else { self.expect_type(current, &error, span); }
+            } else { inferred = Some(error); }
+        }
+        inferred.unwrap_or(Type::Error)
+    }
+
+    pub(super) fn record_callee_propagation(&mut self, effects: &Option<Vec<Effect>>, return_ty: &Type, span: Span) {
+        if self.retry_attempt_depth > 0 && !return_ty.is_result() && !matches!(return_ty, Type::Stream(_))
+            && effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
+            && let Some(errors) = self.error_boundary_errors.last_mut() {
+            errors.push((Type::Error, span));
+        }
+    }
+
+    pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
+        if matches!(ty, Type::Bool | Type::Result(_, _)) {
+            self.require_effect(Effect::Error, span, "statement failure propagation");
+        }
+        if self.retry_attempt_depth == 0 { return; }
+        let error = match ty {
+            Type::Result(_, error) => Some(error.as_ref().clone()),
+            Type::Bool => Some(Type::ErrorFamily(Name::intern("AssertionError"))),
+            _ => None,
+        };
+        if let (Some(errors), Some(error)) = (self.error_boundary_errors.last_mut(), error) { errors.push((error, span)); }
     }
 
     pub(super) fn reject_ignored_result(&mut self, ty: &Type, span: Span) {
@@ -93,12 +149,34 @@ impl Checker {
     }
 
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
-        if self.options.strict_dynamic && actual.any_flows_to_concrete(expected) {
-            self.warning(
+        if expected.contains_inference() || actual.contains_inference() {
+            let constrained = if expected.contains_inference() {
+                self.type_constraints.constrain(expected, actual, span)
+            } else {
+                self.type_constraints.constrain_context(expected, actual, span)
+            };
+            if let Err(conflict) = constrained {
+                let mut diagnostic = Diagnostic::error("inferred types disagree")
+                    .with_code("check.type-mismatch")
+                    .with_label(Label::primary(conflict.contribution,
+                        format!("expected {}, found {}", conflict.expected, conflict.actual)));
+                if let Some(origin) = conflict.initializer {
+                    diagnostic = diagnostic.with_label(Label::secondary(origin, "type inference started here"));
+                }
+                if let Some(established) = conflict.established {
+                    diagnostic = diagnostic.with_label(Label::secondary(established, "type established here"));
+                }
+                self.diagnostics.push(diagnostic);
+            }
+            return;
+        }
+        if actual.any_flows_to_concrete(expected) {
+            self.error(
                 span,
-                "strict mode requires schema check before using Any as a concrete type",
-                "check.strict-any",
+                &format!("unchecked {actual} cannot establish {expected}; validate with `.require(Type)` or use a checked type pattern"),
+                "check.dynamic-boundary",
             );
+            return;
         }
         if !actual.matches_expected(expected) {
             self.diagnostics.push(
@@ -121,6 +199,10 @@ impl Checker {
         let data = program.arena.type_expr_data[type_id.index()];
         let span = program.arena.type_expr_span(type_id);
         match tag {
+            ArenaTypeExprTag::Applied => match self.record_constructors.resolve_type_checked(&program.arena, type_id, self.current_namespace) {
+                Ok(ty) => ty,
+                Err(error) => { self.error(span, &error.message, error.code); Type::Invalid }
+            },
             ArenaTypeExprTag::Named => {
                 let name = Name::from_symbol(Symbol::from_raw(data.lhs));
                 self.type_from_name(name, span)
@@ -128,14 +210,35 @@ impl Checker {
             ArenaTypeExprTag::Qualified => {
                 let namespace = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
-                self.type_from_qualified_name(namespace, name, span)
+                let qualified = Name::intern(format!("{namespace}.{name}"));
+                // Imported error identities use the checked namespace, just as
+                // constructors and error patterns do. Schema resolution must
+                // not replace them with a module-local spelling.
+                if self.error_families.contains_key(&qualified) {
+                    return Type::ErrorFamily(qualified);
+                }
+                if self.error_facets.contains(&qualified) {
+                    return Type::ErrorFacet(qualified);
+                }
+                match self.record_constructors.resolve_type_checked(&program.arena, type_id, self.current_namespace) {
+                    Ok(ty) => ty,
+                    Err(error) if matches!(error.code, "check.type-arity" | "check.recursive-type") => {
+                        self.error(span, &error.message, error.code);
+                        Type::Invalid
+                    }
+                    Err(_) => self.type_from_qualified_name(namespace, name, span),
+                }
             }
             ArenaTypeExprTag::List => Type::List(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             )),
-            ArenaTypeExprTag::Map => Type::Map(Box::new(
-                self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
-            )),
+            ArenaTypeExprTag::Map => {
+                let key = TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| self.type_from_arena(program, id));
+                if !key.is_map_key() && !key.is_recovery() {
+                    self.error(span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", "check.map-key-type");
+                }
+                Type::Map(Box::new(key), Box::new(self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize))))
+            },
             ArenaTypeExprTag::Stream => Type::Stream(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             )),
@@ -245,6 +348,14 @@ impl Checker {
         }
         self.resolving_types.push(key);
         let ty = match body {
+            TypeDefBody::Declared(program, definition) => match self.record_constructors.resolve_definition_checked(&program.arena, definition) {
+                Ok(ty) => ty,
+                Err(error) => { self.error(span, &error.message, error.code); Type::Invalid }
+            },
+            TypeDefBody::Parameterized(arity) => {
+                self.error(span, &format!("type `{key}` requires {arity} type arguments"), "check.type-arity");
+                Type::Invalid
+            }
             TypeDefBody::Resolved(ty) => ty,
             TypeDefBody::Alias(alias) => self.type_from_ann(&alias),
             TypeDefBody::RecordSchema(fields) => {
@@ -281,7 +392,7 @@ impl Checker {
                 }
                 Type::Module(exports)
             }
-            TypeDefBody::TagUnion(_) => Type::Tag(key),
+            TypeDefBody::TagUnion(variants) => Type::Tag(variants.first().map_or(key, |variant| variant.type_name)),
         };
         self.resolving_types.pop();
         ty
@@ -298,7 +409,7 @@ impl Checker {
                 .into_iter()
                 .map(|param| CallableParamType {
                     name: param.name,
-                    ty: self.type_from_ann(&param.ty),
+                    ty: if param.source.ty_defaulted { self.infer_checked_parameter(&param.ty.program, "", &param.source) } else { self.type_from_ann(&param.ty) },
                     defaulted: param.defaulted,
                     rest: param.rest,
                 })
@@ -330,30 +441,5 @@ pub(super) fn collection_item_ty(ty: &Type) -> Type {
         Type::Unknown => Type::Unknown,
         Type::Any => Type::Any,
         _ => Type::Unknown,
-    }
-}
-
-pub(super) fn map_item_ty(ty: &Type) -> Type {
-    match ty {
-        Type::Map(item) => item.as_ref().clone(),
-        Type::Unknown => Type::Unknown,
-        Type::Any => Type::Any,
-        _ => Type::Unknown,
-    }
-}
-
-pub(super) fn merge_collection_item_ty(primary: Type, fallback: Type) -> Type {
-    if primary == Type::Unknown {
-        fallback
-    } else if primary == Type::Any
-        || fallback == Type::Any
-        || matches!(
-            (&primary, &fallback),
-            (Type::Str, Type::Path) | (Type::Path, Type::Str)
-        )
-    {
-        Type::Any
-    } else {
-        primary
     }
 }

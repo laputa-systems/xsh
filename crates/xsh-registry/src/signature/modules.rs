@@ -7,8 +7,7 @@ use super::{
     archive_entry_type, btree_map, default_param, diff_result_type, dns_host_type, dns_lookup_type,
     elf_info_type, env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
-    fs_root_children_result_type, fs_root_filesystem_stats_type, fs_root_read_result_type,
-    fs_root_readlink_result_type, fs_root_type, group_record_type, linux_blkid_type,
+    fs_root_type, group_record_type, linux_blkid_type,
     linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type,
     linux_interface_type, linux_loop_device_type, linux_meminfo_type, linux_modinfo_type,
     linux_module_type, linux_network_dump_type, linux_open_file_type, linux_partition_table_type,
@@ -103,10 +102,6 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
             ModuleEntry {
                 name: "mime",
                 sig: mime_module(),
-            },
-            ModuleEntry {
-                name: "record",
-                sig: record_module(),
             },
             ModuleEntry {
                 name: "module",
@@ -478,7 +473,9 @@ fn cli_module() -> ModuleSig {
                     default_param("env", Type::Record(BTreeMap::new())),
                     default_param("command", Type::Str),
                 ],
-                result(Type::Record(BTreeMap::new())),
+                result(Type::Record(BTreeMap::from(crate::types::cli_full_fields(
+                    Type::Record(BTreeMap::new()), Type::Record(BTreeMap::new()), Type::List(Box::new(Type::Str)),
+                ).map(|(name, ty)| (name.to_string(), ty))))),
                 true,
                 RuntimeOp::CliParseFull,
             ),
@@ -891,7 +888,7 @@ fn patch_module() -> ModuleSig {
 }
 
 fn map_module() -> ModuleSig {
-    let map_unknown = || Type::Map(Box::new(Type::Any));
+    let map_unknown = || Type::Map(Box::new(Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Key)), Box::new(Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Value)));
     module_sig(vec![(
         "empty",
         sig(Vec::new(), map_unknown(), true, RuntimeOp::MapEmpty),
@@ -899,7 +896,7 @@ fn map_module() -> ModuleSig {
 }
 
 fn set_module() -> ModuleSig {
-    let set_type = || Type::Map(Box::new(Type::Bool));
+    let set_type = || Type::Map(Box::new(Type::Str), Box::new(Type::Bool));
     module_sig(vec![
         (
             "empty",
@@ -965,24 +962,6 @@ fn mime_module() -> ModuleSig {
             ),
         ),
     ])
-}
-
-fn record_module() -> ModuleSig {
-    let record_unknown = || Type::Record(BTreeMap::new());
-    module_sig(vec![(
-        "require",
-        sig(
-            vec![
-                param("record", record_unknown()),
-                param("required", record_unknown()),
-                default_param("optional", record_unknown()),
-                default_param("source", Type::Path),
-            ],
-            result(record_unknown()),
-            false,
-            RuntimeOp::RecordRequire,
-        ),
-    )])
 }
 
 fn regex_module() -> ModuleSig {
@@ -1257,19 +1236,6 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
-            "ls",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    default_param("stat", Type::Bool),
-                    default_param("ordered", Type::Bool),
-                ],
-                result(fs_entry_stream()),
-                false,
-                RuntimeOp::FsLs,
-            ),
-        ),
-        (
             "children",
             sig(
                 vec![
@@ -1464,229 +1430,6 @@ fn fs_module() -> ModuleSig {
                 result(fs_root_type()),
                 false,
                 RuntimeOp::FsOpenRoot,
-            ),
-        ),
-        (
-            "close_root",
-            sig(
-                vec![param("root", fs_root_type())],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsCloseRoot,
-            ),
-        ),
-        (
-            "root_path",
-            sig(
-                vec![param("root", fs_root_type())],
-                result(Type::Path),
-                false,
-                RuntimeOp::FsRootPath,
-            ),
-        ),
-        (
-            "root",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(fs_root_type()),
-                false,
-                RuntimeOp::FsRootOpenRoot,
-            ),
-        ),
-        (
-            "root_read",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(Type::Bytes),
-                false,
-                RuntimeOp::FsRootRead,
-            ),
-        ),
-        (
-            "root_read_result",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    default_param("max_bytes", Type::Int),
-                ],
-                result(fs_root_read_result_type()),
-                false,
-                RuntimeOp::FsRootReadResult,
-            ),
-        ),
-        (
-            "root_filesystem_stats",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(fs_root_filesystem_stats_type()),
-                false,
-                RuntimeOp::FsRootFilesystemStats,
-            ),
-        ),
-        (
-            "root_children",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    default_param("max_entries", Type::Int),
-                ],
-                result(fs_root_children_result_type()),
-                false,
-                RuntimeOp::FsRootChildren,
-            ),
-        ),
-        (
-            "root_read_text",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(Type::Str),
-                false,
-                RuntimeOp::FsRootReadText,
-            ),
-        ),
-        (
-            "root_write",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    param("data", Type::Bytes),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootWrite,
-            ),
-        ),
-        (
-            "root_write",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    param("data", Type::Str),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootWrite,
-            ),
-        ),
-        (
-            "root_write_atomic",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    param("data", Type::Bytes),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootWriteAtomic,
-            ),
-        ),
-        (
-            "root_write_atomic",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    param("data", Type::Str),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootWriteAtomic,
-            ),
-        ),
-        (
-            "root_metadata",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(fs_entry_type()),
-                false,
-                RuntimeOp::FsRootMetadata,
-            ),
-        ),
-        (
-            "root_exists",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(Type::Bool),
-                false,
-                RuntimeOp::FsRootExists,
-            ),
-        ),
-        (
-            "root_mkdir",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    default_param("mode", Type::Int),
-                    default_param("parents", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootMkdir,
-            ),
-        ),
-        (
-            "root_remove",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    default_param("dir", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootRemove,
-            ),
-        ),
-        (
-            "root_readlink",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(Type::Path),
-                false,
-                RuntimeOp::FsRootReadlink,
-            ),
-        ),
-        (
-            "root_readlink_result",
-            sig(
-                vec![param("root", fs_root_type()), param("path", Type::Path)],
-                result(fs_root_readlink_result_type()),
-                false,
-                RuntimeOp::FsRootReadlinkResult,
-            ),
-        ),
-        (
-            "root_symlink",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("target", Type::Path),
-                    param("path", Type::Path),
-                    default_param("parents", Type::Bool),
-                    default_param("overwrite", Type::Bool),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootSymlink,
-            ),
-        ),
-        (
-            "root_chmod",
-            sig(
-                vec![
-                    param("root", fs_root_type()),
-                    param("path", Type::Path),
-                    param("mode", Type::Int),
-                ],
-                result(Type::Unit),
-                false,
-                RuntimeOp::FsRootChmod,
             ),
         ),
         (
@@ -3237,6 +2980,7 @@ fn process_module() -> ModuleSig {
                     default_param("new_session", Type::Bool),
                     default_param("ignore_hup", Type::Bool),
                     default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
                 ],
                 Type::Command,
                 true,
@@ -3261,6 +3005,7 @@ fn process_module() -> ModuleSig {
                     default_param("new_session", Type::Bool),
                     default_param("ignore_hup", Type::Bool),
                     default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
                 ],
                 Type::Command,
                 true,
@@ -3285,6 +3030,7 @@ fn process_module() -> ModuleSig {
                     default_param("new_session", Type::Bool),
                     default_param("ignore_hup", Type::Bool),
                     default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
                 ],
                 Type::Command,
                 true,
@@ -3309,6 +3055,107 @@ fn process_module() -> ModuleSig {
                     default_param("new_session", Type::Bool),
                     default_param("ignore_hup", Type::Bool),
                     default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
+                ],
+                Type::Command,
+                true,
+                RuntimeOp::ProcessCommandArgv,
+            ),
+        ),
+        (
+            "command_argv",
+            sig(
+                vec![
+                    param("target", Type::Str),
+                    param("argv", Type::List(Box::new(Type::Str))),
+                    default_param("cwd", Type::Path),
+                    default_param("env", Type::Record(BTreeMap::new())),
+                    param("stdin", Type::Bytes),
+                    default_param("stdout", Type::Path),
+                    default_param("stderr", Type::Path),
+                    default_param("stdout_append", Type::Bool),
+                    default_param("stderr_append", Type::Bool),
+                    default_param("timeout", Type::Duration),
+                    default_param("detach", Type::Bool),
+                    default_param("new_session", Type::Bool),
+                    default_param("ignore_hup", Type::Bool),
+                    default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
+                ],
+                Type::Command,
+                true,
+                RuntimeOp::ProcessCommandArgv,
+            ),
+        ),
+        (
+            "command_argv",
+            sig(
+                vec![
+                    param("target", Type::Str),
+                    param("argv", Type::List(Box::new(Type::Path))),
+                    default_param("cwd", Type::Path),
+                    default_param("env", Type::Record(BTreeMap::new())),
+                    param("stdin", Type::Bytes),
+                    default_param("stdout", Type::Path),
+                    default_param("stderr", Type::Path),
+                    default_param("stdout_append", Type::Bool),
+                    default_param("stderr_append", Type::Bool),
+                    default_param("timeout", Type::Duration),
+                    default_param("detach", Type::Bool),
+                    default_param("new_session", Type::Bool),
+                    default_param("ignore_hup", Type::Bool),
+                    default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
+                ],
+                Type::Command,
+                true,
+                RuntimeOp::ProcessCommandArgv,
+            ),
+        ),
+        (
+            "command_argv",
+            sig(
+                vec![
+                    param("target", Type::Path),
+                    param("argv", Type::List(Box::new(Type::Str))),
+                    default_param("cwd", Type::Path),
+                    default_param("env", Type::Record(BTreeMap::new())),
+                    param("stdin", Type::Bytes),
+                    default_param("stdout", Type::Path),
+                    default_param("stderr", Type::Path),
+                    default_param("stdout_append", Type::Bool),
+                    default_param("stderr_append", Type::Bool),
+                    default_param("timeout", Type::Duration),
+                    default_param("detach", Type::Bool),
+                    default_param("new_session", Type::Bool),
+                    default_param("ignore_hup", Type::Bool),
+                    default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
+                ],
+                Type::Command,
+                true,
+                RuntimeOp::ProcessCommandArgv,
+            ),
+        ),
+        (
+            "command_argv",
+            sig(
+                vec![
+                    param("target", Type::Path),
+                    param("argv", Type::List(Box::new(Type::Path))),
+                    default_param("cwd", Type::Path),
+                    default_param("env", Type::Record(BTreeMap::new())),
+                    param("stdin", Type::Bytes),
+                    default_param("stdout", Type::Path),
+                    default_param("stderr", Type::Path),
+                    default_param("stdout_append", Type::Bool),
+                    default_param("stderr_append", Type::Bool),
+                    default_param("timeout", Type::Duration),
+                    default_param("detach", Type::Bool),
+                    default_param("new_session", Type::Bool),
+                    default_param("ignore_hup", Type::Bool),
+                    default_param("cpu_max", Type::Int),
+                    default_param("accept", Type::List(Box::new(Type::Int))),
                 ],
                 Type::Command,
                 true,
@@ -3894,11 +3741,6 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Reports paths removed by a manifest operation.",
             "The record describes constrained manifest removals and does not authorize a later unrestricted deletion.",
             &["filesystem", "remove", "record"],
-        ),
-        "FsRoot" => (
-            "Represents a rooted filesystem capability.",
-            "Operations using the root stay below its destination boundary; close the capability when its ownership ends.",
-            &["filesystem", "rooted", "capability"],
         ),
         "FsRootChildrenResult" => (
             "Describes one bounded directory enumeration beneath a rooted filesystem capability.",

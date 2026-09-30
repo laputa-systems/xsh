@@ -1,8 +1,8 @@
-let ready1 = fp"${ARGV[0]}"
-let leaked1 = fp"${ARGV[1]}"
-let ready2 = fp"${ARGV[2]}"
-let leaked2 = fp"${ARGV[3]}"
-let helper = fp"${ARGV[4]}"
+let ready1 = fp"${args[0]}"
+let leaked1 = fp"${args[1]}"
+let ready2 = fp"${args[2]}"
+let leaked2 = fp"${args[3]}"
+let helper = fp"${args[4]}"
 
 proc inner(ready: Path, leaked: Path, helper: Path) [fs, process, time, error] {
   let _h = spawn process.command_argv(helper, ["os-probe", "group-leak", ready.display(), leaked.display()])?

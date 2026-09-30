@@ -1,6 +1,6 @@
 use stage_contract
 
-proc test_static_runner_satisfies_the_stage_contract(ctx: TestContext) [fs, error] {
+test test_static_runner_satisfies_the_stage_contract [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "stage-runner-contract")?
   fp"${root}/stage_fake.xsh".write("""
 ##! Static fake stage runner.

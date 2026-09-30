@@ -77,7 +77,7 @@ pure variant_name(line: Str) -> Str {
     return ""
   }
 
-  return trimmed.replace("{", " ").replace("(", " ").replace(",", " ").fields().get(0, "")
+  return (trimmed.replace("{", " ").replace("(", " ").replace(",", " ").fields().get(0) ?? "")
 }
 
 pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
@@ -153,7 +153,7 @@ pure quoted_tokens(line: Str) -> List[Str] {
   var index = 1
 
   while index < parts.len() {
-    let token = parts.get(index, "")
+    let token = (parts.get(index) ?? "")
 
     if token != "" {
       values = values.push(token)
@@ -226,7 +226,7 @@ pure standard_record_names(source: Str) -> List[Str] {
     let line = raw.trim()
 
     if line.starts_with("(\"") and "\"," in line {
-      let name = line.split("\"").get(1, "")
+      let name = (line.split("\"").get(1) ?? "")
 
       if name != "" and ! (name in names) {
         names = names.push(name)
@@ -249,14 +249,14 @@ pure starts_proc(line: Str) -> Bool {
 
 pure pure_name(signature: Str) -> Str {
   let trimmed = signature.trim().replace("export pure ", "pure ")
-  let after_pure = trimmed.split("pure ").get(1, trimmed)
-  return after_pure.split("(").get(0, after_pure).trim()
+  let after_pure = (trimmed.split("pure ").get(1) ?? trimmed)
+  return (after_pure.split("(").get(0) ?? after_pure).trim()
 }
 
 pure proc_name(signature: Str) -> Str {
   let trimmed = signature.trim().replace("export proc ", "proc ")
-  let after_proc = trimmed.split("proc ").get(1, trimmed)
-  return after_proc.split("(").get(0, after_proc).trim()
+  let after_proc = (trimmed.split("proc ").get(1) ?? trimmed)
+  return (after_proc.split("(").get(0) ?? after_proc).trim()
 }
 
 pure pure_function_names(source: Str) -> List[Str] {
@@ -302,7 +302,7 @@ pure record_schema_names(source: Str) -> List[Str] {
     let line = raw.trim().replace("export type ", "type ")
 
     if line.starts_with("type ") and "= {" in line {
-      let name = line.split("type ").get(1, "").split("=").get(0, "").trim()
+      let name = ((line.split("type ").get(1) ?? "").split("=").get(0) ?? "").trim()
 
       if name != "" and ! (name in names) {
         names = names.push(name)
@@ -317,10 +317,10 @@ pure tag_union_names(source: Str) -> List[Str] {
   var names: List[Str] = []
 
   for raw in source.lines() {
-    let line = raw.trim().replace("export type ", "type ")
+    let line = raw.trim().replace("export enum ", "enum ")
 
-    if line.starts_with("type ") and "=" in line and ! ("= {" in line) and "|" in line {
-      let name = line.split("type ").get(1, "").split("=").get(0, "").trim()
+    if line.starts_with("enum ") and "{" in line {
+      let name = ((line.split("enum ").get(1) ?? "").split("{").get(0) ?? "").trim()
 
       if name != "" and ! (name in names) {
         names = names.push(name)
@@ -350,14 +350,14 @@ pure module_namespace(path_text: Str) -> Str {
     return ""
   }
 
-  let without_ext = path_text.split(".xsh").get(0, path_text)
+  let without_ext = (path_text.split(".xsh").get(0) ?? path_text)
   let parts = without_ext.split("/")
 
   if parts.len() < 2 {
     return ""
   }
 
-  return parts.get(parts.len() - 1, "")
+  return (parts.get(parts.len() - 1) ?? "")
 }
 
 pure extend_unique(values: List[Str], extra: List[Str]) -> List[Str] {
@@ -379,10 +379,10 @@ pure error_variant_names(source: Str) -> List[Str] {
     let line = raw.trim().replace("export error ", "error ")
 
     if line.starts_with("error ") and "=" in line {
-      let variants = line.split("=").get(1, "").split("|")
+      let variants = (line.split("=").get(1) ?? "").split("|")
 
       for raw_variant in variants {
-        let name = raw_variant.trim().replace("(", " ").fields().get(0, "")
+        let name = (raw_variant.trim().replace("(", " ").fields().get(0) ?? "")
 
         if name != "" and ! (name in names) {
           names = names.push(name)
@@ -403,7 +403,7 @@ pure lowerable_named_type(raw: Str, record_types: List[Str]) -> Bool {
     return true
   }
 
-  let short = raw.split(".").get(raw.split(".").len() - 1, raw)
+  let short = (raw.split(".").get(raw.split(".").len() - 1) ?? raw)
   return short in record_types
 }
 
@@ -419,7 +419,7 @@ pure lowerable_type(raw: Str, allow_result: Bool, record_types: List[Str]) -> Bo
   }
 
   if allow_result and ty.starts_with("Result[") {
-    let inner = ty.split("Result[").get(1, "").split("]").get(0, "")
+    let inner = ((ty.split("Result[").get(1) ?? "").split("]").get(0) ?? "")
     return lowerable_type(inner, false, record_types)
   }
 
@@ -441,8 +441,8 @@ pure signature_reasons(signature: Str, record_types: List[Str]) -> List[Str] {
   var index = 0
 
   while index < tokens.len() {
-    let token = tokens.get(index, "")
-    let next = tokens.get(index + 1, "")
+    let token = (tokens.get(index) ?? "")
+    let next = (tokens.get(index + 1) ?? "")
 
     if token.ends_with(":") and next != "" and ! lowerable_type(next, false, record_types) {
       reasons = add_reason(reasons, f"type.param.${next}")
@@ -469,11 +469,11 @@ pure method_reasons(
   var index = 1
 
   while index < parts.len() {
-    let part = parts.get(index, "")
+    let part = (parts.get(index) ?? "")
 
     if "(" in part {
-      let method = part.split("(").get(0, "").trim()
-      let receiver = receiver_name(parts.get(index - 1, ""))
+      let method = (part.split("(").get(0) ?? "").trim()
+      let receiver = receiver_name((parts.get(index - 1) ?? ""))
       let qualified = f"${receiver}.${method}"
 
       if ! known_module_receiver(receiver) and plausible_field_call_name(method) and ! (method in lowered_methods) and ! (method in error_variants) and ! (qualified in pure_functions) {
@@ -494,7 +494,7 @@ pure receiver_name(raw: Str) -> Str {
     return ""
   }
 
-  return fields.get(fields.len() - 1, "")
+  return (fields.get(fields.len() - 1) ?? "")
 }
 
 pure known_module_receiver(name: Str) -> Bool {
@@ -666,14 +666,14 @@ pure pure_scan(
 }
 
 pure proc_effects(signature: Str) -> List[Str] {
-  let before_return = signature.split("->").get(0, signature).trim()
+  let before_return = (signature.split("->").get(0) ?? signature).trim()
 
   if ! before_return.ends_with("]") {
     return ["unrestricted"]
   }
 
   let parts = before_return.split("[")
-  let raw = parts.get(parts.len() - 1, "").split("]").get(0, "").trim()
+  let raw = ((parts.get(parts.len() - 1) ?? "").split("]").get(0) ?? "").trim()
   var effects: List[Str] = []
 
   if raw == "" {
@@ -947,11 +947,11 @@ proc scan_procs_in_file(
 }
 
 pure add_reason_count(counts: Map[Int], reason: Str) -> Map[Int] {
-  return counts.set(reason, counts.get(reason, 0) + 1)
+  return counts.set(reason, (counts.get(reason) ?? 0) + 1)
 }
 
 pure reason_rows(counts: Map[Int]) -> List[ReasonCount] {
-  [{reason: reason, count: counts.get(reason, 0)} for reason in counts.keys() |> sort]
+  [{reason: reason, count: (counts.get(reason) ?? 0)} for reason in counts.keys() |> sort]
 }
 
 pure reason_group(reason: Str) -> Str {

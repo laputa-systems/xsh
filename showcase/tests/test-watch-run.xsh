@@ -1,4 +1,4 @@
-proc test_watch_run_once(ctx: TestContext) [fs, process, error] {
+test test_watch_run_once [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "watch")?
   fp"${root}/input.txt".write("hello")?
   let output = run.text "xsh" "showcase/watch-run.xsh" -- --root $root --once true ?
@@ -6,7 +6,7 @@ proc test_watch_run_once(ctx: TestContext) [fs, process, error] {
   "[run 1]" in output
 }
 
-proc test_watch_run_once_reports_child_failure(ctx: TestContext) [fs, process, error] {
+test test_watch_run_once_reports_child_failure [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "watch-failure")?
   let output = test.temp_path(ctx, name: "watch-failure-output")
   let status = run.status "xsh" "showcase/watch-run.xsh" -- --root $root --once false > $output
@@ -14,7 +14,7 @@ proc test_watch_run_once_reports_child_failure(ctx: TestContext) [fs, process, e
   "exit 1" in output.read_text()?
 }
 
-proc test_watch_run_cancellation_reaps_child_descendants(ctx: TestContext) [fs, process, time, error] {
+test test_watch_run_cancellation_reaps_child_descendants [fs, process, time, error] { |ctx|
   let root = test.temp_dir(ctx, name: "watch-cancel")?
   let ready = test.temp_path(ctx, name: "watch-child-ready")
   let leaked = test.temp_path(ctx, name: "watch-child-leaked")

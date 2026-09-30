@@ -2,45 +2,48 @@
 let max_cpu_list_identifiers = 65536
 
 ## Describes the outcome for one observed value or field.
-export type ObservationState =
-    Observed
-  | Absent
-  | Unsupported
-  | PermissionDenied
-  | NotRequested
-  | Redacted
-  | Malformed
-  | Disappeared
-  | Raced
-  | Truncated
-  | RangeFailure
-  | ReadFailure
+export enum ObservationState: Str {
+  Observed = "observed",
+  Absent = "absent",
+  Unsupported = "unsupported",
+  PermissionDenied = "permission_denied",
+  NotRequested = "not_requested",
+  Redacted = "redacted",
+  Malformed = "malformed",
+  Disappeared = "disappeared",
+  Raced = "raced",
+  Truncated = "truncated",
+  RangeFailure = "range_failure",
+  ReadFailure = "read_failure",
+}
 
 ## Describes whether a section's requested enumeration completed.
-export type SectionState =
-    Complete
-  | Partial
-  | SectionAbsent
-  | SectionUnsupported
-  | SectionPermissionDenied
-  | SectionNotRequested
-  | SectionRedacted
-  | SectionMalformed
-  | SectionDisappeared
-  | SectionRaced
-  | SectionTruncated
+export enum SectionState: Str {
+  Complete = "complete",
+  Partial = "partial",
+  SectionAbsent = "absent",
+  SectionUnsupported = "unsupported",
+  SectionPermissionDenied = "permission_denied",
+  SectionNotRequested = "not_requested",
+  SectionRedacted = "redacted",
+  SectionMalformed = "malformed",
+  SectionDisappeared = "disappeared",
+  SectionRaced = "raced",
+  SectionTruncated = "truncated",
+}
 
 ## Failures returned by report parsing, selection, and schema validation.
 export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(message: Str) | InvalidJson(message: Str) | UnsupportedSchema(version: Int, message: Str) | InvalidProcStat(message: Str) | InvalidExecutionUnits(message: Str) | DryRun(message: Str) | UnsupportedPlatform(message: Str)
 
 ## Identifies whether observations came from a live host or a replay source.
-export type SourceMode =
-    LiveLinux
-  | Replay
-  | SyntheticFixture
-  | CapturedReplay
-  | ContainerLive
-  | PhysicalLive
+export enum SourceMode: Str {
+  LiveLinux = "live_linux",
+  Replay = "replay",
+  SyntheticFixture = "synthetic_fixture",
+  CapturedReplay = "captured_replay",
+  ContainerLive = "container_live",
+  PhysicalLive = "physical_live",
+}
 
 ## Stores text with its observation status and optional original bytes.
 ## Sensitive text uses the same shape and becomes Redacted when omitted.
@@ -228,7 +231,7 @@ export pure frequency_policies_for_cpu(policies: List[CpuFreqPolicy], cpu_id: In
 }
 
 pure cpu_list_error(message: Str) -> SystemReportError {
-  return SystemReportError.InvalidCpuList(message: message)
+  return SystemReportError.InvalidCpuList(message:)
 }
 
 pure parse_cpu_list_integer(value: Str, decimal: Regex) -> Result[Int] {
@@ -248,7 +251,7 @@ export pure parse_cpu_list(text: Str) -> Result[List[Int]] {
     return Err(cpu_list_error("CPU list is empty or contains surrounding whitespace"))
   }
 
-  let decimal = regex.compile("^[0-9]+$")?
+  let decimal = rx"^[0-9]+$"
   var identifiers: List[Int] = []
 
   for item in text.split(",") {
@@ -805,20 +808,21 @@ export type SystemReport = {
 }
 
 ## Names one collection domain for a typed report projection.
-export type ReportSection =
-    ReportIdentity
-  | ReportCpu
-  | ReportMemory
-  | ReportPci
-  | ReportUsb
-  | ReportStorage
-  | ReportNetwork
-  | ReportSensors
-  | ReportPower
-  | ReportFirmware
-  | ReportKernel
-  | ReportProcesses
-  | ReportDevices
+export enum ReportSection {
+    ReportIdentity,
+    ReportCpu,
+    ReportMemory,
+    ReportPci,
+    ReportUsb,
+    ReportStorage,
+    ReportNetwork,
+    ReportSensors,
+    ReportPower,
+    ReportFirmware,
+    ReportKernel,
+    ReportProcesses,
+    ReportDevices,
+}
 
 pure report_section_name(section: ReportSection) -> Str {
   match section {
@@ -964,7 +968,7 @@ pure not_requested_processes(section: ProcessSection) -> ProcessSection {
 }
 
 pure clear_process_cgroup_resource_links(section: ProcessSection) -> ProcessSection {
-  var processes = [{...process_item, cgroup_resource_index: null} for process_item in section.processes]
+  var processes: List[ProcessRecord] = [{...process_item, cgroup_resource_index: null} for process_item in section.processes]
   return {...section, processes: processes}
 }
 
@@ -972,11 +976,11 @@ pure not_requested_devices(section: DeviceSection) -> DeviceSection {
   return {...section, status: not_requested_status(), devices: []}
 }
 
-pure selection_needs_pci(selected: ReportSection) -> Bool {
+pure selection_needs_pci(selected: ReportSection) {
   return selected == ReportPci or selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices or selected == ReportSensors
 }
 
-pure selection_needs_usb(selected: ReportSection) -> Bool {
+pure selection_needs_usb(selected: ReportSection) {
   return selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices or selected == ReportSensors
 }
 
@@ -1015,7 +1019,7 @@ pure select_report_domain(report: SystemReport, selected: ReportSection) -> Syst
 
 ## Keeps identity and one named domain, marking every excluded domain.
 export pure select_report_section(report: Record, selected: Str) -> Result[Record] {
-  let typed = report
+  let typed = report.require(SystemReport)?
   return select_report_domain(typed, parse_report_section(selected)?)
 }
 
@@ -1445,20 +1449,9 @@ pure observation_state_json(state: ObservationState) -> Str {
 }
 
 pure observation_state_xsh(value: Str) -> Result[ObservationState] {
-  match value {
-    "observed" => return Ok(Observed)
-    "absent" => return Ok(Absent)
-    "unsupported" => return Ok(Unsupported)
-    "permission_denied" => return Ok(PermissionDenied)
-    "not_requested" => return Ok(NotRequested)
-    "redacted" => return Ok(Redacted)
-    "malformed" => return Ok(Malformed)
-    "disappeared" => return Ok(Disappeared)
-    "raced" => return Ok(Raced)
-    "truncated" => return Ok(Truncated)
-    "range_failure" => return Ok(RangeFailure)
-    "read_failure" => return Ok(ReadFailure)
-    _ => return Err(SystemReportError.InvalidJson(message: f"unknown observation state '${value}'"))
+  match value.require(ObservationState) {
+    Ok(state) => return Ok(state)
+    Err(_) => return Err(SystemReportError.InvalidJson(message: f"unknown observation state '${value}'"))
   }
 }
 
@@ -1479,19 +1472,9 @@ pure section_state_json(state: SectionState) -> Str {
 }
 
 pure section_state_xsh(value: Str) -> Result[SectionState] {
-  match value {
-    "complete" => return Ok(Complete)
-    "partial" => return Ok(Partial)
-    "absent" => return Ok(SectionAbsent)
-    "unsupported" => return Ok(SectionUnsupported)
-    "permission_denied" => return Ok(SectionPermissionDenied)
-    "not_requested" => return Ok(SectionNotRequested)
-    "redacted" => return Ok(SectionRedacted)
-    "malformed" => return Ok(SectionMalformed)
-    "disappeared" => return Ok(SectionDisappeared)
-    "raced" => return Ok(SectionRaced)
-    "truncated" => return Ok(SectionTruncated)
-    _ => return Err(SystemReportError.InvalidJson(message: f"unknown section state '${value}'"))
+  match value.require(SectionState) {
+    Ok(state) => return Ok(state)
+    Err(_) => return Err(SystemReportError.InvalidJson(message: f"unknown section state '${value}'"))
   }
 }
 
@@ -1507,14 +1490,9 @@ pure source_mode_json(mode: SourceMode) -> Str {
 }
 
 pure source_mode_xsh(value: Str) -> Result[SourceMode] {
-  match value {
-    "live_linux" => return Ok(LiveLinux)
-    "replay" => return Ok(Replay)
-    "synthetic_fixture" => return Ok(SyntheticFixture)
-    "captured_replay" => return Ok(CapturedReplay)
-    "container_live" => return Ok(ContainerLive)
-    "physical_live" => return Ok(PhysicalLive)
-    _ => return Err(SystemReportError.InvalidJson(message: f"unknown source mode '${value}'"))
+  match value.require(SourceMode) {
+    Ok(state) => return Ok(state)
+    Err(_) => return Err(SystemReportError.InvalidJson(message: f"unknown source mode '${value}'"))
   }
 }
 
@@ -2324,17 +2302,17 @@ pure encode_typed_report_json(report: SystemReport, sensitive: Bool, pretty: Boo
   let clean = sanitize_report_mount_options(report)
   let output_report = if sensitive { clean } else { redact_report(clean) }
   let wire: Any = report_json(output_report)
-  return json.encode(wire, pretty: pretty)
+  return json.encode(wire, pretty:)
 }
 
 ## Validates a dynamic report at the JSON boundary and emits one document.
 export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str] {
-  return encode_typed_report_json(report, sensitive, pretty)
+  return encode_typed_report_json(report.require(SystemReport)?, sensitive, pretty)
 }
 
 ## Validates the JSON v1 wire schema and restores its typed tag unions.
 export pure decode_report_json(text: Str) -> Result[SystemReport] {
-  guard let raw = json.decode(text) else |error| {
+  guard let raw = json.decode(text) else { |error|
     return Err(SystemReportError.InvalidJson(message: error.message))
   }
 
@@ -2346,7 +2324,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
           return Err(SystemReportError.InvalidJson(message: f"scope.${field} cannot be null"))
         }
 
-        guard let _ = value.require(JsonTextObservation) else |error| {
+        guard let _ = value.require(JsonTextObservation) else { |error|
           return Err(SystemReportError.InvalidJson(message: error.message))
         }
       }
@@ -2359,7 +2337,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
             value: null,
             raw_bytes_base64: null,
           },
-        ) else |error| {
+        ) else { |error|
           return Err(SystemReportError.InvalidJson(message: error.message))
         }
 
@@ -2370,7 +2348,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["cpu", "idle_states"]) {
     Ok(raw_states) => {
-      guard let states = raw_states.require(List[Any]) else |error| {
+      guard let states = raw_states.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2378,7 +2356,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
         match json.get(states[state_index], ["state_index"]) {
           Ok(_) => {}
           Err(_) => {
-            guard let updated = json.set(normalized, ["cpu", "idle_states", state_index, "state_index"], null) else |error| {
+            guard let updated = json.set(normalized, ["cpu", "idle_states", state_index, "state_index"], null) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2392,7 +2370,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["cpu", "frequency_policies"]) {
     Ok(raw_policies) => {
-      guard let policies = raw_policies.require(List[Any]) else |error| {
+      guard let policies = raw_policies.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2402,7 +2380,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
         match json.get(policies[policy_index], ["requested_current_khz"]) {
           Ok(raw_legacy) => {
             has_legacy_current = true
-            guard let value = raw_legacy.require(Int?) else |error| {
+            guard let value = raw_legacy.require(Int?) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2413,7 +2391,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
         match json.get(policies[policy_index], ["scaling_current_khz"]) {
           Ok(raw_current) => {
-            guard let value = raw_current.require(Int?) else |error| {
+            guard let value = raw_current.require(Int?) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2424,12 +2402,12 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
             }
           }
           Err(_) => {
-            let replacement: Any = if legacy_current == null { null } else { legacy_current ?? -1 }
+            let replacement: Any = if legacy_current == null { null } else { legacy_current }
             guard let updated = json.set(
               normalized,
               ["cpu", "frequency_policies", policy_index, "scaling_current_khz"],
               replacement,
-            ) else |error| {
+            ) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2441,7 +2419,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
           guard let updated = json.remove(
             normalized,
             ["cpu", "frequency_policies", policy_index, "requested_current_khz"],
-          ) else |error| {
+          ) else { |error|
             return Err(SystemReportError.InvalidJson(message: error.message))
           }
 
@@ -2454,12 +2432,12 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["sensors", "thermal_zones"]) {
     Ok(raw_zones) => {
-      guard let zones = raw_zones.require(List[Any]) else |error| {
+      guard let zones = raw_zones.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
       for zone_index in range(zones.len()) {
-        guard let trips = json.get(zones[zone_index], ["trips"])?.require(List[Any]) else |error| {
+        guard let trips = json.get(zones[zone_index], ["trips"])?.require(List[Any]) else { |error|
           return Err(SystemReportError.InvalidJson(message: error.message))
         }
 
@@ -2471,7 +2449,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
                 normalized,
                 ["sensors", "thermal_zones", zone_index, "trips", trip_index, "index"],
                 null,
-              ) else |error| {
+              ) else { |error|
                 return Err(SystemReportError.InvalidJson(message: error.message))
               }
 
@@ -2486,7 +2464,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["usb", "devices"]) {
     Ok(raw_devices) => {
-      guard let devices = raw_devices.require(List[Any]) else |error| {
+      guard let devices = raw_devices.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2494,7 +2472,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
         match json.get(devices[device_index], ["runtime_status"]) {
           Ok(_) => {}
           Err(_) => {
-            guard let updated = json.set(normalized, ["usb", "devices", device_index, "runtime_status"], null) else |error| {
+            guard let updated = json.set(normalized, ["usb", "devices", device_index, "runtime_status"], null) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2508,7 +2486,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["sensors", "channels"]) {
     Ok(raw_channels) => {
-      guard let channels = raw_channels.require(List[Any]) else |error| {
+      guard let channels = raw_channels.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2517,7 +2495,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
           match json.get(channels[channel_index], [field]) {
             Ok(_) => {}
             Err(_) => {
-              guard let updated = json.set(normalized, ["sensors", "channels", channel_index, field], null) else |error| {
+              guard let updated = json.set(normalized, ["sensors", "channels", channel_index, field], null) else { |error|
                 return Err(SystemReportError.InvalidJson(message: error.message))
               }
 
@@ -2532,7 +2510,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["devices", "devices"]) {
     Ok(raw_devices) => {
-      guard let devices = raw_devices.require(List[Any]) else |error| {
+      guard let devices = raw_devices.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2544,7 +2522,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
               normalized,
               ["devices", "devices", device_index, "entry_name"],
               {state: "unsupported", value: null, raw_bytes_base64: null},
-            ) else |error| {
+            ) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2558,14 +2536,14 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["power", "cap_zones"]) {
     Ok(raw_zones) => {
-      guard let zones = raw_zones.require(List[Any]) else |error| {
+      guard let zones = raw_zones.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
       var zone_index = 0
       for raw_zone in zones {
         if json.get(raw_zone, ["entry_name"], null) == null {
-          guard let legacy = raw_zone.require(LegacyPowerCapZone) else |error| {
+          guard let legacy = raw_zone.require(LegacyPowerCapZone) else { |error|
             return Err(SystemReportError.InvalidJson(message: error.message))
           }
 
@@ -2590,7 +2568,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
             constraints: constraints,
           }
           let wire_zone: Any = zone
-          guard let updated = json.set(normalized, ["power", "cap_zones", zone_index], wire_zone) else |error| {
+          guard let updated = json.set(normalized, ["power", "cap_zones", zone_index], wire_zone) else { |error|
             return Err(SystemReportError.InvalidJson(message: error.message))
           }
 
@@ -2603,7 +2581,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
     Err(_) => {}
   }
 
-  guard let wire = normalized.require(SystemReportJson) else |error| {
+  guard let wire = normalized.require(SystemReportJson) else { |error|
     return Err(SystemReportError.InvalidJson(message: error.message))
   }
 
@@ -2616,7 +2594,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
     )
   }
 
-  let parsed = sanitize_report_mount_options(report_xsh(wire)?)
+  let parsed = report_xsh(wire)? |> sanitize_report_mount_options(_)
   require_report_v1(parsed)?
   return Ok(parsed)
 }
@@ -2929,7 +2907,7 @@ pure integer_list_display(values: List[Int]) -> Str {
   return texts.join(",")
 }
 
-pure key_part(prefix: Str, value: Str) -> Str {
+pure key_part(prefix: Str, value: Str) {
   return f"${prefix}${value.count_chars()}:${value}"
 }
 
@@ -3441,7 +3419,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
 
 ## Validates a dynamic report and renders terminal-safe text.
 export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str] {
-  return render_typed_text(report, full, sensitive)
+  return render_typed_text(report.require(SystemReport)?, full, sensitive)
 }
 
 ## Removes the payload of a sensitive observation while retaining its shape.
@@ -3499,7 +3477,7 @@ pure redact_memory_section(section: MemorySection) -> MemorySection {
 }
 
 pure redact_pci_section(section: PciSection) -> PciSection {
-  var functions = [
+  var functions: List[PciFunction] = [
     {
       ...function,
       address: null,
@@ -3517,7 +3495,7 @@ pure redact_pci_section(section: PciSection) -> PciSection {
 pure redact_usb_section(section: UsbSection) -> UsbSection {
   var devices: List[UsbDevice] = []
   for device in section.devices {
-    var interfaces = [{...interface, name: null} for interface in device.interfaces]
+    var interfaces: List[UsbInterface] = [{...interface, name: null} for interface in device.interfaces]
     devices = devices.push({
       ...device,
       sysfs_name: null,
@@ -3650,7 +3628,7 @@ pure sanitize_report_mount_options(report: SystemReport) -> SystemReport {
     }
     for mount in report.storage.mounts
   ]
-  return {...report, storage: {...report.storage, mounts: mounts}}
+  return {...report, storage.mounts: mounts}
 }
 
 pure redact_mount_options(options: List[Str]) -> List[Str] {
@@ -3667,7 +3645,7 @@ pure redact_mount_options(options: List[Str]) -> List[Str] {
 }
 
 pure redact_storage_section(section: StorageSection) -> StorageSection {
-  var devices = [
+  var devices: List[BlockDevice] = [
     {
       ...device,
       name: null,
@@ -3678,7 +3656,7 @@ pure redact_storage_section(section: StorageSection) -> StorageSection {
     }
     for device in section.devices
   ]
-  var mounts = [
+  var mounts: List[Mount] = [
     {
       ...mount,
       major: null,

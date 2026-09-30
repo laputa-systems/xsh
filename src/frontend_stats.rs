@@ -138,8 +138,17 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize) {
             .sum::<usize>();
     (
         type_count,
-        size_of::<CheckOutput>() + expr_type_bytes + annotation_bytes + callable_bytes,
+        size_of::<CheckOutput>() + expr_type_bytes + annotation_bytes + callable_bytes + measure_effect_facts(&checked.function_effect_facts),
     )
+}
+
+fn measure_effect_facts(facts: &BTreeMap<crate::sema::check::EffectDeclarationId, crate::sema::check::FunctionEffectFact>) -> usize {
+    facts.len() * size_of::<(crate::sema::check::EffectDeclarationId, crate::sema::check::FunctionEffectFact)>()
+        + facts.values().map(|fact| {
+            [&fact.effective, &fact.required].into_iter().map(|effects| effects.as_ref().map_or(0, |effects| effects.capacity() * size_of::<crate::syntax::node::Effect>())).sum::<usize>()
+                + fact.unknown_chain.capacity() * size_of::<String>()
+                + fact.unknown_chain.iter().map(String::capacity).sum::<usize>()
+        }).sum::<usize>()
 }
 
 fn type_owned_bytes(ty: &Type) -> usize {
@@ -164,7 +173,7 @@ fn measure_function_sig(sig: &CompactFunctionSig) -> (usize, usize) {
 
 fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usize) {
     let mut type_count = 0;
-    let mut bytes = size_of::<CompactDeclOutput>();
+    let mut bytes = size_of::<CompactDeclOutput>() + measure_effect_facts(&declarations.function_effect_facts);
 
     bytes += declarations.types.capacity() * size_of::<(crate::symbol::Name, CompactTypeDefInfo)>();
     for ty in declarations.types.values() {

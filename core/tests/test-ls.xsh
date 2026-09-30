@@ -1,4 +1,4 @@
-proc test_ls(ctx: TestContext) [fs, process, env, error] {
+test test_ls [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "ls")?
   fp"${root}/a.txt".write("a")?
   fp"${root}/b.txt".write("bb")?
@@ -11,6 +11,8 @@ proc test_ls(ctx: TestContext) [fs, process, env, error] {
   "dir/" in output
   let long = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -l $root ?
   "file" in long
+  let long_alias = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -g $root ?
+  "file" in long_alias
   let nested = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/dir" ?
   ! (fp"${root}/dir".display() in nested)
   let file_operand = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/a.txt" ?

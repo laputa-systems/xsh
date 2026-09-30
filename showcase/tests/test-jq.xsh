@@ -12,19 +12,19 @@ proc run_jq(ctx: TestContext, program: Str, input: Str) [fs, process, error] -> 
   ) ?
 }
 
-proc test_jq_identity(ctx: TestContext) [fs, process, error] {
+test test_jq_identity [fs, process, error] { |ctx|
   let out = run_jq(ctx, ".", "{\"b\":2,\"a\":1}")?
 
   # Object key insertion order is preserved (not sorted).
   out.trim() == "{\"b\":2,\"a\":1}"
 }
 
-proc test_jq_number_roundtrip(ctx: TestContext) [fs, process, error] {
+test test_jq_number_roundtrip [fs, process, error] { |ctx|
   let out = run_jq(ctx, ".", "[1, 2.5, -100, 1000]")?
   out.trim() == "[1,2.5,-100,1000]"
 }
 
-proc test_jq_stream(ctx: TestContext) [fs, process, error] {
+test test_jq_stream [fs, process, error] { |ctx|
   let out = run_jq(ctx, ".", "1 \"x\" null true")?
 
   out.trim() == """1
@@ -33,7 +33,7 @@ null
 true"""
 }
 
-proc test_jq_rejects_misspelled_json_literals(ctx: TestContext) [fs, process, error] {
+test test_jq_rejects_misspelled_json_literals [fs, process, error] { |ctx|
   for invalid in ["noll", "trux", "falsx"] {
     let input = test.temp_file(ctx, name: f"${invalid}.json", contents: bytes.from_text(invalid))?
     let diagnostic = test.temp_path(ctx, name: f"${invalid}.err")
@@ -43,17 +43,17 @@ proc test_jq_rejects_misspelled_json_literals(ctx: TestContext) [fs, process, er
   }
 }
 
-proc test_jq_pipe_index(ctx: TestContext) [fs, process, error] {
+test test_jq_pipe_index [fs, process, error] { |ctx|
   let out = run_jq(ctx, ".a | .[1]", "{\"a\":[10,20,30]}")?
   out.trim() == "20"
 }
 
-proc test_jq_construct(ctx: TestContext) [fs, process, error] {
+test test_jq_construct [fs, process, error] { |ctx|
   let out = run_jq(ctx, "{x: .a, y: (.b + 1)}", "{\"a\":1,\"b\":2}")?
   out.trim() == "{\"x\":1,\"y\":3}"
 }
 
-proc test_jq_arith_stream(ctx: TestContext) [fs, process, error] {
+test test_jq_arith_stream [fs, process, error] { |ctx|
   let out = run_jq(ctx, "(1,2)+(10,20)", "null")?
 
   out.trim() == """11
@@ -62,21 +62,21 @@ proc test_jq_arith_stream(ctx: TestContext) [fs, process, error] {
 22"""
 }
 
-proc test_jq_assign(ctx: TestContext) [fs, process, error] {
+test test_jq_assign [fs, process, error] { |ctx|
   run_jq(ctx, ".a = 5", "{\"a\":1,\"b\":2}")?.trim() == "{\"a\":5,\"b\":2}"
   run_jq(ctx, ".a |= .+1", "{\"a\":1}")?.trim() == "{\"a\":2}"
   run_jq(ctx, ".a.b += 1", "{\"a\":{\"b\":2}}")?.trim() == "{\"a\":{\"b\":3}}"
   run_jq(ctx, ".[] |= .+1", "[1,2,3]")?.trim() == "[2,3,4]"
 }
 
-proc test_jq_paths(ctx: TestContext) [fs, process, error] {
+test test_jq_paths [fs, process, error] { |ctx|
   run_jq(ctx, "del(.a)", "{\"a\":1,\"b\":2}")?.trim() == "{\"b\":2}"
   run_jq(ctx, "del(.[1])", "[1,2,3]")?.trim() == "[1,3]"
   run_jq(ctx, "getpath([\"a\",\"b\"])", "{\"a\":{\"b\":5}}")?.trim() == "5"
   run_jq(ctx, "[paths]", "{\"a\":[1]}")?.trim() == "[[\"a\"],[\"a\",0]]"
 }
 
-proc test_jq_builtins(ctx: TestContext) [fs, process, error] {
+test test_jq_builtins [fs, process, error] { |ctx|
   run_jq(ctx, "[.[]|.+1]", "[1,2,3]")?.trim() == "[2,3,4]"
   run_jq(ctx, "map(select(.>2))", "[1,2,3,4]")?.trim() == "[3,4]"
   run_jq(ctx, "sort_by(.x)", "[{\"x\":3},{\"x\":1}]")?.trim() == "[{\"x\":1},{\"x\":3}]"
@@ -85,7 +85,7 @@ proc test_jq_builtins(ctx: TestContext) [fs, process, error] {
   run_jq(ctx, "add", "[1,2,3]")?.trim() == "6"
 }
 
-proc test_jq_strings(ctx: TestContext) [fs, process, error] {
+test test_jq_strings [fs, process, error] { |ctx|
   run_jq(ctx, "\"\\(.x) and \\(.y)\"", "{\"x\":1,\"y\":2}")?.trim() == "\"1 and 2\""
   run_jq(ctx, "@base64", "\"hello\"")?.trim() == "\"aGVsbG8=\""
   run_jq(ctx, "ascii_downcase", "\"ABc\"")?.trim() == "\"abc\""
@@ -93,14 +93,14 @@ proc test_jq_strings(ctx: TestContext) [fs, process, error] {
   run_jq(ctx, "[1,\"x,y\"]|@csv", "null")?.trim() == "\"1,\\\"x,y\\\"\""
 }
 
-proc test_jq_bindings(ctx: TestContext) [fs, process, error] {
+test test_jq_bindings [fs, process, error] { |ctx|
   run_jq(ctx, "5 as $x | $x + 1", "null")?.trim() == "6"
   run_jq(ctx, ". as [$a,$b] | $a+$b", "[3,4]")?.trim() == "7"
   run_jq(ctx, "reduce .[] as $x (0; .+$x)", "[1,2,3,4]")?.trim() == "10"
   run_jq(ctx, "[foreach .[] as $x (0; .+$x)]", "[1,2,3]")?.trim() == "[1,3,6]"
 }
 
-proc test_jq_defs(ctx: TestContext) [fs, process, error] {
+test test_jq_defs [fs, process, error] { |ctx|
   run_jq(ctx, "def inc: .+1; inc", "5")?.trim() == "6"
   run_jq(ctx, "def f(g): g+g; f(.+1)", "10")?.trim() == "22"
   let fact = "def fact: if . <= 1 then 1 else . * (. - 1 | fact) end; fact"
@@ -108,7 +108,7 @@ proc test_jq_defs(ctx: TestContext) [fs, process, error] {
   run_jq(ctx, "[limit(2; .[])]", "[1,2,3,4]")?.trim() == "[1,2]"
 }
 
-proc test_jq_regex(ctx: TestContext) [fs, process, error] {
+test test_jq_regex [fs, process, error] { |ctx|
   run_jq(ctx, "test(\"a\")", "\"cat\"")?.trim() == "true"
   run_jq(ctx, "test(\"A\";\"i\")", "\"cat\"")?.trim() == "true"
   run_jq(ctx, "[scan(\"[a-z]+\")]", "\"a1bc2def\"")?.trim() == "[\"a\",\"bc\",\"def\"]"
@@ -116,7 +116,7 @@ proc test_jq_regex(ctx: TestContext) [fs, process, error] {
   run_jq(ctx, "sub(\"a\";\"X\")", "\"banana\"")?.trim() == "\"bXnana\""
 }
 
-proc test_jq_alt_and_try(ctx: TestContext) [fs, process, error] {
+test test_jq_alt_and_try [fs, process, error] { |ctx|
   let out = run_jq(ctx, ".a // \"def\"", "{\"b\":1}")?
   out.trim() == "\"def\""
   let out2 = run_jq(ctx, "try error(\"boom\") catch .", "null")?

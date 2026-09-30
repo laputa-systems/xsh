@@ -1,4 +1,4 @@
-proc test_stream_adapters_and_transform_stages() [fs, process, error] {
+test test_stream_adapters_and_transform_stages [fs, process, error] {
   let lines = """alpha
 beta
 """ |> text.lines
@@ -91,12 +91,12 @@ beta
   # item a Str, which the two-parameter binding types correctly.
   let fold_counts = ["a", "b", "a", "c"]
     |> fold(map.empty()) { |acc, it|
-      acc.set(it, acc.get(it, 0) + 1)
+      acc.set(it, (acc.get(it) ?? 0) + 1)
     }
-  test.eq(fold_counts.get("a", 0), 2)?
-  test.eq(fold_counts.get("b", 0), 1)?
-  test.eq(fold_counts.get("c", 0), 1)?
-  fold_counts.len() == 3
+  test.eq((fold_counts.get("a") ?? 0), 2)?
+  test.eq((fold_counts.get("b") ?? 0), 1)?
+  test.eq((fold_counts.get("c") ?? 0), 1)?
+  test.eq(fold_counts.len(), 3)?
 
   [1, 2, 3]
       |> reduce(10) { |acc|
@@ -122,7 +122,7 @@ beta
         value * 2
       } == [2, 4, 6]
 
-  [1, 2, 3, 4] |> batch --count=2 == [[1, 2], [3, 4]]
+  test.eq([1, 2, 3, 4] |> batch(count: 2), [[1, 2], [3, 4]])?
   let enumerated = ["x", "y"] |> enumerate()
   enumerated[1].index == 1
   enumerated[1].value == "y"
@@ -168,7 +168,7 @@ beta
   [{name: "small", size: 1}, {name: "large", size: 4}] |> table.print(columns: ["name", "size"])
 }
 
-proc test_fold_block_composes_pipeline_over_accumulator_field() [error] {
+test test_fold_block_composes_pipeline_over_accumulator_field [error] {
   let result = [0]
     |> fold({parts: ["first", "last"]}) { |acc, _|
       let popped = acc.parts
@@ -179,7 +179,7 @@ proc test_fold_block_composes_pipeline_over_accumulator_field() [error] {
   result.parts == ["first"]
 }
 
-proc test_fold_block_supports_nested_if_statement_with_assignment() [error] {
+test test_fold_block_supports_nested_if_statement_with_assignment [error] {
   let result = [1, 2, 3]
     |> fold(0) { |acc, item|
       var next = acc
@@ -192,7 +192,7 @@ proc test_fold_block_supports_nested_if_statement_with_assignment() [error] {
   result == 5
 }
 
-proc test_fold_block_supports_nested_if_as_branch_tail() [error] {
+test test_fold_block_supports_nested_if_as_branch_tail [error] {
   let result = [1, 2, 3]
     |> fold(0) { |acc, item|
       if item == 1 {
@@ -208,7 +208,7 @@ proc test_fold_block_supports_nested_if_as_branch_tail() [error] {
   result == 5
 }
 
-proc test_fold_and_reduce_run_direct_effects_in_item_order(ctx: TestContext) [error] {
+test test_fold_and_reduce_run_direct_effects_in_item_order [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -256,7 +256,7 @@ reduced=3
 """
 }
 
-proc test_fold_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
+test test_fold_error_stops_and_closes_live_source [fs, error] { |ctx|
   let pulled = test.temp_path(ctx, name: "fold-pulled")
   let closed = test.temp_path(ctx, name: "fold-closed")
   let output = test.run_script(
@@ -282,14 +282,12 @@ proc main() [fs, error] {
   (closed.read_text()?) == "closed"
 }
 
-proc test_sum_type_error_stops_and_closes_live_source(ctx: TestContext) [error] {
+test test_sum_rejects_unchecked_stream_before_pulling_source [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
-proc close() [io] { print "closed" }
-
 stream numbers() [io] -> Stream[Any] {
-  defer close()
+  defer { print "closed" }
   print "pull 1"
   yield 1
   print "pull bad"
@@ -304,20 +302,16 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
-  "sum expected Int stream" in output.stderr
-  output.stdout == """pull 1
-pull bad
-closed
-"""
+  test.eq(output.status, 2)?
+  "check.dynamic-boundary" in output.stderr
+  test.eq(output.stdout, "")?
 }
 
-proc test_keyed_stages_errors_stop_live_source(ctx: TestContext) [error] {
+test test_keyed_stages_errors_stop_live_source [error] { |ctx|
   for terminal in ["group-by", "count", "unique-by"] {
-    let source = f"""
-proc close() [io] { print "closed" }
+    let source = f"""\nproc close() [io] { print "closed" }
 
-stream numbers() [io] -> Stream[Int] {
+stream numbers() [io, error] -> Stream[Int] {
   defer close()
   for n in range(3) {
     print f"pull \${n}"
@@ -338,7 +332,7 @@ closed
   }
 }
 
-proc test_keyed_stages_project_before_next_live_pull(ctx: TestContext) [error] {
+test test_keyed_stages_project_before_next_live_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -358,7 +352,7 @@ proc main() [io, error] {
   let groups = numbers("group") |> group-by { |n| key(n) }
   print f"groups=${groups[0].key}:${groups[0].items.len()},${groups[1].key}:${groups[1].items.len()}"
   let counts = numbers("count") |> count { |n| key(n) }
-  print f"counts=${counts.get("1", 0)},${counts.get("2", 0)}"
+  print f"counts=${(counts.get("1") ?? 0)},${(counts.get("2") ?? 0)}"
   let unique = numbers("unique") |> unique-by { |n| key(n) }
   print f"unique=${unique[0]},${unique[1]}"
 }
@@ -389,13 +383,13 @@ unique=2,1
 """
 }
 
-proc test_zip_evaluates_right_before_pulling_and_stops_at_shorter_side(ctx: TestContext) [error] {
+test test_zip_evaluates_right_before_pulling_and_stops_at_shorter_side [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
 proc close() [io] { print "closed" }
 
-stream numbers() [io] -> Stream[Int] {
+stream numbers() [io, error] -> Stream[Int] {
   defer close()
   for n in range(4) {
     print f"pull ${n}"
@@ -423,7 +417,7 @@ pairs=0:10,1:20
 """
 }
 
-proc test_zip_right_error_does_not_pull_left(ctx: TestContext) [error] {
+test test_zip_right_error_does_not_pull_left [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -451,7 +445,7 @@ proc main() [io, error] {
   "kind=stream.stage.exit name=\"zip\"" in output.stderr
 }
 
-proc test_zip_collects_right_stream_before_pulling_left(ctx: TestContext) [error] {
+test test_zip_collects_right_stream_before_pulling_left [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -484,7 +478,7 @@ pairs=1:10,2:20
 """
 }
 
-proc test_zip_result_length_is_available_to_format_interpolation(ctx: TestContext) [error] {
+test test_zip_result_length_is_available_to_format_interpolation [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -501,13 +495,13 @@ proc main() [io, error] {
 """
 }
 
-proc test_last_min_max_live_terminals_finish_and_close_producers(ctx: TestContext) [error] {
+test test_last_min_max_live_terminals_finish_and_close_producers [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
 proc close(name: Str) [io] { print f"closed ${name}" }
 
-stream numbers(name: Str) [io] -> Stream[Int] {
+stream numbers(name: Str) [io, error] -> Stream[Int] {
   defer close(name)
   for n in [3, 1, 2] {
     print f"${name} ${n}"
@@ -544,7 +538,7 @@ max=3
 """
 }
 
-proc test_terminal_each_as_final_proc_statement_returns_unit(ctx: TestContext) [error] {
+test test_terminal_each_as_final_proc_statement_returns_unit [error] { |ctx|
   # A nested script keeps `each` as the final statement of its own procedure.
   # The checker and runtime must agree that the drained stage returns Unit.
   let output = test.run_script(
@@ -564,7 +558,7 @@ three
   output.stderr == ""
 }
 
-proc test_each_live_source_runs_body_before_next_pull(ctx: TestContext) [error] {
+test test_each_live_source_runs_body_before_next_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -590,7 +584,7 @@ each 2
 """
 }
 
-proc test_each_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
+test test_each_error_stops_and_closes_live_source [fs, error] { |ctx|
   let pulled = test.temp_path(ctx, name: "each-pulled")
   let closed = test.temp_path(ctx, name: "each-closed")
   let output = test.run_script(
@@ -615,7 +609,7 @@ proc main() [fs, error] {
   (closed.read_text()?) == "closed"
 }
 
-proc test_if_else_is_a_stream_stage_tail_value() [error] {
+test test_if_else_is_a_stream_stage_tail_value [error] {
   let mapped = [1, 2, 3]
     |> map { |n|
       if n % 2 == 0 {
@@ -646,7 +640,7 @@ proc test_if_else_is_a_stream_stage_tail_value() [error] {
     }
 }
 
-proc test_predicate_stage_blocks_bind_local_lets() [error] {
+test test_predicate_stage_blocks_bind_local_lets [error] {
   # A multi-statement predicate block with a local let binding must compile
   # and behave identically to the single-expression form for where/any/all.
   let nums = [1, 2, 3, 4, 5, 6]
@@ -693,7 +687,7 @@ proc test_predicate_stage_blocks_bind_local_lets() [error] {
       }
 }
 
-proc test_implicit_standard_read_helpers_and_pipe_shorthand(ctx: TestContext) [fs, error] {
+test test_implicit_standard_read_helpers_and_pipe_shorthand [fs, error] { |ctx|
   let file = test.temp_file(ctx, name: "pipe-shorthand-input", contents: b"ok\nwarn one\nwarn two\n")?
   let file_text = fs.read_text(file)?
   let piped = file.read_bytes()?.utf8()?
@@ -713,7 +707,7 @@ proc test_implicit_standard_read_helpers_and_pipe_shorthand(ctx: TestContext) [f
   (cpu.count() > 0)
 }
 
-proc test_core_commands_and_byte_pipeline(ctx: TestContext) [fs, process, env, error] {
+test test_core_commands_and_byte_pipeline [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "core-byte-pipeline")?
   let output = fp"${root}/out.txt"
 
@@ -727,32 +721,32 @@ proc test_core_commands_and_byte_pipeline(ctx: TestContext) [fs, process, env, e
   (output.read_text()?) == "ABC"
 }
 
-proc test_reduce_by_stream_aggregates() [error] {
+test test_reduce_by_stream_aggregates [error] {
   # `reduce-by` keeps one accumulator per key without group-by materialization.
   let nums = [1, 2, 3, 4, 5, 6]
 
   let agg = nums
-    |> reduce-by --sum { |n|
+    |> reduce-by(sum: true) { |n|
       {key: if n % 2 == 0 { "even" } else { "odd" }, value: {count: 1, total: n}}
     }
 
   let lo = nums
-    |> reduce-by --min { |n|
+    |> reduce-by(min: true) { |n|
       {key: "all", value: n}
     }
 
   let hi = nums
-    |> reduce-by --max { |n|
+    |> reduce-by(max: true) { |n|
       {key: "all", value: n}
     }
 
-  agg.get("even", {count: 0, total: 0}) == {count: 3, total: 12}
-  agg.get("odd", {count: 0, total: 0}) == {count: 3, total: 9}
-  lo.get("all", 0) == 1
-  hi.get("all", 0) == 6
+  test.eq((agg.get("even") ?? {count: 0, total: 0}), {count: 3, total: 12})?
+  test.eq((agg.get("odd") ?? {count: 0, total: 0}), {count: 3, total: 9})?
+  test.eq((lo.get("all") ?? 0), 1)?
+  test.eq((hi.get("all") ?? 0), 6)?
 }
 
-proc test_reduce_by_live_source_folds_each_item_before_next_pull(ctx: TestContext) [error] {
+test test_reduce_by_live_source_folds_each_item_before_next_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -770,10 +764,10 @@ proc observed(n: Int) [io] -> Int {
 
 proc main() [io, error] {
   let groups = numbers()
-    |> reduce-by --sum --jobs=1 { |n|
+    |> reduce-by(sum: true, jobs: 1) { |n|
       {key: "all", value: observed(n)}
     }
-  print f"total=${groups.get("all", 0)}"
+  print f"total=${(groups.get("all") ?? 0)}"
 }
 """,
   )?
@@ -788,7 +782,7 @@ total=3
 """
 }
 
-proc test_reduce_by_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
+test test_reduce_by_error_stops_and_closes_live_source [fs, error] { |ctx|
   let pulled = test.temp_path(ctx, name: "reduce-by-pulled")
   let closed = test.temp_path(ctx, name: "reduce-by-closed")
   let output = test.run_script(
@@ -804,10 +798,10 @@ stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
 
 proc main() [fs, error] {
   let groups = numbers(Path("${pulled.display()}"), Path("${closed.display()}"))
-    |> reduce-by --sum { |n|
+    |> reduce-by(sum: true) { |n|
       {key: "all", value: 10 / (1 - n)}
     }
-  print \${groups.get("all", 0)}
+  print \${(groups.get("all") ?? 0)}
 }
 """,
   )?
@@ -816,38 +810,38 @@ proc main() [fs, error] {
   (closed.read_text()?) == "closed"
 }
 
-proc test_reduce_by_jobs_hint_preserves_results() [error] {
+test test_reduce_by_jobs_hint_preserves_results [error] {
   # The accepted `--jobs` hint currently uses the same serial reducer.
   let nums = [0] |> range(0, 50000)
 
   let serial = nums
-    |> reduce-by --sum { |n|
+    |> reduce-by(sum: true) { |n|
       {key: if n % 3 == 0 { "a" } else if n % 3 == 1 { "b" } else { "c" }, value: {count: 1, total: n}}
     }
 
   let par = nums
-    |> reduce-by --sum --jobs=8 { |n|
+    |> reduce-by(sum: true, jobs: 8) { |n|
       {key: if n % 3 == 0 { "a" } else if n % 3 == 1 { "b" } else { "c" }, value: {count: 1, total: n}}
     }
 
   for k in serial.keys() {
-    par.get(k, {count: 0, total: 0}) == serial.get(k, {count: 0, total: 0})
+    test.eq((par.get(k) ?? {count: 0, total: 0}), (serial.get(k) ?? {count: 0, total: 0}))?
   }
 
   par.keys().len() == 3
 
-  (nums
-      |> reduce-by --min --jobs=8 { |n|
+  ((nums
+      |> reduce-by(min: true, jobs: 8) { |n|
         {key: "all", value: n}
-      }).get("all", -1) == 0
+      }).get("all") ?? -1) == 0
 
-  (nums
-      |> reduce-by --max --jobs=8 { |n|
+  ((nums
+      |> reduce-by(max: true, jobs: 8) { |n|
         {key: "all", value: n}
-      }).get("all", -1) == 49999
+      }).get("all") ?? -1) == 49999
 }
 
-proc test_jobs_options_evaluate_once_before_stage(ctx: TestContext) [error] {
+test test_jobs_options_evaluate_once_before_stage [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -858,12 +852,12 @@ proc jobs(label: Str) [io] -> Int {
 
 proc main() [io, error] {
   let reduced = [1, 2]
-    |> reduce-by --sum --jobs=jobs("reduce") { |n| {key: "all", value: n} }
-  print f"total=${reduced.get("all", 0)}"
+    |> reduce-by(sum: true, jobs: jobs("reduce")) { |n| {key: "all", value: n} }
+  print f"total=${(reduced.get("all") ?? 0)}"
   let from_workers = [1, 2]
-    |> par-map --jobs=2 { |n| n }
-    |> reduce-by --sum --jobs=jobs("after-map") { |n| {key: "all", value: n} }
-  print f"worker-total=${from_workers.get("all", 0)}"
+    |> par-map(jobs: 2) { |n| n }
+    |> reduce-by(sum: true, jobs: jobs("after-map")) { |n| {key: "all", value: n} }
+  print f"worker-total=${(from_workers.get("all") ?? 0)}"
   print "done"
 }
 """,
@@ -877,20 +871,20 @@ done
 """
 }
 
-proc test_serial_stages_reject_jobs_option(ctx: TestContext) [error] {
+test test_serial_stages_reject_jobs_option [error] { |ctx|
   for script in [
-    "proc main() [io] { [1] |> each --jobs=2 { |n| print $n } }",
-    "proc main() [] { let _ = [1] |> group-by --jobs=2 { |n| n } }",
-    "proc main() [] { let _ = [1] |> count --jobs=2 { |n| n } }",
-    "proc main() [] { let _ = [1] |> count --jobs=2 }",
+    "proc main() [io] { [1] |> each(jobs: 2) { |n| print $n } }",
+    "proc main() [] { let _ = [1] |> group-by(jobs: 2) { |n| n } }",
+    "proc main() [] { let _ = [1] |> count(jobs: 2) { |n| n } }",
+    "proc main() [] { let _ = [1] |> count(jobs: 2) }",
   ] {
     let output = test.run_script(ctx, script)?
     test.ok(! output.success, script)?
-    test.ok("check.stream-stage-option" in output.stderr, output.stderr)?
+    test.ok("check.arity" in output.stderr, output.stderr)?
   }
 }
 
-proc test_reduce_by_jobs_rejects_dynamic_zero_before_pulling_source(ctx: TestContext) [fs, error] {
+test test_reduce_by_jobs_rejects_dynamic_zero_before_pulling_source [fs, error] { |ctx|
   let evaluated = test.temp_path(ctx, name: "jobs-evaluated")
   let pulled = test.temp_path(ctx, name: "jobs-source-pulled")
   let output = test.run_script(
@@ -908,8 +902,8 @@ stream numbers(pulled: Path) [fs, error] -> Stream[Int] {
 
 proc main() [fs, error] {
   let totals = numbers(Path("${pulled.display()}"))
-    |> reduce-by --sum --jobs=zero_jobs(Path("${evaluated.display()}")) { |n| {key: "all", value: n} }
-  print \${totals.get("all", 0)}
+    |> reduce-by(sum: true, jobs: zero_jobs(Path("${evaluated.display()}"))) { |n| {key: "all", value: n} }
+  print \${(totals.get("all") ?? 0)}
 }
 """,
   )?
@@ -919,14 +913,14 @@ proc main() [fs, error] {
   ! pulled.exists()?
 }
 
-proc test_par_map_jobs_rejects_dynamic_zero(ctx: TestContext) [error] {
+test test_par_map_jobs_rejects_dynamic_zero [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
 proc zero_jobs() [] -> Int { return 0 }
 
 proc main() [error] {
-  let values = [1, 2] |> par-map --jobs=zero_jobs() { |n| n }
+  let values = [1, 2] |> par-map(jobs: zero_jobs()) { |n| n }
   print \${values.len()}
 }
 """,
@@ -935,13 +929,13 @@ proc main() [error] {
   test.ok("stream worker count must be positive" in output.stderr, output.stderr)?
 }
 
-proc test_reduce_by_jobs_rejects_static_zero_in_checker(ctx: TestContext) [error] {
+test test_reduce_by_jobs_rejects_static_zero_in_checker [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
 proc main() [error] {
-  let grouped = [1] |> reduce-by --sum --jobs=0 { |n| {key: "all", value: n} }
-  print \${grouped.get("all", 0)}
+  let grouped = [1] |> reduce-by(sum: true, jobs: 0) { |n| {key: "all", value: n} }
+  print \${(grouped.get("all") ?? 0)}
 }
 """,
   )?
@@ -949,42 +943,42 @@ proc main() [error] {
   test.ok("check.stream-jobs" in output.stderr, output.stderr)?
 }
 
-proc test_par_map_reduce_by_fuses_to_worker_aggregation() [error] {
+test test_par_map_reduce_by_fuses_to_worker_aggregation [error] {
   let nums = [0] |> range(0, 50000)
 
   let fused = nums
-    |> par-map --jobs=8 { |n|
+    |> par-map(jobs: 8) { |n|
       {
         bucket: if n % 4 == 0 { "a" } else if n % 4 == 1 { "b" } else if n % 4 == 2 { "c" } else { "d" },
         doubled: n * 2,
         count: 1,
       }
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.bucket, value: {count: row.count, total: row.doubled}}
     }
 
   let unfused = nums
-    |> par-map --jobs=8 { |n|
+    |> par-map(jobs: 8) { |n|
       {
         bucket: if n % 4 == 0 { "a" } else if n % 4 == 1 { "b" } else if n % 4 == 2 { "c" } else { "d" },
         doubled: n * 2,
         count: 1,
       }
     }
-    |> reduce-by --sum --jobs=1 { |row|
+    |> reduce-by(sum: true, jobs: 1) { |row|
       {key: row.bucket, value: {count: row.count, total: row.doubled}}
     }
 
   for k in unfused.keys() {
-    fused.get(k, {count: 0, total: 0}) == unfused.get(k, {count: 0, total: 0})
+    test.eq((fused.get(k) ?? {count: 0, total: 0}), (unfused.get(k) ?? {count: 0, total: 0}))?
   }
 
-  fused.keys().len() == 4
-  fused.get("a", {count: 0, total: 0}) == {count: 12500, total: 624950000}
+  test.eq(fused.keys().len(), 4)?
+  test.eq((fused.get("a") ?? {count: 0, total: 0}), {count: 12500, total: 624950000})?
 }
 
-proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
+test test_flat_map_identity_reduce_by_matches_direct_rows [error] {
   let nums = [0] |> range(0, 1000)
 
   let nested = nums
@@ -994,7 +988,7 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
     |> flat-map { |rows|
       rows
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.key, value: {count: row.count, total: row.total}}
     }
 
@@ -1002,15 +996,15 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
     |> par-map { |n|
       {key: if n % 2 == 0 { "even" } else { "odd" }, count: 1, total: n}
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.key, value: {count: row.count, total: row.total}}
     }
 
-  nested.get("even", {count: 0, total: 0}) == direct.get("even", {count: 0, total: 0})
-  nested.get("odd", {count: 0, total: 0}) == {count: 500, total: 250000}
+  test.eq((nested.get("even") ?? {count: 0, total: 0}), (direct.get("even") ?? {count: 0, total: 0}))?
+  test.eq((nested.get("odd") ?? {count: 0, total: 0}), {count: 500, total: 250000})?
 }
 
-proc test_live_files_flat_map_reduce_by_matches_collected_rows(ctx: TestContext) [fs, error] {
+test test_live_files_flat_map_reduce_by_matches_collected_rows [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-flat-map-reduce")?
   fp"${root}/nested".mkdir()?
   fp"${root}/a.txt".write("abc")?
@@ -1018,29 +1012,29 @@ proc test_live_files_flat_map_reduce_by_matches_collected_rows(ctx: TestContext)
   fp"${root}/nested/c.md".write("fghi")?
 
   let streamed = fs.files(root)
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       [{ext: entry.ext, count: 1, size: entry.size}]
     }
     |> flat-map { |rows|
       rows
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
   let collected_rows = fs.files(root) |> collect()
   let collected = collected_rows
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  streamed == collected
-  streamed.get("txt", {count: 0, size: 0}) == {count: 2, size: 5}
-  streamed.get("md", {count: 0, size: 0}) == {count: 1, size: 4}
+  test.eq(streamed, collected)?
+  test.eq((streamed.get("txt") ?? {count: 0, size: 0}), {count: 2, size: 5})?
+  test.eq((streamed.get("md") ?? {count: 0, size: 0}), {count: 1, size: 4})?
 }
 
-proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, error] {
+test test_live_files_par_map_for_matches_collected_rows [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-par-map-for")?
   fp"${root}/nested".mkdir()?
   fp"${root}/a.txt".write("abc")?
@@ -1052,7 +1046,7 @@ proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, e
   var streamed_md_count = 0
   var streamed_md_size = 0
   for row in fs.files(root)
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
     }
     |> where .ext != "" {
@@ -1071,19 +1065,19 @@ proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, e
 
   let collected_rows = fs.files(root) |> collect()
   let collected = collected_rows
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  {count: streamed_txt_count, size: streamed_txt_size} == collected.get("txt", {count: 0, size: 0})
-  {count: streamed_md_count, size: streamed_md_size} == collected.get("md", {count: 0, size: 0})
-  {count: streamed_txt_count, size: streamed_txt_size} == {count: 2, size: 5}
-  {count: streamed_md_count, size: streamed_md_size} == {count: 1, size: 4}
+  test.eq({count: streamed_txt_count, size: streamed_txt_size}, (collected.get("txt") ?? {count: 0, size: 0}))?
+  test.eq({count: streamed_md_count, size: streamed_md_size}, (collected.get("md") ?? {count: 0, size: 0}))?
+  test.eq({count: streamed_txt_count, size: streamed_txt_size}, {count: 2, size: 5})?
+  test.eq({count: streamed_md_count, size: streamed_md_size}, {count: 1, size: 4})?
 }
 
-proc test_par_map_filesystem_reads_preserve_all_results(ctx: TestContext) [fs, error] {
+test test_par_map_filesystem_reads_preserve_all_results [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "par-map-filesystem-reads")?
   for index in range(32) {
     fp"${root}/entry-${index}.txt".write(f"""${index}
@@ -1092,14 +1086,14 @@ proc test_par_map_filesystem_reads_preserve_all_results(ctx: TestContext) [fs, e
 
   let entries = fs.files(root, stat: false)? |> collect()
   let lengths = entries
-    |> par-map --jobs=8 { |entry|
+    |> par-map(jobs: 8) { |entry|
       entry.path.read_text()?.count_chars()
     }
   lengths.len() == 32
   lengths |> sum == 86
 }
 
-proc test_projected_reduce_by_sums_output_fields(ctx: TestContext) [error] {
+test test_projected_reduce_by_sums_output_fields [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -1109,10 +1103,10 @@ let rows = [
   {key: "g", a: 3, b: 30},
 ]
 let reduced = (rows)
-  |> reduce-by --sum { |row|
+  |> reduce-by(sum: true) { |row|
     {key: row.key, value: {x: row.a, y: row.b}}
   }
-let g = reduced.get("g", {x: 0, y: 0})
+let g = (reduced.get("g") ?? {x: 0, y: 0})
 print f"x=\${g.x}"
 """,
   )?
@@ -1121,7 +1115,7 @@ print f"x=\${g.x}"
 """
 }
 
-proc test_stream_producers_are_lazy_and_run_defers_on_stop(ctx: TestContext) [fs, error] {
+test test_stream_producers_are_lazy_and_run_defers_on_stop [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "stream-marker")
   let rows = test.temp_path(ctx, name: "stream-rows")
   let output = test.run_script(
@@ -1153,7 +1147,7 @@ closed
 """
 }
 
-proc test_any_and_all_stop_live_producer_after_decisive_item(ctx: TestContext) [fs, error] {
+test test_any_and_all_stop_live_producer_after_decisive_item [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "any-stop-marker")
   let output = test.run_script(
     ctx,
@@ -1216,7 +1210,7 @@ all_true=true
 """
 }
 
-proc test_live_tee_where_take_stops_upstream_and_closes_producer(ctx: TestContext) [fs, error] {
+test test_live_tee_where_take_stops_upstream_and_closes_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "tee-take-marker")
   let output = test.run_script(
     ctx,
@@ -1258,7 +1252,7 @@ closed
 """
 }
 
-proc test_live_serial_collect_runs_stages_in_item_order(ctx: TestContext) [error] {
+test test_live_serial_collect_runs_stages_in_item_order [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1292,7 +1286,7 @@ rows=3
 """
 }
 
-proc test_live_serial_expression_boundary_runs_stages_in_item_order(ctx: TestContext) [error] {
+test test_live_serial_expression_boundary_runs_stages_in_item_order [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1323,7 +1317,7 @@ row 1
 """
 }
 
-proc test_live_serial_for_interleaves_body_and_stops_producer(ctx: TestContext) [fs, error] {
+test test_live_serial_for_interleaves_body_and_stops_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "serial-for-marker")
   let output = test.run_script(
     ctx,
@@ -1360,7 +1354,7 @@ closed
 """
 }
 
-proc test_live_serial_for_keeps_source_and_stage_state(ctx: TestContext) [error] {
+test test_live_serial_for_keeps_source_and_stage_state [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1392,7 +1386,7 @@ kept 2
   test.ok(output.success, output.stderr)?
 }
 
-proc test_live_serial_for_take_closes_producer(ctx: TestContext) [fs, error] {
+test test_live_serial_for_take_closes_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "serial-for-take-marker")
   let output = test.run_script(
     ctx,
@@ -1422,7 +1416,7 @@ closed
 """
 }
 
-proc test_raw_stream_for_continue_reaches_next_item(ctx: TestContext) [error] {
+test test_raw_stream_for_continue_reaches_next_item [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1450,7 +1444,7 @@ row 2
 """
 }
 
-proc test_returned_stream_delegates_rows_and_cleanup(ctx: TestContext) [fs, error] {
+test test_returned_stream_delegates_rows_and_cleanup [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "returned-stream-marker")
   let output = test.run_script(
     ctx,
@@ -1487,7 +1481,7 @@ closed
 """
 }
 
-proc test_live_serial_for_error_closes_trace_and_producer(ctx: TestContext) [fs, error] {
+test test_live_serial_for_error_closes_trace_and_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "serial-for-error-marker")
   let output = test.run_xsht_trace(
     ctx,
@@ -1513,7 +1507,7 @@ proc main() [fs, io, error] {
   (marker.read_text()?) == "closed"
 }
 
-proc test_live_flat_map_take_stops_within_expanded_row(ctx: TestContext) [fs, error] {
+test test_live_flat_map_take_stops_within_expanded_row [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "flat-map-take-marker")
   let output = test.run_script(
     ctx,
@@ -1553,7 +1547,7 @@ closed
 """
 }
 
-proc test_live_map_drop_and_where_block_keep_take_bounded(ctx: TestContext) [fs, error] {
+test test_live_map_drop_and_where_block_keep_take_bounded [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "map-take-marker")
   let output = test.run_script(
     ctx,
@@ -1610,7 +1604,7 @@ closed
 """
 }
 
-proc test_live_bounded_map_error_closes_producer(ctx: TestContext) [fs, error] {
+test test_live_bounded_map_error_closes_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "bounded-map-error-marker")
   let output = test.run_script(
     ctx,
@@ -1635,7 +1629,7 @@ proc main() [io, fs, error] {
   (marker.read_text()?) == "closed"
 }
 
-proc test_live_tee_any_and_where_first_stop_upstream(ctx: TestContext) [fs, error] {
+test test_live_tee_any_and_where_first_stop_upstream [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "bounded-terminal-marker")
   let output = test.run_script(
     ctx,
@@ -1686,7 +1680,7 @@ closed
 """
 }
 
-proc test_live_where_first_empty_preserves_error_and_cleanup(ctx: TestContext) [fs, error] {
+test test_live_where_first_empty_preserves_error_and_cleanup [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "first-empty-marker")
   let output = test.run_script(
     ctx,
@@ -1707,7 +1701,7 @@ proc main() [fs, io, error] {
   (marker.read_text()?) == "closed"
 }
 
-proc test_zero_argument_stream_producers_run_from_every_call_position(ctx: TestContext) [error] {
+test test_zero_argument_stream_producers_run_from_every_call_position [error] { |ctx|
   # A call with no arguments reaches the frame engine's call decision without
   # walking an argument list, so a producer spelled that way has to be
   # recognized there too: a producer pushed as an ordinary frame runs its body
@@ -1761,7 +1755,7 @@ first=1
 """
 }
 
-proc test_count_and_group_by_preserve_large_group_counts_and_order() [error] {
+test test_count_and_group_by_preserve_large_group_counts_and_order [error] {
   # group-by must preserve encounter order within each group.
   let nums = [0] |> range(0, 20000)
 
@@ -1785,20 +1779,20 @@ proc test_count_and_group_by_preserve_large_group_counts_and_order() [error] {
       g.items
     }
 
-  counts.get("even", 0) == 10000
-  counts.get("odd", 0) == 10000
-  groups.len() == 3
-  groups[0].len() == 6667
-  groups[0][0] == 0
-  groups[0][1] == 3
-  groups[0][6666] == 19998
-  groups[1].len() == 6667
-  groups[1][6666] == 19999
-  groups[2].len() == 6666
-  groups[2][6665] == 19997
+  test.eq((counts.get("even") ?? 0), 10000)?
+  test.eq((counts.get("odd") ?? 0), 10000)?
+  test.eq(groups.len(), 3)?
+  test.eq(groups[0].len(), 6667)?
+  test.eq(groups[0][0], 0)?
+  test.eq(groups[0][1], 3)?
+  test.eq(groups[0][6666], 19998)?
+  test.eq(groups[1].len(), 6667)?
+  test.eq(groups[1][6666], 19999)?
+  test.eq(groups[2].len(), 6666)?
+  test.eq(groups[2][6665], 19997)?
 }
 
-proc test_stream_adapters_bridge_text_bytes_and_json_lines() [process, error] {
+test test_stream_adapters_bridge_text_bytes_and_json_lines [process, error] {
   let captured = run.text printf "%s\n" "a.txt" "b.log" ?
 
   let paths = captured
@@ -1829,7 +1823,7 @@ proc test_stream_adapters_bridge_text_bytes_and_json_lines() [process, error] {
   words[1] == "two"
 }
 
-proc test_line_methods_and_adapters_are_lazy_sources(ctx: TestContext) [fs, error] {
+test test_line_methods_and_adapters_are_lazy_sources [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "stream-lines")?
   let input = fp"${root}/input.txt"
 
@@ -1864,7 +1858,7 @@ y
   test.eq(input.bytes_lines()?.collect()[1], b"beta")?
 }
 
-proc test_terminal_newline_does_not_add_empty_line_for_round_trip() [error] {
+test test_terminal_newline_does_not_add_empty_line_for_round_trip [error] {
   let lines = """a
 b
 """.lines()
@@ -1877,7 +1871,7 @@ b
 """
 }
 
-proc test_flat_map_consumes_live_streams_returned_by_blocks(ctx: TestContext) [fs, error] {
+test test_flat_map_consumes_live_streams_returned_by_blocks [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "flat-map-live-stream")?
   let left = fp"${root}/left.txt"
   let right = fp"${root}/right.txt"
@@ -1898,7 +1892,7 @@ d
   lines == ["a", "b", "c", "d"]
 }
 
-proc test_flat_map_drains_one_nested_stream_before_next_outer_pull(ctx: TestContext) [error] {
+test test_flat_map_drains_one_nested_stream_before_next_outer_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1931,7 +1925,7 @@ first=0
 """
 }
 
-proc test_sort_boundary_materializes_serial_prefix_before_key_projection(ctx: TestContext) [error] {
+test test_sort_boundary_materializes_serial_prefix_before_key_projection [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1971,7 +1965,7 @@ row=1
 """
 }
 
-proc test_sort_by_desc_option_error_precedes_live_source_pull(ctx: TestContext) [error] {
+test test_sort_by_desc_option_error_precedes_live_source_pull [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -1987,7 +1981,7 @@ proc descending() [io, error] -> Bool {
 }
 
 proc main() [io, error] {
-  let sorted = numbers() |> sort-by --desc=descending() { |n| n }
+  let sorted = numbers() |> sort-by(desc: descending()) { |n| n }
   print "after"
 }
 """,
@@ -2000,7 +1994,7 @@ proc main() [io, error] {
   "kind=stream.stage.exit name=\"sort-by\"" in output.stderr
 }
 
-proc test_sort_by_desc_reverses_sort_order() [error] {
+test test_sort_by_desc_reverses_sort_order [error] {
   let nums = [
     3,
     1,
@@ -2018,12 +2012,12 @@ proc test_sort_by_desc_reverses_sort_order() [error] {
     }
 
   let desc = nums
-    |> sort-by --desc { |n|
+    |> sort-by(desc: true) { |n|
       n
     }
 
   let words = ["banana", "apple", "cherry"]
-    |> sort-by --desc { |word|
+    |> sort-by(desc: true) { |word|
       word
     }
 
@@ -2035,7 +2029,7 @@ proc test_sort_by_desc_reverses_sort_order() [error] {
   words[2] == "apple"
 }
 
-proc test_sort_by_compound_record_keys_and_stability() [error] {
+test test_sort_by_compound_record_keys_and_stability [error] {
   let records = [
     {
       name: "b",
@@ -2061,7 +2055,7 @@ proc test_sort_by_compound_record_keys_and_stability() [error] {
 
   # --desc reverses the compound comparison.
   let desc = records
-    |> sort-by --desc { |r|
+    |> sort-by(desc: true) { |r|
       {c: r.count, n: r.name}
     }
 
@@ -2101,13 +2095,13 @@ proc test_sort_by_compound_record_keys_and_stability() [error] {
   whole == direct
 }
 
-proc test_sort_by_rejects_non_orderable_keys_at_runtime(ctx: TestContext) [error] {
+test test_sort_by_rejects_non_orderable_keys_at_runtime [error] { |ctx|
   let failed = test.run_script(
     ctx,
     """
 let rows = [{name: "b"}, {name: "a"}]
 let values = map.empty().set("key", ["not-orderable"])
-let key = values.get("key", 0)
+let key = (values.get("key") ?? 0)
 let out = (rows) |> sort-by { |_| key } |> collect()
 for r in out { print \${r.name} }
 """,
@@ -2118,53 +2112,51 @@ for r in out { print \${r.name} }
   test.ok("List" in failed.stderr, failed.stderr)?
 }
 
-proc test_sort_by_map_accumulator_any_typed_fields() [error] {
-  # Map.empty() is Map[Any], so Map.get(k, 0) yields an Any-typed field. A
-  # sort-by over such a field must checker-accept the same way the runtime does
-  # (the actual value is a supported scalar Int), matching the loud-failure
-  # gate in lower/ops.
-  let counts = map.empty()
+test test_sort_by_map_accumulator_any_typed_fields [error] {
+  # The explicit dynamic value domain survives integer additions. Sorting
+  # still validates each actual key as an orderable scalar at runtime.
+  let counts: Map[Str, Any] = map.empty()
   let keys = ["b", "a"]
   let acc = counts.set("a", 2).set("b", 1)
 
   let by_count = keys
     |> map { |k|
-      {count: acc.get(k, 0), ext: k}
+      {count: (acc.get(k) ?? 0), ext: k}
     }
     |> sort-by .count
   by_count == [{count: 1, ext: "b"}, {count: 2, ext: "a"}]
 
   # The list-comprehension equivalent accepts and sorts identically.
-  let by_count_comp = [{count: acc.get(k, 0), ext: k} for k in keys] |> sort-by .count
-  by_count_comp == by_count
+  let by_count_comp = [{count: (acc.get(k) ?? 0), ext: k} for k in keys] |> sort-by .count
+  test.eq(by_count_comp, by_count)?
 }
 
-proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
-  let by_count = [1, 2, 3, 4, 5] |> batch --count=2
-  let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch --max-bytes=10
-  by_count == [[1, 2], [3, 4], [5]]
-  by_size[0] == [p"aaaa", p"bbbb"]
-  by_size[1] == [p"cccc"]
+test test_structured_stream_batch_count_and_argv_limits [process, error] {
+  let by_count = [1, 2, 3, 4, 5] |> batch(count: 2)
+  let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch(max_bytes: 10)
+  test.eq(by_count, [[1, 2], [3, 4], [5]])?
+  test.eq(by_size[0], [p"aaaa", p"bbbb"])?
+  test.eq(by_size[1], [p"cccc"])?
 
   [p"one", p"two"]
-    |> batch --max-argv
+    |> batch(max_argv: true)
     |> each { |files|
       run true @files ?
     }
 
   [1]
       |> where false
-      |> batch --count=2
+      |> batch(count: 2)
       |> count() == 0
 }
 
-proc test_batch_max_bytes_error_stops_and_closes_live_source(ctx: TestContext) [error] {
+test test_batch_max_bytes_error_stops_and_closes_live_source [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
 proc close() [io] { print "closed" }
 
-stream paths() [io] -> Stream[Path] {
+stream paths() [io, error] -> Stream[Path] {
   defer close()
   for value in ["ok", "oversized", "after"] {
     print f"pull ${value}"
@@ -2173,7 +2165,7 @@ stream paths() [io] -> Stream[Path] {
 }
 
 proc main() [io, error] {
-  let batches = paths() |> batch --max-bytes=3
+  let batches = paths() |> batch(max_bytes: 3)
   print "after"
 }
 """,
@@ -2188,7 +2180,7 @@ closed
   "kind=stream.stage.exit name=\"batch\"" in output.stderr
 }
 
-proc test_repeat_zero_does_not_pull_live_source(ctx: TestContext) [error] {
+test test_repeat_zero_does_not_pull_live_source [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -2210,7 +2202,7 @@ proc main() [io, error] {
 """
 }
 
-proc test_count_producer_error_runs_defer_and_closes_trace(ctx: TestContext) [error] {
+test test_count_producer_error_runs_defer_and_closes_trace [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -2236,7 +2228,7 @@ proc main() [io, error] {
   "kind=stream.stage.exit name=\"count\"" in output.stderr
 }
 
-proc test_mapped_live_count_enters_terminal_before_source_error(ctx: TestContext) [error] {
+test test_mapped_live_count_enters_terminal_before_source_error [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -2265,7 +2257,7 @@ proc main() [io, error] {
   }
 }
 
-proc test_live_serial_count_after_map_where_and_flat_map() [error] {
+test test_live_serial_count_after_map_where_and_flat_map [error] {
   let count = range(4)
     |> map { |n|
       n + 1
@@ -2278,7 +2270,7 @@ proc test_live_serial_count_after_map_where_and_flat_map() [error] {
   count == 4
 }
 
-proc test_parallel_stream_stages_are_bounded_and_deterministic() [error] {
+test test_parallel_stream_stages_are_bounded_and_deterministic [error] {
   [1, 2, 3, 4]
       |> par-map { |x|
         x * 2
@@ -2294,7 +2286,7 @@ proc test_parallel_stream_stages_are_bounded_and_deterministic() [error] {
   seen == ["a", "b"]
 }
 
-proc test_each_trace_reports_serial_execution(ctx: TestContext) [error] {
+test test_each_trace_reports_serial_execution [error] { |ctx|
   let trace = test.run_xsht_trace(
     ctx,
     r"""
@@ -2314,15 +2306,15 @@ item=2
   "kind=parallel.cancel" not in trace.stderr
 }
 
-proc test_parallel_stream_preserves_filtered_order() [error] {
+test test_parallel_stream_preserves_filtered_order [error] {
   [0, 1, 2, 3, 4, 5]
       |> where . >= 2
-      |> par-map --jobs=3 { |x|
+      |> par-map(jobs: 3) { |x|
         x * 10
       } == [20, 30, 40, 50]
 }
 
-proc test_structured_streams_walk_filter_map_collect_and_count(ctx: TestContext) [fs, error] {
+test test_structured_streams_walk_filter_map_collect_and_count [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "stream-walk")?
   let nested = fp"${root}/nested"
   nested.mkdir()?
@@ -2339,7 +2331,7 @@ proc test_structured_streams_walk_filter_map_collect_and_count(ctx: TestContext)
   count == 2
 }
 
-proc test_direct_collect_of_lazy_module_stream_is_a_list(ctx: TestContext) [fs, error] {
+test test_direct_collect_of_lazy_module_stream_is_a_list [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "stream-direct-collect")?
   fp"${root}/a.txt".write("a")?
   fp"${root}/b.txt".write("b")?
@@ -2353,7 +2345,7 @@ proc test_direct_collect_of_lazy_module_stream_is_a_list(ctx: TestContext) [fs, 
   all.len() == 3
 }
 
-proc test_table_print_wraps_cells_to_terminal_width(ctx: TestContext) [error] {
+test test_table_print_wraps_cells_to_terminal_width [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -2374,7 +2366,7 @@ let rows = [{name: "very-long-command-name-that-keeps-going", size: 123}]
   }
 }
 
-proc test_stream_stages_are_trace_observable(ctx: TestContext) [error] {
+test test_stream_stages_are_trace_observable [error] { |ctx|
   let table_trace = test.run_xsht_trace(
     ctx,
     """
@@ -2433,7 +2425,7 @@ count=1
 
   let batch_trace = test.run_xsht_trace(
     ctx,
-    """[1, 2, 3] |> batch --count=2
+    """[1, 2, 3] |> batch(count: 2)
 """,
     ["--raw"],
   )?
@@ -2446,7 +2438,7 @@ count=1
   "item_count=3" in batch_trace.stderr
 }
 
-proc test_stream_errors_include_trace_context(ctx: TestContext) [error] {
+test test_stream_errors_include_trace_context [error] { |ctx|
   let stream_error = test.run_xsht_trace(
     ctx,
     """
@@ -2483,7 +2475,7 @@ proc main() [error] {
     ctx,
     """
 let xs = ["only"]
-let values = [1, 2, 3] |> par-map --jobs=1 { |index| xs[index] }
+let values = [1, 2, 3] |> par-map(jobs: 1) { |index| xs[index] }
 """,
     ["--trace", "--raw"],
   )?
@@ -2499,7 +2491,7 @@ let values = [1, 2, 3] |> par-map --jobs=1 { |index| xs[index] }
     ctx,
     """
 let xs = ["only"]
-let values = [1, 2, 3] |> par-map --jobs=8 { |index| xs[index] }
+let values = [1, 2, 3] |> par-map(jobs: 8) { |index| xs[index] }
 """,
     ["--trace", "--raw"],
   )?
@@ -2509,7 +2501,7 @@ let values = [1, 2, 3] |> par-map --jobs=8 { |index| xs[index] }
   "index-out-of-range" in idle_error.stderr
 }
 
-proc test_fs_files_lazy_folding_terminals_match_eager_results(ctx: TestContext) [fs, error] {
+test test_fs_files_lazy_folding_terminals_match_eager_results [fs, error] { |ctx|
   # count/sum/min/max/fold drive the live stream by folding one item at a time.
   let root = test.temp_dir(ctx, name: "fs-walk-fold")?
   fp"${root}/a.txt".write("a")?
@@ -2534,4 +2526,57 @@ proc test_fs_files_lazy_folding_terminals_match_eager_results(ctx: TestContext) 
       |> fold(0) { |acc|
         acc + .
       } == 6
+}
+
+
+test test_keyed_count_result_retains_map_type_through_later_pipelines [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+let stats = ["rs", "md", "rs"] |> count { |ext| ext }
+let counts = stats.keys()
+  |> map { |ext| {count: stats.get(ext) ?? 0, ext: ext} }
+  |> sort-by .count
+for row in counts { print f"${row.ext}:${row.count}" }
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "md:1\nrs:2\n")?
+}
+
+
+test test_pipeline_stage_facts_retain_terminal_and_callback_types_in_procedures [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+proc summarize() [error] {
+  let folded = [1, 2] |> fold(0) { |acc, value| acc + value }
+  let grouped = ["a", "a"] |> group-by { |value| value }
+  let sizes = grouped |> map { |row| row.items.len() }
+  let batched = [1, 2] |> batch(count: 2) |> map { |items| items.len() }
+  print f"${folded.float()}:${sizes[0]}:${batched[0]}"
+}
+summarize()
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "3:2:2\n")?
+}
+
+type StreamLabelRow = {name: Str, unit: Str}
+
+test test_stream_where_string_views_match_ordinary_record_comparison [error] {
+  let source = " MemFree :bytes\nVendorCounter:widgets\n"
+  var viewed: List[StreamLabelRow] = []
+  for line in source.lines() {
+    let fields = line.split(":")
+    viewed = viewed.push({name: fields[0].trim(), unit: fields[1]})
+  }
+
+  let owned: List[StreamLabelRow] = [{name: "MemFree", unit: "bytes"}, {name: "VendorCounter", unit: "widgets"}]
+  test.ok(viewed[0].name == "MemFree")?
+  test.ok(viewed[1].name != "MemFree")?
+  test.eq((viewed |> where .name == "MemFree").len(), 1)?
+  test.eq((viewed |> where "MemFree" == .name).len(), 1)?
+  test.eq((viewed |> where .name != "MemFree").len(), 1)?
+  test.eq((viewed |> where "MemFree" != .name).len(), 1)?
+  test.eq((viewed |> where .name == "MemFree" and .unit == "bytes").len(), 1)?
+  test.eq((viewed |> where .name == "MemFree" or .unit == "widgets").len(), 2)?
+  test.eq(viewed |> where .name == "MemFree", owned |> where .name == "MemFree")?
+  test.eq(viewed |> where .name != "MemFree", owned |> where .name != "MemFree")?
+  test.eq(viewed |> where .name == "MemFree", viewed |> where { |row| row.name == "MemFree" })?
 }

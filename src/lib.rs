@@ -1,13 +1,15 @@
 extern crate self as xsh;
 
+pub(crate) mod map_key;
 pub mod api {
     //! Read-only language API metadata used by tooling.
 
-    pub use super::modules::signature::{ApiDocs, MethodReturn, ModuleSig, ParamSig};
+    pub use super::modules::signature::{ApiDocs, ModuleSig, ParamSig};
     pub use super::modules::{ApiArgCheck, MethodReceiver, MethodSig, ModuleFnSig, api_spec};
 }
 /// Supported structured and rendered diagnostics.
 pub mod diagnostic;
+pub(crate) mod duration;
 pub mod execution;
 /// Tooling-only frontend statistics support for the dedicated profiling binary.
 pub mod frontend_stats;

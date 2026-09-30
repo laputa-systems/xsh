@@ -12,7 +12,7 @@ pure package_step(seed: Int, depth: Int) -> Int {
 }
 
 let rows = [0] |> range(0, 64)
-let values = rows |> par-map --jobs=4 { |seed|
+let values = rows |> par-map(jobs: 4) { |seed|
   package_step(seed, 12000)
 }
 

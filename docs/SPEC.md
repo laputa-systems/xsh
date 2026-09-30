@@ -7,7 +7,7 @@ language reference data. When those documents disagree,
 `docs/SPEC.md` is authoritative for core language behavior; update this file
 before changing language behavior.
 `docs/SPEC-TYPING.md` is the detailed contract for typechecking, including
-assignability, `Any`, strict dynamic checking, schema check boundaries, and
+assignability, `Any`, checked dynamic boundaries, schema validation, and
 flow-sensitive narrowing.
 `docs/SPEC-OS.md` is the detailed contract for OS-facing runtime behavior,
 including signal handlers, evaluator checkpoints, process-group cancellation,
@@ -87,7 +87,10 @@ first because that is how the operation is read: "the list's length", "set
 this key on the map". Module functions exist only where there is no natural
 receiver — factories like `map.empty()` and constructors like
 `regex.compile()`. The `lint.prefer-method` rule enforces this and autofixes
-violations.
+violations. List concatenation uses `left + right`, and mutable local list
+updates use `items += [item]` or `items += more`. The
+`lint.prefer-list-compound-assignment` rule recognizes safe local updates;
+`push` and `extend` remain useful methods in expression chains.
 
 **Pipelines, not text plumbing.** `|>` is a typed operator. Each stage knows
 what flows through it. The pipeline result is a `List[T]`, collected
@@ -112,7 +115,7 @@ extends plain grep to handle whitespace and expression boundaries correctly,
 but plain grep must also be sufficient for most searches.
 
 **Testable at every layer.** The language has mocks, temp files, and
-assertions built in. Tests are typed procs; the test module is a standard
+assertions built in. Tests are checked declarations; the test module is a standard
 library, not a framework import. Coverage is structural — measured over the
 API surface — rather than only over lines. Scripts that are not tested are
 not complete.
@@ -175,7 +178,7 @@ The implemented v1 surface includes:
 - Newline and semicolon statement terminators.
 - `use`, `export`, `let`, `var`, `proc`, `pure`, `type`, `return`, `defer`,
   `if`, `else`, `while`, `for`, `break`, `continue`, and `match`.
-- Required parameter lists, required return annotations for `pure`, default
+- Required parameter lists, concrete return inference for private `pure` helpers, default
   `Result[Unit]` returns for annotation-free `proc`, typed defaults for simple
   defaulted parameters, plus default and rest parameters.
 - Expression-style pure and proc calls, plus fully qualified standard-module
@@ -183,7 +186,7 @@ The implemented v1 surface includes:
 - `Ok(value)`, `Err(value)`, `Result`, `error.fail(message)`, postfix `?`,
   right-associative `??` fallback, `Result.context(...)`, and implicit
   `Ok(value)` wrapping for `Result[T]` tail values.
-- User-defined tag union types with exhaustiveness checking: `type Level = Info | Warn | Error(Str)`.
+- User-defined tag union types with exhaustiveness checking: `enum Level { Info, Warn, Fault(Str) }`.
   Exhaustive `match` emits `check.non-exhaustive-match` for uncovered variants.
   `lint.stringly-typed-match` flags ≥ 3 string-literal match arms.
 - Narrow function and task tail values: a final expression or command statement
@@ -221,8 +224,8 @@ The implemented v1 surface includes:
   and `xsht`.
 
 The following remain outside v1 unless this spec later promotes them:
-shell-string process execution, first-class command block literals, slice
-syntax, block-valued named arguments, public tagged JSON,
+shell-string process execution, first-class command block literals,
+block-valued named arguments, public tagged JSON,
 multi-job interactive job control, script-level job-control syntax, service
 supervision, command-compatible Seed applet shims, and
 package-manager-specific grammar.
@@ -262,8 +265,8 @@ blocks are checker errors. Ordinary `#` comments remain non-semantic.
 Reserved keywords:
 
 ```text
-and break continue defer else false for if in let match not null or proc pure
-retry return run spawn stream true type use var wait while yield
+and assert break const continue defer else enum false for if in let match not null or proc pure
+retry return run spawn stream test true try type use var wait while yield
 ```
 
 `not` is reserved only as part of the binary `not in` operator. Unary negation
@@ -315,8 +318,31 @@ String literals use double quotes and support `\\`, `\"`, `\$`, `\n`, `\r`,
 literals use `r"..."` or `r"""..."""`; their contents are literal text and
 escapes are not decoded. A `Str` literal must decode to valid UTF-8 and cannot
 contain NUL when converted to a path, environment value, or argv item.
-`lint.redundant-newline-triple-string` flags the exact single-newline triple
-string form and autofixes it to the equivalent escaped string literal `"\n"`.
+Ordinary, raw, and formatted triple `Str` literals use block layout only when
+an opening delimiter is immediately followed by LF, CRLF, or CR and the closing
+delimiter is alone on its line apart from spaces/tabs. Trailing syntax or a
+comment on the closing line makes the literal an exact non-block form. The
+closing delimiter's exact space/tab prefix is the margin. Remove the opening
+and closing structural line breaks, counting a shared break only once in an
+empty block. Remove that prefix from every nonblank source content line;
+a missing or different prefix is a source error. Whitespace-only content lines
+lose only the longest matching initial part of the margin. Internal line endings
+and remaining whitespace retain their exact bytes. There is no implicit trailing
+newline; an extra blank content line expresses one.
+
+Layout is removed before escape decoding and interpolation. Only literal text
+participates: interpolation code, nested literals, original expression spans,
+and multiline inserted values are not trimmed or reindented. Rawness retains
+its existing escape/interpolation behavior. Bytes, Path, formatted Path, glob,
+and regex literals retain exact layout. Triple literals outside the block shape
+retain exact behavior; an explicit escaped opening break can preserve an old
+leading newline and indentation without opting into block layout.
+`lint.redundant-newline-triple-string` converts an exact one-newline block
+(`"""` followed by three LF breaks and `"""`) to `"\n"`.
+`lint.prefer-block-string` rewrites constant escaped-newline concatenations only
+when a normally parsed candidate has the identical decoded `Str`. Dynamic or
+formatted operands, comments, CR-containing values, and expression positions
+where the closing delimiter cannot be alone receive no automatic rewrite.
 
 Expression string literals do not interpolate. `${expr}` interpolation is
 recognized only in command words and quoted command word parts. `$name` and
@@ -331,12 +357,23 @@ escape.
 Bytes literals are `b"..."` and support the same byte escapes except
 `\u{HEX}`. They produce `Bytes`.
 
+Regex literals are `rx"..."` or `rx"""..."""` and produce `Regex`.
+They use raw-string delimiters: backslashes, dollar signs, and inline flags
+are passed unchanged to the existing regex engine, with no escape decoding or
+interpolation. Each occurrence is validated and compiled during checked
+program/module preparation, including unreachable expressions. Invalid syntax
+is a source-located preparation error; `xsht check` reports it without running
+the script. Prepared engines are shared by repeated evaluations of the owning
+program. Use `regex.compile(pattern)` for runtime strings and Result-valued
+error handling.
+
 Path literals are `p"..."` and support the same escapes as string literals.
 They produce `Path` and do not interpolate. An unescaped `${...}` in a p-string
 is rejected; use `fp"..."` when the path should interpolate.
 
 Formatted path literals are `fp"..."` or `fp"""..."""` and support `${expr}`
-interpolation with display conversion. They produce `Path`.
+interpolation. Path interpolands retain native bytes; other displayable values
+use their established conversion encoded as UTF-8. They produce `Path`.
 
 Obvious path literals may be written without `p` when they begin with `/`,
 `./`, or `../` and contain no whitespace or delimiters. These produce `Path`
@@ -357,7 +394,27 @@ Integer literals are decimal or octal. Octal literals use `0o` followed by
 octal digits, such as `0o755`. A leading `-` is parsed as unary minus rather
 than as part of the literal.
 
-`UInt` is the non-negative integer type.
+`UInt` is the non-negative integer type. Typed mutable storage preserves this
+constraint through aliases, record fields, List elements, and Map values.
+Assignment evaluates selectors and the RHS in the ordinary order, then validates
+the replacement (including the result of compound arithmetic) before storing it.
+A negative replacement fails with `type-error`; the selected storage and aliases
+remain unchanged, while effects already performed by selectors or the RHS remain.
+Replacing a container or appending elements validates its nested UInt constraints.
+Checked collection creation, branch/fallback results, builtin results, and inferred
+bindings retain this domain too. Direct collection inputs to loops and native
+stages cannot carry negative elements under a UInt item type.
+Nominal tag/error payloads and functional List/Map method operands also preserve
+their declared constraints before a new value is published. All authored call
+operands evaluate once in source order before call-level domain validation.
+Ordinary call arguments, prepared defaults, and returned values preserve the same
+constraint, including nested containers and implicit tails. These domain failures
+are runtime type failures and run ordinary cleanup; `try` does not convert them
+into Result data. Use `value.require(UInt)?` for recoverable validation.
+Declared Stream item constraints are checked as each item is produced, including
+items crossing retained delegation boundaries. No later item is pulled to validate
+the current one; rejection stops delegated children before their parents and runs
+registered cleanup once. Cancellation skips unreached invalid items.
 
 Float literals require a decimal point followed by at least one digit or an
 exponent: `1.0`, `0.25`, `10e-3`, and `1.5e6`. They produce `Float` values.
@@ -394,9 +451,42 @@ instead of letting the script fail only when it is run. An empty `main()`,
 fixed scalar or defaulted parameters, and a `main` that also declares a spread
 parameter remain valid.
 
+`cli main(parameters) [effects] -> Return { ... }` declares a script entry,
+with the ordinary proc effect/return rules and default `Result[Unit]` return.
+It is neither callable nor exportable. Exactly one may occur at the entry
+module's top level, and it cannot coexist with another `main` declaration.
+Required scalar parameters are positional in declaration order; parameters with
+prepared constant defaults are named options, and a final rest `List[Str]` or
+`List[Path]` receives remaining operands. Required positionals precede options.
+The supported scalar parsers are `Str`, `Int`, `UInt`, `Bool`, `Path`, and
+`Duration`; aliases retain their resolved parser, including unsigned validation.
+Omitted defaulted annotations use the checked semantic parameter type for parser
+selection. Inferring that type never permits execution of an ordinary runtime
+default: CLI defaults must still be prepared constants. Snake case option names
+map to kebab case.
+
+The entry derives the existing strict CLI schema and parser. Boolean options
+accept bare switches and explicit Boolean values; other options accept attached
+or following values. Defaulted Lists append repeated occurrences to their
+prepared default, preserving the existing repeated-option policy. `--` preserves
+remaining operand order, duplicate scalar options and unknown options are errors,
+and `-h`/`--help` are reserved. Path conversion performs no existence check.
+Help includes parameter types/defaults and applicable declaration/module docs.
+
+Static validation and argument parsing complete before any executable entry or
+imported initializer runs. Help exits successfully, and invalid arguments use
+the existing usage-error status without executing initializers or the body.
+Reading defaults executes no source code. `cli.parse`, `cli.parse_full`, and
+`cli.commands` remain the explicit APIs for advanced policies and dynamic schemas.
+`lint.prefer-signature-cli` fixes only literal defaulted scalar option schemas with exact
+generated help, typed direct bindings, and no executable initialization or imports.
+Comments retain the diagnostic without a fix. Positional descriptors, short aliases,
+custom help, computed defaults, and advanced parser policies remain explicit.
+
 Script arguments after `--` are available through the predeclared immutable
-binding `args: List[Str]`. The current interpreter also accepts `ARGV` as a
-compatibility alias; new examples and docs should use `args`.
+binding `args: List[Str]`. The former predeclared `ARGV` binding is rejected
+with a removed-vocabulary diagnostic; an explicitly declared user binding with
+that spelling remains valid.
 The `xsh`, `xshi`, and `xsht` command-line parsers reject an argument that is
 not valid UTF-8 with exit status 2 and an argument-index diagnostic, before
 loading a script or command. XSH process calls can still pass native `Path`
@@ -415,6 +505,7 @@ program      = statement* EOF ;
 
 statement    = use_stmt
              | export_stmt
+             | const_stmt
              | let_stmt
              | var_stmt
              | assign_stmt
@@ -422,6 +513,7 @@ statement    = use_stmt
              | pure_def
              | stream_def
              | type_def
+             | enum_def
              | return_stmt
              | yield_stmt
              | if_stmt
@@ -433,6 +525,7 @@ statement    = use_stmt
              | match_stmt
              | defer_stmt
              | command_stmt
+             | assert_stmt
              | expr_stmt
              ;
 
@@ -447,34 +540,36 @@ Declarations:
 use_stmt     = "use" module_path ("as" IDENT)? terminator ;
 module_path  = module_segment ("." module_segment)* ;
 module_segment = IDENT | PROC_IDENT ;
-export_stmt  = "export" (let_stmt | proc_def | pure_def | stream_def | type_def) ;
+export_stmt  = "export" (const_stmt | let_stmt | proc_def | pure_def | stream_def | type_def | enum_def) ;
 
+const_stmt   = "const" IDENT (":" type_expr)? "=" expression terminator ;
 let_stmt     = "let" binding_target type_ann? "=" expr_or_run terminator ;
 var_stmt     = "var" binding_target type_ann? "=" expr_or_run terminator ;
 binding_target = IDENT | record_binding_target ;
 record_binding_target = "{"
                  (destructure_field ("," destructure_field)* ","?)? "}" ;
-destructure_field = IDENT | ".." ;
+destructure_field = FIELD_LABEL ":" binding_target | IDENT | ".." ;
 assign_stmt  = assign_target assign_op expr_or_run terminator ;
-assign_target = IDENT ("." IDENT | "[" expr "]")* ;
+assign_target = IDENT ("." FIELD_LABEL | "[" expr "]")* ;
 assign_op    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 type_def     = "type" IDENT "=" type_body terminator ;
+enum_def     = "enum" IDENT (":" "Str")? "{" enum_variant ("," enum_variant)* ","? "}" terminator ;
+enum_variant = IDENT ("(" (type_expr ("," type_expr)* ","?)? ")")? ("=" expr)? ;
 type_body    = type_expr | record_schema | module_contract ;
 record_schema = "{" schema_field ("," schema_field)* ","? "}" ;
-schema_field = IDENT ":" type_expr ;
+schema_field = FIELD_LABEL ":" type_expr ("=" expr)? ;
 
-Record schema and literal field names are normally identifiers. A reserved word
-used as a field name is rejected with a diagnostic that names the word. Use a
-non-reserved field name in schemas; quoted string keys remain available for
-untyped record literals.
+`FIELD_LABEL` is an identifier or keyword token used as a label, rather than a
+lexical declaration. Field labels keep their exact spelling; quoted string
+keys remain available in record literals for arbitrary text.
 module_contract = "module" "{" module_contract_entry* "}" ;
 module_contract_entry = "export" "optional"? module_contract_kind terminator? ","? ;
 module_contract_kind = ("let")? IDENT ":" type_expr
              | "proc" IDENT param_list effect_ann? "->" type_expr
              | "pure" IDENT param_list "->" type_expr ;
 type_ann     = ":" type_expr ;
-defer_stmt   = "defer" expr_or_run terminator ;
-yield_stmt   = "yield" expr_or_run terminator ;
+defer_stmt   = "defer" (block | expr_or_run) terminator ;
+yield_stmt   = "yield" (expr_or_run | "@" expr) (("when" | "unless") expr)? terminator ;
 ```
 
 Module path segments accept hyphenated identifiers (proc-ident form) in addition
@@ -486,42 +581,148 @@ binding name in expression context. The checker rejects hyphenated-final-segment
 `let` bindings are immutable. `var` bindings are mutable. Assigning to a `let`
 binding or an undefined name is a checker error. Assignment targets may name a
 mutable local binding directly, a field below a mutable local record, or a
-string-keyed entry below a mutable local map. Field and indexed assignment
-update the local value stored in the root binding; they do not introduce shared
-record or map identity. Compound assignment requires a mutable target and
+string-keyed entry below a mutable local map, or an element below a mutable
+local List. Paths may mix existing record fields, Map keys, and List indices.
+List writes use ordinary indexing: indices are Int and must be nonnegative
+and less than the current length. They neither clip nor append, pad, replace
+slices, mutate Str/Bytes, or write through temporary receivers.
+Field and indexed assignment update the local value stored in the root binding;
+prior bindings and aliases retain their contents. Compound assignment requires a mutable target and
 follows the corresponding binary operator type rules for the target value.
+`List[T] + List[T]` concatenates values in encounter order; `+=` appends a
+list to a mutable target. A scalar append is written `items += [item]`.
+Both operands use ordinary element compatibility, including expected types
+for empty lists; concatenation does not implicitly widen heterogeneous lists.
+Within a function, an unannotated empty List has one unresolved element type.
+An explicit empty Map constructor has unresolved key and value types. Checked
+writes and independently determined parameter or return expectations solve
+these types across all branches and loop bodies, including loops that may run
+zero times. A mutable binding initialized with `null` similarly has one fixed
+optional type once non-null contributions determine its inner type. Immutable
+`let value = null` remains Null. An unannotated `{}` remains a record.
+
+Local aliases share the same unresolved type; each use cannot choose a new
+instantiation. Incompatible concrete contributions are errors and never widen
+to Any or a union. An independently declared concrete destination can choose
+an explicit dynamic domain such as `Map[Any]`; that choice is preserved through
+nested fields and local aliases rather than guessed from runtime evidence.
+Material unresolved types require an annotation before a
+concrete operation, checked signature, or indexed execution contract is
+published. A wholly discarded inert literal needs no artificial annotation.
+Checking uses source constraints without evaluating code or inspecting runtime
+values. Diagnostics identify the initializer and incompatible contributions.
+Assignment evaluates target selectors once in path order, then its right side
+once, then reads the current root and selected old value and commits the update.
+Changes selectors or RHS make to the same root remain visible; unrelated updates
+are preserved. Bounds, required intermediate fields, and fallible arithmetic
+are validated before rebuilding ancestors. Failed updates expose no partial
+ancestor rebuild; already executed operand effects remain visible to cleanup.
+Replacement values retain contextual element/schema typing. Assignment produces
+Unit. Earlier aliases retain their contents, including self-concatenation.
+`lint.prefer-list-element-assignment` recognizes exact prefix/replacement/suffix
+reconstructions. It fixes only checked compatible types, proven current bounds,
+stable replacement expressions, and preserved comments; clipping slices with
+unproved lengths require manual review.
 `List.push`/`List.extend` and `Map.set`/`Map.remove`/`Map.push` return updated
 values; earlier bindings and aliases keep their previous contents.
-Record destructuring targets bind named fields from a record value; `..` marks
-ignored remaining fields. Destructured `let` and `for` bindings are immutable,
-destructured `var` bindings are mutable. `export let` accepts simple names
-only.
+Record destructuring selects required fields in source order. A field may bind
+its own name, rename it (`{target: target_name}`), or select a nested record
+(`{build: {jobs, ..}, ..}`). `..` marks ignored remaining fields without capturing
+them. `_` discards a selected value; duplicate bound names and duplicate field
+selections are errors. The source is evaluated once and every required field is
+selected successfully before any binding becomes visible. Known record schemas
+check nested field names and preserve their individual types; `Any` requires an
+explicit schema check before destructuring, including annotated targets.
+
+These targets are accepted by `let`, `var`, `for`, list/map comprehensions, and
+guard-let. Destructured `let` and iteration bindings are immutable; destructured
+`var` bindings are independent mutable local values with ordinary value semantics.
+`export let` accepts simple names only. Function parameters do not destructure.
 
 Control flow:
 
 ```ebnf
-while_stmt   = "while" expr block ;
+while_stmt   = "while" condition block ;
 for_stmt     = "for" binding_target "in" expr block ;
-break_stmt   = "break" terminator ;
-continue_stmt = "continue" terminator ;
 match_stmt   = "match" expr "{" match_arm* "}" ;
 match_arm    = pattern guard? "=>" (statement | block) ","? ;
 guard        = "if" expr ;
-pattern      = "_" | IDENT | type_pattern | literal | constructor_pattern
-             | record_pattern | pattern "|" pattern ;
+pattern      = alias_pattern ("|" alias_pattern)* ;
+alias_pattern = primary_pattern ("as" IDENT)* ;
+primary_pattern = "_" | IDENT | type_pattern | literal | constructor_pattern
+                | record_pattern | list_pattern | "(" pattern ")" ;
 type_pattern = ("_" | IDENT) "is" type ;
 constructor_pattern = IDENT "(" pattern? ")" ;
 record_pattern = "{" record_pattern_field ("," record_pattern_field)* ","? "}" ;
-record_pattern_field = IDENT (":" pattern)? | ".." ;
+record_pattern_field = FIELD_LABEL ":" pattern | IDENT | ".." ;
+list_pattern = "[" (pattern ("," pattern)* ("," list_rest)? | list_rest)? ","? "]" ;
+list_rest = ".." IDENT? ;
 ```
+
+List patterns match exact lengths (`[]`, `[first, second]`) or a prefix with
+one trailing rest (`[head, ..tail]`, `["build", target, ..]`). Elements may
+contain nested list, record, constructor, literal, or dynamic type patterns.
+Only List subjects and explicit dynamic pattern boundaries are accepted;
+Streams, Str, Bytes, and wrapped Result values are not coerced. Known List[T]
+elements retain T and named rest bindings have List[T]. Ordinary `let` targets
+do not accept refutable list patterns. Nonbinding `is` rejects names inside
+both elements and rest.
+
+Length is checked before any element access. Mismatch continues to the next
+arm without publishing captures. Captures become visible only after the full
+nested pattern succeeds; a named rest preserves list value semantics and is
+copied only for successful matches. Exhaustiveness recognizes catchalls,
+`[..]`/`[..tail]`, and the partition `[]` plus `[_, ..]` for known List subjects.
+Guards and literal element tests cannot establish general coverage; uncertain
+value matches require a catchall.
 
 `break` and `continue` affect the nearest `while` or `for`. They are checker
 errors inside structured stream stage blocks.
 
-`defer` registers a block-scoped cleanup expression or run command. Cleanups
-run in last-in-first-out order when control leaves the block through success,
-`Err` propagation, runtime failure, `return`, loop control, or cancellation.
-Cleanup failures are reported without hiding a primary failure.
+`defer` registers a block-scoped cleanup expression, run command, or statement
+block. Registration does not execute the action. Actions run in last-in-first-out
+order when control leaves their registering block through success, `Err`
+propagation, runtime failure, `return`, loop control, or cancellation. Forced
+abort skips cleanup.
+
+A deferred block resolves captures in its registration scope and reads their
+values at cleanup time. Use an immutable `let` snapshot to retain an earlier
+value. Its locals remain local to the cleanup action. All statements, including
+the final statement, use Unit-compatible statement position: Bool values assert
+and Result[Unit] failures propagate. A failing action stops its remaining
+statements; other registered actions still run. The original failure remains
+primary; otherwise the first cleanup failure becomes primary. Subsequent
+cleanup failures are reported with their source locations.
+
+Deferred blocks cannot return or yield from their enclosing callable, or break
+or continue an enclosing loop. Loops and nested defers declared inside the
+cleanup body retain their local targets and cleanup order. Normal effect checks
+apply even when registration is in an unselected branch. Expression-form
+`defer` keeps its existing type and registration behavior.
+
+`ctx description { ... }` evaluates one `Str` description on entry and adds
+an error-context frame with kind `ctx` when a failure propagates out of the
+lexical body. The frame retains the region's source span. The body follows the
+ordinary statement or value-block contract, and return/break/continue keep
+their enclosing destinations. Context entry has no host effect; description
+and body expressions retain their normal checked effects.
+
+Region defers and owned-resource cleanup finish before its outbound failure is
+annotated. A failed description receives only already enclosing contexts.
+Nested failures acquire one frame per crossed region, from inner to outer;
+nominal error identity, payload, primary source location, and prior contexts
+remain intact. Cleanup failures use the existing primary/secondary failure
+policy. Abort and cancellation retain their control behavior.
+
+Handled failures and `Err` values stored or returned as data are unchanged;
+use `Result.context` to annotate explicit error data. Context annotation owns
+its error value and never changes another alias's context chain. The contextual
+introducer is recognized only when `ctx` is followed by a description and a
+body; ordinary `ctx` bindings, parameters, field access, and calls remain legal.
+Moving explicit `.context(...)` calls into a region changes which failures are
+annotated unless their boundaries and description evaluation timing coincide;
+such a migration requires review rather than a general automatic rewrite.
+
 
 Standard modules are built-in namespaces and cannot be aliased. User modules are
 imported from sibling `.xsh` files relative to the importing source file, then
@@ -552,9 +753,40 @@ the complete `policy.Target` schema when `Context` is imported elsewhere.
 
 Surface-only conveniences are lowered before checking and evaluation. The core
 lowering includes path literals and p-strings, typed environment fields to an
-environment lookup node, value pipeline calls to ordinary calls with the
-pipeline input inserted, and builder syntax to module-owned builder calls.
+environment lookup node, implicit value pipeline calls to ordinary calls with
+the pipeline input inserted, and builder syntax to module-owned builder calls.
+Explicit pipeline holes retain the input and ordinary call through checking,
+then bind that input to hygienic temporary storage before the call.
 Formatting preserves the readable surface form.
+
+### Prepared immutable data
+
+`const` declarations are checked data in the program, including exported module
+values and local constants. Their finite lexical dependency graph may reference
+other constants, including qualified exported constants; cycles are preparation
+errors. Runtime bindings, parameters, ambient names, arbitrary calls or methods,
+blocks, comprehensions, retry, and propagation are rejected. Record and tag
+constructors may consume prepared constant arguments and schema defaults. Named
+constructor spreads require prepared closed records and use only their statically
+visible fields; Optional, Map, runtime, and erased sources are rejected. Explicit
+and spread fields retain the ordinary duplicate and field-type checks. Closed
+record projections read only prepared data and retain the declared field type;
+a present prepared value does not erase an Optional annotation.
+
+The bounded data subset includes scalar, path, and regex literals, homogeneous
+constant containers, and checked primitive operations. Invalid integer arithmetic
+is diagnosed during preparation. Empty List and Map values need concrete type
+context; `Any` and resource values cannot enter constant data. Preparation admits
+at most 128 nested expressions, 100,000 analysis steps, and 1,048,576 data units
+per constant (container entries and literal bytes contribute to this bound).
+Paths preserve their bytes without consulting cwd. Regex literals share their
+already prepared pattern. Indexed reads reuse immutable container backing under
+ordinary value semantics, so writes to a derived `var` preserve the constant.
+
+An exported constant satisfies the ordinary read-only module value contract.
+`let` retains runtime initialization. `lint.prefer-const` offers a keyword-only
+edit for inert module literal data; runtime calculations and local bindings keep
+their initialization boundary.
 
 ## 5. Types And Values
 
@@ -613,18 +845,37 @@ type BuildPlugin = module {
 }
 ```
 
-**Tag unions** use the `type T = A | B | C(Type, ...)` form:
+**Tag unions** use `enum T { A, B, C(Type, ...) }`. An enum requires at least
+one variant and accepts multiline bodies and a trailing comma:
 
 ```xsh
-type Level = Info | Warn | Error | Debug
-type Result2 = Ok(Str) | Err(Int, Str)
+enum Level { Info, Warn, Fault, Debug }
+enum Token { Present(Str) }
 ```
+
+`type Alias = Token` remains a type alias. The former `type T = A | B`
+declaration is a migration error (`parse.enum-migration`) and cannot execute.
+`export enum` exports the nominal type and its constructors; constructors stay
+in the declaration module namespace, rather than under the enum name.
 
 Each variant is a constructor. Zero-field variants are bare names; non-zero
 variants are called as functions: `Info`, `Stopped("disk full")`. Tag union
 values are matched with constructor patterns. When the matched value is a
 `Tag(T)` type and no arm is a wildcard or binding, the checker emits
 `check.non-exhaustive-match` for uncovered variants.
+
+`enum State: Str { Seen = "seen", Missing = "" }` declares a payload-free
+nominal enum with explicit wire strings. Every variant supplies a unique bounded
+constant Str; empty strings are allowed. Ordinary assignment never converts Str
+into an enum. Explicit `.require(Schema)` converts exact wire strings in enum
+slots recursively through records, lists, optional slots, and supported Map
+values, publishing a trusted value only after the complete schema succeeds.
+Unknown strings and mistyped values produce field/index-aware schema errors;
+missing fields are never filled from defaults. Type patterns test actual enum
+values without conversion. JSON encoding and writing emit declared strings,
+including nested occurrences; raw JSON decoding continues to return untyped data.
+Ordinary enums remain incompatible with JSON. This boundary does not widen
+CLI, environment, argv, or non-Str Map-key conversion.
 
 Runtime values are distinct by type:
 
@@ -663,10 +914,39 @@ structured pipelines consume it lazily. `.collect() -> List[T]` drains a stream
 and materializes its remaining items when random access, length, or list APIs
 are required.
 
+Builtin collection contracts preserve their checked receiver parameters through
+arguments and results, including nested containers and nominal Result errors.
+Each call instantiates its own internal signature parameters; this does not add
+generic functions or expression-level type arguments. Concrete operands must
+fit the established collection type. An erased Any element remains dynamic;
+inserting one known value cannot establish the type of older elements.
+Overloads are selected from receiver and argument contracts, never from a
+desired return type alone. Independently grounded expectations can constrain
+the selected signature under the same local inference rules as other calls.
+Named arguments and static record spreads use ordinary parameter binding and
+preserve written evaluation order. `List.join` requires `List[Str]`; it does
+not apply display conversion to non-string elements.
+
 `Str` is valid UTF-8 text. `Bytes` is arbitrary byte data. `Path` stores native
 Unix path bytes and cannot contain NUL; it can represent paths that are not
-valid UTF-8. `Map[T]` is a deterministic string-keyed collection whose values
-all have type `T`.
+valid UTF-8. Formatted Path literals and compound process words append Path
+fragments as native bytes, evaluating fragments once in source order. Ordinary
+f-strings and print remain display text; an explicit `.display()` produces
+UTF-8 text and cannot recover the original native bytes. Concatenation does not
+join, normalize, expand, glob, or confine paths: separators and `..` remain
+exactly present, and rooted filesystem APIs retain confinement ownership.
+NUL remains invalid in paths and argv; interpolation does not split words.
+
+`Map[K, V]` is a deterministic ordered collection with homogeneous scalar keys
+and values of type `V`. `Map[V]` is shorthand for `Map[Str, V]`. Key types resolve
+to `Str`, `Int`, `UInt`, `Bool`, `Bytes`, `Path`, or
+`Duration`; `Any`, `Float`, records, collections, and handles are excluded.
+UInt retains a nonnegative semantic constraint through aliases; its runtime keys
+use the same Int representation, with checked literal, lookup, update, and schema
+boundaries rejecting negative values. Numeric and duration keys order numerically, Boolean keys order false before
+true, strings use their ordinary order, and Bytes and Path keys use native byte
+identity and lexicographic byte order. Keys are never implicitly displayed or
+converted between domains.
 
 `Float` is an IEEE 754 binary64 scalar for measured quantities such as rates,
 percentages, load averages, and JSON metrics. Float equality is exact over the
@@ -675,8 +955,23 @@ as decimal text and renders non-finite values as `NaN`, `Infinity`, or
 `-Infinity`. Sort keys use the IEEE total order, so `NaN` values have stable
 ordering. Public JSON encoding rejects non-finite `Float` values.
 
-`Duration` is a millisecond-resolution runtime value produced by duration
-literals and accepted by timeout policy. `Digest` is a module-owned typed hash
+`Duration` stores nonnegative unsigned 64-bit milliseconds and is accepted by
+timeout policy. `Duration + Duration` and `Duration - Duration` produce a
+`Duration`; multiplication by a nonnegative `Int` works in either operand order.
+Division by a positive `Int` produces a `Duration`, discarding sub-millisecond
+remainders; division by a positive `Duration` produces an `Int` interval count.
+Duration ordering compares milliseconds. Operands evaluate once, left to right;
+these operations are pure and require no time effect. Addition and scaling
+report `duration-overflow`, subtraction below zero reports `duration-underflow`,
+negative multipliers report `duration-negative-factor`, nonpositive divisors
+report `division-by-zero`, and interval counts outside `Int` report
+`integer-overflow`, each at the operator expression. Float scaling, modulo,
+implicit numeric conversions, and timestamp arithmetic are invalid.
+`time.millis` and `time.seconds` retain their clamping and saturation conversion
+behavior, which is distinct from checked arithmetic. Compound `+=`, `-=`, `*=`,
+and `/=` preserve these rules when their result remains a Duration.
+
+`Digest` is a module-owned typed hash
 digest with `algorithm: Str`, `bytes: Bytes`, `hex() -> Str`, and
 `base64() -> Str`. `Regex` is a module-owned compiled regular expression with
 `pattern: Str`, `.matches(text: Str) -> Bool`,
@@ -697,10 +992,15 @@ error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, o
 ```
 
 Constructors are qualified by family, for example
-`FsError.NotFound(file: target)`. Error values expose `.message`. Exact variant
+`FsError.NotFound(file: target)`. Imported families use their checked module
+namespace or import alias; named payload expressions evaluate once in written
+order without evaluating a runtime family receiver. Error values expose `.message`. Exact variant
 payload fields are available after exact variant matching, and facets are
 matched with `is Facet`. Family and variant labels may be rendered in
 diagnostics, but source programs must not branch on string error kinds.
+Facet tests preserve a known error family or variant on an immutable subject.
+A dynamic subject narrowed to a facet retains the common `Error` interface,
+including `.message`, but gains no variant payload fields.
 
 `ProcessError` is the structured process-execution error family returned by
 process forms. It includes variants for not found, permission denied, nonzero
@@ -719,7 +1019,8 @@ match process.run(command) {
 
 Standard constructors:
 
-- `p"literal"` and `fp"${value}"` produce `Path` values from UTF-8 source text.
+- `p"literal"` produces a `Path` from UTF-8 source text. `fp"${value}"`
+  preserves native bytes of Path fragments and UTF-8 encodes other fragments.
 - `Path(str) -> Path` remains a direct cast from text for values that are
   already known to be valid path text. `xsht lint` may recommend path-string
   syntax for this spelling, but the recommendation is advisory because the
@@ -741,6 +1042,58 @@ source string literals at statically known path boundaries, such as typed module
 arguments, proc arguments, typed bindings, and redirection targets. Runtime
 `Str` values still require explicit checked conversion.
 
+Named user record schemas support static construction with named fields,
+including puns and qualified imported schema names: `BuildOptions(root:)`.
+Aliases resolve to the defining schema's constructor and defaults. Constructors
+accept no positional arguments; unknown, duplicate, and missing required fields
+are errors. Supplied values evaluate once in source order. A schema name is not
+a first-class callable value, and callable/type name collisions are errors.
+
+User record schemas and aliases may declare type parameters, for example
+`type Observation[T] = {value: T?, samples: List[T]}` and
+`type CountObservation = Observation[Int]`. Arguments must be fully supplied;
+qualified applications such as `model.Observation[Int]` resolve private schema
+dependencies in the declaring module. Duplicate and reserved parameter names,
+wrong arity, unknown types, and recursive or expanding applications are errors.
+Substitution produces an ordinary concrete record schema with existing
+assignability rules. Generic functions, error families, enums, and module
+contracts are not supported.
+
+Use `let value: Observation[Int] = {...}` for a direct application or the
+existing `CountObservation(...)` constructor for a concrete named alias.
+`Observation(value: 12, samples: [])` infers `Int` from supplied fields. Each
+constructor occurrence has fresh monomorphic parameters; repeated evidence
+must agree without numeric widening or a guessed `Any`. Non-null values for
+`T?` constrain `T`; null and empty containers do not select it. A concrete
+annotation, parameter slot, or return contract can supply the instance,
+including parameters absent from fields. Nested constructors share their
+surrounding field expectations until all fields have contributed. An unresolved
+parameter requires an annotation or concrete field evidence.
+
+Named spreads, puns, defaults, and field evaluation order retain ordinary
+constructor semantics. Inference does not validate untyped external data or
+fill missing fields during `.require`. Expression-level type argument syntax
+is not supported. Defaults on a parameterized declaration must work for every
+substitution: `null` for `T?` and `[]` for `List[T]` are valid; `1` for `T` is
+not. Concrete aliases retain schema defaults and validation, including
+`.require(CountObservation)`.
+
+Schema field defaults are bounded immutable constants: `null`, `Bool`, `Int`,
+`Float`, `Duration`, `Str`, `Bytes`, and `Path` literals, signed numeric literals,
+recursively literal lists and records, and references to previous immutable
+constants composed from those forms. Constants resolve in the
+schema declaration's lexical module. Calls, ambient state, mutable captures,
+field dependencies, and propagation are forbidden. Defaults are checked once
+against field types, including contextual empty containers; each constructed
+value retains independent value semantics under mutation.
+
+Defaults apply exclusively to explicit constructor calls. They neither make
+schema fields optional nor fill missing fields in record literals, JSON, or
+`.require(Schema)`. `lint.prefer-record-constructor` rewrites proven schema-typed
+record initializers while retaining annotations and field evaluation order. It
+omits an explicit default only when the value is the identical bounded constant;
+comments and uncertain conversions retain the original spelling.
+
 ## 6. Expressions
 
 Expression grammar:
@@ -758,52 +1111,178 @@ term         = factor (("+" | "-") factor)* ;
 factor       = unary (("*" | "/" | "%") unary)* ;
 unary        = ("!" | "-") unary | postfix ;
 postfix      = primary postfix_op* ;
-postfix_op   = "." IDENT | "." "require" "(" type_expr ")" | "?." IDENT
-             | "[" expr "]" | call_args | "?" ;
+postfix_op   = "." FIELD_LABEL | "." "require" "(" type_expr ")" | "?." FIELD_LABEL
+             | "[" expr "]" | "[" expr? ".." expr? "]" | call_args | "?" ;
 call_args    = "(" arg_list? ")" ;
 arg_list     = arg ("," arg)* ","? ;
-arg          = expr | named_arg ;
-named_arg    = IDENT ":" expr ;
+arg          = expr | named_arg | "..." expr | "@" expr ;
+named_arg    = FIELD_LABEL ":" expr | IDENT ":" ;
 primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | match_expr
-             | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
+             | capture_expr | retry_expr | context_expr | context_scope_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
 spawn_form   = "spawn" (run_form | expr) ;
 wait_form    = "wait" expr ;
-if_expr      = "if" expr "{" expr "}" ("else" "if" expr "{" expr "}")*
+if_expr      = "if" condition "{" expr "}" ("else" "if" condition "{" expr "}")*
                "else" "{" expr "}" ;
 match_expr   = "match" expr "{" match_expr_arm* "}" ;
 match_expr_arm = pattern guard? "=>" expr ","? ;
-retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" block ;
+capture_expr = "try" block ;
+context_scope_expr = ("cd" | "env") "(" expr ")" block ;
+retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" ("on" "(" pattern ")")? block ;
+context_expr = "ctx" expr block ;
 ```
+
+In expression-call argument lists, `name:` followed by a comma or closing
+parenthesis is shorthand for `name: name`. Whitespace, comments, and newlines
+may separate the colon and delimiter, including trailing commas in multiline
+calls. The
+implied identifier resolves in the caller's lexical scope at the written name;
+missing names receive the ordinary name-resolution error on that name. Punning
+preserves named-argument ordering, arity, defaults, duplicates, overloads,
+effects, and source-order evaluation. It adds no command-argument syntax or
+record-field lookup. Explicit named arguments and positional arguments can be
+mixed with puns wherever the ordinary call rules permit them.
+
+Formatting retains `name:`. `lint.prefer-named-argument-pun` replaces a checked
+`name: name` whose value resolves as the same lexical identifier, and retains
+comments by withholding fixes that would remove them.
+
+`...record_expression` in an expression call supplies named arguments from
+exactly the fields visible in its checked finite `Record` type. Runtime fields
+hidden by a checked schema boundary are excluded. `Any`, open `Record`, `Map`,
+`Optional`, and `Result` operands require an explicit checked narrowing or
+unwrapping first. The callee must have a statically checked callable signature.
+Multiple disjoint spreads can mix with positional, explicit named, and punned
+arguments. Unknown names and duplicate names, including parameters already
+occupied by positional arguments, are errors. A null field is supplied and does
+not select the parameter's default. Overload selection, rest parameters,
+parameter types, omitted defaults, and effects retain their ordinary contracts.
+
+The receiver is evaluated before argument entries. Entries evaluate once in
+written order; a spread evaluates its operand once and projects its visible
+fields before the following entry. Static parameter slots retain this order
+even when named arguments are written in a different parameter order. `@list`
+remains positional rest splicing and does not supply names.
+
+`lint.prefer-named-argument-spread` recognizes contiguous forwarding of every
+visible field from one stable immutable binding. It withholds fixes for partial
+coverage, extra visible fields, mutable or effectful receivers, comments, type
+conversions, and candidates that fail parsing or checking. Formatting preserves
+spreads and the fixed form converges.
 
 Literals:
 
 ```ebnf
 literal      = "null" | "true" | "false" | INT | FLOAT | DURATION
-             | STRING | FMT_STRING | BYTES | PATH | PATH_FMT | GLOB ;
+             | STRING | FMT_STRING | BYTES | REGEX | PATH | PATH_FMT | GLOB ;
 list_lit     = "[" list_body "]" ;
 list_body    = (expr ("," expr)* ","?)?
-             | expr "for" binding_target "in" expr ("if" expr)? ;
+             | expr comp_qualifiers ;
 record_lit   = "{" (record_field ("," record_field)* ","?)? "}" ;
-record_field = IDENT ":" expr | STRING ":" expr | IDENT ;
+record_field = FIELD_LABEL ":" expr | STRING ":" expr | IDENT | field_path ":" expr | "..." expr ;
 
-A reserved word cannot be used as an unquoted record field name. Use a quoted
-string field name, such as `{"run": 0}`, when the record must retain that key.
-map_comp     = "{" field_path ":" expr "for" binding_target "in" expr
-               ("if" expr)? "}" ;
-field_path   = IDENT ("." IDENT)* ;
+Explicit field labels may use keyword spellings such as `type`, `in`, and
+`match`. This applies to record/error schemas and constructors, literal keys,
+member access and update paths, record patterns, renamed destructuring, and
+named arguments. Labels preserve exact key bytes and do not declare lexical
+names. Keywords remain invalid variable, parameter, declaration, or import
+names; keyword labels require an explicit value or renamed binding, such as
+`{type: entry_kind}`, rather than shorthand or puns. Callable labels still
+match the checked signature. Quoted literal keys retain arbitrary text, and a
+quoted key containing a dot remains a single key. Dynamic field access retains
+its existing validation boundary.
+map_comp     = "{" field_path ":" expr comp_qualifiers "}" ;
+comp_qualifiers = "for" binding_target "in" expr comp_qualifier* ;
+comp_qualifier = "for" binding_target "in" expr | "if" expr ;
+field_path   = FIELD_LABEL ("." FIELD_LABEL)* ;
 ```
 
-List comprehensions use `[expr for target in iterable]`, with an optional
-`if condition` guard after the iterable. Map comprehensions use
-`{item.key: value for item in iterable}` and follow the same iterable, binding,
-and guard rules. The iterable must be a `List[T]`, `Stream[T]`,
-`Result[List[T], E]`, or `Result[Stream[T], E]`; result iterables are unwrapped
+List and map comprehensions share a textual sequence of one or more `for`
+clauses with interleaved `if` filters. Each later clause and the projection
+see earlier loop bindings; each loop introduces its own lexical scope.
+Execution follows nested ordinary for/if control flow: an inner iterable is
+evaluated anew for each reached outer binding, a false filter skips every
+subsequent clause and the projection, and each surviving combination evaluates
+the projection once. List results retain encounter order. Filters consume
+boolean values and never assert.
+
+List comprehensions use `[expr for target in iterable]`; map comprehensions
+use `{item.key: value for item in iterable}` with the existing key syntax. The iterable may be a `List[T]`, `Stream[T]`, `Map[T]`, `Str`, or `Bytes`,
+including their supported outer `Result` wrappers; result iterables are unwrapped
 like `?` before iteration. Comprehension guards must be `Bool` or `Status`.
 Map comprehension keys must be `Str`. When two items produce the same key, the
-later value replaces the earlier value.
+later value replaces the earlier value. Each surviving map entry evaluates
+its key before its value. Streams are pulled lazily in nested encounter order
+and closed on exhaustion, propagation, or early return. Failed comprehensions
+do not expose a partial collection. `ArenaCompQualifier`,
+`Checker::check_comp_qualifiers_arena`, and the indexed comprehension frames
+own this shared contract. `lint.prefer-list-comp` and `lint.prefer-map-comp`
+retain annotations and conservatively recognize adjacent fresh accumulators
+with a single nested loop/filter path; accumulator-dependent clauses, shadowed
+accumulators, extra statements, transfers, and comments prevent an autofix.
 
 Empty `{}` remains an empty record unless it appears in a context that expects
 `Map[T]`; in a map-typed context, `{}` is sugar for an empty map.
+
+A computed entry `[key_expression]: value_expression` selects Map literal mode.
+A nonempty constant-key literal also constructs a Map in an expected `Map[T]`
+context; otherwise ordinary brace literals remain records. Map entries may mix
+computed keys, constant labels, and `...Map` spreads. A spread-only literal
+requires Map context; a bound record or dynamic object is not a Map spread.
+Computed keys infer one supported scalar domain, or use the expected key type.
+Mixed concrete domains are errors. Constant labels remain Str keys. Quoted dots
+remain part of one key. Computed comprehension keys use the same `[expression]`
+syntax when the key is more than a name or field path. Values use ordinary homogeneous inference and contextual typing;
+incompatible concrete values are not weakened to Any.
+
+Entries evaluate once from left to right, each computed key before its value.
+Overwritten values still evaluate, later entries and spreads replace duplicates,
+and failure stops before subsequent expressions. One Map builder preserves
+aliases and snapshot iteration; iteration remains in canonical key order.
+`lint.prefer-map-literal` recognizes checked fresh initialization and compatible
+set chains. Observed or escaping intermediate maps, uncertain conversions,
+and comments prevent unsafe fixes.
+
+A record literal containing a dotted replacement is a functional update:
+`{...config, build.jobs: jobs, build.flags.debug: true}`. It requires exactly
+one leading spread of a statically known record. All replacements, including
+single field entries and shorthands, must select existing fields through known
+records and retain their checked types. New fields, further spreads, computed
+keys, Map or indexed paths, and duplicate or ancestor-overlapping targets are
+rejected. Sibling targets may share ancestors. Quoted keys containing dots
+remain singular literal keys; ordinary record construction and spreads retain
+their existing behavior.
+
+The base evaluates once and provides an immutable snapshot. Replacement
+expressions run once in source order in the surrounding scope, then the
+successful replacements rebuild that snapshot. A replacement may read or
+mutate the original binding without changing the captured base. Failure stops
+later replacements and publishes no partial record; effects already performed
+remain visible. Schema defaults do not run again. Reconstruction groups shared
+ancestors and preserves value semantics through copy on write.
+`lint.prefer-nested-record-update` collapses equivalent nested spreads only
+when repeated reads use an immutable, checked record binding and all selected
+fields exist. Comments, unstable reads, extra spreads, and newly added fields
+prevent the fix.
+
+Ordinary list literals admit explicit spliced elements: `["cc", @flags,
+"-o", output_name, @source_names]`. A splice requires `List[T]` and inserts
+its elements in place; a list-valued element without `@` remains one nested
+list. Several splices, empty lists, multiline expressions, and trailing commas
+are supported. Element compatibility and expected types are the same as for
+ordinary list elements, including contextual empty lists; no additional Any
+widening or argv conversion occurs.
+
+Literal elements and splice expressions evaluate once in source order. A
+failure stops construction before later elements run. A Result requires
+explicit handling, such as `@(load_flags()?)`; Streams require `.collect()`.
+Map, Str, and Bytes do not splice. The builder preserves earlier aliases and
+uses one list construction path with checked capacity growth. Splicing does
+not add mixed comprehension clauses or unpack call keywords.
+`lint.prefer-list-splicing` rewrites checked compatible concatenation and
+extension chains when element types and conversions are preserved. Ordinary
+nested elements stay ordinary elements; uncertain annotation conversions and
+comment-bearing constructions prevent fixes. Simple mutable updates retain
+`+=` as their canonical spelling.
 
 Operators:
 
@@ -814,7 +1293,7 @@ Operators:
   is `Ok`, otherwise it evaluates and returns the fallback expression.
 - `==` and `!=` compare values of the same runtime type.
 - `<`, `<=`, `>`, and `>=` operate on `Int` and `Str`.
-- `+` operates on `Int` and `Str`; `-`, `*`, `/`, and `%` operate on `Int`.
+- `+` operates on `Int`, `Str`, and compatible `List` values; `-`, `*`, `/`, and `%` operate on `Int`.
   Integer `/` truncates toward zero. Integer arithmetic overflow produces an
   `integer-overflow` runtime error, and division or remainder by zero produces a
   `division-by-zero` runtime error rather than a host panic. `//` and `div`
@@ -841,9 +1320,38 @@ Operators:
   record fields are validated recursively inside lists, maps, and optional
   values; a nested missing or mistyped field rejects the entire value before
   typed field access.
-- `?.` is a null-safe field access: if the base is `null`, the expression
-  evaluates to `null` without accessing the field; otherwise it accesses the
-  field normally. The result type is `Optional[FieldType]`.
+- `.require()` uses a concrete target independently supplied by an annotated
+  binding, an annotated return or value tail, or a uniquely selected checked
+  parameter contract. Expected types flow through value blocks, branches,
+  `Ok`, and exactly one propagation layer at each `?`. Validation still runs
+  and returns `Result[T, Error]`; annotations alone never validate input.
+  `Any`, erased `Record`, unresolved type arguments, other arguments checked
+  later, and fallback values cannot supply the target. Named generic schemas
+  retain their declaring identity and concrete arguments. The checker reports
+  `check.require-target` when the target is not independently known.
+  `lint.inferred-require-target` removes only an explicit schema argument when
+  that same concrete schema and conversion are supplied by the boundary.
+- `?.` guards Optional field access and method calls; `?[index]` and
+  `?[start..end]` guard the ordinary indexing and half-open slicing domains.
+  Evaluate the receiver once. A null receiver returns null without evaluating
+  the field operation, method arguments, index, or explicit bounds. A present
+  receiver performs the ordinary operation and lifts its result into Optional,
+  flattening redundant Optional layers. Every nullable hop needs its own guard:
+  `config?.server?.host?.trim()`. Missing fields, missing keys, invalid indices,
+  and method failures retain their ordinary behavior.
+- On a checked Result receiver, `?.` and `?[...]` propagate exactly the outer
+  Result before performing the ordinary operation, with the ordinary error
+  effect and error-type checks. `result?.require(Type)` preserves its dedicated
+  propagation and validation route. Optional schema validation is unsupported.
+  Optional methods returning Result produce `Optional[Result[T, E]]`;
+  `(text?.parse_int() ?? Ok(0))?` handles the Optional layer before the Result.
+  `?` accepts only a Result. Mixed Optional/Result layers are never recursively
+  unwrapped. New guarded method and index overloads require a checked receiver
+  domain; bare Any retains only its existing dynamic field route. A known
+  outer `Result[Any]` may propagate once and use the ordinary dynamic operation.
+- `?[` is adjacent postfix syntax. Command argument expressions preserve their
+  usual boundaries; group a guarded operation and its fallback together when
+  passing them as one command argument.
 - `[]` indexes lists by integer and records by string key.
 - Pure function calls use expression syntax.
 - Postfix `?` propagates `Err` from a `Result`.
@@ -869,6 +1377,80 @@ side is explicitly converted with `.float()`. Comparisons follow the same rule:
 `Float` may be compared with `Float`, `Int` with `Int`, and mixed numeric
 comparisons require explicit conversion. `%` is integer-only.
 
+An identifier followed by a spaced subtraction operator, such as `value - 1`,
+is an expression statement, including in branch tails. Adjacent negative command
+arguments such as `command -1` retain command parsing.
+
+Ordering sequences such as `0 <= offset < limit` compare adjacent operands from
+left to right. Each reached operand is evaluated once; a false pair skips all
+later operands. Every pair uses the ordinary ordering type rules, including
+Float/NaN behavior. A single comparison keeps its existing behavior, and
+`(a < b) < c` compares the parenthesized Bool value rather than forming a chain.
+Ordering binds below arithmetic and above equality and `is`; membership (`in`
+and `not in`) shares ordering precedence. `and` binds below equality, while
+`or` and the right-associative `??` bind below `and`. Ungrouped mixtures of
+ordering with equality, membership, or pattern tests are rejected; use
+parentheses to state which Boolean value is being tested.
+
+A failed bare ordering-chain assertion reports the failed adjacent pair and
+its evaluated values. Diagnostics never evaluate the skipped operands.
+
+
+### Half-open Slicing
+
+Half-open `value[start..end]` slicing accepts `List[T]`, `Str`, and `Bytes`,
+returning the same collection type. Either bound may be omitted; omitted start
+is zero and omitted end is the receiver's length. Bounds are `Int`. Negative
+bounds count backwards from the end; each bound is clamped into `[0, length]`.
+An end before the normalized start produces an empty value. Receiver, explicit
+start, and explicit end are evaluated once, in that order. Omitted bounds reuse
+the evaluated receiver. List slices have ordinary list value semantics; text
+and bytes may share immutable backing storage through internal views.
+
+`Str` slice indices count Unicode scalar values, including combining marks as
+separate scalars. `Bytes` slice indices count bytes. Text slicing does not use
+the byte units of `.byte_slice()`. For example, `"aé🦀"[1..3]` is `"é🦀"` and
+`b"abcdef"[2..5]` is `b"cde"`.
+
+The offset/count `.slice()` API remains distinct: a negative offset or an offset
+past the end is an error, whereas bracket slicing normalizes those bounds.
+`lint.prefer-slice` fixes nonnegative constant prefixes and proven in-range
+constant suffixes; uncertain offsets, count arithmetic, effectful counts, and
+comments inside a call retain the method with an explanation. No fix introduces
+an addition that could overflow or changes a count into an end bound.
+
+### Local Result Capture
+
+`try { ... }` executes a value block once and produces `Result[T, E]`.
+Normal completion wraps the outgoing value in `Ok`; a Result tail is data,
+so `try { operation() }` retains a nested Result, while `try { operation()? }`
+propagates one layer into the local boundary. Empty bodies produce `Ok(Unit)`.
+An inferred Bool tail remains a value, including false; non-tail Bool statements
+and tails checked against Unit remain assertions. Non-tail Result[Unit]
+statements retain their ordinary automatic propagation.
+The declared Result return type supplies this context for both a function tail
+and an explicit `return try { ... }`.
+Explicit Result constructors retain the complete annotation through enclosing
+match, conditional, and value-block tails. A Unit success payload preserves
+the enclosing Result as data at those value boundaries.
+
+Explicit `?`, statement propagation, assertion failures, and plain-run failure
+are captured by the nearest try/retry boundary. Ordinary return, break, and
+continue keep their lexical destinations. In particular, `return Err(error)`
+leaves the enclosing function while `Err(error)?` targets the local boundary.
+Abort, cancellation transfers, checker failures, and evaluator defects are
+outside capture. Errors describing canceled operations remain ordinary data.
+
+The outgoing value is evaluated before the region's defers. Cleanup runs once
+before exposing the Result; a failed cleanup becomes Err when no primary failure
+exists, and an existing primary failure wins. Host effects remain required;
+locally caught propagation alone needs no outer error effect. Applying `?` to
+the resulting Result requires the usual outer error contract. Success and error
+types use annotation context and compatible nominal error families, with Error
+as the default when no narrower family is established. Error-only blocks with
+an unconstrained success type need a Result annotation. Capture emits no retry
+attempt metadata and performs no sleep.
+
 ### Retry Blocks
 
 Retry blocks are orchestration control flow for transient operations:
@@ -884,6 +1466,22 @@ delay expression must produce `Duration`. The block is evaluated once, then
 again after each delay while attempts fail. An empty delay list performs exactly
 one attempt. A zero-duration delay is valid and retries immediately.
 
+An optional `on (PATTERN)` clause selects retryable errors through the shared
+non-binding pattern rules. Exact nominal variants, applicable facets, wildcard
+and grouped alternatives are checked against the attempt's error type. Captures
+and aliases are invalid. A nonmatching failure returns that original `Err`
+immediately, without consuming a delay or starting another attempt. Matching
+failures consume the next delay, or return the final original `Err` on exhaustion.
+The delay list still evaluates once at entry, even when the first failure does
+not match. Omitting `on` retries every failed attempt.
+
+A manual selective loop can be migrated only when its attempt count, original
+error identity, cleanup order, and delay effects are equivalent. A delay computed
+only after failure cannot generally move to retry entry; observable counters
+cannot disappear. Tooling preserves these loops when equivalence is unproved,
+and never adds a filter to an unconditional retry. The maintained
+`showcase/run-retry.xsh` uses unconditional retry and retains that policy.
+
 The retry expression returns `Result[T]`, or `Result[T, E]` when the attempt
 body produces a more specific error type. On success, `Ok(value)` contains the
 successful block value. If every attempt fails, the retry expression returns
@@ -898,7 +1496,8 @@ targets.
 
 Each attempt has an ordinary block scope. `defer` actions registered during an
 attempt run before the next attempt begins and before a successful retry
-returns.
+returns. Selection happens after attempt cleanup, using the error selected by
+the existing primary/secondary cleanup-failure rules.
 
 Effects are the union of the delay expressions and the attempt body. A
 non-empty delay list additionally requires the `time` effect because the runtime
@@ -906,15 +1505,42 @@ sleeps between failed attempts.
 
 Each attempt emits a structured `retry.attempt` trace event with the source
 span, attempt number, maximum attempts, next delay when another attempt will be
-made, and the failed error kind/message when the attempt failed.
+made, and the failed error kind/message when the attempt failed. `selected` is
+present for filtered failures; `stop_reason` identifies success, nonmatching
+failure, or delay exhaustion. Continuing failures have no stop reason.
 
 ## 7. Pure Functions And Procs
+
+An unannotated immutable `let` directly naming a checked user pure/proc or a
+qualified user module export retains that callable's parameter labels,
+defaults, return type, callable kind, and effect contract. Another such alias
+retains the same signature. Calls use ordinary syntax, including named and
+spread arguments; alias creation executes no body or default expression.
+The alias retains the original callable handle and capture lifetime. A checked
+constant-key module field/index or explicitly propagated getter also retains
+the visible callable contract. A validated runtime module contract supplies
+argument and effect checks while executing the captured handle; it supplies
+no declaration identity and cannot establish an exported alias contract.
+
+`var`, conditional/computed callable selection, and explicitly erased
+`Pure`/`Proc` annotations retain the existing dynamic callable boundary.
+An exported alias exposes only its public binding name and must retain an
+explicit return/effect contract; a private inferred signature alone cannot
+establish that public promise. Module contracts recognize callable aliases
+as pure/proc exports. Cyclic or unavailable initializer names remain ordinary
+lexical errors.
+
+`lint.prefer-callable-alias` replaces exact transparent forwarders only when
+parameter order, types, prepared defaults, return annotations, and effect
+contracts agree. Wrapping, propagation, conversions, cleanup, and comments
+prevent automatic replacement. Removing a forwarding function intentionally
+removes its redundant traceback frame; the original callable frame remains.
 
 Definitions:
 
 ```ebnf
 proc_def     = "proc" PROC_IDENT "(" param_list? ")" effect_list? "->" type_expr block ;
-pure_def     = "pure" IDENT "(" param_list? ")" "->" type_expr block ;
+pure_def     = "pure" IDENT "(" param_list? ")" ("->" type_expr)? block ;
 stream_def   = "stream" IDENT "(" param_list? ")" effect_list? "->" "Stream" "[" type_expr "]" block ;
 param_list   = param ("," param)* ","? ;
 param        = IDENT (":" type_expr ("=" expr)? | "=" expr) ;
@@ -922,10 +1548,42 @@ effect_list  = "[" (IDENT ("," IDENT)*)? "]" ;
 return_stmt  = "return" expr_or_run? terminator ;
 ```
 
-Parameters without an explicit type require a default expression whose type is
-syntactically clear. Supported inferred defaults include `Bool`, `Int`,
-`Duration`, `Str`, `Bytes`, and `Path` literals. Parameters
-without defaults and rest parameters require an explicit type.
+A defaulted parameter may omit its type when ordinary semantic checking of its
+default establishes one concrete type. Constants, imported constants, field
+projections, primitive expressions, and already permitted calls retain their
+checked types. Null and unconstrained empty collections require an annotation;
+callers and the function body do not supply parameter constraints. Parameters
+without defaults and rest parameters retain their explicit type requirements.
+
+Defaults resolve in the callee's lexical declaration environment, with no access
+to other parameters. Supplied arguments evaluate eagerly in source order;
+defaults for omitted slots evaluate once in parameter order before the body.
+Ordinary callable defaults run during the call. A lazy stream producer evaluates
+its omitted expression defaults on the first pull, before executing its body;
+an unconsumed producer evaluates no expression defaults. Supplying a slot skips
+its default. Default expressions retain ordinary effects, propagation and cleanup
+within the callable; no additional callable boundary is introduced.
+CLI entrypoint defaults retain their stricter preparation-only value contract.
+Signature dependencies must establish concrete types without guessing through a
+cycle; an explicit type provides a boundary where inference cannot resolve.
+
+Private pure functions may omit `-> Type`. Infer from typed parameters,
+checked callee signatures, explicit returns, and reachable fallthrough tails;
+call sites provide no return context. A final Bool is a value. Non-tail
+statements retain their statement behavior. Compatible branches must produce a
+concrete shape; inconsistent value/missing-return paths require an annotation.
+Empty collections without another source of element type, error-only returns,
+and dynamic return shapes report `check.infer-return`.
+
+Local callable definitions are analyzed in declaration dependency order.
+Captured values retain visibility from the lexical prefix before the function
+definition. Every
+unannotated pure member of a recursive dependency component reports
+`check.required-return`; exported pure functions and module-contract signatures
+also retain explicit return annotations. Inference does not create a Result
+boundary from `?`: the body must independently determine a compatible Result,
+or declare its return type. Annotation-driven conversions, contextual schema
+constraints, and implicit Ok wrapping retain their declared boundary.
 
 Pure functions are called with expression syntax:
 
@@ -944,7 +1602,8 @@ In statement position, unsuccessful `Result[Unit]` proc calls propagate by
 default.
 
 Expression-call arguments may splice a list into positional arguments with
-`@expr`, for example `main(@args)?`.
+`@expr`, for example `main(@args)?`. Splicing preserves the source list and
+accepts prepared constant lists under the same contract as ordinary lists.
 
 Procs returning a value may be called in expressions, and the call remains
 effectful:
@@ -982,9 +1641,29 @@ Stream producers are named lazy functions declared with `stream`. Calling a
 producer returns `Stream[T]`; its body starts evaluating only when the stream is
 consumed by a direct `for` loop or structured pipeline. Each `yield value`
 emits one `T` item to the consumer. A producer signature must explicitly return
-`Stream[T]`, and each yielded value must match `T`; yielding a stream value is
-rejected so nested streams are introduced through explicit stages such as
-`flat-map`.
+`Stream[T]`, and each yielded value must match `T`. Ordinary `yield [a, b]`
+emits one list item; ordinary `yield stream` is rejected.
+
+`yield @source` delegates the elements of a `List[T]` or `Stream[T]` to the
+current producer. Evaluate `source` exactly once when reached. Lists preserve
+order; delegated streams pull only on demand and resume the parent after
+exhaustion. Handle Results explicitly, as in `yield @(load_rows()?)`; Map, Str,
+and Bytes are not delegation sources. The producer item type supplies context
+for fresh list syntax, including empty and nested lists. Other sources retain
+their declared List or Stream kind before their item type is checked.
+A guarded delegation evaluates its source only when its guard succeeds.
+Early termination closes the child before
+the parent's cleanup, once each; failures retain their original error identity
+and stop the parent. Delegation retains one-shot stream alias semantics and
+resource ownership. Chained delegation uses the existing frame engine through
+an iterative pull and cancellation driver, without a worker or native stack
+growth proportional to delegation depth.
+
+`lint.prefer-yield-delegation` fixes checked transparent single-binding loops
+whose sole body statement yields that binding unchanged. It preserves explicit
+Result propagation and refuses implicit Result sources, conversions, comments,
+filters, transformations, cleanup, effects, additional transfers, and source
+pipelines whose direct-loop cursor differs from expression materialization.
 
 Stream producers use proc-like effect annotations because a producer may open
 files, run commands, or propagate `Result` failures while it is being consumed.
@@ -1004,8 +1683,15 @@ proc build() [fs, process, error] -> Result[Status] { ... }
 proc get_time() [time] -> Int { ... }
 ```
 
-A proc with no `[]` clause remains **unrestricted** — identical to existing
-`proc` behavior. Annotations are opt-in; existing code requires no changes.
+An ordinary private proc without an effect clause receives a checked effective
+summary from its body and resolved callees. Explicit clauses, including `[]`,
+remain checked upper bounds. A proc with an empty inferred summary remains a
+proc; pure/proc separation and return typing are unchanged.
+
+Missing clauses at exported APIs, module contracts, CLI entries, native test
+entries, and stream declarations remain unrestricted. Conventional `proc main`
+also retains its entry contract. A private implementation cannot establish an
+exported callable alias contract merely through inference.
 
 **Effect set.**
 
@@ -1023,9 +1709,12 @@ env}` for scripts that intentionally treat host I/O as one boundary; prefer
 specific effects when a proc does not need stdin/stdout.
 
 **Enforcement rules.**
-- A restricted proc (`Some([E])`) may only call procs whose declared effects are
-  a subset of `E`, plus `pure` functions.
-- Calling an unrestricted proc from a restricted proc is a checker error. The diagnostic points at the fix: declare the callee with an empty effect list `[]` when it is side-effect-free.
+- A restricted proc may call procs whose effective effects are covered by its
+  upper bound, plus `pure` functions.
+- An opaque callable, unrestricted external callee, or unresolved call dependency
+  has an unknown summary. Restricted callers cannot use it. Diagnostics identify
+  the resolved call chain and the dependency needing a checked contract; unknown
+  effects are never approximated as an empty set or `io`.
 - Direct calls to standard-module functions (e.g. `fs.read_text`) and standard
   methods (e.g. `path.read_text()`) are checked against `E`; the `io` effect
   covers `fs`, `net`, `process`, and `env` but not `time` or `error`.
@@ -1040,21 +1729,72 @@ specific effects when a proc does not need stdin/stdout.
 - Unrestricted procs (no annotation) may call anything — no restriction.
 - Diagnostic code: `check.effect-violation`.
 
-**Inference.** `xsht lint` emits `lint.unannotated-effects` for procs that
-have no annotation but whose bodies contain inferable effects, and
-`lint.missing-effects` for restricted procs whose annotation omits inferable
-body effects. `--fix` inserts or replaces the annotation automatically. The
-linter infers from direct module calls, typed standard methods, restricted proc
-calls, `run` forms, `spawn`, `wait`, delayed `retry`, and `?` outside retry
-attempt blocks.
+**Inference.** The checker records resolved calls and direct requirements, then
+computes a least fixed point over the finite effect domain. Recursive forwarding
+and declaration order produce the same effective summary. Method operations,
+executed stage bodies, host forms, and implicit statement assertions and Result
+propagation contribute effects; merely referencing a function does not. Local
+`try`/`retry` capture removes outward `error` only, retaining host requirements.
 
-Function bodies use a narrow tail-value rule. If the final statement in a
+Full and compact checking, private signatures, lowering, and linting share these
+facts. `xsht lint` does not reinsert an effect clause on an inferred private proc.
+It can still suggest missing effects for an explicit upper bound or a missing
+entry/public contract. `[lint] prefer-inferred-private-effects = true` opts into
+`lint.prefer-inferred-private-effects`: remove a private clause only when a
+fresh check preserves effective caller contracts, expression types, and
+statement purposes. Deliberately wider bounds, entry/public contracts, unknown
+summaries, and commented source retain their clauses.
+
+Statement and value positions are checked language contexts. Initializers,
+arguments, explicit return payloads, and tails whose enclosing function, task,
+callback, or retry attempt consumes a value use value position. Lowering and
+tooling preserve this distinction independently of whether an optimizer uses
+the result. Non-tail bare boolean statements assert; boolean value tails
+preserve false as a value. Unit and Result[Unit] bodies retain boolean
+assertions, including inside their statement-position branches. Top-level
+control flow retains statement and integer-exit behavior.
+
+Value-position `if` requires an `else`; value-position `match` requires
+exhaustiveness. Their branches may contain ordinary statements followed by a
+compatible tail value. Diverging branches retain their lexical return, loop,
+and error targets and do not contribute a fabricated Unit to unification.
+Incompatible reachable branch values are errors rather than implicit Any
+widening. Expression match arms preserve `{}`, shorthand/explicit record fields, quoted
+record keys, and spreads as record literals. Braces containing ordinary statements
+form value blocks; braces in an expression `if` delimit its branch block.
+Bare lexical blocks use this same value-block representation. In statement or
+Unit-consuming positions they consume Unit and retain boolean assertions and
+Result[Unit] propagation; explicit value positions and genuine value tails
+consume the final value. Braces are classified by their first entry's syntax,
+independently of expected type: empty braces, identifier shorthand, labeled or
+computed fields, and spreads remain literals. `{value}` is a shorthand record;
+`{ (value) }` is a value block, and formatting preserves those parentheses.
+Malformed field-shaped syntax retains literal diagnostics. A bare block adds
+only a lexical binding and cleanup scope; it adds no error or function-return
+boundary, module statement permission, or top-level integer-exit permission.
+It leaves cwd/env handling unchanged. Scope defers run exactly once before an
+outgoing value is exposed; deferred invalidation still invalidates an escaping
+handle. `lint.lexical-block` removes a literal true conditional only in checked
+statement position, preserving the body scope and its comments. Conditions with
+comments before the opening brace and literal-shaped bodies remain explicit.
+Selected values are evaluated before scope cleanup; implicit Ok
+wrapping occurs only at the established Result boundary. Callback tails share this
+scope rule, including fold and keyed stages. Explicit callback returns retain the
+enclosing function target. Parallel callback transfers are selected in input order;
+started workers finish their cleanup before the transfer reaches its lexical owner.
+
+Function bodies use a contextual tail-value rule. If the final statement in a
 `proc` or `pure` body is an expression statement, that expression produces the
 function result. If the final statement is a command statement, the command's
 statement result produces the function result. A final expression-style proc
 call that returns `Result[Unit]` propagates failure and produces `Unit`. A
 final plain `run ...` in statement position asserts success and produces
 `Unit`.
+`lint.redundant-tail-return` removes explicit returns from checked function
+value tails, including exhaustive final branches, when the retained return-type
+context preserves the conversion and comments. It leaves callback lexical returns
+and conditional guarded returns intact.
+
 `lint.redundant-tail-return-binding` flags a final `let` or `var` binding that
 is immediately returned, and autofixes it to the initializer as the final tail
 expression when doing so would not remove intervening comments. Annotated
@@ -1088,12 +1828,33 @@ is classified. `let _ = predicate()` explicitly discards a boolean. There is
 no semicolon/newline distinction, truthiness, dynamic `Any` assertion, or
 implicit unwrapping of `Result[Bool]`.
 
-Non-tail expression statements inside value-producing function bodies may be
-`Bool` assertions or have type `Unit` or `Result[Unit]`; `Result[Unit]`
-statements propagate failure by default. Otherwise bind the value, return it explicitly, or make it the final
-statement. `if`, `match`, `while`, and `for` statements do not produce function
-tail values in v1. Use explicit `return` in branches where branch control flow
-determines the result.
+`assert condition, message` is a Unit statement requiring concrete `Bool` and
+`Str` expressions. A message is required; the message-free assertion is an
+ordinary bare Bool statement. For example, `assert actual == expected,
+f"package $name"` adds context to the failed comparison. The condition runs once. The message runs once
+only after a false condition, and supplements the expression and reached operand
+diagnostics. Reporting bounds operand rendering and identifies skipped operands
+without evaluating them. Containers are reported by type rather than traversed.
+
+Message expressions retain ordinary type, effect, and propagation checks even
+when the condition is true. A message failure propagates as its own failure;
+otherwise the assertion propagates the same nominal
+`AssertionError.Failed(message: Str)` as a bare Bool statement. A local
+capture may admit that error family or the general `Error` type.
+Assertions use ordinary propagation,
+retry capture, and lexical cleanup, including in builds without native-test
+support. They are statements, and do not produce a Result value for a consumer.
+`lint.core-assert` fixes checked statement `test.ok`/`test.eq`/`test.ne` calls
+with inert literal messages and compatible concrete operand types. Eager
+nonliteral messages receive guidance to retain their evaluation point; consumed
+Results and dynamic equality remain explicit calls.
+
+Non-tail expression statements inside value-producing function bodies must have
+type `Unit`, `Result[Unit]`, or `Bool`; Bool statements assert and
+`Result[Unit]` statements propagate failure by
+default. Otherwise bind the value, return it explicitly, or make it the final
+statement. A final exhaustive `if` or `match` produces the enclosing value
+when that context consumes one. `while` and `for` retain statement semantics.
 
 `return` without a value returns `Unit`. `Result[Unit]` procs, pure functions,
 builder tasks, and effect blocks may fall off the end or tail-produce `Unit`;
@@ -1101,6 +1862,38 @@ the runtime converts that to `Ok()`. A function returning `Result[T]` may
 tail-produce or return either a `Result[T]` value or a plain non-`Result` `T`
 value; plain `T` is wrapped as `Ok(value)`. `Ok(value)` and `Err(error)` remain
 valid when the result shape should be visible at the call site.
+
+`Err(error, cause: failure)` deliberately translates an `Error` into another
+nominal error while retaining `failure` as diagnostic metadata. The outer error
+and the cause must both be assignable to `Error` for this overload. Generic
+one-argument `Err(value)` remains available for every Result error type. The
+optional cause is named; both operands are evaluated once in written order,
+including a finite named argument spread. Construction produces Result data;
+propagation still requires the usual `?` or statement Result boundary.
+
+Cause attachment copies the outer error's metadata without changing its nominal
+family, facets, payload, or Result error type, and leaves other aliases unchanged.
+An explicit cause replaces the copy's immediate cause and preserves the supplied
+cause's chain, spans, contexts, and process status. Matching inspects the outer
+error only. A declared payload field named `cause` remains an ordinary field;
+metadata has no script introspection API. Owned host resources reachable through
+error payloads or causes transfer with the escaping value, just as resources in
+ordinary containers do. Checked propagation retains them before lexical cleanup
+and across local try/retry capture or callee error transport. A primary cleanup
+failure retains its resources before exhausted blocks close; a secondary cleanup
+failure releases its resources locally while the original failure wins. A propagated payload
+or cause cannot carry live resources across a restored cd/env context; an inner
+try may consume the failure while that context is still active. Diagnostic rendering
+limits do not limit ownership checks.
+`ctx` adds context to the same failure,
+whereas `cause` records a translation into a different failure.
+
+Tracebacks and structured traces retain actual nominal identities and render at
+most 32 causes. Cause messages are limited to 4096 Unicode scalars, with bounded
+facets and contexts, and human output escapes control characters. Omitted suffixes
+are marked as truncated. Shared immutable links avoid copying all descendants
+at each propagation. Abort and cancellation control transfers do not become
+ordinary constructor values.
 
 Signatures support default parameters, rest parameters, type aliases, richer
 module signatures, overloads, and known record shapes. Overloads are selected
@@ -1112,8 +1905,9 @@ disambiguate.
 Implemented control flow:
 
 ```ebnf
-if_stmt      = "if" expr block ("else" "if" expr block)* ("else" block)? ;
-while_stmt   = "while" expr block ;
+if_stmt      = "if" condition block ("else" "if" condition block)* ("else" block)? ;
+condition    = expr | "let" pattern "=" expr ;
+while_stmt   = "while" condition block ;
 for_stmt     = "for" binding_target "in" expr block ;
 break_stmt   = "break" terminator ;
 continue_stmt = "continue" terminator ;
@@ -1122,22 +1916,122 @@ with_stmt    = "with" with_binding ("," with_binding)* ","? block
 with_binding = IDENT "=" expr ;
 guard_stmt   = "guard" "let" binding_target (":" type_expr)? "=" expr_or_run
                "else" ("|" IDENT "|")? block ;
+boolean_guard_stmt = "guard" expr "else" block ;
 loop_stmt    = "loop" block ;
-break_stmt   = "break" expr? terminator
-             | "break" ("when" | "unless") expr terminator ;
+break_stmt   = "break" expr? (("when" | "unless") expr)? terminator ;
 continue_stmt = "continue" terminator
               | "continue" ("when" | "unless") expr terminator ;
-return_stmt  = "return" expr? terminator
-             | "return" ("when" | "unless") expr terminator ;
+return_stmt  = "return" expr_or_run? (("when" | "unless") expr)? terminator ;
+yield_stmt   = "yield" (expr_or_run | "@" expr) (("when" | "unless") expr)? terminator ;
 match_stmt   = "match" expr "{" match_arm* "}" ;
 ```
 
 Conditions evaluate to `Bool` or `Status`. A `Status` condition is true when
 `status.ok` is true. `while` repeats until its condition is false.
+
+`guard condition else { ... }` evaluates its Bool or Status condition once.
+Success continues after the guard; failure runs the ordinary lexical block.
+Every reachable path in that block must leave the enclosing continuation by
+return, applicable break/continue, or a checked terminating operation such as
+`abort`. An arbitrary fallible call, including one followed by `?`, can succeed
+and is not termination evidence. A break inside a nested loop does not leave
+the guard. The failure block supplies no value or error parameter and establishes
+no Result or catch boundary; explicit errors, effects, defer order, and lexical
+return/loop/retry targets retain their ordinary meaning.
+
+Checked condition refinements apply to following statements on success and to
+the failure block on failure. Null, type/pattern, and field-presence proofs may
+refer to a binding or a statically known record-field path. Immutable Bool aliases
+retain bounded shared proof provenance through `!`, `and`, and `or`; they emit no
+additional checks. Facts identify the original binding and its mutation history.
+Parent replacement and overlapping writes invalidate them; proved disjoint sibling
+writes preserve them. Unknown or procedure calls invalidate mutable capture facts
+regardless of their effect summary. Immutable record copies remain snapshots.
+
+Branches, guards, and successful statement assertions preserve only facts true
+on every reaching continuation. Caught assertion failure supplies no success proof
+after recovery. Deferred or callable mutable captures require fresh checks inside
+the body. Shape predicates keep their existing field/type information and never
+authorize an unchecked schema conversion, bounds check, filesystem observation,
+or effectful getter. Boolean subexpressions remain values rather than assertions.
+Imported modules retain their executable-statement restrictions.
+
+A previously Optional receiver proved present may retain an authored `??`
+fallback; indexed lowering reuses the present receiver without evaluating the
+unreachable fallback. `lint.redundant-optional-fallback` removes it only with
+checked presence provenance and inert, type-equivalent fallback data, preserving
+comments. Plain non-Optional receivers without that proof still reject `??`.
+
+`lint.boolean-guard` replaces a leading negative if only with checked evidence
+that its body always exits. It retains the authored failure body and error.
+Ordering inversions require Int operands; Float comparisons retain logical
+negation so NaN behavior is unchanged. Binding a Result continues to use the
+separate `guard let` form.
+
+`if let Pattern = subject` and `while let Pattern = subject` use ordinary
+literal patterns. They do not unwrap Result or Optional values: `Ok(value)`
+selects an Ok payload, and mismatch chooses the next branch or ends the loop.
+Subject evaluation errors and explicit `?` retain ordinary propagation.
+An if-let subject executes once; a while-let subject executes once per check,
+including after `continue`. Successful captures are immutable branch or
+iteration locals, published only after the complete pattern matches. Captures
+may shadow outer bindings without changing them; failed captures are unavailable
+in else branches and after the conditional. Irrefutable binding and wildcard
+conditions are rejected because they cannot test anything. Condition binding
+chains are unsupported, and `guard let` retains its separate Result contract.
+
+Value-producing if-let requires an else and compatible branch values wherever
+ordinary if expressions are legal. While-let remains a statement. Each pattern
+condition and selected branch has a resource scope; cleanup runs on mismatch,
+continue, break, return, propagation, and runtime failure. Escaping values retain
+their ordinary ownership. `lint.pattern-conditional` can replace an unguarded
+two-arm match with a selected binding pattern and proven complement. It retains
+meaningful else behavior and declines fixes that would lose comments or error
+payload bindings.
+
+Postfix `when` and `unless` apply to `return`, `break`, `continue`, and
+`yield`. The condition executes first, and the payload executes only if the
+selected branch is reached; an unselected guard continues at the next statement.
+Selected-branch narrowing applies to the payload: `return cached when cached != null`
+can return a non-null value. Return wrapping, loop targets, stream
+ownership, effects, and deferred cleanup follow the ordinary control statement.
+A guarded return does not make subsequent statements unreachable. A break payload
+follows the existing break rules; only a `loop` expression consumes it as a loop
+result. `while` and `for` retain statement semantics.
+
+Group a run-valued payload: `return (run.status /usr/bin/true) when ready`.
+Ungrouped `return run.status /usr/bin/true when ready` passes `when` and `ready`
+as external argv words, preserving the ordinary command boundary. The same
+explicit grouping applies to guarded `yield` and run-valued `break` expressions.
+
 Each `if`, `else if`, and `else` block has its own lexical scope. A local
 declared in one branch is unavailable in sibling branches; the same spelling
 in two branches denotes separate bindings, including when the `if` is the
 last statement of a proc or pure function.
+
+`PATTERN as name` captures the complete value matched at that node while
+preserving inner captures. Names must be ordinary, non-discard bindings;
+repeated names anywhere in one pattern are rejected. Alias binding is tighter
+than `|`: `P | Q as name` aliases Q; `(P | Q) as name` aliases the whole
+alternative. Groups control pattern precedence and do not create tuple values.
+
+Alternatives are checked in isolated scopes and must bind exactly the same
+names with identical resolved types. Type aliases may have different spelling
+while resolving to the same type. Incompatible payloads are rejected rather
+than widened to Any. An outer alias retains the common complete subject type,
+including its nominal identity, rather than one alternative's payload shape.
+
+The subject is evaluated once. Alternatives are tried in textual order, and
+only the first complete match publishes captures. Failed alternatives leave
+capture slots untouched and create no list rest copies. An arm guard runs
+after that first match; guard failure advances to the next arm. Captured values
+retain ordinary value ownership. These rules also apply to `if let` and
+`while let`. Exhaustiveness and reachability inspect grouped and aliased
+patterns conservatively and exclude guarded arms from total coverage.
+
+`lint.identical-match-arms` combines adjacent, unguarded bodies only after
+reparsing the CST and AST and checking the combined capture contract. Comments,
+incompatible bindings or types, and uncertain source ownership prevent a fix.
 
 Type patterns test a dynamic matched value and narrow the binding inside the
 arm:
@@ -1151,12 +2045,69 @@ match json.decode(input)? {
 ```
 
 The checker accepts type patterns only for dynamic matched values such as `Any`
-or empty `Record`. Use `.require(Type)?` when the program expects a known
+or erased `Record`. Use `.require(Type)?` when the program expects a known
 schema; use type patterns when the program intentionally handles unknown JSON or
 other dynamic shapes.
 
-`for` iterates over `List[T]`, `Stream[T]`, `Result[List[T]]`, or
-`Result[Stream[T]]`. `Result` wrappers are auto-unwrapped; an `Err` propagates
+`value is Pattern` evaluates its subject once and returns Bool using the same
+nominal constructor, error variant, facet, literal, and record pattern matcher.
+Its RHS cannot bind names: write `outcome is Ok(_)`, not `Ok(payload)`; record
+shorthand that would bind is rejected. Nested constructor and record payloads
+may contain literals or other non-binding patterns. Capture-free alternatives
+require explicit pattern grouping, as in `value is (P | Q)`; aliases remain
+forbidden. `or` may also join complete tests. Negation is `!(value is Pattern)`.
+Selected-branch narrowing uses a type shared by every alternative and preserves
+nominal error identity; incompatible alternatives do not invent a union type.
+In control conditions, qualified error payload patterns use explicit fields such
+as `error is Family.Variant {message: "missing"}` before the branch body.
+
+A bare RHS name resolves to a type, error facet, or zero-field constructor.
+Unknown names are errors; ambiguous namespaces require a qualified name.
+Type tests require the existing dynamic subject boundary. Facet and error
+variant tests preserve nominal identity. Tests on stable immutable bindings
+narrow the selected true branch; payload variables are never introduced.
+Testing a Result preserves the wrapper and does not propagate an Err.
+`is` shares equality precedence, above `and` and `or` and below arithmetic and
+ordering. A bound, returned, or filtered test is a value; a bare test uses the
+Bool statement assertion contract.
+
+`lint.boolean-pattern-test` identifies trivial boolean matches with a proven
+complement. Its safe fix preserves one subject evaluation, rejects binding
+patterns and guards, and retains matches containing comments. Explicit Result
+Ok/Err complements are eligible only when the checked subject is a Result.
+
+`for` and comprehension clauses iterate over `List[T]`, `Stream[T]`, `Map[K, V]`,
+`Str`, and `Bytes`, including their supported outer `Result` wrappers. A map item has
+structural type `{key: K, value: V}` for both simple and destructured targets.
+Entries follow the same deterministic key order as `Map.keys()` and
+`Map.values()`. The receiver is evaluated once; a cursor retains its storage as
+a snapshot, so later assignments to the original map do not change the keys or
+values encountered. Only the current entry record is constructed. Nested record
+and Result values remain the entry's `value` without further unwrapping.
+`Result[Map[T], E]` propagates its outer failure through the surrounding lexical
+Result boundary, preserving `E` and checking the required error effect.
+`.keys()`, `.values()`, and `.get()` remain available for their distinct uses.
+This entry iteration rule does not change pipeline map-source semantics.
+
+Direct `Str` iteration produces one-scalar `Str` values in Unicode scalar order;
+combining marks remain separate scalars and no normalization occurs. `Bytes`
+produces `Int` values in 0..255 without decoding. Empty sources have no items.
+Ordinary loops and comprehension clauses evaluate each reached source once and
+retain its storage and view bounds as a snapshot. Reassigning a source binding
+inside a loop does not replace that snapshot. Cursors construct only the next
+scalar view or byte value, preserving checkpoints, immutable bindings, lexical
+transfers, and cleanup without an intermediate element List. Supported outer
+`Result[Str, E]` and `Result[Bytes, E]` sources propagate through the existing
+iterable boundary with `E` and its ordinary error effect. This direct iteration
+rule adds no string/byte pipeline source, List splice, or yield delegation.
+
+`lint.prefer-scalar-iteration` replaces directly iterated checked
+`text.split("")` expressions. Split adapter bindings and bounded splits remain
+Lists. A byte offset loop is eligible only for a proved immutable Bytes source,
+its exact full range, and an offset used solely by the first byte extraction.
+Indexed scanners with meaningful offsets retain their access and bounds.
+
+For existing fallible list and stream sources, `Result` wrappers are auto-unwrapped; an `Err` propagates
 as a runtime error. The loop target is bound immutably for each iteration
 unless copied into a `var`. Structured pipeline expressions are valid as the
 iterator; they evaluate to `List[T]` and iterate without materialising an
@@ -1186,51 +2137,47 @@ with
   result = query(db, sql)?
 {
   process(result)
-} else |e| {
+} else { |e|
   print f"setup failed: ${e.message}"
 }
 ```
 
 ### Block parameter conventions
 
-XSH has two syntactic positions for block parameters. They serve different
-purposes and must not be confused:
+All parameterized blocks use `{ |parameters| ... }`. The header is recognized
+at the start of the block after whitespace and comments; it is never a pipeline
+expression. Stream stages and other existing parameterized constructs retain
+their arities and checked input types.
 
-**Inside the block (`{ |x| ... }`)** — used by stream stages (`map`, `where`,
-`sort-by`, `tee`, `group-by`, `any`, `all`, `count`, etc.) and by lambda-style
-expressions passed as arguments. The `|param|` appears immediately after the
-opening `{`:
-
-```xsh
-let doubled = numbers |> map { |n| n * 2 }
-let long    = words   |> where { |w| w.len() > 5 }
-```
-
-The implicit item shorthand `.` is also available in stream blocks as an alias
-for the first parameter. `map { . * 2 }` is equivalent to `map { |n| n * 2 }`.
-
-**Before the block (`|param| { ... }`)** — used by the `else` clause of `with`
-and `guard let`. The `|param|` appears between the `else` keyword and the
-opening `{`:
+An error handler on `with` or `guard let` accepts zero parameters or one
+immutable parameter; `_` discards that input. A guard handler receives the
+initializer's exact Result error type. A `with` handler receives the common
+error type of its sequential initializers: a shared nominal type is retained,
+and differing error families use `Error`. Bindings introduced by successful
+`with` initializers are visible to later initializers and the body, but not to
+the error handler. Handler names are local to that block, may shadow an outer
+binding, and cannot escape or be redeclared in that scope.
 
 ```xsh
 with result = fallible_op() {
   use_result(result)
-} else |e| {
-  print f"failed: ${e.message}"
+} else { |failure|
+  print f"failed: ${failure.message}"
 }
 
-guard let n = parse(input) else |e| {
-  return Err(e)
+guard let n = parse(input) else { |failure|
+  return Err(failure)
 }
 ```
 
-The before-block form exists because the bound name needs to be visible in
-the else clause but is not part of the block's general scope. The inside-block
-form exists because stream stages use `parse_block()` which reads params as the
-first thing inside the `{`. **Never mix the two**: `else { |e| ... }` will
-silently treat `|e|` as a pipeline expression inside the block, not as a
-parameter binding.
+Plain conditional branches, boolean guard failure blocks, and deferred blocks
+do not receive an input and reject parameter headers. The outside-brace
+`else |failure| { ... }` spelling is invalid source. `lint.block-header` can
+move a comment-free legacy header into its block and recheck the resulting
+program; ambiguous comment layouts receive guidance without a rewrite.
+Headers establish lexical bindings without a callable frame or a new Result
+boundary. Return, loop control, propagation, and cleanup retain their enclosing
+targets.
 
 A `guard let` else block inside a loop may use `break` or `continue`; either
 statement controls that enclosing loop.
@@ -1272,6 +2219,22 @@ unwinding by default. `abort(status, force: true)` skips deferred cleanup.
 `??` is right-associative. `or` remains Bool-only; use `??` for Result and
 Optional fallback.
 
+`result ?? { |failure| statements; tail_value }` selects a lexical error handler
+only for `Err`; `Ok` returns its payload without evaluating the handler. The
+parameter is required, exactly one, immutable, and scoped to the handler; `_`
+discards it. Its type and runtime value retain the Result's nominal error.
+The `{ |...|` prefix distinguishes this form from an ordinary record fallback.
+Optional values have no error payload and cannot use a parameter block.
+
+Handler tails must match the success type, including nested Results. Boolean
+tails are values. The handler creates no function, loop, or Result boundary:
+`return`, legal loop transfers, and `?` retain their enclosing targets, including
+retry-local propagation. Values are selected before scope cleanup; handler
+failures retain their own error identity and source. `??` remains lazy and
+right-associative. `lint.error-fallback-block` replaces checked identity-Ok
+expression matches only when the complete unguarded Err arm can be retained;
+it leaves success transformations, error-case distinctions, and comments intact.
+
 Ignoring a value-producing `Result` is a checker error. A `Result[Unit]`
 statement propagates failure by default. Assign to `_` only when an ignored
 value-producing result is intentional:
@@ -1302,11 +2265,9 @@ module_command = STANDARD_MODULE "." IDENT command_arg* ;
 core_command = ("print" | "eprint") command_arg*
              | "cd" command_arg block
              | "env" env_assignment* block
-             | "env" env_expr_assignments block
+             | "env" "(" expr ")" block
              ;
 env_assignment = IDENT "=" command_arg ;
-env_expr_assignments = "{" env_expr_assignment* "}" ;
-env_expr_assignment = IDENT "=" expr terminator ;
 ```
 
 Core command names are reserved in command position and cannot be shadowed by
@@ -1320,7 +2281,7 @@ word         = word_part+ ;
 word_part    = bare_word | STRING | interpolation | dollar_shorthand ;
 bare_word    = bare_char+ ;
 interpolation = "${" expr "}" ;
-dollar_shorthand = "$" IDENT ("." IDENT)* ;
+dollar_shorthand = "$" IDENT ("." FIELD_LABEL)* ;
 splice       = "@" (IDENT | "(" expr ")" | glob_literal) ;
 typed_arg    = "(" expr ")" | FMT_STRING | PATH_STRING | PATH_FMT_STRING
              | command_expr_chain ;
@@ -1381,9 +2342,13 @@ map to snake_case parameter names, so `--missing-ok` means
 `missing_ok: true`. Non-`Bool` named arguments use expression-call syntax.
 
 For scoped environment overlays, `env NAME=value { ... }` uses command-word
-conversion. `env { NAME = expr } { ... }` evaluates expressions and converts
-each result to one environment value with the same argv-item conversion used by
-external commands.
+conversion. `env (overlay) { ... }` evaluates one Record or `Map[Str, V]`
+before entering the body and converts each supplied value with the existing
+argv-item conversion. Null is a supplied unsupported value, rather than an
+unset request. Every name and value must satisfy the existing environment name,
+NUL, and native encoding checks. Inherited environment bytes remain unchanged.
+The former `env { NAME = expression } { ... }` form is rejected with a narrow
+migration to a parenthesized ordinary record literal.
 
 Command-style proc calls are not accepted. Use expression-call syntax so
 argument boundaries and types remain explicit.
@@ -1400,9 +2365,27 @@ Script stdout and stderr are byte streams. Text-producing APIs append UTF-8
 bytes; `io.write_stdout_bytes` appends bytes exactly and does not check
 UTF-8.
 
-`cd path { ... }` changes the evaluator cwd context while the block runs. It
-returns `Result[Unit, Error]` and must restore the previous cwd after success,
-after `Err`, and after runtime failure.
+`cd path { ... }` changes the evaluator cwd context while its statement body
+runs and returns `Result[Unit, Error]`. Parenthesized `cd (path) { ... }` and
+`env (overlay) { ... }` in a value position consume the ordinary body tail and
+return `Result[T, Error]`. A Result-valued tail remains nested; a false predicate
+tail is data in a value body. Statement scopes retain command and assertion
+classification, including plain statement-position runs.
+
+These scopes restore the evaluator's previous context on normal completion,
+propagation, lexical return, loop transfer, cancellation, and runtime failure.
+Inner defers execute before restoration under the scoped context; existing
+primary and cleanup failure precedence applies. Entering or restoring a scope
+follows its Result contract, while body `?` retains its enclosing function,
+retry, or explicit `try` destination. A scope does not capture body failures
+locally. Use `try` when local capture of the whole operation is intended.
+Neither scope mutates the embedding host process's global context. Live
+producers or handles, including those retained in error payloads and causal
+chains, cannot escape a scope as its value, through an outer
+assignment, a lexical return, or a yielded item. Consume them inside the body.
+A producer containing a scope may yield ordinary data: its selected cwd/env is
+private while suspended and is reattached for pulls, delegated children, and
+cancellation cleanup. Consumers retain their own context between pulls.
 
 ## 10. Process Execution
 
@@ -1418,24 +2401,16 @@ run_form     = "run" run_target command_arg*
              | "run.bytes" run_target command_arg*
              | "run.capture" capture_mode run_target command_arg*
              | "run.stream" capture_mode run_target command_arg*
-             | "run.builtin" run_target command_arg*
-             | "run.builtin.status" run_target command_arg*
-             | "run.builtin.text" run_target command_arg*
-             | "run.builtin.bytes" run_target command_arg*
-             | "run.builtin.capture" capture_mode run_target command_arg*
-             | "run.builtin.stream" capture_mode run_target command_arg*
              | run_head "(" command_arg+ redirection* ")"
              ;
 run_head     = "run" | "run.status" | "run.text" | "run.bytes"
-             | "run.capture" capture_mode | "run.stream" capture_mode
-             | "run.builtin" | "run.builtin.status" | "run.builtin.text"
-             | "run.builtin.bytes" | "run.builtin.capture" capture_mode
-             | "run.builtin.stream" capture_mode ;
+             | "run.capture" capture_mode | "run.stream" capture_mode ;
 capture_mode = "--text" | "--bytes" ;
 run_target   = word | typed_arg ;
 ```
 
-All run forms accept `--timeout=<Duration>` and `--cpumax=<Int>` immediately
+All run forms accept `--timeout=<Duration>`, `--cpumax=<Int>`, and
+`--accept=<List[Int]>` immediately
 after the run form and before environment overlays:
 
 ```xsh
@@ -1475,9 +2450,8 @@ Target resolution:
 - Not found, permission denied, not executable, `ENOEXEC`, NUL in target,
   spawn failure, and I/O failure are distinct `ProcessError` variants or
   facets.
-- `run.builtin*` forms are legacy spellings that execute the target like the
-  corresponding `run*` form. They do not use a compatibility-builtin registry or
-  shim.
+- `run.builtin*` is rejected before execution. The narrow migration removes
+  only the redundant qualifier, preserving modes, options, argv, and redirections.
 
 Process results:
 
@@ -1496,8 +2470,39 @@ Process results:
   `Result[{status: Status, stdout: Str, stderr: Str}, ProcessError]`.
 - `run.capture --bytes` returns
   `Result[{status: Status, stdout: Bytes, stderr: Bytes}, ProcessError]`.
-- `run.stream --text` returns `Stream[Str]` after explicit UTF-8 decoding.
-- `run.stream --bytes` returns `Stream[Bytes]`.
+- `run.stream --text` returns `Result[Stream[Str], ProcessError]` after explicit UTF-8 decoding.
+- `run.stream --bytes` returns `Result[Stream[Bytes], ProcessError]`.
+
+Explicit completion policy:
+
+`--accept=EXPR` evaluates once with the run options before spawning. The value
+must be a nonempty List[Int] containing unique codes in `0..255`; invalid literal
+policies are diagnosed during checking, and dynamic policies are validated before
+any child starts. Malformed dynamic configuration raises `RuntimeError` with
+kind `accept-policy` at this earlier option-conversion boundary, including when
+the selected run mode normally returns a Result. The option contributes the
+`error` effect. An ordinary exit is
+accepted exactly when its actual code belongs to the set. `Status.ok`, the exit
+code, capture records, and `$?` retain the actual child result. Signals are never
+accepted as shell-style `128 + signal` exit codes. Setup, timeout, cancellation,
+capture-limit, I/O, and decoding failures remain errors.
+
+Configured Result forms return `Err(ProcessError.UnexpectedExit)` for a rejected
+ordinary exit, including rejected exit zero. Direct Status forms propagate the
+explicit validation failure. A pipeline applies each set to its own segment;
+other segments must complete successfully, and the first rejected segment retains
+the pipeline's actual status and source metadata. With no option, the mode-specific
+contracts above remain unchanged.
+
+Policy-bearing process streams yield stdout incrementally; their completion check
+can fail after rows have been consumed. Cursor completion and decoding failures
+are checked `ProcessError` values that a `try` around consumption can capture.
+Consumers that stop early cancel and reap the owned child. Text decoding and the
+existing output limit remain enforced.
+`Command` stores the same policy through the `accept` builder field, a run entry's
+`--accept` option, or the optional `accept` argument to `process.command_argv`.
+Ordinary owned waits apply it; list waits still drain every requested handle after
+a rejection. Explicit cancel and scope cancellation retain cancellation semantics.
 
 Capture behavior:
 
@@ -1535,14 +2540,14 @@ let status = wait handle?
   `Result[Unit, ProcessError]`.
 
 `spawn run` accepts the normal single-command argv, interpolation, typed
-arguments, argv splices, environment overlays, `--timeout`, `--cpumax`, cwd,
+arguments, argv splices, environment overlays, `--timeout`, `--cpumax`, `--accept`, cwd,
 and redirection behavior used by `run`, and inherits stdio by default. V1
 rejects byte pipelines, `run.text`, `run.bytes`, `run.capture`, `run.stream`,
 and any form that cannot map to exactly one child process. There is still no
 shell-string process execution form.
 
 `spawn command_expr` uses the command plan's target, argv, cwd, env overlay,
-timeout, `cpu_max`, `detach`, `new_session`, and `ignore_hup` fields. This is
+timeout, `cpu_max`, `accept`, `detach`, `new_session`, and `ignore_hup` fields. This is
 distinct from `process.spawn(command)`, which remains a lower-level detached
 helper returning a record and waiting in the background.
 
@@ -1606,7 +2611,17 @@ run sort < ${input} > ${output}
 run tool >& 2
 ```
 
-Redirection targets are typed path-like values or non-negative file descriptor
+Stdin `<` also accepts Bytes, evaluated once at the redirection position and
+sent exactly, including NUL, without adding a newline or creating a temporary
+file. Empty Bytes closes stdin with no content. Str remains a file path; text
+content requires explicit UTF-8 encoding. Result operands require handling.
+Bytes cannot redirect output, compete with another stdin source, or replace
+stdin wiring on a later byte pipeline segment. Command plans retain byte input
+until delivery or termination; owned spawn continues delivery at process-owner
+checkpoints and wait/cancel/cleanup. Capture drains output while feeding input,
+and a consumer closing stdin early does not turn successful exit into failure.
+
+Redirection targets otherwise are typed path-like values or non-negative file descriptor
 numbers for fd duplication. `2>` and `2>>` redirect stderr for write and append.
 Process traces must represent argv, env overlays, cwd, pipeline segments,
 spawn/wait handle ids, and redirections structurally, never as reconstructed
@@ -1835,9 +2850,12 @@ Archive entry records have `path: Path`, `kind: Str`, `size: Int`, `mode: Int`,
 `cli.parse` is the typed replacement for `getopt`: it accepts long options such
 as `--root value` and `--jobs=4`, short options such as `-v`, and short clusters
 such as `-vj4`. It maps dashes in long option names to underscores in record
-fields. When the schema argument is a literal record, the checker infers a
-result record shape: required, positional, and defaulted scalar fields are
-concrete, non-required scalar fields are optional, repeated fields are
+fields. When the descriptor is established constant data, the checker infers a
+result record shape. Inline descriptors, `const` references, imported constants,
+closed constant field projections, and admitted constant record composition
+use the same normalized descriptor plan as argument parsing. Required and
+defaulted scalar fields are concrete, non-required scalar fields are optional,
+repeated fields are
 `List[T]`, and flags are `Bool`. Schema descriptors may be a type string such as
 `"Str"` or a record with `kind`, `form`, `default`, `required`, `repeated`,
 `flag`, `long`, `short`, `choices`, `conflicts`, `requires`,
@@ -1872,7 +2890,7 @@ normally omit it, while subcommands can pass labels such as `"pm world-plan"`.
 When help is requested before `--`, parsing returns a `cli-help` error whose
 message is the rendered usage. If that result is propagated with `?` at script
 top level, XSH prints the usage to stdout and exits successfully. Other parse
-failures keep the `args-parse` error kind, include the rendered usage after the
+failures keep the `cli-parse` error kind, include the rendered usage after the
 specific parse message, and exit with usage status `2` without a traceback when
 propagated at script top level.
 
@@ -1887,11 +2905,24 @@ member of the named group. Hidden options parse normally but are omitted by
 `cli.parse_full`, with precedence `argv > env > default > absent`; `cli.parse`
 behaves as if the environment record were empty.
 
+Known descriptors are validated during checking, with diagnostics attributed to
+their declaration source. This intentionally rejects malformed static
+descriptors before execution; dynamically computed descriptors retain runtime
+validation and dynamic result types. A string field type without a constant
+value does not establish a descriptor. Preparation never calls user functions
+or reads runtime bindings or host state to infer its contents.
+Explicit result annotations are checked against the prepared fields. An
+annotation neither changes those fields nor proves a dynamic descriptor's shape.
+
 `cli.parse_full` returns `{values: Record, sources: Record, warnings:
-List[Str]}`. `values` is the same record returned by `cli.parse`; `sources`
+List[Str]}`. For a known descriptor, `values` retains the same concrete record
+type inferred for `cli.parse` and `cli.applet`; `sources`
 maps fields to `"argv"`, `"env"`, `"default"`, or `"absent"`; `warnings`
 contains deprecation messages. `cli.usage` renders a plain usage string from
 the schema, includes the implicit `-h, --help` option, and skips hidden options.
+The outer envelope and `warnings: List[Str]` remain known when the descriptor
+is computed at runtime. Its `values` record requires explicit validation before
+typed field use; the source record's field names remain dynamic.
 
 `cli.commands` parses subcommand-style CLIs. The `commands` record maps command
 names to descriptors with `positionals: List[Str]`, optional `types: Record`
@@ -1905,6 +2936,20 @@ a known command or fallback command, that descriptor is used without consuming a
 command token. `fallback_command` can parse extension-style commands; with
 `command_like: true`, only relative slash-free, non-dot-prefixed tokens are
 accepted as fallback commands.
+
+A literal or prepared constant `commands` descriptor and optional fallback
+retain the successful record fields present with the same type in every possible
+command. Command options use the ordinary required, repeated, default, and
+nullable rules; positionals use their declared scalar type and rest values are
+`List[Str]`. Fields specific to one command are not promised by the common
+contract. A dynamic descriptor or fallback retains the erased result and needs
+explicit validation before typed use. Named spreads, imported constants,
+constant projections, and composition use the same preparation facts.
+Invalid known descriptors are diagnosed while checking, including unreachable
+calls. The prepared command plan uses the runtime command normalizer and is
+retained in indexed calls; dynamic descriptors normalize at runtime. This
+changes the timing of invalid constant-descriptor errors without executing
+source expressions or function defaults during preparation.
 
 `cli.tokens` is the lightweight BusyBox/getopt helper. It returns records with
 `kind: Str`, `name: Str`, and `value: Str`. `kind` is `"short"`, `"long"`, or
@@ -1974,14 +3019,12 @@ files are written through a temporary file in the destination directory.
   expressions on `fs.walk` and `fs.files` are evaluated once when called.
 - `fs.dirs(path: Path, gitignore: Bool = true, stat: Bool = true, hidden: Bool = false) -> Result[Stream[Record]]` —
   equivalent to `fs.walk |> where .kind == "dir"`.
-- `fs.ls(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
+- `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
   enumerates only the entries directly under `path`; it never recurses. With
   `ordered: false`, the stream reads directory entries lazily in host order.
   `ordered: true` materializes and sorts the entries by path before yielding
   them. `stat: false` uses the directory entry type; stat-derived fields are
   unavailable and reading them returns a `metadata-unavailable` runtime error.
-- `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
-  an alias of `fs.ls` for scripts that want to emphasize direct children.
   Each entry's `path` retains native bytes. Its `name` and `ext` fields are
   `Str` display text and may replace invalid UTF-8; use `path` for filesystem
   operations.
@@ -2006,29 +3049,29 @@ files are written through a temporary file in the destination directory.
 - `fs.group_executable(mode: Int) -> Bool`.
 - `fs.other_executable(mode: Int) -> Bool`.
 - `fs.open_root(path: Path) -> Result[FsRoot]`.
-- `fs.close_root(root: FsRoot) -> Result[Unit]`.
-- `fs.root_path(root: FsRoot) -> Result[Path]`.
-- `fs.root(root: FsRoot, path: Path) -> Result[FsRoot]`.
-- `fs.root_read(root: FsRoot, path: Path) -> Result[Bytes]`.
-- `fs.root_read_result(root: FsRoot, path: Path,
+- `FsRoot.close() -> Result[Unit]`.
+- `FsRoot.host_path() -> Result[Path]`.
+- `FsRoot.open_root(path: Path) -> Result[FsRoot]`.
+- `FsRoot.read_bytes(path: Path) -> Result[Bytes]`.
+- `FsRoot.read_result(path: Path,
   max_bytes: Int = 1048576) -> Result[FsRootReadResult]`.
-- `fs.root_filesystem_stats(root: FsRoot, path: Path) -> Result[FsRootFilesystemStats]`.
-- `fs.root_read_text(root: FsRoot, path: Path) -> Result[Str]`.
-- `fs.root_children(root: FsRoot, path: Path,
+- `FsRoot.filesystem_stats(path: Path) -> Result[FsRootFilesystemStats]`.
+- `FsRoot.read_text(path: Path) -> Result[Str]`.
+- `FsRoot.children(path: Path,
   max_entries: Int = 65536) -> Result[FsRootChildrenResult]`.
-- `fs.root_write(root: FsRoot, path: Path, data: Bytes) -> Result[Unit]`.
-- `fs.root_write(root: FsRoot, path: Path, data: Str) -> Result[Unit]`.
-- `fs.root_write_atomic(root: FsRoot, path: Path, data: Bytes) -> Result[Unit]`.
-- `fs.root_write_atomic(root: FsRoot, path: Path, data: Str) -> Result[Unit]`.
-- `fs.root_metadata(root: FsRoot, path: Path) -> Result[FsEntry]`.
-- `fs.root_exists(root: FsRoot, path: Path) -> Result[Bool]`.
-- `fs.root_mkdir(root: FsRoot, path: Path, mode: Int = 0o777, parents: Bool = false) -> Result[Unit]`.
-- `fs.root_remove(root: FsRoot, path: Path, dir: Bool = false) -> Result[Unit]`.
-- `fs.root_readlink(root: FsRoot, path: Path) -> Result[Path]`.
-- `fs.root_readlink_result(root: FsRoot, path: Path) -> Result[FsRootReadlinkResult]`.
-- `fs.root_symlink(root: FsRoot, target: Path, path: Path, parents: Bool = true,
+- `FsRoot.write(path: Path, data: Bytes) -> Result[Unit]`.
+- `FsRoot.write(path: Path, data: Str) -> Result[Unit]`.
+- `FsRoot.write_atomic(path: Path, data: Bytes) -> Result[Unit]`.
+- `FsRoot.write_atomic(path: Path, data: Str) -> Result[Unit]`.
+- `FsRoot.metadata(path: Path) -> Result[FsEntry]`.
+- `FsRoot.exists(path: Path) -> Result[Bool]`.
+- `FsRoot.mkdir(path: Path, mode: Int = 0o777, parents: Bool = false) -> Result[Unit]`.
+- `FsRoot.remove(path: Path, dir: Bool = false) -> Result[Unit]`.
+- `FsRoot.readlink(path: Path) -> Result[Path]`.
+- `FsRoot.readlink_result(path: Path) -> Result[FsRootReadlinkResult]`.
+- `FsRoot.symlink(target: Path, path: Path, parents: Bool = true,
   overwrite: Bool = false) -> Result[Unit]`.
-- `fs.root_chmod(root: FsRoot, path: Path, mode: Int) -> Result[Unit]`.
+- `FsRoot.chmod(path: Path, mode: Int) -> Result[Unit]`.
 - `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot,
   dest: Path, mode: Int, parents: Bool = true,
   overwrite: Bool = false) -> Result[Unit]`.
@@ -2093,24 +3136,34 @@ directories under `root`, then prunes empty parent directories when requested.
 `group` modules instead of string names. `fs.lock` returns a lock record held by
 the current XSH process until `fs.unlock` or process exit.
 `fs.open_root`, `fs.tempdir`, `fs.project_root`, and `fs.user_root` return an
-opaque `FsRoot` record `{id: Int}` backed by an open directory handle owned by
-the evaluator. `fs.tempfile` returns `{root: FsRoot, path: Path}` where `path`
-is relative to the returned root. `fs.root_path` is an explicit escape hatch for
+opaque `FsRoot` capability backed by an open directory handle owned by
+the evaluator. A record containing an `id` cannot construct or validate as a
+capability. Aliases share close state; opening a child creates an independent
+handle that remains active after its parent closes. No implicit destructor is
+introduced. `fs.tempfile` returns `{root: FsRoot, path: Path}` where `path`
+is relative to the returned root. `FsRoot.host_path` is an explicit escape hatch for
 APIs or subprocesses that still require host paths; it returns `Err` when the
-root is closed or the platform cannot expose the path. `fs.root_*` operations
+root is closed or the platform cannot expose the path. `FsRoot` methods
 resolve relative paths from the handle rather than by joining strings. Their
 filesystem opens are kernel-confined below the root: absolute paths, `..`
 traversal that escapes the root, symlinks that escape the root, and concurrent
 pathname manipulation fail. Relative symlinks whose final resolution remains
-below the root work normally. `fs.root_readlink` and `fs.root_symlink` operate
+below the root work normally. `FsRoot.readlink` and `FsRoot.symlink` operate
 on symlink target text without traversing it. This makes the rooted APIs the
 preferred surface when a trusted root directory is combined with untrusted
 relative names. `FsRoot` confines pathname resolution; it is not a process
 sandbox and does not restrict mounts or device nodes below the root.
-`fs.root_readlink_result` rejects a relative path whose `..` components cross
+Receiver and argument entries evaluate once in source order, including reordered
+named arguments. Each method retains its original filesystem effect, error kind,
+and host operation. Factories stay in `fs`; `fs.root_install_file` retains its two
+capabilities. The old single-root module names are rejected and recognized only
+for checked migration guidance. Automatic promotion requires the receiver to be
+the first evaluated argument and preserves the remaining named argument text;
+comments, spreads, and reordered receivers require a manual rewrite.
+`FsRoot.readlink_result` rejects a relative path whose `..` components cross
 the root as invalid input; a missing parent within the root remains an absent
 source result.
-`fs.root_children` returns child paths relative to the root, ordered by their
+`FsRoot.children` returns child paths relative to the root, ordered by their
 raw filename bytes so non-UTF-8 names remain lossless. `max_entries` may be
 between zero and 65,536. `FsRootChildrenResult` carries `state`,
 `enumeration_succeeded`, `children`, `errno`, and `error_kind`; state is one of
@@ -2122,7 +3175,7 @@ reaches either bound, and an empty `complete` result means the directory was
 successfully enumerated and contained no entries.
 The confined open requires a readable directory, so a file or FIFO at the
 requested path is a `read_failure` observation rather than an iterable source.
-`fs.root_read_result` reads at most `max_bytes` and permits values from zero
+`FsRoot.read_result` reads at most `max_bytes` and permits values from zero
 through 16,777,216. Its result records `state`, optional `data`, optional
 `errno`, optional stable `error_kind`, and `truncated`; expected missing and
 permission-denied paths are observations, while an invalid bound is an error.
@@ -2133,14 +3186,14 @@ such as `not_found`, `permission_denied`, `interrupted`, and `other`.
 optional `target`, `errno`, and `error_kind` distinguish an existing non-link
 or failed read from an absent entry; state uses the same four values as
 `FsRootReadResult`. Invalid or escaping rooted paths remain errors.
-`fs.root_filesystem_stats` queries capacity through a directory opened below
+`FsRoot.filesystem_stats` queries capacity through a directory opened below
 the root, without converting the path back to an ambient host path. Its path
 must be relative to the root. `FsRootFilesystemStats.state` is `observed`,
 `absent`, `permission_denied`, `malformed`, `read_failure`, or `range_failure`; byte fields
 are exact signed integers when observed, and remain null when the platform
 counters cannot fit that representation. The record preserves `errno` and a
 stable `error_kind` for filesystem-query failures.
-`fs.root_mkdir` applies the requested mode to the created directory through a
+`FsRoot.mkdir` applies the requested mode to the created directory through a
 handle resolved below the root, so the caller's umask does not change the final
 mode.
 
@@ -2221,30 +3274,50 @@ plugin.build(root)?
 ```
 
 Module values are immutable export records. They support
-`.get(field: Str) -> Result[Any]`, `.keys()`, field access for known exports,
-and string indexing. Use `.get()` or field membership in `.keys()` before accessing optional exports
+`.get(field: Str)`, `.keys()`, field access for known exports, and string
+indexing. A proven visible export selected by a literal or prepared constant
+Str key retains its checked success type in `.get`; dynamic or unknown keys
+retain `Result[Any]`. Use `.get()` or field membership in `.keys()` before accessing optional exports
 when absence is expected. Exported types are checker-visible through static
 imports, but they are not runtime module fields.
 
-`record`:
+The legacy `record.require` module API and its runtime type-string grammar
+are removed. Declare a named schema and validate with `value.require(Schema)`.
+This keeps extra fields and checks nested schema fields. An absent optional key
+needs explicit field membership or `.get()` validation; a `T?` schema field is still required
+and admits a present null. Callable contracts use the existing typed module
+contracts or explicit application validation. Runtime-selected policy remains
+application-owned dynamic validation. Retained CLI descriptor strings are a
+separate configuration format.
 
-- `record.require(record: Record, required: Record, optional: Record = {},
-  source: Path = p"") -> Result[Record]`.
+Removed calls report `check.removed-record-require`. A migration fix is offered
+only for required-only constant contracts with an existing exact named schema,
+plain records already proving every required field, and identity scalar checks.
+Opaque records, optional fields, callable strings, dynamic values, source paths,
+conversions, and comments require manual review. Preserve distinct error kinds
+or source context with explicit error translation or context at that boundary.
 
-`record.require` validates dynamic records, especially values returned by JSON
-decoding or schema-erased plumbing. It uses the same contract string format
-described below; failures return structured record contract errors. Contract
-records map field names to type
-strings such as `"Str"`, `"Bool"`, `"Path"`, `"Proc"`, `"List[Str]"`,
-`"List[Path]"`, or proc signatures such as `"Proc(Path) -> Result[Unit]"`.
-`"Any"` is the dynamic contract type. Missing required fields and present
-fields with wrong dynamic types return messages that include the field name,
-expected type, actual dynamic type when a value is present, and the optional
-source path.
+`lint.removed-record-require` can combine the exact identity edit with recognized
+syntax migrations across imports. The entire rewritten graph must parse and
+check before any source is written. Other checker failures still block the
+migration, including field access on an untyped removed-call result; those
+consumers need manual repair. Syntax/API repair precedes ordinary lint rewriting:
+a following pass can remove redundant validation or normalize layout after the
+source becomes valid.
 
-Record values expose field presence through `field in record`, and `.get(field: Str) ->
-Result[Any]`, and `.keys()`. `.get()` returns a structured missing-field error
-when the field is absent.
+Record values expose field presence through `field in record`,
+`.get(field: Str) -> Result[Any]`, and `.keys()`. A literal or prepared constant Str key selecting a
+visible checked field preserves that field's type: `.get(key)` returns
+`Result[FieldType]`, while indexing has the ordinary field type and retains its
+existing access errors. A present nullable field returns `Ok(null)` from get.
+Unknown keys and fields hidden by a narrower record contract remain dynamic;
+a checked width-compatible record does not reveal hidden runtime field types.
+
+The same rule applies to module exports visible in a checked module contract.
+Optional exports still return the existing missing-field Result when absent;
+known callable exports retain their checked signature and effect contract.
+Receiver and key expressions retain their evaluation order and execute once.
+A key proof does not remove access errors or perform schema validation.
 
 `net`:
 
@@ -2379,26 +3452,39 @@ List values expose collection operations as methods:
 - `.push(item: T) -> List[T]`.
 - `.extend(more: List[T]) -> List[T]`.
 - `.get(index: Int) -> Result[T]`.
-- `.get(index: Int, fallback: T) -> T`.
 - `.join(separator: Str = "") -> Str` (only when `T` is `Str`).
 
 `map`:
 
-- `map.empty() -> Map[T]`; empty maps usually need an expected type from a
+- `map.empty() -> Map[K, V]`; empty maps need an expected type from a
   binding annotation or later typed API boundary. In those map-typed contexts,
   `{}` is equivalent to `map.empty()`.
 
-Map values expose all routine map operations as methods:
+List and Map `.get` have one Result-returning lookup form. Missing entries
+retain their typed lookup errors unless the caller uses `?` or `??`; a present
+null value returns `Ok(null)` and does not invoke a Result fallback. The removed
+two-argument fallback overloads evaluated their fallback eagerly. Migration to
+`??` is automatic only for inert non-failing fallback expressions; effectful
+fallbacks need explicit snapshots that retain receiver, index/key, and fallback
+evaluation order. Str/Bytes byte access and Str search use null for ordinary
+absence, with no configurable fallback argument. Legacy numeric policy may be
+spelled `find(...) ?? -1`; nullable arithmetic remains invalid.
+
+Map values expose routine methods with receiver-bound key and value types:
 
 - `.len() -> Int`.
-- `.get(key: Str) -> Result[T]`.
-- `.get(key: Str, default: T) -> T`.
-- `.set(key: Str, value: T) -> Map[T]`.
-- `.push(key: Str, value: T) -> Map[List[T]]` when the receiver is
-  `Map[List[T]]`; missing keys are created with a singleton list.
-- `.remove(key: Str) -> Map[T]`.
-- `.keys() -> List[Str]`, in deterministic key order.
-- `.values() -> List[T]`, in deterministic key order.
+- `.get(key: K) -> Result[V]`.
+- `.set(key: K, value: V) -> Map[K, V]`.
+- `.push(key: K, value: T) -> Map[K, List[T]]` for list-valued receivers;
+  missing keys are created with a singleton list.
+- `.remove(key: K) -> Map[K, V]`.
+- `.keys() -> List[K]` and `.values() -> List[V]`, both in canonical key order.
+
+Lookup uses borrowed scalar views. Updates retain source evaluation order and
+copy storage only when shared. JSON objects and environment names require Str
+keys; non-string maps must be converted explicitly by the application before
+crossing those boundaries. Numeric keys can change traversal order relative to
+encoded decimal strings, so textual-key migration is never a general autofix.
 
 `set`:
 
@@ -2443,14 +3529,16 @@ adapter `text.lines()` is available in pipelines.
 - `.count_lines() -> Int`.
 - `.count_words() -> Int`.
 - `.count_chars() -> Int`, by Unicode scalar value.
-- `.count_bytes() -> Int`.
-- `.byte_len() -> Int`, equivalent to `.count_bytes()`.
-- `.byte_at(index: Int, default: Int = -1) -> Int`, returning the byte value at
-  byte index `index` or `default` when out of range.
+- `.byte_len() -> Int`, counting UTF-8 bytes independently of Unicode scalar counts.
+- `.byte_at(index: Int) -> Int?`, returning the byte value at a nonnegative
+  byte index, or null when out of range. Negative indices do not count from the end.
 - `.byte_slice(offset: Int, length: Int = rest) -> Str`, slicing by byte offset
   and length.
-- `.find(needle: Str, start: Int = 0) -> Int`, returning the byte index of
-  `needle` at or after byte index `start`, or `-1` when missing.
+- `.find(needle: Str, start: Int = 0) -> Int?`, returning the byte offset of
+  `needle` at or after byte index `start`, or null when missing or start is
+  negative or exceeds the byte length. An empty needle matches at any start
+  from zero through the byte length, including the end; starts may address
+  individual UTF-8 bytes. Subsequent byte slicing retains its UTF-8 boundary checks.
 - `.parse_int() -> Result[Int]`, accepting decimal, `0x` hexadecimal, `0o`
   octal, `0b` binary, `_` separators, and an optional leading sign.
 - `.parse_int_decimal() -> Result[Int]`, accepting only nonempty decimal
@@ -2496,9 +3584,9 @@ Float-to-`Int` conversions reject `NaN`, infinities, and values outside the
 Regex APIs use Rust `regex-lite` syntax. The common Rust regex surface is
 supported, including captures, alternation, repetition, inline flags, byte
 offsets, and replacement, while Unicode property classes such as `\p{...}` and
-`\P{...}` are outside the v1 surface. Compile errors return structured regex
-compile errors from `regex.compile(...)`. A `Regex` value has already validated
-its pattern, so its methods return plain values instead of `Result`. `captures`
+`\P{...}` are outside the v1 surface. Dynamic compile errors return structured
+regex compile errors from `regex.compile(...)`; literal errors occur at checked
+preparation. A `Regex` value has already validated its pattern, so its methods return plain values instead of `Result`. `captures`
 returns an empty
 list when there is no match; otherwise index 0 is the full match and subsequent
 items are capture groups in order, with unmatched optional groups represented
@@ -2536,8 +3624,9 @@ without first requiring valid UTF-8:
 - `.starts_with(prefix: Bytes) -> Bool` and `.ends_with(suffix: Bytes) -> Bool`
   are byte searches; substring presence uses `needle in bytes`.
 - `.lower() -> Bytes` lowercases ASCII bytes only, leaving other bytes intact.
-- `.byte_at(index: Int, default: Int = -1) -> Int` returns the byte value at
-  `index`, or `default` when out of range.
+- `.byte_at(index: Int) -> Int?` returns the byte value at
+  a nonnegative `index`, or null when out of range. Negative indices do not
+  count from the end; byte access does not decode UTF-8.
 
 `.slice()` rejects negative offsets and lengths and offsets past the end of the
 input. `.dump()` output is deterministic text for rendering or manifest data,
@@ -2839,7 +3928,7 @@ when `XSH_UNIX_DRY_RUN_LOG` is set. `unix.set_hostname` is gated unless
   backslash escapes. Unquoted shell operators, expansions, globs, command
   substitution, and compound-command syntax are rejected.
 - `process.command_argv(target: Str|Path, argv: List[Str|Path], cwd: Path = default,
-  env: Record = default, stdin: Path = default, stdout: Path = default,
+  env: Record = default, stdin: Path | Bytes = default, stdout: Path = default,
   stderr: Path = default, stdout_append: Bool = false,
   stderr_append: Bool = false, timeout: Duration = default,
   detach: Bool = false, new_session: Bool = false, ignore_hup: Bool = false,
@@ -2882,8 +3971,8 @@ are omitted rather than reported with partial process data.
 - `time.millis(ms: Int) -> Duration` and `time.seconds(seconds: Int) -> Duration`,
   constructing a `Duration` from a computed `Int`. Both are pure. A negative
   input clamps to a zero-length duration; `time.seconds` saturates rather than
-  overflowing. These are the only way to build a `Duration` from a runtime value
-  (literals such as `200ms` aside).
+  overflowing. Use checked multiplication by `1ms` or `1s` when a nonnegative
+  runtime count should fail on overflow rather than clamp or saturate.
 - `time.measure(command: Command, quiet: Bool = false) -> Result[Record]`, returning
   `{status: Status, duration_ms: Int, wall_ns: Int, user_ns: Int, system_ns: Int}`.
   `wall_ns` is nanosecond wall-clock time; `user_ns`/`system_ns` are the child's
@@ -2963,10 +4052,14 @@ requires ordering, grouping, or parallel work may buffer their input. This is
 the preferred form when items are consumed once and the list is not needed.
 
 **Lazy sources.** `fs.walk`/`fs.files`/`fs.dirs`, `Path.lines()`,
-`Path.bytes_lines()`, `Str.lines()`, `Bytes.lines()`, `run.stream`, and
+`Path.bytes_lines()`, `run.stream`, and
 user-defined `stream` producers yield live streams. Pipelines and direct `for`
 loops consume these streams item by item until a materializing boundary or a
 terminal stage requires a final value.
+
+`Str.lines()` and `Bytes.lines()` materialize typed lists from an existing
+buffer. `List.collect()` preserves that already materialized list; only
+`Stream.collect()` pulls a live source. Both forms preserve the element domain.
 
 **Integer sequences.** `range(n)` and `range(start, n)` are builtin call
 expressions that produce `Stream[Int]`, usable as pipeline sources or directly
@@ -2994,10 +4087,26 @@ rather than a stream stage. A bare method name uses the previous value as its
 receiver (`value |> split(",")` is the same call shape as
 `value.split(",")`). A qualified function call uses the previous value as its
 first argument. The stage may end in `?`, which propagates a `Result` returned
-by that call. These forms are lowered to ordinary calls before semantic
-checking, so a local value, a method receiver, and a Result-returning tail obey
-the same contract. Without an explicit `.` placeholder, the previous
-pipeline value is inserted as the first argument for qualified calls:
+by that call. Stages without an argument hole keep this call and receiver
+insertion behavior.
+
+An immediate ordinary call may contain exactly one `_` as a whole positional
+argument or named argument value. `data |> render(template, data: _)` performs
+an ordinary call to `render` with the input at that position, without additional
+receiver or first-argument insertion. A bare callable with a hole resolves as an
+ordinary function, even when its name is also a method name. Parentheses around
+a whole hole normalize to `_`; nested, embedded, spread, multiple, or free holes
+are rejected. Discard bindings, wildcard patterns, and discard block parameters
+retain their existing meanings.
+
+Input evaluation completes once before the stage's callee/receiver and other
+arguments. Those arguments retain ordinary source order. Optional calls still
+skip their other arguments when the receiver is absent, after the input has
+already been evaluated. Explicit `?` keeps its normal propagation boundary.
+Recognized structured stage names keep their stage dispatch: holes do not add
+per-item mapping, collection, or implicit unwrapping. Use an ordinary `map` block
+for per-item work. Qualified stages without a hole still receive the previous
+value as their first argument:
 
 ```xsh
 let readme_text = p"README.md".read_bytes()?.utf8()?
@@ -3033,7 +4142,49 @@ their tail must produce the accumulator's type, and the stage returns that
 accumulated value. Fold and reduce blocks run serially, including their effects:
 the block for one item finishes before the next live item is pulled. A block
 may print or run a process directly; its defers run at that item's block exit.
+The accumulator's complete type is invariant: a `Result[T]` callback cannot
+replace a `T` accumulator without explicit `?`. A `Result[T]` initial
+accumulator keeps callback Result values as data, including `Err` values.
+Explicit propagation closes the callback scope and live source before another
+item is pulled. `reduce-by` likewise requires its callback's direct `{key,
+value}` record; a fallible projection must use `?` explicitly.
 Use `each` when no accumulated value is needed.
+
+`where`, `any`, and `all` require a direct Bool callback result. `sort-by`
+requires a direct sortable key, and keyed `count` requires Str, Int, or Bool;
+Result wrappers require explicit `?` in these callbacks. Dynamic `Any` keys
+retain runtime validation. `map` and `par-map` preserve complete callback
+values, including Result and nominal error payloads. `group-by` and
+`unique-by` compare complete key values, including Result values, as data;
+a grouped record's `key` field retains that complete checked type.
+`flat-map` retains its collection boundary: a Result containing a List or
+Stream is unwrapped, and `Err` fails the stage before another expansion.
+
+`map`, `where`, `flat-map`, `each`, `tee`, `sort-by`, `group-by`,
+`unique-by`, `any`, and `all` also accept a statically resolved named
+callable: `map(normalize_name)`, `where(block: is_valid)`, or
+`sort-by(key, desc: true)`. The descriptor occupies the ordinary `block`
+argument slot and cannot accompany an explicit block. Configuration arguments
+retain their existing named argument, pun, and static record spread rules.
+The callable itself must retain a direct declaration identity; a function
+value projected from a record spread is not a static descriptor.
+
+The descriptor means the same checked ordinary one-item call as
+`map { |item| normalize_name(item) }`. Qualified imported functions and
+registered standard calls are accepted when that call selects one signature.
+Parameter conversions, supported defaults, effects, and source spans follow
+ordinary calls. Defaults are supplied for each actual call, including fresh
+aggregate defaults; an empty source makes no calls. Erased `Any`, `Pure`, or
+`Proc` values, callable-producing expressions, bound methods, ambiguous
+overloads, and `_` placeholders require an explicit block. Other stage bodies
+retain their existing arity and block syntax.
+
+A Bool predicate remains data. A Result-returning `map` produces
+`List[Result[T, E]]`; it does not propagate errors per item. Side-effecting
+`each` and `tee` retain their Unit-consuming automatic propagation. A block
+ending in `f(item)?` remains explicit because it selects a different error
+policy. `lint.stage-callable` only rewrites a checked single-call wrapper with
+its exact bound item and no comments, extra arguments, cleanup, or propagation.
 
 A tail proc call with `?` unwraps the `Ok` value and propagates errors: if
 any item fails, the entire stage short-circuits with that error. Without
@@ -3058,14 +4209,40 @@ long cell contents vertically instead of truncating with ellipses.
 returned by a block is drained for that input item before the outer stream
 continues.
 
-`fs.ls(...) |> table.print(...)` is the accepted standard listing interface.
+`fs.children(...) |> table.print(...)` is the accepted standard listing interface.
+
+Structured stage configuration uses ordinary named arguments, including
+punning and statically checked record spreading. Option labels use snake_case:
+`par-map(jobs:)`, `sort-by(desc: true) .size`, and
+`batch(count: 2, max_bytes: 4096, max_argv: true)`. External argv and `run`
+options retain their command syntax. Stage flags such as `--jobs` are migration
+errors; tooling can replace a diagnosed flag range when comments and argument
+order are preserved.
+
+`xsh_registry::stream_parameters::stage_parameters` owns each accepted label, type, default,
+and validation. No other stage accepts these configuration parameters.
+`reduce-by` requires exactly one enabled Bool among `sum`, `min`, and `max`.
+`batch` requires at least one enabled count or byte limit; combined limits close
+a batch at the first reached bound and retain a final short batch. Disabled
+`max_argv: false` adds no limit. Batch `count` and `max_bytes`, chunk `size`, and
+`jobs` must be positive; take/drop/repeat counts may be zero.
+
+Configuration arguments are evaluated once, in their written order, at the
+stage's established entry boundary. They do not run once per item. In
+particular, preceding serial stage effects finish before a downstream worker
+configuration runs; a direct worker configuration runs before source pulls.
+`sort-by` checks its direction before pulling input; `sort` checks its direction
+after materializing input. Nameable positional roles retain their stage timing:
+`count`, range `start`/`end`, chunk `size`, zip `other`, fold/reduce `init`, shuffle
+`seed`, and table `columns`. Inline projections and block parameters retain
+their per-item roles.
 
 `par-map` defaults to a bounded worker count based on available CPUs. Use
-`--jobs=N` to override the worker count. `each` runs serially and does not
-accept `--jobs`; it does not emit parallel-job trace events.
-Every accepted `--jobs` expression runs once before its stage consumes input,
+`par-map(jobs: N)` to override the worker count. `each` runs serially and does not
+accept `jobs:`; it does not emit parallel-job trace events.
+Every accepted `jobs:` expression runs once before its stage consumes input,
 and its result must be positive. Explicit bounded parallel stage limits must be
-positive. `group-by` and both forms of `count` also reject `--jobs` because
+positive. `group-by` and both forms of `count` also reject `jobs:` because
 their indexed handlers run serially.
 
 When a block uses `?` and an item fails, parallel stages stop scheduling
@@ -3082,9 +4259,9 @@ boundary, but the runtime may fuse adjacent `par-map |> reduce-by` so
 worker-local aggregation avoids building one intermediate list. Suffixes such as
 `par-map |> where |> flat-map |> reduce-by` currently materialize between
 stages. `reduce-by` folds a live source one item at a time before pulling the
-next item and closes that source if reduction fails. Its `--jobs` option is
+next item and closes that source if reduction fails. Its `jobs:` parameter is
 currently accepted but does not start reduce workers; the indexed fold is serial.
-An explicit `reduce-by --jobs` prevents adjacent `par-map` fusion so its option
+An explicit `reduce-by(jobs: ...)` prevents adjacent `par-map` fusion so its option
 expression runs at the reduction stage.
 `fold` also combines each live item before pulling the next and closes the
 source if the combine fails. `each` runs its body before pulling the next live
@@ -3098,7 +4275,7 @@ the same live key timing and keeps the first item for each distinct key.
 left source, then pairs one left item with each right item until either side
 ends. When the right side ends first, it closes a live left producer without
 pulling later items.
-`batch --max-bytes=N` checks each live item as it arrives. An item larger than
+`batch(max_bytes: N)` checks each live item as it arrives. An item larger than
 the byte budget fails the stage, closes the producer, and leaves later items
 unpulled.
 `repeat(0)` produces an empty list without pulling a live source.
@@ -3106,15 +4283,15 @@ unpulled.
 `sort` and `sort-by` order by a defined key ordering. Supported items and
 projected keys are `Int`, `Str`, `Bool`, `Path`, and `Record`s whose fields are
 themselves supported (recursively). Statically-`Any`/unknown keys (for example
-an `Any`-typed record field produced by `Map.get(key, fallback)` on a
+an `Any`-typed record field produced by `Map.get(key) ?? fallback` on a
 `Map[Any]`) are also accepted because the runtime sorts the actual supported
 scalar value; such keys fail loudly at runtime only when the actual value is
 not orderable. Records compare field by field in sorted
 field-name order, so `sort-by { |r| {c: r.count, n: r.name} }` sorts by `count`
 then `name`. A `group-by` result exposes its projected key as the concrete type
 of the grouping block, so `group-by { |x| x.id } |> sort-by { |g| g.key }` is
-valid when that key is sortable. The default order is ascending and `--desc`
-reverses it. `sort-by --desc=expr` evaluates the option before pulling its
+valid when that key is sortable. The default order is ascending and `desc: true`
+reverses it. `sort-by(desc: expr)` evaluates the option before pulling its
 source or projecting keys, so an option error stops before those effects.
 Both stages are stable: items with equal keys keep their source
 order, so sorting by
@@ -3152,7 +4329,7 @@ Builder checks reports unknown fields, duplicate fields, invalid nested
 commands, missing required fields, and domain check failures with source
 spans from the builder block.
 
-`process.command { ... }` accepts `cwd: Path`, `env: Record`, `stdin: Path`,
+`process.command { ... }` accepts `cwd: Path`, `env: Record`, `stdin: Path | Bytes`,
 `stdout: Path`, `stderr: Path`, `stdout_append: Bool`,
 `stderr_append: Bool`, `timeout: Duration`, `cpu_max: Int`, `detach: Bool`,
 `new_session: Bool`, `ignore_hup: Bool`, and exactly one plain `run` entry. It
@@ -3261,15 +4438,19 @@ The checker may leave explicitly dynamic record field access and host-derived
 values to runtime, but every runtime type error must include the source span of
 the expression or command argument that caused it.
 
-`Any` is the public dynamic type. Default checking permits `Any` at concrete
-boundaries for compatibility. `xsht check --strict` adds migration diagnostics
-for assigning, passing, returning, indexing, field-accessing, or container
-merging `Any` into concrete types without an explicit `value.require(Schema)?`
-boundary. Strict diagnostics are rendered as warnings, but `xsht check --strict`
-exits with status `2` when any strict warning is present. Field access on a known
-non-empty record schema reports
-`check.unknown-field` for missing fields in strict mode; field access on `Any`
-or empty `Record` remains dynamic.
+`Any` is the public dynamic type. Concrete values can be erased into `Any`,
+but unchecked `Any`, erased `Record`, and nested dynamic elements cannot establish
+concrete types from an expected type alone. Use explicit `.require(Schema)`
+validation, checked type patterns, or applicable module contracts at the input
+boundary. Field access on a known record shape rejects missing fields with
+`check.unknown-field`; dynamic field access and `.get` retain honestly dynamic
+results. A literal `{}` is an exact empty record, distinct from builtin `Record`
+erasure. Known records retain width compatibility, containers retain their
+concrete element contracts, and nominal identities remain authoritative.
+
+Ordinary `xsht check` and execution preparation enforce the same rules.
+`xsht check --strict` was removed; remove the option because dynamic boundaries
+are checked by default. No permissive execution mode replaces it.
 The detailed assignability and narrowing rules are specified in
 `docs/SPEC-TYPING.md`.
 
@@ -3382,7 +4563,7 @@ CLI commands:
 - `xsht -h` or `xsht --help`.
 - `xsht help [COMMAND]`.
 - `xsht COMMAND --help`.
-- `xsht check [--strict] [--summary] [--annotate] [PATH...]`.
+- `xsht check [--summary] [--annotate] [PATH...]`.
 - `xsht fmt [--check] [FILE...]`.
 - `xsht lint [--fix] [--runless] [FILE...]`.
 - `xsht ast SCRIPT`.
@@ -3484,10 +4665,33 @@ operand types are required. Direct membership fixes require inert operands or
 a state-independent literal: purity alone does not prove reorder safety.
 Custom messages and consumed Results retain an explicit `test.ok(...)` call.
 Whole statements can use hygienic local bindings to preserve operand and
-bound-argument evaluation order. Other unsafe or dynamic migrations receive a
+source argument evaluation order, including reordered named arguments.
+Other unsafe or dynamic migrations receive a
 diagnostic without a fix. Removed-API
 metadata is available only to checking and migration, never API discovery or
 runtime dispatch. Membership operators are the exception to method preference.
+
+`lint.prefer-value-pipeline` offers explicit argument placement for a checked
+nested call at a whole statement value or a single-use linear temporary chain.
+It requires stable reads before any moved input and a full-source recheck with
+unchanged concrete input and result types. Guarded receivers, spreads, ambiguous
+or contextual types, and changing mutable reads keep their ordinary calls.
+Comments in the proposed edit produce a warning without a fix.
+
+`lint.prefer-guard` rewrites a single-action `if` without `else` to a guarded
+`return`, `break`, `continue`, or `yield`. It preserves condition-first payload
+laziness and groups run payloads. Comments, multiple actions, multiline payloads,
+and long proposed one-liners keep their readable blocks.
+
+`lint.prefer-inferred-pure-return` is opt-in with
+`[lint] prefer-inferred-pure-returns = true` in `xsht-config.ini`. It removes a
+private pure return annotation only after a complete source recheck preserves
+all function and caller types, expression types, effects, and statement/value
+classifications. Named schema constraints and unresolved imported contexts
+receive no fix. The rule is disabled when configured `check.annotate` includes
+`returns` (directly or through `default`/`signatures`/`all`), preserving annotation
+tooling round trips. `xsht check --annotate=returns` renders inferred private
+pure returns as well as defaulted exported proc returns.
 
 During `xsht check`, `reveal_type(expr)` is a checker-only builtin that accepts
 one positional argument, reports the inferred type as a note, and has type
@@ -3537,11 +4741,28 @@ names of the form `tests/file.xsh::test_name` or
 Test files are module-shaped. The only allowed top-level forms are `use`,
 `let`, `type`, `proc`, `pure`, and `export`; top-level commands, mutation, and
 control flow are rejected. Top-level imports and constants are initialized
-before each test proc runs.
+before each declared test runs.
 
-Native tests are top-level `proc test_*` functions returning `Result[Unit]`.
-They may accept no parameters or a single `ctx: TestContext` parameter. Each
-test runs in a fresh evaluator with fresh stdout and stderr capture, cwd/env
+Native tests are top-level `test NAME [effects]? { ... }` declarations with a
+`Result[Unit]` body contract. The ordinary inside-brace header may bind one
+immutable `TestContext` parameter (`{ |ctx| ... }`) or discard it (`{ |_| ... }`);
+zero parameters are also valid. Omitted effects retain unrestricted proc behavior;
+explicit effects are checked normally. Declared names need no `test_` prefix.
+Names share the top-level namespace, and duplicates or collisions are errors.
+Declarations are checked and registered without executing their bodies. They
+cannot be called, exported, or nested, and importing a module or running a script
+does not execute them, including a declaration named `main`. Qualified `test.*`
+operations remain ordinary module access. Builds without `native-tests` diagnose
+declarations with instructions to use a build that supports native tests.
+
+The harness discovers declarations only within its existing configured roots.
+Legacy `proc test_*` harness signatures produce migration diagnostics rather than
+prefix-based discovery; preserve the exact old name when converting a signature.
+If callers use a legacy test proc, extract the callable work into an ordinary
+helper and retain one declared test. Ordinary helper procs remain valid. `xsht lint --fix` offers a checked migration
+for private, unreferenced legacy signatures in configured test roots; callers or
+signature comments require manual conversion.
+Each test runs in a fresh evaluator with fresh stdout and stderr capture, cwd/env
 state, mock registry, call log, and temp root.
 
 `TestContext` is `{name: Str, file: Path, temp_root: Path}`. `TestCall` is
@@ -3596,3 +4817,24 @@ Fixtures must be able to assert:
 
 Fixtures that depend on host-specific behavior, such as signal numbers,
 permissions, or non-UTF-8 paths, must be isolated behind marked tests.
+
+### Removed compatibility vocabulary
+
+Only the former predeclared `ARGV`, `run.builtin*` qualifier, ambient `fs.ls`,
+and Str `.count_bytes()` are removed. Canonical spellings are `args`, the
+corresponding `run*` form, `fs.children`, and Str `.byte_len()`. Rooted filesystem
+operations, recursive walks/files, character counts, and text stream stages keep
+their distinct contracts. Public API inventories and dispatch expose canonical
+operations only; runtime error kinds remain unchanged. Operation names in source
+attribution and traces now use the canonical spelling.
+
+Ordinary preparation rejects removed vocabulary before effects. Tooling retains
+fatal `parse.compatibility-vocabulary` / `check.compatibility-vocabulary` recovery
+facts solely to offer `lint.compatibility-vocabulary`. Fixes require resolved
+standard names or a checked Str receiver, keep comments, strings, external argv,
+environment names and serialized field keys intact, and normally parse/check the
+complete rewritten import graph before writing. A user `ARGV` binding or user
+`count_bytes` member is untouched; a shadowed canonical `args` target receives no
+fix. Standard API members used as unsupported first-class values also receive
+no fix. Record shorthand migration retains its original wire key. Unrelated errors
+and unsupported argument contracts remain errors.

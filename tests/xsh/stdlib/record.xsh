@@ -1,9 +1,12 @@
 type JsonPackage = {name: Str, version: Str}
+type PackageName = {name: Str}
 
-proc test_record_require_and_any_require() [error] {
-  let required = record.require({name: "pkg", version: "1", extra: 1}, {name: "Str"}, optional: {version: "Str"})?
+test test_record_schema_validation_and_any_require [error] {
+  let required = ({name: "pkg", version: "1", extra: 1}).require(PackageName)?
   test.eq(required.name, "pkg")?
-  test.error_kind(record.require({name: 1}, {name: "Str"}), "record-contract")?
+  test.ok("extra" in required)?
+  if "version" in required { let _ = required.get("version")?.require(Str)? }
+  test.error_kind(({name: 1}).require(PackageName), "schema")?
   let typed: JsonPackage = json.decode("{\"name\":\"pkg\",\"version\":\"1\"}")?.require(JsonPackage)?
   typed.version == "1"
   let row = {name: "pkg", version: "1"}
@@ -13,7 +16,7 @@ proc test_record_require_and_any_require() [error] {
   test.error_kind(row.get("missing"), "missing-field")?
 }
 
-proc test_standard_record_schemas_reject_bad_dynamic_records(ctx: TestContext) [error] {
+test test_standard_record_schemas_reject_bad_dynamic_records [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -38,21 +41,22 @@ print ${entry_name(raw)}
 """,
   )?
 
-  output.status == 3
-  "expected FsEntry, found Record" in output.stderr
+  test.eq(output.status, 2)?
+  "check.dynamic-boundary" in output.stderr
 }
 
-proc test_schema_runtime_checks_unknown_values(ctx: TestContext) [error] {
+test test_schema_runtime_checks_unknown_values [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
 type Package = { name: Str, root: Path }
 let rows = "{\"name\":\"demo\"}\n" |> json.lines()
-let pkg: Package = rows[0]
+let pkg = rows[0].require(Package)?
 print ${pkg.name}
 """,
   )?
 
-  output.status == 3
-  "expected Package, found Record" in output.stderr
+  test.eq(output.status, 3)?
+  "schema" in output.stderr
+  "missing required field root" in output.stderr
 }

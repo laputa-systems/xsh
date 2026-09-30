@@ -617,7 +617,7 @@ fn collect_statement(
     match statement.kind {
         ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
         ArenaStmtKind::Export(inner) => collect_statement(program, sources, inner, by_source),
-        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) => {
+        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) | ArenaStmtKind::PureDef(def) => {
             add_proc_definition(program, sources, statement.span, def, by_source);
         }
         ArenaStmtKind::StreamDef(def) => {
@@ -670,9 +670,13 @@ fn collect_statement(
             collect_block(program, sources, else_block, by_source);
         }
         ArenaStmtKind::Loop { block } => collect_block(program, sources, block, by_source),
-        ArenaStmtKind::Guard { else_block, .. } => {
+        ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => {
             add_span(sources, statement.span, by_source);
             collect_block(program, sources, else_block, by_source);
+        }
+        ArenaStmtKind::Assert { condition, message } => {
+            add_expr(program, sources, condition, by_source);
+            add_expr(program, sources, message, by_source);
         }
         ArenaStmtKind::GuardedStmt {
             stmt: inner,
@@ -691,10 +695,11 @@ fn collect_statement(
                 collect_block(program, sources, arm.block, by_source);
             }
         }
-        ArenaStmtKind::Let { .. }
+        ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
         | ArenaStmtKind::Var { .. }
         | ArenaStmtKind::Assign { .. }
         | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::YieldDelegate(_)
         | ArenaStmtKind::Yield(_)
         | ArenaStmtKind::Defer(_)
         | ArenaStmtKind::Break { .. }
@@ -882,6 +887,7 @@ fn coverage_receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::Regex => "Regex",
         MethodReceiver::ProcessHandle => "ProcessHandle",
         MethodReceiver::NetJob => "NetJob",
+        MethodReceiver::FsRoot => "FsRoot",
     }
 }
 

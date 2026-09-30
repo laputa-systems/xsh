@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   let scan_ext_set = set.from(scan_exts)
-  let re = regex.compile("\\b(TODO|FIXME|HACK|XXX|NOTE)\\b[:\\s]*(.*)")?
+  let re = rx"\b(TODO|FIXME|HACK|XXX|NOTE)\b[:\s]*(.*)"
 
   let files = fs.files(root)
     |> where .path.ext() in scan_ext_set

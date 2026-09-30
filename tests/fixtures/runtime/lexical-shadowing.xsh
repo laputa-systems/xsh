@@ -14,14 +14,14 @@ pure shadowed_words(text: Str) -> Str {
   var out = ""
   var index = 0
   while index < text.byte_len() {
-    let byte = text.byte_at(index, -1)
+    let byte = (text.byte_at(index) ?? -1)
     if byte == 32 {
       index = index + 1
       continue
     }
     var word = ""
     while index < text.byte_len() {
-      let byte = text.byte_at(index, -1)
+      let byte = (text.byte_at(index) ?? -1)
       if byte == 32 {
         break
       }

@@ -1,4 +1,9 @@
 #![allow(clippy::single_call_fn)]
+#[path = "lint_callable_alias.rs"]
+mod lint_callable_alias;
+
+#[path = "lint_cli_entry.rs"]
+mod cli_entry;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
@@ -8,7 +13,7 @@ use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::symbols::Symbol;
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
+    ArenaCompQualifier, ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
     ArenaEnvAssignmentValue, ArenaExpr, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaFunctionDef, ArenaMatchExprArm, ArenaModuleContractEntryKind, ArenaPatternKind,
@@ -22,6 +27,31 @@ use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, RunKind, StreamStageKind, UnaryOp,
     parse_command_word_reference,
 };
+
+fn list_splice_element_type_is_precise(ty: &Type) -> bool {
+    match ty {
+        Type::Bool | Type::Int | Type::Float | Type::Duration | Type::Str | Type::Bytes | Type::Path => true,
+        Type::List(item) => list_splice_element_type_is_precise(item),
+        _ => false,
+    }
+}
+
+fn pipeline_argument_expr(arg: &ArenaCallArg) -> Option<ExprId> {
+    match arg.kind {
+        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => Some(value),
+        _ => None,
+    }
+}
+
+fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
+    match arena.expr(expr).kind {
+        ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_)
+        | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).all(|item| list_update_argument_stable(arena, item)),
+        _ => false,
+    }
+}
 
 fn insertion_sort_by<T>(items: &mut [T], mut compare: impl FnMut(&T, &T) -> std::cmp::Ordering) {
     for index in 1..items.len() {
@@ -40,47 +70,76 @@ pub struct LintOutput {
 
 #[derive(Clone, Debug)]
 pub struct LintOptions {
+    pub prefer_inferred_pure_returns: bool,
+    pub prefer_inferred_private_effects: bool,
     pub runless: bool,
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
+    pub function_return_types: BTreeMap<Span, Type>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub proven_nonnull_fallback_receivers: BTreeSet<Span>,
+    pub requirement_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    pub requirement_expected_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub function_effect_facts: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
     pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
 
+    pub statically_resolved_call_spans: BTreeSet<Span>,
+    pub definitely_exiting_block_spans: BTreeSet<Span>,
     pub dead_code: bool,
+    pub native_test_file: bool,
 }
 
 impl Default for LintOptions {
     fn default() -> Self {
         Self {
+            prefer_inferred_pure_returns: false,
+            prefer_inferred_private_effects: false,
             runless: false,
             runless_except: Vec::new(),
             interactive_command_replacement: None,
+            function_return_types: BTreeMap::default(),
             expr_types: BTreeMap::default(),
+            proven_nonnull_fallback_receivers: BTreeSet::default(),
+            requirement_targets: BTreeMap::default(),
+            requirement_expected_targets: BTreeMap::default(),
+            statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
+            function_effect_facts: BTreeMap::default(),
             terminating_call_spans: BTreeSet::default(),
             assertion_effect_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
+            statically_resolved_call_spans: BTreeSet::default(),
+            definitely_exiting_block_spans: BTreeSet::default(),
             dead_code: true,
+            native_test_file: false,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 struct Binding {
+    mutable: bool,
     span: Span,
     used: bool,
     report_unused: bool,
+    comparison_stable: bool,
+    absence_lookup: bool,
 }
 
 pub struct Linter<'a> {
     arena: &'a AstArena,
+    record_constructors: xsh::frontend::check::RecordConstructors,
+    prefer_inferred_pure_returns: bool,
+    prefer_inferred_private_effects: bool,
+    return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
     source: &'a str,
     source_cst: std::sync::OnceLock<xsh::frontend::syntax::cst::SyntaxTree>,
     runless: bool,
@@ -88,12 +147,17 @@ pub struct Linter<'a> {
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     scopes: Vec<FxHashMap<String, Binding>>,
     diagnostics: Vec<Diagnostic>,
+    checked_function_returns: BTreeMap<Span, Type>,
     expr_types: BTreeMap<Span, Type>,
+    proven_nonnull_fallback_receivers: BTreeSet<Span>,
+    requirement_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    requirement_expected_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     result_unit_functions: Vec<bool>,
     result_path_functions: Vec<bool>,
     result_return_ok_types: Vec<Option<Type>>,
     function_return_types: Vec<Type>,
-    function_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    checked_effects: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
     terminating_call_spans: BTreeSet<Span>,
     assertion_effect_spans: BTreeSet<Span>,
     statement_expression_spans: BTreeSet<Span>,
@@ -103,12 +167,17 @@ pub struct Linter<'a> {
     whole_statement_call_spans: BTreeMap<Span, Span>,
     guarded_statement_depth: usize,
     negated_call_spans: BTreeMap<Span, Span>,
+    statically_resolved_call_spans: BTreeSet<Span>,
+    definitely_exiting_block_spans: BTreeSet<Span>,
     dead_code: bool,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
     record_type_names: FxHashSet<String>,
     used_type_names: FxHashSet<String>,
     assigned_names: FxHashSet<Name>,
+    regex_recovery_context: bool,
+    assertion_capture_depth: usize,
+    duration_conversion_module_unshadowed: bool,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -117,7 +186,7 @@ enum ArenaTypeExprKind {
     Named(Name),
     Qualified,
     List(TypeExprId),
-    Map(TypeExprId),
+    Map(Option<TypeExprId>, TypeExprId),
     Stream(TypeExprId),
     Module(TypeExprId),
     Result {
@@ -135,11 +204,11 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::Named => {
             ArenaTypeExprKind::Named(Name::from_symbol(Symbol::from_raw(data.lhs)))
         }
-        ArenaTypeExprTag::Qualified => ArenaTypeExprKind::Qualified,
+        ArenaTypeExprTag::Applied | ArenaTypeExprTag::Qualified => ArenaTypeExprKind::Qualified,
         ArenaTypeExprTag::List => {
             ArenaTypeExprKind::List(TypeExprId::from_index(data.lhs as usize))
         }
-        ArenaTypeExprTag::Map => ArenaTypeExprKind::Map(TypeExprId::from_index(data.lhs as usize)),
+        ArenaTypeExprTag::Map => ArenaTypeExprKind::Map(TypeExprId::from_optional_raw(data.rhs), TypeExprId::from_index(data.lhs as usize)),
         ArenaTypeExprTag::Stream => {
             ArenaTypeExprKind::Stream(TypeExprId::from_index(data.lhs as usize))
         }
@@ -180,8 +249,24 @@ impl<'a> Linter<'a> {
         options: LintOptions,
         include_reachability: bool,
     ) -> LintOutput {
+        // Constructor facts intern qualified enum names after checking. Retain
+        // those names in the source program even when the caller is a worker.
+        let _symbols = program.symbol_owner().enter();
+        let native_test_file = options.native_test_file;
+        let checked_effects = if options.function_effect_facts.is_empty() {
+            xsh::frontend::check::Checker::check_arena(program, source).function_effect_facts
+        } else { options.function_effect_facts };
         let mut linter = Self {
+            record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
+            duration_conversion_module_unshadowed: !(0..program.arena.stmt_tags.len()).any(|index| {
+                let ArenaStmtKind::Use(id) = program.arena.stmt(StmtId::from_index(index)).kind else { return false; };
+                let import = program.arena.use_stmt(id);
+                import.alias.or_else(|| program.arena.names(import.path).last()).is_some_and(|name| name == "time")
+            }),
+            prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
+            prefer_inferred_private_effects: options.prefer_inferred_private_effects,
+            return_removal_before: None,
             source,
             source_cst: std::sync::OnceLock::new(),
             runless: options.runless,
@@ -189,12 +274,17 @@ impl<'a> Linter<'a> {
             interactive_command_replacement: options.interactive_command_replacement,
             scopes: vec![FxHashMap::default()],
             diagnostics: Vec::new(),
+            checked_function_returns: options.function_return_types,
             expr_types: options.expr_types,
+            proven_nonnull_fallback_receivers: options.proven_nonnull_fallback_receivers,
+            requirement_targets: options.requirement_targets,
+            requirement_expected_targets: options.requirement_expected_targets,
+            statement_positions: options.statement_positions,
             result_unit_functions: Vec::new(),
             result_path_functions: Vec::new(),
             result_return_ok_types: Vec::new(),
             function_return_types: Vec::new(),
-            function_effects: options.callable_effects,
+            checked_effects,
             terminating_call_spans: options.terminating_call_spans,
             assertion_effect_spans: options.assertion_effect_spans,
             statement_expression_spans: options.statement_expression_spans,
@@ -204,30 +294,126 @@ impl<'a> Linter<'a> {
             whole_statement_call_spans: BTreeMap::new(),
             guarded_statement_depth: 0,
             negated_call_spans: BTreeMap::new(),
+            statically_resolved_call_spans: options.statically_resolved_call_spans,
+            definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
             record_type_names: FxHashSet::default(),
             used_type_names: FxHashSet::default(),
             assigned_names: FxHashSet::default(),
+            regex_recovery_context: false,
+            assertion_capture_depth: 0,
         };
         linter.define(
             "args",
             Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
             false,
         );
-        linter.define(
-            "ARGV",
-            Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
-            false,
-        );
         let statements: Vec<StmtId> = program.statement_ids().collect();
+        if native_test_file { linter.lint_legacy_test_declarations(&statements); }
         linter.lint_program(&statements);
+        linter.lint_defer_block_helpers(&statements);
+        if include_reachability { linter.diagnostics.extend(cli_entry::signature_cli_migration(program, source)); }
         if include_reachability {
             linter.lint_declaration_reachability(program);
+            linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
         LintOutput {
             diagnostics: linter.diagnostics,
+        }
+    }
+
+    fn lint_legacy_test_declarations(&mut self, statements: &[StmtId]) {
+        let tokens = xsh::frontend::syntax::lexer::Lexer::new(
+            xsh::frontend::source::SourceId::new(0), self.source,
+        ).lex_compact();
+        for &statement in statements {
+            let stmt = self.arena.stmt(statement);
+            let ArenaStmtKind::ProcDef(id) = stmt.kind else { continue };
+            let def = self.arena.function_def(id);
+            if def.test_declaration || !def.name.as_str().starts_with("test_") { continue; }
+            let body_span = self.arena.span(self.arena.block(def.body).span);
+            let Some(return_ty) = self.checked_function_returns.get(&body_span) else { continue };
+            if return_ty != &Type::Result(Box::new(Type::Unit), Box::new(Type::Error)) { continue; }
+            let params = self.arena.params(def.params);
+            if params.len() > 1 || params.iter().any(|param|
+                param.rest || param.default.is_some() || !self.arena.type_expr_named(param.ty, "TestContext")
+            ) { continue; }
+            let signature = Span::new(stmt.span.source_id, stmt.span.start(), body_span.start());
+            let mut diagnostic = Diagnostic::warning("legacy native test proc requires an explicit test declaration")
+                .with_code("lint.legacy-test-proc")
+                .with_label(Label::primary(signature, "preserve the exact name to retain the test ID"));
+            let references = (0..tokens.token_table.len()).filter(|&index|
+                tokens.token_table.name_at(index).is_some_and(|name| name.as_str() == def.name.as_str())
+            ).count();
+            let raw = self.source.get(signature.range()).unwrap_or_default();
+            if references == 1 && !raw.contains('#') {
+                let effects = def.effects.map(|effects| format!(" [{}]", self.arena.effects(effects)
+                    .map(|effect| effect.as_str().to_owned()).collect::<Vec<_>>().join(", "))).unwrap_or_default();
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(signature,
+                    "register the checked harness entrypoint", format!("test {}{} ", def.name, effects)));
+                if let Some(param) = params.first() {
+                    let insertion = Span::new(stmt.span.source_id, body_span.start() + 1, body_span.start() + 1);
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(insertion,
+                        "bind the immutable TestContext header", format!(" |{}|", param.name)));
+                }
+            } else {
+                diagnostic = diagnostic.with_label(Label::secondary(stmt.span,
+                    "extract callable shared work into an ordinary helper; signature comments require manual migration"));
+            }
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
+    fn lint_defer_block_helpers(&mut self, statements: &[StmtId]) {
+        for &statement in statements {
+            let definition_span = self.arena.stmt(statement).span;
+            let ArenaStmtKind::ProcDef(definition) = self.arena.stmt(statement).kind else { continue };
+            let definition = self.arena.function_def(definition);
+            if !definition.params.is_empty()
+                || !definition.effects.is_some_and(|effects| effects.is_empty())
+                || !matches!(type_expr_kind(self.arena, definition.return_ty), ArenaTypeExprKind::Named(name) if name == "Unit")
+            { continue; }
+            let body = self.arena.block(definition.body);
+            if body.statements.is_empty() { continue; }
+            // Literal output has no captures, fallible operations, or control transfers to reattribute.
+            if !self.arena.stmt_ids(body.statements).all(|id| {
+                let ArenaStmtKind::Command(command) = self.arena.stmt(id).kind else { return false };
+                let ArenaCommand::Core { name, args, env, block } = self.arena.command_stmt(command).command else { return false };
+                matches!(name, CoreCommand::Print | CoreCommand::Eprint)
+                    && env.is_empty() && block.is_none()
+                    && self.arena.command_args(args).iter().all(|arg| match arg.kind {
+                        ArenaCommandArgKind::Word(parts) => self.arena.word_parts(parts).all(|part| matches!(part, ArenaWordPart::Bare(_) | ArenaWordPart::Quoted(_))),
+                        _ => false,
+                    })
+            }) { continue; }
+            let references = (0..self.arena.expr_tags.len()).filter(|&index| matches!(
+                self.arena.expr(ExprId::from_index(index)).kind,
+                ArenaExprKind::Ident(name) if name == definition.name
+            )).count();
+            if references != 1 || (0..self.arena.stmt_tags.len()).any(|index| {
+                let ArenaStmtKind::Command(command) = self.arena.stmt(StmtId::from_index(index)).kind else { return false };
+                matches!(self.arena.command_stmt(command).command, ArenaCommand::Proc { name, .. } if name == definition.name)
+            }) { continue; }
+            let deferred = statements.iter().find_map(|&id| {
+                let stmt = self.arena.stmt(id);
+                let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(call)) = stmt.kind else { return None };
+                let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return None };
+                (args.is_empty() && matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == definition.name)
+                    && self.expr_types.get(&self.arena.expr(call).span) == Some(&Type::Unit)
+                    && stmt.span.source_id == definition_span.source_id).then_some(stmt.span)
+            });
+            let Some(deferred) = deferred else { continue };
+            let Some(definition_text) = self.source.get(definition_span.range()) else { continue };
+            let Some(body_text) = self.source.get(self.arena.span(body.span).range()) else { continue };
+            let preceding_comment = self.source.get(..definition_span.start()).and_then(|text| text.trim_end().lines().last()).is_some_and(|line| line.trim_start().starts_with('#'));
+            if definition_text.contains('#') || preceding_comment { continue; }
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "use a deferred block for this single-use literal cleanup helper")
+                .with_code("lint.prefer-defer-block")
+                .with_label(Label::secondary(deferred, "register the cleanup body directly"))
+                .with_fix_hint(FixHint::replacement(deferred, "register a deferred block", format!("defer {body_text}\n")))
+                .with_fix_hint(FixHint::replacement(definition_span, "remove the unused private helper", String::new())));
         }
     }
 
@@ -235,6 +421,7 @@ impl<'a> Linter<'a> {
         self.collect_assigned_names(statements);
         self.lint_import_blocks(statements);
         self.lint_top_level_const_order(statements);
+        self.lint_prepared_constants(statements);
         for &stmt_id in statements {
             let stmt = self.arena.stmt(stmt_id);
             let (inner_id, inner, is_exported) = match &stmt.kind {
@@ -311,6 +498,7 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Assign { target, .. } => self.collect_assigned_names_target(target),
             ArenaStmtKind::ProcDef(def)
+            | ArenaStmtKind::CliMain(def)
             | ArenaStmtKind::PureDef(def)
             | ArenaStmtKind::StreamDef(def) => {
                 self.collect_assigned_names_block(self.arena.function_def(def).body);
@@ -338,7 +526,7 @@ impl<'a> Linter<'a> {
                 self.collect_assigned_names_block(body);
                 self.collect_assigned_names_block(else_block);
             }
-            ArenaStmtKind::Guard { else_block, .. } => {
+            ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => {
                 self.collect_assigned_names_block(else_block);
             }
             ArenaStmtKind::Match { arms, .. } => {
@@ -349,15 +537,17 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Use(_)
             | ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_)
-            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
             | ArenaStmtKind::Var { .. }
             | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::YieldDelegate(_)
             | ArenaStmtKind::Yield(_)
             | ArenaStmtKind::Defer(_)
             | ArenaStmtKind::Break { .. }
             | ArenaStmtKind::Continue
             | ArenaStmtKind::Command(_)
             | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Expr(_) => {}
         }
     }
@@ -442,6 +632,27 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    fn lint_prepared_constants(&mut self, statements: &[StmtId]) {
+        for &statement in statements {
+            let statement = match self.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => inner, _ => statement,
+            };
+            let stmt = self.arena.stmt(statement);
+            let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } = stmt.kind else { continue; };
+            if !matches!(self.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name.as_str() != "_")
+                || !inert_constant_initializer(self.arena, value) { continue; }
+            let Some(expected) = self.expr_types.get(&self.arena.expr(value).span) else { continue; };
+            let Some(constant) = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default()) else { continue; };
+            if !constant.in_type(expected).matches_data_type(expected) { continue; }
+            let span = Span::new(stmt.span.source_id, stmt.span.start(), stmt.span.start() + 3);
+            if self.source.get(span.range()) != Some("let") { continue; }
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "module data can be declared as const")
+                .with_code("lint.prefer-const")
+                .with_label(Label::secondary(span, "this initializer is inert and can be prepared"))
+                .with_fix_hint(FixHint::replacement(span, "declare prepared immutable data", "const")));
+        }
+    }
+
     fn lint_top_level_const_order(&mut self, statements: &[StmtId]) {
         let mut saw_function = false;
         for &stmt_id in statements {
@@ -505,10 +716,14 @@ impl<'a> Linter<'a> {
             }
             ArenaTypeExprKind::Qualified => {}
             ArenaTypeExprKind::List(inner)
-            | ArenaTypeExprKind::Map(inner)
+
             | ArenaTypeExprKind::Stream(inner)
             | ArenaTypeExprKind::Module(inner)
             | ArenaTypeExprKind::Optional(inner) => self.collect_type_expr_refs(inner),
+            ArenaTypeExprKind::Map(key, value) => {
+                if let Some(key) = key { self.collect_type_expr_refs(key); }
+                self.collect_type_expr_refs(value);
+            }
             ArenaTypeExprKind::Result { ok, err } => {
                 self.collect_type_expr_refs(ok);
                 if let Some(err) = err {
@@ -524,6 +739,9 @@ impl<'a> Linter<'a> {
             ArenaTypeDefBody::RecordSchema(fields) => {
                 for field in self.arena.schema_fields(*fields).to_vec() {
                     self.collect_type_expr_refs(field.ty);
+                    if let Some(default) = field.default {
+                        self.lint_expr(default);
+                    }
                 }
             }
             ArenaTypeDefBody::ModuleContract(entries) => {
@@ -544,6 +762,9 @@ impl<'a> Linter<'a> {
             }
             ArenaTypeDefBody::TagUnion(variants) => {
                 for variant in self.arena.tag_variants(*variants).to_vec() {
+                    if let Some(value) = variant.wire_value {
+                        self.lint_expr(value);
+                    }
                     for ty in self.arena.extra_range(variant.fields).to_vec() {
                         self.collect_type_expr_refs(TypeExprId::from_index(ty as usize));
                     }
@@ -613,39 +834,63 @@ impl<'a> Linter<'a> {
                 target,
                 ty,
                 initializer,
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer,
             } => {
+                self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    self.lint_needless_annotation(target, false, type_expr, &initializer, exported);
+                    self.lint_needless_annotation(target, false, type_expr, &initializer, exported, stmt.span);
                 }
                 self.lint_expr_or_run(&initializer);
+                let absence_lookup = match initializer { ArenaExprOrRun::Expr(value) => self.proven_absence_lookup(value), _ => false };
                 self.define_binding_target(target, stmt.span, true);
+                if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind {
+                    if let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str())) {
+                        binding.comparison_stable = true;
+                        binding.absence_lookup = absence_lookup;
+                    }
+                }
             }
             ArenaStmtKind::Var {
                 target,
                 ty,
                 initializer,
             } => {
+                self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    self.lint_needless_annotation(target, true, type_expr, &initializer, exported);
+                    self.lint_needless_annotation(target, true, type_expr, &initializer, exported, stmt.span);
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
+                if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
+                    && let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str()))
+                {
+                    binding.mutable = true;
+                }
             }
-            ArenaStmtKind::Assign { target, value, .. } => {
+            ArenaStmtKind::Assign { target, op, value } => {
+                if op == AssignOp::Set {
+                    self.lint_list_compound_assignment(target, value, stmt.span);
+                }
                 self.lint_assign_target(target);
                 self.lint_expr_or_run(&value);
             }
-            ArenaStmtKind::ProcDef(def) => {
-                self.lint_proc_function(def, exported);
+            ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
+                self.lint_proc_function(def, exported, stmt.span);
                 self.lint_effect_annotation(def, stmt.span);
             }
-            ArenaStmtKind::PureDef(def) => self.lint_function(def),
+            ArenaStmtKind::PureDef(def) => {
+                self.lint_inferred_pure_return(def, exported);
+                self.lint_function(def);
+            },
             ArenaStmtKind::StreamDef(def) => {
-                self.lint_proc_function(def, exported);
+                self.lint_proc_function(def, exported, stmt.span);
                 self.lint_effect_annotation(def, stmt.span);
             }
             ArenaStmtKind::SignalHook(hook_id) => {
@@ -661,29 +906,34 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::Defer(value) => self.lint_expr_or_run(&value),
+            ArenaStmtKind::YieldDelegate(value) => self.lint_expr(value),
             ArenaStmtKind::Yield(value) => self.lint_expr_or_run(&value),
             ArenaStmtKind::If {
                 branches,
                 else_block,
             } => {
+                self.lint_list_pattern(branches, else_block, stmt.span);
                 self.lint_if_as_guard(branches, else_block, stmt.span);
+                self.lint_lexical_block(branches, else_block, stmt.span);
                 for branch in self.arena.if_branches(branches).to_vec() {
-                    self.lint_expr(branch.condition);
-                    self.lint_block(branch.block);
+                    self.lint_pattern_condition_block(branch.condition, branch.block);
                 }
                 if let Some(block) = else_block {
                     self.lint_block(block);
                 }
             }
             ArenaStmtKind::While { condition, block } => {
-                self.lint_expr(condition);
-                self.lint_block(block);
+                self.lint_pattern_condition_block(condition, block);
             }
             ArenaStmtKind::For {
                 target,
                 iter,
                 block,
             } => {
+                self.lint_scalar_split_iteration(iter);
+                self.lint_byte_iteration(stmt_id, target, iter, block);
+                self.lint_map_entry_iteration(stmt_id, target, iter, block);
+                self.lint_yield_delegation(stmt.span, target, iter, block);
                 self.lint_prefer_file_lines(iter);
                 self.lint_expr(iter);
                 self.push_scope();
@@ -708,6 +958,14 @@ impl<'a> Linter<'a> {
                 self.define_binding_target(target, stmt.span, true);
                 self.lint_block(else_block);
             }
+            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+                self.lint_expr(condition);
+                self.lint_block(else_block);
+            }
+            ArenaStmtKind::Assert { condition, message } => {
+                self.lint_expr(condition);
+                self.lint_expr(message);
+            }
             ArenaStmtKind::GuardedStmt {
                 stmt: inner,
                 condition,
@@ -719,6 +977,10 @@ impl<'a> Linter<'a> {
                 self.guarded_statement_depth -= 1;
             }
             ArenaStmtKind::Match { value, arms } => {
+                self.lint_adjacent_pattern_arms(self.arena.match_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, self.arena.span(self.arena.block(arm.block).span), self.arena.span(arm.span))).collect());
+                let old_regex_context = self.regex_recovery_context;
+                self.regex_recovery_context = true;
+                self.lint_pattern_conditional_stmt(value, arms, stmt.span);
                 self.lint_expr(value);
                 for arm in self.arena.match_arms(arms).to_vec() {
                     self.push_scope();
@@ -729,6 +991,7 @@ impl<'a> Linter<'a> {
                     self.lint_block_statements(arm.block);
                     self.pop_scope();
                 }
+                self.regex_recovery_context = old_regex_context;
                 let str_literal_arms = self
                     .arena
                     .match_arms(arms)
@@ -771,6 +1034,7 @@ impl<'a> Linter<'a> {
                         }
                     }
                 }
+                self.lint_core_assert(stmt.span, expr);
                 self.lint_expr(expr);
             },
             ArenaStmtKind::With {
@@ -779,16 +1043,160 @@ impl<'a> Linter<'a> {
                 else_block,
                 ..
             } => {
+                let old_regex_context = self.regex_recovery_context;
+                self.regex_recovery_context = true;
                 for binding in self.arena.with_bindings(bindings).to_vec() {
                     self.lint_expr_or_run(&ArenaExprOrRun::Expr(binding.initializer));
                 }
                 self.lint_block(body);
                 self.lint_block(else_block);
+                self.regex_recovery_context = old_regex_context;
             }
         }
     }
 
-    fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool) {
+    fn lint_core_assert(&mut self, stmt_span: Span, expression: ExprId) {
+        if self.assertion_capture_depth != 0 { return; }
+        if self.statement_positions.get(&stmt_span) != Some(&xsh::frontend::check::StatementPosition::Statement) { return; }
+        let call = match self.arena.expr(expression).kind {
+            ArenaExprKind::Try(call) => call,
+            ArenaExprKind::Call { .. } => expression,
+            _ => return,
+        };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(module) if module.as_str().as_str() == "test") { return; }
+        let operation = name.as_str();
+        let arity = match operation.as_str() { "ok" => 2, "eq" | "ne" => 3, _ => return };
+        let args = self.arena.call_args(args).to_vec();
+        if args.len() != arity { return; }
+        let mut values = Vec::new();
+        for (index, arg) in args.iter().enumerate() {
+            match arg.kind {
+                ArenaCallArgKind::Positional(value) => values.push(value),
+                ArenaCallArgKind::Named { name: label, value, .. } if index + 1 == arity && label.as_str().as_str() == "message" => values.push(value),
+                _ => return,
+            }
+        }
+        if !matches!(self.expr_types.get(&self.arena.expr(call).span), Some(Type::Result(ok, _)) if **ok == Type::Unit) { return; }
+        let condition = if operation.as_str() == "ok" {
+            if self.expr_types.get(&self.arena.expr(values[0]).span) != Some(&Type::Bool) { return; }
+            self.source[self.arena.expr(values[0]).span.range()].to_string()
+        } else {
+            let left = self.expr_types.get(&self.arena.expr(values[0]).span);
+            let right = self.expr_types.get(&self.arena.expr(values[1]).span);
+            if left != right || !matches!(left, Some(Type::Bool | Type::Int | Type::Float | Type::Duration | Type::Str | Type::Bytes | Type::Path)) { return; }
+            let op = if operation.as_str() == "eq" { "==" } else { "!=" };
+            format!("({}) {op} ({})", &self.source[self.arena.expr(values[0]).span.range()], &self.source[self.arena.expr(values[1]).span.range()])
+        };
+        let message = *values.last().unwrap();
+        if self.expr_types.get(&self.arena.expr(message).span) != Some(&Type::Str) { return; }
+        let mut diagnostic = Diagnostic::warning("use a core assertion for statement assertion context")
+            .with_code("lint.core-assert")
+            .with_label(Label::primary(self.arena.expr(expression).span, "assert condition, message"));
+        // Only a literal message can be delayed without changing eager effects,
+        // failure timing, or observation of a binding changed by an operand.
+        if matches!(self.arena.expr(message).kind, ArenaExprKind::Str(_))
+            && !self.source[self.arena.expr(expression).span.range()].contains('#') {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                self.arena.expr(expression).span,
+                "use failure-only assertion context",
+                format!("assert {condition}, {}", &self.source[self.arena.expr(message).span.range()]),
+            ));
+        } else {
+            diagnostic = diagnostic.with_note("the existing message runs eagerly; retain this call or bind operands and then the message in their original order before asserting");
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_inferred_pure_return(&mut self, id: FunctionDefId, exported: bool) {
+        let def = self.arena.function_def(id);
+        if !self.prefer_inferred_pure_returns || exported || def.return_ty_defaulted { return; }
+        let ty_span = self.arena.type_expr_span(def.return_ty);
+        let mut types = vec![def.return_ty];
+        while let Some(id) = types.pop() {
+            let data = self.arena.type_expr_data[id.index()];
+            match self.arena.type_expr_tags[id.index()] {
+                ArenaTypeExprTag::Named => {
+                    let name = Name::from_symbol(Symbol::from_raw(data.lhs));
+                    if Type::builtin_from_name(&name.as_str()).is_none() { return; }
+                }
+                ArenaTypeExprTag::Qualified => return,
+                ArenaTypeExprTag::Result => {
+                    types.push(TypeExprId::from_index(data.lhs as usize));
+                    if let Some(error) = TypeExprId::from_optional_raw(data.rhs) { types.push(error); }
+                }
+                _ => types.push(TypeExprId::from_index(data.lhs as usize)),
+            }
+        }
+        let start = scan_before_arrow(self.source, ty_span.start());
+        let deletion = Span::new(ty_span.source_id, start, ty_span.end());
+        let Some(annotation) = self.source.get(start..ty_span.end()) else { return; };
+        if annotation.contains('#') { return; }
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(start..ty_span.end(), "");
+        if self.return_removal_before.is_none() {
+            self.return_removal_before = Some(checked_return_removal_facts(self.source, ty_span.source_id, None));
+        }
+        let before = self.return_removal_before.as_ref().unwrap();
+        let after = checked_return_removal_facts(&rewritten, ty_span.source_id, Some((start, ty_span.end() - start)));
+        if before.is_none() || before != &after { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "private pure return type can be inferred exactly")
+            .with_code("lint.prefer-inferred-pure-return")
+            .with_label(Label::secondary(ty_span, "definition and caller types remain identical without this annotation"))
+            .with_fix_hint(FixHint::deletion(deletion, "infer the private pure return")));
+    }
+
+    fn lint_default_parameter_annotation(&mut self, param: &xsh::frontend::syntax::arena::ArenaParam) {
+        if param.ty_defaulted || param.default.is_none() || param.rest || self.annotation_refs_user_type(param.ty) { return; }
+        let span = self.arena.type_expr_span(param.ty);
+        let param_span = self.arena.span(param.span);
+        let Some(prefix) = self.source.get(param_span.start()..span.start()) else { return; };
+        let Some(colon) = prefix.rfind(':') else { return; };
+        let start = param_span.start() + colon;
+        let Some(annotation) = self.source.get(start..span.end()) else { return; };
+        if annotation.contains('#') { return; }
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(start..span.end(), "");
+        if self.return_removal_before.is_none() {
+            self.return_removal_before = Some(checked_return_removal_facts(self.source, span.source_id, None));
+        }
+        let before = self.return_removal_before.as_ref().unwrap();
+        let after = checked_return_removal_facts(&rewritten, span.source_id, Some((start, span.end() - start)));
+        if before.is_none() || before != &after { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "default establishes exactly the declared parameter type")
+            .with_code("lint.default-param-type")
+            .with_label(Label::secondary(span, "checked signatures, expression types, effects and conversions remain identical"))
+            .with_fix_hint(FixHint::deletion(Span::new(span.source_id, start, span.end()), "infer the parameter type from its default")));
+    }
+
+    fn checked_effect_fact(&self, body: Span) -> Option<&xsh::frontend::check::FunctionEffectFact> {
+        let mut matches = self.checked_effects.iter().filter_map(|(id, fact)| (id.body == body).then_some(fact));
+        let fact = matches.next()?;
+        matches.next().is_none().then_some(fact)
+    }
+
+    fn lint_inferred_proc_effects(&mut self, definition: FunctionDefId, exported: bool, statement_span: Span) {
+        if !self.prefer_inferred_private_effects || exported || self.source.contains('#') { return; }
+        let def = self.arena.function_def(definition);
+        if def.effects.is_none() || def.test_declaration { return; }
+        let body = self.arena.span(self.arena.block(def.body).span);
+        let Some(fact) = self.checked_effect_fact(body) else { return; };
+        if !fact.inference_allowed || fact.required.is_none() { return; }
+        let Some(span) = scan_effect_list_span(self.arena, def, statement_span, self.source) else { return; };
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(span.start()..span.end(), "");
+        let before = checked_return_removal_facts(self.source, span.source_id, None);
+        let after = checked_return_removal_facts(&rewritten, span.source_id, Some((span.start(), span.end() - span.start())));
+        if before.is_none() || before != after { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "private proc effect clause can be inferred exactly")
+            .with_code("lint.prefer-inferred-private-effects")
+            .with_label(Label::secondary(span, "checked body, caller contracts, and statement purposes remain equivalent"))
+            .with_fix_hint(FixHint::deletion(span, "infer the private proc effects")));
+    }
+
+    fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool, statement_span: Span) {
+        self.lint_inferred_proc_effects(def_id, exported, statement_span);
         let def = self.arena.function_def(def_id).clone();
         if !def.return_ty_defaulted && !exported && result_unit_type_expr(self.arena, def.return_ty)
         {
@@ -816,14 +1224,11 @@ impl<'a> Linter<'a> {
 
     fn lint_effect_annotation(&mut self, def_id: FunctionDefId, stmt_span: Span) {
         let def = self.arena.function_def(def_id).clone();
-        let mut effects = FxHashSet::default();
-        collect_block_effects(
-            self.arena,
-            def.body,
-            &mut effects,
-            Some(&self.function_effects),
-        );
         let body_span = self.arena.span(self.arena.block(def.body).span);
+        let Some(fact) = self.checked_effect_fact(body_span) else { return; };
+        if fact.inferred { return; }
+        let Some(required) = &fact.required else { return; };
+        let mut effects: FxHashSet<_> = required.iter().cloned().collect();
         if self.assertion_effect_spans.iter().any(|span| span.source_id == body_span.source_id && span.start() >= body_span.start() && span.end() <= body_span.end()) {
             effects.insert(Effect::Error);
         }
@@ -905,7 +1310,10 @@ impl<'a> Linter<'a> {
         let result_unit = result_unit_type_expr(self.arena, def.return_ty);
         let result_path = result_path_type_expr(self.arena, def.return_ty);
         let result_ok = result_ok_type_expr(self.arena, def.return_ty);
-        let return_ty = Type::from_arena(self.arena, def.return_ty);
+        let body_span = self.arena.span(self.arena.block(def.body).span);
+        let return_ty = self.checked_function_returns.get(&body_span).cloned()
+            .unwrap_or_else(|| Type::from_arena(self.arena, def.return_ty));
+
         self.result_unit_functions.push(result_unit);
         self.result_path_functions.push(result_path);
         self.result_return_ok_types.push(result_ok.clone());
@@ -921,10 +1329,12 @@ impl<'a> Linter<'a> {
             self.lint_tail_redundant_ok_return(def.body, result_ok.as_ref());
         }
         self.lint_redundant_tail_return_binding(def.body);
+        self.lint_redundant_tail_return(def.body, self.function_return_types.last().cloned().as_ref().unwrap());
         if !def.return_ty_defaulted {
             self.collect_type_expr_refs(def.return_ty);
         }
         for param in self.arena.params(def.params).to_vec() {
+            self.lint_default_parameter_annotation(&param);
             if !param.ty_defaulted {
                 self.collect_type_expr_refs(param.ty);
             }
@@ -1027,6 +1437,22 @@ impl<'a> Linter<'a> {
         self.push_path_roundtrip_diagnostic(expr_span, label_span, replacement);
     }
 
+    fn lint_inferred_require_target(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Require { schema: Some(schema), .. } = expression.kind else { return; };
+        let Some(actual) = self.requirement_targets.get(&expression.span) else { return; };
+        let Some(expected) = self.requirement_expected_targets.get(&expression.span) else { return; };
+        if actual.ty != expected.ty || actual.context != expected.context { return; }
+        let span = self.arena.type_expr_span(schema);
+        // Only the schema token range is removed. Comments inside that range
+        // carry author intent and must survive a source rewrite.
+        if self.source.get(expression.span.range()).is_none_or(|text| text.contains('#')) { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "schema target is supplied by the checked boundary")
+            .with_code("lint.inferred-require-target")
+            .with_label(Label::secondary(span, "the same concrete schema is independently known here"))
+            .with_fix_hint(FixHint::replacement(span, "infer the validation target", String::new())));
+    }
+
     fn lint_redundant_require(&mut self, expr: ExprId) {
         let arena_expr = self.arena.expr(expr);
         let ArenaExprKind::Try(inner) = arena_expr.kind else {
@@ -1104,6 +1530,46 @@ impl<'a> Linter<'a> {
         );
     }
 
+    fn lint_block_string_concatenation(&mut self, expr: ExprId) {
+        fn collect(arena: &AstArena, expr: ExprId, output: &mut String, links: &mut usize) -> bool {
+            match arena.expr(expr).kind {
+                ArenaExprKind::Str(text) => { output.push_str(&arena.string_literal(text)); true }
+                ArenaExprKind::Binary { op: BinaryOp::Add, left, right } => {
+                    *links += 1;
+                    collect(arena, left, output, links) && collect(arena, right, output, links)
+                }
+                _ => false,
+            }
+        }
+        let span = self.arena.expr(expr).span;
+        let original = &self.source[span.range()];
+        let mut value = String::new();
+        let mut links = 0;
+        if !collect(self.arena, expr, &mut value, &mut links) || links == 0
+            || !original.contains("\\n") || !value.contains('\n') || value.contains('\r')
+            || original.contains('#')
+        { return; }
+        let suffix = self.source[span.end()..].split(['\r', '\n']).next().unwrap_or("");
+        if !suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t')) { return; }
+        let line_start = self.source[..span.start()].rfind(['\r', '\n']).map_or(0, |offset| offset + 1);
+        let indent: String = self.source[line_start..span.start()].chars().take_while(|ch| matches!(ch, ' ' | '\t')).collect();
+        let margin = format!("{indent}  ");
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$").replace('\0', "\\0");
+        let content = escaped.split('\n').map(|line| format!("{margin}{line}")).collect::<Vec<_>>().join("\n");
+        let replacement = format!("\"\"\"\n{content}\n{margin}\"\"\"");
+        let witness = format!("let block_value = {replacement}\n");
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &witness);
+        if !parsed.diagnostics.is_empty() { return; }
+        let Some(statement) = parsed.arena.statement_ids().next() else { return; };
+        let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(candidate), .. } = parsed.arena.arena.stmt(statement).kind else { return; };
+        let ArenaExprKind::Str(text) = parsed.arena.arena.expr(candidate).kind else { return; };
+        if parsed.arena.arena.string_literal(text).as_ref() != value { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "constant escaped-newline concatenation can use a block string")
+            .with_code("lint.prefer-block-string")
+            .with_label(Label::secondary(span, "all pieces are literal text in source order"))
+            .with_fix_hint(FixHint::replacement(span, "preserve the exact decoded text", replacement)));
+    }
+
     fn lint_redundant_newline_triple_string(&mut self, expr: ExprId) {
         let arena_expr = self.arena.expr(expr);
         let ArenaExprKind::Str(value_id) = arena_expr.kind else {
@@ -1117,7 +1583,7 @@ impl<'a> Linter<'a> {
         let Some(source) = self.source.get(expr_span.range()) else {
             return;
         };
-        if source != "\"\"\"\n\"\"\"" && source != "\"\"\"\r\n\"\"\"" {
+        if source != "\"\"\"\n\n\n\"\"\"" {
             return;
         }
         self.diagnostics.push(
@@ -1246,7 +1712,7 @@ impl<'a> Linter<'a> {
 
     fn lint_empty_map_initializer(&mut self, ty: Option<TypeExprId>, initializer: &ArenaExprOrRun) {
         let is_map = ty
-            .is_some_and(|ty| matches!(type_expr_kind(self.arena, ty), ArenaTypeExprKind::Map(_)));
+            .is_some_and(|ty| matches!(type_expr_kind(self.arena, ty), ArenaTypeExprKind::Map(_, _)));
         if !is_map {
             return;
         }
@@ -1279,7 +1745,9 @@ impl<'a> Linter<'a> {
         ty: TypeExprId,
         initializer: &ArenaExprOrRun,
         exported: bool,
+        binding_span: Span,
     ) {
+        if self.lint_solved_local_annotation(target, mutable, ty, initializer, exported, binding_span) { return; }
         if mutable
             && let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
             && self.assigned_names.contains(&name)
@@ -1296,6 +1764,11 @@ impl<'a> Linter<'a> {
         let ArenaExprOrRun::Expr(init_expr_id) = initializer else {
             return;
         };
+        // Empty Map factories acquire their key and value types from this
+        // annotation. Removing it can also turn a later `{}` fix into a Record.
+        if matches!(annotation_ty, Type::Map(_, _)) && is_map_empty_call(self.arena, *init_expr_id) {
+            return;
+        }
         let init = self.arena.expr(*init_expr_id);
         if !self.annotation_is_needless(&annotation_ty, &init, exported) {
             return;
@@ -1328,12 +1801,64 @@ impl<'a> Linter<'a> {
         );
     }
 
+    fn lint_solved_local_annotation(&mut self, target: BindingTargetId, mutable: bool, annotation: TypeExprId, initializer: &ArenaExprOrRun, exported: bool, binding_span: Span) -> bool {
+        if exported || self.function_return_types.is_empty() || self.annotation_refs_user_type(annotation)
+            || !matches!(self.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name != "_") { return false; }
+        let ArenaExprOrRun::Expr(initializer) = *initializer else { return false; };
+        let candidate = match self.arena.expr(initializer).kind {
+            ArenaExprKind::List(items) => items.is_empty(),
+            ArenaExprKind::Null => mutable,
+            _ => false,
+        };
+        if !candidate { return false; }
+        let annotation_span = self.arena.type_expr_span(annotation);
+        let deletion = Span::new(annotation_span.source_id,
+            scan_before_colon(self.source, annotation_span.start()), scan_after_type(self.source, annotation_span.end()));
+        if deletion.start() >= deletion.end() || self.source[deletion.range()].contains('#') { return true; }
+        if !self.local_annotation_removal_preserves_contract(deletion, binding_span) { return true; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "local type is determined by consistent checked constraints")
+            .with_code("lint.needless-annotation")
+            .with_label(Label::secondary(annotation_span, "the whole local binding retains this fixed type without the annotation"))
+            .with_fix_hint(FixHint::deletion(deletion, "remove the redundant local annotation")));
+        true
+    }
+
+    fn local_annotation_removal_preserves_contract(&self, deletion: Span, binding: Span) -> bool {
+        let old_parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(deletion.source_id, self.source);
+        if !old_parsed.diagnostics.is_empty() { return false; }
+        let old_checked = xsh::frontend::check::Checker::check_arena(&old_parsed.arena, self.source);
+        if old_checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return false; }
+        let old = old_parsed.arena.symbol_owner().with_current(|| {
+            let shape = old_checked.local_binding_types.iter().find(|(span, _)| span.start() == binding.start())
+                .map(|(_, ty)| checked_return_type_shape(ty))?;
+            let facts = old_checked.expr_types.iter().filter(|(span, _)| span.source_id == deletion.source_id)
+                .map(|(span, ty)| ((shift_after_deletion(span.start(), deletion), shift_after_deletion(span.end(), deletion)), checked_return_type_shape(ty)))
+                .collect::<BTreeMap<_, _>>();
+            Some((shape, facts))
+        });
+        let Some((old_shape, old_facts)) = old else { return false; };
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(deletion.range(), "");
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(deletion.source_id, &rewritten);
+        if !parsed.diagnostics.is_empty() { return false; }
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &rewritten);
+        if checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return false; }
+        parsed.arena.symbol_owner().with_current(|| {
+            let shape = checked.local_binding_types.iter().find(|(span, _)| span.start() == binding.start())
+                .map(|(_, ty)| checked_return_type_shape(ty));
+            let facts = checked.expr_types.iter().filter(|(span, _)| span.source_id == deletion.source_id)
+                .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty)))
+                .collect::<BTreeMap<_, _>>();
+            shape.as_ref() == Some(&old_shape) && facts == old_facts
+        })
+    }
+
     fn annotation_is_needless(&self, annotation: &Type, init: &ArenaExpr, exported: bool) -> bool {
         // Branches and record fields can acquire their types from the binding.
         // Their checked type alone cannot prove that removing context is safe.
         if matches!(
             init.kind,
-            ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::Record(_)
+            ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::PatternTest { .. } | ArenaExprKind::PatternCondition { .. } | ArenaExprKind::Record(_)
         ) {
             return false;
         }
@@ -1366,10 +1891,11 @@ impl<'a> Linter<'a> {
                 self.type_declarations.contains_key(name.as_str().as_str())
             }
             ArenaTypeExprKind::List(inner)
-            | ArenaTypeExprKind::Map(inner)
+
             | ArenaTypeExprKind::Stream(inner)
             | ArenaTypeExprKind::Module(inner)
             | ArenaTypeExprKind::Optional(inner) => self.type_expr_refs_user_type(inner),
+            ArenaTypeExprKind::Map(key, value) => key.is_some_and(|key| self.type_expr_refs_user_type(key)) || self.type_expr_refs_user_type(value),
             ArenaTypeExprKind::Result { ok, err } => {
                 self.type_expr_refs_user_type(ok)
                     || err.is_some_and(|err| self.type_expr_refs_user_type(err))
@@ -1381,6 +1907,124 @@ impl<'a> Linter<'a> {
     fn is_empty_collection(&self, init: &ArenaExpr) -> bool {
         matches!(&init.kind, ArenaExprKind::List(items) if items.is_empty())
             || matches!(&init.kind, ArenaExprKind::Record(fields) if fields.is_empty())
+    }
+
+    fn lint_list_pattern(&mut self, branches: ArenaRange, _else_block: Option<BlockId>, span: Span) {
+        fn conjuncts(arena: &AstArena, expr: ExprId, out: &mut Vec<ExprId>) {
+            if let ArenaExprKind::Binary { op: BinaryOp::And, left, right } = arena.expr(expr).kind {
+                conjuncts(arena, left, out);
+                conjuncts(arena, right, out);
+            } else { out.push(expr); }
+        }
+        fn integer(arena: &AstArena, expr: ExprId) -> Option<usize> {
+            let ArenaExprKind::Int(value) = arena.expr(expr).kind else { return None };
+            usize::try_from(arena.int_literal(value).value()?).ok()
+        }
+        fn index(arena: &AstArena, expr: ExprId, subject: Name) -> Option<usize> {
+            let ArenaExprKind::Index { base, index, guarded: false } = arena.expr(expr).kind else { return None };
+            if !matches!(arena.expr(base).kind, ArenaExprKind::Ident(name) if name == subject) { return None; }
+            integer(arena, index)
+        }
+        let branches = self.arena.if_branches(branches);
+        if branches.len() != 1 { return; }
+        let branch = &branches[0];
+        let mut conditions = Vec::new();
+        conjuncts(self.arena, branch.condition, &mut conditions);
+        let Some(&bound) = conditions.first() else { return };
+        let ArenaExprKind::Binary { op, left, right } = self.arena.expr(bound).kind else { return };
+        if !matches!(op, BinaryOp::Eq | BinaryOp::Ge) { return; }
+        let Some(count) = integer(self.arena, right).filter(|count| *count <= 16) else { return };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(left).kind else { return };
+        if !args.is_empty() { return; }
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return };
+        if name != "len" { return; }
+        let ArenaExprKind::Ident(subject) = self.arena.expr(base).kind else { return };
+        if !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::List(_))) { return; }
+        if self.assigned_names.contains(&subject) || !self.scopes.iter().rev().find_map(|scope| scope.get(subject.as_str().as_str())).is_some_and(|binding| binding.comparison_stable && !binding.mutable) { return; }
+        let Some(original) = self.source.get(span.range()) else { return };
+        if original.contains('#') { return; }
+        let mut elements = vec!["_".to_string(); count];
+        for &condition in conditions.iter().skip(1) {
+            let ArenaExprKind::Binary { op: BinaryOp::Eq, left, right } = self.arena.expr(condition).kind else { return };
+            let Some(index) = index(self.arena, left, subject).filter(|index| *index < count) else { return };
+            if !matches!(self.arena.expr(right).kind, ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Bool(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Null) { return; }
+            if elements[index] != "_" { return; }
+            let Some(text) = self.source.get(self.arena.expr(right).span.range()) else { return };
+            elements[index] = text.to_string();
+        }
+        let block = self.arena.block(branch.block);
+        let statements: Vec<_> = self.arena.stmt_ids(block.statements).collect();
+        let mut names = FxHashSet::default();
+        let mut extracted = 0;
+        let mut body_start = self.arena.span(block.span).start() + 1;
+        for statement in statements {
+            let statement = self.arena.stmt(statement);
+            let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(value) } = statement.kind else { break };
+            let Some(index) = index(self.arena, value, subject).filter(|index| *index < count) else { break };
+            let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { return };
+            if elements[index] != "_" || name == subject || !names.insert(name) || self.tag_variants.contains(name.as_str().as_str()) { return; }
+            elements[index] = name.as_str().to_string();
+            body_start = statement.span.end();
+            extracted += 1;
+        }
+        if extracted == 0 { return; }
+        if op == BinaryOp::Ge { elements.push("..".to_string()); }
+        let block_span = self.arena.span(block.span);
+        let Some(body) = self.source.get(body_start..block_span.end()) else { return };
+        let Some(suffix) = self.source.get(block_span.end()..span.end()) else { return };
+        // Retaining the original branch suffix preserves its else block and value context.
+        let replacement = format!("if let [{}] = {} {{\n{}{}", elements.join(", "), subject, body, suffix);
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "prefer a list pattern for bounded element extraction")
+            .with_code("lint.prefer-list-pattern")
+            .with_label(Label::secondary(span, "length establishes every element bound before extraction"))
+            .with_fix_hint(FixHint::replacement(span, "bind the list elements after structural matching", replacement)));
+    }
+
+    fn lint_comparison_chain(&mut self, expr: ExprId) {
+        fn ordering(op: BinaryOp) -> bool { matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) }
+        fn ladder(arena: &AstArena, expr: ExprId, out: &mut Vec<(BinaryOp, ExprId, ExprId)>) -> bool {
+            match arena.expr(expr).kind {
+                ArenaExprKind::Binary { op: BinaryOp::And, left, right } => ladder(arena, left, out) && ladder(arena, right, out),
+                ArenaExprKind::Binary { op, left, right } if ordering(op) => { out.push((op, left, right)); true }
+                _ => false,
+            }
+        }
+        let span = self.arena.expr(expr).span;
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain") && diagnostic.labels.iter().any(|label| label.span.source_id == span.source_id && label.span.start() <= span.start() && label.span.end() >= span.end())) { return; }
+        if !matches!(self.arena.expr(expr).kind, ArenaExprKind::Binary { op: BinaryOp::And, .. }) { return; }
+        let mut pairs = Vec::new();
+        if !ladder(self.arena, expr, &mut pairs) || pairs.len() < 2 { return; }
+        let stable = |id| match self.arena.expr(id).kind {
+            ArenaExprKind::Ident(name) => self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str())).is_some_and(|binding| binding.comparison_stable) && !self.assigned_names.contains(&name),
+            ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) => true,
+            _ => false,
+        };
+        for adjacent in pairs.windows(2) {
+            let shared = adjacent[0].2;
+            let repeated = adjacent[1].1;
+            if !stable(shared) || !stable(repeated) || !same_ordering_operand(self.arena, shared, repeated) { return; }
+        }
+        let Some(original) = self.source.get(span.range()) else { return };
+        if original.contains('#') { return; }
+        let operand_text = |id| {
+            let expr = self.arena.expr(id);
+            let text = self.source.get(expr.span.range())?;
+            let needs_grouping = matches!(expr.kind,
+                ArenaExprKind::Binary { op: BinaryOp::ResultFallback | BinaryOp::Or | BinaryOp::And | BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::In | BinaryOp::NotIn, .. }
+                | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
+                | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. });
+            Some(if needs_grouping { format!("({text})") } else { text.to_string() })
+        };
+        let Some(mut replacement) = operand_text(pairs[0].1) else { return };
+        for (op, _, right) in pairs {
+            let Some(text) = operand_text(right) else { return };
+            replacement.push_str(match op { BinaryOp::Lt => " < ", BinaryOp::Le => " <= ", BinaryOp::Gt => " > ", BinaryOp::Ge => " >= ", _ => unreachable!() });
+            replacement.push_str(&text);
+        }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "prefer an ordering comparison chain")
+            .with_code("lint.prefer-comparison-chain")
+            .with_label(Label::secondary(span, "the repeated adjacent operand is stable"))
+            .with_fix_hint(FixHint::replacement(span, "compare adjacent operands once", replacement)));
     }
 
     fn lint_result_path_parse_roundtrip(&mut self, expr: ExprId) {
@@ -1624,6 +2268,14 @@ impl<'a> Linter<'a> {
         if !value_ty.matches_expected(ok) {
             return None;
         }
+        let selected = match self.arena.expr(value).kind { ArenaExprKind::Try(inner) => inner, _ => value };
+        let keyed = matches!(self.arena.expr(selected).kind, ArenaExprKind::Index { .. })
+            || matches!(self.arena.expr(selected).kind, ArenaExprKind::Call { callee, .. }
+                if matches!(self.arena.expr(callee).kind, ArenaExprKind::Field { name, .. } if name == "get"));
+        // A selected field keeps its exact shape; validation must not change its
+        // checked width or apply a schema conversion while removing this call.
+        if keyed && (value_ty != ok.as_ref() || type_has_unsigned_constraint(value_ty)) { return None; }
+        if self.source.get(value_span.end()..expr_span.end())?.contains('#') { return None; }
         let replacement = self.source.get(value_span.range())?.to_string();
         Some((value_span, replacement))
     }
@@ -1829,6 +2481,38 @@ impl<'a> Linter<'a> {
         );
     }
 
+    fn lint_redundant_tail_return(&mut self, body: BlockId, expected: &Type) {
+        if expected == &Type::Unit || expected.is_result_unit() { return; }
+        let Some(tail) = self.arena.stmt_ids(self.arena.block(body).statements).last() else { return; };
+        let stmt = self.arena.stmt(tail);
+        match stmt.kind {
+            ArenaStmtKind::If { branches, else_block: Some(other) } => {
+                for branch in self.arena.if_branches(branches).to_vec() { self.lint_redundant_tail_return(branch.block, expected); }
+                self.lint_redundant_tail_return(other, expected);
+            }
+            ArenaStmtKind::Match { arms, .. } => {
+                for arm in self.arena.match_arms(arms).to_vec() { self.lint_redundant_tail_return(arm.block, expected); }
+            }
+            ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => {
+                if self.statement_positions.get(&stmt.span) != Some(&xsh::frontend::check::StatementPosition::Value) { return; }
+                let value_span = self.arena.expr(value).span;
+                if !self.expr_types.get(&value_span).is_some_and(|ty| tail_type_matches_lint_expected(expected, ty)) { return; }
+                let start = stmt.span.start();
+                let Some(text) = self.source.get(start..value_span.start()) else { return; };
+                let Some(after_return) = text.strip_prefix("return") else { return; };
+                let whitespace = after_return.len() - after_return.trim_start().len();
+                let prefix = Span::new(stmt.span.source_id, start, start + "return".len() + whitespace);
+                if self.diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).filter_map(|fix| fix.span).any(|span| span.source_id == prefix.source_id && span.start() < prefix.end() && prefix.start() < span.end()) { return; }
+                if self.source.get(prefix.range()).is_none_or(|text| text.contains('#')) { return; }
+                self.diagnostics.push(Diagnostic::warning("tail return can supply its value implicitly")
+                    .with_code("lint.redundant-tail-return")
+                    .with_label(Label::primary(prefix, "remove the tail return"))
+                    .with_fix_hint(FixHint::replacement(prefix, "use the tail value", String::new())));
+            }
+            _ => {}
+        }
+    }
+
     fn lint_redundant_tail_return_binding(&mut self, body: BlockId) {
         let stmts: Vec<StmtId> = self
             .arena
@@ -1842,6 +2526,10 @@ impl<'a> Linter<'a> {
         let return_stmt = self.arena.stmt(stmts[len - 1]);
         let (target, ty, initializer) = match binding_stmt.kind {
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Expr(initializer),
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Expr(initializer),
@@ -1873,6 +2561,7 @@ impl<'a> Linter<'a> {
             self.arena.expr(initializer).kind,
             ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. } | ArenaExprKind::PatternCondition { .. }
                 | ArenaExprKind::Binary {
                     op: BinaryOp::ResultFallback,
                     ..
@@ -1984,18 +2673,19 @@ impl<'a> Linter<'a> {
             .map_or(0, |p| p + 1);
         let cur_indent = stmt_span.start() - line_start;
         let variant_indent = " ".repeat(cur_indent + 4);
-        let cont_prefix = format!("{}  | ", " ".repeat(cur_indent));
+        let cont_prefix = variant_indent.clone();
         let variant_texts: Vec<&str> = variant_spans
             .iter()
             .map(|v| &self.source[v.start()..v.end()])
             .collect();
         let mut lines = vec![format!(
-            "type {name} =\n{variant_indent}{}",
+            "enum {name} {{\n{variant_indent}{},",
             variant_texts[0]
         )];
         for v_text in &variant_texts[1..] {
-            lines.push(format!("{cont_prefix}{v_text}"));
+            lines.push(format!("{cont_prefix}{v_text},"));
         }
+        lines.push(format!("{}}}", " ".repeat(cur_indent)));
         let replacement = lines.join("\n") + "\n";
         self.diagnostics.push(
             Diagnostic::new(
@@ -2056,6 +2746,7 @@ impl<'a> Linter<'a> {
             self.arena.expr(ok_expr).kind,
             ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. } | ArenaExprKind::PatternCondition { .. }
                 | ArenaExprKind::Binary {
                     op: BinaryOp::ResultFallback,
                     ..
@@ -2114,10 +2805,281 @@ impl<'a> Linter<'a> {
         actual.matches_expected(expected_ok) && expected_ok.matches_expected(actual)
     }
 
+    fn pattern_condition_complement(&self, value: ExprId, selected: PatternId, complement: PatternId) -> bool {
+        if matches!(self.arena.pattern(complement).kind, ArenaPatternKind::Wildcard) { return true; }
+        if !matches!(self.expr_types.get(&self.arena.expr(value).span), Some(Type::Result(_, _))) { return false; }
+        match (&self.arena.pattern(selected).kind, &self.arena.pattern(complement).kind) {
+            (ArenaPatternKind::Constructor { name: left, arg: Some(left_arg) }, ArenaPatternKind::Constructor { name: right, arg: Some(right_arg) }) => {
+                ((*left == "Ok" && *right == "Err") || (*left == "Err" && *right == "Ok"))
+                    && matches!(self.arena.pattern(*left_arg).kind, ArenaPatternKind::Binding(_) | ArenaPatternKind::Wildcard)
+                    && matches!(self.arena.pattern(*right_arg).kind, ArenaPatternKind::Wildcard)
+            }
+            _ => false,
+        }
+    }
+
+    fn pattern_condition_selected_binds(&self, pattern: PatternId) -> bool {
+        match self.arena.pattern(pattern).kind {
+            ArenaPatternKind::Binding(_) | ArenaPatternKind::Wildcard
+            | ArenaPatternKind::Alternation(_) | ArenaPatternKind::Tuple(_) => return false,
+            ArenaPatternKind::List { elements, rest: Some(_) } if elements.is_empty() => return false,
+            ArenaPatternKind::Constructor { name, .. } if name != "Ok" && name != "Err" => {
+                if self.arena.type_defs.iter().any(|definition| match definition.body {
+                    ArenaTypeDefBody::TagUnion(variants) if variants.len() == 1 => self.arena.tag_variants(variants)[0].name == name,
+                    _ => false,
+                }) { return false; }
+            }
+            _ => {}
+        }
+        !self.pattern_test_fix_is_nonbinding(pattern)
+    }
+
+    fn pattern_conditional_replacement(&self, span: Span, replacement: &str, expression: bool) -> Option<String> {
+        let prefix = "let __pattern_conditional_value = ";
+        let fragment = if expression { format!("{prefix}{replacement}\n") } else { format!("{replacement}\n") };
+        let formatted = super::format::Formatter::new().format_source(span.source_id, &fragment);
+        if !formatted.diagnostics.is_empty() { return None; }
+        let text = formatted.formatted.trim_end();
+        let text = if expression { text.strip_prefix(prefix)? } else { text };
+        let line_start = self.source[..span.start()].rfind('\n').map_or(0, |start| start + 1);
+        let indent = &self.source[line_start..span.start()];
+        let indent = &indent[..indent.len() - indent.trim_start().len()];
+        let mut text = text.replace('\n', &format!("\n{indent}"));
+        if !expression {
+            let following = self.source.get(span.end()..)?;
+            let whitespace_len = following.len() - following.trim_start().len();
+            let whitespace = &following[..whitespace_len];
+            if !following.trim_start().starts_with('}') && !following.trim_start().is_empty()
+                && whitespace.matches('\n').count() == 1
+            { text.push('\n'); }
+        }
+        Some(text)
+    }
+
+    fn lint_pattern_conditional_stmt(&mut self, value: ExprId, arms: ArenaRange, span: Span) {
+        let [selected, complement] = self.arena.match_arms(arms) else { return; };
+        if selected.guard.is_some() || complement.guard.is_some()
+            || !self.pattern_condition_selected_binds(selected.pattern)
+            || !self.pattern_condition_complement(value, selected.pattern, complement.pattern)
+        { return; }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "two-arm match can use a pattern conditional")
+            .with_code("lint.pattern-conditional")
+            .with_label(Label::secondary(span, "bind the selected pattern with `if let`"));
+        if self.source.get(span.range()).is_some_and(|source| !source.contains('#')) {
+            let subject = self.source.get(self.arena.expr(value).span.range());
+            let pattern = self.source.get(self.arena.span(self.arena.pattern(selected.pattern).span).range());
+            let selected_body = self.source.get(self.arena.span(self.arena.block(selected.block).span).range());
+            let other = self.source.get(self.arena.span(self.arena.block(complement.block).span).range());
+            if let (Some(subject), Some(pattern), Some(body), Some(other)) = (subject, pattern, selected_body, other) {
+                let other_empty = self.arena.block(complement.block).statements.is_empty();
+                let braced = |text: &str| if text.trim().starts_with('{') { text.to_string() } else { format!("{{ {text} }}") };
+                let body = braced(body);
+                let suffix = if other_empty { String::new() } else { format!(" else {}", braced(other)) };
+                if let Some(replacement) = self.pattern_conditional_replacement(span, &format!("if let {pattern} = {subject} {body}{suffix}"), false) {
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use a pattern conditional", replacement));
+                }
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_pattern_conditional_expr(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else { return; };
+        let [selected, complement] = self.arena.match_expr_arms(arms) else { return; };
+        if matches!(self.arena.expr(selected.value).kind, ArenaExprKind::Bool(_))
+            && matches!(self.arena.expr(complement.value).kind, ArenaExprKind::Bool(_))
+        { return; }
+        if selected.guard.is_some() || complement.guard.is_some()
+            || !self.pattern_condition_selected_binds(selected.pattern)
+            || !self.pattern_condition_complement(value, selected.pattern, complement.pattern)
+        { return; }
+        let span = expression.span;
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "two-arm match can use a pattern conditional")
+            .with_code("lint.pattern-conditional")
+            .with_label(Label::secondary(span, "bind the selected pattern with `if let`"));
+        if self.source.get(span.range()).is_some_and(|source| !source.contains('#')) {
+            let subject = self.source.get(self.arena.expr(value).span.range());
+            let pattern = self.source.get(self.arena.span(self.arena.pattern(selected.pattern).span).range());
+            let branch = |value| self.source.get(self.arena.expr(value).span.range()).map(|text| {
+                if matches!(self.arena.expr(value).kind, ArenaExprKind::ValueBlock(_)) { text.to_string() } else { format!("{{ {text} }}") }
+            });
+            if let (Some(subject), Some(pattern), Some(yes), Some(no)) = (subject, pattern, branch(selected.value), branch(complement.value)) {
+                if let Some(replacement) = self.pattern_conditional_replacement(span, &format!("if let {pattern} = {subject} {yes} else {no}"), true) {
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use a pattern conditional", replacement));
+                }
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_error_fallback_block(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else { return; };
+        let [first, second] = self.arena.match_expr_arms(arms) else { return; };
+        if first.guard.is_some() || second.guard.is_some() { return; }
+        let constructor = |pattern| match self.arena.pattern(pattern).kind {
+            ArenaPatternKind::Constructor { name, arg: Some(argument) } => Some((name, argument)),
+            _ => None,
+        };
+        let (Some((first_name, first_arg)), Some((second_name, second_arg))) = (constructor(first.pattern), constructor(second.pattern)) else { return; };
+        let (success, success_arg, handler, error_arg) = if first_name == "Ok" && second_name == "Err" {
+            (first, first_arg, second, second_arg)
+        } else if first_name == "Err" && second_name == "Ok" {
+            (second, second_arg, first, first_arg)
+        } else { return; };
+        let ArenaPatternKind::Binding(success_name) = self.arena.pattern(success_arg).kind else { return; };
+        let identity = match self.arena.expr(success.value).kind {
+            ArenaExprKind::Ident(name) => name == success_name,
+            ArenaExprKind::ValueBlock(block) => {
+                let statements = self.arena.stmt_ids(self.arena.block(block).statements).collect::<Vec<_>>();
+                matches!(statements.as_slice(), [stmt] if match self.arena.stmt(*stmt).kind {
+                    ArenaStmtKind::TailBareIdent(name) => name == success_name,
+                    ArenaStmtKind::Expr(value) => matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == success_name),
+                    _ => false,
+                })
+            }
+            _ => false,
+        };
+        if !identity { return; }
+        let error_name = match self.arena.pattern(error_arg).kind {
+            ArenaPatternKind::Binding(name) if !self.tag_variants.contains(name.as_str().as_str()) => name.to_string(),
+            ArenaPatternKind::Wildcard => "_".to_string(),
+            _ => return,
+        };
+        let Some(Type::Result(success_type, _)) = self.expr_types.get(&self.arena.expr(value).span) else { return; };
+        if success_type.contains_any() || **success_type == Type::Unknown
+            || self.expr_types.get(&expression.span) != Some(success_type.as_ref()) { return; }
+        let Some(original) = self.source.get(expression.span.range()) else { return; };
+        if original.contains('#') { return; }
+        let Some(subject) = self.source.get(self.arena.expr(value).span.range()) else { return; };
+        let Some(handler_source) = self.source.get(self.arena.expr(handler.value).span.range()) else { return; };
+        let line_indent = |offset: usize| {
+            self.source[..offset].rsplit('\n').next().unwrap_or("")
+                .chars().take_while(|character| *character == ' ').count()
+        };
+        let indent = line_indent(expression.span.start());
+        let handler = if matches!(self.arena.expr(handler.value).kind, ArenaExprKind::ValueBlock(_)) {
+            let Some(rest) = handler_source.strip_prefix('{') else { return; };
+            let removed_indent = line_indent(self.arena.expr(handler.value).span.start()).saturating_sub(indent);
+            let mut lines = rest.split('\n');
+            let mut body = lines.next().unwrap_or("").to_string();
+            for line in lines {
+                body.push('\n');
+                let trim = line.bytes().take(removed_indent).take_while(|byte| *byte == b' ').count();
+                body.push_str(&line[trim..]);
+            }
+            format!("{{ |{error_name}|{body}")
+        } else {
+            if handler_source.contains('\n') { return; }
+            format!("{{ |{error_name}|\n{}{handler_source}\n{}}}", " ".repeat(indent + 2), " ".repeat(indent))
+        };
+        let subject = match self.arena.expr(value).kind {
+            ArenaExprKind::Ident(_) | ArenaExprKind::Call { .. }
+            | ArenaExprKind::Field { .. } | ArenaExprKind::Index { .. } | ArenaExprKind::Try(_) => subject.to_string(),
+            _ => format!("({subject})"),
+        };
+        let replacement = format!("{subject} ?? {handler}");
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "identity success match can use an error fallback block")
+            .with_code("lint.error-fallback-block")
+            .with_label(Label::secondary(expression.span, "retain the lazy error handler with `??`"))
+            .with_fix_hint(FixHint::replacement(expression.span, "use an error fallback block", replacement)));
+    }
+
+    fn lint_adjacent_pattern_arms(&mut self, arms: Vec<(PatternId, Option<ExprId>, Span, Span)>) {
+        let mut start = 0;
+        while start + 1 < arms.len() {
+            let Some(body) = self.source.get(arms[start].2.range()) else { return };
+            if arms[start].1.is_some() { start += 1; continue; }
+            let mut end = start + 1;
+            while end < arms.len() && arms[end].1.is_none()
+                && self.source.get(arms[end].2.range()).is_some_and(|other| other.trim() == body.trim())
+            { end += 1; }
+            if end == start + 1 { start = end; continue; }
+            let span = Span::new(arms[start].3.source_id, arms[start].3.start(), arms[end - 1].3.end());
+            let Some(original) = self.source.get(span.range()) else { return };
+            if original.contains('#') { start = end; continue; }
+            let patterns: Option<Vec<_>> = arms[start..end].iter().map(|(pattern, _, _, _)| self.source.get(self.arena.span(self.arena.pattern(*pattern).span).range())).collect();
+            let Some(patterns) = patterns else { return };
+            let replacement = format!("{} => {}", patterns.join(" | "), body);
+            let mut candidate = self.source.to_string();
+            candidate.replace_range(span.range(), &replacement);
+            let (_, cst_errors) = xsh::frontend::syntax::cst::SyntaxTree::parse(span.source_id, &candidate);
+            let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(span.source_id, &candidate);
+            if cst_errors.is_empty() && parsed.diagnostics.is_empty() {
+                let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate);
+                // Rechecking the combined pattern proves equal resolved capture types,
+                // including nominal constructor payloads and aliases of those types.
+                if checked.diagnostics.is_empty() {
+                    self.diagnostics.push(Diagnostic::new(Severity::Warning, "adjacent match arms can share an alternative pattern")
+                        .with_code("lint.identical-match-arms")
+                        .with_label(Label::secondary(span, "unguarded arms share a checked body and capture contract"))
+                        .with_fix_hint(FixHint::replacement(span, "combine the compatible alternatives", replacement)));
+                }
+            }
+            start = end;
+        }
+    }
+
+    fn lint_boolean_match(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else { return; };
+        let [selected, complement] = self.arena.match_expr_arms(arms) else { return; };
+        let wildcard_complement = matches!(self.arena.pattern(complement.pattern).kind, ArenaPatternKind::Wildcard);
+        let result_complement = matches!(self.expr_types.get(&self.arena.expr(value).span), Some(Type::Result(_, _)))
+            && match (self.arena.pattern(selected.pattern).kind.clone(), self.arena.pattern(complement.pattern).kind.clone()) {
+                (ArenaPatternKind::Constructor { name: left, arg: Some(left_arg) }, ArenaPatternKind::Constructor { name: right, arg: Some(right_arg) }) => {
+                    ((left == "Ok" && right == "Err") || (left == "Err" && right == "Ok"))
+                        && matches!(self.arena.pattern(left_arg).kind, ArenaPatternKind::Wildcard)
+                        && matches!(self.arena.pattern(right_arg).kind, ArenaPatternKind::Wildcard)
+                }
+                _ => false,
+            };
+        if selected.guard.is_some() || complement.guard.is_some() || !(wildcard_complement || result_complement) { return; }
+        let (ArenaExprKind::Bool(yes), ArenaExprKind::Bool(no)) = (self.arena.expr(selected.value).kind, self.arena.expr(complement.value).kind) else { return; };
+        if yes == no { return; }
+        let span = expression.span;
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "boolean match can use a pattern test")
+            .with_code("lint.boolean-pattern-test")
+            .with_label(Label::secondary(span, "test the selected pattern with `is`"));
+        if self.pattern_test_fix_is_nonbinding(selected.pattern)
+            && self.source.get(span.range()).is_some_and(|source| !source.contains('#'))
+        {
+            let subject = self.arena.expr(value).span;
+            let pattern = self.arena.span(self.arena.pattern(selected.pattern).span);
+            if let (Some(subject), Some(pattern)) = (self.source.get(subject.range()), self.source.get(pattern.range())) {
+                let pattern = if matches!(self.arena.pattern(selected.pattern).kind, ArenaPatternKind::Alternation(_)) { format!("({pattern})") } else { pattern.to_string() };
+                let replacement = if yes { format!("(({subject}) is {pattern})") } else { format!("!(({subject}) is {pattern})") };
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use a non-binding pattern test", replacement));
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn pattern_test_fix_is_nonbinding(&self, pattern: PatternId) -> bool {
+        match self.arena.pattern(pattern).kind {
+            ArenaPatternKind::Wildcard | ArenaPatternKind::Literal(_) | ArenaPatternKind::Facet(_) | ArenaPatternKind::TestName { .. } => true,
+            ArenaPatternKind::Binding(name) => self.tag_variants.contains(name.as_str().as_str()),
+            ArenaPatternKind::Type { binding, .. } => binding.is_none(),
+            ArenaPatternKind::Constructor { arg, .. } => arg.is_none_or(|arg| self.pattern_test_fix_is_nonbinding(arg)),
+            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => self.arena.pattern_fields(fields).iter().all(|field| self.pattern_test_fix_is_nonbinding(field.pattern)),
+            ArenaPatternKind::Tuple(patterns) => self.arena.pattern_ids(patterns).all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
+            ArenaPatternKind::List { elements, rest } => self.arena.pattern_ids(elements).chain(rest).all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
+            ArenaPatternKind::Alias { .. } => false,
+            ArenaPatternKind::Group(child) => self.pattern_test_fix_is_nonbinding(child),
+            ArenaPatternKind::Alternation(items) => self.arena.pattern_ids(items).all(|child| self.pattern_test_fix_is_nonbinding(child)),
+        }
+    }
+
     fn lint_pattern(&mut self, pattern: PatternId) {
         let arena_pattern = self.arena.pattern(pattern).clone();
         let span = self.arena.span(arena_pattern.span);
         match arena_pattern.kind {
+            ArenaPatternKind::Group(child) => self.lint_pattern(child),
+            ArenaPatternKind::Alias { pattern, name, name_span } => {
+                self.lint_pattern(pattern);
+                self.define(&name.as_str(), self.arena.span(name_span), true);
+            }
             ArenaPatternKind::Binding(name) => {
                 if !self.tag_variants.contains(name.as_str().as_str()) {
                     self.define(name.as_str().as_str(), span, true);
@@ -2134,19 +3096,30 @@ impl<'a> Linter<'a> {
                     self.lint_pattern(arg);
                 }
             }
-            ArenaPatternKind::Record { fields, .. } => {
+            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => {
                 for field in self.arena.pattern_fields(fields).to_vec() {
                     self.lint_pattern(field.pattern);
                 }
             }
-            ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns) => {
-                for pat in self.arena.pattern_ids(patterns).collect::<Vec<_>>() {
-                    self.lint_pattern(pat);
-                }
+            ArenaPatternKind::List { elements, rest } => {
+                for child in self.arena.pattern_ids(elements).chain(rest).collect::<Vec<_>>() { self.lint_pattern(child); }
             }
+            ArenaPatternKind::Alternation(patterns) => {
+                let children: Vec<_> = self.arena.pattern_ids(patterns).collect();
+                let saved = self.scopes.last().cloned().unwrap_or_default();
+                for &child in children.iter().skip(1) {
+                    if let Some(scope) = self.scopes.last_mut() { *scope = saved.clone(); }
+                    self.lint_pattern(child);
+                }
+                if let Some(scope) = self.scopes.last_mut() { *scope = saved; }
+                if let Some(&child) = children.first() { self.lint_pattern(child); }
+            }
+            ArenaPatternKind::Tuple(patterns) => {
+                for pat in self.arena.pattern_ids(patterns).collect::<Vec<_>>() { self.lint_pattern(pat); }
+            }
+            ArenaPatternKind::TestName { ty, .. } => self.collect_type_expr_refs(ty),
             ArenaPatternKind::Wildcard
             | ArenaPatternKind::Literal(_)
-            | ArenaPatternKind::ErrorVariant { .. }
             | ArenaPatternKind::Facet(_) => {}
         }
     }
@@ -2158,13 +3131,22 @@ impl<'a> Linter<'a> {
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 for field in self.arena.destructure_fields(fields).to_vec() {
-                    self.define(
-                        field.name.as_str().as_str(),
-                        self.arena.span(field.span),
-                        report_unused,
-                    );
+                    self.define_binding_target(field.target, self.arena.span(field.span), report_unused);
                 }
             }
+        }
+    }
+
+    fn lint_pattern_condition_block(&mut self, condition: ExprId, block: BlockId) {
+        if let ArenaExprKind::PatternCondition { value, arms } = self.arena.expr(condition).kind {
+            self.lint_expr(value);
+            self.push_scope();
+            self.lint_pattern(self.arena.match_expr_arms(arms)[0].pattern);
+            self.lint_block_statements(block);
+            self.pop_scope();
+        } else {
+            self.lint_expr(condition);
+            self.lint_block(block);
         }
     }
 
@@ -2183,10 +3165,163 @@ impl<'a> Linter<'a> {
         self.lint_statement_sequence(&stmts);
     }
 
+    fn lint_record_destructuring(&mut self, stmts: &[StmtId]) {
+        fn extraction(linter: &Linter<'_>, stmt: StmtId) -> Option<(Name, Vec<Name>, Name)> {
+            let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(mut value) } = linter.arena.stmt(stmt).kind else { return None; };
+            let ArenaBindingTargetKind::Name(binding) = linter.arena.binding_target(target).kind else { return None; };
+            if binding.as_str() == "_" { return None; }
+            let mut path = Vec::new();
+            while let ArenaExprKind::Field { base, name } = linter.arena.expr(value).kind {
+                let Some(Type::Record(schema)) = linter.expr_types.get(&linter.arena.expr(base).span) else { return None; };
+                if !schema.contains_key(&name) { return None; }
+                path.push(name);
+                value = base;
+            }
+            let ArenaExprKind::Ident(root) = linter.arena.expr(value).kind else { return None; };
+            if path.is_empty() || root == binding { return None; }
+            path.reverse();
+            Some((root, path, binding))
+        }
+        fn target(entries: &[(Vec<Name>, Name)], depth: usize) -> Option<String> {
+            let mut fields: Vec<(Name, Vec<(Vec<Name>, Name)>)> = Vec::new();
+            for (path, binding) in entries {
+                let field = *path.get(depth)?;
+                if let Some((_, children)) = fields.iter_mut().find(|(name, _)| *name == field) {
+                    if path.len() == depth + 1 || children.iter().any(|(path, _)| path.len() == depth + 1) { return None; }
+                    children.push((path.clone(), *binding));
+                } else { fields.push((field, vec![(path.clone(), *binding)])); }
+            }
+            let mut output = Vec::new();
+            for (field, children) in fields {
+                if children[0].0.len() == depth + 1 {
+                    let binding = children[0].1;
+                    output.push(if field == binding { field.to_string() } else { format!("{field}: {binding}") });
+                } else { output.push(format!("{field}: {}", target(&children, depth + 1)?)); }
+            }
+            output.push("..".to_string());
+            Some(format!("{{{}}}", output.join(", ")))
+        }
+        let mut index = 0;
+        while index < stmts.len() {
+            let Some((root, path, binding)) = extraction(self, stmts[index]) else { index += 1; continue; };
+            let start = index;
+            let mut entries = vec![(path, binding)];
+            index += 1;
+            while index < stmts.len() {
+                let Some((next_root, path, binding)) = extraction(self, stmts[index]) else { break; };
+                if next_root != root || entries.iter().any(|(_, name)| *name == next_root || *name == binding) { break; }
+                entries.push((path, binding));
+                index += 1;
+            }
+            if entries.len() < 2 { continue; }
+            let first = self.arena.stmt(stmts[start]).span;
+            let last = self.arena.stmt(stmts[index - 1]).span;
+            let span = Span::new(first.source_id, first.start(), last.end());
+            if self.source.get(span.range()).is_none_or(|source| source.contains('#')) { continue; }
+            let Some(pattern) = target(&entries, 0) else { continue; };
+            let suffix = if self.source.get(span.range()).is_some_and(|source| source.ends_with('\n')) { "\n" } else { "" };
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "adjacent record field bindings can destructure their source")
+                .with_code("lint.prefer-record-destructuring")
+                .with_label(Label::secondary(span, "these fields come from the same checked record binding"))
+                .with_fix_hint(FixHint::replacement(span, "bind the selected record fields together", format!("let {pattern} = {root}{suffix}"))));
+        }
+    }
+
+    /// A fresh placeholder can disappear only when no cleanup or body work
+    /// observes its earlier initialization. Keep mutation semantics for later use.
+    fn lint_context_scope_scaffolds(&mut self, stmts: &[StmtId]) {
+        for pair in stmts.windows(2) {
+            let declaration = self.arena.stmt(pair[0]);
+            let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initial), .. } = declaration.kind else { continue; };
+            let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { continue; };
+            if !matches!(self.arena.expr(initial).kind, ArenaExprKind::Int(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bool(_) | ArenaExprKind::PathStr(_)) { continue; }
+            let statement = self.arena.stmt(pair[1]);
+            let (input, block, cwd) = match statement.kind {
+                ArenaStmtKind::Expr(expr) => {
+                    let ArenaExprKind::Try(scope) = self.arena.expr(expr).kind else { continue; };
+                    let ArenaExprKind::ContextScope { input, block, kind, value_body: false } = self.arena.expr(scope).kind else { continue; };
+                    (input, block, kind == xsh::frontend::syntax::arena::ContextScopeKind::Cwd)
+                }
+                ArenaStmtKind::Command(command) => {
+                    let command = self.arena.command_stmt(command);
+                    let ArenaCommand::Core { name: CoreCommand::Cd, args, block: Some(block), .. } = command.command else { continue; };
+                    let [argument] = self.arena.command_args(args) else { continue; };
+                    let ArenaCommandArgKind::Typed(input) = argument.kind else { continue; };
+                    if !command.propagate { continue; }
+                    (input, block, true)
+                }
+                _ => continue,
+            };
+            let body: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+            let [assignment] = body.as_slice() else { continue; };
+            let assignment = self.arena.stmt(*assignment);
+            let ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(value) } = assignment.kind else { continue; };
+            if !matches!(self.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(found) if found == name)
+                || expr_references_name(self.arena, input, name) || expr_references_name(self.arena, value, name) { continue; }
+            if self.expr_types.get(&self.arena.expr(initial).span).is_none()
+                || self.expr_types.get(&self.arena.expr(initial).span) != self.expr_types.get(&self.arena.expr(value).span) { continue; }
+            let edit = Span::new(declaration.span.source_id, declaration.span.start(), statement.span.end());
+            let mut diagnostic = Diagnostic::warning("a fresh placeholder can consume the scope value")
+                .with_code("lint.prefer-context-scope-value")
+                .with_label(Label::secondary(edit, "initialize directly from the restored context"));
+            // Cleanup captures, signal handlers, and comments can observe or explain the original
+            // assignment timing; leave those scaffolds for an explicit edit.
+            fn scalar_atom(arena: &AstArena, expr: ExprId) -> bool {
+                matches!(arena.expr(expr).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bool(_) | ArenaExprKind::PathStr(_))
+            }
+            let stable_input = scalar_atom(self.arena, input) || match self.arena.expr(input).kind {
+                ArenaExprKind::Record(fields) => self.arena.record_fields(fields).iter().all(|field| match field.kind {
+                    ArenaRecordFieldKind::Named { value, .. } => scalar_atom(self.arena, value),
+                    ArenaRecordFieldKind::Shorthand { .. } => true,
+                    _ => false,
+                }),
+                _ => false,
+            };
+            let mut selected_value = value;
+            if let ArenaExprKind::Try(inner) = self.arena.expr(selected_value).kind { selected_value = inner; }
+            let stable_value = scalar_atom(self.arena, selected_value) || match self.arena.expr(selected_value).kind {
+                ArenaExprKind::Call { callee, args } => match self.arena.expr(callee).kind {
+                    ArenaExprKind::Field { base, name: method } => match self.arena.expr(base).kind {
+                        ArenaExprKind::Ident(module) => ["env", "fs"].contains(&module.as_str().as_str())
+                            && !self.scopes.iter().any(|scope| scope.contains_key(module.as_str().as_str()))
+                            && xsh::api::api_spec().module_overloads(&module.as_str(), &method.as_str()).is_some()
+                            && self.arena.call_args(args).iter().all(|arg| match arg.kind {
+                                ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => scalar_atom(self.arena, value),
+                                _ => false,
+                            }),
+                        _ => false,
+                    },
+                    _ => false,
+                },
+                _ => false,
+            };
+            if stable_input && stable_value && self.arena.signal_hooks.is_empty()
+                && !self.source.contains("defer") && !self.source[edit.range()].contains('#') {
+                let prefix = &self.source[declaration.span.start()..self.arena.expr(initial).span.start()];
+                let input = &self.source[self.arena.expr(input).span.range()];
+                let value = &self.source[self.arena.expr(value).span.range()];
+                let replacement = format!("{prefix}{} ({input}) {{ {value} }}?\n", if cwd { "cd" } else { "env" });
+                let mut candidate = self.source.to_string();
+                candidate.replace_range(edit.range(), &replacement);
+                let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(edit.source_id, &candidate);
+                if parsed.diagnostics.is_empty() && xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() {
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit, "consume the scope tail directly", replacement));
+                }
+            }
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
     fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
+        self.lint_context_scope_scaffolds(stmts);
+        self.lint_record_destructuring(stmts);
+        self.lint_fresh_map_initializations(stmts);
+        self.lint_list_element_reconstruction(stmts);
+        if let Some(&first) = stmts.first() { self.lint_negative_if_as_boolean_guard(first); }
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
-        for &stmt in stmts {
+        for (index, &stmt) in stmts.iter().enumerate() {
+            if index > 0 { self.lint_linear_value_pipeline(stmts[index - 1], stmt, stmts); }
             if self.dead_code && !flow.fallthrough && !reported_dead_region {
                 self.warning(
                     self.arena.stmt(stmt).span,
@@ -2201,6 +3336,194 @@ impl<'a> Linter<'a> {
                 flow = flow.then(stmt_flow(self.arena, stmt, &self.terminating_call_spans));
             }
         }
+    }
+
+    fn lint_list_element_reconstruction(&mut self, stmts: &[StmtId]) {
+        fn integer(arena: &AstArena, expr: ExprId) -> Option<usize> {
+            let ArenaExprKind::Int(value) = arena.expr(expr).kind else { return None; };
+            usize::try_from(arena.int_literal(value).value()?).ok()
+        }
+        for (position, &stmt) in stmts.iter().enumerate() {
+            let node = self.arena.stmt(stmt);
+            let ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(value) } = node.kind else { continue; };
+            let ArenaAssignTargetKind::Name(name) = self.arena.assign_target(target).kind else { continue; };
+            let ArenaExprKind::List(items) = self.arena.expr(value).kind else { continue; };
+            let elements: Vec<_> = self.arena.list_elements(items).collect();
+            let [prefix, replacement, suffix] = elements.as_slice() else { continue; };
+            if prefix.splice_span.is_none() || replacement.splice_span.is_some() || suffix.splice_span.is_none() { continue; }
+            let ArenaExprKind::Slice { base: first, start: None, end: Some(end), guarded: false } = self.arena.expr(prefix.value).kind else { continue; };
+            let ArenaExprKind::Slice { base: last, start: Some(start), end: None, guarded: false } = self.arena.expr(suffix.value).kind else { continue; };
+            if ![first, last].into_iter().all(|expr| matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(found) if found == name)) { continue; }
+            let (Some(index), Some(after)) = (integer(self.arena, end), integer(self.arena, start)) else { continue; };
+            if index.checked_add(1) != Some(after) { continue; }
+            let Some(list_ty @ Type::List(element)) = self.expr_types.get(&self.arena.expr(first).span) else { continue; };
+            if !list_splice_element_type_is_precise(element)
+                || self.expr_types.get(&self.arena.expr(value).span) != Some(list_ty)
+                || self.expr_types.get(&self.arena.expr(replacement.value).span) != Some(element.as_ref())
+            { continue; }
+            let mut diagnostic = Diagnostic::warning("prefer an element assignment when the list index is known valid")
+                .with_code("lint.prefer-list-element-assignment")
+                .with_label(Label::secondary(node.span, "replace one existing element"));
+            // Only an immediately preceding literal declaration proves a current
+            // length without removing a read across intervening effects.
+            let length = position.checked_sub(1).and_then(|previous| {
+                let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = self.arena.stmt(stmts[previous]).kind else { return None; };
+                if !matches!(self.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(found) if found == name) { return None; }
+                let ArenaExprKind::List(elements) = self.arena.expr(initializer).kind else { return None; };
+                let elements: Vec<_> = self.arena.list_elements(elements).collect();
+                elements.iter().all(|element| element.splice_span.is_none()).then_some(elements.len())
+            });
+            let edit_span = Span::new(node.span.source_id, node.span.start(), self.arena.expr(value).span.end());
+            if length.is_some_and(|length| index < length)
+                && list_update_argument_stable(self.arena, replacement.value)
+                && self.source.get(edit_span.range()).is_some_and(|text| !text.contains('#'))
+            {
+                let rhs = &self.source[self.arena.expr(replacement.value).span.range()];
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit_span, "update the existing list element", format!("{name}[{index}] = {rhs}")));
+            } else {
+                diagnostic = diagnostic.with_note("slice bounds clip but element indices must exist; unproved lengths, effects, and comments require manual review");
+            }
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
+    fn lint_scalar_split_iteration(&mut self, iter: ExprId) {
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(iter).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        let checked_str = self.expr_types.get(&self.arena.expr(base).span) == Some(&Type::Str)
+            || (matches!(self.arena.expr(base).kind, ArenaExprKind::Str(_))
+                && matches!(self.expr_types.get(&self.arena.expr(iter).span), Some(Type::List(item)) if **item == Type::Str));
+        if name != "split" || !checked_str { return; }
+        let arguments = self.arena.call_args(args);
+        if arguments.len() != 1 { return; }
+        let separator = match arguments[0].kind {
+            ArenaCallArgKind::Positional(value) => value,
+            ArenaCallArgKind::Named { name, value, .. } if name == "separator" => value,
+            _ => return,
+        };
+        let ArenaExprKind::Str(text) = self.arena.expr(separator).kind else { return; };
+        if !self.arena.string_literal(text).is_empty() { return; }
+        let span = self.arena.expr(iter).span;
+        if self.source.get(span.range()).is_none_or(|text| text.contains('#')) { return; }
+        let callee_span = self.arena.expr(callee).span;
+        let Some(dot) = self.source.get(callee_span.range()).and_then(|source| source.rfind('.')) else { return; };
+        let suffix = Span::new(span.source_id, callee_span.start() + dot, span.end());
+        self.diagnostics.push(Diagnostic::warning("iterate over Unicode scalars without a split List")
+            .with_code("lint.prefer-scalar-iteration")
+            .with_label(Label::secondary(span, "the checked Str source is retained once"))
+            .with_fix_hint(FixHint::deletion(suffix, "iterate over the Str directly")));
+    }
+
+    fn lint_byte_iteration(&mut self, stmt_id: StmtId, target: BindingTargetId, iter: ExprId, block: BlockId) {
+        let ArenaBindingTargetKind::Name(index) = self.arena.binding_target(target).kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(iter).kind else { return; };
+        if !matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "range")
+            || self.is_binding_in_scope_or_assigned("range") { return; }
+        let arguments = self.arena.call_args(args);
+        let [argument] = arguments else { return; };
+        let ArenaCallArgKind::Positional(length) = argument.kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(length).kind else { return; };
+        if !self.arena.call_args(args).is_empty() { return; }
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name != "len" { return; }
+        let ArenaExprKind::Ident(source) = self.arena.expr(base).kind else { return; };
+        let Some(binding) = self.scopes.iter().rev().find_map(|scope| scope.get(source.as_str().as_str())) else { return; };
+        if self.assigned_names.contains(&source) || source == index || binding.mutable || !binding.comparison_stable { return; }
+        // Constant preparation may replace the length expression before recording its receiver.
+        // The resolved immutable initializer supplies the same checked Bytes proof in that case.
+        let source_type = self.expr_types.get(&self.arena.expr(base).span).or_else(|| {
+            (0..self.arena.stmt_tags.len()).find_map(|index| {
+                let statement = self.arena.stmt(StmtId::from_index(index));
+                if statement.span != binding.span { return None; }
+                match statement.kind {
+                    ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. }
+                    | ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(value), .. } => self.expr_types.get(&self.arena.expr(value).span),
+                    _ => None,
+                }
+            })
+        });
+        if source_type != Some(&Type::Bytes) { return; }
+        let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+        let Some((&first, remaining)) = statements.split_first() else { return; };
+        let first = self.arena.stmt(first);
+        let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(mut access) } = first.kind else { return; };
+        let ArenaBindingTargetKind::Name(octet) = self.arena.binding_target(target).kind else { return; };
+        if octet == source || octet == index || octet == "_" { return; }
+        if let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } = self.arena.expr(access).kind {
+            if !matches!(self.arena.expr(right).kind, ArenaExprKind::Int(_) | ArenaExprKind::Unary { op: UnaryOp::Neg, .. }) { return; }
+            if let ArenaExprKind::Unary { expr: value, .. } = self.arena.expr(right).kind {
+                if !matches!(self.arena.expr(value).kind, ArenaExprKind::Int(_)) { return; }
+            }
+            access = left;
+        }
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(access).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name != "byte_at" || !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == source) { return; }
+        let [argument] = self.arena.call_args(args) else { return; };
+        if !matches!(argument.kind, ArenaCallArgKind::Positional(value) if matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == index)) { return; }
+        // Textual occurrence checks also cover command interpolation and shadowed names.
+        // Rejecting harmless strings or comments is preferable to losing a byte offset.
+        let mentions_index = |text: &str| text.match_indices(index.as_str().as_str()).any(|(offset, matched)| {
+            let identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
+            !text[..offset].chars().next_back().is_some_and(identifier_char)
+                && !text[offset + matched.len()..].chars().next().is_some_and(identifier_char)
+        });
+        if remaining.iter().any(|id| self.source.get(self.arena.stmt(*id).span.range()).is_none_or(mentions_index)) { return; }
+        let header = Span::new(first.span.source_id, self.arena.stmt(stmt_id).span.start(), self.arena.expr(iter).span.end());
+        let line_start = self.source[..first.span.start()].rfind('\n').map_or(0, |index| index + 1);
+        if !self.source[line_start..first.span.start()].trim().is_empty() { return; }
+        let deletion = Span::new(first.span.source_id, line_start, span_end_after_following_newlines(self.source, first.span.end()));
+        if [header, deletion].iter().any(|span| self.source.get(span.range()).is_none_or(|source| source.contains('#'))) { return; }
+        let line_end = self.source[first.span.start()..].find('\n').map_or(self.source.len(), |offset| first.span.start() + offset);
+        if self.source[first.span.start()..line_end].contains('#') { return; }
+        let edit = Span::new(header.source_id, header.start(), deletion.end());
+        let replacement = format!("for {octet} in {source}{}", &self.source[header.end()..line_start]);
+        let mut candidate = self.source.to_owned();
+        candidate.replace_range(edit.range(), &replacement);
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(edit.source_id, &candidate);
+        if !parsed.diagnostics.is_empty()
+            || !xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() { return; }
+        self.diagnostics.push(Diagnostic::warning("iterate over bytes instead of constructing unused offsets")
+            .with_code("lint.prefer-scalar-iteration")
+            .with_label(Label::secondary(header, "the immutable Bytes source covers the exact full range"))
+            .with_fix_hint(FixHint::replacement(edit, "bind each byte directly", replacement)));
+    }
+
+    fn lint_map_entry_iteration(&mut self, stmt_id: StmtId, target: BindingTargetId, iter: ExprId, block: BlockId) {
+        let ArenaBindingTargetKind::Name(key) = self.arena.binding_target(target).kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(iter).kind else { return; };
+        if !self.arena.call_args(args).is_empty() { return; }
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name.as_str() != "keys" { return; }
+        let ArenaExprKind::Ident(map) = self.arena.expr(base).kind else { return; };
+        if self.assigned_names.contains(&map) || key == map || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_, _))) { return; }
+        let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+        if statements.len() < 2 { return; }
+        let first = self.arena.stmt(statements[0]);
+        let ArenaStmtKind::Let { target: value_target, ty: None, initializer: ArenaExprOrRun::Expr(lookup) } = first.kind else { return; };
+        let ArenaBindingTargetKind::Name(value) = self.arena.binding_target(value_target).kind else { return; };
+        if value == map || value == key || value.as_str() == "_" { return; }
+        let ArenaExprKind::Try(lookup) = self.arena.expr(lookup).kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(lookup).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name.as_str() != "get" || !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == map) { return; }
+        let arguments = self.arena.call_args(args);
+        if arguments.len() != 1 || !matches!(arguments[0].kind, ArenaCallArgKind::Positional(expr) if matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(name) if name == key)) { return; }
+        let header = Span::new(first.span.source_id, self.arena.stmt(stmt_id).span.start(), self.arena.expr(iter).span.end());
+        let line_start = self.source[..first.span.start()].rfind('\n').map_or(0, |index| index + 1);
+        if !self.source[line_start..first.span.start()].trim().is_empty() { return; }
+        let deletion = Span::new(first.span.source_id, line_start, span_end_after_following_newlines(self.source, first.span.end()));
+        if [header, deletion].iter().any(|span| self.source.get(span.range()).is_none_or(|source| source.contains('#'))) { return; }
+        let line_end = self.source[first.span.start()..].find('\n').map_or(self.source.len(), |offset| first.span.start() + offset);
+        if self.source[first.span.start()..line_end].contains('#') { return; }
+        let key_field = if key.as_str() == "key" { "key".to_string() } else { format!("key: {key}") };
+        let value_field = if value.as_str() == "value" { "value".to_string() } else { format!("value: {value}") };
+        let edit = Span::new(header.source_id, header.start(), deletion.end());
+        let replacement = format!("for {{{key_field}, {value_field}}} in {map}{}", &self.source[header.end()..line_start]);
+        self.diagnostics.push(Diagnostic::warning("iterate over map entries instead of keys followed by a lookup")
+            .with_code("lint.prefer-map-entry-iteration")
+            .with_label(Label::secondary(header, "this checked map stays stable across the loop"))
+            .with_fix_hint(FixHint::replacement(edit, "bind the map entry and remove its redundant lookup", replacement)));
     }
 
     fn lint_list_comp_suggestions(&mut self, stmts: &[StmtId]) {
@@ -2239,6 +3562,77 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn accumulator_qualifiers(&self, mut stmt: StmtId, accumulator: Name) -> Option<(Vec<String>, StmtId)> {
+        let mut qualifiers = Vec::new();
+        loop {
+            let block = match self.arena.stmt(stmt).kind {
+                ArenaStmtKind::For { target, iter, block } => {
+                    if binding_target_contains_name(self.arena, target, accumulator) || expr_references_name(self.arena, iter, accumulator) { return None; }
+                    // Result iterables in a statement loop require explicit propagation;
+                    // that spelling survives in the comprehension's iterable expression.
+                    let iter_src = self.source.get(self.arena.expr(iter).span.range())?;
+                    qualifiers.push(format!("for {} in {iter_src}", format_binding_target(self.arena, target)));
+                    block
+                }
+                ArenaStmtKind::If { branches, else_block: None } => {
+                    let [branch] = self.arena.if_branches(branches) else { return None; };
+                    if matches!(self.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }) { return None; }
+                    if expr_references_name(self.arena, branch.condition, accumulator) { return None; }
+                    let condition = self.source.get(self.arena.expr(branch.condition).span.range())?;
+                    qualifiers.push(format!("if {condition}"));
+                    branch.block
+                }
+                _ => break,
+            };
+            let block = self.arena.block(block);
+            if !block.params.is_empty() { return None; }
+            let mut statements = self.arena.stmt_ids(block.statements);
+            stmt = statements.next()?;
+            if statements.next().is_some() { return None; }
+        }
+        if qualifiers.first().is_none_or(|clause| !clause.starts_with("for ")) { return None; }
+        Some((qualifiers, stmt))
+    }
+
+    fn accumulator_annotation(&self, ty: Option<TypeExprId>) -> String {
+        ty.and_then(|ty| self.source.get(self.arena.type_expr_span(ty).range())).map(|text| format!(": {text}")).unwrap_or_default()
+    }
+
+    fn accumulator_replacement(&self, span: Span, name: Name, annotation: &str, open: &str, projection: &str, close: &str, qualifiers: &[String]) -> String {
+        if qualifiers.iter().filter(|clause| clause.starts_with("for ")).count() == 1 && qualifiers.len() <= 2 {
+            return format!("var {name}{annotation} = {open}{projection} {}{close}\n", qualifiers.join(" "));
+        }
+        let line_start = self.source[..span.start()].rfind('\n').map_or(0, |offset| offset + 1);
+        let indent = &self.source[line_start..span.start()];
+        let mut text = format!("var {name}{annotation} = {open}\n{indent}  {projection}\n");
+        for qualifier in qualifiers { text.push_str(&format!("{indent}  {qualifier}\n")); }
+        text.push_str(&format!("{indent}{close}\n"));
+        text
+    }
+
+    /// A forwarding loop can be replaced only when no body work or binder
+    /// conversion is lost and the checked source already has iterable type.
+    fn lint_yield_delegation(&mut self, span: Span, target: BindingTargetId, iter: ExprId, block: BlockId) {
+        let Some(Type::Stream(expected)) = self.function_return_types.last() else { return; };
+        let ArenaBindingTargetKind::Name(binding) = self.arena.binding_target(target).kind else { return; };
+        let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+        if statements.len() != 1 { return; }
+        let ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) = self.arena.stmt(statements[0]).kind else { return; };
+        if !matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == binding) { return; }
+        // Direct loop pipelines can fuse into a lazy cursor while expression
+        // pipelines collect first. Keep that consumer boundary explicit.
+        if matches!(self.arena.expr(iter).kind, ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }) { return; }
+        let Some(Type::List(item) | Type::Stream(item)) = self.expr_types.get(&self.arena.expr(iter).span) else { return; };
+        if item != expected || matches!(item.as_ref(), Type::Any | Type::Unknown) { return; }
+        if self.source.get(span.range()).is_none_or(|text| text.contains('#')) { return; }
+        let Some(source) = self.source.get(self.arena.expr(iter).span.range()) else { return; };
+        let source = if source.contains('\n') { format!("({source})") } else { source.to_string() };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "delegate a transparent forwarding loop with `yield @`")
+            .with_code("lint.prefer-yield-delegation")
+            .with_label(Label::secondary(span, "this loop only yields its current item"))
+            .with_fix_hint(FixHint::replacement(span, "delegate the iterable", format!("yield @{source}"))));
+    }
+
     fn lint_suggest_list_comp(&mut self, var_id: StmtId, for_id: StmtId) {
         let var_stmt = self.arena.stmt(var_id);
         let for_stmt = self.arena.stmt(for_id);
@@ -2260,41 +3654,7 @@ impl<'a> Linter<'a> {
         if !items.is_empty() {
             return;
         }
-        // Match: for <target> in <iter> { <name> = <name>.push(<push_expr>) }
-        // or:    for <target> in <iter> { if <guard> { <name> = <name>.push(<push_expr>) } }
-        let ArenaStmtKind::For {
-            target: for_target,
-            iter,
-            block,
-        } = for_stmt.kind
-        else {
-            return;
-        };
-        let block_data = self.arena.block(block);
-        let block_stmts: Vec<StmtId> = self.arena.stmt_ids(block_data.statements).collect();
-        if block_stmts.len() != 1 || !block_data.params.is_empty() {
-            return;
-        }
-        let mut condition = None;
-        let mut push_stmt_id = block_stmts[0];
-        if let ArenaStmtKind::If {
-            branches,
-            else_block: None,
-        } = self.arena.stmt(push_stmt_id).kind
-        {
-            let branch_slice = self.arena.if_branches(branches);
-            if branch_slice.len() != 1 {
-                return;
-            }
-            let branch = branch_slice[0].clone();
-            let branch_block = self.arena.block(branch.block);
-            let branch_stmts: Vec<StmtId> = self.arena.stmt_ids(branch_block.statements).collect();
-            if !branch_block.params.is_empty() || branch_stmts.len() != 1 {
-                return;
-            }
-            condition = Some(branch.condition);
-            push_stmt_id = branch_stmts[0];
-        }
+        let Some((qualifiers, push_stmt_id)) = self.accumulator_qualifiers(for_id, var_name) else { return; };
         let ArenaStmtKind::Assign {
             target: assign_target,
             op: AssignOp::Set,
@@ -2332,43 +3692,20 @@ impl<'a> Linter<'a> {
         let ArenaCallArgKind::Positional(push_expr) = self.arena.call_args(args)[0].kind else {
             return;
         };
-        if expr_references_name(self.arena, push_expr, var_name)
-            || condition
-                .is_some_and(|condition| expr_references_name(self.arena, condition, var_name))
-        {
-            return;
+        if expr_references_name(self.arena, push_expr, var_name) { return; }
+        if let Some(ty) = ty {
+            if !matches!(Type::from_arena(self.arena, ty), Type::List(_)) { return; }
         }
         let push_span = self.arena.expr(push_expr).span;
-        let iter_span = self.arena.expr(iter).span;
-        let Some(push_src) = self.source.get(push_span.start()..push_span.end()) else {
-            return;
-        };
-        let Some(iter_src) = self.source.get(iter_span.start()..iter_span.end()) else {
-            return;
-        };
-        let target_src = format_binding_target(self.arena, for_target);
-        let annotation = ty.filter(|ty| {
-            self.annotation_refs_user_type(*ty)
-                || matches!(Type::from_arena(self.arena, *ty), Type::List(inner) if matches!(inner.as_ref(), Type::Record(_)))
-        }).and_then(|ty| self.source.get(self.arena.type_expr_span(ty).range()))
-            .map(|text| format!(": {text}"))
-            .unwrap_or_default();
-        let replacement = if let Some(condition) = condition {
-            let cond_span = self.arena.expr(condition).span;
-            let Some(guard_src) = self.source.get(cond_span.start()..cond_span.end()) else {
-                return;
-            };
-            format!(
-                "var {var_name}{annotation} = [{push_src} for {target_src} in {iter_src} if {guard_src}]\n"
-            )
-        } else {
-            format!("var {var_name}{annotation} = [{push_src} for {target_src} in {iter_src}]\n")
-        };
+        let Some(push_src) = self.source.get(push_span.range()) else { return; };
+        let annotation = self.accumulator_annotation(ty);
+        let replacement = self.accumulator_replacement(var_stmt.span, var_name, &annotation, "[", push_src, "]", &qualifiers);
         let combined = Span::new(
             var_stmt.span.source_id,
             var_stmt.span.start(),
             span_end_after_following_newlines(self.source, for_stmt.span.end()),
         );
+        if self.source.get(combined.range()).is_none_or(|text| text.contains('#')) { return; }
         self.diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
@@ -2395,7 +3732,7 @@ impl<'a> Linter<'a> {
         let ArenaStmtKind::Var {
             target,
             initializer: ArenaExprOrRun::Expr(init),
-            ..
+            ty,
         } = var_stmt.kind
         else {
             return;
@@ -2403,27 +3740,15 @@ impl<'a> Linter<'a> {
         let ArenaBindingTargetKind::Name(var_name) = self.arena.binding_target(target).kind else {
             return;
         };
-        if !is_map_empty_call(self.arena, init) {
-            return;
-        }
-        let ArenaStmtKind::For {
-            target: for_target,
-            iter,
-            block,
-        } = for_stmt.kind
-        else {
-            return;
-        };
-        let block_data = self.arena.block(block);
-        let block_stmts: Vec<StmtId> = self.arena.stmt_ids(block_data.statements).collect();
-        if block_stmts.len() != 1 || !block_data.params.is_empty() {
-            return;
-        }
+        let empty_literal = matches!(self.arena.expr(init).kind, ArenaExprKind::Record(fields) if fields.is_empty());
+        let map_context = ty.is_some_and(|ty| matches!(Type::from_arena(self.arena, ty), Type::Map(_, _))) || matches!(self.expr_types.get(&self.arena.expr(init).span), Some(Type::Map(_, _)));
+        if !(is_map_empty_call(self.arena, init) || empty_literal && map_context) { return; }
+        let Some((qualifiers, assign_stmt_id)) = self.accumulator_qualifiers(for_id, var_name) else { return; };
         let ArenaStmtKind::Assign {
             target: assign_target,
             op: AssignOp::Set,
             value: ArenaExprOrRun::Expr(value),
-        } = self.arena.stmt(block_stmts[0]).kind
+        } = self.arena.stmt(assign_stmt_id).kind
         else {
             return;
         };
@@ -2445,27 +3770,21 @@ impl<'a> Linter<'a> {
         }
         let index_span = self.arena.expr(index).span;
         let value_span = self.arena.expr(value).span;
-        let iter_span = self.arena.expr(iter).span;
         let Some(key_src) = self.source.get(index_span.start()..index_span.end()) else {
             return;
         };
         let Some(value_src) = self.source.get(value_span.start()..value_span.end()) else {
             return;
         };
-        let Some(iter_src) = self.source.get(iter_span.start()..iter_span.end()) else {
-            return;
-        };
-        if !map_comp_key_can_be_bare(self.arena, index) {
-            return;
-        }
-        let target_src = format_binding_target(self.arena, for_target);
-        let replacement =
-            format!("var {var_name} = {{{key_src}: {value_src} for {target_src} in {iter_src}}}\n");
+        let annotation = self.accumulator_annotation(ty);
+        let projection = if map_comp_key_can_be_bare(self.arena, index) { format!("{key_src}: {value_src}") } else { format!("[{key_src}]: {value_src}") };
+        let replacement = self.accumulator_replacement(var_stmt.span, var_name, &annotation, "{", &projection, "}", &qualifiers);
         let combined = Span::new(
             var_stmt.span.source_id,
             var_stmt.span.start(),
             span_end_after_following_newlines(self.source, for_stmt.span.end()),
         );
+        if self.source.get(combined.range()).is_none_or(|text| text.contains('#')) { return; }
         self.diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
@@ -2574,7 +3893,7 @@ impl<'a> Linter<'a> {
     fn can_bare_in_command_arg(&self, expr: ExprId) -> bool {
         match self.arena.expr(expr).kind {
             ArenaExprKind::Call { callee, .. } => self.can_bare_chain_base(callee),
-            ArenaExprKind::Index { base, index } => {
+            ArenaExprKind::Index { base, index, .. } => {
                 self.can_bare_chain_base(base)
                     && matches!(self.arena.expr(index).kind, ArenaExprKind::Int(_))
             }
@@ -2600,7 +3919,7 @@ impl<'a> Linter<'a> {
                 self.can_bare_chain_base(base)
             }
             ArenaExprKind::Call { callee, .. } => self.can_bare_chain_base(callee),
-            ArenaExprKind::Index { base, index } => {
+            ArenaExprKind::Index { base, index, .. } => {
                 self.can_bare_chain_base(base)
                     && matches!(self.arena.expr(index).kind, ArenaExprKind::Int(_))
             }
@@ -2671,6 +3990,40 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn lint_list_compound_assignment(&mut self, target: AssignTargetId, value: ArenaExprOrRun, span: Span) {
+        let ArenaAssignTargetKind::Name(target_name) = self.arena.assign_target(target).kind else { return; };
+        let Some(binding) = self.scopes.iter().rev().find_map(|scope| scope.get(target_name.as_str().as_str())) else { return; };
+        if !binding.mutable { return; }
+        let ArenaExprOrRun::Expr(value) = value else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(value).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == target_name)
+            || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::List(_)))
+            || (name != "push" && name != "extend") || args.len() != 1
+        { return; }
+        let ArenaCallArgKind::Positional(argument) = self.arena.call_args(args)[0].kind else { return; };
+        // A stable argument cannot replace the target between its receiver read
+        // and the compound assignment's read of the current value.
+        if !list_update_argument_stable(self.arena, argument) { return; }
+        let argument_span = self.arena.expr(argument).span;
+        let Some(argument_source) = self.source.get(argument_span.range()) else { return; };
+        let replacement = if name == "push" {
+            format!("{target_name} += [{argument_source}]")
+        } else {
+            format!("{target_name} += {argument_source}")
+        };
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer list compound assignment for a local update")
+            .with_code("lint.prefer-list-compound-assignment")
+            .with_label(Label::secondary(span, "append a list with `+=`"));
+        let edit_span = Span::new(span.source_id, span.start(), self.arena.expr(value).span.end());
+        if self.source.get(edit_span.range()).is_some_and(|source| !source.contains('#') && !source.contains('\n')) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit_span, "rewrite as list compound assignment", replacement));
+        } else {
+            diagnostic = diagnostic.with_note("comments or multiline arguments require a manual rewrite");
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_assign_target(&mut self, target: AssignTargetId) {
         match self.arena.assign_target(target).kind.clone() {
             ArenaAssignTargetKind::Name(name) => self.mark_used(name.as_str().as_str()),
@@ -2703,6 +4056,281 @@ impl<'a> Linter<'a> {
             ArenaExprOrRun::Expr(expr) => self.lint_expr(*expr),
             ArenaExprOrRun::Run(run) => self.lint_run(*run),
         }
+    }
+
+    fn pipeline_argument_stable(&self, value: ExprId) -> bool {
+        match self.arena.expr(value).kind {
+            ArenaExprKind::Ident(name) => !self.assigned_names.contains(&name)
+                && self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str())).is_some_and(|binding| !binding.mutable),
+            ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_) | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
+            _ => false,
+        }
+    }
+
+    fn pipeline_ordinary_call(&self, value: ExprId) -> Option<(ExprId, ArenaRange)> {
+        let call = match self.arena.expr(value).kind { ArenaExprKind::Try(inner) => inner, _ => value };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return None; };
+        // A guarded receiver could skip the original input argument entirely.
+        // Direct callable names have no receiver evaluation to move across.
+        if !matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(_)) { return None; }
+        if self.arena.call_args(args).iter().any(|arg| pipeline_argument_expr(arg).is_none()) { return None; }
+        Some((callee, args))
+    }
+
+    fn pipeline_rewrite_preserves_types(&self, edit: Span, replacement: &str, old_value: ExprId, old_input: ExprId, new_value_start: usize, new_input_start: usize) -> bool {
+        let Some(old_type) = self.expr_types.get(&self.arena.expr(old_value).span) else { return false; };
+        let Some(input_type) = self.expr_types.get(&self.arena.expr(old_input).span) else { return false; };
+        if !list_splice_element_type_is_precise(old_type) || !list_splice_element_type_is_precise(input_type) { return false; }
+        let old_shape = checked_return_type_shape(old_type);
+        let input_shape = checked_return_type_shape(input_type);
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(edit.range(), replacement);
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(edit.source_id, &rewritten);
+        if !parsed.diagnostics.is_empty() { return false; }
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &rewritten);
+        if !checked.diagnostics.is_empty() { return false; }
+        parsed.arena.symbol_owner().with_current(|| {
+            (0..parsed.arena.arena.expr_tags.len()).any(|raw| {
+                let expr = parsed.arena.arena.expr(ExprId::from_index(raw));
+                let ArenaExprKind::ValuePipelineCall { input, .. } = expr.kind else { return false; };
+                let input_span = parsed.arena.arena.expr(input).span;
+                expr.span.start() == new_value_start && input_span.start() == new_input_start
+                    && input_span.range().len() == self.arena.expr(old_input).span.range().len()
+                    && checked.expr_types.get(&expr.span).is_some_and(|ty| checked_return_type_shape(ty) == old_shape)
+                    && checked.expr_types.get(&input_span).is_some_and(|ty| checked_return_type_shape(ty) == input_shape)
+            })
+        })
+    }
+
+    fn lint_nested_value_pipeline(&mut self, value: ExprId) {
+        // Whole statement values need no new parentheses or precedence rules.
+        let whole_value = (0..self.arena.stmt_tags.len()).any(|raw| match self.arena.stmt(StmtId::from_index(raw)).kind {
+            ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. }
+            | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(expr), .. }
+            | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr)))
+            | ArenaStmtKind::Expr(expr) => expr == value,
+            _ => false,
+        });
+        if !whole_value { return; }
+        let Some((_, args)) = self.pipeline_ordinary_call(value) else { return; };
+        let args = self.arena.call_args(args);
+        let inputs = args.iter().enumerate().filter_map(|(index, arg)| {
+            let expr = pipeline_argument_expr(arg).unwrap();
+            self.pipeline_ordinary_call(expr).map(|_| (index, expr))
+        }).collect::<Vec<_>>();
+        let [(index, input)] = inputs.as_slice() else { return; };
+        if args[..*index].iter().any(|arg| !self.pipeline_argument_stable(pipeline_argument_expr(arg).unwrap())) { return; }
+        let span = self.arena.expr(value).span;
+        let input_span = self.arena.expr(*input).span;
+        let Some(original) = self.source.get(span.range()) else { return; };
+        let Some(input_text) = self.source.get(input_span.range()) else { return; };
+        let mut stage = original.to_string();
+        stage.replace_range(input_span.start() - span.start()..input_span.end() - span.start(), "_");
+        let replacement = format!("{input_text} |> {stage}");
+        if !self.pipeline_rewrite_preserves_types(span, &replacement, value, *input, span.start(), span.start()) { return; }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "nested calls form a value pipeline")
+            .with_code("lint.prefer-value-pipeline")
+            .with_label(Label::secondary(span, "place the retained input at an explicit argument hole"));
+        if !original.contains('#') {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use an explicit value pipeline", replacement));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_linear_value_pipeline(&mut self, previous: StmtId, current: StmtId, statements: &[StmtId]) {
+        let first = self.arena.stmt(previous);
+        let second = self.arena.stmt(current);
+        let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(input) } = first.kind else { return; };
+        let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { return; };
+        if (self.pipeline_ordinary_call(input).is_none() && !matches!(self.arena.expr(input).kind, ArenaExprKind::ValuePipelineCall { .. })) || self.assigned_names.contains(&name) { return; }
+        let value = match second.kind {
+            ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. }
+            | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value)))
+            | ArenaStmtKind::Expr(value) => value,
+            _ => return,
+        };
+        let Some((_, args)) = self.pipeline_ordinary_call(value) else { return; };
+        let holes = self.arena.call_args(args).iter().filter_map(|arg| {
+            let expr = pipeline_argument_expr(arg).unwrap();
+            matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(candidate) if candidate == name).then_some(expr)
+        }).collect::<Vec<_>>();
+        let [hole] = holes.as_slice() else { return; };
+        let Some(last) = statements.last() else { return; };
+        let end = self.arena.stmt(*last).span.end();
+        let references = (0..self.arena.expr_tags.len()).filter(|raw| {
+            let expr = self.arena.expr(ExprId::from_index(*raw));
+            expr.span.source_id == first.span.source_id && expr.span.start() >= first.span.end() && expr.span.end() <= end
+                && matches!(expr.kind, ArenaExprKind::Ident(candidate) if candidate == name)
+        }).count();
+        let shorthand = self.arena.record_fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { name: candidate, span }
+            if candidate == name && self.arena.span(span).source_id == first.span.source_id && self.arena.span(span).start() >= first.span.end() && self.arena.span(span).end() <= end));
+        if references != 1 || shorthand { return; }
+        let span = Span::new(first.span.source_id, first.span.start(), second.span.end());
+        let value_span = self.arena.expr(value).span;
+        let input_span = self.arena.expr(input).span;
+        let hole_span = self.arena.expr(*hole).span;
+        let Some(input_text) = self.source.get(input_span.range()) else { return; };
+        let Some(value_text) = self.source.get(value_span.range()) else { return; };
+        let mut stage = value_text.to_string();
+        stage.replace_range(hole_span.start() - value_span.start()..hole_span.end() - value_span.start(), "_");
+        let pipeline = format!("{input_text} |> {stage}");
+        let Some(second_text) = self.source.get(second.span.range()) else { return; };
+        let mut replacement = second_text.to_string();
+        replacement.replace_range(value_span.start() - second.span.start()..value_span.end() - second.span.start(), &pipeline);
+        let new_start = first.span.start() + value_span.start() - second.span.start();
+        if !self.pipeline_rewrite_preserves_types(span, &replacement, value, input, new_start, new_start) { return; }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "single-use temporary forms a value pipeline")
+            .with_code("lint.prefer-value-pipeline")
+            .with_label(Label::secondary(span, "retain the input directly in the following ordinary call"));
+        if self.source.get(span.range()).is_some_and(|source| !source.contains('#')) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "collapse the single-use temporary", replacement));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_optional_postfix(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::If { branches, else_value } = expression.kind else { return; };
+        let [branch] = self.arena.if_expr_branches(branches) else { return; };
+        let ArenaExprKind::Binary { op, left, right } = self.arena.expr(branch.condition).kind else { return; };
+        if !matches!(op, BinaryOp::Eq | BinaryOp::Ne) { return; }
+        let receiver = if matches!(self.arena.expr(right).kind, ArenaExprKind::Null) { left }
+            else if matches!(self.arena.expr(left).kind, ArenaExprKind::Null) { right }
+            else { return; };
+        let ArenaExprKind::Ident(name) = self.arena.expr(receiver).kind else { return; };
+        if self.assigned_names.contains(&name)
+            || !matches!(self.expr_types.get(&self.arena.expr(receiver).span), Some(Type::Optional(_))) { return; }
+        let (present, absent) = if op == BinaryOp::Eq { (else_value, branch.value) } else { (branch.value, else_value) };
+        let single_value = |value| {
+            if let ArenaExprKind::ValueBlock(block) = self.arena.expr(value).kind {
+                let mut statements = self.arena.stmt_ids(self.arena.block(block).statements);
+                let statement = statements.next()?;
+                if statements.next().is_some() { return None; }
+                match self.arena.stmt(statement).kind {
+                    ArenaStmtKind::Expr(value) => Some(value),
+                    _ => None,
+                }
+            } else { Some(value) }
+        };
+        let Some(present) = single_value(present) else { return; };
+        let Some(absent) = single_value(absent) else { return; };
+        let present_expr = self.arena.expr(present);
+        let Some(present_ty) = self.expr_types.get(&present_expr.span) else { return; };
+        let absent_is_null = matches!(self.arena.expr(absent).kind, ArenaExprKind::Null);
+        if matches!(present_ty, Type::Null | Type::Any | Type::Unknown | Type::Invalid)
+            || (!absent_is_null && (matches!(present_ty, Type::Optional(_))
+                || self.expr_types.get(&self.arena.expr(absent).span) != Some(present_ty))) { return; }
+        let (base, insertion) = match present_expr.kind {
+            ArenaExprKind::Field { base, .. } => (base, self.arena.expr(base).span.end()),
+            ArenaExprKind::Call { callee, .. } => match self.arena.expr(callee).kind {
+                ArenaExprKind::Field { base, .. } => (base, self.arena.expr(base).span.end()),
+                _ => return,
+            },
+            ArenaExprKind::Index { base, guarded: false, .. }
+            | ArenaExprKind::Slice { base, guarded: false, .. } => (base, self.arena.expr(base).span.end()),
+            _ => return,
+        };
+        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(found) if found == name) { return; }
+        let Some(original) = self.source.get(expression.span.start()..expression.span.end()) else { return; };
+        if original.contains('#') { return; }
+        let Some(before) = self.source.get(present_expr.span.start()..insertion) else { return; };
+        let Some(after) = self.source.get(insertion..present_expr.span.end()) else { return; };
+        let absent_span = self.arena.expr(absent).span;
+        let Some(fallback) = self.source.get(absent_span.start()..absent_span.end()) else { return; };
+        let replacement = if absent_is_null { format!("({before}?{after})") }
+            else { format!("({before}?{after} ?? ({fallback}))") };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "explicit null branch can use a guarded postfix")
+            .with_code("lint.prefer-optional-postfix")
+            .with_label(Label::secondary(expression.span, "guard the receiver and retain the lazy fallback"))
+            .with_fix_hint(FixHint::replacement(expression.span, "use guarded postfix and fallback", replacement)));
+    }
+
+    fn lint_nested_record_update(&mut self, expr: ExprId) {
+        fn selected_path(arena: &AstArena, expr: ExprId, root: Name) -> Option<Vec<Name>> {
+            match arena.expr(expr).kind {
+                ArenaExprKind::Ident(name) if name == root => Some(Vec::new()),
+                ArenaExprKind::Field { base, name } => {
+                    let mut path = selected_path(arena, base, root)?;
+                    path.push(name); Some(path)
+                }
+                _ => None,
+            }
+        }
+        fn replacements(arena: &AstArena, expr: ExprId, root: Name, prefix: &[Name], output: &mut Vec<(Vec<Name>, Option<ExprId>)>) -> Option<()> {
+            let ArenaExprKind::Record(fields) = arena.expr(expr).kind else { return None; };
+            let fields = arena.record_fields(fields);
+            let ArenaRecordFieldKind::Spread { expr: spread, .. } = fields.first()?.kind else { return None; };
+            if selected_path(arena, spread, root)?.as_slice() != prefix { return None; }
+            for field in fields.iter().skip(1) {
+                let (name, value) = match field.kind {
+                    ArenaRecordFieldKind::Named { name, value, .. } => (name, Some(value)),
+                    ArenaRecordFieldKind::Shorthand { name, .. } => (name, None),
+                    _ => return None,
+                };
+                let mut path = prefix.to_vec(); path.push(name);
+                if let Some(value) = value
+                    && matches!(arena.expr(value).kind, ArenaExprKind::Record(inner) if matches!(arena.record_fields(inner).first().map(|f| &f.kind), Some(ArenaRecordFieldKind::Spread { .. })))
+                {
+                    replacements(arena, value, root, &path, output)?;
+                } else { output.push((path, value)); }
+            }
+            Some(())
+        }
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Record(fields) = expression.kind else { return; };
+        let Some(ArenaRecordFieldKind::Spread { expr: base, .. }) = self.arena.record_fields(fields).first().map(|field| &field.kind) else { return; };
+        let ArenaExprKind::Ident(root) = self.arena.expr(*base).kind else { return; };
+        let stable = self.scopes.iter().rev().find_map(|scope| scope.get(root.as_str().as_str())).is_some_and(|binding| !binding.mutable);
+        if !stable || self.assigned_names.contains(&root) { return; }
+        let Some(base_ty @ Type::Record(shape)) = self.expr_types.get(&self.arena.expr(*base).span) else { return; };
+        if shape.is_empty() { return; }
+        let original = &self.source[expression.span.range()];
+        if original.contains('#') { return; }
+        let mut updates = Vec::new();
+        if replacements(self.arena, expr, root, &[], &mut updates).is_none() || !updates.iter().any(|(path, _)| path.len() > 1) { return; }
+        let mut entries = Vec::new();
+        for (index, (path, value)) in updates.iter().enumerate() {
+            if updates[..index].iter().any(|(prior, _)| path.starts_with(prior) || prior.starts_with(path)) { return; }
+            let mut selected = base_ty;
+            for name in path {
+                let label = name.as_str();
+                if !label.chars().next().is_some_and(|c| c == '_' || c.is_alphabetic()) || !label.chars().all(|c| c == '_' || c.is_alphanumeric()) { return; }
+                let Type::Record(fields) = selected else { return; };
+                let Some(field_ty) = fields.get(name) else { return; };
+                selected = field_ty;
+            }
+            if let Some(value) = value {
+                let Some(actual) = self.expr_types.get(&self.arena.expr(*value).span) else { return; };
+                if actual.contains_any() || (actual.is_dynamic() && !selected.is_dynamic()) || !actual.matches_expected(selected) { return; }
+            }
+            let path_text = path.iter().map(ToString::to_string).collect::<Vec<_>>().join(".");
+            let value_text = value.map(|value| &self.source[self.arena.expr(value).span.range()]).map(str::to_string).unwrap_or_else(|| path.last().unwrap().to_string());
+            entries.push(format!("{path_text}: {value_text}"));
+        }
+        let replacement = format!("{{...{root}, {}}}", entries.join(", "));
+        self.diagnostics.push(Diagnostic::warning("nested record spreads can use disjoint update paths")
+            .with_code("lint.prefer-nested-record-update")
+            .with_label(Label::secondary(expression.span, "the repeated record reads are stable and statically known"))
+            .with_fix_hint(FixHint::replacement(expression.span, "replace nested spreads with static field paths", replacement)));
+    }
+
+    fn lint_proven_nonnull_fallback(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } = expression.kind else { return; };
+        if !self.proven_nonnull_fallback_receivers.contains(&self.arena.expr(left).span)
+            || !inert_constant_initializer(self.arena, right)
+            || matches!(self.arena.expr(right).kind, ArenaExprKind::Regex(_))
+            || self.source.get(expression.span.range()).is_none_or(|source| source.contains('#')) { return; }
+        let Some(expected) = self.expr_types.get(&self.arena.expr(left).span) else { return; };
+        let Some(value) = xsh::frontend::check::LiteralConstant::analyze(self.arena, right, &FxHashMap::default()) else { return; };
+        if !value.matches_data_type(expected) { return; }
+        let Some(replacement) = self.source.get(self.arena.expr(left).span.range()) else { return; };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "this Optional receiver is proved present")
+            .with_code("lint.redundant-optional-fallback")
+            .with_label(Label::secondary(expression.span, "the fallback cannot be reached"))
+            .with_fix_hint(FixHint::replacement(expression.span, "use the proved present value", replacement)));
     }
 
     fn lint_expr(&mut self, expr: ExprId) {
@@ -2755,11 +4383,7 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_stream_stage(&mut self, stage: &ArenaStreamStage) {
-        for option in self.arena.stream_options(stage.options).to_vec() {
-            if let Some(value) = option.value {
-                self.lint_expr(value);
-            }
-        }
+        self.lint_stage_callable_wrapper(stage);
         for arg in self.arena.call_args(stage.args).to_vec() {
             self.lint_call_arg(&arg);
         }
@@ -2806,6 +4430,40 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn lint_stage_callable_wrapper(&mut self, stage: &ArenaStreamStage) {
+        if !xsh_registry::stream_parameters::stage_accepts_callable(stage.kind.as_str()) { return; }
+        let Some(block_id) = stage.block else { return; };
+        let block = self.arena.block(block_id);
+        let [parameter] = self.arena.block_params(block.params) else { return; };
+        let statements = self.arena.stmt_ids(block.statements).collect::<Vec<_>>();
+        let [statement] = statements.as_slice() else { return; };
+        let ArenaStmtKind::Expr(call) = self.arena.stmt(*statement).kind else { return; };
+        let expression = self.arena.expr(call);
+        let ArenaExprKind::Call { callee, args } = expression.kind else { return; };
+        if !self.statically_resolved_call_spans.contains(&expression.span) { return; }
+        let [argument] = self.arena.call_args(args) else { return; };
+        let ArenaCallArgKind::Positional(item) = argument.kind else { return; };
+        if !matches!(self.arena.expr(item).kind, ArenaExprKind::Ident(name) if name == parameter.name) { return; }
+        let span = self.arena.span(stage.span);
+        if self.source[span.range()].contains('#') { return; }
+        let block_span = self.arena.span(block.span);
+        let name = &self.source[self.arena.expr(callee).span.range()];
+        let arguments = self.arena.call_args(stage.args);
+        let replacement = if arguments.is_empty() {
+            format!("{}({name})", stage.kind.as_str())
+        } else {
+            // Existing configuration remains in its written order. Appending a
+            // descriptor adds no stage-entry evaluation or runtime binding.
+            let prefix = self.source[span.start()..block_span.start()].trim_end();
+            let Some(prefix) = prefix.strip_suffix(')') else { return; };
+            format!("{prefix}, block: {name})")
+        };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "transparent stream block can name its callable directly")
+            .with_code("lint.stage-callable")
+            .with_label(Label::secondary(span, "use the same checked one-item call"))
+            .with_fix_hint(FixHint::replacement(span, "use named stage callable", replacement)));
+    }
+
     fn lint_call_arg(&mut self, arg: &ArenaCallArg) {
         LintExprVisitor {
             linter: self,
@@ -2814,12 +4472,503 @@ impl<'a> Linter<'a> {
         .visit_call_arg(arg);
     }
 
+    fn lint_generic_alias_constructor(&mut self, expression: ExprId, callee: ExprId, args: ArenaRange) {
+        let Some(alias) = self.record_constructors.constructor_definition(self.arena, callee, None) else { return; };
+        let Some(definition) = self.record_constructors.resolve_call(self.arena, callee, None) else { return; };
+        if alias == definition || !self.arena.type_def(alias).type_parameters.is_empty()
+            || self.arena.type_def(definition).type_parameters.is_empty()
+            || self.record_constructors.namespace(definition).is_some()
+        { return; }
+        let name = self.arena.type_def(definition).name;
+        if self.record_constructors.definition(None, name) != Some(definition) { return; }
+        let call = self.arena.expr(expression);
+        let Some(original_type) = self.expr_types.get(&call.span) else { return; };
+        if original_type.contains_any() || original_type.contains_inference() || original_type.is_recovery() { return; }
+        let Type::Record(fields) = original_type else { return; };
+        let mut safe = !self.source[call.span.range()].contains('#');
+        for argument in self.arena.call_args(args) {
+            let ArenaCallArgKind::Named { name, value, .. } = argument.kind else { safe = false; break; };
+            let Some(expected) = fields.get(&name) else { safe = false; break; };
+            let actual = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default())
+                .map(|value| value.value_type()).or_else(|| self.expr_types.get(&self.arena.expr(value).span).cloned());
+            safe &= actual.as_ref().is_some_and(|actual| !matches!(actual, Type::Null)
+                && (actual == expected || matches!(expected, Type::Optional(inner) if actual == inner.as_ref())));
+        }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "constructor fields can infer the same concrete schema")
+            .with_code("lint.prefer-generic-record-constructor")
+            .with_label(Label::secondary(call.span, "use the parameterized schema constructor"));
+        if safe {
+            let callee_span = self.arena.expr(callee).span;
+            let replacement = name.to_string();
+            let mut candidate = self.source.to_string();
+            candidate.replace_range(callee_span.range(), &replacement);
+            let call_span = Span::new(call.span.source_id, call.span.start(), call.span.end() - callee_span.range().len() + replacement.len());
+            let shape = checked_return_type_shape(original_type);
+            let selected = self.record_constructors.instance_expectation(self.arena, alias, &[]).ok()
+                .and_then(|context| context.instances.into_iter().find(|instance| instance.definition == definition))
+                .map(|instance| instance.arguments.iter().map(checked_return_type_shape).collect::<Vec<_>>());
+            let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(call.span.source_id, &candidate);
+            if parsed.diagnostics.is_empty() {
+                let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate);
+                let equivalent = checked.diagnostics.is_empty() && parsed.arena.symbol_owner().with_current(|| {
+                    checked.record_constructor_instances.get(&call_span).is_some_and(|fact|
+                        checked_return_type_shape(&fact.ty) == shape
+                        && Some(fact.instance.arguments.iter().map(checked_return_type_shape).collect::<Vec<_>>()) == selected)
+                });
+                if equivalent {
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(callee_span,
+                        "infer the same concrete constructor instance", replacement));
+                }
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_record_constructor(&mut self, ty: Option<TypeExprId>, initializer: &ArenaExprOrRun) {
+        let ArenaExprOrRun::Expr(expr) = initializer else { return; };
+        if ty.is_none() {
+            if let ArenaExprKind::Call { callee, args } = self.arena.expr(*expr).kind { self.lint_generic_alias_constructor(*expr, callee, args); }
+            return;
+        }
+        let Some(ty) = ty else { return; };
+        let Some(definition) = self.record_constructors.resolve_annotation(self.arena, ty, None) else { return; };
+        let value = self.arena.expr(*expr);
+        let ArenaExprKind::Record(fields) = value.kind else { return; };
+        if !matches!(self.expr_types.get(&value.span), Some(Type::Record(_))) { return; }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "schema record can use its named constructor")
+            .with_code("lint.prefer-record-constructor")
+            .with_label(Label::secondary(value.span, "construct the declared schema"));
+        let mut arguments = Vec::new();
+        let mut safe = !self.source[value.span.range()].contains('#');
+        let Type::Record(schema_fields) = self.record_constructors.resolve_type(self.arena, ty, None) else { return; };
+        let Some(Type::Record(checked_fields)) = self.expr_types.get(&value.span) else { return; };
+        safe &= checked_fields.keys().eq(schema_fields.keys())
+            && checked_fields.values().all(|ty| !matches!(ty, Type::Unknown | Type::Invalid));
+        let mut supplied = FxHashSet::default();
+        let defaults = self.record_constructors.defaults(definition);
+        for field in self.arena.record_fields(fields) {
+            match field.kind {
+                ArenaRecordFieldKind::Shorthand { name, .. } => {
+                    safe &= supplied.insert(name);
+                    arguments.push(format!("{name}:"));
+                }
+                ArenaRecordFieldKind::Named { name, value, .. } => {
+                    safe &= supplied.insert(name);
+                    if matches!(self.arena.expr(value).kind, ArenaExprKind::Run(_)) { safe = false; }
+                    let constant = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default());
+                    if let Some(constant) = &constant
+                        && let Some(expected) = schema_fields.get(&name)
+                        && constant.clone().in_type(expected) != *constant
+                    { safe = false; }
+                    if constant.as_ref().is_some_and(|constant| defaults.and_then(|values| values.get(&name)) == Some(constant)) { continue; }
+                    // Each expression remains in its original field order,
+                    // with the binding annotation retaining schema validation.
+                    let span = self.arena.expr(value).span;
+                    let text = &self.source[span.range()];
+                    if text.contains('#') { safe = false; }
+                    if matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(identifier) if identifier == name) {
+                        arguments.push(format!("{name}:"));
+                    } else {
+                        arguments.push(format!("{name}: {text}"));
+                    }
+                }
+                ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } | ArenaRecordFieldKind::Path { .. } => safe = false,
+            }
+        }
+        if safe {
+            let constructor = if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied {
+                TypeExprId::from_index(self.arena.type_expr_data[ty.index()].lhs as usize)
+            } else { ty };
+            let name = &self.source[self.arena.type_expr_span(constructor).range()];
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(value.span, "use the schema constructor", format!("{name}({})", arguments.join(", "))));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_named_argument_pun(&mut self, arg: &ArenaCallArg) {
+        let ArenaCallArgKind::Named { name, value, span } = arg.kind else {
+            return;
+        };
+        let value = self.arena.expr(value);
+        let span = self.arena.span(span);
+        if value.span.start() == span.start()
+            || !matches!(value.kind, ArenaExprKind::Ident(identifier) if identifier == name)
+            || !matches!(
+                self.expr_types.get(&value.span),
+                Some(ty) if !matches!(ty, Type::Unknown | Type::Invalid)
+            )
+        {
+            return;
+        }
+        // Replacing the explicit identifier introduces no scope or evaluation
+        // boundary, so lexical resolution selects the same binding.
+        let mut diagnostic = Diagnostic::new(
+            Severity::Warning,
+            "named argument repeats its value's name",
+        )
+        .with_code("lint.prefer-named-argument-pun")
+        .with_label(Label::secondary(
+            span,
+            "use the lexical named-argument shorthand",
+        ));
+        if !self.source[span.range()].contains('#') {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                span,
+                "omit the repeated value name",
+                format!("{name}:"),
+            ));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_named_argument_forwarding(&mut self, args: ArenaRange, call_span: Span) {
+        if self.expr_types.get(&call_span).is_none_or(|ty| matches!(ty, Type::Unknown | Type::Invalid)) { return; }
+        let args = self.arena.call_args(args).to_vec();
+        let mut start = 0;
+        while start < args.len() {
+            let ArenaCallArgKind::Named { name, value, span } = args[start].kind else { start += 1; continue; };
+            let ArenaExprKind::Field { base, name: field } = self.arena.expr(value).kind else { start += 1; continue; };
+            if field != name { start += 1; continue; }
+            let ArenaExprKind::Ident(receiver) = self.arena.expr(base).kind else { start += 1; continue; };
+            let Some(Type::Record(fields)) = self.expr_types.get(&self.arena.expr(base).span).cloned() else { start += 1; continue; };
+            if fields.len() < 2 { start += 1; continue; }
+            let mut supplied = FxHashSet::default();
+            let mut end = start;
+            let mut edit_end = self.arena.span(span).end();
+            let mut exact_types = true;
+            while let Some(arg) = args.get(end) {
+                let ArenaCallArgKind::Named { name, value, span } = arg.kind else { break; };
+                let ArenaExprKind::Field { base, name: field } = self.arena.expr(value).kind else { break; };
+                if name != field || !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(found) if found == receiver) { break; }
+                if !supplied.insert(name) { exact_types = false; }
+                exact_types &= self.expr_types.get(&self.arena.expr(value).span) == fields.get(&field);
+                edit_end = self.arena.span(span).end();
+                end += 1;
+            }
+            let edit_span = Span::new(call_span.source_id, self.arena.span(span).start(), edit_end);
+            let stable = !self.assigned_names.contains(&receiver)
+                && self.scopes.iter().rev().find_map(|scope| scope.get(receiver.as_str().as_str()))
+                    .is_some_and(|binding| !binding.mutable);
+            if exact_types && supplied.len() == fields.len() && fields.keys().all(|field| supplied.contains(field)) {
+                let mut diagnostic = Diagnostic::new(Severity::Warning, "record fields can forward through a named argument spread")
+                    .with_code("lint.prefer-named-argument-spread")
+                    .with_label(Label::secondary(edit_span, "forward exactly the checked visible fields"));
+                if stable && !self.source[edit_span.range()].contains('#') {
+                    let replacement = format!("...{receiver}");
+                    let mut candidate = self.source.to_string();
+                    candidate.replace_range(edit_span.range(), &replacement);
+                    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(call_span.source_id, &candidate);
+                    if parsed.diagnostics.is_empty()
+                        && xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() {
+                        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit_span, "spread the checked record fields", replacement));
+                    }
+                }
+                self.diagnostics.push(diagnostic);
+            }
+            start = end.max(start + 1);
+        }
+    }
+
+    fn proven_absence_lookup(&self, expr: ExprId) -> bool {
+        let node = self.arena.expr(expr);
+        if self.expr_types.get(&node.span) != Some(&Type::Optional(Box::new(Type::Int))) { return false; }
+        match node.kind {
+            ArenaExprKind::Ident(name) => self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str()))
+                .is_some_and(|binding| binding.absence_lookup && !binding.mutable) && !self.assigned_names.contains(&name),
+            ArenaExprKind::Call { callee, .. } => {
+                let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return false; };
+                match self.expr_types.get(&self.arena.expr(base).span) {
+                    Some(Type::Str) => matches!(name.as_str().as_str(), "find" | "byte_at"),
+                    Some(Type::Bytes) => name == "byte_at", _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn is_negative_one_literal(&self, expr: ExprId) -> bool {
+        let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.arena.expr(expr).kind else { return false; };
+        matches!(self.arena.expr(expr).kind, ArenaExprKind::Int(value) if self.arena.int_literal(value).value() == Some(1))
+    }
+
+    fn lint_lookup_sentinel(&mut self, expr: ExprId) {
+        let node = self.arena.expr(expr);
+        let ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne, left, right } = node.kind else { return; };
+        let sentinel = if self.proven_absence_lookup(left) && self.is_negative_one_literal(right) { right }
+            else if self.proven_absence_lookup(right) && self.is_negative_one_literal(left) { left } else { return; };
+        if self.source[node.span.range()].contains('#') { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "lookup absence is null rather than a numeric sentinel")
+            .with_code("lint.lookup-absence")
+            .with_label(Label::secondary(node.span, "compare the proved lookup result with null"))
+            .with_fix_hint(FixHint::replacement(self.arena.expr(sentinel).span, "use absence", "null")));
+    }
+
+    /// Removing an eager argument is safe only when that argument cannot fail
+    /// or observe or change state. Effectful fallbacks require authored snapshots.
+    fn lint_removed_lookup_fallback(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        let receiver = self.arena.expr(base);
+        let Some(ty) = self.expr_types.get(&receiver.span) else { return; };
+        let expected = match (ty, name.as_str().as_str()) {
+            (Type::List(item) | Type::Map(_, item), "get") => item.as_ref(),
+            (Type::Str | Type::Bytes, "byte_at") => &Type::Int,
+            _ => return,
+        };
+        let [index, fallback] = self.arena.call_args(args) else { return; };
+        let diagnostic = Diagnostic::new(Severity::Warning, "lookup fallback arguments have been removed")
+            .with_code("lint.lookup-fallback")
+            .with_label(Label::secondary(span, "use the ordinary fallback expression"));
+        let (ArenaCallArgKind::Positional(index), ArenaCallArgKind::Positional(fallback)) = (&index.kind, &fallback.kind) else {
+            self.diagnostics.push(diagnostic.with_note("no automatic fix: named argument evaluation order is not proven equivalent"));
+            return;
+        };
+        let (index, fallback) = (*index, *fallback);
+        let fallback_node = self.arena.expr(fallback);
+        let fallback_type = match fallback_node.kind {
+            ArenaExprKind::Int(_) | ArenaExprKind::Unary { op: UnaryOp::Neg, .. } => Some(Type::Int),
+            ArenaExprKind::Bool(_) => Some(Type::Bool), ArenaExprKind::Null => Some(Type::Null),
+            ArenaExprKind::Str(_) => Some(Type::Str), ArenaExprKind::Bytes(_) => Some(Type::Bytes),
+            ArenaExprKind::Float(_) => Some(Type::Float), ArenaExprKind::Duration(_) => Some(Type::Duration),
+            ArenaExprKind::List(items) if items.is_empty() => Some(expected.clone()),
+            _ => None,
+        };
+        let inert = matches!(fallback_node.kind, ArenaExprKind::Int(_) | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::Str(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_))
+            || matches!(fallback_node.kind, ArenaExprKind::Unary { op: UnaryOp::Neg, expr } if matches!(self.arena.expr(expr).kind, ArenaExprKind::Int(value) if self.arena.int_literal(value).value().and_then(i64::checked_neg).is_some()))
+            || matches!(fallback_node.kind, ArenaExprKind::List(items) if items.is_empty() && matches!(expected, Type::List(_)));
+        let safe = inert && fallback_type.is_some_and(|ty| ty.matches_expected(expected)) && !self.source[span.range()].contains('#');
+        self.diagnostics.push(if safe {
+            let replacement = format!("(({}).{}({}) ?? ({}))", &self.source[receiver.span.range()], name,
+                &self.source[self.arena.expr(index).span.range()], &self.source[fallback_node.span.range()]);
+            diagnostic.with_fix_hint(FixHint::replacement(span, "use a lazy inert fallback", replacement))
+        } else { diagnostic.with_note("no automatic fix: eager fallback effects, failure, comments, or argument order are not proven equivalent") });
+    }
+
     fn lint_call_style(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        self.lint_named_argument_forwarding(args, span);
         self.lint_path_constructor(callee, args, span);
+        self.lint_duration_conversion(callee, args, span);
+        self.lint_removed_lookup_fallback(callee, args, span);
         self.lint_redundant_defaults(callee, args);
         self.lint_prefer_in(callee, args, span);
+        self.lint_fs_root_receiver(callee, args, span);
         self.lint_prefer_method(callee, args, span);
         self.lint_join_to_concat(callee, args, span);
+        self.lint_prefer_slice(callee, args, span);
+    }
+
+    fn bare_field_label(&self, text: &str) -> bool {
+        let lexed = xsh::frontend::syntax::lexer::Lexer::new(
+            xsh::frontend::source::SourceId::new(0), text,
+        ).lex_compact();
+        lexed.diagnostics.is_empty()
+            && lexed.token_table.label_text_at(0).is_some_and(|name| name.as_ref() == text)
+            && lexed.token_table.tag_at(1) == Some(xsh::frontend::syntax::token::TokenTag::Eof)
+    }
+
+    fn lint_quoted_field_labels(&mut self, fields: ArenaRange) {
+        for field in self.arena.record_fields(fields) {
+            let ArenaRecordFieldKind::Named { name, span, .. } = field.kind else { continue; };
+            if !self.bare_field_label(name.as_str().as_str()) { continue; }
+            let span = self.arena.span(span);
+            let Some(source) = self.source.get(span.range()) else { continue; };
+            let lexed = xsh::frontend::syntax::lexer::Lexer::new(span.source_id, source).lex_compact();
+            if !lexed.diagnostics.is_empty()
+                || lexed.token_table.tag_at(0) != Some(xsh::frontend::syntax::token::TokenTag::String)
+                || lexed.token_table.tag_at(1) != Some(xsh::frontend::syntax::token::TokenTag::Colon)
+            { continue; }
+            let key = lexed.token_table.span_at(0, span.source_id, source).unwrap();
+            let key = Span::new(span.source_id, span.start() + key.start(), span.start() + key.end());
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "identifier-shaped field labels can be bare")
+                .with_code("lint.prefer-bare-field-label")
+                .with_label(Label::secondary(key, "quoting does not change this explicit key"))
+                .with_fix_hint(FixHint::replacement(key, "use the exact bare label", name.as_str().to_string())));
+        }
+    }
+
+    fn lint_prepared_regex(&mut self, expr: ExprId) {
+        if self.regex_recovery_context { return; }
+        let outer = self.arena.expr(expr);
+        let ArenaExprKind::Try(inner) = outer.kind else { return; };
+        let call = self.arena.expr(inner);
+        let ArenaExprKind::Call { callee, args } = call.kind else { return; };
+        if !is_module_call(self.arena, callee, "regex", "compile")
+            || self.expr_types.get(&outer.span) != Some(&Type::Regex)
+            || args.len() != 1
+        {
+            return;
+        }
+        let argument = match self.arena.call_args(args)[0].kind {
+            ArenaCallArgKind::Positional(value) => value,
+            ArenaCallArgKind::Named { name, value, .. } if name == "pattern" => value,
+            _ => return,
+        };
+        let value = self.arena.expr(argument);
+        let ArenaExprKind::Str(text) = value.kind else { return; };
+        let pattern = self.arena.string_literal(text);
+        // Reparse the proposed raw spelling to prove delimiter and decoded-text identity.
+        let replacement = if !pattern.contains('"') && !pattern.contains(['\n', '\r']) {
+            format!("rx\"{pattern}\"")
+        } else {
+            format!("rx\"\"\"{pattern}\"\"\"")
+        };
+        let candidate = format!("let prepared = {replacement}\n");
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+            outer.span.source_id, &candidate,
+        );
+        if !parsed.diagnostics.is_empty()
+            || parsed.arena.arena.regex_literals.len() != 1
+            || parsed.arena.arena.regex_literals[0].pattern.as_ref() != pattern.as_ref()
+            || !xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate)
+                .diagnostics.is_empty()
+        {
+            return;
+        }
+        let comments = self.source[outer.span.start()..value.span.start()].contains('#')
+            || self.source[value.span.end()..outer.span.end()].contains('#');
+        let diagnostic = Diagnostic::new(Severity::Warning, "prepare static regex patterns with a literal")
+            .with_code("lint.prefer-regex-literal")
+            .with_label(Label::secondary(outer.span, "this validated pattern is directly propagated"));
+        self.diagnostics.push(if comments {
+            diagnostic.with_note("no automatic fix: the call contains comments")
+        } else {
+            diagnostic.with_fix_hint(FixHint::replacement(
+                outer.span, "use a prepared regex literal", replacement,
+            ))
+        });
+    }
+
+    fn lint_prefer_slice(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
+            return;
+        };
+        if name != "slice" || self.expr_types.get(&self.arena.expr(base).span) != Some(&Type::Bytes) {
+            return;
+        }
+        let diagnostic = Diagnostic::new(
+            Severity::Warning,
+            "prefer half-open slicing where bounds are equivalent",
+        )
+            .with_code("lint.prefer-slice")
+            .with_label(Label::secondary(
+                span,
+                "offset/count methods have distinct bounds and error behavior",
+            ));
+        let diagnostic = if let Some(replacement) = self.byte_slice_replacement(callee, args, span) {
+            diagnostic.with_fix_hint(FixHint::replacement(
+                span, "rewrite equivalent byte slice", replacement,
+            ))
+        } else {
+            diagnostic.with_note("no automatic fix: bounds, count arithmetic, evaluation order, or comment retention are not proven equivalent")
+        };
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn byte_slice_replacement(&self, callee: ExprId, args: ArenaRange, span: Span) -> Option<String> {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
+            return None;
+        };
+        let receiver = self.arena.expr(base);
+        if name != "slice" || self.expr_types.get(&receiver.span) != Some(&Type::Bytes) {
+            return None;
+        }
+        if args.len() > 2 {
+            return None;
+        }
+        let mut offset = None;
+        let mut length = None;
+        for (index, arg) in self.arena.call_args(args).iter().enumerate() {
+            match arg.kind {
+                ArenaCallArgKind::Positional(value) if index == 0 && offset.is_none() => {
+                    offset = Some(value);
+                }
+                ArenaCallArgKind::Positional(value) if index == 1 && length.is_none() => {
+                    length = Some(value);
+                }
+                ArenaCallArgKind::Named { name, value, .. }
+                    if name == "offset" && offset.is_none() => {
+                    offset = Some(value);
+                }
+                ArenaCallArgKind::Named { name, value, .. }
+                    if name == "length" && length.is_none() => {
+                    length = Some(value);
+                }
+                _ => return None,
+            }
+        }
+        let Some(offset) = offset else {
+            return None;
+        };
+        let constant_offset = match self.arena.expr(offset).kind {
+            ArenaExprKind::Int(value) => self.arena.int_literal(value).value()
+                .filter(|value| *value >= 0),
+            _ => None,
+        };
+        let postfix_receiver = matches!(
+            receiver.kind,
+            ArenaExprKind::Ident(_)
+                | ArenaExprKind::Bytes(_)
+                | ArenaExprKind::Call { .. }
+                | ArenaExprKind::Field { .. }
+                | ArenaExprKind::Index { .. }
+                | ArenaExprKind::Slice { .. }
+        );
+        let bounds = match (constant_offset, length) {
+            // Zero is always a valid method offset, even for an empty receiver.
+            (Some(0), Some(length)) => match self.arena.expr(length).kind {
+                ArenaExprKind::Int(count) => self.arena.int_literal(count).value()
+                    .filter(|value| *value >= 0).map(|count| format!("..{count}")),
+                ArenaExprKind::Call { callee, args } if args.is_empty() => {
+                    match (receiver.kind.clone(), self.arena.expr(callee).kind) {
+                        (ArenaExprKind::Ident(receiver_name), ArenaExprKind::Field { base, name })
+                            if name == "len" && matches!(self.arena.expr(base).kind,
+                                ArenaExprKind::Ident(name) if name == receiver_name) => Some("..".to_string()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            },
+            (Some(0), None) => Some("..".to_string()),
+            (Some(offset), None) => match receiver.kind {
+                ArenaExprKind::Bytes(bytes) if offset as u64 <= self.arena.bytes_literal(bytes).len() as u64 => {
+                    Some(format!("{offset}.."))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let has_comments = self.source[receiver.span.range()].contains('#')
+            || self.source[receiver.span.end()..span.end()].contains('#');
+        let bounds = bounds.filter(|_| postfix_receiver && !has_comments)?;
+        // Include equivalent nested slices so dropping overlapping edits still converges.
+        let receiver_text = match receiver.kind {
+            ArenaExprKind::Call { callee, args } => self.byte_slice_replacement(callee, args, receiver.span),
+            _ => None,
+        }.unwrap_or_else(|| self.source[receiver.span.range()].to_string());
+        Some(format!("{receiver_text}[{bounds}]"))
+    }
+
+    /// Numeric adapters clamp or saturate, so only bounded nonnegative literals
+    /// can be replaced by checked scalar multiplication without changing failures.
+    fn lint_duration_conversion(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "time")
+            || !self.duration_conversion_module_unshadowed
+            || self.is_binding_in_scope_or_assigned("time") { return; }
+        let unit = match name.as_str().as_str() { "millis" => 1, "seconds" => 1000, _ => return };
+        let [arg] = self.arena.call_args(args) else { return; };
+        let ArenaCallArgKind::Positional(value) = arg.kind else { return; };
+        let ArenaExprKind::Int(literal) = self.arena.expr(value).kind else { return; };
+        let Some(amount) = self.arena.int_literal(literal).value() else { return; };
+        if amount < 0 || (amount as u64).checked_mul(unit).is_none()
+            || self.expr_types.get(&span) != Some(&Type::Duration)
+            || self.expr_types.get(&self.arena.expr(value).span) != Some(&Type::Int)
+            || self.source[span.range()].contains('#') { return; }
+        let suffix = if unit == 1 { "1ms" } else { "1s" };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "bounded numeric conversion can use Duration arithmetic")
+            .with_code("lint.duration-arithmetic")
+            .with_label(Label::secondary(span, "multiply by a duration unit"))
+            .with_fix_hint(FixHint::replacement(span, "use checked Duration arithmetic", format!("({amount} * {suffix})"))));
     }
 
     fn lint_path_constructor(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
@@ -2887,6 +5036,168 @@ impl<'a> Linter<'a> {
         );
     }
 
+    fn collect_list_splice_parts(&self, expr: ExprId, expected: &Type, parts: &mut Vec<(bool, ExprId)>, links: &mut usize, literal: &mut bool) -> Option<()> {
+        let node = self.arena.expr(expr);
+        if self.expr_types.get(&node.span)? != expected { return None; }
+        match node.kind {
+            ArenaExprKind::Binary { op: BinaryOp::Add, left, right } => {
+                *links += 1;
+                self.collect_list_splice_parts(left, expected, parts, links, literal)?;
+                self.collect_list_splice_parts(right, expected, parts, links, literal)?;
+            }
+            ArenaExprKind::Call { callee, args } => {
+                if let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind
+                    && name == "extend" && args.len() == 1
+                    && let ArenaCallArgKind::Positional(value) = self.arena.call_args(args)[0].kind
+                {
+                    *links += 1;
+                    self.collect_list_splice_parts(base, expected, parts, links, literal)?;
+                    self.collect_list_splice_parts(value, expected, parts, links, literal)?;
+                } else { parts.push((true, expr)); }
+            }
+            ArenaExprKind::List(items) => {
+                *literal = true;
+                let Type::List(element) = expected else { return None; };
+                for item in self.arena.list_elements(items) {
+                    let item_expected = if item.splice_span.is_some() { expected } else { element.as_ref() };
+                    if self.expr_types.get(&self.arena.expr(item.value).span)? != item_expected { return None; }
+                    parts.push((item.splice_span.is_some(), item.value));
+                }
+            }
+            _ => parts.push((true, expr)),
+        }
+        Some(())
+    }
+
+    fn map_set_parts(&self, expr: ExprId, element: &Type) -> Option<(ExprId, ExprId, ExprId)> {
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(expr).kind else { return None; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return None; };
+        if name != "set" || args.len() != 2 || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_, _))) { return None; }
+        let arguments = self.arena.call_args(args);
+        let (ArenaCallArgKind::Positional(key), ArenaCallArgKind::Positional(value)) = (arguments[0].kind.clone(), arguments[1].kind.clone()) else { return None; };
+        let Type::Map(expected_key, _) = self.expr_types.get(&self.arena.expr(base).span)? else { return None; };
+        if !expected_key.is_map_key() || self.expr_types.get(&self.arena.expr(key).span) != Some(expected_key.as_ref()) || self.expr_types.get(&self.arena.expr(value).span) != Some(element) { return None; }
+        Some((base, key, value))
+    }
+
+    fn is_empty_map_literal_source(&self, expr: ExprId) -> bool {
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::Record(fields) => fields.is_empty() && matches!(self.expr_types.get(&self.arena.expr(expr).span), Some(Type::Map(_, _))),
+            ArenaExprKind::Call { callee, args } if args.is_empty() => matches!(self.arena.expr(callee).kind,
+                ArenaExprKind::Field { base, name } if name == "empty" && matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "map")),
+            _ => false,
+        }
+    }
+
+    fn map_literal_replacement(&self, entries: &[(ExprId, ExprId)]) -> Option<String> {
+        let mut fields = Vec::with_capacity(entries.len());
+        for &(key, value) in entries {
+            let key = self.source.get(self.arena.expr(key).span.range())?;
+            let value = self.source.get(self.arena.expr(value).span.range())?;
+            fields.push(format!("[{key}]: {value}"));
+        }
+        Some(format!("{{{}}}", fields.join(", ")))
+    }
+
+    fn map_literal_diagnostic(&mut self, span: Span, replacement: String) {
+        let Some(source) = self.source.get(span.range()) else { return; };
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer a Map literal for fresh Map construction")
+            .with_code("lint.prefer-map-literal").with_label(Label::secondary(span, "construct the entries in one Map"));
+        if source.contains('#') { diagnostic = diagnostic.with_note("comments in the initialization require a manual rewrite"); }
+        else { diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "construct one Map literal", replacement)); }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_map_literal_chain(&mut self, expr: ExprId) {
+        let Some(Type::Map(key_ty, element)) = self.expr_types.get(&self.arena.expr(expr).span).cloned() else { return; };
+        if !list_splice_element_type_is_precise(&element) { return; }
+        let mut base = expr;
+        let mut entries = Vec::new();
+        while let Some((receiver, key, value)) = self.map_set_parts(base, &element) { entries.push((key, value)); base = receiver; }
+        if entries.is_empty() { return; }
+        entries.reverse();
+        let Some(mut replacement) = self.map_literal_replacement(&entries) else { return; };
+        if !self.is_empty_map_literal_source(base) {
+            let ArenaExprKind::Record(fields) = self.arena.expr(base).kind else { return; };
+            if self.expr_types.get(&self.arena.expr(base).span) != Some(&Type::Map(key_ty.clone(), element.clone())) { return; }
+            let mut originals = Vec::new();
+            for field in self.arena.record_fields(fields) {
+                let (value, span) = match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, span } => {
+                        if self.expr_types.get(&self.arena.expr(key).span) != Some(key_ty.as_ref()) { return; }
+                        (value, span)
+                    }
+                    ArenaRecordFieldKind::Named { value, span, .. } => (value, span),
+                    _ => return,
+                };
+                if self.expr_types.get(&self.arena.expr(value).span) != Some(element.as_ref()) { return; }
+                let Some(text) = self.source.get(self.arena.span(span).range()) else { return; };
+                originals.push(text);
+            }
+            if !originals.is_empty() { replacement = format!("{{{}, {}}}", originals.join(", "), &replacement[1..replacement.len() - 1]); }
+        }
+        self.map_literal_diagnostic(self.arena.expr(expr).span, replacement);
+    }
+
+    fn lint_fresh_map_initializations(&mut self, statements: &[StmtId]) {
+        for (index, &statement) in statements.iter().enumerate() {
+            let initializer_stmt = self.arena.stmt(statement);
+            let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = initializer_stmt.kind else { continue; };
+            let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { continue; };
+            let Some(Type::Map(_, element)) = self.expr_types.get(&self.arena.expr(initializer).span).cloned() else { continue; };
+            if !list_splice_element_type_is_precise(&element) || !self.is_empty_map_literal_source(initializer) { continue; }
+            let mut entries = Vec::new();
+            let mut end = initializer_stmt.span.end();
+            for &next in &statements[index + 1..] {
+                let stmt = self.arena.stmt(next);
+                let ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(value) } = stmt.kind else { break; };
+                if !matches!(self.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(target) if target == name) { break; }
+                let Some((base, key, value)) = self.map_set_parts(value, &element) else { break; };
+                if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(base) if base == name)
+                    || expr_references_name(self.arena, key, name) || expr_references_name(self.arena, value, name)
+                    || expr_may_have_effects(self.arena, key) || expr_may_have_effects(self.arena, value) { break; }
+                entries.push((key, value)); end = stmt.span.end();
+            }
+            if entries.is_empty() { continue; }
+            let Some(literal) = self.map_literal_replacement(&entries) else { continue; };
+            let span = Span::new(initializer_stmt.span.source_id, initializer_stmt.span.start(), end);
+            let prefix = &self.source[initializer_stmt.span.start()..self.arena.expr(initializer).span.start()];
+            let original = &self.source[span.range()];
+            let trailing_layout = &original[original.trim_end().len()..];
+            self.map_literal_diagnostic(span, format!("{prefix}{literal}{trailing_layout}"));
+        }
+    }
+
+    fn lint_list_splicing(&mut self, expr: ExprId) {
+        let node = self.arena.expr(expr);
+        if !matches!(node.kind, ArenaExprKind::Binary { op: BinaryOp::Add, .. } | ArenaExprKind::Call { .. }) { return; }
+        let Some(expected @ Type::List(element)) = self.expr_types.get(&node.span) else { return; };
+        if !list_splice_element_type_is_precise(element) { return; }
+        let mut parts = Vec::new();
+        let mut links = 0;
+        let mut literal = false;
+        if self.collect_list_splice_parts(expr, expected, &mut parts, &mut links, &mut literal).is_none()
+            || links == 0 || (links == 1 && !literal)
+        { return; }
+        // A simple receiver update already has a compound-assignment spelling.
+        if links == 1 && matches!(node.kind, ArenaExprKind::Call { .. }) { return; }
+        let Some(source) = self.source.get(node.span.range()) else { return; };
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer one list literal with explicit splices for list construction")
+            .with_code("lint.prefer-list-splicing")
+            .with_label(Label::secondary(node.span, "build the elements in one literal"));
+        if source.contains('#') {
+            diagnostic = diagnostic.with_note("comments in the construction require a manual rewrite");
+        } else {
+            let mut entries = Vec::with_capacity(parts.len());
+            for (splice, value) in parts {
+                let Some(source) = self.source.get(self.arena.expr(value).span.range()) else { return; };
+                entries.push(if splice { format!("@{source}") } else { source.to_string() });
+            }
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(node.span, "build one spliced list literal", format!("[{}]", entries.join(", "))));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_join_to_concat(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
             return;
@@ -2897,6 +5208,7 @@ impl<'a> Linter<'a> {
         let ArenaExprKind::List(items) = self.arena.expr(base).kind else {
             return;
         };
+        if self.arena.list_elements(items).any(|item| item.splice_span.is_some()) { return; }
         let separator_is_empty = args.is_empty()
             || {
                 match self.arena.call_args(args).first().map(|a| a.kind.clone()) {
@@ -2914,7 +5226,7 @@ impl<'a> Linter<'a> {
         }
         let replacement = self
             .arena
-            .expr_ids(items)
+            .list_element_exprs(items)
             .map(|item| {
                 let s = self.arena.expr(item).span;
                 &self.source[s.start()..s.end()]
@@ -2934,12 +5246,11 @@ impl<'a> Linter<'a> {
 
     fn lint_redundant_defaults(&mut self, callee: ExprId, args: ArenaRange) {
         if is_fs_call(self.arena, callee, "mkdir") || is_method_call(self.arena, callee, "mkdir") {
-            self.lint_redundant_named_bool(
-                args,
-                "parents",
-                true,
-                "`mkdir` creates parent directories by default",
-            );
+            let rooted = matches!(self.arena.expr(callee).kind, ArenaExprKind::Field { base, .. }
+                if self.expr_types.get(&self.arena.expr(base).span) == Some(&Type::FsRoot));
+            self.lint_redundant_named_bool(args, "parents", !rooted,
+                if rooted { "rooted mkdir does not create parent directories by default" }
+                else { "mkdir creates parent directories by default" });
         } else if is_fs_call(self.arena, callee, "touch")
             || is_method_call(self.arena, callee, "touch")
         {
@@ -2993,6 +5304,44 @@ impl<'a> Linter<'a> {
                 "`copy_tree` creates parent directories by default",
             );
         }
+    }
+
+    fn lint_fs_root_receiver(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        let ArenaExprKind::Ident(module) = self.arena.expr(base).kind else { return; };
+        if module != "fs" || self.scopes.iter().any(|scope| scope.contains_key("fs")) { return; }
+        let Some(method) = xsh_registry::signature::legacy_fs_root_method(&name.as_str()) else { return; };
+        let entries = self.arena.call_args(args);
+        let Some(first) = entries.first() else { return; };
+        let receiver = match first.kind {
+            ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { name: _, value, .. } => value,
+            _ => return,
+        };
+        if self.expr_types.get(&self.arena.expr(receiver).span) != Some(&Type::FsRoot) { return; }
+        let receiver_span = self.arena.expr(receiver).span;
+        let mut diagnostic = Diagnostic::new(Severity::Warning, format!("use FsRoot.{method} for this removed filesystem operation"))
+            .with_code("lint.fs-root-receiver").with_label(Label::secondary(span, "preserve receiver and argument evaluation order"));
+        let safe_receiver = match first.kind { ArenaCallArgKind::Positional(_) => true, ArenaCallArgKind::Named { name, .. } => name == "root", _ => false };
+        let safe_args = entries.iter().all(|entry| !matches!(entry.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
+        let lexed = xsh::frontend::syntax::lexer::Lexer::new(span.source_id, &self.source[span.range()]).lex_compact();
+        let comments = (0..lexed.token_table.len()).any(|index| lexed.token_table.tag_at(index) == Some(xsh::frontend::syntax::token::TokenTag::Comment));
+        if safe_receiver && safe_args && lexed.diagnostics.is_empty() && !comments {
+            let receiver_text = &self.source[receiver_span.range()];
+            let receiver_text = match self.arena.expr(receiver).kind {
+                ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. } => receiver_text.to_string(),
+                _ => format!("({receiver_text})"),
+            };
+            let first_end = call_arg_span(self.arena, first).expect("ordinary capability argument").end();
+            let suffix = &self.source[first_end..span.end()];
+            let suffix = if entries.len() > 1 {
+                let Some(comma) = suffix.find(',') else { return; };
+                let suffix = &suffix[comma + 1..];
+                if suffix.starts_with('\n') { suffix } else { suffix.trim_start() }
+            } else { ")" };
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "promote the first evaluated capability to its receiver", format!("{receiver_text}.{method}({suffix}")));
+
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     fn lint_prefer_method(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
@@ -3094,7 +5443,7 @@ impl<'a> Linter<'a> {
         }
         let ArenaExprKind::Field { base: receiver, name } = self.arena.expr(callee).kind else { return; };
         let parameter = if name == "has" {
-            if matches!(self.expr_types.get(&self.arena.expr(receiver).span), Some(Type::Map(_))) { "key" } else { "field" }
+            if matches!(self.expr_types.get(&self.arena.expr(receiver).span), Some(Type::Map(_, _))) { "key" } else { "field" }
         } else if matches!(self.expr_types.get(&self.arena.expr(receiver).span), Some(Type::List(_))) { "item" } else { "needle" };
         let Some(arguments) = migration_arguments(self.arena, args, &[parameter]) else { return; };
         self.lint_membership_replacement(receiver, arguments[0], span, self.negated_call_spans.contains_key(&span));
@@ -3108,7 +5457,8 @@ impl<'a> Linter<'a> {
             Type::Str => *item == Type::Str,
             Type::Bytes => *item == Type::Bytes,
             Type::List(expected) => item.matches_expected(expected),
-            Type::Map(_) | Type::Record(_) => *item == Type::Str,
+            Type::Map(key, _) => item.matches_expected(key),
+            Type::Record(_) => *item == Type::Str,
             _ => false,
         }
     }
@@ -3193,9 +5543,9 @@ impl<'a> Linter<'a> {
             if let Some(statement) = self.whole_statement_call_spans.get(&span).copied() {
                 let mut bindings = String::new();
                 let mut names = BTreeMap::new();
-                // Standard helper calls evaluate the bound signature slots in
-                // parameter order, including when their arguments are named.
-                for (index, argument) in expected_order.iter().enumerate() {
+                // Snapshot supplied expressions in source order. Signature slots
+                // still select the corresponding values for the predicate.
+                for (index, argument) in source_order.iter().enumerate() {
                     let Some(text) = self.expression_text(*argument) else { return; };
                     let name = self.migration_temporary_name(&format!("argument_{index}"), span.start());
                     bindings.push_str(&format!("let {name} = ({text}); "));
@@ -3220,12 +5570,74 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    fn lint_lexical_block(&mut self, branches: ArenaRange, else_block: Option<BlockId>, span: Span) {
+        if branches.len() != 1 || else_block.is_some()
+            || self.statement_positions.get(&span) != Some(&xsh::frontend::check::StatementPosition::Statement) { return; }
+        let branch = self.arena.if_branches(branches)[0].clone();
+        if !matches!(self.arena.expr(branch.condition).kind, ArenaExprKind::Bool(true)) { return; }
+        let block_span = self.arena.span(self.arena.block(branch.block).span);
+        if self.source.get(span.start()..block_span.start()).is_none_or(|prefix| prefix.contains('#')) { return; }
+        let Some(body) = self.source.get(block_span.range()) else { return; };
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(span.source_id, body);
+        if !parsed.diagnostics.is_empty() { return; }
+        let Some(statement) = parsed.arena.statement_ids().next() else { return; };
+        let ArenaStmtKind::Expr(expr) = parsed.arena.arena.stmt(statement).kind else { return; };
+        if !matches!(parsed.arena.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "use a lexical block for an unconditional scope")
+            .with_code("lint.lexical-block")
+            .with_label(Label::secondary(span, "retain the block's binding and cleanup scope"))
+            .with_fix_hint(FixHint::replacement(
+                Span::new(span.source_id, span.start(), block_span.start()),
+                "use a lexical block", String::new(),
+            )));
+    }
+
+    fn lint_negative_if_as_boolean_guard(&mut self, statement: StmtId) {
+        let stmt = self.arena.stmt(statement);
+        let ArenaStmtKind::If { branches, else_block: None } = stmt.kind else { return; };
+        let [branch] = self.arena.if_branches(branches) else { return; };
+        let block_span = self.arena.span(self.arena.block(branch.block).span);
+        if !self.definitely_exiting_block_spans.contains(&block_span) { return; }
+        let condition = self.arena.expr(branch.condition);
+        if self.source[stmt.span.start()..block_span.start()].contains('#') { return; }
+        let source_expr = |expr: ExprId| { let span = self.arena.expr(expr).span; self.source[span.start()..span.end()].trim() };
+        let inverse = match condition.kind {
+            ArenaExprKind::Unary { op: UnaryOp::Not, expr } => source_expr(expr).to_string(),
+            ArenaExprKind::Binary { op, left, right } if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Ne) || (op == BinaryOp::Eq && matches!(self.arena.expr(right).kind, ArenaExprKind::Null)) => {
+                let integer_order = matches!(self.expr_types.get(&self.arena.expr(left).span), Some(Type::Int)) && matches!(self.expr_types.get(&self.arena.expr(right).span), Some(Type::Int));
+                let operator = match op {
+                    BinaryOp::Lt if integer_order => Some(">="),
+                    BinaryOp::Le if integer_order => Some(">"),
+                    BinaryOp::Ne => Some("=="),
+                    BinaryOp::Eq => Some("!="),
+                    _ => None,
+                };
+                if let Some(operator) = operator {
+                    let between = self.arena.expr(left).span.end()..self.arena.expr(right).span.start();
+                    let original = match op { BinaryOp::Lt => "<", BinaryOp::Le => "<=", BinaryOp::Ne => "!=", BinaryOp::Eq => "==", _ => unreachable!() };
+                    let Some(offset) = self.source[between.clone()].find(original) else { return; };
+                    let token_start = between.start + offset;
+                    format!("{}{}{}", &self.source[condition.span.start()..token_start], operator, &self.source[token_start + original.len()..condition.span.end()])
+                }
+                else { format!("! ({})", source_expr(branch.condition)) }
+            }
+            _ => return,
+        };
+        let replacement = format!("guard {inverse} else {}", &self.source[block_span.start()..block_span.end()]);
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "leading failure branch can use a Boolean guard")
+            .with_code("lint.boolean-guard")
+            .with_label(Label::secondary(stmt.span, "continue only when the condition succeeds"))
+            .with_fix_hint(FixHint::replacement(stmt.span, "use explicit guard failure branch", replacement)));
+    }
+
     fn lint_if_as_guard(&mut self, branches: ArenaRange, else_block: Option<BlockId>, span: Span) {
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard") && diagnostic.fix_hints.iter().any(|fix| fix.span == Some(span))) { return; }
         // Only single-branch if with no else
         if branches.len() != 1 || else_block.is_some() {
             return;
         }
         let branch = self.arena.if_branches(branches)[0].clone();
+        if matches!(self.arena.expr(branch.condition).kind, ArenaExprKind::PatternCondition { .. }) { return; }
         // Only single-statement body
         let branch_stmts: Vec<StmtId> = self
             .arena
@@ -3235,43 +5647,63 @@ impl<'a> Linter<'a> {
             return;
         };
         let keyword = match self.arena.stmt(*only_stmt).kind {
-            ArenaStmtKind::Break { value: None } => "break",
+            ArenaStmtKind::Break { .. } => "break",
             ArenaStmtKind::Continue => "continue",
+            ArenaStmtKind::Return(_) => "return",
+            ArenaStmtKind::YieldDelegate(_) => "yield",
+            ArenaStmtKind::Yield(_) => "yield",
             _ => return,
         };
-        // The full condition spelling includes grouping that the expression's
-        // arena span can omit, including a pipeline's closing parenthesis.
-        let cond_text = self
-            .source
-            .get(span.start() + 2..self.arena.span(self.arena.block(branch.block).span).start())
-            .map(str::trim);
-        let (guard_word, replacement_cond) = match self.arena.expr(branch.condition).kind {
-            ArenaExprKind::Unary {
-                op: UnaryOp::Not,
-                expr: inner,
-            } => {
-                let inner_span = self.arena.expr(inner).span;
-                let inner_text = self.source.get(inner_span.start()..inner_span.end());
-                ("unless", inner_text)
-            }
-            _ => ("when", cond_text),
+        let Some(original) = self.source.get(span.range()) else {
+            return;
         };
-        if let Some(cond) = replacement_cond {
-            let replacement = format!("{keyword} {guard_word} {cond}");
-            self.diagnostics.push(
-                Diagnostic::new(
-                    Severity::Warning,
-                    format!("use `{keyword} {guard_word}` instead of `if {{ {keyword} }}`"),
-                )
-                .with_code("lint.prefer-guard")
-                .with_label(Label::secondary(span, "replace with postfix guard"))
-                .with_fix_hint(FixHint::replacement(
-                    span,
-                    format!("use `{keyword} {guard_word}`"),
-                    replacement,
-                )),
-            );
+        // Replacing the whole branch would discard comments attached to its body.
+        if original.contains('#') {
+            return;
         }
+        // Preserve grouping that expression spans can omit around pipelines and runs.
+        let Some(condition) = self.source
+            .get(span.start() + 2..self.arena.span(self.arena.block(branch.block).span).start())
+            .map(str::trim)
+        else {
+            return;
+        };
+        let (guard_word, condition) = if matches!(
+            self.arena.expr(branch.condition).kind,
+            ArenaExprKind::Unary { op: UnaryOp::Not, .. }
+        ) && condition.starts_with('!') {
+            ("unless", condition[1..].trim())
+        } else {
+            ("when", condition)
+        };
+        let Some(action) = self.source.get(self.arena.stmt(*only_stmt).span.range()) else {
+            return;
+        };
+        let action = action.trim().trim_end_matches(';').trim_end();
+        let payload = action.strip_prefix(keyword).unwrap_or_default().trim_start();
+        let action = if payload.starts_with("run ") || payload.starts_with("run.") {
+            format!("{keyword} ({payload})")
+        } else {
+            action.to_string()
+        };
+        let replacement = format!("{action} {guard_word} {condition}");
+        // Keep blocks whose condition or payload needs a readable multiline layout.
+        if replacement.contains('\n') || replacement.chars().count() > 88 {
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!("use `{keyword} {guard_word}` instead of a single-action `if`"),
+            )
+            .with_code("lint.prefer-guard")
+            .with_label(Label::secondary(span, "replace with postfix guard"))
+            .with_fix_hint(FixHint::replacement(
+                span,
+                format!("use `{keyword} {guard_word}`"),
+                replacement,
+            )),
+        );
     }
 
     fn lint_prefer_fs_files(&mut self, input: ExprId, stages: ArenaRange) {
@@ -3313,7 +5745,7 @@ impl<'a> Linter<'a> {
                 let span = match a.kind {
                     ArenaCallArgKind::Positional(e) => self.arena.expr(e).span,
                     ArenaCallArgKind::Named { span, .. }
-                    | ArenaCallArgKind::Splice { span, .. } => self.arena.span(span),
+                    | ArenaCallArgKind::Splice { span, .. } | ArenaCallArgKind::NamedSpread { span, .. } => self.arena.span(span),
                 };
                 self.source.get(span.start()..span.end())
             })
@@ -3345,7 +5777,7 @@ impl<'a> Linter<'a> {
     fn lint_redundant_stream_stages(&mut self, stages: ArenaRange) {
         for stage in self.arena.stream_stages(stages).to_vec() {
             let stage_span = self.arena.span(stage.span);
-            if !stage.args.is_empty() || !stage.options.is_empty() {
+            if !stage.args.is_empty() {
                 continue;
             }
             let Some(block) = stage.block else {
@@ -3451,8 +5883,11 @@ impl<'a> Linter<'a> {
             scope.insert(
                 name.to_string(),
                 Binding {
+                    mutable: false,
                     span,
                     used: false,
+                    comparison_stable: false,
+                    absence_lookup: false,
                     report_unused: report_unused && name != "_",
                 },
             );
@@ -3637,7 +6072,7 @@ fn lazy_visit_stmt(
         // Old visitor::walk_stmt treats Break (with or without value) as a leaf.
         | ArenaStmtKind::Break { .. } => {}
         ArenaStmtKind::Export(inner) => lazy_visit_stmt(arena, inner, out),
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
             lazy_visit_expr_or_run(arena, &initializer, out);
         }
         ArenaStmtKind::Assign { target, value, .. } => {
@@ -3647,7 +6082,7 @@ fn lazy_visit_stmt(
         ArenaStmtKind::Return(Some(v)) | ArenaStmtKind::Defer(v) | ArenaStmtKind::Yield(v) => {
             lazy_visit_expr_or_run(arena, &v, out);
         }
-        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
+        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
             lazy_visit_block(arena, arena.function_def(def).body, out);
         }
         ArenaStmtKind::SignalHook(hook) => {
@@ -3678,6 +6113,14 @@ fn lazy_visit_stmt(
             lazy_visit_expr_or_run(arena, &initializer, out);
             lazy_visit_block(arena, else_block, out);
         }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            lazy_visit_expr(arena, condition, out);
+            lazy_visit_block(arena, else_block, out);
+        }
+        ArenaStmtKind::Assert { condition, message } => {
+            lazy_visit_expr(arena, condition, out);
+            lazy_visit_expr(arena, message, out);
+        }
         ArenaStmtKind::GuardedStmt { stmt, condition, .. } => {
             lazy_visit_expr(arena, condition, out);
             lazy_visit_stmt(arena, stmt, out);
@@ -3698,7 +6141,7 @@ fn lazy_visit_stmt(
                 lazy_visit_block(arena, arm.block, out);
             }
         }
-        ArenaStmtKind::Expr(expr) => {
+        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
             lazy_visit_expr(arena, expr, out);
         }
         ArenaStmtKind::Command(cmd_id) => {
@@ -3767,6 +6210,9 @@ fn lazy_visit_run(
         }
         if let Some(cpu_max) = segment.cpu_max {
             lazy_visit_expr(arena, cpu_max, out);
+        }
+        if let Some(accept) = segment.accept {
+            lazy_visit_expr(arena, accept, out);
         }
         for assignment in arena.env_assignments(segment.env).to_vec() {
             match assignment.value {
@@ -3893,6 +6339,8 @@ fn lazy_visit_builder_block(
 fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
     let mut out = Vec::new();
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => { out.push(input); out.push(call); }
+
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
             for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
                 if let ArenaFmtPart::Expr(e, _) = part {
@@ -3900,33 +6348,14 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                 }
             }
         }
-        ArenaExprKind::List(items) => out.extend(arena.expr_ids(items)),
-        ArenaExprKind::ListComp {
-            expr,
-            iter,
-            condition,
-            ..
-        } => {
-            out.push(expr);
-            out.push(iter);
-            out.extend(condition);
-        }
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            iter,
-            condition,
-            ..
-        } => {
-            out.push(key);
-            out.push(value);
-            out.push(iter);
-            out.extend(condition);
-        }
+        ArenaExprKind::List(items) => out.extend(arena.list_element_exprs(items)),
+        ArenaExprKind::ListComp { expr, qualifiers } => { out.extend(arena.comp_qualifiers(qualifiers).iter().map(|q| q.expr())); out.push(expr); }
+        ArenaExprKind::MapComp { key, value, qualifiers } => { out.extend(arena.comp_qualifiers(qualifiers).iter().map(|q| q.expr())); out.push(key); out.push(value); }
         ArenaExprKind::Record(fields) => {
             for field in arena.record_fields(fields) {
                 match field.kind {
-                    ArenaRecordFieldKind::Named { value, .. } => out.push(value),
+                    ArenaRecordFieldKind::Computed { key, value, .. } => { out.push(key); out.push(value); }
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => out.push(value),
                     ArenaRecordFieldKind::Spread { expr, .. } => out.push(expr),
                     ArenaRecordFieldKind::Shorthand { .. } => {}
                 }
@@ -3942,7 +6371,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
             }
             out.push(else_value);
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
             out.push(value);
             for arm in arena.match_expr_arms(arms) {
                 out.extend(arm.guard);
@@ -3950,6 +6379,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
             }
         }
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => out.push(expr),
+        ArenaExprKind::ComparisonChain(pairs) => out.extend(arena.comparison_chain_operands(pairs)),
         ArenaExprKind::Binary { left, right, .. } => {
             out.push(left);
             out.push(right);
@@ -3960,18 +6390,18 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                 match arg.kind {
                     ArenaCallArgKind::Positional(e)
                     | ArenaCallArgKind::Named { value: e, .. }
-                    | ArenaCallArgKind::Splice { value: e, .. } => out.push(e),
+                    | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
                 }
             }
         }
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
             out.push(base);
         }
-        ArenaExprKind::Index { base, index } => {
+        ArenaExprKind::Index { base, index, .. } => {
             out.push(base);
             out.push(index);
         }
-        ArenaExprKind::Slice { base, start, end } => {
+        ArenaExprKind::Slice { base, start, end, .. } => {
             out.push(base);
             out.extend(start);
             out.extend(end);
@@ -3986,7 +6416,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                             match arg.kind {
                                 ArenaCallArgKind::Positional(e)
                                 | ArenaCallArgKind::Named { value: e, .. }
-                                | ArenaCallArgKind::Splice { value: e, .. } => out.push(e),
+                                | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
                             }
                         }
                     }
@@ -3996,14 +6426,11 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         ArenaExprKind::StructuredPipeline { input, stages } => {
             out.push(input);
             for stage in arena.stream_stages(stages).to_vec() {
-                for option in arena.stream_options(stage.options) {
-                    out.extend(option.value);
-                }
                 for arg in arena.call_args(stage.args) {
                     match arg.kind {
                         ArenaCallArgKind::Positional(e)
                         | ArenaCallArgKind::Named { value: e, .. }
-                        | ArenaCallArgKind::Splice { value: e, .. } => out.push(e),
+                        | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
                     }
                 }
             }
@@ -4016,6 +6443,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         ArenaExprKind::Wait(form) => out.push(form.target),
         ArenaExprKind::BuilderCall { call, .. } => out.push(call),
         ArenaExprKind::Require { value, .. } => out.push(value),
+        ArenaExprKind::ErrorContext { message, .. } | ArenaExprKind::ContextScope { input: message, .. } => out.push(message),
         ArenaExprKind::Retry { delays, .. } => out.extend(arena.expr_ids(delays)),
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
@@ -4025,13 +6453,15 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
         | ArenaExprKind::EnvGet { .. }
         | ArenaExprKind::EnvPathList
         | ArenaExprKind::Run(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::Loop { .. } => {}
     }
     out
@@ -4041,7 +6471,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
 fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
     let mut out = Vec::new();
     match arena.expr(expr).kind {
-        ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => out.push(block),
+        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } | ArenaExprKind::ErrorContext { block, .. } | ArenaExprKind::ContextScope { block, .. } => out.push(block),
         ArenaExprKind::Pipeline { stages, .. } => {
             for stage in arena.pipe_stages(stages).to_vec() {
                 if let ArenaPipeStageKind::Stream(stage) = stage.kind
@@ -4075,6 +6505,18 @@ fn direct_call_name(arena: &AstArena, expr: ExprId) -> Option<xsh::frontend::sym
         return None;
     };
     Some(name)
+}
+
+// Unsigned schema checks retain the nonnegative constraint even when the
+// selected storage has only an Int runtime tag.
+fn type_has_unsigned_constraint(ty: &Type) -> bool {
+    match ty {
+        Type::UInt => true,
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => type_has_unsigned_constraint(inner),
+        Type::Map(key, value) | Type::Result(key, value) => type_has_unsigned_constraint(key) || type_has_unsigned_constraint(value),
+        Type::Record(fields) => fields.values().any(type_has_unsigned_constraint),
+        _ => false,
+    }
 }
 
 fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -> bool {
@@ -4156,7 +6598,7 @@ fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_pushes_to(arena, block, name),
-        ArenaStmtKind::Guard { else_block, .. } => block_pushes_to(arena, else_block, name),
+        ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => block_pushes_to(arena, else_block, name),
         ArenaStmtKind::GuardedStmt { stmt, .. } | ArenaStmtKind::Export(stmt) => {
             stmt_pushes_to(arena, stmt, name)
         }
@@ -4199,7 +6641,7 @@ fn stmt_assigns_non_push_to(
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_assigns_non_push_to(arena, block, name),
-        ArenaStmtKind::Guard { else_block, .. } => {
+        ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => {
             block_assigns_non_push_to(arena, else_block, name)
         }
         ArenaStmtKind::GuardedStmt { stmt, .. } | ArenaStmtKind::Export(stmt) => {
@@ -4330,27 +6772,19 @@ fn ok_call_arg(arena: &AstArena, expr: ExprId) -> Option<ExprId> {
 fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
     let refs = |id: ExprId| expr_references_name(arena, id, name);
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => refs(input) || refs(call),
+
         ArenaExprKind::Ident(candidate) => candidate == name,
-        ArenaExprKind::List(items) => arena.expr_ids(items).any(refs),
-        ArenaExprKind::ListComp {
-            expr,
-            iter,
-            condition,
-            ..
-        } => refs(expr) || refs(iter) || condition.is_some_and(refs),
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            iter,
-            condition,
-            ..
-        } => refs(key) || refs(value) || refs(iter) || condition.is_some_and(refs),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).any(refs),
+        ArenaExprKind::ListComp { expr, qualifiers } => refs(expr) || arena.comp_qualifiers(qualifiers).iter().any(|q| refs(q.expr())),
+        ArenaExprKind::MapComp { key, value, qualifiers } => refs(key) || refs(value) || arena.comp_qualifiers(qualifiers).iter().any(|q| refs(q.expr())),
         ArenaExprKind::Record(fields) => {
             arena
                 .record_fields(fields)
                 .iter()
                 .any(|field| match field.kind {
-                    ArenaRecordFieldKind::Named { value, .. } => refs(value),
+                    ArenaRecordFieldKind::Computed { key, value, .. } => refs(key) || refs(value),
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => refs(value),
                     ArenaRecordFieldKind::Spread { expr, .. } => refs(expr),
                     ArenaRecordFieldKind::Shorthand { name: field, .. } => field == name,
                 })
@@ -4371,7 +6805,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                 .any(|branch| refs(branch.condition) || refs(branch.value))
                 || refs(else_value)
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
             refs(value)
                 || arena
                     .match_expr_arms(arms)
@@ -4381,18 +6815,19 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         ArenaExprKind::Unary { expr, .. }
         | ArenaExprKind::Try(expr)
         | ArenaExprKind::Require { value: expr, .. } => refs(expr),
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(refs),
         ArenaExprKind::Binary { left, right, .. } => refs(left) || refs(right),
         ArenaExprKind::Call { callee, args } => {
             refs(callee)
                 || arena.call_args(args).iter().any(|arg| match arg.kind {
                     ArenaCallArgKind::Positional(expr)
                     | ArenaCallArgKind::Named { value: expr, .. }
-                    | ArenaCallArgKind::Splice { value: expr, .. } => refs(expr),
+                    | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => refs(expr),
                 })
         }
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => refs(base),
-        ArenaExprKind::Index { base, index } => refs(base) || refs(index),
-        ArenaExprKind::Slice { base, start, end } => {
+        ArenaExprKind::Index { base, index, .. } => refs(base) || refs(index),
+        ArenaExprKind::Slice { base, start, end, .. } => {
             refs(base) || start.is_some_and(refs) || end.is_some_and(refs)
         }
         ArenaExprKind::Pipeline { input, stages } => {
@@ -4473,7 +6908,9 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                         }
                     })
         }
-        ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => false,
+        ArenaExprKind::ValueBlock(_) | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. } => true,
+        ArenaExprKind::Capture(_) | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => false,
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
         | ArenaExprKind::Int(_)
@@ -4482,7 +6919,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
         | ArenaExprKind::EnvGet { .. }
@@ -4497,14 +6934,9 @@ fn stream_stage_references_name(arena: &AstArena, stage: &ArenaStreamStage, name
         .any(|arg| match arg.kind {
             ArenaCallArgKind::Positional(expr)
             | ArenaCallArgKind::Named { value: expr, .. }
-            | ArenaCallArgKind::Splice { value: expr, .. } => {
+            | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
                 expr_references_name(arena, expr, name)
             }
-        })
-        || arena.stream_options(stage.options).iter().any(|option| {
-            option
-                .value
-                .is_some_and(|value| expr_references_name(arena, value, name))
         })
         || stage.block.is_some_and(|block| {
             arena
@@ -4537,7 +6969,7 @@ fn command_arg_references_name(arena: &AstArena, arg: &ArenaCommandArg, name: Na
 fn call_arg_span(arena: &AstArena, arg: &ArenaCallArg) -> Option<Span> {
     match arg.kind {
         ArenaCallArgKind::Positional(expr) => Some(arena.expr(expr).span),
-        ArenaCallArgKind::Named { span, .. } | ArenaCallArgKind::Splice { span, .. } => {
+        ArenaCallArgKind::Named { span, .. } | ArenaCallArgKind::Splice { span, .. } | ArenaCallArgKind::NamedSpread { span, .. } => {
             Some(arena.span(span))
         }
     }
@@ -4664,6 +7096,8 @@ fn is_method_call(arena: &AstArena, callee: ExprId, method: &str) -> bool {
 fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
     let rec = |id: ExprId| expr_contains_read_text_lines_call(arena, id);
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => rec(input) || rec(call),
+
         ArenaExprKind::Call { callee, args } => {
             (matches!(arena.expr(callee).kind, ArenaExprKind::Field { base, name } if name == "lines" && expr_is_read_text_result(arena, base)))
                 || rec(callee)
@@ -4673,8 +7107,8 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                     .any(|arg| call_arg_contains_read_text_lines_call(arena, arg))
         }
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => rec(base),
-        ArenaExprKind::Index { base, index } => rec(base) || rec(index),
-        ArenaExprKind::Slice { base, start, end } => {
+        ArenaExprKind::Index { base, index, .. } => rec(base) || rec(index),
+        ArenaExprKind::Slice { base, start, end, .. } => {
             rec(base) || start.is_some_and(rec) || end.is_some_and(rec)
         }
         ArenaExprKind::Pipeline { input, stages } => {
@@ -4708,26 +7142,16 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                             .is_some_and(|block| block_contains_read_text_lines_call(arena, block))
                 })
         }
-        ArenaExprKind::List(items) => arena.expr_ids(items).any(rec),
-        ArenaExprKind::ListComp {
-            expr,
-            iter,
-            condition,
-            ..
-        } => rec(expr) || rec(iter) || condition.is_some_and(rec),
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            iter,
-            condition,
-            ..
-        } => rec(key) || rec(value) || rec(iter) || condition.is_some_and(rec),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).any(rec),
+        ArenaExprKind::ListComp { expr, qualifiers } => rec(expr) || arena.comp_qualifiers(qualifiers).iter().any(|q| rec(q.expr())),
+        ArenaExprKind::MapComp { key, value, qualifiers } => rec(key) || rec(value) || arena.comp_qualifiers(qualifiers).iter().any(|q| rec(q.expr())),
         ArenaExprKind::Record(fields) => {
             arena
                 .record_fields(fields)
                 .iter()
                 .any(|field| match field.kind {
-                    ArenaRecordFieldKind::Named { value, .. } => rec(value),
+                    ArenaRecordFieldKind::Computed { key, value, .. } => rec(key) || rec(value),
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => rec(value),
                     ArenaRecordFieldKind::Spread { expr, .. } => rec(expr),
                     ArenaRecordFieldKind::Shorthand { .. } => false,
                 })
@@ -4742,7 +7166,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                 .any(|branch| rec(branch.condition) || rec(branch.value))
                 || rec(else_value)
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
             rec(value)
                 || arena
                     .match_expr_arms(arms)
@@ -4750,6 +7174,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                     .any(|arm| arm.guard.is_some_and(rec) || rec(arm.value))
         }
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => rec(expr),
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(rec),
         ArenaExprKind::Binary { left, right, .. } => rec(left) || rec(right),
         ArenaExprKind::Spawn(form) => match form.target {
             ArenaSpawnTarget::Command(expr) => rec(expr),
@@ -4789,8 +7214,9 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                     })
         }
         ArenaExprKind::Require { value, .. } => rec(value),
-        ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
-        ArenaExprKind::Retry { delays, block } => {
+        ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => expr_contains_read_text_lines_call(arena, message) || block_contains_read_text_lines_call(arena, block),
+        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
+        ArenaExprKind::Retry { delays, block, .. } => {
             arena.expr_ids(delays).any(rec) || block_contains_read_text_lines_call(arena, block)
         }
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
@@ -4807,7 +7233,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
@@ -4836,7 +7262,7 @@ fn call_arg_contains_read_text_lines_call(arena: &AstArena, arg: &ArenaCallArg) 
     match arg.kind {
         ArenaCallArgKind::Positional(expr)
         | ArenaCallArgKind::Named { value: expr, .. }
-        | ArenaCallArgKind::Splice { value: expr, .. } => {
+        | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
             expr_contains_read_text_lines_call(arena, expr)
         }
     }
@@ -4850,7 +7276,7 @@ fn block_contains_read_text_lines_call(arena: &AstArena, block: BlockId) -> bool
 
 fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. }
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. }
         | ArenaStmtKind::Assign {
             value: initializer, ..
@@ -4861,7 +7287,7 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
             ArenaExprOrRun::Expr(expr) => expr_contains_read_text_lines_call(arena, expr),
             ArenaExprOrRun::Run(_) => false,
         },
-        ArenaStmtKind::Expr(expr) | ArenaStmtKind::Break { value: Some(expr) } => {
+        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) | ArenaStmtKind::Break { value: Some(expr) } => {
             expr_contains_read_text_lines_call(arena, expr)
         }
         ArenaStmtKind::If {
@@ -4889,6 +7315,11 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
         } => {
             matches!(initializer, ArenaExprOrRun::Expr(expr) if expr_contains_read_text_lines_call(arena, expr))
                 || block_contains_read_text_lines_call(arena, else_block)
+        }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => expr_contains_read_text_lines_call(arena, condition) || block_contains_read_text_lines_call(arena, else_block),
+        ArenaStmtKind::Assert { condition, message } => {
+            expr_contains_read_text_lines_call(arena, condition)
+                || expr_contains_read_text_lines_call(arena, message)
         }
         ArenaStmtKind::GuardedStmt {
             stmt, condition, ..
@@ -4926,6 +7357,7 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_)
         | ArenaStmtKind::SignalHook(_)
@@ -4947,6 +7379,19 @@ struct LintExprVisitor<'a, 'b> {
 }
 
 impl LintExprVisitor<'_, '_> {
+    fn visit_comp_qualifiers(&mut self, range: ArenaRange) -> usize {
+        let mut scopes = 0;
+        for qualifier in self.linter.arena.comp_qualifiers(range).to_vec() {
+            if let ArenaCompQualifier::For { iter, .. } = qualifier { self.linter.lint_scalar_split_iteration(iter); }
+            self.visit_expr(qualifier.expr());
+            if let ArenaCompQualifier::For { target, .. } = qualifier {
+                self.linter.push_scope(); scopes += 1;
+                self.linter.define_binding_target(target, qualifier.span(), false);
+            }
+        }
+        scopes
+    }
+
     fn visit_expr(&mut self, expr: ExprId) {
         if let ArenaExprKind::Unary { op: UnaryOp::Not, expr: inner } = self.linter.arena.expr(expr).kind {
             if matches!(self.linter.arena.expr(inner).kind, ArenaExprKind::Call { .. }) {
@@ -4954,9 +7399,28 @@ impl LintExprVisitor<'_, '_> {
             }
         }
 
+        if !self.suppress_expr_autofixes { self.linter.lint_proven_nonnull_fallback(expr); }
         if !self.suppress_expr_autofixes {
+            self.linter.lint_nested_record_update(expr);
+            self.linter.lint_nested_value_pipeline(expr);
+
+            self.linter.lint_block_string_concatenation(expr);
+            self.linter.lint_list_splicing(expr);
+            self.linter.lint_map_literal_chain(expr);
+            self.linter.lint_prepared_regex(expr);
+            self.linter.lint_comparison_chain(expr);
+            self.linter.lint_lookup_sentinel(expr);
+
+            self.linter.lint_optional_postfix(expr);
+            if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind {
+                self.linter.lint_adjacent_pattern_arms(self.linter.arena.match_expr_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, self.linter.arena.expr(arm.value).span, self.linter.arena.span(arm.span))).collect());
+            }
+            self.linter.lint_boolean_match(expr);
+            self.linter.lint_pattern_conditional_expr(expr);
+            self.linter.lint_error_fallback_block(expr);
             self.linter.lint_path_roundtrip(expr);
             self.linter.lint_redundant_require(expr);
+            self.linter.lint_inferred_require_target(expr);
             self.linter.lint_redundant_single_interpolation(expr);
             self.linter.lint_scalar_display_parse_roundtrip(expr);
             self.linter.lint_json_encode_decode_roundtrip(expr);
@@ -4965,6 +7429,11 @@ impl LintExprVisitor<'_, '_> {
         match arena_expr.kind {
             ArenaExprKind::Ident(name) => self.linter.mark_used(name.as_str().as_str()),
             ArenaExprKind::Call { callee, args } => {
+                if self.linter.record_constructors.resolve_call(self.linter.arena, callee, None).is_some()
+                    && let ArenaExprKind::Ident(name) = self.linter.arena.expr(callee).kind
+                {
+                    self.linter.used_type_names.insert(name.as_str().to_string());
+                }
                 self.walk_expr(expr);
                 self.linter.lint_call_style(callee, args, arena_expr.span);
             }
@@ -4975,6 +7444,8 @@ impl LintExprVisitor<'_, '_> {
     fn walk_expr(&mut self, expr: ExprId) {
         let arena = self.linter.arena;
         match arena.expr(expr).kind {
+            ArenaExprKind::ValuePipelineCall { input, call, .. } => { self.visit_expr(input); self.visit_expr(call); }
+
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
                     if let ArenaFmtPart::Expr(e, _) = part {
@@ -4983,37 +7454,22 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::List(items) => {
-                for item in arena.expr_ids(items).collect::<Vec<_>>() {
+                for item in arena.list_element_exprs(items).collect::<Vec<_>>() {
                     self.visit_expr(item);
                 }
             }
-            ArenaExprKind::ListComp {
-                expr,
-                iter,
-                condition,
-                ..
-            } => {
+            ArenaExprKind::ListComp { expr, qualifiers } => {
+                let scopes = self.visit_comp_qualifiers(qualifiers);
                 self.visit_expr(expr);
-                self.visit_expr(iter);
-                if let Some(cond) = condition {
-                    self.visit_expr(cond);
-                }
+                for _ in 0..scopes { self.linter.pop_scope(); }
             }
-            ArenaExprKind::MapComp {
-                key,
-                value,
-                iter,
-                condition,
-                ..
-            } => {
-                self.visit_expr(key);
-                self.visit_expr(value);
-                self.visit_expr(iter);
-                if let Some(cond) = condition {
-                    self.visit_expr(cond);
-                }
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
+                let scopes = self.visit_comp_qualifiers(qualifiers);
+                self.visit_expr(key); self.visit_expr(value);
+                for _ in 0..scopes { self.linter.pop_scope(); }
             }
             ArenaExprKind::Record(fields) => {
+                if !self.suppress_expr_autofixes { self.linter.lint_quoted_field_labels(fields); }
                 for field in arena.record_fields(fields).to_vec() {
                     self.visit_record_field(&field);
                 }
@@ -5023,21 +7479,39 @@ impl LintExprVisitor<'_, '_> {
                 else_value,
             } => {
                 for branch in arena.if_expr_branches(branches).to_vec() {
-                    self.visit_expr(branch.condition);
-                    self.visit_expr(branch.value);
+                    if let ArenaExprKind::PatternCondition { value, arms } = arena.expr(branch.condition).kind {
+                        self.visit_expr(value);
+                        self.linter.push_scope();
+                        self.linter.lint_pattern(arena.match_expr_arms(arms)[0].pattern);
+                        self.visit_expr(branch.value);
+                        self.linter.pop_scope();
+                    } else {
+                        self.visit_expr(branch.condition);
+                        self.visit_expr(branch.value);
+                    }
                 }
                 self.visit_expr(else_value);
             }
-            ArenaExprKind::Match { value, arms } => {
+            ArenaExprKind::PatternCondition { value, .. } => self.visit_expr(value),
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
+                let old = self.linter.regex_recovery_context;
+                self.linter.regex_recovery_context = true;
                 self.visit_expr(value);
                 for arm in arena.match_expr_arms(arms).to_vec() {
                     self.visit_match_expr_arm(&arm);
                 }
+                self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => self.visit_expr(expr),
-            ArenaExprKind::Binary { left, right, .. } => {
+            ArenaExprKind::ComparisonChain(pairs) => {
+                for operand in arena.comparison_chain_operands(pairs).collect::<Vec<_>>() { self.visit_expr(operand); }
+            }
+            ArenaExprKind::Binary { op, left, right } => {
+                let old = self.linter.regex_recovery_context;
+                self.linter.regex_recovery_context |= op == BinaryOp::ResultFallback;
                 self.visit_expr(left);
                 self.visit_expr(right);
+                self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Call { callee, args } => {
                 self.visit_expr(callee);
@@ -5048,11 +7522,11 @@ impl LintExprVisitor<'_, '_> {
             ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
                 self.visit_expr(base)
             }
-            ArenaExprKind::Index { base, index } => {
+            ArenaExprKind::Index { base, index, .. } => {
                 self.visit_expr(base);
                 self.visit_expr(index);
             }
-            ArenaExprKind::Slice { base, start, end } => {
+            ArenaExprKind::Slice { base, start, end, .. } => {
                 self.visit_expr(base);
                 if let Some(start) = start {
                     self.visit_expr(start);
@@ -5088,14 +7562,35 @@ impl LintExprVisitor<'_, '_> {
             }
             ArenaExprKind::Require { value, schema } => {
                 self.visit_expr(value);
-                self.linter.collect_type_expr_refs(schema);
+                if let Some(schema) = schema { self.linter.collect_type_expr_refs(schema); }
+            }
+            ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => {
+                self.visit_expr(message);
+                self.linter.lint_block(block);
+            }
+            ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => {
+                let capturing = matches!(arena.expr(expr).kind, ArenaExprKind::Capture(_));
+                if capturing { self.linter.assertion_capture_depth += 1; }
+                self.linter.push_scope();
+                for parameter in arena.block_params(arena.block(block).params) {
+                    self.linter.define(parameter.name.as_str().as_str(), arena.span(parameter.span), true);
+                }
+                self.linter.lint_block_statements(block);
+                self.linter.pop_scope();
+                if capturing { self.linter.assertion_capture_depth -= 1; }
             }
             ArenaExprKind::Loop { block } => self.linter.lint_block(block),
-            ArenaExprKind::Retry { delays, block } => {
+            ArenaExprKind::Retry { delays, pattern, block } => {
+                if let Some(pattern) = pattern { self.linter.lint_pattern(pattern); }
+                let old = self.linter.regex_recovery_context;
+                self.linter.regex_recovery_context = true;
                 for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
                     self.visit_expr(delay);
                 }
+                self.linter.assertion_capture_depth += 1;
                 self.linter.lint_block(block);
+                self.linter.assertion_capture_depth -= 1;
+                self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Str(_) => {
                 self.linter.lint_dollar_in_expression_string(expr);
@@ -5110,7 +7605,7 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::Duration(_)
             | ArenaExprKind::PathStr(_)
             | ArenaExprKind::GlobStr(_)
-            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::EnvGet { .. }
             | ArenaExprKind::EnvPathList
@@ -5124,7 +7619,8 @@ impl LintExprVisitor<'_, '_> {
             ArenaRecordFieldKind::Shorthand { name, .. } => {
                 self.linter.mark_used(name.as_str().as_str())
             }
-            ArenaRecordFieldKind::Named { value, .. } => self.visit_expr(value),
+            ArenaRecordFieldKind::Computed { key, value, .. } => { self.visit_expr(key); self.visit_expr(value); }
+            ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => self.visit_expr(value),
             ArenaRecordFieldKind::Spread { expr, .. } => self.visit_expr(expr),
         }
     }
@@ -5140,11 +7636,14 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_call_arg(&mut self, arg: &ArenaCallArg) {
+        if !self.suppress_expr_autofixes {
+            self.linter.lint_named_argument_pun(arg);
+        }
         match arg.kind {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
                 self.visit_expr(expr);
             }
-            ArenaCallArgKind::Splice { value, .. } => self.visit_expr(value),
+            ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => self.visit_expr(value),
         }
     }
 
@@ -5351,6 +7850,7 @@ impl LintExprVisitor<'_, '_> {
         for segment in arena.run_segments(run_form.segments).to_vec() {
             let seg_span = arena.span(segment.span);
             if segment.kind == RunKind::Plain
+                && segment.accept.is_none()
                 && run_form.propagate
                 && let Some(target) =
                     literal_command_word(arena, self.linter.source, &segment.target)
@@ -5381,6 +7881,9 @@ impl LintExprVisitor<'_, '_> {
             }
             if let Some(cpu_max) = segment.cpu_max {
                 self.visit_expr(cpu_max);
+            }
+            if let Some(accept) = segment.accept {
+                self.visit_expr(accept);
             }
             for assignment in arena.env_assignments(segment.env).to_vec() {
                 self.visit_env_assignment(&assignment);
@@ -5420,7 +7923,7 @@ impl LintExprVisitor<'_, '_> {
 }
 
 fn is_predeclared_script_args(name: &str) -> bool {
-    matches!(name, "args" | "ARGV")
+    name == "args"
 }
 
 fn literal_command_word(arena: &AstArena, source: &str, arg: &ArenaCommandArg) -> Option<String> {
@@ -5524,6 +8027,10 @@ fn scan_before_arrow(source: &str, ty_start: usize) -> usize {
         }
     }
     i
+}
+
+fn shift_after_deletion(offset: usize, deletion: Span) -> usize {
+    if offset >= deletion.end() { offset - deletion.range().len() } else { offset }
 }
 
 fn scan_before_colon(source: &str, ty_start: usize) -> usize {
@@ -5658,10 +8165,14 @@ fn top_level_phase(arena: &AstArena, stmt: StmtId, source: &str) -> TopLevelPhas
     match arena_stmt.kind {
         ArenaStmtKind::Use(_) => TopLevelPhase::Use,
         ArenaStmtKind::TypeDef(_) => TopLevelPhase::Type,
-        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::SignalHook(_) => {
+        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::SignalHook(_) => {
             TopLevelPhase::Function
         }
         ArenaStmtKind::Let {
+            target,
+            initializer,
+            ..
+        } | ArenaStmtKind::Const {
             target,
             initializer,
             ..
@@ -5670,6 +8181,10 @@ fn top_level_phase(arena: &AstArena, stmt: StmtId, source: &str) -> TopLevelPhas
         }
         ArenaStmtKind::Export(inner) => match arena.stmt(inner).kind {
             ArenaStmtKind::Let {
+                target,
+                initializer,
+                ..
+            } | ArenaStmtKind::Const {
                 target,
                 initializer,
                 ..
@@ -5702,6 +8217,8 @@ fn is_safe_top_level_const(
 
 fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { .. } => false,
+
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
         | ArenaExprKind::Int(_)
@@ -5710,21 +8227,23 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_) => true,
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
         ArenaExprKind::List(items) => arena
-            .expr_ids(items)
+            .list_element_exprs(items)
             .all(|item| is_safe_const_expr(arena, item)),
         ArenaExprKind::Record(fields) => {
             arena
                 .record_fields(fields)
                 .iter()
                 .all(|field| match field.kind {
-                    ArenaRecordFieldKind::Named { value, .. } => is_safe_const_expr(arena, value),
+                    ArenaRecordFieldKind::Computed { .. } => false,
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => is_safe_const_expr(arena, value),
                     ArenaRecordFieldKind::Shorthand { .. }
                     | ArenaRecordFieldKind::Spread { .. } => false,
                 })
         }
         ArenaExprKind::Unary { expr, .. } => is_safe_const_expr(arena, expr),
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).all(|operand| is_safe_const_expr(arena, operand)),
         ArenaExprKind::Binary { left, right, .. } => {
             is_safe_const_expr(arena, left) && is_safe_const_expr(arena, right)
         }
@@ -5738,6 +8257,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. } | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::Field { .. }
         | ArenaExprKind::NullSafeField { .. }
@@ -5753,9 +8273,134 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => false,
     }
+}
+
+fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
+    match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_may_have_effects(arena, input) || expr_may_have_effects(arena, call),
+
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::EnvPathList => false,
+        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
+            .fmt_parts(parts)
+            .any(|part| matches!(part, ArenaFmtPart::Expr(expr, _) if expr_may_have_effects(arena, expr))),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).any(|item| expr_may_have_effects(arena, item)),
+        ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().any(|field| match field.kind {
+            ArenaRecordFieldKind::Computed { key, value, .. } => expr_may_have_effects(arena, key) || expr_may_have_effects(arena, value),
+            ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => expr_may_have_effects(arena, value),
+            ArenaRecordFieldKind::Spread { expr, .. } => expr_may_have_effects(arena, expr),
+            ArenaRecordFieldKind::Shorthand { .. } => false,
+        }),
+        ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
+            expr_may_have_effects(arena, expr)
+        }
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(|operand| expr_may_have_effects(arena, operand)),
+        ArenaExprKind::Binary { left, right, .. } => {
+            expr_may_have_effects(arena, left) || expr_may_have_effects(arena, right)
+        }
+        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
+            expr_may_have_effects(arena, base)
+        }
+        ArenaExprKind::Index { base, index, .. } => {
+            expr_may_have_effects(arena, base) || expr_may_have_effects(arena, index)
+        }
+        ArenaExprKind::Slice { base, start, end, .. } => {
+            expr_may_have_effects(arena, base)
+                || start.is_some_and(|start| expr_may_have_effects(arena, start))
+                || end.is_some_and(|end| expr_may_have_effects(arena, end))
+        }
+        ArenaExprKind::Call { callee, args } => {
+            !pure_method_call_for_prefer_in(arena, callee)
+                || arena
+                    .call_args(args)
+                    .iter()
+                    .any(|arg| call_arg_may_have_effects(arena, arg))
+        }
+        ArenaExprKind::If {
+            branches,
+            else_value,
+        } => {
+            arena.if_expr_branches(branches).iter().any(|branch| {
+                expr_may_have_effects(arena, branch.condition)
+                    || expr_may_have_effects(arena, branch.value)
+            }) || expr_may_have_effects(arena, else_value)
+        }
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
+            expr_may_have_effects(arena, value)
+                || arena.match_expr_arms(arms).iter().any(|arm| {
+                    arm.guard
+                        .is_some_and(|guard| expr_may_have_effects(arena, guard))
+                        || expr_may_have_effects(arena, arm.value)
+                })
+        }
+        ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. } => true,
+    }
+}
+
+fn call_arg_may_have_effects(arena: &AstArena, arg: &ArenaCallArg) -> bool {
+    match arg.kind {
+        ArenaCallArgKind::Positional(expr)
+        | ArenaCallArgKind::Named { value: expr, .. }
+        | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => expr_may_have_effects(arena, expr),
+    }
+}
+
+fn pure_method_call_for_prefer_in(arena: &AstArena, callee: ExprId) -> bool {
+    let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
+        return false;
+    };
+    matches!(
+        name.as_str().as_str(),
+        "display"
+            | "name"
+            | "stem"
+            | "ext"
+            | "parent"
+            | "join"
+            | "len"
+            | "lower"
+            | "upper"
+            | "trim"
+            | "starts_with"
+            | "ends_with"
+            | "split"
+            | "fields"
+            | "words"
+            | "replace"
+    ) && !expr_may_have_effects(arena, base)
 }
 
 fn effects_annotation(effects: &FxHashSet<Effect>) -> String {
@@ -5785,507 +8430,13 @@ fn effects_covers_any(declared: &[Effect], required: &Effect) -> bool {
             )
 }
 
-fn collect_block_effects(
-    arena: &AstArena,
-    block: BlockId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    for stmt in arena
-        .stmt_ids(arena.block(block).statements)
-        .collect::<Vec<_>>()
-    {
-        collect_stmt_effects(arena, stmt, effects, proc_effects);
-    }
-}
 
-fn collect_stmt_effects(
-    arena: &AstArena,
-    stmt: StmtId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
-            collect_expr_or_run_effects(arena, &initializer, effects, proc_effects);
-        }
-        ArenaStmtKind::Assign { value, .. } => {
-            collect_expr_or_run_effects(arena, &value, effects, proc_effects)
-        }
-        ArenaStmtKind::Return(Some(v)) | ArenaStmtKind::Defer(v) | ArenaStmtKind::Yield(v) => {
-            collect_expr_or_run_effects(arena, &v, effects, proc_effects);
-        }
-        ArenaStmtKind::Return(None)
-        | ArenaStmtKind::Break { .. }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::TailBareIdent(_)
-        | ArenaStmtKind::Use(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::StreamDef(_) => {}
-        ArenaStmtKind::SignalHook(hook) => {
-            collect_block_effects(arena, arena.signal_hook(hook).body, effects, proc_effects)
-        }
-        ArenaStmtKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
-        ArenaStmtKind::Guard {
-            initializer,
-            else_block,
-            ..
-        } => {
-            collect_expr_or_run_effects(arena, &initializer, effects, proc_effects);
-            collect_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::GuardedStmt {
-            stmt: inner,
-            condition,
-            ..
-        } => {
-            collect_expr_effects(arena, condition, effects, proc_effects);
-            collect_stmt_effects(arena, inner, effects, proc_effects);
-        }
-        ArenaStmtKind::Export(inner) => collect_stmt_effects(arena, inner, effects, proc_effects),
-        // Don't descend into nested function defs — they have their own effect scope
-        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) => {}
-        ArenaStmtKind::Expr(e) => collect_expr_effects(arena, e, effects, proc_effects),
-        ArenaStmtKind::Command(cmd) => {
-            collect_command_effects(&arena.command_stmt(cmd).command, effects)
-        }
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            for b in arena.if_branches(branches).to_vec() {
-                collect_expr_effects(arena, b.condition, effects, proc_effects);
-                collect_block_effects(arena, b.block, effects, proc_effects);
-            }
-            if let Some(block) = else_block {
-                collect_block_effects(arena, block, effects, proc_effects);
-            }
-        }
-        ArenaStmtKind::While { condition, block } => {
-            collect_expr_effects(arena, condition, effects, proc_effects);
-            collect_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::For { iter, block, .. } => {
-            collect_expr_effects(arena, iter, effects, proc_effects);
-            collect_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-            ..
-        } => {
-            for b in arena.with_bindings(bindings).to_vec() {
-                collect_expr_effects(arena, b.initializer, effects, proc_effects);
-            }
-            collect_block_effects(arena, body, effects, proc_effects);
-            collect_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::Match { value, arms } => {
-            collect_expr_effects(arena, value, effects, proc_effects);
-            for arm in arena.match_arms(arms).to_vec() {
-                if let Some(g) = arm.guard {
-                    collect_expr_effects(arena, g, effects, proc_effects);
-                }
-                collect_block_effects(arena, arm.block, effects, proc_effects);
-            }
-        }
-    }
-}
 
-fn collect_command_effects(cmd: &ArenaCommand, effects: &mut FxHashSet<Effect>) {
-    match cmd {
-        ArenaCommand::Run(_) => {
-            effects.insert(Effect::Process);
-        }
-        ArenaCommand::Core {
-            name: CoreCommand::Cd | CoreCommand::Env,
-            ..
-        } => {
-            effects.insert(Effect::Env);
-        }
-        ArenaCommand::Core { .. } | ArenaCommand::Proc { .. } => {}
+fn binding_target_contains_name(arena: &AstArena, target: BindingTargetId, candidate: Name) -> bool {
+    match arena.binding_target(target).kind {
+        ArenaBindingTargetKind::Name(name) => name == candidate,
+        ArenaBindingTargetKind::Record { fields, .. } => arena.destructure_fields(fields).iter().any(|field| binding_target_contains_name(arena, field.target, candidate)),
     }
-}
-
-fn collect_expr_or_run_effects(
-    arena: &AstArena,
-    v: &ArenaExprOrRun,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match v {
-        ArenaExprOrRun::Expr(e) => collect_expr_effects(arena, *e, effects, proc_effects),
-        ArenaExprOrRun::Run(_) => {
-            effects.insert(Effect::Process);
-        }
-    }
-}
-
-fn collect_call_arg_effects(
-    arena: &AstArena,
-    args: ArenaRange,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    for arg in arena.call_args(args).to_vec() {
-        let e = match arg.kind {
-            ArenaCallArgKind::Positional(e)
-            | ArenaCallArgKind::Splice { value: e, .. }
-            | ArenaCallArgKind::Named { value: e, .. } => e,
-        };
-        collect_expr_effects(arena, e, effects, proc_effects);
-    }
-}
-
-fn collect_expr_effects(
-    arena: &AstArena,
-    expr: ExprId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match arena.expr(expr).kind {
-        ArenaExprKind::Call { callee, args } => {
-            if let ArenaExprKind::Ident(name) = arena.expr(callee).kind
-                && let Some(Some(callee_effects)) =
-                    proc_effects.and_then(|known| known.get(name.as_str().as_str()))
-            {
-                for effect in callee_effects {
-                    effects.insert(effect.clone());
-                }
-            }
-            if let ArenaExprKind::Field { base, name: func } = arena.expr(callee).kind
-                && let ArenaExprKind::Ident(module) = arena.expr(base).kind
-                && let Some(Some(callee_effects)) =
-                    proc_effects.and_then(|known| known.get(&format!("{module}.{func}")))
-            {
-                for effect in callee_effects {
-                    effects.insert(effect.clone());
-                }
-            }
-            if let ArenaExprKind::Field { base, name: func } = arena.expr(callee).kind
-                && let ArenaExprKind::Ident(module) = arena.expr(base).kind
-                && let Some(eff) =
-                    Effect::from_module_call(module.as_str().as_str(), func.as_str().as_str())
-            {
-                effects.insert(eff);
-            }
-            collect_expr_effects(arena, callee, effects, proc_effects);
-            collect_call_arg_effects(arena, args, effects, proc_effects);
-        }
-        ArenaExprKind::Try(inner) => {
-            effects.insert(Effect::Error);
-            collect_expr_effects(arena, inner, effects, proc_effects);
-        }
-        ArenaExprKind::Run(_) => {
-            effects.insert(Effect::Process);
-        }
-        ArenaExprKind::Spawn(form) => {
-            effects.insert(Effect::Process);
-            if let ArenaSpawnTarget::Command(expr) = form.target {
-                collect_expr_effects(arena, expr, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::Wait(form) => {
-            effects.insert(Effect::Process);
-            collect_expr_effects(arena, form.target, effects, proc_effects);
-        }
-        ArenaExprKind::Unary { expr, .. } => {
-            collect_expr_effects(arena, expr, effects, proc_effects)
-        }
-        ArenaExprKind::Binary { left, right, .. } => {
-            collect_expr_effects(arena, left, effects, proc_effects);
-            collect_expr_effects(arena, right, effects, proc_effects);
-        }
-        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
-            collect_expr_effects(arena, base, effects, proc_effects);
-        }
-        ArenaExprKind::Index { base, index } => {
-            collect_expr_effects(arena, base, effects, proc_effects);
-            collect_expr_effects(arena, index, effects, proc_effects);
-        }
-        ArenaExprKind::List(items) => {
-            for item in arena.expr_ids(items).collect::<Vec<_>>() {
-                collect_expr_effects(arena, item, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::ListComp {
-            expr,
-            iter,
-            condition,
-            ..
-        } => {
-            collect_expr_effects(arena, expr, effects, proc_effects);
-            collect_expr_effects(arena, iter, effects, proc_effects);
-            if let Some(cond) = condition {
-                collect_expr_effects(arena, cond, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            iter,
-            condition,
-            ..
-        } => {
-            collect_expr_effects(arena, key, effects, proc_effects);
-            collect_expr_effects(arena, value, effects, proc_effects);
-            collect_expr_effects(arena, iter, effects, proc_effects);
-            if let Some(cond) = condition {
-                collect_expr_effects(arena, cond, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::Record(fields) => {
-            for field in arena.record_fields(fields).to_vec() {
-                if let ArenaRecordFieldKind::Named { value, .. } = field.kind {
-                    collect_expr_effects(arena, value, effects, proc_effects);
-                }
-            }
-        }
-        ArenaExprKind::If {
-            branches,
-            else_value,
-        } => {
-            for b in arena.if_expr_branches(branches).to_vec() {
-                collect_expr_effects(arena, b.condition, effects, proc_effects);
-                collect_expr_effects(arena, b.value, effects, proc_effects);
-            }
-            collect_expr_effects(arena, else_value, effects, proc_effects);
-        }
-        ArenaExprKind::Match { value, arms } => {
-            collect_expr_effects(arena, value, effects, proc_effects);
-            for arm in arena.match_expr_arms(arms).to_vec() {
-                if let Some(g) = arm.guard {
-                    collect_expr_effects(arena, g, effects, proc_effects);
-                }
-                collect_expr_effects(arena, arm.value, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-            for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
-                if let ArenaFmtPart::Expr(e, _) = part {
-                    collect_expr_effects(arena, e, effects, proc_effects);
-                }
-            }
-        }
-        ArenaExprKind::Pipeline { input, stages } => {
-            collect_expr_effects(arena, input, effects, proc_effects);
-            for stage in arena.pipe_stages(stages).to_vec() {
-                match stage.kind {
-                    ArenaPipeStageKind::Expr(e) => {
-                        collect_expr_effects(arena, e, effects, proc_effects)
-                    }
-                    ArenaPipeStageKind::Stream(s) => {
-                        if let Some(block) = s.block {
-                            collect_block_effects(arena, block, effects, proc_effects);
-                        }
-                        collect_call_arg_effects(arena, s.args, effects, proc_effects);
-                    }
-                }
-            }
-        }
-        ArenaExprKind::StructuredPipeline { input, stages } => {
-            collect_expr_effects(arena, input, effects, proc_effects);
-            for stage in arena.stream_stages(stages).to_vec() {
-                if let Some(block) = stage.block {
-                    collect_block_effects(arena, block, effects, proc_effects);
-                }
-                collect_call_arg_effects(arena, stage.args, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::BuilderCall { call, block } => {
-            collect_expr_effects(arena, call, effects, proc_effects);
-            for entry in arena
-                .builder_entries(arena.builder_block(block).entries)
-                .to_vec()
-            {
-                match entry.kind {
-                    ArenaBuilderEntryKind::Task { block, .. } => {
-                        collect_block_effects(arena, block, effects, proc_effects);
-                    }
-                    ArenaBuilderEntryKind::Stmt(stmt) => {
-                        collect_stmt_effects(arena, stmt, effects, proc_effects)
-                    }
-                    ArenaBuilderEntryKind::Field { value, .. } => {
-                        collect_expr_effects(arena, value, effects, proc_effects);
-                    }
-                    ArenaBuilderEntryKind::Entry { .. } => {}
-                }
-            }
-        }
-        ArenaExprKind::Require { value, .. } => {
-            collect_expr_effects(arena, value, effects, proc_effects)
-        }
-        ArenaExprKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
-        ArenaExprKind::Retry { delays, block } => {
-            for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
-                collect_expr_effects(arena, delay, effects, proc_effects);
-            }
-            if !delays.is_empty() {
-                effects.insert(Effect::Time);
-            }
-            collect_retry_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaExprKind::Null
-        | ArenaExprKind::Bool(_)
-        | ArenaExprKind::Int(_)
-        | ArenaExprKind::Float(_)
-        | ArenaExprKind::Duration(_)
-        | ArenaExprKind::Str(_)
-        | ArenaExprKind::PathStr(_)
-        | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
-        | ArenaExprKind::Ident(_)
-        | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvGet { .. }
-        | ArenaExprKind::EnvPathList => {}
-        ArenaExprKind::Slice { base, start, end } => {
-            collect_expr_effects(arena, base, effects, proc_effects);
-            if let Some(s) = start {
-                collect_expr_effects(arena, s, effects, proc_effects);
-            }
-            if let Some(e) = end {
-                collect_expr_effects(arena, e, effects, proc_effects);
-            }
-        }
-    }
-}
-
-fn collect_retry_block_effects(
-    arena: &AstArena,
-    block: BlockId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    for stmt in arena
-        .stmt_ids(arena.block(block).statements)
-        .collect::<Vec<_>>()
-    {
-        collect_retry_stmt_effects(arena, stmt, effects, proc_effects);
-    }
-}
-
-fn collect_retry_stmt_effects(
-    arena: &AstArena,
-    stmt: StmtId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. }
-        | ArenaStmtKind::Var { initializer, .. }
-        | ArenaStmtKind::Assign {
-            value: initializer, ..
-        }
-        | ArenaStmtKind::Defer(initializer)
-        | ArenaStmtKind::Return(Some(initializer))
-        | ArenaStmtKind::Yield(initializer) => match initializer {
-            ArenaExprOrRun::Expr(expr) => {
-                collect_retry_expr_effects(arena, expr, effects, proc_effects)
-            }
-            ArenaExprOrRun::Run(_) => {
-                effects.insert(Effect::Process);
-            }
-        },
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            for branch in arena.if_branches(branches).to_vec() {
-                collect_retry_expr_effects(arena, branch.condition, effects, proc_effects);
-                collect_retry_block_effects(arena, branch.block, effects, proc_effects);
-            }
-            if let Some(block) = else_block {
-                collect_retry_block_effects(arena, block, effects, proc_effects);
-            }
-        }
-        ArenaStmtKind::While { condition, block } => {
-            collect_retry_expr_effects(arena, condition, effects, proc_effects);
-            collect_retry_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::For { iter, block, .. } => {
-            collect_retry_expr_effects(arena, iter, effects, proc_effects);
-            collect_retry_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::Loop { block } => {
-            collect_retry_block_effects(arena, block, effects, proc_effects)
-        }
-        ArenaStmtKind::Guard {
-            initializer,
-            else_block,
-            ..
-        } => {
-            match initializer {
-                ArenaExprOrRun::Expr(expr) => {
-                    collect_retry_expr_effects(arena, expr, effects, proc_effects)
-                }
-                ArenaExprOrRun::Run(_) => {
-                    effects.insert(Effect::Process);
-                }
-            }
-            collect_retry_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::GuardedStmt {
-            stmt, condition, ..
-        } => {
-            collect_retry_stmt_effects(arena, stmt, effects, proc_effects);
-            collect_retry_expr_effects(arena, condition, effects, proc_effects);
-        }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-            ..
-        } => {
-            for binding in arena.with_bindings(bindings).to_vec() {
-                collect_retry_expr_effects(arena, binding.initializer, effects, proc_effects);
-            }
-            collect_retry_block_effects(arena, body, effects, proc_effects);
-            collect_retry_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::Break { value: Some(expr) } | ArenaStmtKind::Expr(expr) => {
-            collect_retry_expr_effects(arena, expr, effects, proc_effects);
-        }
-        ArenaStmtKind::Match { value, arms } => {
-            collect_retry_expr_effects(arena, value, effects, proc_effects);
-            for arm in arena.match_arms(arms).to_vec() {
-                if let Some(guard) = arm.guard {
-                    collect_retry_expr_effects(arena, guard, effects, proc_effects);
-                }
-                collect_retry_block_effects(arena, arm.block, effects, proc_effects);
-            }
-        }
-        ArenaStmtKind::Command(_) => {
-            effects.insert(Effect::Process);
-        }
-        ArenaStmtKind::Return(None)
-        | ArenaStmtKind::Break { value: None }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::TailBareIdent(_)
-        | ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Export(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::PureDef(_)
-        | ArenaStmtKind::StreamDef(_)
-        | ArenaStmtKind::SignalHook(_) => {}
-    }
-}
-
-fn collect_retry_expr_effects(
-    arena: &AstArena,
-    expr: ExprId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    if let ArenaExprKind::Try(inner) = arena.expr(expr).kind {
-        collect_retry_expr_effects(arena, inner, effects, proc_effects);
-        return;
-    }
-    collect_expr_effects(arena, expr, effects, proc_effects);
 }
 
 fn format_binding_target(arena: &AstArena, target: BindingTargetId) -> String {
@@ -6299,6 +8450,10 @@ fn format_binding_target(arena: &AstArena, target: BindingTargetId) -> String {
                     s.push_str(", ");
                 }
                 s.push_str(f.name.as_str().as_str());
+                if !matches!(arena.binding_target(f.target).kind, ArenaBindingTargetKind::Name(name) if name == f.name) {
+                    s.push_str(": ");
+                    s.push_str(&format_binding_target(arena, f.target));
+                }
             }
             if rest {
                 if !fields.is_empty() {
@@ -6473,7 +8628,7 @@ impl<'a> CallableReachability<'a> {
             if callable.exported
                 || (callable.namespace == 0
                     && callable.proc_entry
-                    && (callable.name == "main" || callable.name.as_str().starts_with("test_")))
+                    && (callable.name == "main" || self.arena.function_def(callable.definition).test_declaration))
             {
                 root_targets.insert(index);
             }
@@ -6621,7 +8776,16 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
     fn scan_stmt(&mut self, stmt: StmtId) {
         match self.arena().stmt(stmt).kind {
             ArenaStmtKind::Export(inner) => self.scan_stmt(inner),
+            ArenaStmtKind::CliMain(def) => {
+                self.push_scope();
+                self.scan_callable(def);
+                self.pop_scope();
+            },
             ArenaStmtKind::Let {
+                target,
+                initializer,
+                ..
+            } | ArenaStmtKind::Const {
                 target,
                 initializer,
                 ..
@@ -6672,23 +8836,17 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaStmtKind::With {
                 bindings,
                 body,
-                else_param,
                 else_block,
             } => {
                 let bindings = self.arena().with_bindings(bindings).to_vec();
-                for binding in &bindings {
-                    self.scan_expr(binding.initializer);
-                }
                 self.push_scope();
                 for binding in &bindings {
-                    self.define(binding.name);
+                    self.scan_expr(binding.initializer);
+                    if binding.name.as_str() != "_" { self.define(binding.name); }
                 }
                 self.scan_block(body);
                 self.pop_scope();
                 self.push_scope();
-                if let Some(name) = else_param {
-                    self.define(name);
-                }
                 self.scan_block(else_block);
                 self.pop_scope();
             }
@@ -6696,18 +8854,22 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaStmtKind::Guard {
                 target,
                 initializer,
-                else_param,
                 else_block,
                 ..
             } => {
                 self.scan_expr_or_run(initializer);
                 self.push_scope();
-                if let Some(name) = else_param {
-                    self.define(name);
-                }
                 self.scan_block(else_block);
                 self.pop_scope();
                 self.define_binding_target(target);
+            }
+            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+                self.scan_expr(condition);
+                self.scan_block(else_block);
+            }
+            ArenaStmtKind::Assert { condition, message } => {
+                self.scan_expr(condition);
+                self.scan_expr(message);
             }
             ArenaStmtKind::GuardedStmt {
                 stmt, condition, ..
@@ -6729,7 +8891,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaStmtKind::Command(command) => self.scan_command(command),
             ArenaStmtKind::TailBareIdent(name) => self.add_direct_unqualified(name),
-            ArenaStmtKind::Expr(expr) => self.scan_expr(expr),
+            ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => self.scan_expr(expr),
             // Callable bodies and hooks have their own entry conditions. A
             // declaration is never executed while its containing initializer
             // runs, so only roots and graph edges scan those bodies.
@@ -6765,8 +8927,19 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
         }
     }
 
+    fn scan_comp_qualifiers(&mut self, range: ArenaRange) -> usize {
+        let mut scopes = 0;
+        for qualifier in self.arena().comp_qualifiers(range).to_vec() {
+            self.scan_expr(qualifier.expr());
+            if let ArenaCompQualifier::For { target, .. } = qualifier { self.push_scope(); scopes += 1; self.define_binding_target(target); }
+        }
+        scopes
+    }
+
     fn scan_expr(&mut self, expr: ExprId) {
         match self.arena().expr(expr).kind {
+            ArenaExprKind::ValuePipelineCall { input, call, .. } => { self.scan_expr(input); self.scan_expr(call); }
+
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in self.arena().fmt_parts(parts).collect::<Vec<_>>() {
                     if let ArenaFmtPart::Expr(expr, _) = part {
@@ -6776,46 +8949,25 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaExprKind::Ident(name) => self.add_dynamic_unqualified(name),
             ArenaExprKind::List(items) => {
-                for item in self.arena().expr_ids(items).collect::<Vec<_>>() {
+                for item in self.arena().list_element_exprs(items).collect::<Vec<_>>() {
                     self.scan_expr(item);
                 }
             }
-            ArenaExprKind::ListComp {
-                expr,
-                target,
-                iter,
-                condition,
-            } => {
-                self.scan_expr(iter);
-                self.push_scope();
-                self.define_binding_target(target);
-                if let Some(condition) = condition {
-                    self.scan_expr(condition);
-                }
+            ArenaExprKind::ListComp { expr, qualifiers } => {
+                let scopes = self.scan_comp_qualifiers(qualifiers);
                 self.scan_expr(expr);
-                self.pop_scope();
+                for _ in 0..scopes { self.pop_scope(); }
             }
-            ArenaExprKind::MapComp {
-                key,
-                value,
-                target,
-                iter,
-                condition,
-            } => {
-                self.scan_expr(iter);
-                self.push_scope();
-                self.define_binding_target(target);
-                if let Some(condition) = condition {
-                    self.scan_expr(condition);
-                }
-                self.scan_expr(key);
-                self.scan_expr(value);
-                self.pop_scope();
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
+                let scopes = self.scan_comp_qualifiers(qualifiers);
+                self.scan_expr(key); self.scan_expr(value);
+                for _ in 0..scopes { self.pop_scope(); }
             }
             ArenaExprKind::Record(fields) => {
                 for field in self.arena().record_fields(fields).to_vec() {
                     match field.kind {
-                        ArenaRecordFieldKind::Named { value, .. }
+                        ArenaRecordFieldKind::Computed { key, value, .. } => { self.scan_expr(key); self.scan_expr(value); }
+                        ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. }
                         | ArenaRecordFieldKind::Spread { expr: value, .. } => self.scan_expr(value),
                         ArenaRecordFieldKind::Shorthand { name, .. } => {
                             self.add_dynamic_unqualified(name)
@@ -6833,7 +8985,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 }
                 self.scan_expr(else_value);
             }
-            ArenaExprKind::Match { value, arms } => {
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
                 self.scan_expr(value);
                 for arm in self.arena().match_expr_arms(arms).to_vec() {
                     self.push_scope();
@@ -6848,10 +9000,14 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaExprKind::Unary { expr, .. }
             | ArenaExprKind::Try(expr)
             | ArenaExprKind::Require { value: expr, .. } => self.scan_expr(expr),
+            ArenaExprKind::ComparisonChain(pairs) => {
+                for operand in self.arena().comparison_chain_operands(pairs).collect::<Vec<_>>() { self.scan_expr(operand); }
+            }
             ArenaExprKind::Binary { left, right, .. }
             | ArenaExprKind::Index {
                 base: left,
                 index: right,
+                ..
             } => {
                 self.scan_expr(left);
                 self.scan_expr(right);
@@ -6869,7 +9025,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                     self.scan_expr(base);
                 }
             }
-            ArenaExprKind::Slice { base, start, end } => {
+            ArenaExprKind::Slice { base, start, end, .. } => {
                 self.scan_expr(base);
                 if let Some(start) = start {
                     self.scan_expr(start);
@@ -6900,8 +9056,9 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.scan_expr(call);
                 self.scan_builder_block(block);
             }
-            ArenaExprKind::Loop { block } => self.scan_block(block),
-            ArenaExprKind::Retry { delays, block } => {
+            ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => { self.scan_expr(message); self.scan_block(block); }
+            ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.scan_block(block),
+            ArenaExprKind::Retry { delays, block, .. } => {
                 for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
                     self.scan_expr(delay);
                 }
@@ -6915,7 +9072,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             | ArenaExprKind::Str(_)
             | ArenaExprKind::PathStr(_)
             | ArenaExprKind::GlobStr(_)
-            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
             | ArenaExprKind::Item
             | ArenaExprKind::LastStatus
             | ArenaExprKind::EnvGet { .. }
@@ -6927,7 +9084,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
         match arg.kind {
             ArenaCallArgKind::Positional(expr)
             | ArenaCallArgKind::Named { value: expr, .. }
-            | ArenaCallArgKind::Splice { value: expr, .. } => self.scan_expr(expr),
+            | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => self.scan_expr(expr),
         }
     }
 
@@ -6939,11 +9096,6 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
     }
 
     fn scan_stream_stage(&mut self, stage: &ArenaStreamStage) {
-        for option in self.arena().stream_options(stage.options).to_vec() {
-            if let Some(value) = option.value {
-                self.scan_expr(value);
-            }
-        }
         for arg in self.arena().call_args(stage.args).to_vec() {
             self.scan_call_arg(&arg);
         }
@@ -7009,6 +9161,9 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             if let Some(cpu_max) = segment.cpu_max {
                 self.scan_expr(cpu_max);
             }
+            if let Some(accept) = segment.accept {
+                self.scan_expr(accept);
+            }
             self.scan_env_assignments(segment.env);
             self.scan_command_arg(&segment.target);
             for arg in self.arena().command_args(segment.args).to_vec() {
@@ -7068,7 +9223,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaBindingTargetKind::Name(name) => self.define(name),
             ArenaBindingTargetKind::Record { fields, .. } => {
                 for field in self.arena().destructure_fields(fields).to_vec() {
-                    self.define(field.name);
+                    self.define_binding_target(field.target);
                 }
             }
         }
@@ -7076,6 +9231,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
 
     fn define_pattern(&mut self, pattern: PatternId) {
         match self.arena().pattern(pattern).kind.clone() {
+            ArenaPatternKind::Group(child) => self.define_pattern(child),
+            ArenaPatternKind::Alias { pattern, name, .. } => { self.define_pattern(pattern); self.define(name); }
             ArenaPatternKind::Binding(name) => self.define(name),
             ArenaPatternKind::Type {
                 binding: Some(name),
@@ -7085,6 +9242,9 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 for field in self.arena().pattern_fields(fields).to_vec() {
                     self.define_pattern(field.pattern);
                 }
+            }
+            ArenaPatternKind::List { elements, rest } => {
+                for child in self.arena().pattern_ids(elements).chain(rest).collect::<Vec<_>>() { self.define_pattern(child); }
             }
             ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns) => {
                 for pattern in self.arena().pattern_ids(patterns).collect::<Vec<_>>() {
@@ -7101,7 +9261,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             | ArenaPatternKind::Wildcard
             | ArenaPatternKind::Type { binding: None, .. }
             | ArenaPatternKind::Constructor { arg: None, .. }
-            | ArenaPatternKind::Facet(_) => {}
+            | ArenaPatternKind::Facet(_)
+            | ArenaPatternKind::TestName { .. } => {}
         }
     }
 
@@ -7293,7 +9454,7 @@ fn stmt_flow(
 ) -> FlowSummary {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Export(inner) => stmt_flow(arena, inner, terminating_call_spans),
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
             expr_or_run_flow(arena, &initializer, terminating_call_spans)
         }
         ArenaStmtKind::Assign { target, value, .. } => assign_target_flow(
@@ -7356,6 +9517,19 @@ fn stmt_flow(
             // A successful guard always continues after the statement.
             initializer.then(FlowSummary::fallthrough().union(else_flow))
         }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            let condition_flow = expr_flow(arena, condition, terminating_call_spans);
+            match arena.expr(condition).kind {
+                ArenaExprKind::Bool(true) => condition_flow,
+                ArenaExprKind::Bool(false) => condition_flow.then(block_flow(arena, else_block, terminating_call_spans)),
+                _ => condition_flow.then(FlowSummary::fallthrough().union(block_flow(arena, else_block, terminating_call_spans))),
+            }
+        }
+        ArenaStmtKind::Assert { condition, message } => {
+            expr_flow(arena, condition, terminating_call_spans).then(
+                FlowSummary::fallthrough().union(expr_flow(arena, message, terminating_call_spans).then(FlowSummary::terminating()))
+            )
+        }
         ArenaStmtKind::GuardedStmt { stmt, .. } => {
             // When the guard is false, the inner statement is skipped.
             FlowSummary::fallthrough().union(stmt_flow(arena, stmt, terminating_call_spans))
@@ -7380,11 +9554,12 @@ fn stmt_flow(
         }
         ArenaStmtKind::Command(command) => command_flow(arena, command, terminating_call_spans),
         ArenaStmtKind::TailBareIdent(_) => FlowSummary::fallthrough(),
-        ArenaStmtKind::Expr(expr) => expr_flow(arena, expr, terminating_call_spans),
+        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => expr_flow(arena, expr, terminating_call_spans),
         ArenaStmtKind::Use(_)
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_)
         | ArenaStmtKind::SignalHook(_) => FlowSummary::fallthrough(),
@@ -7482,6 +9657,8 @@ fn expr_flow(
 ) -> FlowSummary {
     let arena_expr = arena.expr(expr);
     match arena_expr.kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_flow(arena, input, terminating_call_spans).then(expr_flow(arena, call, terminating_call_spans)),
+
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
             .fmt_parts(parts)
             .fold(FlowSummary::fallthrough(), |flow, part| match part {
@@ -7491,42 +9668,21 @@ fn expr_flow(
                 ArenaFmtPart::Text(_) => flow,
             }),
         ArenaExprKind::List(items) => arena
-            .expr_ids(items)
+            .list_element_exprs(items)
             .fold(FlowSummary::fallthrough(), |flow, item| {
                 flow.then(expr_flow(arena, item, terminating_call_spans))
             }),
-        ArenaExprKind::ListComp {
-            expr,
-            iter,
-            condition,
-            ..
-        } => expr_flow(arena, iter, terminating_call_spans)
-            .then(
-                condition
-                    .map(|condition| expr_flow(arena, condition, terminating_call_spans))
-                    .unwrap_or_else(FlowSummary::fallthrough),
-            )
-            .then(expr_flow(arena, expr, terminating_call_spans)),
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            iter,
-            condition,
-            ..
-        } => expr_flow(arena, iter, terminating_call_spans)
-            .then(
-                condition
-                    .map(|condition| expr_flow(arena, condition, terminating_call_spans))
-                    .unwrap_or_else(FlowSummary::fallthrough),
-            )
-            .then(expr_flow(arena, key, terminating_call_spans))
-            .then(expr_flow(arena, value, terminating_call_spans)),
+        ArenaExprKind::ListComp { qualifiers, .. } | ArenaExprKind::MapComp { qualifiers, .. } => {
+            let first = arena.comp_qualifiers(qualifiers).first().expect("comprehension has initial for");
+            expr_flow(arena, first.expr(), terminating_call_spans)
+        }
         ArenaExprKind::Record(fields) => {
             arena
                 .record_fields(fields)
                 .iter()
                 .fold(FlowSummary::fallthrough(), |flow, field| match field.kind {
-                    ArenaRecordFieldKind::Named { value, .. } => {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => flow.then(expr_flow(arena, key, terminating_call_spans)).then(expr_flow(arena, value, terminating_call_spans)),
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => {
                         flow.then(expr_flow(arena, value, terminating_call_spans))
                     }
                     ArenaRecordFieldKind::Spread { expr, .. } => {
@@ -7539,7 +9695,7 @@ fn expr_flow(
             branches,
             else_value,
         } => if_expr_flow(arena, branches, else_value, terminating_call_spans),
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
             let value = expr_flow(arena, value, terminating_call_spans);
             if !value.fallthrough {
                 return value;
@@ -7558,34 +9714,48 @@ fn expr_flow(
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
             expr_flow(arena, expr, terminating_call_spans)
         }
+        ArenaExprKind::ComparisonChain(pairs) => {
+            let mut operands = arena.comparison_chain_operands(pairs);
+            let first = operands.next().map(|operand| expr_flow(arena, operand, terminating_call_spans)).unwrap_or_else(FlowSummary::fallthrough);
+            let second = operands.next().map(|operand| expr_flow(arena, operand, terminating_call_spans)).unwrap_or_else(FlowSummary::fallthrough);
+            let mut flow = first.then(second);
+            for operand in operands { flow = flow.then(FlowSummary::fallthrough().union(expr_flow(arena, operand, terminating_call_spans))); }
+            flow
+        }
+        ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } => {
+            expr_flow(arena, left, terminating_call_spans)
+                .then(expr_flow(arena, right, terminating_call_spans).union(FlowSummary::fallthrough()))
+        }
         ArenaExprKind::Binary { left, right, .. } => expr_flow(arena, left, terminating_call_spans)
             .then(expr_flow(arena, right, terminating_call_spans)),
         ArenaExprKind::Call { callee, args } => {
-            let mut flow = expr_flow(arena, callee, terminating_call_spans);
+            let receiver_flow = expr_flow(arena, callee, terminating_call_spans);
+            let guarded = matches!(arena.expr(callee).kind, ArenaExprKind::NullSafeField { .. });
+            let mut flow = FlowSummary::fallthrough();
             for arg in arena.call_args(args) {
                 flow = flow.then(call_arg_flow(arena, arg, terminating_call_spans));
             }
             if terminating_call_spans.contains(&arena_expr.span) {
-                flow.then(FlowSummary::terminating())
-            } else {
-                flow
+                flow = flow.then(FlowSummary::terminating());
             }
+            receiver_flow.then(if guarded { flow.union(FlowSummary::fallthrough()) } else { flow })
         }
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
             expr_flow(arena, base, terminating_call_spans)
         }
-        ArenaExprKind::Index { base, index } => expr_flow(arena, base, terminating_call_spans)
-            .then(expr_flow(arena, index, terminating_call_spans)),
-        ArenaExprKind::Slice { base, start, end } => expr_flow(arena, base, terminating_call_spans)
-            .then(
-                start
-                    .map(|start| expr_flow(arena, start, terminating_call_spans))
-                    .unwrap_or_else(FlowSummary::fallthrough),
-            )
-            .then(
-                end.map(|end| expr_flow(arena, end, terminating_call_spans))
-                    .unwrap_or_else(FlowSummary::fallthrough),
-            ),
+        ArenaExprKind::Index { base, index, guarded } => {
+            let selected = expr_flow(arena, index, terminating_call_spans);
+            expr_flow(arena, base, terminating_call_spans)
+                .then(if guarded { selected.union(FlowSummary::fallthrough()) } else { selected })
+        }
+        ArenaExprKind::Slice { base, start, end, guarded } => {
+            let selected = start.map(|start| expr_flow(arena, start, terminating_call_spans))
+                .unwrap_or_else(FlowSummary::fallthrough)
+                .then(end.map(|end| expr_flow(arena, end, terminating_call_spans))
+                    .unwrap_or_else(FlowSummary::fallthrough));
+            expr_flow(arena, base, terminating_call_spans)
+                .then(if guarded { selected.union(FlowSummary::fallthrough()) } else { selected })
+        }
         ArenaExprKind::Pipeline { input, stages } => {
             let mut flow = expr_flow(arena, input, terminating_call_spans);
             for stage in arena.pipe_stages(stages) {
@@ -7614,10 +9784,13 @@ fn expr_flow(
             ))
         }
         ArenaExprKind::Require { value, .. } => expr_flow(arena, value, terminating_call_spans),
+        ArenaExprKind::ContextScope { input, block, .. } => expr_flow(arena, input, terminating_call_spans).then(FlowSummary::fallthrough().union(block_flow(arena, block, terminating_call_spans))),
+        ArenaExprKind::ErrorContext { message, block } => expr_flow(arena, message, terminating_call_spans).then(block_flow(arena, block, terminating_call_spans)),
+        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => block_flow(arena, block, terminating_call_spans),
         ArenaExprKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
         // A retry retries failed attempts, but a normally-completing attempt
         // produces the expression's `Result`; it is not an infinite loop.
-        ArenaExprKind::Retry { delays, block } => arena
+        ArenaExprKind::Retry { delays, block, .. } => arena
             .expr_ids(delays)
             .fold(FlowSummary::fallthrough(), |flow, delay| {
                 flow.then(expr_flow(arena, delay, terminating_call_spans))
@@ -7631,7 +9804,7 @@ fn expr_flow(
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
@@ -7679,7 +9852,7 @@ fn call_arg_flow(
     match arg.kind {
         ArenaCallArgKind::Positional(expr)
         | ArenaCallArgKind::Named { value: expr, .. }
-        | ArenaCallArgKind::Splice { value: expr, .. } => {
+        | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
             expr_flow(arena, expr, terminating_call_spans)
         }
     }
@@ -7704,11 +9877,6 @@ fn stream_stage_flow(
     terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
-    for option in arena.stream_options(stage.options) {
-        if let Some(value) = option.value {
-            flow = flow.then(expr_flow(arena, value, terminating_call_spans));
-        }
-    }
     for arg in arena.call_args(stage.args) {
         flow = flow.then(call_arg_flow(arena, arg, terminating_call_spans));
     }
@@ -7820,6 +9988,9 @@ fn run_flow(
         if let Some(cpu_max) = segment.cpu_max {
             flow = flow.then(expr_flow(arena, cpu_max, terminating_call_spans));
         }
+        if let Some(accept) = segment.accept {
+            flow = flow.then(expr_flow(arena, accept, terminating_call_spans));
+        }
         for assignment in arena.env_assignments(segment.env) {
             let assignment_flow = match &assignment.value {
                 ArenaEnvAssignmentValue::CommandArg(arg) => {
@@ -7900,4 +10071,83 @@ fn migration_arguments_optional(arena: &AstArena, args: ArenaRange, params: &[&s
 
 fn migration_arguments(arena: &AstArena, args: ArenaRange, params: &[&str]) -> Option<Vec<ExprId>> {
     migration_arguments_optional(arena, args, params)?.into_iter().collect()
+}
+
+fn same_ordering_operand(arena: &AstArena, left: ExprId, right: ExprId) -> bool {
+    match (arena.expr(left).kind, arena.expr(right).kind) {
+        (ArenaExprKind::Ident(left), ArenaExprKind::Ident(right)) => left == right,
+        (ArenaExprKind::Int(left), ArenaExprKind::Int(right)) => arena.int_literal(left).value().zip(arena.int_literal(right).value()).is_some_and(|(left, right)| left == right),
+        (ArenaExprKind::Float(left), ArenaExprKind::Float(right)) => arena.float_literal(left).value().zip(arena.float_literal(right).value()).is_some_and(|(left, right)| left.to_bits() == right.to_bits()),
+        (ArenaExprKind::Str(left), ArenaExprKind::Str(right)) => arena.string_literal(left) == arena.string_literal(right),
+        _ => false,
+    }
+}
+
+#[derive(Eq, PartialEq)]
+struct CheckedReturnRemovalFacts {
+    expressions: Vec<(usize, usize, String)>,
+    statements: Vec<(usize, usize, xsh::frontend::check::StatementPosition)>,
+    returns: Vec<(usize, usize, String)>,
+    parameters: Vec<(usize, usize, String)>,
+    effects: BTreeMap<String, Option<Vec<Effect>>>,
+}
+
+/// Source edits must preserve every checked expression and statement purpose,
+/// including caller overload selection, conversions, and implicit Result tails.
+fn checked_return_removal_facts(source: &str, source_id: xsh::frontend::source::SourceId, removed: Option<(usize, usize)>)
+    -> Option<CheckedReturnRemovalFacts> {
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+    if !parsed.diagnostics.is_empty() { return None; }
+    let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+    if !checked.diagnostics.is_empty() { return None; }
+    let original_offset = |offset: usize| match removed { Some((start, length)) if offset >= start => offset + length, _ => offset };
+    parsed.arena.symbol_owner().with_current(|| Some(CheckedReturnRemovalFacts {
+        expressions: checked.expr_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        statements: checked.statement_positions.iter().map(|(span, position)| (original_offset(span.start()), original_offset(span.end()), *position)).collect(),
+        returns: checked.function_return_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        parameters: checked.parameter_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        effects: checked.callable_effects.into_iter().map(|(name, effects)| {
+            let effects = effects.map(|mut effects| { effects.sort_by_key(Effect::as_str); effects.dedup(); effects });
+            (name, effects)
+        }).collect(),
+    }))
+}
+
+// Type display intentionally hides structural fields. Compare their complete
+// checked shapes with names rendered under each source's symbol owner.
+fn checked_return_type_shape(ty: &Type) -> String {
+    match ty {
+        Type::ErasedRecord => "ErasedRecord".to_string(),
+        Type::Record(fields) => format!("Record{:?}", fields.iter().map(|(name, ty)| (name.to_string(), checked_return_type_shape(ty))).collect::<BTreeMap<_, _>>()),
+        Type::Module(exports) => format!("Module{:?}", exports.iter().map(|(name, export)| {
+            use xsh::frontend::check::ModuleExportType;
+            let shape = match export {
+                ModuleExportType::Value { ty, optional } => format!("value:{optional}:{}", checked_return_type_shape(ty)),
+                ModuleExportType::Pure { sig, optional } | ModuleExportType::Proc { sig, optional } => {
+                    let params = sig.params.iter().map(|param| (param.name.to_string(), checked_return_type_shape(&param.ty), param.defaulted, param.rest)).collect::<Vec<_>>();
+                    format!("{}:{optional}:{params:?}:{}:{:?}", if matches!(export, ModuleExportType::Pure { .. }) { "pure" } else { "proc" }, checked_return_type_shape(&sig.return_ty), sig.effects)
+                }
+            };
+            (name.to_string(), shape)
+        }).collect::<BTreeMap<_, _>>()),
+        Type::List(inner) => format!("List[{}]", checked_return_type_shape(inner)),
+        Type::Map(key, inner) => if matches!(key.as_ref(), Type::Str) { format!("Map[{}]", checked_return_type_shape(inner)) } else { format!("Map[{}, {}]", checked_return_type_shape(key), checked_return_type_shape(inner)) },
+        Type::Stream(inner) => format!("Stream[{}]", checked_return_type_shape(inner)),
+        Type::Optional(inner) => format!("Optional[{}]", checked_return_type_shape(inner)),
+        Type::Result(ok, error) => format!("Result[{}, {}]", checked_return_type_shape(ok), checked_return_type_shape(error)),
+        _ => ty.to_string(),
+    }
+}
+
+fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
+    match arena.expr(value).kind {
+        ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
+        ArenaExprKind::List(items) => arena.list_elements(items).all(|item| item.splice_span.is_none() && inert_constant_initializer(arena, item.value)),
+        ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().all(|field| match field.kind {
+            ArenaRecordFieldKind::Named { value, .. } => inert_constant_initializer(arena, value),
+            _ => false,
+        }),
+        _ => false,
+    }
 }

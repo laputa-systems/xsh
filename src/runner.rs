@@ -789,7 +789,7 @@ proc main() [error] {
     fn compact_indexed_runner_attempt_propagates_top_level_result_err() {
         let path = temp_script(
             "compact-top-level-result-err",
-            r#"proc fail() [process] {
+            r#"proc fail() [process, error] {
   run false
 }
 
@@ -1007,18 +1007,8 @@ print $root
 
     #[test]
     fn diagnostic_attempt_reuses_loaded_entry_source() {
-        let path = temp_script(
-            "diagnostic-attempt-source",
-            "proc main(...argv: List[Str]) {
-  let _ = argv
-  with value = Ok(\"ok\") {
-    let _seen = value
-  } else |err| {
-    let _err = err
-  }
-}
-",
-        );
+        let source = "proc main(...argv: List[Str]) {\n  let _ = argv\n";
+        let path = temp_script("diagnostic-attempt-source", source);
         let script = path.to_string_lossy().into_owned();
         let attempt = try_run_program(&RunOptions {
             script: script.clone(),
@@ -1027,7 +1017,7 @@ print $root
         })
         .expect("compact runner attempt");
         let RunAttempt::Diagnostics { entry_source } = attempt else {
-            panic!("unsupported with-statement script should preserve its loaded source");
+            panic!("syntax diagnostics should preserve the already loaded source");
         };
         fs::remove_file(&path).expect("remove original script after diagnostics preparation");
 
@@ -1038,9 +1028,11 @@ print $root
             CheckOptions::default(),
             None,
         );
-        assert!(checked_program.parsed.diagnostics.is_empty());
-        assert!(checked_program.check_diagnostics().is_empty());
-        assert_eq!(checked_program.parsed.arena.statement_ids().count(), 1);
+        assert!(!checked_program.parsed.diagnostics.is_empty());
+        assert_eq!(
+            checked_program.sources.get(checked_program.entry_source_id).unwrap().text(),
+            source,
+        );
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);
         }
@@ -1060,7 +1052,7 @@ let stats = fs.files(root, gitignore: false, stat: false)
 
 let counts = stats.keys()
   |> map { |ext|
-    {count: stats.get(ext, 0), ext: ext}
+    {count: stats.get(ext) ?? 0, ext: ext}
   }
   |> sort-by .count
 
@@ -1274,8 +1266,8 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
             r#"let root = fp"${args[0]}"
 let pkgroot = fp"${root}/pkgroot"
 let work_root = fs.tempdir()?
-defer fs.close_root(work_root)?
-let work = fs.root_path(work_root)?
+defer work_root.close()?
+let work = work_root.host_path()?
 let tarball = fp"${work}/package.tar.gz"
 archive.tar_create(tarball, pkgroot, [p"."], compression: "gz", overwrite: true)?
 let entries = archive.tar_list(tarball)?.collect()

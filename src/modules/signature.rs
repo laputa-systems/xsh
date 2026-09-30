@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
-pub use registry::{ApiArgCheck, ApiDocs, ImplBinding, MethodReceiver, ScriptImpl};
+pub use registry::{ApiArgCheck, ApiDocs, ImplBinding, MethodReceiver, ScriptImpl, SemanticRule};
 pub use xsh_registry::RuntimeOp;
 
 #[derive(Clone, Debug)]
@@ -112,6 +112,15 @@ impl ApiSpec {
                 }
             }
         }
+        for receiver in &methods {
+            if receiver.receiver == MethodReceiver::FsRoot {
+                for method in &receiver.methods {
+                    for overload in &method.overloads {
+                        op_names.entry(overload.sig.op).or_insert_with(|| format!("FsRoot.{}", method.name));
+                    }
+                }
+            }
+        }
         Self {
             modules,
             module_index,
@@ -121,8 +130,8 @@ impl ApiSpec {
         }
     }
 
-    /// The `module.function` spelling for a `RuntimeOp`, if it originates from a
-    /// standard module function (used as the `module.call` trace name).
+    /// The public callable spelling for a native operation. Root receiver
+    /// methods retain operation IDs while publishing their receiver API identity.
     pub fn op_trace_name(&self, op: RuntimeOp) -> Option<&str> {
         self.op_names.get(&op).map(String::as_str)
     }
@@ -237,6 +246,7 @@ pub struct ModuleFnSig {
     pub pure: bool,
     pub command: bool,
     pub arg_check: ApiArgCheck,
+    pub semantic_rule: SemanticRule,
     pub op: RuntimeOp,
     /// Implementation routing adapted from the canonical signature. `Native`
     /// entries keep their `op` dispatch; `Script` entries resolve to the named
@@ -260,22 +270,7 @@ impl ModuleFnSig {
 #[derive(Clone, Debug)]
 pub struct MethodSig {
     pub sig: ModuleFnSig,
-    pub return_ty: MethodReturn,
-}
-
-impl MethodSig {
-    pub fn concrete_return_ty(&self, receiver_ty: &Type) -> Type {
-        match &self.return_ty {
-            MethodReturn::Type(ty) => ty.clone(),
-            MethodReturn::Receiver => receiver_ty.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum MethodReturn {
-    Type(Type),
-    Receiver,
+    pub receiver_ty: Option<Type>,
 }
 
 #[derive(Clone, Debug)]
@@ -337,6 +332,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         pure: sig.pure,
         command: sig.command,
         arg_check: sig.arg_check,
+        semantic_rule: sig.semantic_rule,
         op: sig.op,
         binding: sig.binding,
         effect: Effect::from_module_call(module, function),
@@ -384,19 +380,18 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             pure: sig.sig.pure,
             command: sig.sig.command,
             arg_check: sig.sig.arg_check,
+            semantic_rule: sig.sig.semantic_rule,
             op: sig.sig.op,
             binding: sig.sig.binding,
             effect: method_required_effect(receiver, sig.sig.op),
         },
-        return_ty: match &sig.return_ty {
-            registry::MethodReturn::Type(ty) => MethodReturn::Type(convert_type(ty)),
-            registry::MethodReturn::Receiver => MethodReturn::Receiver,
-        },
+        receiver_ty: sig.receiver_ty.as_ref().map(convert_type),
     }
 }
 
 pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
     match ty {
+        xsh_registry::types::Type::BuiltinParameter(parameter) => Type::BuiltinParameter(*parameter),
         xsh_registry::types::Type::Any => Type::Any,
         xsh_registry::types::Type::Unknown => Type::Unknown,
         xsh_registry::types::Type::Invalid => Type::Invalid,
@@ -411,14 +406,16 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Regex => Type::Regex,
         xsh_registry::types::Type::Path => Type::Path,
         xsh_registry::types::Type::List(inner) => Type::List(Box::new(convert_type(inner))),
-        xsh_registry::types::Type::Map(inner) => Type::Map(Box::new(convert_type(inner))),
+        xsh_registry::types::Type::Map(key, inner) => Type::Map(Box::new(convert_type(key)), Box::new(convert_type(inner))),
         xsh_registry::types::Type::Stream(inner) => Type::Stream(Box::new(convert_type(inner))),
+        xsh_registry::types::Type::Record(fields) if fields.is_empty() => Type::ErasedRecord,
         xsh_registry::types::Type::Record(fields) => Type::Record(
             fields
                 .iter()
                 .map(|(name, ty)| (Name::intern(name), convert_type(ty)))
                 .collect(),
         ),
+        xsh_registry::types::Type::Module(exports) if exports.is_empty() => Type::DynamicModule,
         xsh_registry::types::Type::Module(exports) => Type::Module(
             exports
                 .iter()
@@ -446,6 +443,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Command => Type::Command,
         xsh_registry::types::Type::ProcessHandle => Type::ProcessHandle,
         xsh_registry::types::Type::NetJob => Type::NetJob,
+        xsh_registry::types::Type::FsRoot => Type::FsRoot,
         xsh_registry::types::Type::Unit => Type::Unit,
         xsh_registry::types::Type::Optional(inner) => Type::Optional(Box::new(convert_type(inner))),
     }
@@ -478,13 +476,14 @@ fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Eff
         },
         MethodReceiver::ProcessHandle => Some(Effect::Process),
         MethodReceiver::NetJob => Some(Effect::Net),
+        MethodReceiver::FsRoot => Some(Effect::Fs),
         _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MethodReturn, api_spec, convert_type};
+    use super::{api_spec, convert_type};
     use xsh_registry::signature as registry;
 
     #[test]
@@ -552,14 +551,7 @@ mod tests {
                         main_overload.sig.effect,
                         super::method_required_effect(main_receiver.receiver, main_overload.sig.op,)
                     );
-                    match (&main_overload.return_ty, &registry_overload.return_ty) {
-                        (
-                            MethodReturn::Type(main_ty),
-                            registry::MethodReturn::Type(registry_ty),
-                        ) => assert_eq!(main_ty, &convert_type(registry_ty)),
-                        (MethodReturn::Receiver, registry::MethodReturn::Receiver) => {}
-                        _ => panic!("method return adapter drifted for {}", main_method.name),
-                    }
+                    assert_eq!(main_overload.receiver_ty, registry_overload.receiver_ty.as_ref().map(convert_type));
                 }
             }
         }

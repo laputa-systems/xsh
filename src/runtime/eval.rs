@@ -1,5 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
+use crate::map_key::MapKey;
+
 use crate::diagnostic::Diagnostic;
 use crate::modules::RuntimeOp;
 use crate::modules::api_spec;
@@ -14,7 +16,7 @@ use crate::runtime::signal::{
 };
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FunctionName,
-    NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue, RuntimeError,
+    NetJobValue, FsRootValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue, RuntimeError,
     StreamValue, Value,
 };
 use crate::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput};
@@ -48,6 +50,7 @@ use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
+mod require;
 mod modules;
 mod net_job;
 mod process_handle;
@@ -114,6 +117,13 @@ pub(crate) struct CompactIndexedRunPlan {
     script_span: Span,
     auto_main_required: bool,
     compact_auto_main_args: Vec<Value>,
+    signature_cli: Option<SignatureCliRunPlan>,
+}
+
+#[derive(Clone)]
+struct SignatureCliRunPlan {
+    parser: crate::modules::cli::PreparedSignatureCli,
+    argv: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -279,9 +289,9 @@ impl Default for CompactLowerConstructProbeOutput {
 
 pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
-pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 8;
-pub const COMPACT_STMT_KIND_COUNT: usize = 27;
-pub const COMPACT_EXPR_KIND_COUNT: usize = 39;
+pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 9;
+pub const COMPACT_STMT_KIND_COUNT: usize = 30;
+pub const COMPACT_EXPR_KIND_COUNT: usize = 46;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
 
@@ -475,7 +485,12 @@ build_id!(BuildTopStmtId);
 
 #[derive(Clone, Debug, Default)]
 struct BuildScratch {
+    prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
+    prepared_constants: FxHashMap<crate::syntax::arena::ExprId, LoweredValue>,
     expressions: Vec<BuildExprRow>,
+    /// Checked Duration operands prohibit integer-only specialization even when
+    /// the operation's result is an Int interval count.
+    duration_binary_expressions: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
     patterns: Vec<BuildPatternRow>,
     ints: Vec<BuildIntRow>,
@@ -530,6 +545,7 @@ struct FunctionBuild {
     param_defaults: LoweredParamDefaults,
     captures: LoweredTopLevelSlots,
     return_kind: LoweredReturnKind,
+    return_check: Option<LoweredTypeCheck>,
     slot_count: usize,
     body: Vec<BuildStmtId>,
     has_defers: bool,
@@ -545,6 +561,7 @@ struct FunctionHeader {
     param_defaults: LoweredParamDefaults,
     captures: LoweredTopLevelSlots,
     return_kind: LoweredReturnKind,
+    return_check: Option<LoweredTypeCheck>,
     slot_count: usize,
 }
 
@@ -821,11 +838,11 @@ enum BuildTopKind {
         value: BuildExprId,
         value_span: Span,
     },
-    // `let {a, b, ..} = source` / `var {…}` at top level: define one named
-    // binding per field (field name == binding name) from the source record.
+    // Select the entire recursive target before exposing top-level names.
     LetRecord {
         source: BuildExprId,
-        fields: Vec<Name>,
+        fields: Vec<(Name, usize)>,
+        target: LoweredCompTarget,
         mutable: bool,
         span: Span,
     },
@@ -877,6 +894,14 @@ struct LoweredTopLevelSlot {
     mutable: bool,
 }
 
+// A driver owns slot copies of surrounding bindings. Script calls use scopes,
+// so their writes and direct slot writes must meet at each evaluation boundary.
+struct IndexedRootSlots {
+    address: usize,
+    scope_revision: u64,
+    bindings: Vec<(LoweredTopLevelSlot, LoweredValue)>,
+}
+
 #[derive(Clone, Debug)]
 struct LoweredTopLevelBinding {
     kind: LoweredType,
@@ -888,6 +913,7 @@ struct LoweredTopLevelBinding {
 
 #[derive(Clone, Debug)]
 struct LoweredTypeCheck {
+    schema: Option<Arc<require::PreparedSchema>>,
     ty: Type,
     name: Arc<str>,
 }
@@ -915,6 +941,7 @@ enum LoweredType {
     Command,
     ProcessHandle,
     NetJob,
+    FsRoot,
     Stream,
     Pure,
     Proc,
@@ -934,20 +961,34 @@ type LoweredParamRest = SmallVec<[bool; 4]>;
 type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
 type BuildPatternIdSlots = SmallVec<[Option<usize>; 2]>;
-type LoweredCompFields = SmallVec<[(Name, usize, Span); 4]>;
+type LoweredCompFields = SmallVec<[(Name, Box<LoweredCompTarget>, Span); 4]>;
 type LoweredErrorPatternFields = SmallVec<[(Name, Option<usize>); 4]>;
 
 #[derive(Clone, Debug)]
 enum LoweredCompTarget {
+    Discard,
     Slot(usize),
     Record { fields: LoweredCompFields },
 }
+
+#[derive(Clone, Debug)]
+enum LoweredCompQualifier {
+    For { target: Box<LoweredCompTarget>, iter: BuildExprId, span: Span },
+    If { condition: BuildExprId, span: Span },
+}
+
+#[derive(Clone, Debug)]
+struct LoweredCompQualifiers(Vec<LoweredCompQualifier>);
 
 #[derive(Clone, Debug)]
 enum LoweredRecordEntry {
     Field(Name, BuildExprId),
     Spread(BuildExprId),
 }
+
+/// Static replacement paths retain RHS expressions in source order.
+#[derive(Clone, Debug)]
+struct LoweredRecordUpdates(Vec<(Vec<Name>, BuildExprId, Span)>);
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
@@ -963,6 +1004,7 @@ enum LoweredProcessCommandBuilderEntry {
         env: Vec<LoweredRunEnv>,
         timeout: Option<BuildExprId>,
         cpu_max: Option<BuildExprId>,
+        accept: Option<BuildExprId>,
         span: Span,
     },
 }
@@ -983,6 +1025,7 @@ struct LoweredProcessCommandArgv {
     new_session: Option<BuildExprId>,
     ignore_hup: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
     span: Span,
 }
 
@@ -995,6 +1038,7 @@ struct LoweredRunCapture {
     redirections: Vec<LoweredRunRedirection>,
     timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
     // For Plain/Status run *values* with `?`, propagation is handled inside
     // eval_lowered_run_capture (Break on RunError, pass Status through),
     // because a Plain run yields a bare Status on success — not a Result the
@@ -1013,24 +1057,43 @@ struct LoweredSpawnRun {
     redirections: Vec<LoweredRunRedirection>,
     timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
     span: Span,
 }
 
 #[derive(Clone, Debug)]
+enum LoweredAssignStep {
+    Field(Name),
+    Index(BuildExprId),
+}
+
+#[derive(Clone, Debug)]
+struct LoweredAssignPath(Vec<LoweredAssignStep>);
+
+#[derive(Clone, Debug)]
 enum BuildStmtRow {
+    DefaultParameter { slot: usize, value: BuildExprId, kind: LoweredType, check: Option<LoweredTypeCheck>, span: Span },
     Let {
         slot: usize,
         value: BuildExprId,
     },
-    /// `guard let slot = value else |else_param| { else_body }`: evaluate
+    /// `guard let slot = value else { |failure| ... }`: evaluate
     /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
     /// continue; on `Err`, bind the error to `else_param_slot` (if present) and
     /// run `else_body`, which must diverge.
     Guard {
-        slot: usize,
+        target: LoweredCompTarget,
         value: BuildExprId,
         else_param_slot: Option<usize>,
         else_body: Vec<BuildStmtId>,
+        span: Span,
+    },
+    With {
+        bindings: Vec<(usize, BuildExprId)>,
+        body: Vec<BuildStmtId>,
+        else_param_slot: Option<usize>,
+        else_body: Vec<BuildStmtId>,
+        captures: Vec<usize>,
         span: Span,
     },
     LetInt {
@@ -1045,6 +1108,8 @@ enum BuildStmtRow {
         slot: usize,
         op: AssignOp,
         value: BuildExprId,
+        // Validate the final replacement before offering storage to consuming operations.
+        check: Option<LoweredTypeCheck>,
         span: Span,
     },
     AssignField {
@@ -1061,14 +1126,12 @@ enum BuildStmtRow {
         value: BuildIntId,
         span: Span,
     },
-    AssignIndex {
+    AssignPath {
         slot: usize,
-        // Boxed: this is the only `BuildStmtId` variant with two inline
-        // `BuildExprId`s, which made it (at ~2x the enum's other variants) the
-        // size driver for every statement in the lowered IR.
-        index: BuildExprId,
+        path: LoweredAssignPath,
         op: AssignOp,
         value: BuildExprId,
+        check: Option<LoweredTypeCheck>,
         span: Span,
     },
     AssignInt {
@@ -1081,6 +1144,8 @@ enum BuildStmtRow {
         slot: usize,
         value: BuildBoolId,
     },
+    Value { value: BuildExprId },
+    Assert { value: BuildExprId, message: Option<BuildExprId>, span: Span },
     Expr {
         value: BuildExprId,
         span: Span,
@@ -1092,6 +1157,17 @@ enum BuildStmtRow {
     IfBool {
         branches: Vec<(BuildBoolId, Vec<BuildStmtId>)>,
         else_body: Option<Vec<BuildStmtId>>,
+    },
+    PatternIf {
+        branches: Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>,
+        else_body: Option<Vec<BuildStmtId>>,
+        span: Span,
+    },
+    PatternWhile {
+        condition: BuildExprId,
+        body: Vec<BuildStmtId>,
+        captures: Vec<usize>,
+        span: Span,
     },
     While {
         condition: BuildExprId,
@@ -1124,16 +1200,15 @@ enum BuildStmtRow {
         body: Vec<BuildStmtId>,
         span: Span,
     },
-    // `let {a, b, ..} = source` / `var {…} = source`: destructure a record into
-    // one slot per field (field name == binding name).
+    // Select a recursive record target into independent local values.
     LetRecord {
         source: BuildExprId,
-        fields: Vec<(Name, usize)>,
+        target: LoweredCompTarget,
         span: Span,
     },
-    // `for {a, b, ..} in iter { … }`: per item (a record), bind each field slot.
+    // Select the recursive record target anew for each iteration.
     ForRecord {
-        fields: Vec<(Name, usize)>,
+        target: LoweredCompTarget,
         iter: BuildExprId,
         body: Vec<BuildStmtId>,
         span: Span,
@@ -1189,6 +1264,10 @@ enum BuildStmtRow {
     },
     Yield {
         value: BuildExprId,
+    },
+    YieldDelegate {
+        value: BuildExprId,
+        span: Span,
     },
     Break,
     BreakValue {
@@ -1272,6 +1351,7 @@ enum BuildBoolRow {
 
 enum StmtFlow {
     None,
+    Value(LoweredValue),
     Return(LoweredValue),
     Propagate(LoweredValue),
     Break(Option<LoweredValue>),
@@ -1288,6 +1368,8 @@ enum BuildExprRow {
     Bool(bool),
     Str(Arc<str>),
     Bytes(Arc<[u8]>),
+    PreparedRegex(RegexValue),
+    PreparedConstant(PreparedConstantValue),
     Path(PathValue),
     FunctionRef {
         function: FunctionName,
@@ -1302,6 +1384,7 @@ enum BuildExprRow {
         value: BuildExprId,
         span: Span,
     },
+    ComparisonChain { pairs: Vec<BuildExprId>, assertion: bool },
     Binary {
         op: BinaryOp,
         left: BuildExprId,
@@ -1310,6 +1393,11 @@ enum BuildExprRow {
     },
     IfExpr {
         branches: Vec<(BuildExprId, BuildExprId)>,
+        else_value: BuildExprId,
+        span: Span,
+    },
+    PatternIf {
+        branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
         else_value: BuildExprId,
         span: Span,
     },
@@ -1351,7 +1439,12 @@ enum BuildExprRow {
         span: Span,
     },
     Record(Vec<LoweredRecordEntry>),
+    // A missing key identifies a Map spread; keyed entries evaluate key before value.
+    MapLiteral(Vec<(Option<BuildExprId>, BuildExprId, Span)>),
+    RecordUpdate { base: BuildExprId, updates: LoweredRecordUpdates, span: Span },
     List(Vec<BuildExprId>),
+    // Each element records whether it splices, its value, and its source span.
+    ListBuild(Vec<(bool, BuildExprId, Span)>),
     // The `map.empty()` builtin constructor (empty list literals already lower via `List`).
     EmptyMap,
     // The `bytes.concat(<List[Bytes]>)` builtin constructor.
@@ -1365,27 +1458,13 @@ enum BuildExprRow {
         span: Span,
     },
     Tag {
+        type_name: Name,
         name: Arc<str>,
         fields: Vec<BuildExprId>,
+        wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
     },
-    ListComp {
-        value: BuildExprId,
-        // Boxed because `LoweredCompTarget::Record` inlines a 4-element
-        // `SmallVec` (~176 bytes) that would otherwise size every `BuildExprId`
-        // variant, not just the rare destructuring-comprehension case.
-        target: Box<LoweredCompTarget>,
-        iter: BuildExprId,
-        condition: Option<BuildExprId>,
-        span: Span,
-    },
-    MapComp {
-        key: BuildExprId,
-        value: BuildExprId,
-        target: Box<LoweredCompTarget>,
-        iter: BuildExprId,
-        condition: Option<BuildExprId>,
-        span: Span,
-    },
+    ListComp { value: BuildExprId, qualifiers: LoweredCompQualifiers, span: Span },
+    MapComp { key: BuildExprId, value: BuildExprId, qualifiers: LoweredCompQualifiers, span: Span },
     ListPipeline {
         input: BuildExprId,
         stages: Vec<LoweredPipelineStage>,
@@ -1422,7 +1501,6 @@ enum BuildExprRow {
     StrByteAt {
         receiver: BuildExprId,
         index: BuildExprId,
-        default: Option<BuildExprId>,
         span: Span,
     },
     StrPredicate {
@@ -1433,6 +1511,12 @@ enum BuildExprRow {
     },
     RegexCompile {
         pattern: BuildExprId,
+        span: Span,
+    },
+    // Preserve a checked domain while retaining ordinary runtime failure semantics.
+    CheckedValue {
+        value: BuildExprId,
+        check: LoweredTypeCheck,
         span: Span,
     },
     Require {
@@ -1457,12 +1541,17 @@ enum BuildExprRow {
         target: BuildExprId,
         span: Span,
     },
+    Capture { body: Vec<BuildStmtId>, span: Span },
+    ValueBlock { body: Vec<BuildStmtId>, span: Span },
+    ErrorContext { message: BuildExprId, body: Vec<BuildStmtId>, span: Span },
+    ContextScope { kind: crate::syntax::arena::ContextScopeKind, input: BuildExprId, body: Vec<BuildStmtId>, span: Span },
     Loop {
         body: Vec<BuildStmtId>,
         span: Span,
     },
     Retry {
         delays: Vec<BuildExprId>,
+        pattern: Option<BuildPatternId>,
         body: Vec<BuildStmtId>,
         span: Span,
     },
@@ -1588,7 +1677,8 @@ enum BuildExprRow {
     },
     ModuleCall {
         op: RuntimeOp,
-        args: Vec<BuildExprId>,
+        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
+        args: Vec<Option<BuildExprId>>,
         span: Span,
     },
     // Boxed because this cold command-construction payload otherwise makes
@@ -1608,7 +1698,7 @@ enum BuildExprRow {
         span: Span,
     },
     Ok(BuildExprId),
-    Err(BuildExprId),
+    Err { value: BuildExprId, cause: Option<BuildExprId> },
     // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
     // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
     // for the sake of the comparatively rare structured-error-literal case.
@@ -1647,6 +1737,8 @@ enum BuildExprRow {
 
 #[derive(Clone, Debug)]
 enum LoweredCallArg {
+    /// A checked omitted slot selects the prepared callable's lexical default.
+    Default(usize),
     Single(BuildExprId),
     Splice(BuildExprId),
 }
@@ -1674,6 +1766,7 @@ struct LoweredRunPipelineSegment {
     redirections: Vec<LoweredRunRedirection>,
     timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
 }
 
 #[derive(Clone, Debug)]
@@ -1697,6 +1790,14 @@ enum LoweredFmtPart {
 
 #[derive(Clone, Debug)]
 enum BuildPatternRow {
+    Alias { pattern: BuildPatternId, slot: usize },
+    Alternation { patterns: Vec<BuildPatternId> },
+    List { elements: Vec<BuildPatternId>, rest: Option<BuildPatternId> },
+    TagType { type_name: Name, variants: Vec<Name> },
+    RecordTest { fields: Box<Vec<(Name, BuildPatternId)>> },
+    ResultTest { ok: bool, inner: BuildPatternId },
+    TagTest { type_name: Name, name: Name, fields: Vec<BuildPatternId> },
+    ErrorTest { family: Name, variant: Name, fields: Box<Vec<(Name, BuildPatternId)>> },
     Wildcard,
     // `name => …`: always matches, binds the scrutinee to `slot`.
     Bind {
@@ -1733,6 +1834,7 @@ enum BuildPatternRow {
         result_wrapped: bool,
     },
     Tag {
+        type_name: Name,
         name: Name,
         slots: BuildPatternIdSlots,
     },
@@ -1790,6 +1892,7 @@ enum LoweredPipelineStage {
     BatchMaxBytes {
         max_bytes: BuildExprId,
     },
+    BatchLimits { configuration: BuildExprId },
     Shuffle {
         seed: Option<BuildExprId>,
     },
@@ -1806,6 +1909,12 @@ enum LoweredPipelineStage {
         value: BuildExprId,
         op: ReduceByOp,
         jobs: Option<BuildExprId>,
+    },
+    ReduceByConfigured {
+        item_slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+        configuration: BuildExprId,
     },
     ParMap {
         slot: usize,
@@ -1840,6 +1949,7 @@ enum LoweredPipelineStage {
     TablePrint {
         columns: Option<Vec<String>>,
     },
+    TablePrintConfigured { columns: BuildExprId },
     Enumerate,
     Zip {
         other: BuildExprId,
@@ -2060,6 +2170,8 @@ fn assign_lowered_bytes_view(slot: &mut LoweredValue, bytes: &Arc<[u8]>, start: 
 
 #[derive(Clone, Debug)]
 enum LoweredValue {
+    // This private marker survives argument binding only until callee entry.
+    OmittedArgument,
     Null,
     Unit,
     Int(i64),
@@ -2078,6 +2190,7 @@ enum LoweredValue {
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
+    FsRoot(FsRootValue),
     Stream(Box<StreamValue>),
     Pure(FunctionName),
     Proc(FunctionName),
@@ -2097,7 +2210,7 @@ enum LoweredValue {
     Module(Arc<BTreeMap<Arc<str>, LoweredValue>>),
     List(Vec<LoweredValue>),
     SharedList(Arc<Vec<LoweredValue>>),
-    Map(Arc<BTreeMap<String, LoweredValue>>),
+    Map(Arc<BTreeMap<MapKey, LoweredValue>>),
     Tag(Box<LoweredTagValue>),
     ResultOk(Box<LoweredValue>),
     ResultErr(Box<Value>),
@@ -2105,14 +2218,24 @@ enum LoweredValue {
 
 #[derive(Clone, Debug, PartialEq)]
 struct LoweredTagValue {
+    type_name: Name,
     name: Arc<str>,
     fields: Vec<LoweredValue>,
+    wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+}
+
+impl LoweredTagValue {
+    fn wire_string(&self) -> Option<&str> {
+        let mapping = self.wire.as_ref()?;
+        if !self.fields.is_empty() || self.type_name != mapping.type_name { return None; }
+        mapping.variants.get(&Name::intern(self.name.as_ref())).map(AsRef::as_ref)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::runtime::eval) struct LoweredStatsValue {
     pub(in crate::runtime::eval) blanks: i64,
-    pub(in crate::runtime::eval) blobs: BTreeMap<String, LoweredValue>,
+    pub(in crate::runtime::eval) blobs: BTreeMap<MapKey, LoweredValue>,
     pub(in crate::runtime::eval) code: i64,
     pub(in crate::runtime::eval) comments: i64,
 }
@@ -2351,7 +2474,7 @@ impl PartialEq for LoweredValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Null, Self::Null) => true,
-            (Self::Unit, Self::Unit) => true,
+            (Self::Unit, Self::Unit) | (Self::OmittedArgument, Self::OmittedArgument) => true,
             (Self::Int(left), Self::Int(right)) => left == right,
             (Self::Float(left), Self::Float(right)) => left == right,
             (Self::Duration(left), Self::Duration(right)) => left == right,
@@ -2372,6 +2495,7 @@ impl PartialEq for LoweredValue {
             (Self::Command(left), Self::Command(right)) => left == right,
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
             (Self::NetJob(left), Self::NetJob(right)) => left == right,
+            (Self::FsRoot(left), Self::FsRoot(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
             (Self::Pure(left), Self::Pure(right)) => left == right,
             (Self::Proc(left), Self::Proc(right)) => left == right,
@@ -2426,6 +2550,7 @@ impl PartialEq for LoweredValue {
 impl LoweredValue {
     fn into_value(self) -> Value {
         match self {
+            Self::OmittedArgument => unreachable!("omitted argument escaped callee entry"),
             Self::Null => Value::Null,
             Self::Unit => Value::Unit,
             Self::Int(value) => Value::Int(value),
@@ -2444,6 +2569,7 @@ impl LoweredValue {
             Self::Command(value) => Value::Command(value),
             Self::ProcessHandle(value) => Value::ProcessHandle(value),
             Self::NetJob(value) => Value::NetJob(value),
+            Self::FsRoot(value) => Value::FsRoot(value),
             Self::Stream(value) => Value::Stream(value),
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
@@ -2490,6 +2616,8 @@ impl LoweredValue {
                 Value::Map(map)
             }
             Self::Tag(value) => Value::Tag {
+                type_name: value.type_name,
+                wire: value.wire,
                 name: value.name,
                 fields: value
                     .fields
@@ -2505,6 +2633,7 @@ impl LoweredValue {
     fn type_name(&self) -> &'static str {
         match self {
             Self::Null => "Null",
+            Self::OmittedArgument => "omitted argument",
             Self::Unit => "Unit",
             Self::Int(_) => "Int",
             Self::Float(_) => "Float",
@@ -2520,6 +2649,7 @@ impl LoweredValue {
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::NetJob(_) => "NetJob",
+            Self::FsRoot(_) => "FsRoot",
             Self::Stream(_) => "Stream",
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
@@ -2544,7 +2674,6 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "count_lines",
     "count_words",
     "count_chars",
-    "count_bytes",
     "byte_len",
     "len",
     "length",
@@ -2652,6 +2781,13 @@ fn lowered_method_name(name: &str) -> bool {
     LOWERED_METHOD_NAMES.contains(&name)
 }
 
+/// A suspended producer's evaluator context is reattached only while it runs.
+#[derive(Clone)]
+pub(crate) struct ScopedProducerContext {
+    cwd: PathBuf,
+    env: RuntimeEnv,
+}
+
 #[derive(Clone, Debug)]
 enum RuntimeEnv {
     Inherited,
@@ -2730,6 +2866,8 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
+    indexed_root_slots: Option<IndexedRootSlots>,
+    scope_write_revision: u64,
     // Resolved indices are keyed with the program they were resolved in and
     // hold it alive, because one evaluator resolves the same qualified key
     // against more than one program: a dynamically loaded module links its
@@ -2761,6 +2899,11 @@ pub struct Evaluator {
     // then consume the value instead of copying it. Cleared for nested
     // expressions, whose arguments and operands may still read the old value.
     consuming_receiver: Option<usize>,
+    pending_value_block_flow: Option<StmtFlow>,
+    cleanup_error_contexts: Vec<ErrorContext>,
+    // Synchronous context bodies record their lexical locals separately from
+    // outer slots, so dynamic resource assignments obey the same escape rule.
+    recursive_context_slots: Vec<(usize, FxHashSet<usize>)>,
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
@@ -2768,6 +2911,7 @@ pub struct Evaluator {
     unix_next_pid: i64,
     fs_locks: Vec<Option<std::fs::File>>,
     fs_roots: Vec<Option<FsRootHandle>>,
+    fs_root_owner: Arc<()>,
     net_runtime: Option<NetRuntimeOwner>,
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
     net_pool_options: FxHashMap<String, NetPoolOptions>,
@@ -2793,6 +2937,8 @@ pub struct Evaluator {
     /// no longer reach. The sweep at `sweep_script_producers` stops those, which
     /// is what runs their `defer` and closes their scopes exactly once.
     script_producers: Vec<crate::runtime::value::ScriptStreamState>,
+    // Suspended process cursors keep signal checkpoints active between pulls.
+    live_process_streams: usize,
     #[cfg(feature = "native-tests")]
     pub(super) test_mocks: FxHashMap<String, Vec<TestMock>>,
     #[cfg(feature = "native-tests")]
@@ -2968,6 +3114,8 @@ impl Evaluator {
             scopes: vec![FxHashMap::default()],
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
+            indexed_root_slots: None,
+            scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: Arc::new(FxHashMap::default()),
             lowered_slot_pool: Vec::new(),
@@ -2987,6 +3135,9 @@ impl Evaluator {
             last_status: None,
             trace_enabled: false,
             consuming_receiver: None,
+            pending_value_block_flow: None,
+            cleanup_error_contexts: Vec::new(),
+            recursive_context_slots: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -2994,6 +3145,7 @@ impl Evaluator {
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
+            fs_root_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
@@ -3014,6 +3166,7 @@ impl Evaluator {
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
             script_producers: Vec::new(),
+            live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
             #[cfg(feature = "native-tests")]
@@ -3026,13 +3179,6 @@ impl Evaluator {
         let argv = Value::List(argv.into_iter().map(|s| Value::Str(s.into())).collect());
         evaluator.define(
             "args",
-            Binding {
-                value: argv.clone(),
-                mutable: false,
-            },
-        );
-        evaluator.define(
-            "ARGV",
             Binding {
                 value: argv,
                 mutable: false,
@@ -3132,6 +3278,8 @@ impl Evaluator {
             scopes: shared.scopes.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
+            indexed_root_slots: None,
+            scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
             lowered_slot_pool: Vec::new(),
@@ -3153,6 +3301,9 @@ impl Evaluator {
             last_status: None,
             trace_enabled: false,
             consuming_receiver: None,
+            pending_value_block_flow: None,
+            cleanup_error_contexts: Vec::new(),
+            recursive_context_slots: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -3160,6 +3311,7 @@ impl Evaluator {
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
+            fs_root_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
@@ -3180,6 +3332,7 @@ impl Evaluator {
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
             script_producers: Vec::new(),
+            live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
             #[cfg(feature = "native-tests")]
@@ -3196,8 +3349,14 @@ impl Evaluator {
     }
 
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
+        for live in self.process_handles.values_mut() {
+            // Delivery failures remain owned by the handle and surface through
+            // its wait or cleanup result, alongside other process I/O failures.
+            let _ = crate::runtime::process::drive_managed_input(&mut live.child);
+        }
         if self.signal_hooks.is_empty()
             && self.process_handles.is_empty()
+            && self.live_process_streams == 0
             && self.net_jobs.is_empty()
             && self.network_wait_depth == 0
             && !self.signal_state.hook_running
@@ -3234,11 +3393,15 @@ impl Evaluator {
         }
         let Some(hook) = self.signal_hooks.get(&primary.name).cloned() else {
             if !self.process_handles.is_empty()
+                || self.live_process_streams > 0
                 || !self.net_jobs.is_empty()
                 || self.network_wait_depth != 0
             {
                 if !self.process_handles.is_empty() {
                     self.cancel_process_handles_for_signal(primary_number, span)?;
+                }
+                if self.live_process_streams > 0 {
+                    self.kill_active_process_groups();
                 }
                 self.cancel_net_jobs_for_signal(span)?;
                 self.signal_state.shutdown_complete = true;
@@ -3279,6 +3442,9 @@ impl Evaluator {
         self.forward_primary_to_active(&primary, span);
         if !self.process_handles.is_empty() {
             self.cancel_process_handles_for_signal(primary_number, span)?;
+        }
+        if self.live_process_streams > 0 {
+            self.kill_active_process_groups();
         }
         self.cancel_net_jobs_for_signal(span)?;
 
@@ -3516,6 +3682,7 @@ impl Evaluator {
                 {
                     Ok(plan) => plan,
                     Err(diagnostic) => {
+                        let status = if diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check.")) { 2 } else { 1 };
                         return EvalOutput {
                             stdout: std::mem::take(&mut self.stdout),
                             stderr: std::mem::take(&mut self.stderr),
@@ -3523,7 +3690,7 @@ impl Evaluator {
                             diagnostics: vec![diagnostic],
                             traceback: None,
                             sources: Arc::clone(&self.sources),
-                            status: 1,
+                            status,
                             cwd: std::mem::take(&mut self.cwd),
                             env: self.env.clone().into_snapshot(),
                             last_status: self.last_status.take(),
@@ -3539,6 +3706,20 @@ impl Evaluator {
     pub(super) fn write_stdout_line(&mut self, line: &str) {
         self.stdout.extend_from_slice(line.as_bytes());
         self.stdout.push(b'\n');
+    }
+
+    pub(super) fn report_cleanup_error(&mut self, error: &RuntimeError, fallback: Span) {
+        let contextual = self.cleanup_error_contexts.iter().rev().fold(error.clone(), |error, context| {
+            if error.abort.is_some() { return error; }
+            let Value::Error(error) = add_error_context(Value::Error(Box::new(error)), context.clone()) else { unreachable!() };
+            *error
+        });
+        let error = &contextual;
+        let span = error.span.unwrap_or(fallback);
+        let location = self.sources.get(span.source_id).and_then(|source| {
+            source.location(span.start()).map(|location| format!("{}:{}:{}", source.name(), location.line, location.column))
+        }).unwrap_or_else(|| "deferred cleanup".to_string());
+        self.write_stderr_line(&format!("cleanup error [{}] at {location}: {}", error.kind, error.message));
     }
 
     pub(super) fn write_stderr_line(&mut self, line: &str) {
@@ -3798,8 +3979,36 @@ impl Evaluator {
                 "compact.statement-count",
             ));
         }
-        let auto_main_required =
-            compact_root_proc_main_requires_auto_call_indexed(program, &root, &indexed)?;
+        let signature_cli = declarations.cli_entry.as_ref().map(|entry| {
+            debug_assert_eq!(program.arena.function_def(entry.definition).name, "main");
+            let parameters = entry.parameters.iter().map(|parameter| {
+                let default = parameter.default.as_ref().map(|constant| {
+                    debug_assert!(constant.matches_data_type(&parameter.ty));
+                    lower::lower_literal_constant(constant, Some(&declarations.wire_enums)).map(LoweredValue::into_value)
+                        .ok_or_else(|| compact_lowerability_diagnostic(program.arena.stmt(entry.statement).span,
+                            "a prepared CLI default cannot be represented", "compact.cli-default"))
+                }).transpose()?;
+                Ok(crate::modules::cli::SignatureParameter { name: parameter.name.to_string(),
+                    type_name: parameter.parser_type.clone(), default, rest: parameter.rest })
+            }).collect::<Result<Vec<_>, Diagnostic>>()?;
+            let span = program.arena.stmt(entry.statement).span;
+            let description = program.cli_entry_doc(entry.statement).or_else(|| program.module_doc_for(program.statements))
+                .and_then(|doc| self.sources.get(doc.source_id).and_then(|source| source.text().get(doc.start()..doc.end())))
+                .map(|text| text.lines().map(|line| line.trim_start().trim_start_matches('#').trim_start_matches('!').trim_start())
+                    .collect::<Vec<_>>().join("\n")).unwrap_or_default();
+            let parser = crate::modules::cli::PreparedSignatureCli::prepare(parameters, description, span)
+                .map_err(|error| compact_lowerability_diagnostic(span, &error.message, "check.cli-entry"))?;
+            let argv = self.lookup(Name::intern("args")).and_then(|binding| match &binding.value {
+                Value::List(values) => values.iter().map(|value| match value {
+                    Value::Str(text) => Some(text.to_string()), _ => None,
+                }).collect::<Option<Vec<_>>>(),
+                _ => None,
+            }).ok_or_else(|| compact_lowerability_diagnostic(span,
+                "incoming script arguments must be a List[Str]", "compact.cli-args"))?;
+            Ok(SignatureCliRunPlan { parser, argv })
+        }).transpose()?;
+        let auto_main_required = signature_cli.is_some()
+            || compact_root_proc_main_requires_auto_call_indexed(program, &root, &indexed)?;
         if auto_main_required
             && !indexed.contains_function(
                 LoweredFunctionKey::Name(Name::intern("main")),
@@ -3817,7 +4026,7 @@ impl Evaluator {
                 "compact.unlowered-main",
             ));
         }
-        if auto_main_required {
+        if auto_main_required && signature_cli.is_none() {
             let span = root
                 .iter()
                 .copied()
@@ -3843,7 +4052,7 @@ impl Evaluator {
         }
         let indexed = Arc::new(indexed);
         self.indexed_program = Some(Arc::clone(&indexed));
-        let compact_auto_main_args = if auto_main_required {
+        let compact_auto_main_args = if auto_main_required && signature_cli.is_none() {
             self.compact_auto_main_args().ok_or_else(|| {
                 compact_lowerability_diagnostic(
                     zero_span(),
@@ -3888,6 +4097,7 @@ impl Evaluator {
             statements,
             auto_main_required,
             compact_auto_main_args,
+            signature_cli,
         })
     }
 
@@ -4023,7 +4233,23 @@ impl Evaluator {
         let mut last_value = Value::Unit;
         let mut diagnostics = Vec::new();
         let mut compact_indexed_defers = Vec::new();
+        let mut main_arguments = plan.compact_auto_main_args.clone();
+        if let Some(cli) = &plan.signature_cli {
+            match cli.parser.parse(&cli.argv, &self.command_name) {
+                Ok(arguments) => main_arguments = arguments,
+                Err(error) => {
+                    let error = Value::Error(Box::new(error));
+                    if let Some(stop_status) = self.handle_cli_parse_stop(&error) { status = stop_status; }
+                    else {
+                        diagnostics.push(runtime_diagnostic(cli.parser.span, "CLI argument binding failed", "runtime.cli-args"));
+                        traceback = Some(self.traceback_for_value(cli.parser.span, "cli.parse", &error));
+                    }
+                    stopped = true;
+                }
+            }
+        }
         for (index, stmt) in plan.statements.iter().enumerate() {
+            if stopped { break; }
             let span = stmt.span;
             if let Err(error) = self.service_pending_signal(span) {
                 let pending_traceback = self.pending_traceback.take();
@@ -4157,7 +4383,7 @@ impl Evaluator {
                         Some(error.span.unwrap_or(span)),
                         None,
                         TracePayload::RuntimeError {
-                            error: TraceError::new(&error.kind, &error.message),
+                            error: TraceError::from_runtime_error(&error),
                         },
                     );
                     diagnostics.push(runtime_diagnostic(
@@ -4240,7 +4466,7 @@ impl Evaluator {
             let call_result = self.call_indexed_direct(
                 LoweredFunctionKey::Name(Name::intern("main")),
                 LoweredFunctionKind::Proc,
-                &plan.compact_auto_main_args,
+                &main_arguments,
                 zero,
             );
             if let Some(call_result) = call_result {
@@ -4334,10 +4560,7 @@ impl Evaluator {
                 Ok(Flow::Continue(Value::Unit)),
             );
             for index in compact_indexed_defers.into_iter().rev() {
-                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
-                    break;
-                }
-                cleanup = self
+                let action = self
                     .eval_indexed_driver_step(index, script_span)
                     .unwrap_or_else(|| {
                         Err(RuntimeError::new(
@@ -4347,9 +4570,31 @@ impl Evaluator {
                         .with_span(script_span))
                     })
                     .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
+                if action.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
+                    cleanup = action;
+                    break;
+                }
+                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
+                    if let Err(error) = action { self.report_cleanup_error(&error, script_span); }
+                } else {
+                    cleanup = action;
+                }
+            }
+            if (traceback.is_some() || abort.is_some()) && let Err(error) = &cleanup
+                && !error.abort.as_ref().is_some_and(|signal| signal.force)
+            {
+                self.report_cleanup_error(error, script_span);
             }
             cleanup
         };
+        if let Err(error) = &cleanup_result
+            && let Some(signal) = &error.abort
+            && signal.force
+        {
+            status = signal.status;
+            abort = Some(signal.clone());
+            traceback = None;
+        }
         if traceback.is_none() && abort.is_none() {
             match cleanup_result {
                 Ok(Flow::Continue(_)) => {}
@@ -4629,7 +4874,7 @@ impl Evaluator {
                         Some(error.span.unwrap_or(span)),
                         None,
                         TracePayload::RuntimeError {
-                            error: TraceError::new(&error.kind, &error.message),
+                            error: TraceError::from_runtime_error(&error),
                         },
                     );
                     diagnostics.push(runtime_diagnostic(
@@ -4725,7 +4970,7 @@ impl Evaluator {
                     Some(span),
                     None,
                     TracePayload::RuntimeError {
-                        error: TraceError::new(&error.kind, &error.message),
+                        error: TraceError::from_runtime_error(&error),
                     },
                 );
                 let diagnostic = runtime_diagnostic(span, &error.message, "runtime.error");
@@ -4794,15 +5039,12 @@ impl Evaluator {
             Value::Result(ResultValue::Err(error)) => {
                 let error = *error;
                 let kind = error.error_kind().unwrap_or("error").to_string();
-                let message = error
-                    .error_message()
-                    .unwrap_or("propagated error")
-                    .to_string();
                 self.trace_leaf(
                     TraceKind::ResultPropagate,
                     Some(span),
                     None,
                     TracePayload::ResultPropagate {
+                        error: TraceError::caused_from_value(&error),
                         error_kind: kind.clone(),
                     },
                 );
@@ -4810,10 +5052,7 @@ impl Evaluator {
                     failing_span: Some(span),
                     exe_path: self.exe_path_for_traceback(),
                     operation_kind: "result.propagate".to_string(),
-                    error: TraceError {
-                        kind: kind.clone(),
-                        message: message.clone(),
-                    },
+                    error: TraceError::from_propagated_value(&error),
                     frames: self.call_stack.clone(),
                 });
                 Flow::Propagate(Propagation { error, traceback })
@@ -4846,10 +5085,7 @@ impl Evaluator {
             failing_span: Some(span),
             exe_path: self.exe_path_for_traceback(),
             operation_kind: operation.to_string(),
-            error: TraceError::new(
-                value.error_kind().unwrap_or("runtime-error"),
-                value.error_message().unwrap_or("runtime error"),
-            ),
+            error: TraceError::from_value(value),
             frames: self.call_stack.clone(),
         }
     }
@@ -5096,6 +5332,7 @@ impl Evaluator {
                     .with_span(span));
                 }
                 binding.value = value;
+                self.scope_write_revision = self.scope_write_revision.wrapping_add(1);
                 return Ok(());
             }
         }
@@ -5154,6 +5391,17 @@ impl Evaluator {
                 "host-resource cleanup produced invalid control flow",
             )),
             Err(error) => Err(error),
+        }
+    }
+
+    fn producer_context(&self) -> ScopedProducerContext {
+        ScopedProducerContext { cwd: self.cwd.clone(), env: self.env.clone() }
+    }
+
+    fn swap_producer_context(&mut self, context: ScopedProducerContext) -> ScopedProducerContext {
+        ScopedProducerContext {
+            cwd: std::mem::replace(&mut self.cwd, context.cwd),
+            env: std::mem::replace(&mut self.env, context.env),
         }
     }
 
@@ -5260,48 +5508,39 @@ impl Evaluator {
         source_scope: u64,
         target_scope: u64,
     ) {
+        self.transfer_owned_host_resources_in_values(value.resource_reachable_values(), source_scope, target_scope);
+    }
+
+    fn transfer_owned_host_resources_in_runtime_error(
+        &mut self, error: &RuntimeError, source_scope: u64, target_scope: u64,
+    ) {
+        self.transfer_owned_host_resources_in_values(error.resource_reachable_values(), source_scope, target_scope);
+    }
+
+    fn transfer_owned_host_resources_in_values<'a>(
+        &mut self, values: impl Iterator<Item = &'a Value>, source_scope: u64, target_scope: u64,
+    ) {
         if source_scope == target_scope {
             return;
         }
-        match value {
-            Value::ProcessHandle(handle) => {
-                if let Some(live) = self.process_handles.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
+        for value in values {
+            match value {
+                Value::ProcessHandle(handle) => {
+                    if let Some(live) = self.process_handles.get_mut(&handle.id)
+                        && live.owner_scope == source_scope
+                    {
+                        live.owner_scope = target_scope;
+                    }
                 }
-            }
-            Value::NetJob(handle) => {
-                if let Some(live) = self.net_jobs.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
+                Value::NetJob(handle) => {
+                    if let Some(live) = self.net_jobs.get_mut(&handle.id)
+                        && live.owner_scope == source_scope
+                    {
+                        live.owner_scope = target_scope;
+                    }
                 }
+                _ => {}
             }
-            Value::List(values) => {
-                for value in values {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            Value::Map(values) => {
-                for value in values.values() {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            Value::Record(fields) | Value::Module(fields) => {
-                for (_, value) in fields {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            Value::Result(ResultValue::Ok(value)) | Value::Result(ResultValue::Err(value)) => {
-                self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-            }
-            Value::Tag { fields, .. } => {
-                for value in fields {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            _ => {}
         }
     }
 
@@ -5494,15 +5733,9 @@ fn default_signal_status(signal: &HookSignal) -> u8 {
 
 fn signal_hook_error(result: &Result<Flow, RuntimeError>) -> Option<TraceError> {
     match result {
-        Err(error) if error.abort.is_none() => Some(TraceError::new(&error.kind, &error.message)),
-        Ok(Flow::Continue(Value::Result(ResultValue::Err(error)))) => Some(TraceError::new(
-            error.error_kind().unwrap_or("runtime-error"),
-            error.error_message().unwrap_or("runtime error"),
-        )),
-        Ok(Flow::Propagate(propagation)) => Some(TraceError::new(
-            propagation.error.error_kind().unwrap_or("runtime-error"),
-            propagation.error.error_message().unwrap_or("runtime error"),
-        )),
+        Err(error) if error.abort.is_none() => Some(TraceError::from_runtime_error(&error)),
+        Ok(Flow::Continue(Value::Result(ResultValue::Err(error)))) => Some(TraceError::from_value(error)),
+        Ok(Flow::Propagate(propagation)) => Some(TraceError::from_value(&propagation.error)),
         Ok(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop) => {
             Some(TraceError::new("signal-hook", "invalid control flow"))
         }
@@ -5522,25 +5755,23 @@ pub fn apply_question(
         Value::Result(ResultValue::Err(error)) => {
             let error = *error;
             let kind = error.error_kind().unwrap_or("error").to_string();
-            let message = error
-                .error_message()
-                .unwrap_or("propagated error")
-                .to_string();
             trace_events.push(
                 TraceEvent::new(next_event_id(trace_events), TraceKind::ResultPropagate)
                     .with_span(question_span)
                     .with_timing(TraceTiming::new(Some(trace_epoch_us()), None))
                     .with_payload(TracePayload::ResultPropagate {
+                        error: TraceError::caused_from_value(&error),
                         error_kind: kind.clone(),
                     }),
             );
+            let trace_error = TraceError::from_propagated_value(&error);
             EvalFlow::Propagate(Propagation {
                 error,
                 traceback: Traceback {
                     failing_span: Some(question_span),
                     exe_path,
                     operation_kind: "result.propagate".to_string(),
-                    error: TraceError { kind, message },
+                    error: trace_error,
                     frames,
                 },
             })
@@ -5706,20 +5937,25 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
             *error
         }
         Value::RunError(error) => {
+            let original = error.clone();
             let variant = error.variant_name().to_string();
             let symbols = crate::symbol::SymbolOwner::current().unwrap_or_default();
             let variant_name = symbols.intern(&variant);
             let facets = error.facets();
+            let payload = error.payload();
             RuntimeError {
                 family: "ProcessError".to_string(),
                 variant,
                 kind: error.kind,
                 message: error.message,
-                payload: RecordMap::new(),
+                payload,
                 facets,
                 span: error.span.or(Some(span)),
                 contexts: error.contexts,
+                cause: error.cause,
                 abort: None,
+                propagated: false,
+                propagated_run_error: Some(original),
                 family_name: Name::PROCESS_ERROR,
                 variant_name,
                 _symbols: symbols,
@@ -6009,6 +6245,11 @@ fn compound_assignment_value(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     match (op, left, right) {
+        (AssignOp::Add, Value::List(left), Value::List(right)) => {
+            let mut items = left;
+            items.extend(right);
+            Ok(Value::List(items))
+        }
         (AssignOp::Add, Value::Int(left), Value::Int(right)) => {
             left.checked_add(right).map(Value::Int).ok_or_else(|| {
                 RuntimeError::new("integer-overflow", "integer overflow").with_span(span)
@@ -6336,10 +6577,13 @@ fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
 
 pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
     match ty {
+        Type::BuiltinParameter(_) => false,
+        Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),
         Type::Int => matches!(value, Value::Int(_)),
+        Type::UInt => matches!(value, Value::Int(value) if *value >= 0),
         Type::Float => matches!(value, Value::Float(_)),
         Type::Duration => matches!(value, Value::Duration(_)),
         Type::Str => matches!(value, Value::Str(_)),
@@ -6353,10 +6597,8 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| value_matches_static_type(item, item_ty)),
             _ => false,
         },
-        Type::Map(item_ty) => match value {
-            Value::Map(items) => items
-                .values()
-                .all(|item| value_matches_static_type(item, item_ty)),
+        Type::Map(key_ty, item_ty) => match value {
+            Value::Map(items) => items.iter().all(|(key, item)| map_key_matches_type(key, key_ty) && value_matches_static_type(item, item_ty)),
             _ => false,
         },
         Type::Stream(item_ty) => match value {
@@ -6366,6 +6608,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| value_matches_static_type(&item.value, item_ty)),
             _ => false,
         },
+        Type::ErasedRecord => matches!(value, Value::Record(_) | Value::FsEntry(_)),
         Type::Record(fields) => match value {
             Value::Record(_) | Value::FsEntry(_) if fields.is_empty() => true,
             Value::Record(record) => fields.iter().all(|(field, field_ty)| {
@@ -6391,7 +6634,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         },
         Type::Status => matches!(value, Value::Status(_)),
         Type::EnvPathList => matches!(value, Value::EnvPathList),
-        Type::Error => matches!(value, Value::Error(_)),
+        Type::Error => matches!(value, Value::Error(_) | Value::RunError(_)),
         Type::ErrorFamily(family) => {
             matches!(value, Value::Error(error) if error.family_name() == *family)
         }
@@ -6407,8 +6650,9 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
+        Type::FsRoot => matches!(value, Value::FsRoot(_)),
         Type::Unit => matches!(value, Value::Unit),
-        Type::Tag(_) => matches!(value, Value::Tag { .. }),
+        Type::Tag(name) => matches!(value, Value::Tag { type_name, .. } if type_name == name),
         Type::Optional(inner) => {
             matches!(value, Value::Null) || value_matches_static_type(value, inner)
         }
@@ -6417,10 +6661,13 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
 
 fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
     match ty {
+        Type::BuiltinParameter(_) => false,
+        Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, LoweredValue::Null),
         Type::Bool => matches!(value, LoweredValue::Bool(_)),
         Type::Int => matches!(value, LoweredValue::Int(_)),
+        Type::UInt => matches!(value, LoweredValue::Int(value) if *value >= 0),
         Type::Float => matches!(value, LoweredValue::Float(_)),
         Type::Duration => matches!(value, LoweredValue::Duration(_)),
         Type::Str => matches!(value, LoweredValue::Str(_) | LoweredValue::StrView(_)),
@@ -6437,14 +6684,12 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
                 .all(|item| lowered_value_matches_static_type(item, item_ty)),
             _ => false,
         },
-        Type::Map(item_ty) => match value {
-            LoweredValue::Map(items) => items
+        Type::Map(key_ty, item_ty) => match value {
+            LoweredValue::Map(items) => items.iter().all(|(key, item)| map_key_matches_type(key, key_ty) && lowered_value_matches_static_type(item, item_ty)),
+            LoweredValue::Record(record) if matches!(key_ty.as_ref(), Type::Str) => record
                 .values()
                 .all(|item| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::Record(record) => record
-                .values()
-                .all(|item| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::RecordVec(record) => record
+            LoweredValue::RecordVec(record) if matches!(key_ty.as_ref(), Type::Str) => record
                 .iter()
                 .all(|(_, item)| lowered_value_matches_static_type(item, item_ty)),
             LoweredValue::FsEntry(entry) => entry.to_record_map().is_ok_and(|record| {
@@ -6456,6 +6701,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             _ => false,
         },
         Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),
+        Type::ErasedRecord => matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::FsEntry(_)),
         Type::Record(fields) => match value {
             LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::FsEntry(_)
                 if fields.is_empty() =>
@@ -6520,11 +6766,14 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::Command => matches!(value, LoweredValue::Command(_)),
         Type::ProcessHandle => matches!(value, LoweredValue::ProcessHandle(_)),
         Type::NetJob => matches!(value, LoweredValue::NetJob(_)),
-        Type::ProcessError => false,
+        Type::FsRoot => matches!(value, LoweredValue::FsRoot(_)),
+        Type::ProcessError => {
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::RunError(_)))
+        },
         Type::Pure => matches!(value, LoweredValue::Pure(_)),
         Type::Proc => matches!(value, LoweredValue::Proc(_)),
         Type::Unit => matches!(value, LoweredValue::Unit),
-        Type::Tag(_) => matches!(value, LoweredValue::Tag(_)),
+        Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
         Type::Optional(inner) => {
             matches!(value, LoweredValue::Null) || lowered_value_matches_static_type(value, inner)
         }
@@ -6566,6 +6815,7 @@ fn compact_top_level_stmt_is_skippable(
         ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_) => true,
         _ => false,
@@ -6660,7 +6910,7 @@ fn compact_root_binds_name_before(
 fn compact_stmt_binds_name(program: &ArenaProgram, id: StmtId, name: Name) -> bool {
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Export(inner) => compact_stmt_binds_name(program, inner, name),
-        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
             compact_binding_target_binds_name(program, target, name)
         }
         _ => false,
@@ -6678,14 +6928,14 @@ fn compact_binding_target_binds_name(
             .arena
             .destructure_fields(fields)
             .iter()
-            .any(|field| field.name == name),
+            .any(|field| compact_binding_target_binds_name(program, field.target, name)),
     }
 }
 
 fn compact_root_proc_main_exists(program: &ArenaProgram, id: StmtId) -> bool {
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Export(inner) => compact_root_proc_main_exists(program, inner),
-        ArenaStmtKind::ProcDef(def) => program.arena.function_def(def).name == Name::intern("main"),
+        ArenaStmtKind::ProcDef(def) => !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main"),
         _ => false,
     }
 }
@@ -6694,7 +6944,7 @@ fn compact_root_proc_main_span(program: &ArenaProgram, id: StmtId) -> Option<Spa
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Export(inner) => compact_root_proc_main_span(program, inner),
         ArenaStmtKind::ProcDef(def)
-            if program.arena.function_def(def).name == Name::intern("main") =>
+            if !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main") =>
         {
             Some(program.arena.stmt(id).span)
         }
@@ -6725,7 +6975,7 @@ fn compact_root_proc_main_unbindable_fixed_param(
                     compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
                 }
                 ArenaStmtKind::ProcDef(def)
-                    if program.arena.function_def(def).name == Name::intern("main") =>
+                    if !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main") =>
                 {
                     Some(def)
                 }
@@ -6760,7 +7010,7 @@ fn compact_root_proc_main_unbindable_fixed_param_inner(
             compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
         }
         ArenaStmtKind::ProcDef(def)
-            if program.arena.function_def(def).name == Name::intern("main") =>
+            if !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main") =>
         {
             Some(def)
         }
@@ -6814,7 +7064,7 @@ fn compact_is_main_spliced_args_expr(program: &ArenaProgram, id: ExprId) -> bool
 fn compact_is_args_call_arg(program: &ArenaProgram, arg: &ArenaCallArg) -> bool {
     let value = match arg.kind {
         ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Splice { value, .. } => value,
-        ArenaCallArgKind::Named { .. } => return false,
+        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. } => return false,
     };
     matches!(program.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == Name::intern("args"))
 }
@@ -6861,4 +7111,15 @@ fn debug_test_eval_stack_size(default: usize) -> usize {
 
 fn next_event_id(events: &[TraceEvent]) -> u64 {
     events.last().map_or(1, |event| event.event_id + 1)
+}
+
+#[derive(Clone, Debug)]
+struct PreparedConstantValue(LoweredValue);
+
+fn map_key_matches_type(key: &MapKey, ty: &Type) -> bool {
+    matches!((key, ty), (MapKey::Str(_), Type::Str) | (MapKey::Int(_), Type::Int)
+        | (MapKey::Bool(_), Type::Bool) | (MapKey::Bytes(_), Type::Bytes)
+        | (MapKey::Path(_), Type::Path) | (MapKey::Duration(_), Type::Duration))
+        || matches!((key, ty), (MapKey::Int(value), Type::UInt) if *value >= 0)
+        || matches!(ty, Type::Unknown | Type::Invalid | Type::Any)
 }

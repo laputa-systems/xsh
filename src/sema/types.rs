@@ -4,6 +4,7 @@ use crate::syntax::node::Effect;
 use std::collections::BTreeMap;
 use std::fmt;
 use xsh_registry::types::BuiltinTypeName;
+pub use xsh_registry::types::BuiltinTypeParameter;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
@@ -13,12 +14,16 @@ fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
+    BuiltinParameter(BuiltinTypeParameter),
+    Inference(super::constraints::TypeVariableId),
     Any,
     Unknown,
     Invalid,
     Null,
     Bool,
     Int,
+    /// Nonnegative Int constraint; runtime values retain the Int representation.
+    UInt,
     Float,
     Duration,
     Str,
@@ -27,8 +32,11 @@ pub enum Type {
     Regex,
     Path,
     List(Box<Type>),
-    Map(Box<Type>),
+    /// Ordered scalar key type followed by homogeneous value type.
+    Map(Box<Type>, Box<Type>),
     Stream(Box<Type>),
+    /// A record value whose fields were deliberately erased.
+    ErasedRecord,
     Record(BTreeMap<Name, Type>),
     Module(BTreeMap<Name, ModuleExportType>),
     DynamicModule,
@@ -45,6 +53,7 @@ pub enum Type {
     Command,
     ProcessHandle,
     NetJob,
+    FsRoot,
     Unit,
     Tag(Name),
     Optional(Box<Type>),
@@ -117,14 +126,58 @@ impl CallableType {
 }
 
 impl Type {
+    /// Whether runtime storage must preserve a nonnegative integer constraint.
+    pub(crate) fn has_unsigned_constraint(&self) -> bool {
+        match self {
+            Self::UInt => true,
+            Self::List(item) | Self::Stream(item) | Self::Optional(item) => item.has_unsigned_constraint(),
+            Self::Map(key, value) | Self::Result(key, value) => key.has_unsigned_constraint() || value.has_unsigned_constraint(),
+            Self::Record(fields) => fields.values().any(Self::has_unsigned_constraint),
+            _ => false,
+        }
+    }
+
+    pub fn is_map_key(&self) -> bool {
+        matches!(self, Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Bytes | Self::Path | Self::Duration)
+    }
+
+    /// Context restoration cannot outlive a producer or live host handle.
+    pub(crate) fn can_escape_context_scope(&self) -> bool {
+        match self {
+            Self::Stream(_) | Self::ProcessHandle | Self::NetJob => false,
+            Self::List(item) | Self::Optional(item) => item.can_escape_context_scope(),
+            Self::Map(_, item) => item.can_escape_context_scope(),
+            Self::Result(ok, error) => ok.can_escape_context_scope() && error.can_escape_context_scope(),
+            Self::Record(fields) => fields.values().all(Self::can_escape_context_scope),
+            _ => true,
+        }
+    }
+
+    /// Checked item facts for direct loops and comprehension clauses.
+    pub(crate) fn iteration_item_type(&self) -> Option<Type> {
+        match self {
+            Self::List(item) | Self::Stream(item) => Some((**item).clone()),
+            Self::Str => Some(Self::Str),
+            Self::Bytes => Some(Self::Int),
+            Self::Map(key, item) => Some(Self::Record(BTreeMap::from([
+                (Name::intern("key"), (**key).clone()),
+                (Name::intern("value"), (**item).clone()),
+            ]))),
+            Self::Result(ok, _) if matches!(ok.as_ref(), Self::List(_) | Self::Stream(_) | Self::Map(_, _) | Self::Str | Self::Bytes) => ok.iteration_item_type(),
+            _ => None,
+        }
+    }
+
+
     /// Conservative owned-heap estimate for one semantic type tree.
     pub fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         let mut total = size_of::<Self>();
         match self {
-            Self::List(inner) | Self::Map(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
                 total = total.saturating_add(size_of::<Type>() + inner.retained_bytes());
             }
+            Self::Map(key, value) => { total = total.saturating_add(2 * size_of::<Type>() + key.retained_bytes() + value.retained_bytes()); }
             Self::Result(ok, err) => {
                 total = total
                     .saturating_add(size_of::<Type>() + ok.retained_bytes())
@@ -152,6 +205,7 @@ impl Type {
         let tag = arena.type_expr_tags[index];
         let data = arena.type_expr_data[index];
         match tag {
+            ArenaTypeExprTag::Applied => Type::Unknown,
             ArenaTypeExprTag::Named => {
                 Self::from_name(&Name::from_symbol(Symbol::from_raw(data.lhs)).as_str())
             }
@@ -160,7 +214,7 @@ impl Type {
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
             ))),
-            ArenaTypeExprTag::Map => Self::Map(Box::new(Self::from_arena(
+            ArenaTypeExprTag::Map => Self::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Self::Str, |key| Self::from_arena(arena, key))), Box::new(Self::from_arena(
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
             ))),
@@ -209,7 +263,8 @@ impl Type {
             BuiltinTypeName::Any => Self::Any,
             BuiltinTypeName::Null => Self::Null,
             BuiltinTypeName::Bool => Self::Bool,
-            BuiltinTypeName::Int | BuiltinTypeName::UInt => Self::Int,
+            BuiltinTypeName::Int => Self::Int,
+            BuiltinTypeName::UInt => Self::UInt,
             BuiltinTypeName::Float => Self::Float,
             BuiltinTypeName::Duration => Self::Duration,
             BuiltinTypeName::Str => Self::Str,
@@ -217,9 +272,9 @@ impl Type {
             BuiltinTypeName::Digest => Self::Digest,
             BuiltinTypeName::Regex => Self::Regex,
             BuiltinTypeName::Path => Self::Path,
-            BuiltinTypeName::Map => Self::Map(Box::new(Self::Unknown)),
+            BuiltinTypeName::Map => Self::Map(Box::new(Self::Str), Box::new(Self::Unknown)),
             BuiltinTypeName::Module => Self::DynamicModule,
-            BuiltinTypeName::Record => Self::Record(BTreeMap::new()),
+            BuiltinTypeName::Record => Self::ErasedRecord,
             BuiltinTypeName::Status => Self::Status,
             BuiltinTypeName::EnvPathList => Self::EnvPathList,
             BuiltinTypeName::Error => Self::Error,
@@ -229,6 +284,7 @@ impl Type {
             BuiltinTypeName::Command => Self::Command,
             BuiltinTypeName::ProcessHandle => Self::ProcessHandle,
             BuiltinTypeName::NetJob => Self::NetJob,
+            BuiltinTypeName::FsRoot => Self::FsRoot,
             BuiltinTypeName::Result => Self::Result(Box::new(Self::Unknown), Box::new(Self::Error)),
             BuiltinTypeName::Unit => Self::Unit,
         }
@@ -241,6 +297,7 @@ impl Type {
             Self::Null => Some(BuiltinTypeName::Null),
             Self::Bool => Some(BuiltinTypeName::Bool),
             Self::Int => Some(BuiltinTypeName::Int),
+            Self::UInt => Some(BuiltinTypeName::UInt),
             Self::Float => Some(BuiltinTypeName::Float),
             Self::Duration => Some(BuiltinTypeName::Duration),
             Self::Str => Some(BuiltinTypeName::Str),
@@ -248,9 +305,9 @@ impl Type {
             Self::Digest => Some(BuiltinTypeName::Digest),
             Self::Regex => Some(BuiltinTypeName::Regex),
             Self::Path => Some(BuiltinTypeName::Path),
-            Self::Map(_) => Some(BuiltinTypeName::Map),
+            Self::Map(_, _) => Some(BuiltinTypeName::Map),
             Self::Module(_) | Self::DynamicModule => Some(BuiltinTypeName::Module),
-            Self::Record(_) => Some(BuiltinTypeName::Record),
+            Self::ErasedRecord | Self::Record(_) => Some(BuiltinTypeName::Record),
             Self::Status => Some(BuiltinTypeName::Status),
             Self::EnvPathList => Some(BuiltinTypeName::EnvPathList),
             Self::Error => Some(BuiltinTypeName::Error),
@@ -260,9 +317,12 @@ impl Type {
             Self::Command => Some(BuiltinTypeName::Command),
             Self::ProcessHandle => Some(BuiltinTypeName::ProcessHandle),
             Self::NetJob => Some(BuiltinTypeName::NetJob),
+            Self::FsRoot => Some(BuiltinTypeName::FsRoot),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
-            Self::Invalid
+            Self::BuiltinParameter(_)
+            | Self::Inference(_)
+            | Self::Invalid
             | Self::List(_)
             | Self::Stream(_)
             | Self::ErrorFamily(_)
@@ -281,12 +341,39 @@ impl Type {
         matches!(self, Self::Any)
     }
 
+    /// Transient variables must be substituted before publishing signatures,
+    /// schema instances, or runtime checks.
+    pub fn contains_inference(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Inference(_) => return true,
+                Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => pending.push(inner),
+                Self::Map(key, value) => { pending.push(key); pending.push(value); }
+                Self::Result(ok, error) => { pending.push(ok); pending.push(error); }
+                Self::Record(fields) => pending.extend(fields.values()),
+                Self::Module(exports) => for export in exports.values() {
+                    match export {
+                        ModuleExportType::Value { ty, .. } => pending.push(ty),
+                        ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                            pending.push(&sig.return_ty);
+                            pending.extend(sig.params.iter().map(|param| &param.ty));
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        false
+    }
+
     pub fn contains_any(&self) -> bool {
         match self {
             Self::Any => true,
-            Self::List(inner) | Self::Map(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
                 inner.contains_any()
             }
+            Self::Map(key, value) => key.contains_any() || value.contains_any(),
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
             Self::Module(exports) => exports.values().any(|export| match export {
@@ -306,12 +393,15 @@ impl Type {
         }
         match (self, expected) {
             (Self::Any, _) => true,
+            (Self::ErasedRecord, Self::Record(_)) => true,
+            (Self::DynamicModule, Self::Module(_)) => true,
             (Self::List(actual), Self::List(expected))
-            | (Self::Map(actual), Self::Map(expected))
+
             | (Self::Stream(actual), Self::Stream(expected))
             | (Self::Optional(actual), Self::Optional(expected)) => {
                 actual.any_flows_to_concrete(expected)
             }
+            (Self::Map(ak, av), Self::Map(ek, ev)) => ak.any_flows_to_concrete(ek) || av.any_flows_to_concrete(ev),
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.any_flows_to_concrete(expected_ok)
                     || actual_err.any_flows_to_concrete(expected_err)
@@ -356,20 +446,20 @@ impl Type {
 
     pub fn matches_expected(&self, expected: &Type) -> bool {
         if self == expected
-            || matches!(self, Self::Any | Self::Unknown | Self::Invalid)
+            || matches!((self, expected), (Self::Int, Self::UInt) | (Self::UInt, Self::Int))
+            || matches!(self, Self::Unknown | Self::Invalid)
             || matches!(expected, Self::Any | Self::Unknown | Self::Invalid)
         {
             return true;
         }
         match (self, expected) {
-            (Self::List(actual), Self::List(expected)) => actual.matches_expected(expected),
-            (Self::Map(actual), Self::Map(expected)) => actual.matches_expected(expected),
-            (Self::Stream(actual), Self::Stream(expected)) => actual.matches_expected(expected),
+            (Self::Any, _) => false,
+            (Self::List(actual), Self::List(expected)) | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_invariant(expected),
+            (Self::Map(ak, actual), Self::Map(ek, expected)) => ak.matches_invariant(ek) && actual.matches_invariant(expected),
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.matches_expected(expected_ok) && actual_err.matches_expected(expected_err)
             }
-            (Self::Record(actual_fields), Self::Record(_)) if actual_fields.is_empty() => true,
-            (Self::Record(_), Self::Record(expected_fields)) if expected_fields.is_empty() => true,
+            (Self::Record(_), Self::ErasedRecord) => true,
             (Self::Record(actual_fields), Self::Record(expected_fields)) => {
                 expected_fields.iter().all(|(name, expected)| {
                     actual_fields
@@ -391,6 +481,7 @@ impl Type {
             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
             (Self::ErrorVariant { .. }, Self::Error) => true,
             (Self::ErrorFamily(_), Self::Error) => true,
+            (Self::ErrorFacet(_), Self::Error) => true,
             (Self::ProcessError, Self::Error) => true,
             (
                 Self::ErrorVariant { family, variant },
@@ -409,6 +500,22 @@ impl Type {
         }
     }
 
+    // Scalar domain conversions require a checked value boundary. A container
+    // cannot apply those checks to its stored or lazily produced elements.
+    pub(super) fn matches_invariant(&self, expected: &Type) -> bool {
+        match (self, expected) {
+            (Self::Int, Self::UInt) | (Self::UInt, Self::Int) => false,
+            (Self::List(actual), Self::List(expected))
+            | (Self::Stream(actual), Self::Stream(expected))
+            | (Self::Optional(actual), Self::Optional(expected)) => actual.matches_invariant(expected),
+            (Self::Map(ak, av), Self::Map(ek, ev)) => ak.matches_invariant(ek) && av.matches_invariant(ev),
+            (Self::Result(ao, ae), Self::Result(eo, ee)) => ao.matches_invariant(eo) && ae.matches_invariant(ee),
+            (Self::Record(actual), Self::Record(expected)) => actual.len() == expected.len()
+                && expected.iter().all(|(name, ty)| actual.get(name).is_some_and(|actual| actual.matches_invariant(ty))),
+            _ => self.matches_expected(expected) && expected.matches_expected(self),
+        }
+    }
+
     pub fn optional_inner(&self) -> Option<&Type> {
         match self {
             Self::Optional(inner) => Some(inner),
@@ -422,6 +529,7 @@ impl Type {
             Self::Any
                 | Self::Str
                 | Self::Int
+            | Self::UInt
                 | Self::Bool
                 | Self::Path
                 | Self::Duration
@@ -432,18 +540,22 @@ impl Type {
     pub fn can_be_argv_item(&self) -> bool {
         matches!(
             self,
-            Self::Any | Self::Str | Self::Int | Self::Bool | Self::Path | Self::Duration
+            Self::Any | Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Path | Self::Duration
         )
     }
 
     pub fn can_word_convert_to(&self) -> bool {
         matches!(
             self,
-            Self::Any | Self::Str | Self::Path | Self::Int | Self::Bool | Self::Duration
+            Self::Any | Self::Str | Self::Path | Self::Int | Self::UInt | Self::Bool | Self::Duration
         )
     }
 
     pub fn is_json_compatible(&self) -> bool {
+        self.is_json_compatible_with(&|_| false)
+    }
+
+    pub fn is_json_compatible_with(&self, wire_enum: &impl Fn(Name) -> bool) -> bool {
         match self {
             Self::Any
             | Self::Unknown
@@ -451,29 +563,37 @@ impl Type {
             | Self::Null
             | Self::Bool
             | Self::Int
+            | Self::UInt
             | Self::Float
             | Self::Str => true,
-            Self::List(item) | Self::Map(item) | Self::Stream(item) | Self::Optional(item) => {
-                item.is_json_compatible()
+            Self::List(item) | Self::Stream(item) | Self::Optional(item) => {
+                item.is_json_compatible_with(wire_enum)
             }
-            Self::Record(fields) => fields.values().all(Self::is_json_compatible),
+            Self::ErasedRecord => true,
+            Self::Map(key, value) => matches!(key.as_ref(), Self::Str) && value.is_json_compatible_with(wire_enum),
+            Self::Record(fields) => fields.values().all(|ty| ty.is_json_compatible_with(wire_enum)),
+            Self::Tag(name) => wire_enum(*name),
             _ => false,
         }
     }
 
     pub fn annotation_source(&self) -> Option<String> {
         match self {
-            Self::Any
+            Self::BuiltinParameter(parameter) => Some(parameter.label().to_string()),
+            Self::Inference(_)
+            | Self::Any
             | Self::Unknown
             | Self::Invalid
             | Self::EnvPathList
             | Self::Record(_)
+            | Self::ErasedRecord
             | Self::Module(_)
             | Self::DynamicModule => None,
             Self::Unit => Some("Unit".to_string()),
             Self::Null => Some("Null".to_string()),
             Self::Bool => Some("Bool".to_string()),
             Self::Int => Some("Int".to_string()),
+            Self::UInt => Some("UInt".to_string()),
             Self::Float => Some("Float".to_string()),
             Self::Duration => Some("Duration".to_string()),
             Self::Str => Some("Str".to_string()),
@@ -482,7 +602,7 @@ impl Type {
             Self::Regex => Some("Regex".to_string()),
             Self::Path => Some("Path".to_string()),
             Self::List(inner) => Some(format!("List[{}]", inner.annotation_source()?)),
-            Self::Map(inner) => Some(format!("Map[{}]", inner.annotation_source()?)),
+            Self::Map(key, inner) => Some(if matches!(key.as_ref(), Self::Str) { format!("Map[{}]", inner.annotation_source()?) } else { format!("Map[{}, {}]", key.annotation_source()?, inner.annotation_source()?) }),
             Self::Stream(inner) => Some(format!("Stream[{}]", inner.annotation_source()?)),
             Self::Result(ok, err) => {
                 let ok = ok.annotation_source()?;
@@ -503,6 +623,7 @@ impl Type {
             Self::Command => Some("Command".to_string()),
             Self::ProcessHandle => Some("ProcessHandle".to_string()),
             Self::NetJob => Some("NetJob".to_string()),
+            Self::FsRoot => Some("FsRoot".to_string()),
             Self::Tag(name) => Some(name.to_string()),
             Self::Optional(inner) => Some(format!("{}?", inner.annotation_source()?)),
         }
@@ -512,12 +633,15 @@ impl Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::BuiltinParameter(parameter) => write!(f, "{}", parameter.label()),
+            Self::Inference(_) => write!(f, "<type needs an annotation>"),
             Self::Any => write!(f, "Any"),
             Self::Unknown => write!(f, "<unknown>"),
             Self::Invalid => write!(f, "<invalid>"),
             Self::Null => write!(f, "Null"),
             Self::Bool => write!(f, "Bool"),
             Self::Int => write!(f, "Int"),
+            Self::UInt => write!(f, "UInt"),
             Self::Float => write!(f, "Float"),
             Self::Duration => write!(f, "Duration"),
             Self::Str => write!(f, "Str"),
@@ -526,9 +650,9 @@ impl fmt::Display for Type {
             Self::Regex => write!(f, "Regex"),
             Self::Path => write!(f, "Path"),
             Self::List(inner) => write!(f, "List[{inner}]"),
-            Self::Map(inner) => write!(f, "Map[{inner}]"),
+            Self::Map(key, inner) => if matches!(key.as_ref(), Self::Str) { write!(f, "Map[{inner}]") } else { write!(f, "Map[{key}, {inner}]") },
             Self::Stream(inner) => write!(f, "Stream[{inner}]"),
-            Self::Record(_) => write!(f, "Record"),
+            Self::ErasedRecord | Self::Record(_) => write!(f, "Record"),
             Self::Module(_) => write!(f, "Module"),
             Self::DynamicModule => write!(f, "Module"),
             Self::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
@@ -544,6 +668,7 @@ impl fmt::Display for Type {
             Self::Command => write!(f, "Command"),
             Self::ProcessHandle => write!(f, "ProcessHandle"),
             Self::NetJob => write!(f, "NetJob"),
+            Self::FsRoot => write!(f, "FsRoot"),
             Self::Unit => write!(f, "Unit"),
             Self::Tag(name) => write!(f, "{name}"),
             Self::Optional(inner) => write!(f, "{inner}?"),

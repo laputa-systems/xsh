@@ -74,7 +74,7 @@ pure is_decimal(text: Str) -> Bool {
   var index = 0
 
   while index < text.byte_len() {
-    if ! is_digit_byte(text.byte_at(index, -1)) {
+    if ! is_digit_byte((text.byte_at(index) ?? -1)) {
       return false
     }
 
@@ -102,15 +102,15 @@ pure parse_mono_row(line: Str) -> Result[MonoRow] {
   let trimmed = line.trim()
   let fields = trimmed.fields()
   let original = (fields |> drop(6)).join(" ")
-  let lines: Int = json.decode(fields[0])?
-  let copies: Int = json.decode(fields[3])?
+  let lines: Int = json.decode(fields[0])?.require(Int)?
+  let copies: Int = json.decode(fields[3])?.require(Int)?
   return Ok({name: normalize_function_name(original), original: original, lines: lines, copies: copies})
 }
 
 pure is_llvm_lines_row(line: Str) -> Bool {
   let trimmed = line.trim()
 
-  if trimmed == "" or ! is_digit_byte(trimmed.byte_at(0, -1)) {
+  if trimmed == "" or ! is_digit_byte((trimmed.byte_at(0) ?? -1)) {
     return false
   }
 
@@ -270,7 +270,7 @@ pure offenders_from_text(
     )
   }
 
-  return offenders |> sort-by --desc .duplicated_lines
+  return offenders |> sort-by(desc: true) .duplicated_lines
 }
 
 pure total_from_llvm_lines(text: Str) -> Result[Int] {
@@ -281,7 +281,7 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
       let fields = trimmed.fields()
 
       if fields.len() >= 1 {
-        let total: Int = json.decode(fields[0])?
+        let total: Int = json.decode(fields[0])?.require(Int)?
         return Ok(total)
       }
     }
@@ -291,17 +291,12 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
 }
 
 pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) -> List[Offender] {
-  var out: List[Offender] = []
-
-  for row in rows {
-    if row.duplicated_lines >= min_duplicated {
-      if filter == "" or filter in row.name {
-        out = out.push(row)
-      }
-    }
-  }
-
-  return out
+  return [
+    row
+    for row in rows
+    if row.duplicated_lines >= min_duplicated
+    if filter == "" or filter in row.name
+  ]
 }
 
 pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {

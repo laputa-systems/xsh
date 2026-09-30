@@ -1,7 +1,7 @@
 proc assert_fmt_fixture(ctx: TestContext, source_path: Path, expected_path: Path, name: Str) [fs, process, error] {
   let source = source_path.read_text()?
   let expected = expected_path.read_text()?
-  let candidate = test.temp_file(ctx, name: name, contents: bytes.from_text(source))?
+  let candidate = test.temp_file(ctx, name:, contents: bytes.from_text(source))?
 
   let formatted = run.capture --text "xsht" fmt $candidate ?
   test.ok(formatted.status.exited_with(0), formatted.stderr)?
@@ -14,7 +14,7 @@ proc assert_fmt_fixture(ctx: TestContext, source_path: Path, expected_path: Path
   test.ok(stable.status.exited_with(0), stable.stderr)?
 }
 
-proc test_fmt_fixture(ctx: TestContext) [fs, process, error] {
+test test_fmt_fixture [fs, process, error] { |ctx|
   assert_fmt_fixture(
     ctx,
     p"tests/fixtures/fmt/beauty.xsh",
@@ -23,7 +23,7 @@ proc test_fmt_fixture(ctx: TestContext) [fs, process, error] {
   )?
 }
 
-proc test_fmt_nested_multiline_string_preserves_value(ctx: TestContext) [fs, process, error] {
+test test_fmt_nested_multiline_string_preserves_value [fs, process, error] { |ctx|
   let source = p"tests/fixtures/fmt/nested-multiline-string.xsh".read_text()?
   let before = test.run_script(ctx, source)?
   test.ok(before.success, before.stderr)?

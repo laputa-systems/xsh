@@ -1,6 +1,8 @@
 #!/usr/bin/env -S xsh --
 error AppletError = Usage(message: Str) : Usage
 
+type WebpOptions = {quality: Int, jobs: Int, apply: Bool, root: Path}
+
 type WebpResult = {converted: Bool}
 
 pure image_ext(ext: Str) -> Bool {
@@ -8,7 +10,7 @@ pure image_ext(ext: Str) -> Bool {
 }
 
 proc main(...argv: List[Str]) [fs, process, error] {
-  let opts = cli.parse(
+  let opts: WebpOptions = cli.parse(
     argv,
     {
       quality: {
@@ -31,11 +33,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
         default: p".",
       },
     },
-  )?
+  )?.require(WebpOptions)?
 
   let tmp = fs.tempdir()?
-  defer fs.close_root(tmp)?
-  let tmp_dir = fs.root_path(tmp)?
+  defer tmp.close()?
+  let tmp_dir = tmp.host_path()?
 
   let entries = fs.files(opts.root, gitignore: false)
     |> where .kind == "file"
@@ -44,7 +46,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> collect()
 
   let results = entries
-    |> par-map --jobs=opts.jobs { |entry|
+    |> par-map(jobs: opts.jobs) { |entry|
       var out: WebpResult = {converted: false}
       let rel = entry.path.relative_to(opts.root)
       let safe = rel.display().replace("/", "_")

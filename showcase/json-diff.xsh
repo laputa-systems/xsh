@@ -1,14 +1,14 @@
 #!/usr/bin/env -S xsh --
 # JSON Diff
-# Compare two JSON documents and report added, removed, changed, and unchanged keys.
+# Compare two JSON objects and report added, removed, changed, and unchanged keys.
 # Usage: xsh showcase/json-diff.xsh -- OLD.json NEW.json
 # Example: xsh showcase/json-diff.xsh -- before.json after.json
 type Opts = {a: Path, b: Path}
 
 proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(argv, {a: {form: "A", kind: "Path", file: true}, b: {form: "B", kind: "Path", file: true}})?
-  let json_a = json.read(opts.a.resolve()?)?.require(Map[Any])?
-  let json_b = json.read(opts.b.resolve()?)?.require(Map[Any])?
+  let json_a = json.read(opts.a.resolve()?)?.require(Record)?
+  let json_b = json.read(opts.b.resolve()?)?.require(Record)?
   let keys_a = json_a.keys()
   let keys_b = json_b.keys()
   let removed = keys_a |> where { |key| key not in json_b }

@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::Evaluator;
-use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
+use crate::runtime::value::{LiveStream, RuntimeError, ScriptStreamState, ScriptStreamStep, StreamValue, Value};
 use crate::source::Span;
 
 impl Evaluator {
@@ -15,8 +15,7 @@ impl Evaluator {
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
         if let Some(script) = stream.script() {
-            let mut producer = script.lock(span)?;
-            return producer.pull(self, span);
+            return self.pull_script_state(script.clone(), span);
         }
         stream.next_live(span)
     }
@@ -33,10 +32,113 @@ impl Evaluator {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Some(script) = stream.script() {
-            let mut producer = script.lock(span)?;
-            producer.cancel(self, span)?;
+            self.cancel_script_state(script.clone(), span)?;
         }
         Ok(())
+    }
+
+    /// Descend through delegation iteratively, retaining ancestor scope context
+    /// while a child runs and releasing every attachment before returning.
+    fn pull_script_state(&mut self, root: ScriptStreamState, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let mut parents: Vec<(ScriptStreamState, Span, usize, Option<super::ScopedProducerContext>)> = Vec::new();
+        let mut seen = rustc_hash::FxHashSet::default();
+        let mut current = root.clone();
+        let mut current_span = span;
+        seen.insert(current.identity());
+        loop {
+            let step = current.lock(current_span).and_then(|mut producer| producer.poll(self, current_span));
+            match step {
+                Ok(ScriptStreamStep::Delegate { child, span: child_span, scopes, context }) => {
+                    if !seen.insert(child.identity()) {
+                        for (_, _, count, context) in parents.iter().rev() { self.detach_owned_host_scopes(*count); if let Some(context) = context { self.swap_producer_context(context.clone()); } }
+                        let _ = self.cancel_script_state(root, span);
+                        return Err(RuntimeError::new("stream-state", "cyclic stream delegation").with_span(child_span));
+                    }
+                    self.reattach_owned_host_scopes(&scopes);
+                    let consumer = context.map(|context| self.swap_producer_context(context));
+                    parents.push((current, current_span, scopes.len(), consumer));
+                    current = child;
+                    current_span = child_span;
+                }
+                Ok(ScriptStreamStep::Yielded(value)) => {
+                    let escaped = parents.iter().any(|(_, _, _, context)| context.is_some())
+                        && Self::context_scope_runtime_value_escapes(&value);
+                    // A delegated item crosses every retained producer boundary.
+                    // Validate only this item, then stop child and parent frames on failure.
+                    let validated = current.lock(current_span).and_then(|producer| producer.validate_item(&value, current_span))
+                        .and_then(|()| {
+                            for (parent, parent_span, _, _) in parents.iter().rev() {
+                                parent.lock(*parent_span)?.validate_item(&value, *parent_span)?;
+                            }
+                            Ok(())
+                        });
+                    for (_, _, count, context) in parents.iter().rev() { self.detach_owned_host_scopes(*count); if let Some(context) = context { self.swap_producer_context(context.clone()); } }
+                    if escaped {
+                        let _ = self.cancel_script_state(root, span);
+                        return Err(RuntimeError::new("context-scope-escape", "a delegated live producer or host handle cannot escape a context").with_span(current_span));
+                    }
+                    if let Err(error) = validated {
+                        let _ = self.cancel_script_state(root, span);
+                        return Err(error);
+                    }
+                    return Ok(Some(value));
+                }
+                Ok(ScriptStreamStep::Finished) => {
+                    seen.remove(&current.identity());
+                    let Some((parent, parent_span, count, context)) = parents.pop() else { return Ok(None); };
+                    self.detach_owned_host_scopes(count);
+                    if let Some(context) = context { self.swap_producer_context(context); }
+                    if let Err(error) = parent.lock(parent_span).map(|mut producer| producer.delegated_finished()) {
+                        for (_, _, count, context) in parents.iter().rev() {
+                            self.detach_owned_host_scopes(*count);
+                            if let Some(context) = context { self.swap_producer_context(context.clone()); }
+                        }
+                        let _ = self.cancel_script_state(root, span);
+                        return Err(error);
+                    }
+                    current = parent;
+                    current_span = parent_span;
+                }
+                Err(error) => {
+                    for (_, _, count, context) in parents.iter().rev() { self.detach_owned_host_scopes(*count); if let Some(context) = context { self.swap_producer_context(context.clone()); } }
+                    // A delegated failure stops every suspended ancestor. The
+                    // child's original error remains the primary failure.
+                    let _ = self.cancel_script_state(root, span);
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    /// Remove child links before stopping frames, then unwind from the deepest
+    /// child to its parent without growing the native stack.
+    pub(super) fn cancel_script_state(&mut self, root: ScriptStreamState, span: Span) -> Result<(), RuntimeError> {
+        let mut pending = Vec::new();
+        let mut seen = rustc_hash::FxHashSet::default();
+        let mut current = root;
+        let mut first_error = None;
+        loop {
+            if !seen.insert(current.identity()) { break; }
+            let delegation = current.lock(span).map(|mut producer| producer.take_delegated());
+            match delegation {
+                Ok((child, scopes, context)) => {
+                    let count = if child.is_some() { self.reattach_owned_host_scopes(&scopes); scopes.len() } else { 0 };
+                    let consumer = if child.is_some() { context.map(|context| self.swap_producer_context(context)) } else { None };
+                    pending.push((current, count, consumer));
+                    let Some(child) = child else { break; };
+                    current = child;
+                }
+                Err(error) => { first_error.get_or_insert(error); break; }
+            }
+        }
+        for (state, count, context) in pending.into_iter().rev() {
+            self.detach_owned_host_scopes(count);
+            if let Some(context) = context { self.swap_producer_context(context); }
+            if let Err(error) = state.lock(span).and_then(|mut producer| producer.cancel(self, span)) {
+                first_error.get_or_insert(error);
+            }
+        }
+        match first_error { Some(error) => Err(error), None => Ok(()) }
     }
 
     pub(super) fn collect_stream_values(

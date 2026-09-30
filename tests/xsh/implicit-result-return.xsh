@@ -36,7 +36,7 @@ proc middle(value: Int) [error] -> Result[Int] {
   leaf(value)?
 }
 
-proc test_value_returning_error_helper(ctx: TestContext) [fs, error] {
+test test_value_returning_error_helper [fs, error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -83,16 +83,17 @@ print parse_uint("not-a-number", 10)
   "parse-int: invalid integer" in invalid.stderr
 }
 
-proc test_implicit_result_return_in_par_map() [error] {
+test test_implicit_result_return_in_par_map [error] {
   let values = [1, 2]
-    |> par-map --jobs=2 { |_|
+    |> par-map(jobs: 2) { |_|
       build()
     }
 
-  values == [["ok"], ["ok"]]
+  values == [Ok(["ok"]), Ok(["ok"])]
+  values[0]? == ["ok"]
 
   let block_values = [1, 2]
-    |> par-map --jobs=2 { |_|
+    |> par-map(jobs: 2) { |_|
       let built = ["ok"]
       built
     }
@@ -100,7 +101,7 @@ proc test_implicit_result_return_in_par_map() [error] {
   block_values == [["ok"], ["ok"]]
 }
 
-proc test_result_return_shapes_agree() [error] {
+test test_result_return_shapes_agree [error] {
   build()? == ["ok"]
   implicit_unit()?
 
@@ -115,20 +116,21 @@ proc test_result_return_shapes_agree() [error] {
   }
 }
 
-proc test_nested_result_calls_in_par_map() [error] {
+test test_nested_result_calls_in_par_map [error] {
   let values = [1, 2]
-    |> par-map --jobs=2 { |value|
+    |> par-map(jobs: 2) { |value|
       middle(value)
     }
 
-  values == [1, 2]
+  values == [Ok(1), Ok(2)]
+  values[1]? == 2
 }
 
-proc test_result_alias_return_shape() [error] {
+test test_result_alias_return_shape [error] {
   build_bare_through_alias()? == ["ok"]
 }
 
-proc test_explicit_result_return_shapes(ctx: TestContext) [fs, error] {
+test test_explicit_result_return_shapes [fs, error] { |ctx|
   let output = test.run_script(
     ctx,
     """type StringListResult = Result[List[Str]]
@@ -160,7 +162,7 @@ print direct[0] alias[0] middle(3)?
 """
 }
 
-proc test_implicit_result_return_through_module(ctx: TestContext) [fs, error] {
+test test_implicit_result_return_through_module [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-result-module")?
   let module_dir = fp"${root}/lib"
   module_dir.mkdir()?
@@ -179,10 +181,10 @@ export proc build() [error] -> Result[List[Str]] {
     """
 use helper
 
-let values = [1, 2] |> par-map --jobs=2 { |_|
+let values = [1, 2] |> par-map(jobs: 2) { |_|
   helper.build()
 }
-print values[0][0] values[1][0]
+print values[0]?[0] values[1]?[0]
 """,
     [],
     {XSH_MODULE_PATH: module_dir.display()},

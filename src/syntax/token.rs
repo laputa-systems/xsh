@@ -47,6 +47,7 @@ pub enum TokenTag {
     FmtString,
     PathFmtString,
     Bytes,
+    Regex,
     Comment,
     Newline,
     LParen,
@@ -302,6 +303,15 @@ impl TokenTable {
         }
     }
 
+    /// Labels use identifier or keyword spelling without declaring a binding.
+    pub fn label_text_at(&self, index: usize) -> Option<Arc<str>> {
+        match self.tag_at(index)? {
+            TokenTag::Ident => self.name_at(index).map(|name| name.as_str().into_arc()),
+            TokenTag::Keyword => self.keyword_at(index).map(|keyword| Arc::from(keyword.as_str())),
+            _ => None,
+        }
+    }
+
     pub fn keyword(&self, id: TokenId) -> Option<Keyword> {
         self.keyword_at(id.index())
     }
@@ -369,7 +379,7 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
         | TokenTag::GlobString
         | TokenTag::FmtString
         | TokenTag::PathFmtString
-        | TokenTag::Bytes => match literal::scan_quoted_literal(source, start, true) {
+        | TokenTag::Bytes | TokenTag::Regex => match literal::scan_quoted_literal(source, start, true) {
             Some(QuotedScan::Terminated(literal)) => literal.end,
             Some(QuotedScan::Unterminated { end }) => end,
             None => start,
@@ -507,6 +517,7 @@ pub enum TokenKind {
     },
     PathFmtString,
     Bytes,
+    Regex,
     Comment,
     Newline,
     LParen,
@@ -564,6 +575,7 @@ impl TokenKind {
             Self::FmtString { .. } => TokenTag::FmtString,
             Self::PathFmtString => TokenTag::PathFmtString,
             Self::Bytes => TokenTag::Bytes,
+            Self::Regex => TokenTag::Regex,
             Self::Comment => TokenTag::Comment,
             Self::Newline => TokenTag::Newline,
             Self::LParen => TokenTag::LParen,
@@ -636,10 +648,12 @@ impl TokenKind {
 #[repr(u8)]
 pub enum Keyword {
     And,
+    Assert,
     Break,
     Continue,
     Defer,
     Else,
+    Enum,
     Export,
     False,
     For,
@@ -647,6 +661,7 @@ pub enum Keyword {
     If,
     In,
     Let,
+    Const,
     Loop,
     Match,
     Not,
@@ -655,6 +670,7 @@ pub enum Keyword {
     Proc,
     Pure,
     Retry,
+    Try,
     Return,
     Run,
     Spawn,
@@ -675,10 +691,12 @@ impl Keyword {
     pub const fn from_payload(payload: u32) -> Option<Self> {
         Some(match payload {
             value if value == Self::And as u32 => Self::And,
+            value if value == Self::Assert as u32 => Self::Assert,
             value if value == Self::Break as u32 => Self::Break,
             value if value == Self::Continue as u32 => Self::Continue,
             value if value == Self::Defer as u32 => Self::Defer,
             value if value == Self::Else as u32 => Self::Else,
+            value if value == Self::Enum as u32 => Self::Enum,
             value if value == Self::Export as u32 => Self::Export,
             value if value == Self::False as u32 => Self::False,
             value if value == Self::For as u32 => Self::For,
@@ -686,6 +704,7 @@ impl Keyword {
             value if value == Self::If as u32 => Self::If,
             value if value == Self::In as u32 => Self::In,
             value if value == Self::Let as u32 => Self::Let,
+            value if value == Self::Const as u32 => Self::Const,
             value if value == Self::Loop as u32 => Self::Loop,
             value if value == Self::Match as u32 => Self::Match,
             value if value == Self::Not as u32 => Self::Not,
@@ -694,6 +713,7 @@ impl Keyword {
             value if value == Self::Proc as u32 => Self::Proc,
             value if value == Self::Pure as u32 => Self::Pure,
             value if value == Self::Retry as u32 => Self::Retry,
+            value if value == Self::Try as u32 => Self::Try,
             value if value == Self::Return as u32 => Self::Return,
             value if value == Self::Run as u32 => Self::Run,
             value if value == Self::Spawn as u32 => Self::Spawn,
@@ -715,10 +735,12 @@ impl Keyword {
     pub fn from_ident(ident: &str) -> Option<Self> {
         Some(match ident {
             "and" => Self::And,
+            "assert" => Self::Assert,
             "break" => Self::Break,
             "continue" => Self::Continue,
             "defer" => Self::Defer,
             "else" => Self::Else,
+            "enum" => Self::Enum,
             "export" => Self::Export,
             "false" => Self::False,
             "for" => Self::For,
@@ -726,6 +748,7 @@ impl Keyword {
             "if" => Self::If,
             "in" => Self::In,
             "let" => Self::Let,
+            "const" => Self::Const,
             "loop" => Self::Loop,
             "match" => Self::Match,
             "not" => Self::Not,
@@ -734,6 +757,7 @@ impl Keyword {
             "proc" => Self::Proc,
             "pure" => Self::Pure,
             "retry" => Self::Retry,
+            "try" => Self::Try,
             "return" => Self::Return,
             "run" => Self::Run,
             "spawn" => Self::Spawn,
@@ -755,10 +779,12 @@ impl Keyword {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::And => "and",
+            Self::Assert => "assert",
             Self::Break => "break",
             Self::Continue => "continue",
             Self::Defer => "defer",
             Self::Else => "else",
+            Self::Enum => "enum",
             Self::Export => "export",
             Self::False => "false",
             Self::For => "for",
@@ -766,6 +792,7 @@ impl Keyword {
             Self::If => "if",
             Self::In => "in",
             Self::Let => "let",
+            Self::Const => "const",
             Self::Loop => "loop",
             Self::Match => "match",
             Self::Not => "not",
@@ -774,6 +801,7 @@ impl Keyword {
             Self::Proc => "proc",
             Self::Pure => "pure",
             Self::Retry => "retry",
+            Self::Try => "try",
             Self::Return => "return",
             Self::Run => "run",
             Self::Spawn => "spawn",

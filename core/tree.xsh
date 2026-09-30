@@ -36,7 +36,7 @@ proc print_children(
     return empty_counts()
   }
 
-  let entries = fs.ls(target)?
+  let entries = fs.children(target)?
     |> where all or ! .name.starts_with(".")
     |> where ! dirs_only or .kind == "dir"
     |> sort-by .name
@@ -109,9 +109,7 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let all = options.all
-  let dirs_only = options.dirs_only
-  let max_depth = options.max_depth
+  let {all, dirs_only, max_depth, ..} = options
   var paths = [target for target in options.paths]
 
   if paths.len() == 0 {

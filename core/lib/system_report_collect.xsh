@@ -336,7 +336,7 @@ export proc read_source_text(
   max_bytes: Int = 65536,
   preserve_whitespace: Bool = false,
 ) [fs, error] -> SourceRead {
-  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let raw = root.read_result(source_path, max_bytes:)?
   var state = source_observation_state(raw.state, raw.truncated)
   var value: Str? = null
   var raw_bytes_base64: Str? = null
@@ -860,7 +860,7 @@ export pure pci_parent_address(target: Path, child_address: Str) -> Str? {
 }
 
 proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead {
-  let source = fs.root_readlink_result(root, source_path)?
+  let source = root.readlink_result(source_path)?
   let state = source_observation_state(source.state, false)
   if state != report.Observed {
     return {
@@ -899,7 +899,7 @@ proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRe
 
 ## Collects PCI function identity fields from one rooted sysfs view.
 export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
-  let listing = fs.root_children(root, p"sys/bus/pci/devices")?
+  let listing = root.children(p"sys/bus/pci/devices")?
   var issues: List[report.CollectionIssue] = []
   var functions: List[report.PciFunction] = []
   var parent_addresses: List[Str?] = []
@@ -920,10 +920,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
   for device_path in listing.children {
     let address_text = device_path.name()
     let address_result = parse_pci_address(address_text)
-    let valid_address = match address_result {
-      Ok(_) => true,
-      Err(_) => false,
-    }
+    let valid_address = address_result is Ok(_)
     if ! valid_address {
       issues = issues.push(
         source_issue(
@@ -994,7 +991,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     }
 
     let driver = optional_link_name(root, fp"${device_path}/driver")
-    let parent_source = fs.root_readlink_result(root, device_path)?
+    let parent_source = root.readlink_result(device_path)?
     var parent_target: Str? = null
     if parent_source.state == "observed" and parent_source.target != null {
       parent_target = pci_parent_address(parent_source.target.require(Path)?, address_text)

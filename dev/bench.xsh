@@ -34,7 +34,7 @@ export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io
     argv = argv.push("--fast")
   }
 
-  argv = argv.extend(["--", "cargo", "bench", "-p", "xshi", "--bench", "bench", "--features", "benchmark"])
+  argv += ["--", "cargo", "bench", "-p", "xshi", "--bench", "bench", "--features", "benchmark"]
   stages.execute(
     stages.command(
       if fast {

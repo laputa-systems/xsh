@@ -1,25 +1,138 @@
 use super::{Keyword, Parser, TokenKindMatch, TokenTag};
 
 impl<'a> Parser<'a> {
+    pub(super) fn parse_pattern_test_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        let (pattern, span) = self.parse_pattern_test_rhs_arena_only(arena)?;
+        if matches!(arena.ast_arena().pattern(pattern).kind, crate::syntax::arena::ArenaPatternKind::Alternation(_)) {
+            self.diagnostics.push(crate::diagnostic::Diagnostic::error("group alternatives in a pattern test")
+                .with_code("parse.pattern-test-alternation")
+                .with_label(crate::diagnostic::Label::primary(span, "write `(P | Q)`")));
+        }
+        Some((self.normalize_pattern_test_names(arena, pattern), span))
+    }
+
+    pub(super) fn parse_pattern_test_rhs_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        let mut offset = 1;
+        while self.peek_tag(offset) == Some(TokenTag::Dot) {
+            offset += 2;
+        }
+        if self.condition_expr
+            && offset > 1
+            && self.peek_tag(offset) == Some(TokenTag::LBrace)
+            && !self.pattern_test_brace_is_payload(offset)
+        {
+            // A qualified predicate can end immediately before a control body.
+            // Explicit payload fields retain their colon spelling here.
+            let start = self.current_start();
+            let mut name = self.current_name()?.to_string();
+            self.bump();
+            while self.consume(TokenKindMatch::Dot).is_some() {
+                name.push('.');
+                name.push_str(&self.expect_ident("expected pattern name after `.`")?.as_str());
+            }
+            let span = self.span(start, self.previous_end());
+            return Some((
+                arena.push_pattern_test_name(crate::symbol::Name::intern(name), span),
+                span,
+            ));
+        }
+        if self.current_name().is_some()
+            && matches!(self.peek_tag(offset), Some(TokenTag::LBracket | TokenTag::Question))
+        {
+            let start = self.current_start();
+            let ty = self.parse_type_expr(arena)?;
+            let span = self.span(start, self.previous_end());
+            Some((arena.push_pattern_type(None, ty, span), span))
+        } else {
+            self.parse_pattern_arena_only(arena)
+        }
+    }
+
+    fn pattern_test_brace_is_payload(&self, brace: usize) -> bool {
+        let mut field = brace + 1;
+        while self.peek_tag(field) == Some(TokenTag::Newline) {
+            field += 1;
+        }
+        match self.peek_tag(field) {
+            Some(TokenTag::Ident | TokenTag::ProcIdent) => {
+                self.peek_tag(field + 1) == Some(TokenTag::Colon)
+            }
+            Some(TokenTag::Dot) => self.peek_tag(field + 1) == Some(TokenTag::Dot),
+            Some(TokenTag::RBrace) => matches!(
+                self.peek_tag(field + 1),
+                Some(TokenTag::LBrace | TokenTag::RParen | TokenTag::RBracket | TokenTag::Comma)
+            ),
+            _ => false,
+        }
+    }
+
     pub(super) fn parse_pattern_arena_only(
         &mut self,
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
     ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
-        let (first, first_span) = self.parse_type_pattern_arena_only(arena)?;
+        let (first, first_span) = self.parse_alias_pattern_arena_only(arena)?;
         if self.consume(TokenKindMatch::Pipe).is_none() {
             return Some((first, first_span));
         }
         let start = first_span.start();
-        let (second, second_span) = self.parse_type_pattern_arena_only(arena)?;
+        let (second, second_span) = self.parse_alias_pattern_arena_only(arena)?;
         let mut patterns = vec![first, second];
         let mut end = second_span.end();
         while self.consume(TokenKindMatch::Pipe).is_some() {
-            let (pattern, pattern_span) = self.parse_type_pattern_arena_only(arena)?;
+            let (pattern, pattern_span) = self.parse_alias_pattern_arena_only(arena)?;
             patterns.push(pattern);
             end = pattern_span.end();
         }
         let span = self.span(start, end);
         Some((arena.push_pattern_alternation(&patterns, span), span))
+    }
+
+    fn parse_alias_pattern_arena_only(
+        &mut self, arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        let (mut pattern, mut span) = self.parse_type_pattern_arena_only(arena)?;
+        while self.at_ident("as") {
+            self.bump();
+            let name_span = self.current_span();
+            let name = self.expect_ident("expected a name after pattern alias `as`")?;
+            if name == "_" {
+                self.diagnostics.push(crate::diagnostic::Diagnostic::error("pattern alias requires a non-discard name")
+                    .with_code("parse.pattern-alias-name")
+                    .with_label(crate::diagnostic::Label::primary(name_span, "choose a binding name")));
+                return None;
+            }
+            span = self.span(span.start(), self.previous_end());
+            pattern = arena.push_pattern_alias(pattern, name, name_span, span);
+        }
+        Some((pattern, span))
+    }
+
+    pub(super) fn normalize_pattern_test_names(
+        &mut self, arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>, pattern: crate::syntax::arena::PatternId,
+    ) -> crate::syntax::arena::PatternId {
+        use crate::syntax::arena::ArenaPatternKind;
+        let node = arena.ast_arena().pattern(pattern).clone();
+        let span = arena.ast_arena().span(node.span);
+        match node.kind {
+            ArenaPatternKind::Binding(name) => arena.push_pattern_test_name(name, span),
+            ArenaPatternKind::ErrorVariant { family, variant, fields } if fields.len == 0 => arena.push_pattern_test_name(crate::symbol::Name::intern(format!("{family}.{variant}")), span),
+            ArenaPatternKind::Group(child) => {
+                let child = self.normalize_pattern_test_names(arena, child);
+                arena.push_pattern_group(child, span)
+            }
+            ArenaPatternKind::Alternation(children) => {
+                let children: Vec<_> = arena.ast_arena().pattern_ids(children).collect();
+                let children: Vec<_> = children.into_iter().map(|child| self.normalize_pattern_test_names(arena, child)).collect();
+                arena.push_pattern_alternation(&children, span)
+            }
+            _ => pattern,
+        }
     }
 
     fn parse_type_pattern_arena_only(
@@ -52,6 +165,15 @@ impl<'a> Parser<'a> {
     )> {
         let span = self.current_span();
         match self.current_tag() {
+            TokenTag::LParen => {
+                self.bump();
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                let (pattern, _) = self.parse_pattern_arena_only(arena)?;
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                let end = self.expect(TokenKindMatch::RParen, "expected `)` after grouped pattern")?.end();
+                let span = self.span(span.start(), end);
+                Some((arena.push_pattern_group(pattern, span), span, None))
+            }
             TokenTag::Ident | TokenTag::ProcIdent => {
                 let name = self
                     .current_name()
@@ -174,6 +296,40 @@ impl<'a> Parser<'a> {
                     None,
                 ))
             }
+            TokenTag::LBracket => {
+                let start = self.current_start();
+                self.bump();
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                let mut elements = Vec::new();
+                let mut rest = None;
+                while !self.at(TokenKindMatch::RBracket) && !self.at(TokenKindMatch::Eof) {
+                    if rest.is_some() {
+                        self.diagnostic_here("list rest must occur once, at the end", "parse.list-pattern-rest");
+                        return None;
+                    }
+                    if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot) {
+                        let rest_start = self.current_start();
+                        self.bump();
+                        self.bump();
+                        let name = if matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
+                            Some(self.expect_ident("expected rest binding")?)
+                        } else { None };
+                        let rest_span = self.span(rest_start, self.previous_end());
+                        rest = Some(match name {
+                            Some(name) if name != "_" => arena.push_pattern_binding(name, rest_span),
+                            _ => arena.push_pattern_wildcard(rest_span),
+                        });
+                    } else {
+                        elements.push(self.parse_pattern_arena_only(arena)?.0);
+                    }
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                    if self.consume(TokenKindMatch::Comma).is_none() { break; }
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                }
+                let end = self.expect(TokenKindMatch::RBracket, "expected `]` after list pattern")?.end();
+                let span = self.span(start, end);
+                Some((arena.push_pattern_list(&elements, rest, span), span, None))
+            }
             TokenTag::LBrace => {
                 let (fields, rest, span) = self.parse_record_pattern_fields_arena_only(arena)?;
                 Some((arena.push_pattern_record(&fields, rest, span), span, None))
@@ -209,10 +365,13 @@ impl<'a> Parser<'a> {
                 rest = true;
             } else {
                 let field_start = self.current_start();
-                let name = self.expect_ident("expected record pattern field")?;
+                let label_tag = self.current_tag();
+                let label_span = self.current_span();
+                let name = self.expect_label_name("expected record pattern field")?;
                 let pattern = if self.consume(TokenKindMatch::Colon).is_some() {
                     self.parse_pattern_arena_only(arena)?.0
                 } else {
+                    if !self.require_label_binding_name(label_tag, label_span) { return None; }
                     arena.push_pattern_binding(name, self.span(field_start, self.previous_end()))
                 };
                 fields.push((name, pattern, self.span(field_start, self.previous_end())));

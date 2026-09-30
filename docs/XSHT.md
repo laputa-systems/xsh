@@ -260,6 +260,16 @@ when a conditional or fallback would be parsed as a statement or command.
 `lint.prefer-guard` preserves the complete condition spelling, including the
 closing parentheses around pipelines.
 
+`lint.prefer-record-constructor` replaces checked schema-typed record literals
+with static named-field construction while retaining the annotation. It preserves
+field evaluation order and omits explicit defaults only for identical bounded
+literal values. Comments and record spreads prevent an automatic replacement.
+
+`lint.prefer-named-argument-pun` shortens checked `name: name` expression-call
+arguments to `name:`. The value must be that lexical identifier; another binding
+or a field selection does not qualify. Existing puns are stable, and an argument
+with an internal comment receives a warning without a destructive fix.
+
 When a lint can report a real issue but cannot safely preserve nearby comments,
 it should report the diagnostic without a fix hint. This is better than
 silently moving comments or relying on final formatting to reconstruct intent.
@@ -296,7 +306,7 @@ Callable reachability is a separate graph over `ArenaProgram`, including loaded
 modules. Resolved local calls and resolved imported calls are graph edges. A
 resolved callable used as a value is a dynamic escape edge, activated only when
 its enclosing root or callable is live. Roots are entry top-level execution,
-the entry `proc main`, root `proc test_*` native-test entry points, exports,
+the entry `proc main`, explicit `test NAME` native-test entry points, exports,
 root signal hooks, and module initializers. Values, imports, and type
 declarations are deliberately outside this warning: they have initialization,
 API, or type-use contracts that reachability alone cannot prove dead.

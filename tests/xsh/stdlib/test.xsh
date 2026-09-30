@@ -1,18 +1,18 @@
-proc test_test_helpers() [error] {
+test test_test_helpers [error] {
   1 != 2
   test.error_kind(test.fail("covered failure"), "AssertionError.Failed")?
 }
 
-proc test_error_fail_constructs_validation_result() [error] {
+test test_error_fail_constructs_validation_result [error] {
   let failure = error.fail("header is missing")
   test.error_kind(failure, "validation")?
 }
 
-proc test_run_script_captures_status_env_args_and_bytes(ctx: TestContext) [error] {
+test test_run_script_captures_status_env_args_and_bytes [error] { |ctx|
   let ok = test.run_script(
     ctx,
     """
-print \${ARGV[0]}
+print \${args[0]}
 print \${env.get("XSH_RUN_SCRIPT_TEST")?}
 io.write_stdout_bytes(b"\\xff\\x00a")?
 """,
@@ -36,11 +36,11 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
   failed.status == 7
 }
 
-proc test_run_xsht_trace_accepts_trace_flags_and_script_args(ctx: TestContext) [error] {
+test test_run_xsht_trace_accepts_trace_flags_and_script_args [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
-print \${ARGV[0]}
+print \${args[0]}
 run true ?
 """,
     ["--trace", "--raw"],
@@ -56,6 +56,19 @@ run true ?
   "kind=run.start" in output.stderr
 }
 
-proc test_skip_function_is_covered() {
+test test_skip_function_is_covered {
   test.skip("covered skip")
+}
+
+test test_native_script_arguments_preserve_a_leading_separator [error] { |ctx|
+  let source = r"""print ${args.join(",")}"""
+  let script = test.run_script(ctx, source, ["--", "one"])?
+  test.ok(script.success, script.stderr)?
+  test.eq(script.stdout, "--,one\n")?
+  let explicit = test.run_xsh(ctx, source, ["--"], ["--", "one"])?
+  test.ok(explicit.success, explicit.stderr)?
+  test.eq(explicit.stdout, "--,one\n")?
+  let traced = test.run_xsht_trace(ctx, source, [], ["--", "one"])?
+  test.ok(traced.success, traced.stderr)?
+  test.eq(traced.stdout, "--,one\n")?
 }

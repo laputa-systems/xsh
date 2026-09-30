@@ -1,6 +1,6 @@
 use system_report_sensors_check as sensors_reference
 
-proc test_system_report_sensors_json_reference_uses_raw_subfeature_names() [error] {
+test test_system_report_sensors_json_reference_uses_raw_subfeature_names [error] {
   let output = """{"coretemp-isa-0000":{"Adapter":"ISA adapter","Core 0":{"temp2_input":41.125,"temp2_max":100.0}},"nvme-pci-0100":{"Adapter":"PCI adapter","Composite":{"temp1_input":36.85,"temp1_alarm":0.0}},"BAT1-isa-00ba":{"Adapter":"ISA adapter","curr1":{"curr1_input":0.0}}}"""
   let parsed = sensors_reference.parse_sensors_json(output)?
   parsed.len() == 5
@@ -13,7 +13,7 @@ proc test_system_report_sensors_json_reference_uses_raw_subfeature_names() [erro
   test.error_kind(sensors_reference.parse_sensors_json("{bad json"), "json")?
 }
 
-proc test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_readings_partial() [error] {
+test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_readings_partial [error] {
   let first = sensors_reference.parse_sensors_json(
     """{"coretemp-isa-0000":{"Adapter":"ISA adapter","Core 0":{"temp2_input":41.125}},"nvme-pci-0100":{"Adapter":"PCI adapter","Composite":{"temp1_input":36.85}}}""",
   )?
@@ -56,11 +56,10 @@ proc test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
   known_only.compared == 1
 }
 
-proc test_system_report_sensors_json_live_reference_runs_only_explicit_tools() [fs, process, time, error] {
+test test_system_report_sensors_json_live_reference_runs_only_explicit_tools [fs, process, time, error] {
   let tools_root = fs.tempdir()?
-  defer fs.close_root(tools_root)?
-  fs.root_write(
-    tools_root,
+  defer tools_root.close()?
+  tools_root.write(
     p"sensors",
     """#!/bin/sh
 if [ "$1" = "-v" ]; then
@@ -73,16 +72,15 @@ fi
 printf '{"coretemp-isa-0000":{"Core 0":{"temp2_input":41.125}}}\n'
 """,
   )?
-  fs.root_write(
-    tools_root,
+  tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"hwmon0","chip":"coretemp","channel":"temp2","value":41125}]}}\n'
 """,
   )?
-  fs.root_chmod(tools_root, p"sensors", 0o700)?
-  fs.root_chmod(tools_root, p"xsh", 0o700)?
-  let root_path = fs.root_path(tools_root)?
+  tools_root.chmod(p"sensors", 0o700)?
+  tools_root.chmod(p"xsh", 0o700)?
+  let root_path = tools_root.host_path()?
   let result = sensors_reference.compare_live_sensors_json(
     fp"${root_path}/xsh".display(),
     fp"${root_path}/script".display(),
@@ -94,11 +92,10 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
   result.before_sha256_hex == result.after_sha256_hex
 }
 
-proc test_system_report_sensors_json_cli_dispatch_requires_explicit_utility(ctx: TestContext) [fs, process, error] {
+test test_system_report_sensors_json_cli_dispatch_requires_explicit_utility [fs, process, error] { |ctx|
   let tools_root = fs.tempdir()?
-  defer fs.close_root(tools_root)?
-  fs.root_write(
-    tools_root,
+  defer tools_root.close()?
+  tools_root.write(
     p"sensors",
     """#!/bin/sh
 if [ "$1" = "-v" ]; then
@@ -108,16 +105,15 @@ else
 fi
 """,
   )?
-  fs.root_write(
-    tools_root,
+  tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"hwmon0","chip":"coretemp","channel":"temp2","value":41125}]}}\n'
 """,
   )?
-  fs.root_chmod(tools_root, p"sensors", 0o700)?
-  fs.root_chmod(tools_root, p"xsh", 0o700)?
-  let root_path = fs.root_path(tools_root)?
+  tools_root.chmod(p"sensors", 0o700)?
+  tools_root.chmod(p"xsh", 0o700)?
+  let root_path = tools_root.host_path()?
   let sensors_path = fp"${root_path}/sensors"
   let xsh_path = fp"${root_path}/xsh"
   let output = test.temp_path(ctx, name: "system-report-sensors-json.stdout")

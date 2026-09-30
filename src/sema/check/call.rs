@@ -4,152 +4,76 @@ use super::expr::is_path_like_arena_expr;
 use super::{
     ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
-    call_arg_expr_id_arena, call_arg_span_arena, standard_record_type,
+    call_arg_expr_id_arena, call_arg_span_arena,
 };
 use crate::syntax::arena::{
-    ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
+    ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange,
     ExprId,
 };
 use crate::syntax::node::Effect;
-use xsh_registry::types::BuiltinTypeName;
 
-fn args_parse_form_position(form: &str) -> (bool, bool) {
-    let mut has_option = false;
-    for token in form.split_whitespace() {
-        if token.starts_with('-') {
-            has_option = true;
-        } else if !has_option {
-            return (true, token.starts_with("..."));
-        }
-    }
-    (false, false)
-}
-
-fn args_parse_type_from_default(ty: Type) -> Option<(Type, bool)> {
-    match ty {
-        Type::List(inner) => Some((*inner, true)),
-        Type::Str | Type::Int | Type::Bool | Type::Path | Type::Duration => Some((ty, false)),
-        _ => None,
-    }
-}
-
-fn contract_type_is_valid(text: &str) -> bool {
-    let text = text.trim();
-    if text.is_empty() {
-        return false;
-    }
-    if BuiltinTypeName::parse(text) == Some(BuiltinTypeName::Unknown) {
-        return false;
-    }
-    if BuiltinTypeName::parse(text) == Some(BuiltinTypeName::Any) {
-        return true;
-    }
-    if let Some((params, return_ty)) = contract_proc_signature(text) {
-        return params.iter().all(|param| contract_type_is_valid(param))
-            && contract_type_is_valid(return_ty);
-    }
-    for name in ["List", "Map", "Stream"] {
-        if let Some(inner) = contract_generic_body(text, name) {
-            return !inner.is_empty()
-                && contract_split_types(inner).len() == 1
-                && contract_type_is_valid(inner);
-        }
-    }
-    if let Some(inner) = contract_generic_body(text, "Result") {
-        let parts = contract_split_types(inner);
-        return matches!(parts.len(), 1 | 2)
-            && parts.iter().all(|part| contract_type_is_valid(part));
-    }
-    Type::builtin_from_name(text).is_some_and(|ty| !matches!(ty, Type::Unknown))
-        || standard_record_type(text).is_some()
-}
 
 fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
     matches!(ty, Type::Str | Type::Path | Type::Any | Type::Unknown)
 }
 
-fn args_parse_type_from_name(text: &str) -> Option<(Type, bool)> {
-    let text = text.trim();
-    if let Some(inner) = text
-        .strip_prefix("List[")
-        .and_then(|value| value.strip_suffix(']'))
-    {
-        let (inner, inner_repeated) = args_parse_type_from_name(inner)?;
-        if inner_repeated {
-            return None;
-        }
-        return Some((inner, true));
-    }
-    let ty = match BuiltinTypeName::parse(text)? {
-        BuiltinTypeName::Str => Type::Str,
-        BuiltinTypeName::Int | BuiltinTypeName::UInt => Type::Int,
-        BuiltinTypeName::Bool => Type::Bool,
-        BuiltinTypeName::Path => Type::Path,
-        BuiltinTypeName::Duration => Type::Duration,
-        _ => return None,
-    };
-    Some((ty, false))
-}
-
-fn contract_proc_signature(text: &str) -> Option<(Vec<&str>, &str)> {
-    let rest = text.strip_prefix("Proc(")?;
-    let close = rest.find(") -> ")?;
-    if rest[close + 5..].contains(") -> ") {
-        return None;
-    }
-    let params = &rest[..close];
-    let return_ty = &rest[close + 5..];
-    let parsed_params = if params.trim().is_empty() {
-        Vec::new()
-    } else {
-        contract_split_types(params)
-    };
-    Some((parsed_params, return_ty.trim()))
-}
-
-fn contract_generic_body<'a>(text: &'a str, name: &str) -> Option<&'a str> {
-    text.strip_prefix(name)?
-        .strip_prefix('[')?
-        .strip_suffix(']')
-        .map(str::trim)
-}
-
-fn contract_split_types(text: &str) -> Vec<&str> {
-    let mut items = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0usize;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth < 0 {
-                    return Vec::new();
-                }
-            }
-            ',' if depth == 0 => {
-                items.push(text[start..index].trim());
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    if depth != 0 {
-        return Vec::new();
-    }
-    items.push(text[start..].trim());
-    items
-}
-
-fn literal_bool_arena(kind: &ArenaExprKind) -> Option<bool> {
-    match kind {
-        ArenaExprKind::Bool(value) => Some(*value),
-        _ => None,
-    }
-}
 
 #[allow(dead_code)]
 impl Checker {
+    pub(super) fn warn_flattened_error_handler_arena(
+        &mut self, arena: &ArenaProgram, value: ExprId, pattern: crate::syntax::arena::PatternId,
+        subject: &Type,
+    ) {
+        use crate::syntax::arena::ArenaPatternKind;
+        if !self.options.migration_diagnostics { return; }
+        let Type::Result(_, error) = subject else { return; };
+        if !matches!(error.as_ref(), Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. }) { return; }
+        let ArenaPatternKind::Constructor { name, arg: Some(arg) } = arena.arena.pattern(pattern).kind else { return; };
+        if name != "Err" { return; }
+        let ArenaPatternKind::Binding(failure) = arena.arena.pattern(arg).kind else { return; };
+        self.warn_flattened_error_translation_arena(arena, value, failure);
+    }
+
+    pub(super) fn single_error_handler_value_arena(arena: &ArenaProgram, block: crate::syntax::arena::BlockId) -> Option<ExprId> {
+        use crate::syntax::arena::{ArenaStmtKind, ArenaExprOrRun};
+        let mut statements = arena.arena.stmt_ids(arena.arena.block(block).statements);
+        let statement = statements.next()?;
+        if statements.next().is_some() { return None; }
+        match arena.arena.stmt(statement).kind {
+            ArenaStmtKind::Expr(value) | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub(super) fn warn_flattened_error_translation_arena(&mut self, arena: &ArenaProgram, value: ExprId, failure: Name) {
+        if !self.options.migration_diagnostics { return; }
+        let value = match arena.arena.expr(value).kind {
+            ArenaExprKind::ValueBlock(block) => match Self::single_error_handler_value_arena(arena, block) {
+                Some(value) => value, None => return,
+            },
+            _ => value,
+        };
+        let ArenaExprKind::Call { callee, args } = arena.arena.expr(value).kind else { return; };
+        if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err") { return; }
+        let [arg] = arena.arena.call_args(args) else { return; };
+        let ArenaCallArgKind::Positional(outer) = arg.kind else { return; };
+        let ArenaExprKind::Call { callee, args } = arena.arena.expr(outer).kind else { return; };
+        let ArenaExprKind::Field { base, name: variant } = arena.arena.expr(callee).kind else { return; };
+        let ArenaExprKind::Ident(family) = arena.arena.expr(base).kind else { return; };
+        if !self.error_families.get(&family).is_some_and(|family| family.variants.contains_key(&variant)) { return; }
+        let [arg] = arena.arena.call_args(args) else { return; };
+        let message = match arg.kind {
+            ArenaCallArgKind::Positional(value) => value,
+            ArenaCallArgKind::Named { name, value, .. } if name == "message" => value,
+            _ => return,
+        };
+        let ArenaExprKind::Field { base, name } = arena.arena.expr(message).kind else { return; };
+        if name != "message" || !matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == failure) { return; }
+        self.warning(arena.arena.expr(value).span,
+            &format!("error translation retains only `{failure}.message`; consider `cause: {failure}` to preserve its typed diagnostic chain (no automatic fix)"),
+            "check.error-cause");
+    }
+
     fn check_module_callable_effects(
         &mut self,
         caller_effs: &[Effect],
@@ -157,11 +81,12 @@ impl Checker {
         callee_name: &str,
         span: Span,
     ) {
+        self.record_effect_contract(callee_effects, callee_name);
         self.check_callee_effects(caller_effs, callee_effects, callee_name, span);
     }
 
     pub(super) fn expect_json_compatible(&mut self, ty: &Type, span: Span) {
-        if !ty.is_json_compatible() {
+        if !ty.is_json_compatible_with(&|name| self.wire_enums.mappings.contains_key(&name)) {
             self.error(
                 span,
                 "value is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly",
@@ -184,9 +109,35 @@ impl Checker {
         callee: ExprId,
         args_range: ArenaRange,
         span: Span,
+        expected_context: Option<&Type>,
     ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
+        if self.check_removed_record_require_arena(arena, source, callee, args, span) { return Type::Invalid; }
+        if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
+            return self.check_spread_call_arena(arena, source, callee, args_range, span, expected_context);
+        }
+        if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
+            self.record_callable_alias(arena.arena.expr(callee).span, &alias);
+            if let ArenaExprKind::Field { base, name } = callee_kind
+                && name == "call" && self.resolve_callable_alias_call(arena, base).is_some() {
+                self.static_callable_aliases.get_mut(&arena.arena.expr(callee).span).unwrap().method_call = true;
+            }
+            if !alias.pure {
+                if self.in_pure { self.error(span, "effectful proc is not allowed in pure functions", "check.pure-effect"); }
+                else { self.check_resolved_callable_effects(&alias.signature, &alias.name.to_string(), span); }
+            }
+            self.check_function_arg_list_arena(arena, source, args, &alias.signature.params, span);
+            if !alias.pure { self.invalidate_mutable_narrowings(); }
+            self.record_callee_propagation(&alias.signature.effects, &alias.signature.return_ty, span);
+            return alias.signature.return_ty;
+        }
+
+        if let Some(definition) = self.record_constructors.resolve_call(
+            &arena.arena, callee, self.current_namespace,
+        ) {
+            return self.check_inferred_record_constructor_arena(arena, source, callee, definition, args, expected_context, span);
+        }
 
         if let ArenaExprKind::Ident(name) = callee_kind {
             if name == "reveal_type" {
@@ -199,14 +150,18 @@ impl Checker {
                         "effectful proc is not allowed in pure functions",
                         "check.pure-effect",
                     );
-                } else if let Some(caller_effs) = self.current_effects.clone() {
-                    self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
+                } else {
+                    self.check_resolved_callable_effects(&sig, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                // A procedure may change mutable lexical captures before the next statement.
+                self.invalidate_mutable_narrowings();
+                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(sig) = self.pures.get(&name).cloned() {
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(sig) = self.streams.get(&name).cloned() {
@@ -216,13 +171,14 @@ impl Checker {
                         "stream producer is not allowed in pure functions",
                         "check.pure-effect",
                     );
-                } else if let Some(caller_effs) = self.current_effects.clone() {
-                    self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
+                } else {
+                    self.check_resolved_callable_effects(&sig, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
-            return self.check_constructor_call_arena(arena, source, &name.as_str(), args, span);
+            return self.check_constructor_call_arena(arena, source, &name.as_str(), args, span, expected_context);
         }
 
         if let ArenaExprKind::Field { base, name } = callee_kind {
@@ -247,7 +203,8 @@ impl Checker {
             }
             if let ArenaExprKind::Ident(module) = base_kind {
                 if module.as_str() == "error" && name.as_str() == "fail" {
-                    self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
+                    let params = [super::FunctionParamSig { name: Name::intern("message"), ty: Type::Str, schema_expectation: None, defaulted: false, rest: false }];
+                    self.check_function_arg_list_arena(arena, source, args, &params, span);
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
                 if self.error_families.contains_key(&module) {
@@ -263,11 +220,13 @@ impl Checker {
                         &qualified_tag.as_str(),
                         args,
                         span,
+                        expected_context,
                     );
                 }
                 let qualified = QualifiedName::new(module, name);
                 if let Some(sig) = self.qualified_pures.get(&qualified).cloned() {
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_procs.get(&qualified).cloned() {
@@ -277,15 +236,11 @@ impl Checker {
                             "effectful proc is not allowed in pure functions",
                             "check.pure-effect",
                         );
-                    } else if let Some(caller_effs) = self.current_effects.clone() {
-                        self.check_callee_effects(
-                            &caller_effs,
-                            &sig.effects,
-                            &qualified.to_string(),
-                            span,
-                        );
+                    } else {
+                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_streams.get(&qualified).cloned() {
@@ -295,15 +250,11 @@ impl Checker {
                             "stream producer is not allowed in pure functions",
                             "check.pure-effect",
                         );
-                    } else if let Some(caller_effs) = self.current_effects.clone() {
-                        self.check_callee_effects(
-                            &caller_effs,
-                            &sig.effects,
-                            &qualified.to_string(),
-                            span,
-                        );
+                    } else {
+                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
                 if module == "Path" {
@@ -316,6 +267,8 @@ impl Checker {
                         span,
                         &Type::Path,
                         "check.unknown-module-api",
+                        expected_context,
+                        None,
                     );
                 }
                 // A local binding takes precedence over a standard module name.
@@ -324,36 +277,47 @@ impl Checker {
                 // misleading unknown-module-api diagnostic instead of checking
                 // the valid Path method.
                 if self.lookup(module).is_none() && api_spec().module(&module.as_str()).is_some() {
-                    if let Some(caller_effs) = self.current_effects.clone()
-                        && let Some(required) =
-                            api_spec().module_required_effect(&module.as_str(), &name.as_str())
-                        && !Self::effects_covers(&caller_effs, &required)
-                    {
-                        self.error(
-                            span,
-                            &format!(
-                                "`{module}.{name}` requires the `{}` effect",
-                                required.as_str()
-                            ),
-                            "check.effect-violation",
+                    let canonical_name = if module == "fs" && name == "ls" {
+                        let callee_span = arena.arena.expr(callee).span;
+                        self.removed_compatibility_name(
+                            Span::new(callee_span.source_id, callee_span.end() - 2, callee_span.end()),
+                            "ls", "children", true,
                         );
+                        Name::intern("children")
+                    } else { name };
+                    if let Some(required) = api_spec().module_required_effect(&module.as_str(), &canonical_name.as_str()) {
+                        self.require_effect(required, span, &format!("`{module}.{name}`"));
                     }
                     return self.check_module_call_arena(
                         arena,
                         source,
                         &module.as_str(),
-                        &name.as_str(),
+                        &canonical_name.as_str(),
                         args,
                         span,
+                        expected_context,
                     );
                 }
             }
             let base_ty = self.check_expr_arena(arena, source, base, None);
+            let guarded_base = match arena.arena.expr(base).kind {
+                ArenaExprKind::NullSafeField { .. }
+                | ArenaExprKind::Index { guarded: true, .. }
+                | ArenaExprKind::Slice { guarded: true, .. } => true,
+                ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind, ArenaExprKind::NullSafeField { .. }),
+                _ => false,
+            };
+            if guarded_base && matches!(base_ty, Type::Optional(_)) {
+                self.error(span, "a nullable postfix result needs its own `?.` method hop", "check.optional-method");
+                return Type::Unknown;
+            }
+
             if let Type::Module(exports) = &base_ty
                 && let Some(export) = exports.get(&name)
             {
                 match export {
                     ModuleExportType::Proc { sig, .. } => {
+                        self.record_effect_contract(&sig.effects, &name.as_str());
                         if self.in_pure {
                             self.error(
                                 span,
@@ -375,6 +339,7 @@ impl Checker {
                             &sig.params,
                             span,
                         );
+                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                         return sig.return_ty.as_ref().clone();
                     }
                     ModuleExportType::Pure { sig, .. } => {
@@ -385,27 +350,37 @@ impl Checker {
                             &sig.params,
                             span,
                         );
+                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                         return sig.return_ty.as_ref().clone();
                     }
                     ModuleExportType::Value { .. } => {}
                 }
             }
+            let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
+                let callee_span = arena.arena.expr(callee).span;
+                self.removed_compatibility_name(
+                    Span::new(callee_span.source_id, callee_span.end() - "count_bytes".len(), callee_span.end()),
+                    "count_bytes", "byte_len", true,
+                );
+                Name::intern("byte_len")
+            } else { name };
             return self.check_method_dispatch_arena(
                 arena,
                 source,
+                base,
                 base_ty,
-                &name.as_str(),
+                &canonical_name.as_str(),
                 args,
                 span,
+                expected_context,
             );
         }
 
         if let ArenaExprKind::NullSafeField { base, name } = callee_kind {
             let base_ty = self.check_expr_arena(arena, source, base, None);
             let (inner_ty, wrap_optional) = match base_ty {
-                Type::Optional(inner) => (*inner, true),
-                Type::Result(ok, _) => (*ok, false),
-                Type::Unknown => return Type::Unknown,
+                Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
+                Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
                 _ => {
                     self.error(
                         span,
@@ -415,21 +390,39 @@ impl Checker {
                     return Type::Unknown;
                 }
             };
+            if matches!(inner_ty, Type::Optional(_)) {
+                self.error(span, "Result propagation leaves an Optional receiver; guard the next hop explicitly", "check.optional-method");
+                return Type::Unknown;
+            }
+            let canonical_name = if inner_ty == Type::Str && name == "count_bytes" {
+                let callee_span = arena.arena.expr(callee).span;
+                self.removed_compatibility_name(
+                    Span::new(callee_span.source_id, callee_span.end() - "count_bytes".len(), callee_span.end()),
+                    "count_bytes", "byte_len", true,
+                );
+                Name::intern("byte_len")
+            } else { name };
+            let method_expected = if wrap_optional {
+                expected_context.and_then(|ty| if let Type::Optional(inner) = ty { Some(inner.as_ref()) } else { None })
+            } else { expected_context };
             let return_ty = self.check_method_dispatch_arena(
                 arena,
                 source,
+                base,
                 inner_ty,
-                &name.as_str(),
+                &canonical_name.as_str(),
                 args,
                 span,
+                method_expected,
             );
-            return if wrap_optional {
+            return if wrap_optional && !matches!(return_ty, Type::Optional(_)) {
                 Type::Optional(Box::new(return_ty))
             } else {
                 return_ty
             };
         }
 
+        self.record_effect_contract(&None, "unresolved call target");
         self.error(span, "unsupported call target", "check.call-target");
         Type::Unknown
     }
@@ -485,56 +478,200 @@ impl Checker {
         params: &[CallableParamType],
         span: Span,
     ) {
-        let has_splice = args
-            .iter()
-            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Splice { .. }));
-        let required = params
-            .iter()
-            .filter(|param| !param.defaulted && !param.rest)
-            .count();
-        let max = if params.iter().any(|param| param.rest) {
-            usize::MAX
-        } else {
-            params.len()
-        };
-        if !has_splice && (args.len() < required || args.len() > max) {
-            self.error(span, "incorrect function arity", "check.arity");
-        }
+        let params = params.iter().map(|param| super::FunctionParamSig {
+            name: param.name, ty: param.ty.clone(), schema_expectation: Some(if param.rest {
+                crate::sema::constants::SchemaExpectation { instances: Vec::new(), children: BTreeMap::from([(crate::sema::constants::SchemaComponent::Item, crate::sema::constants::SchemaExpectation::default())]) }
+            } else { crate::sema::constants::SchemaExpectation::default() }), defaulted: param.defaulted, rest: param.rest,
+        }).collect::<Vec<_>>();
+        self.check_function_arg_list_arena(arena, source, args, &params, span);
+    }
 
-        let mut index = 0;
-        for param in params {
-            if param.rest {
-                let item_ty = match &param.ty {
-                    Type::List(item) => item.as_ref().clone(),
-                    Type::Any | Type::Unknown => param.ty.clone(),
-                    _ => {
-                        self.error(span, "rest parameter requires List", "check.rest-type");
-                        Type::Unknown
-                    }
-                };
-                for arg in &args[index..] {
-                    let actual =
-                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&item_ty));
-                    self.expect_type(&item_ty, &actual, call_arg_span_arena(arena, &arg.kind));
-                }
-                return;
+    fn check_spread_call_arena(
+        &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
+        args_range: ArenaRange, span: Span, expected_context: Option<&Type>,
+    ) -> Type {
+        use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
+        use crate::syntax::arena::ArenaCallArgInput;
+        let args = arena.arena.call_args(args_range);
+        // Discover finite field sets without applying argument flow changes
+        // to the real checker. Actual checks run at each source entry below.
+        let mut probe = self.clone();
+        let receiver_type = match arena.arena.expr(callee).kind {
+            ArenaExprKind::Field { base, .. } => Some(probe.check_expr_arena(arena, source, base, None)),
+            _ => None,
+        };
+        let signature = self.resolve_callable_alias_call(arena, callee).map(|alias| alias.signature).or_else(|| match arena.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name)).cloned(),
+            ArenaExprKind::Field { base, name } => if let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind {
+                let qualified = QualifiedName::new(module, name);
+                self.qualified_pures.get(&qualified).or_else(|| self.qualified_procs.get(&qualified)).or_else(|| self.qualified_streams.get(&qualified)).cloned()
+            } else { None },
+            _ => None,
+        });
+        let parameters = signature.map(|signature| signature.params).or_else(|| {
+            let definition = self.record_constructors.constructor_definition(&arena.arena, callee, self.current_namespace)?;
+            let Type::Record(fields) = self.record_constructors.constructor_type(&arena.arena, callee, self.current_namespace)? else { return None; };
+            let schema = self.record_constructors.instance_expectation(&arena.arena, definition, &[]).ok()?;
+            Some(fields.into_iter().map(|(name, ty)| super::FunctionParamSig {
+                name, ty, schema_expectation: schema.children.get(&crate::sema::constants::SchemaComponent::Field(name)).cloned(), defaulted: false, rest: false,
+            }).collect())
+        });
+        let mut checked = super::FxHashMap::default();
+        for arg in args {
+            let value = call_arg_expr_id_arena(&arg.kind);
+            let ty = probe.check_expr_arena(arena, source, value, None);
+            if matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })
+                && let (Some(parameters), Type::Record(fields)) = (&parameters, &ty) {
+                let mut context = crate::sema::constants::SchemaExpectation::default();
+                let expected = fields.iter().map(|(name, actual)| {
+                    if let Some(parameter) = parameters.iter().find(|parameter| parameter.name == *name && !parameter.rest) {
+                        if let Some(schema) = &parameter.schema_expectation { context.children.insert(crate::sema::constants::SchemaComponent::Field(*name), schema.clone()); }
+                        (*name, parameter.ty.clone())
+                    } else { (*name, actual.clone()) }
+                }).collect();
+                self.argument_projection_contexts.insert(value, (Type::Record(expected), context));
             }
-            let Some(arg) = args.get(index) else {
+            checked.insert(value, ty);
+        }
+        let expanded = match expand_named_arguments(arena, args, |id| checked.get(&id).cloned()) {
+            Ok(expanded) => expanded,
+            Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return Type::Invalid; }
+        };
+        let statically_named = self.resolve_callable_alias_call(arena, callee).is_some() || match arena.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => name == "Err" || self.procs.contains_key(&name) || self.pures.contains_key(&name)
+                || self.streams.contains_key(&name)
+                || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some(),
+            ArenaExprKind::Field { base, name } => {
+                let static_namespace = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    if api_spec().module(&namespace.as_str()).is_some() || self.error_families.contains_key(&namespace))
+                    || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some();
+                let positional_tag = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    if self.tag_variants.contains_key(&Name::intern(format!("{namespace}.{name}"))));
+                !positional_tag && (static_namespace || match receiver_type.clone().unwrap_or(Type::Unknown) {
+                    Type::Module(exports) => exports.get(&name).is_some_and(|export| matches!(export, ModuleExportType::Pure { .. } | ModuleExportType::Proc { .. })),
+                    Type::Any | Type::Unknown | Type::DynamicModule | Type::Pure | Type::Proc | Type::Optional(_) | Type::Result(_, _) => false,
+                    _ => true,
+                })
+            },
+            _ => false,
+        };
+        if !statically_named {
+            self.error(span, "named argument spreading requires a statically checked callable signature", "check.named-spread");
+            return Type::Invalid;
+        }
+        let mut temporary = arena.clone();
+        let mut inputs = Vec::new();
+        let mut projections = Vec::new();
+        let mut supplied = super::FxHashSet::default();
+        let mut checked_entries = super::FxHashSet::default();
+        for arg in expanded {
+            if let Some(name) = arg.name && !supplied.insert(name) {
+                self.error(arg.span, &format!("parameter `{name}` supplied more than once"), "check.named-arg");
+            }
+            let value = match arg.value {
+                ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => value,
+                ArgumentValueSource::RecordField { record, field } => {
+                    let id = temporary.arena.append_argument_projection(record, field, arg.span);
+                    self.argument_projection_types.insert(id, arg.ty);
+                    if checked_entries.insert(arg.entry_index) { self.argument_projection_sources.insert(id, record); }
+                    projections.push(id); id
+                }
+            };
+            inputs.push(if let Some(name) = arg.name {
+                ArenaCallArgInput::Named { name, value, span: arg.span }
+            } else if matches!(arg.value, ArgumentValueSource::PositionalSplice(_)) {
+                ArenaCallArgInput::Splice { value, span: arg.span }
+            } else { ArenaCallArgInput::Positional(value) });
+        }
+        let args = temporary.arena.append_call_arguments(&inputs);
+        let result = self.check_call_arena(&temporary, source, callee, args, span, expected_context);
+        for id in projections { self.argument_projection_types.remove(&id); self.argument_projection_sources.remove(&id); }
+        for arg in arena.arena.call_args(args_range) { self.argument_projection_contexts.remove(&call_arg_expr_id_arena(&arg.kind)); }
+        result
+    }
+
+    fn check_inferred_record_constructor_arena(
+        &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
+        record_definition: crate::syntax::arena::TypeDefId, args: &[ArenaCallArg],
+        expected_context: Option<&Type>, span: Span,
+    ) -> Type {
+        let inference = match self.record_constructors.begin_constructor_inference(
+            &arena.arena, callee, self.current_namespace, span, expected_context,
+            self.expected_schema.as_ref(), &mut self.type_constraints,
+        ) {
+            Ok(inference) => inference,
+            Err(error) => { self.error(span, &error.message, error.code); return Type::Invalid; }
+        };
+        self.constructor_group_depth += 1;
+        let actual = self.check_record_constructor_arena(arena, source, record_definition, args, inference.ty, Some(&inference.expectation), span);
+        self.pending_record_constructors.push((span, inference.instance, actual.clone()));
+        self.constructor_group_depth -= 1;
+        if self.constructor_group_depth != 0 { return actual; }
+
+        // Nested occurrences can share variables with their surrounding field
+        // expectations. Publish only after every supplied field contributed.
+        let pending = std::mem::take(&mut self.pending_record_constructors);
+        for (call_span, instance, _) in pending {
+            match self.record_constructors.finish_constructor_inference(&arena.arena, &instance, &self.type_constraints) {
+                Ok(fact) => {
+                    self.expr_types.insert(call_span, fact.ty.clone());
+                    self.record_constructor_instances.insert(call_span, fact);
+                }
+                Err(error) => self.error(call_span, &error.message, error.code),
+            }
+        }
+        for ty in self.expr_types.values_mut() {
+            if ty.contains_inference() {
+                *ty = self.type_constraints.resolve(ty).ok().filter(|resolved| !resolved.contains_inference()).unwrap_or(Type::Invalid);
+            }
+        }
+        self.record_constructor_instances.get(&span).map_or(Type::Invalid, |fact| fact.ty.clone())
+    }
+
+    fn check_record_constructor_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        definition: crate::syntax::arena::TypeDefId,
+        args: &[ArenaCallArg],
+        expected: Type,
+        schema: Option<&crate::sema::constants::SchemaExpectation>,
+        span: Span,
+    ) -> Type {
+        let Type::Record(fields) = &expected else { return Type::Invalid; };
+        let defaults = self.record_constructors.defaults(definition).cloned().unwrap_or_default();
+        let mut supplied = super::FxHashSet::default();
+        for arg in args {
+            let ArenaCallArgKind::Named { name, .. } = arg.kind else {
+                self.error(call_arg_span_arena(arena, &arg.kind),
+                    "record constructors require named fields", "check.record-constructor");
+                self.check_call_arg_arena(arena, source, &arg.kind, None);
                 continue;
             };
-            if let ArenaCallArgKind::Named { name, .. } = &arg.kind
-                && *name != param.name
-            {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "unexpected named parameter",
-                    "check.named-arg",
-                );
+            if !supplied.insert(name) {
+                self.error(call_arg_span_arena(arena, &arg.kind),
+                    "duplicate constructor field", "check.record-constructor");
             }
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&param.ty));
-            self.expect_type(&param.ty, &actual, call_arg_span_arena(arena, &arg.kind));
-            index += 1;
+            let field_type = fields.get(&name);
+            if field_type.is_none() {
+                self.error(call_arg_span_arena(arena, &arg.kind),
+                    "unknown constructor field", "check.record-constructor");
+            }
+            let context = schema.and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Field(name))).cloned();
+            let previous = std::mem::replace(&mut self.expected_schema, context);
+            let actual = self.check_call_arg_arena(arena, source, &arg.kind, field_type);
+            self.expected_schema = previous;
+            if let Some(field_type) = field_type {
+                self.expect_type(field_type, &actual, call_arg_span_arena(arena, &arg.kind));
+            }
         }
+        for name in fields.keys() {
+            if !supplied.contains(name) && !defaults.contains_key(name) {
+                self.error(span, &format!("missing required constructor field `{name}`"),
+                    "check.record-constructor");
+            }
+        }
+        expected
     }
 
     pub(super) fn check_constructor_call_arena(
@@ -544,6 +681,7 @@ impl Checker {
         name: &str,
         args: &[ArenaCallArg],
         span: Span,
+        expected_context: Option<&Type>,
     ) -> Type {
         if let Some(info) = self.tag_variants.get(&Name::intern(name)).cloned() {
             if args.len() != info.field_count {
@@ -565,16 +703,44 @@ impl Checker {
         }
         match name {
             "Ok" => {
-                let ty = args.first().map_or(Type::Unit, |arg| {
-                    self.check_call_arg_arena(arena, source, &arg.kind, None)
-                });
-                Type::Result(Box::new(ty), Box::new(Type::Error))
+                let expected = expected_context.and_then(Type::result_ok);
+                let schema = self.expected_schema.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned();
+                let previous = std::mem::replace(&mut self.expected_schema, schema);
+                let ty = args.first().map_or(Type::Unit, |arg| self.check_call_arg_arena(arena, source, &arg.kind, expected));
+                self.expected_schema = previous;
+                let error = match expected_context {
+                    Some(Type::Result(_, error)) => error.as_ref().clone(),
+                    _ => Type::Error,
+                };
+                Type::Result(Box::new(ty), Box::new(error))
             }
             "Err" => {
-                let err = args.first().map_or(Type::Error, |arg| {
-                    self.check_call_arg_arena(arena, source, &arg.kind, None)
-                });
-                Type::Result(Box::new(Type::Unknown), Box::new(err))
+                use crate::sema::arguments::{expand_named_arguments, bind_err_arguments};
+                let expected = match expected_context { Some(Type::Result(_, error)) => Some(error.as_ref()), _ => None };
+                let previous = std::mem::replace(&mut self.expected_schema, None);
+                let types = args.iter().map(|arg| {
+                    let outer = !matches!(arg.kind, ArenaCallArgKind::Named { name, .. } if name == "cause");
+                    self.check_call_arg_arena(arena, source, &arg.kind, if outer { expected } else { None })
+                }).collect::<Vec<_>>();
+                self.expected_schema = previous;
+                let expanded = expand_named_arguments(arena, args, |expr| args.iter().zip(&types).find_map(|(arg, ty)| {
+                    let value = match arg.kind {
+                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value,
+                        _ => return None,
+                    };
+                    (value == expr).then(|| ty.clone())
+                })).expect("named spreads are expanded before constructor checking");
+                let binding = match bind_err_arguments(&expanded) {
+                    Ok(binding) => binding,
+                    Err(error) => { self.error(error.span, &error.message, "check.err-arguments"); return Type::Invalid; }
+                };
+                let mut outer = Type::Error;
+                let has_cause = binding.argument_slots.contains(&1);
+                for (arg, slot) in expanded.iter().zip(binding.argument_slots) {
+                    if slot == 0 { outer = arg.ty.clone(); }
+                    if slot == 1 || has_cause { self.expect_type(&Type::Error, &arg.ty, arg.span); }
+                }
+                Type::Result(Box::new(Type::Unknown), Box::new(outer))
             }
             "Error" => {
                 self.error(
@@ -605,6 +771,7 @@ impl Checker {
                 Type::Unit
             }
             "env" => {
+                self.require_effect(Effect::Env, span, "environment lookup");
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
                 Type::Result(Box::new(Type::Str), Box::new(Type::Error))
             }
@@ -614,6 +781,7 @@ impl Checker {
             }
             "range" if args.len() == 1 || args.len() == 2 => Type::Stream(Box::new(Type::Int)),
             _ => {
+                self.record_effect_contract(&None, name);
                 self.error(
                     span,
                     "unresolved pure function call",
@@ -711,7 +879,7 @@ impl Checker {
                     let expected = info.fields.get(&name).cloned().unwrap_or(Type::Unknown);
                     (name, expected)
                 }
-                ArenaCallArgKind::Splice { .. } => {
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
                     self.error(
                         call_arg_span_arena(arena, &arg.kind),
                         "error constructors do not accept argument splices",
@@ -751,6 +919,7 @@ impl Checker {
         name: &str,
         args: &[ArenaCallArg],
         span: Span,
+        expected_context: Option<&Type>,
     ) -> Type {
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", "check.unknown-module");
@@ -784,7 +953,18 @@ impl Checker {
             } else { Type::Bool };
         }
         self.standard_call_spans.insert(span, (module.to_string(), name.to_string()));
-        let Some(overloads) = module_sig.function_overloads(name) else {
+        let migration = if module == "fs" {
+            xsh_registry::signature::legacy_fs_root_method(name).map(|method| {
+                self.error(span, &format!("`fs.{name}` was removed; use an FsRoot receiver's `{method}` method"), "check.unsupported-api");
+                api_spec().method_overloads(MethodReceiver::FsRoot, method).expect("root receiver registry")
+                    .iter().map(|method| {
+                        let mut sig = method.sig.clone();
+                        sig.params.insert(0, crate::modules::signature::ParamSig { name: "root", ty: Type::FsRoot, defaulted: false });
+                        sig
+                    }).collect::<Vec<_>>()
+            })
+        } else { None };
+        let Some(overloads) = module_sig.function_overloads(name).or(migration.as_deref()) else {
             self.error(span, "unknown module API", "check.unknown-module-api");
             return Type::Unknown;
         };
@@ -801,6 +981,16 @@ impl Checker {
                 true,
             )
         };
+        let mut instance = crate::sema::builtin_templates::BuiltinInstantiation::new(sig, None, None, &mut self.type_constraints, span)
+            .expect("a module signature has no receiver constraint");
+        let descriptor_result = matches!(sig.semantic_rule, crate::modules::signature::SemanticRule::CliDescriptor | crate::modules::signature::SemanticRule::CliCommands);
+        // Descriptor field facts determine the result contract before a typed
+        // destination can constrain it. Other builtins still ground templates
+        // from their expected result before checking arguments.
+        if !descriptor_result && let Some(expected) = expected_context && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
+            self.expect_type(&conflict.expected, &conflict.actual, span);
+        }
+        let sig = &instance.signature;
         if self.in_pure && !sig.pure {
             self.error(
                 span,
@@ -826,178 +1016,45 @@ impl Checker {
                 }
             }
         }
-        let return_ty = if module == "cli" && matches!(name, "parse" | "applet") {
-            self.infer_args_parse_return_arena(arena, source, args)
-                .map(|ty| Type::Result(Box::new(ty), Box::new(Type::Error)))
-                .unwrap_or_else(|| sig.return_ty.clone())
-        } else {
-            sig.return_ty.clone()
-        };
-        if self.options.strict_dynamic && module == "record" && name == "require" {
-            self.check_contract_literal_args_arena(arena, args);
+        instance.resolve(&self.type_constraints);
+        let sig = &instance.signature;
+        let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliCommands {
+            let parameters = crate::sema::builtin_templates::callable_parameters(sig);
+            let plan = crate::sema::arguments::expand_named_arguments(arena, args, |expression| self.expr_types.get(&arena.arena.expr(expression).span).cloned()).ok()
+                .and_then(|expanded| crate::sema::arguments::bind_static_arguments(&parameters, &expanded).ok().and_then(|binding| {
+                    crate::modules::cli::command_descriptor_sources(&expanded, &binding.argument_slots, &sig.params.iter().map(|parameter| crate::symbol::Name::intern(parameter.name)).collect::<Vec<_>>())
+                })).and_then(|(commands, fallback)| self.prepared_constants.cli_commands_plan(&arena.arena, commands, fallback));
+            match plan {
+                Some(Ok(plan)) => plan.return_type(false),
+                Some(Err(error)) => { self.error(error.span.unwrap_or(span), &error.message, "check.cli-descriptor"); sig.return_ty.clone() }
+                None => sig.return_ty.clone(),
+            }
+        } else if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
+            self.infer_cli_descriptor_return_arena(arena, args, sig.op).unwrap_or_else(|| sig.return_ty.clone())
+        } else { sig.return_ty.clone() };
+        if descriptor_result && let Some(expected) = expected_context {
+            instance.signature.return_ty = return_ty.clone();
+            if let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
+                self.expect_type(&conflict.expected, &conflict.actual, span);
+            }
         }
         return_ty
     }
 
-    fn infer_args_parse_return_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        args: &[ArenaCallArg],
-    ) -> Option<Type> {
-        let schema = args
-            .iter()
-            .enumerate()
-            .find_map(|(index, arg)| match &arg.kind {
-                ArenaCallArgKind::Named { name, value, .. } if name == "schema" => Some(*value),
-                ArenaCallArgKind::Positional(value) if index == 1 => Some(*value),
-                _ => None,
-            })?;
-        let ArenaExprKind::Record(fields_range) = arena.arena.expr(schema).kind else {
-            return None;
-        };
-        let mut output = BTreeMap::new();
-        for field in arena.arena.record_fields(fields_range) {
-            let ArenaRecordFieldKind::Named { name, value, .. } = &field.kind else {
-                return None;
-            };
-            let field_ty = self.infer_args_parse_field_type_arena(arena, source, *value)?;
-            output.insert(*name, field_ty);
-        }
-        Some(Type::Record(output))
-    }
-
-    fn infer_args_parse_field_type_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        descriptor: ExprId,
-    ) -> Option<Type> {
-        let descriptor_expr = arena.arena.expr(descriptor);
-        match &descriptor_expr.kind {
-            ArenaExprKind::Str(type_name_id) => {
-                let type_name = arena.arena.string_literal(*type_name_id).clone();
-                let (ty, repeated) = args_parse_type_from_name(&type_name)?;
-                if repeated {
-                    Some(Type::List(Box::new(ty)))
-                } else if matches!(ty, Type::Bool) {
-                    Some(Type::Bool)
-                } else {
-                    Some(Type::Optional(Box::new(ty)))
-                }
-            }
-            ArenaExprKind::Record(fields_range) => {
-                let mut type_name = None;
-                let mut repeated = false;
-                let mut required = false;
-                let mut positional = false;
-                let mut flag = None;
-                let mut default_ty = None;
-                for field in arena.arena.record_fields(*fields_range) {
-                    let ArenaRecordFieldKind::Named { name, value, .. } = &field.kind else {
-                        return None;
-                    };
-                    let value_expr = arena.arena.expr(*value);
-                    match name.as_str().as_str() {
-                        "kind" | "type" => {
-                            let ArenaExprKind::Str(value_id) = value_expr.kind else {
-                                return None;
-                            };
-                            type_name = Some(arena.arena.string_literal(value_id).clone());
-                        }
-                        "repeated" => repeated = literal_bool_arena(&value_expr.kind)?,
-                        "required" => required = literal_bool_arena(&value_expr.kind)?,
-                        "positional" => positional = literal_bool_arena(&value_expr.kind)?,
-                        "flag" => flag = Some(literal_bool_arena(&value_expr.kind)?),
-                        "default" => {
-                            default_ty = Some(self.check_expr_arena(arena, source, *value, None));
-                        }
-                        "form" => {
-                            let ArenaExprKind::Str(value_id) = value_expr.kind else {
-                                return None;
-                            };
-                            let form = arena.arena.string_literal(value_id).clone();
-                            let (form_positional, form_repeated) = args_parse_form_position(&form);
-                            positional = positional || form_positional;
-                            repeated = repeated || form_repeated;
-                        }
-                        _ => {}
-                    }
-                }
-                let (ty, type_repeated) = if let Some(type_name) = &type_name {
-                    args_parse_type_from_name(type_name)?
-                } else if let Some(default_ty) = default_ty.clone() {
-                    args_parse_type_from_default(default_ty)?
-                } else {
-                    (Type::Str, false)
-                };
-                repeated = repeated || type_repeated;
-                required = required || (positional && !repeated);
-                let flag = flag.unwrap_or(matches!(ty, Type::Bool) && !repeated && !positional);
-                if repeated {
-                    Some(Type::List(Box::new(ty)))
-                } else if flag || required || default_ty.is_some() {
-                    Some(ty)
-                } else {
-                    Some(Type::Optional(Box::new(ty)))
-                }
-            }
-            _ => None,
-        }
-    }
-
-    pub(super) fn check_contract_literal_args_arena(
+    fn infer_cli_descriptor_return_arena(
         &mut self,
         arena: &ArenaProgram,
         args: &[ArenaCallArg],
-    ) {
-        for (index, arg) in args.iter().enumerate() {
-            let is_contract_position = match &arg.kind {
-                ArenaCallArgKind::Named { name, .. } => {
-                    matches!(name.as_str().as_str(), "required" | "optional")
-                }
-                ArenaCallArgKind::Positional(_) => index == 1 || index == 2,
-                ArenaCallArgKind::Splice { .. } => false,
-            };
-            if !is_contract_position {
-                continue;
-            }
-            let expr_id = call_arg_expr_id_arena(&arg.kind);
-            let ArenaExprKind::Record(fields_range) = arena.arena.expr(expr_id).kind else {
-                continue;
-            };
-            for field in arena.arena.record_fields(fields_range) {
-                match &field.kind {
-                    ArenaRecordFieldKind::Named { value, span, .. } => {
-                        let field_span = arena.arena.span(*span);
-                        let value_expr = arena.arena.expr(*value);
-                        let ArenaExprKind::Str(text_id) = value_expr.kind else {
-                            self.warning(
-                                field_span,
-                                "contract field type must be a string literal",
-                                "check.contract-type",
-                            );
-                            continue;
-                        };
-                        let text = arena.arena.string_literal(text_id).clone();
-                        if !contract_type_is_valid(&text) {
-                            self.warning(
-                                value_expr.span,
-                                "malformed contract type string",
-                                "check.contract-type",
-                            );
-                        }
-                    }
-                    ArenaRecordFieldKind::Shorthand { span, .. }
-                    | ArenaRecordFieldKind::Spread { span, .. } => {
-                        let field_span = arena.arena.span(*span);
-                        self.warning(
-                            field_span,
-                            "contract records must use literal field type strings",
-                            "check.contract-type",
-                        );
-                    }
-                }
+        op: xsh_registry::RuntimeOp,
+    ) -> Option<Type> {
+        let schema = crate::modules::cli::descriptor_argument(args)?;
+        let applet = op == xsh_registry::RuntimeOp::CliApplet;
+        match self.prepared_constants.cli_descriptor_plan(&arena.arena, schema, applet)? {
+            Ok(plan) => Some(plan.return_type(op == xsh_registry::RuntimeOp::CliParseFull)),
+            Err(error) => {
+                let span = error.span.unwrap_or(arena.arena.expr(schema).span);
+                self.error(span, &error.message, "check.cli-descriptor");
+                None
             }
         }
     }
@@ -1024,11 +1081,12 @@ impl Checker {
             "new_session",
             "ignore_hup",
             "cpu_max",
+            "accept",
         ];
         if !(2..=names.len()).contains(&args.len()) {
             self.error(span, "incorrect standard API arity", "check.arity");
         }
-        let mut slots: [Option<&ArenaCallArgKind>; 14] = [None; 14];
+        let mut slots: [Option<&ArenaCallArgKind>; 15] = [None; 15];
         let mut next_positional = 0;
         for arg in args {
             match &arg.kind {
@@ -1066,7 +1124,7 @@ impl Checker {
                         next_positional += 1;
                     }
                 }
-                ArenaCallArgKind::Splice { .. } => {
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
                     self.error(
                         call_arg_span_arena(arena, &arg.kind),
                         "invalid argument splice",
@@ -1096,7 +1154,7 @@ impl Checker {
         self.check_process_command_argv_argv_arena(arena, source, slots[1], span);
         let expected = [
             Type::Path,
-            Type::Record(BTreeMap::new()),
+            Type::ErasedRecord,
             Type::Path,
             Type::Path,
             Type::Path,
@@ -1107,14 +1165,21 @@ impl Checker {
             Type::Bool,
             Type::Bool,
             Type::Int,
+            Type::List(Box::new(Type::Int)),
         ];
         for (offset, expected) in expected.iter().enumerate() {
-            self.check_optional_api_arg_arena(arena, source, slots[offset + 2], Some(expected));
+            if offset + 2 == 4 {
+                let actual = self.check_optional_api_arg_arena(arena, source, slots[4], None);
+                if let Some(arg) = slots[4] && actual != Type::Bytes {
+                    self.expect_type(&Type::Path, &actual, call_arg_span_arena(arena, arg));
+                }
+            } else { self.check_optional_api_arg_arena(arena, source, slots[offset + 2], Some(expected)); }
         }
         if let Some(arg) = slots[13] {
             let expr_id = call_arg_expr_id_arena(arg);
             self.check_static_positive_call_int_arena(arena, expr_id, "cpu_max must be positive");
         }
+        if let Some(arg) = slots[14] { self.check_static_accepted_exit_codes(arena, call_arg_expr_id_arena(arg)); }
         Type::Command
     }
 
@@ -1134,8 +1199,7 @@ impl Checker {
         let expr = arena.arena.expr(expr_id);
 
         if let ArenaExprKind::List(items) = expr.kind {
-            let mut items = arena.arena.expr_ids(items);
-            if items.next().is_none() {
+            if items.is_empty() {
                 self.diagnostics.push(
                     Diagnostic::error(
                         "process.command_argv argv must include argv[0], the child program name",
@@ -1146,14 +1210,20 @@ impl Checker {
                 );
                 return;
             }
-            for item in items {
-                let item_ty = self.check_expr_arena(arena, source, item, None);
+            for (index, item) in arena.arena.list_elements(items).enumerate() {
+                if index == 0 && item.splice_span.is_none() { continue; }
+                let actual = self.check_expr_arena(arena, source, item.value, None);
+                let item_ty = if item.splice_span.is_some() {
+                    match actual {
+                        Type::List(ty) => *ty,
+                        _ => {
+                            self.error(arena.arena.span(item.splice_span.unwrap()), "list literal splice requires List", "check.list-splice-type");
+                            Type::Unknown
+                        }
+                    }
+                } else { actual };
                 if !process_command_argv_item_type_is_valid(&item_ty) {
-                    self.error(
-                        arena.arena.expr(item).span,
-                        "process.command_argv argv items must be Str or Path",
-                        "check.type-mismatch",
-                    );
+                    self.error(arena.arena.expr(item.value).span, "process.command_argv argv items must be Str or Path", "check.type-mismatch");
                 }
             }
             return;
@@ -1340,11 +1410,15 @@ impl Checker {
                 let expected = Type::List(Box::new(Type::Any));
                 let value_ty =
                     self.check_call_arg_arena(arena, source, &args[1].kind, Some(&expected));
-                self.expect_type(
-                    &expected,
-                    &value_ty,
-                    call_arg_span_arena(arena, &args[1].kind),
-                );
+                // Serialization consumes a concrete list without changing its
+                // element domain. Dynamic inputs must still establish a list.
+                if !matches!(value_ty, Type::List(_)) {
+                    self.expect_type(
+                        &expected,
+                        &value_ty,
+                        call_arg_span_arena(arena, &args[1].kind),
+                    );
+                }
                 self.expect_json_compatible(&value_ty, call_arg_span_arena(arena, &args[1].kind));
             }
             "set" => {

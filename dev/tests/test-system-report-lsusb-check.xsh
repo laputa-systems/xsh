@@ -1,6 +1,6 @@
 use system_report_lsusb_check as lsusb_reference
 
-proc test_system_report_lsusb_saved_outputs_score_ids_tree_and_selected_descriptor() [error] {
+test test_system_report_lsusb_saved_outputs_score_ids_tree_and_selected_descriptor [error] {
   let devices = lsusb_reference.parse_lsusb_list("""Bus 001 Device 001: ID 1d6b:0002 Linux root hub
 Bus 001 Device 002: ID 05e3:0610 USB hub
 """)?
@@ -41,7 +41,7 @@ Device Descriptor:
   ("1:2.port" in wrong_port.mismatches)
 }
 
-proc test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows() [error] {
+test test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows [error] {
   test.error_kind(
     lsusb_reference.parse_lsusb_list("""Bus 001 Device 001: ID 1d6b:0002
 Bus 001 Device 001: ID 1d6b:0002
@@ -82,11 +82,10 @@ bNumConfigurations 1
   )?
 }
 
-proc test_system_report_lsusb_live_reference_uses_bounded_selected_descriptor() [fs, process, time, error] {
+test test_system_report_lsusb_live_reference_uses_bounded_selected_descriptor [fs, process, time, error] {
   let tools_root = fs.tempdir()?
-  defer fs.close_root(tools_root)?
-  fs.root_write(
-    tools_root,
+  defer tools_root.close()?
+  tools_root.write(
     p"lsusb",
     """#!/bin/sh
 case "$*" in
@@ -98,16 +97,15 @@ case "$*" in
 esac
 """,
   )?
-  fs.root_write(
-    tools_root,
+  tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","usb":{"devices":[{"bus_number":1,"device_number":1,"vendor_id":7531,"product_id":2,"class_code":9,"configuration_count":1,"port_path":null,"interfaces":[]}]}}\n'
 """,
   )?
-  fs.root_chmod(tools_root, p"lsusb", 0o700)?
-  fs.root_chmod(tools_root, p"xsh", 0o700)?
-  let root_path = fs.root_path(tools_root)?
+  tools_root.chmod(p"lsusb", 0o700)?
+  tools_root.chmod(p"xsh", 0o700)?
+  let root_path = tools_root.host_path()?
   let result = lsusb_reference.compare_live_lsusb(
     fp"${root_path}/xsh".display(),
     fp"${root_path}/script".display(),

@@ -1,6 +1,5 @@
 #![allow(clippy::single_call_fn)]
 
-use super::ModuleExportSignature;
 #[cfg(feature = "native-tests")]
 use super::TestCall;
 use super::{Evaluator, module_error};
@@ -12,16 +11,17 @@ use crate::runtime::process::{
 };
 use crate::runtime::value::{
     CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream, PathValue,
-    RecordMap, ResultValue, RunError, RuntimeError, Value,
+    RecordMap, RunError, RuntimeError, Value,
 };
 #[cfg(feature = "native-tests")]
 use crate::sema::records::standard_record_type;
+#[cfg(feature = "native-tests")]
+use crate::runtime::value::ResultValue;
+#[cfg(feature = "native-tests")]
 use crate::sema::types::Type;
 use crate::source::Span;
-use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use std::time::Duration;
-use xsh_registry::types::BuiltinTypeName;
 
 pub(in crate::runtime::eval) mod auth;
 #[path = "modules/lib/crypt.rs"]
@@ -70,6 +70,7 @@ impl Evaluator {
             .redirections
             .iter()
             .map(|redirection| match redirection {
+                CommandRedirection::Input { bytes } => ProcessRedirection::Input { bytes: bytes.clone() },
                 CommandRedirection::File { stream, mode, path } => ProcessRedirection::File {
                     stream: match stream {
                         CommandRedirectionStream::Stdin => RedirectionStream::Stdin,
@@ -97,6 +98,7 @@ impl Evaluator {
                 .as_ref()
                 .map(|duration| Duration::from_millis(duration.millis)),
             cpu_max: plan.cpu_max,
+            accepted_exit_codes: plan.accepted_exit_codes,
         })
     }
 }
@@ -222,10 +224,13 @@ pub(super) fn test_mock_expected_return_type(op: &str) -> Option<Type> {
 #[cfg(feature = "native-tests")]
 pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
     match ty {
+        Type::BuiltinParameter(_) => false,
+        Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),
         Type::Int => matches!(value, Value::Int(_)),
+        Type::UInt => matches!(value, Value::Int(value) if *value >= 0),
         Type::Float => matches!(value, Value::Float(_)),
         Type::Duration => matches!(value, Value::Duration(_)),
         Type::Str => matches!(value, Value::Str(_)),
@@ -239,10 +244,8 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| test_value_matches_type(item, item_ty)),
             _ => false,
         },
-        Type::Map(item_ty) => match value {
-            Value::Map(items) => items
-                .values()
-                .all(|item| test_value_matches_type(item, item_ty)),
+        Type::Map(key_ty, item_ty) => match value {
+            Value::Map(items) => items.iter().all(|(key, item)| super::map_key_matches_type(key, key_ty) && test_value_matches_type(item, item_ty)),
             _ => false,
         },
         Type::Stream(item_ty) => match value {
@@ -252,6 +255,7 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| test_value_matches_type(&item.value, item_ty)),
             _ => false,
         },
+        Type::ErasedRecord => matches!(value, Value::Record(_)),
         Type::Record(fields) => match value {
             Value::Record(_) if fields.is_empty() => true,
             Value::Record(values) => fields.iter().all(|(field, field_ty)| {
@@ -286,9 +290,10 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
+        Type::FsRoot => matches!(value, Value::FsRoot(_)),
         Type::Unit => matches!(value, Value::Unit),
         Type::Tag(name) => {
-            matches!(value, Value::Tag { name: tag_name, .. } if tag_name.as_ref() == name)
+            matches!(value, Value::Tag { type_name, .. } if type_name == name)
         }
         Type::Optional(inner) => {
             matches!(value, Value::Null) || test_value_matches_type(value, inner)
@@ -450,314 +455,6 @@ pub(super) fn record_duration(
     }
 }
 
-pub(super) fn validate_module_contract(
-    signatures: &FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>,
-    exports: &RecordMap,
-    required: &RecordMap,
-    optional: &RecordMap,
-    source: Option<&str>,
-) -> Result<(), String> {
-    for (field, expected_value) in required {
-        let expected = module_contract_expected_type(field, expected_value, source)?;
-        let Some(actual) = exports.get(field.as_ref()) else {
-            return Err(module_contract_message(
-                source,
-                &format!("missing required field `{field}` (expected {expected})"),
-            ));
-        };
-        if !module_contract_type_matches(signatures, actual, &expected) {
-            return Err(module_contract_message(
-                source,
-                &format!(
-                    "field `{field}` expected {expected}, found {}",
-                    module_contract_dynamic_type(actual)
-                ),
-            ));
-        }
-    }
-    for (field, expected_value) in optional {
-        let expected = module_contract_expected_type(field, expected_value, source)?;
-        if let Some(actual) = exports.get(field.as_ref())
-            && !module_contract_type_matches(signatures, actual, &expected)
-        {
-            return Err(module_contract_message(
-                source,
-                &format!(
-                    "field `{field}` expected {expected}, found {}",
-                    module_contract_dynamic_type(actual)
-                ),
-            ));
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn module_contract_expected_type(
-    field: &str,
-    value: &Value,
-    source: Option<&str>,
-) -> Result<String, String> {
-    match value {
-        Value::Str(expected) => Ok(expected.trim().to_string()),
-        actual => Err(module_contract_message(
-            source,
-            &format!(
-                "contract field `{field}` expected type name Str, found {}",
-                actual.type_name()
-            ),
-        )),
-    }
-}
-
-pub(super) fn module_contract_message(source: Option<&str>, detail: &str) -> String {
-    match source {
-        Some(source) if !source.is_empty() => format!("{source}: {detail}"),
-        _ => detail.to_string(),
-    }
-}
-
-pub(super) fn module_contract_type_matches(
-    signatures: &FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>,
-    value: &Value,
-    expected: &str,
-) -> bool {
-    let expected = expected.trim();
-    if BuiltinTypeName::parse(expected) == Some(BuiltinTypeName::Any) {
-        return true;
-    }
-    if BuiltinTypeName::parse(expected) == Some(BuiltinTypeName::Unknown) {
-        return false;
-    }
-    if let Some((pure, params, return_ty)) = module_contract_callable_signature(expected) {
-        return match value {
-            Value::Proc(name) => {
-                !pure && module_contract_proc_matches(signatures, *name, &params, &return_ty)
-            }
-            Value::Pure(name) => {
-                pure && module_contract_proc_matches(signatures, *name, &params, &return_ty)
-            }
-            _ => false,
-        };
-    }
-    if let Some(inner) = module_contract_generic_body(expected, "List") {
-        return match value {
-            Value::List(items) => items
-                .iter()
-                .all(|item| module_contract_type_matches(signatures, item, inner)),
-            _ => false,
-        };
-    }
-    if let Some(inner) = module_contract_generic_body(expected, "Map") {
-        return match value {
-            Value::Map(items) => items
-                .values()
-                .all(|item| module_contract_type_matches(signatures, item, inner)),
-            _ => false,
-        };
-    }
-    if let Some(inner) = module_contract_generic_body(expected, "Stream") {
-        return match value {
-            Value::Stream(stream) => stream
-                .items
-                .iter()
-                .all(|item| module_contract_type_matches(signatures, &item.value, inner)),
-            _ => false,
-        };
-    }
-    if let Some(inner) = module_contract_generic_body(expected, "Result") {
-        let (ok_expected, err_expected) =
-            module_contract_split_pair(inner).unwrap_or((inner, "Error"));
-        return match value {
-            Value::Result(ResultValue::Ok(ok)) => {
-                module_contract_type_matches(signatures, ok, ok_expected.trim())
-            }
-            Value::Result(ResultValue::Err(err)) => {
-                module_contract_type_matches(signatures, err, err_expected.trim())
-            }
-            _ => false,
-        };
-    }
-    BuiltinTypeName::parse(expected)
-        .is_some_and(|builtin| module_value_matches_builtin_type(value, builtin))
-}
-
-fn module_contract_callable_signature(expected: &str) -> Option<(bool, Vec<Type>, Type)> {
-    let (pure, rest) = if let Some(rest) = expected.strip_prefix("Proc(") {
-        (false, rest)
-    } else {
-        (true, expected.strip_prefix("Pure(")?)
-    };
-    let close = rest.find(") -> ")?;
-    let params = &rest[..close];
-    let return_ty = &rest[close + 5..];
-    let mut parsed_params = Vec::new();
-    if !params.trim().is_empty() {
-        for param in module_contract_split_types(params) {
-            parsed_params.push(module_contract_type_from_str(param.trim())?);
-        }
-    }
-    Some((
-        pure,
-        parsed_params,
-        module_contract_type_from_str(return_ty.trim())?,
-    ))
-}
-
-pub(super) fn module_contract_proc_matches(
-    signatures: &FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>,
-    name: crate::runtime::value::FunctionName,
-    expected_params: &[Type],
-    expected_return: &Type,
-) -> bool {
-    let Some(captured) = signatures.get(&name) else {
-        return false;
-    };
-    let sig = &captured.sig;
-    if sig.params.len() != expected_params.len() {
-        return false;
-    }
-    for (actual, expected) in sig.params.iter().zip(expected_params) {
-        if !actual.ty.matches_expected(expected) || !expected.matches_expected(&actual.ty) {
-            return false;
-        }
-    }
-    sig.return_ty.matches_expected(expected_return)
-        && expected_return.matches_expected(&sig.return_ty)
-}
-
-pub(super) fn module_contract_split_types(text: &str) -> Vec<&str> {
-    let mut items = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0usize;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '[' => depth += 1,
-            ']' => depth -= 1,
-            ',' if depth == 0 => {
-                items.push(&text[start..index]);
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    items.push(&text[start..]);
-    items
-}
-
-pub(super) fn module_contract_type_from_str(text: &str) -> Option<Type> {
-    let text = text.trim();
-    if let Some(inner) = module_contract_generic_body(text, "List") {
-        return Some(Type::List(Box::new(module_contract_type_from_str(inner)?)));
-    }
-    if let Some(inner) = module_contract_generic_body(text, "Map") {
-        return Some(Type::Map(Box::new(module_contract_type_from_str(inner)?)));
-    }
-    if let Some(inner) = module_contract_generic_body(text, "Stream") {
-        return Some(Type::Stream(Box::new(module_contract_type_from_str(
-            inner,
-        )?)));
-    }
-    if let Some(inner) = module_contract_generic_body(text, "Result") {
-        let (ok, err) = module_contract_split_pair(inner).unwrap_or((inner, "Error"));
-        return Some(Type::Result(
-            Box::new(module_contract_type_from_str(ok.trim())?),
-            Box::new(module_contract_type_from_str(err.trim())?),
-        ));
-    }
-    let ty = Type::from_name(text);
-    if ty == Type::Unknown { None } else { Some(ty) }
-}
-
-fn module_value_matches_builtin_type(value: &Value, builtin: BuiltinTypeName) -> bool {
-    match builtin {
-        BuiltinTypeName::Any => true,
-        BuiltinTypeName::Unknown => false,
-        BuiltinTypeName::Null => matches!(value, Value::Null),
-        BuiltinTypeName::Bool => matches!(value, Value::Bool(_)),
-        BuiltinTypeName::Int => matches!(value, Value::Int(_)),
-        BuiltinTypeName::UInt => matches!(value, Value::Int(value) if *value >= 0),
-        BuiltinTypeName::Float => matches!(value, Value::Float(_)),
-        BuiltinTypeName::Duration => matches!(value, Value::Duration(_)),
-        BuiltinTypeName::Str => matches!(value, Value::Str(_)),
-        BuiltinTypeName::Bytes => matches!(value, Value::Bytes(_)),
-        BuiltinTypeName::Digest => matches!(value, Value::Digest(_)),
-        BuiltinTypeName::Regex => matches!(value, Value::Regex(_)),
-        BuiltinTypeName::Path => matches!(value, Value::Path(_)),
-        BuiltinTypeName::Map => matches!(value, Value::Map(_)),
-        BuiltinTypeName::Module => matches!(value, Value::Module(_)),
-        BuiltinTypeName::Record => matches!(value, Value::Record(_)),
-        BuiltinTypeName::Status => matches!(value, Value::Status(_)),
-        BuiltinTypeName::EnvPathList => matches!(value, Value::EnvPathList),
-        BuiltinTypeName::Error => matches!(value, Value::Error(_)),
-        BuiltinTypeName::ProcessError => matches!(value, Value::RunError(_)),
-        BuiltinTypeName::Pure => matches!(value, Value::Pure(_)),
-        BuiltinTypeName::Proc => matches!(value, Value::Proc(_)),
-        BuiltinTypeName::Command => matches!(value, Value::Command(_)),
-        BuiltinTypeName::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
-        BuiltinTypeName::NetJob => matches!(value, Value::NetJob(_)),
-        BuiltinTypeName::Result => matches!(value, Value::Result(_)),
-        BuiltinTypeName::Unit => matches!(value, Value::Unit),
-    }
-}
-
-pub(super) fn module_contract_generic_body<'a>(expected: &'a str, name: &str) -> Option<&'a str> {
-    expected
-        .strip_prefix(name)?
-        .strip_prefix('[')?
-        .strip_suffix(']')
-        .map(str::trim)
-}
-
-pub(super) fn module_contract_split_pair(text: &str) -> Option<(&str, &str)> {
-    let mut depth = 0i32;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '[' => depth += 1,
-            ']' => depth -= 1,
-            ',' if depth == 0 => return Some((&text[..index], &text[index + 1..])),
-            _ => {}
-        }
-    }
-    None
-}
-
-pub(super) fn module_contract_dynamic_type(value: &Value) -> String {
-    match value {
-        Value::List(items) => {
-            let inner = homogeneous_dynamic_type(items.iter()).unwrap_or("Any".to_string());
-            format!("List[{inner}]")
-        }
-        Value::Map(items) => {
-            let inner = homogeneous_dynamic_type(items.values()).unwrap_or("Any".to_string());
-            format!("Map[{inner}]")
-        }
-        Value::Stream(stream) => {
-            let inner = homogeneous_dynamic_type(stream.items.iter().map(|item| &item.value))
-                .unwrap_or("Any".to_string());
-            format!("Stream[{inner}]")
-        }
-        Value::Result(ResultValue::Ok(value)) => {
-            format!("Result[{}, Error]", module_contract_dynamic_type(value))
-        }
-        Value::Result(ResultValue::Err(value)) => {
-            format!("Result[Any, {}]", module_contract_dynamic_type(value))
-        }
-        _ => value.type_name().to_string(),
-    }
-}
-
-pub(super) fn homogeneous_dynamic_type<'a>(
-    mut values: impl Iterator<Item = &'a Value>,
-) -> Option<String> {
-    let first = values.next()?;
-    let first_ty = module_contract_dynamic_type(first);
-    if values.all(|value| module_contract_dynamic_type(value) == first_ty) {
-        Some(first_ty)
-    } else {
-        None
-    }
-}
-
 pub(super) fn record_nonnegative_usize(
     record: &RecordMap,
     name: &str,
@@ -890,8 +587,9 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::Map(map) => {
             let mut out = format!("M{}", map.len());
             for (k, v) in map {
+                let k_enc = encode_cache_key_value(&k.clone().into_value())?;
                 let v_enc = encode_cache_key_value(v)?;
-                out.push_str(&format!(":{}:{}:{}:{}", k.len(), k, v_enc.len(), v_enc));
+                out.push_str(&format!(":{}:{}:{}:{}", k_enc.len(), k_enc, v_enc.len(), v_enc));
             }
             out
         }
@@ -912,7 +610,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
             }
             out
         }
-        Value::Tag { name, fields } => {
+        Value::Tag { name, fields, .. } => {
             let mut out = format!("T{}:{}{}", name.len(), name, fields.len());
             for field in fields {
                 let enc = encode_cache_key_value(field)?;
@@ -931,6 +629,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::Command(_) => return Err("Command"),
         Value::ProcessHandle(_) => return Err("ProcessHandle"),
         Value::NetJob(_) => return Err("NetJob"),
+        Value::FsRoot(_) => return Err("FsRoot"),
         Value::Unit => return Err("Unit"),
     })
 }

@@ -429,7 +429,7 @@ fn add_compact_file_declaration(
             }
         }
         ArenaStmtKind::ErrorDef(_) => summary.error_defs += 1,
-        ArenaStmtKind::ProcDef(_) => summary.proc_defs += 1,
+        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_) => summary.proc_defs += 1,
         ArenaStmtKind::PureDef(_) => summary.pure_defs += 1,
         ArenaStmtKind::StreamDef(_) => summary.stream_defs += 1,
         _ => {}
@@ -468,7 +468,7 @@ fn collect_exported_top_level_binding_name(
         return;
     };
     match program.arena.stmt(inner).kind {
-        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
             if let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind {
                 names.insert(name);
             }
@@ -1156,7 +1156,7 @@ proc main() [io] {
         let module_path = root.join("helper.xsh");
         fs::write(
             &module_path,
-            "error HelperError = Bad(message: Str)\nexport pure value() -> Int {\n  return 1\n}\n",
+            "##! Helper values.\nerror HelperError = Bad(message: Str)\n## Returns one.\nexport pure value() -> Int {\n  return 1\n}\n",
         )
         .expect("write helper module");
 
@@ -1164,7 +1164,7 @@ proc main() [io] {
             entry_path.to_str().expect("utf-8 temp path"),
             entry_source_from_text(
                 entry_path.to_str().expect("utf-8 temp path"),
-                "use helper as h\nexport let answer = 1\n".to_string(),
+                "##! Entry values.\nuse helper as h\n## The answer.\nexport let answer = 1\n".to_string(),
             ),
             Vec::new(),
         );

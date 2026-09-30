@@ -1,4 +1,4 @@
-proc test_backup_rotate(ctx: TestContext) [fs, process, error] {
+test test_backup_rotate [fs, process, error] { |ctx|
   let dir = test.temp_dir(ctx, name: "backups")?
   fp"${dir}/backup-2024-01-01.tar.gz".write("old1")?
   fp"${dir}/backup-2024-06-01.tar.gz".write("old2")?
@@ -11,7 +11,7 @@ proc test_backup_rotate(ctx: TestContext) [fs, process, error] {
   fp"${dir}/backup-2024-01-01.tar.gz".exists()? == false
 }
 
-proc test_backup_rotate_only_deletes_direct_backup_files(ctx: TestContext) [fs, process, error] {
+test test_backup_rotate_only_deletes_direct_backup_files [fs, process, error] { |ctx|
   let dir = test.temp_dir(ctx, name: "backups-with-subdir")?
   fp"${dir}/backup-2024-01-01.tar.gz".write("old")?
   fp"${dir}/backup-2025-01-01.tar.gz".write("new")?
@@ -26,7 +26,7 @@ proc test_backup_rotate_only_deletes_direct_backup_files(ctx: TestContext) [fs, 
   fp"${nested}/notes.txt".read_text()? == "keep me"
 }
 
-proc test_backup_rotate_reports_failed_deletion_without_claiming_it_happened(ctx: TestContext) [fs, process, error] {
+test test_backup_rotate_reports_failed_deletion_without_claiming_it_happened [fs, process, error] { |ctx|
   if user.current()?.uid == 0 {
     test.skip("permission-denied deletion requires an unprivileged test user")
     return

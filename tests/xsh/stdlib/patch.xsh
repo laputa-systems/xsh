@@ -1,4 +1,4 @@
-proc test_patch_apply(ctx: TestContext) [fs, error] {
+test test_patch_apply [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "patch")?
 
   fp"${root}/original.txt".write("""alpha

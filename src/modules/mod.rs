@@ -91,12 +91,15 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
     use crate::sema::types::Type;
 
     match ty {
+        Type::BuiltinParameter(parameter) => parameter.label().to_string(),
+        Type::Inference(_) => "<type needs an annotation>".to_string(),
         Type::Any => "Any".to_string(),
         Type::Unknown => "Unknown".to_string(),
         Type::Invalid => "<invalid>".to_string(),
         Type::Null => "Null".to_string(),
         Type::Bool => "Bool".to_string(),
         Type::Int => "Int".to_string(),
+        Type::UInt => "UInt".to_string(),
         Type::Float => "Float".to_string(),
         Type::Duration => "Duration".to_string(),
         Type::Str => "Str".to_string(),
@@ -105,9 +108,11 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
         Type::Regex => "Regex".to_string(),
         Type::Path => "Path".to_string(),
         Type::List(inner) => format!("List[{}]", render_type(inner)),
-        Type::Map(inner) => format!("Map[{}]", render_type(inner)),
+        Type::Map(key, inner) if matches!(key.as_ref(), Type::Unknown) && matches!(inner.as_ref(), Type::Any) => "Map[K, V]".to_string(),
+        Type::Map(key, inner) => if matches!(key.as_ref(), Type::Str) { format!("Map[{}]", render_type(inner)) } else { format!("Map[{}, {}]", render_type(key), render_type(inner)) },
         Type::Stream(inner) => format!("Stream[{}]", render_type(inner)),
-        Type::Record(fields) if fields.is_empty() => "Record".to_string(),
+        Type::ErasedRecord => "Record".to_string(),
+        Type::Record(fields) if fields.is_empty() => "{}".to_string(),
         Type::Record(fields) => {
             let fields = fields
                 .iter()
@@ -130,6 +135,7 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
         Type::Command => "Command".to_string(),
         Type::ProcessHandle => "ProcessHandle".to_string(),
         Type::NetJob => "NetJob".to_string(),
+        Type::FsRoot => "FsRoot".to_string(),
         Type::Unit => "Unit".to_string(),
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),
@@ -222,10 +228,7 @@ mod tests {
         assert!(modules["env"].function_overloads("get_path").is_none());
         assert!(modules["json"].function_overloads("lines").is_none());
         assert!(modules["json"].function_overloads("stream").is_none());
-        assert!(modules["record"].function_overloads("get").is_none());
-        assert!(modules["record"].function_overloads("has").is_none());
-        assert!(modules["record"].function_overloads("keys").is_none());
-        assert!(modules["record"].function_overloads("require").is_some());
+        assert!(!modules.contains_key("record"));
         assert!(
             only_overload(modules["fs"].function_overloads("mkdir").unwrap())
                 .params

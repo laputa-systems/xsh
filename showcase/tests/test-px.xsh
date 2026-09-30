@@ -27,7 +27,7 @@ proc wait_for_process_marker(pid: Int, marker: Str) [process, time, error] {
   test.ok(visible, "spawned process marker should be visible in process metadata")?
 }
 
-proc test_px_finds_current_test_process() [process, error] {
+test test_px_finds_current_test_process [process, error] {
   let pid = process.current_pid()?
   let pid_arg = f"${pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- $pid_arg ?
@@ -37,7 +37,7 @@ proc test_px_finds_current_test_process() [process, error] {
   "mem" in output
 }
 
-proc test_px_default_search_matches_executable_substrings(ctx: TestContext) [fs, process, time, error] {
+test test_px_default_search_matches_executable_substrings [fs, process, time, error] { |ctx|
   let marker = "xshpxexec"
   let executable = marker_executable(ctx, marker)?
   let child = process.spawn(process.command_argv(executable, [executable.display()]))?
@@ -48,7 +48,7 @@ proc test_px_default_search_matches_executable_substrings(ctx: TestContext) [fs,
   f"${child.pid}" in output
 }
 
-proc test_px_kill_signals_default_matches(ctx: TestContext) [fs, process, time, error] {
+test test_px_kill_signals_default_matches [fs, process, time, error] { |ctx|
   let marker = "xshpxkilld"
   let executable = marker_executable(ctx, marker)?
   let child = spawn process.command_argv(executable, [executable.display()])?
@@ -61,7 +61,7 @@ proc test_px_kill_signals_default_matches(ctx: TestContext) [fs, process, time, 
   status.signal_number()? == 15
 }
 
-proc test_px_kill_accepts_numeric_signal(ctx: TestContext) [fs, process, time, error] {
+test test_px_kill_accepts_numeric_signal [fs, process, time, error] { |ctx|
   let marker = "xshpxkills"
   let executable = marker_executable(ctx, marker)?
   let child = spawn process.command_argv(executable, [executable.display()])?
@@ -72,19 +72,19 @@ proc test_px_kill_accepts_numeric_signal(ctx: TestContext) [fs, process, time, e
   child.cancel(signal: "TERM", kill_after: 10ms)?
 }
 
-proc test_px_kill_requires_a_filter(ctx: TestContext) [fs, process, error] {
+test test_px_kill_requires_a_filter [fs, process, error] { |ctx|
   let err = test.temp_file(ctx, name: "px-kill-filter-stderr", contents: b"")?
   let status = run.status "xsh" "showcase/px.xsh" -- "--kill" 2> $err
   test.ok(! status.exited_with(0), "unfiltered kill should fail")?
 }
 
-proc test_px_kill_signal_is_parse_bounded(ctx: TestContext) [fs, process, error] {
+test test_px_kill_signal_is_parse_bounded [fs, process, error] { |ctx|
   let err = test.temp_file(ctx, name: "px-kill-signal-stderr", contents: b"")?
   let status = run.status "xsh" "showcase/px.xsh" -- "--kill=129" "xsh-px-no-such-process-pattern" 2> $err
   test.ok(! status.exited_with(0), "out-of-range kill signal should fail during argument parsing")?
 }
 
-proc test_px_returns_one_when_no_process_matches() [process, error] {
+test test_px_returns_one_when_no_process_matches [process, error] {
   let status = run.status "xsh" "showcase/px.xsh" -- "xsh-px-no-such-process-pattern"
   test.ok(status.exited_with(1), "unmatched process search should exit 1")?
 }

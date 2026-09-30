@@ -27,7 +27,7 @@ type RgAppletOptions = {color: Str, pattern: Str, globs: List[Str], roots: List[
 
 type CpAppletOptions = {no_clobber: Bool, force: Bool, target: Path?, operands: List[Str]}
 
-proc test_args_parse_tokens_and_commands() [error] {
+test test_args_parse_tokens_and_commands [error] {
   let parsed: ParsedArgs = cli.parse(
     ["--count", "3", "-D", "one", "-Dtwo", "--verbose", "src/main.xsh"],
     {
@@ -72,7 +72,7 @@ proc test_args_parse_tokens_and_commands() [error] {
   let usage = cli.usage({count: {kind: "Int", required: true}}, "demo")
   "usage: demo" in usage
 
-  let command_specs = {
+  const command_specs = {
     build: {
       positionals: [
         "root",
@@ -108,7 +108,7 @@ proc test_args_parse_tokens_and_commands() [error] {
   explicit.root.name() == "demo"
 }
 
-proc test_cli_parse_compact_forms() [error] {
+test test_cli_parse_compact_forms [error] {
   let parsed: ParsedArgs = cli.parse(
     ["--total", "3", "-D", "one", "-Dtwo", "--verbose", "src/main.xsh"],
     {
@@ -140,7 +140,7 @@ proc test_cli_parse_compact_forms() [error] {
   cli_tokens[0].value == "json"
 }
 
-proc test_cli_applet_parses_head_attached_value() [error] {
+test test_cli_applet_parses_head_attached_value [error] {
   let parsed: HeadAppletOptions = cli.applet(
     ["-n2", "file"],
     {
@@ -159,7 +159,7 @@ proc test_cli_applet_parses_head_attached_value() [error] {
   parsed.files[0] == "file"
 }
 
-proc test_cli_applet_parses_sort_cluster_and_attached_values() [error] {
+test test_cli_applet_parses_sort_cluster_and_attached_values [error] {
   let parsed: SortAppletOptions = cli.applet(
     ["-nr", "-k2", "-t,", "file"],
     {
@@ -193,7 +193,7 @@ proc test_cli_applet_parses_sort_cluster_and_attached_values() [error] {
   parsed.files[0] == "file"
 }
 
-proc test_cli_applet_parses_fd_clusters_and_repeated_values() [error] {
+test test_cli_applet_parses_fd_clusters_and_repeated_values [error] {
   let parsed: FdAppletOptions = cli.applet(
     ["-HI", "-e", "xsh", "-E", "target", "pattern", "root"],
     {
@@ -226,7 +226,7 @@ proc test_cli_applet_parses_fd_clusters_and_repeated_values() [error] {
   parsed.operands.join(",") == "pattern,root"
 }
 
-proc test_cli_applet_parses_rg_long_assignment_and_attached_values() [error] {
+test test_cli_applet_parses_rg_long_assignment_and_attached_values [error] {
   let parsed: RgAppletOptions = cli.applet(
     ["--color=always", "-efoo", "-g*.xsh", "root"],
     {
@@ -254,7 +254,7 @@ proc test_cli_applet_parses_rg_long_assignment_and_attached_values() [error] {
   parsed.roots[0] == "root"
 }
 
-proc test_cli_applet_parses_cp_compatibility_flags() [error] {
+test test_cli_applet_parses_cp_compatibility_flags [error] {
   let parsed: CpAppletOptions = cli.applet(
     ["-n", "-f", "-t", "dest", "src1", "src2"],
     {
@@ -309,7 +309,7 @@ proc test_cli_applet_parses_cp_compatibility_flags() [error] {
   ! reversed.force
 }
 
-proc test_cli_applet_last_scalar_occurrence_wins() [error] {
+test test_cli_applet_last_scalar_occurrence_wins [error] {
   match cli.parse(
     ["-v", "-v"],
     {verbose: {form: "-v", default: false}},
@@ -325,10 +325,10 @@ proc test_cli_applet_last_scalar_occurrence_wins() [error] {
   parsed.verbose
 }
 
-proc test_cli_parse_advanced_descriptors() [fs, error] {
+test test_cli_parse_advanced_descriptors [fs, error] {
   let root_handle = fs.tempdir()?
-  defer fs.close_root(root_handle)?
-  let root = fs.root_path(root_handle)?
+  defer root_handle.close()?
+  let root = root_handle.host_path()?
   let config = fp"${root}/config.toml"
   config.write("ready")?
 
@@ -408,15 +408,15 @@ proc test_cli_parse_advanced_descriptors() [fs, error] {
   }
 
   let full = cli.parse_full(["--color", "-v", "--left", "a"], schema)?
-  let values: AdvancedArgs = full.values
-  values.color == "always"
-  values.config.name() == "config.toml"
-  values.workspace.name() == root.name()
-  test.eq(full.values.count, 1)?
-  f"${values.timeout}" == "1s"
-  values.verbose
-  test.eq(full.sources.color, "argv")?
-  test.eq(full.sources.mode, "default")?
+  let values = full.values.require(AdvancedArgs)?
+  test.eq(values.color, "always")?
+  test.eq(values.config.name(), "config.toml")?
+  test.eq(values.workspace.name(), root.name())?
+  test.eq(values.count, 1)?
+  test.eq(f"${values.timeout}", "1s")?
+  test.ok(values.verbose)?
+  test.eq(full.sources.get("color")?.require(Str)?, "argv")?
+  test.eq(full.sources.get("mode")?.require(Str)?, "default")?
   test.eq(full.warnings.len(), 1)?
 
   let env_full = cli.parse_full(
@@ -426,7 +426,7 @@ proc test_cli_parse_advanced_descriptors() [fs, error] {
   )?
 
   test.eq(env_full.values.profile, "prod")?
-  test.eq(env_full.sources.profile, "env")?
+  test.eq(env_full.sources.get("profile")?.require(Str)?, "env")?
   let usage = cli.usage(schema, "demo")
   ("usage: demo [OPTIONS]" in usage)
   ("--mode MODE" in usage)
@@ -464,7 +464,7 @@ proc test_cli_parse_advanced_descriptors() [fs, error] {
   }
 }
 
-proc test_cli_commands_accept_aliases_forms_and_options() [error] {
+test test_cli_commands_accept_aliases_forms_and_options [error] {
   let command: CommandOptions = cli.commands(
     ["b", "--verbose", "target/demo", "--", "--dry-run"],
     {
@@ -493,7 +493,7 @@ proc test_cli_commands_accept_aliases_forms_and_options() [error] {
   command.rest[0] == "--dry-run"
 }
 
-proc test_cli_parse_positional_default_is_optional() [error] {
+test test_cli_parse_positional_default_is_optional [error] {
   let absent = cli.parse([], {kind: {form: "KIND", default: "rust"}})?
   absent.kind == "rust"
 

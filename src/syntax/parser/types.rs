@@ -19,10 +19,15 @@ impl<'a> Parser<'a> {
             }
             "Map" => {
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `Map`");
-                let inner = self.parse_type_expr(arena)?;
+                let first = self.parse_type_expr(arena)?;
+                let (key, inner) = if self.consume(TokenKindMatch::Comma).is_some() {
+                    (Some(first), self.parse_type_expr(arena)?)
+                } else {
+                    (None, first)
+                };
                 self.expect(TokenKindMatch::RBracket, "expected `]` after map type");
                 let end = self.previous_end();
-                arena.push_map_type_expr(inner, self.span(start, end))
+                arena.push_typed_map_type_expr(key, inner, self.span(start, end))
             }
             "Stream" => {
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `Stream`");
@@ -61,6 +66,15 @@ impl<'a> Parser<'a> {
                 }
             }
         };
+        if self.consume(TokenKindMatch::LBracket).is_some() {
+            let mut arguments = Vec::new();
+            if !self.at(TokenKindMatch::RBracket) {
+                arguments.push(self.parse_type_expr(arena)?);
+                while self.consume(TokenKindMatch::Comma).is_some() { arguments.push(self.parse_type_expr(arena)?); }
+            }
+            self.expect(TokenKindMatch::RBracket, "expected `]` after type arguments");
+            ty = arena.push_applied_type_expr(ty, &arguments, self.span(start, self.previous_end()));
+        }
         if self.consume(TokenKindMatch::Question).is_some() {
             let end = self.previous_end();
             ty = arena.push_optional_type_expr(ty, self.span(start, end));

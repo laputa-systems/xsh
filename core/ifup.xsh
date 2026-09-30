@@ -15,17 +15,19 @@ type Interface = {
 
 type Config = {auto: List[Str], interfaces: List[Interface]}
 
+type InterfaceSelection = {physical: Str, logical: Str}
+
 # Minimal IPv4 DHCP client (RFC 2131), modeled on busybox udhcpc but pared down
 # to the DISCOVER/OFFER/REQUEST/ACK handshake. The broadcast UDP socket is
 # provided by the linux.dhcp_* primitives; everything else is plain byte work.
-let DHCP_MAGIC = [99, 130, 83, 99]
-let DHCP_DISCOVER = 1
-let DHCP_OFFER = 2
-let DHCP_REQUEST = 3
-let DHCP_ACK = 5
-let DHCP_HEADER_LEN = 240
-let DHCP_RETRIES = 5
-let DHCP_TIMEOUT_MS = 3000
+const DHCP_MAGIC = [99, 130, 83, 99]
+const DHCP_DISCOVER = 1
+const DHCP_OFFER = 2
+const DHCP_REQUEST = 3
+const DHCP_ACK = 5
+const DHCP_HEADER_LEN = 240
+const DHCP_RETRIES = 5
+const DHCP_TIMEOUT_MS = 3000
 
 pure empty_interface() -> Interface {
   let pre_up: List[Str] = []
@@ -52,12 +54,16 @@ pure empty_config() -> Config {
 }
 
 proc default_interfaces_path() [env] -> Result[Path] {
-  let raw = match env("XSH_IFUP_INTERFACES") { Ok(path_value) => path_value, Err(_) => "/etc/network/interfaces" }
+  let raw = env("XSH_IFUP_INTERFACES") ?? { |_|
+    "/etc/network/interfaces"
+  }
   return fp"${raw}"
 }
 
 proc default_state_path() [env] -> Result[Path] {
-  let raw = match env("XSH_IFUP_STATE") { Ok(path_value) => path_value, Err(_) => "/run/network/ifstate" }
+  let raw = env("XSH_IFUP_STATE") ?? { |_|
+    "/run/network/ifstate"
+  }
   return fp"${raw}"
 }
 
@@ -314,7 +320,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
 }
 
 proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, process, error] {
-  if ! dir.exists()? {
+  guard dir.exists()? else {
     return
   }
 
@@ -353,15 +359,15 @@ proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
 }
 
 pure hex_nibble(code: Int) -> Int {
-  if code >= 48 and code <= 57 {
+  if 48 <= code <= 57 {
     return code - 48
   }
 
-  if code >= 97 and code <= 102 {
+  if 97 <= code <= 102 {
     return code - 87
   }
 
-  if code >= 65 and code <= 70 {
+  if 65 <= code <= 70 {
     return code - 55
   }
 
@@ -369,10 +375,12 @@ pure hex_nibble(code: Int) -> Int {
 }
 
 pure parse_mac(mac: Str) -> List[Int] {
-  [hex_nibble(part.byte_at(0)) * 16 + hex_nibble(part.byte_at(1)) for part in mac.split(":") if part != ""]
+  [hex_nibble((part.byte_at(0) ?? -1)) * 16 + hex_nibble((part.byte_at(1) ?? -1)) for part in mac.split(":") if part != ""]
 }
 
-pure empty_lease() -> Record {
+type DhcpLease = {valid: Bool, message_type: Int, yiaddr: List[Int], netmask: Str, gateway: Str, dns: List[Str], server_id: List[Int]}
+
+pure empty_lease() -> DhcpLease {
   let yiaddr: List[Int] = []
   let dns_servers: List[Str] = []
   let server_id: List[Int] = []
@@ -440,7 +448,7 @@ proc dhcp_packet(
   return bytes.concat(chunks)
 }
 
-proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[Record] {
+proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
   let total = packet.len()
 
   if total < DHCP_HEADER_LEN {
@@ -503,7 +511,7 @@ proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[Record] {
 }
 
 # Drive the handshake on `physical` and return the acknowledged lease.
-proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Record] {
+proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[DhcpLease] {
   var mac: List[Int] = []
 
   for iface in linux.interfaces()? {
@@ -650,7 +658,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
   mark_configured(state_path, physical, stanza.logical)?
 }
 
-pure split_iface_arg(arg: Str) -> Record {
+pure split_iface_arg(arg: Str) -> InterfaceSelection {
   let parts = arg.split("=", maxsplit: 1)
 
   if parts.len() >= 2 {

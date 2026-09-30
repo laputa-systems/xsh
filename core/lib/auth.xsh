@@ -98,7 +98,7 @@ export pure parse_shadow(text: Str) -> List[ShadowRecord] {
 }
 
 ## Public authentication helper for shipped core applets.
-export pure render_shadow(records: List[Any]) -> Str {
+export pure render_shadow(records: List[ShadowRecord]) -> Str {
   var lines: List[Str] = []
 
   for item in records {
@@ -164,7 +164,7 @@ export proc read_shadow_records() [fs, env, error] -> Result[List[ShadowRecord]]
 }
 
 ## Public authentication helper for shipped core applets.
-export proc write_shadow_records(records: List[Any]) [fs, env, error] {
+export proc write_shadow_records(records: List[ShadowRecord]) [fs, env, error] {
   shadow_path()?.write_atomic(render_shadow(records))?
 }
 
@@ -231,7 +231,7 @@ export proc current_user_name() [fs, process, env, error] -> Result[Str] {
 }
 
 ## Public authentication helper for shipped core applets.
-export pure shadow_password(records: List[Any], username: Str) -> PasswordResult {
+export pure shadow_password(records: List[ShadowRecord], username: Str) -> PasswordResult {
   for item in records {
     if ! item.raw and item.username == username {
       return {found: true, password: item.password}
@@ -242,7 +242,7 @@ export pure shadow_password(records: List[Any], username: Str) -> PasswordResult
 }
 
 ## Public authentication helper for shipped core applets.
-export pure account_hash(user_entry: Any, records: List[Any]) -> PasswordResult {
+export pure account_hash(user_entry: PasswdEntry, records: List[ShadowRecord]) -> PasswordResult {
   let shadow = shadow_password(records, user_entry.name)
 
   if shadow.found {
@@ -257,7 +257,7 @@ export pure account_hash(user_entry: Any, records: List[Any]) -> PasswordResult 
 }
 
 ## Public authentication helper for shipped core applets.
-export proc authenticate(user_entry: Any) [fs, process, env, error, io] -> Result[Bool] {
+export proc authenticate(user_entry: PasswdEntry) [fs, process, env, error, io] -> Result[Bool] {
   let records = read_shadow_records()?
   let credential = account_hash(user_entry, records)
 
@@ -275,7 +275,7 @@ export proc authenticate(user_entry: Any) [fs, process, env, error, io] -> Resul
 }
 
 ## Public authentication helper for shipped core applets.
-export pure current_password(records: List[Any], passwd: List[Any], username: Str) -> PasswordResult {
+export pure current_password(records: List[ShadowRecord], passwd: List[PasswdEntry], username: Str) -> PasswordResult {
   let shadow = shadow_password(records, username)
 
   if shadow.found {
@@ -329,8 +329,8 @@ export pure shadow_rest_with_defaults(rest: List[Str], last_change: Str) -> List
 }
 
 ## Public authentication helper for shipped core applets.
-export pure upsert_shadow(records: List[Any], username: Str, password: Str, last_change: Str) -> List[Any] {
-  var out: List[Any] = []
+export pure upsert_shadow(records: List[ShadowRecord], username: Str, password: Str, last_change: Str) -> List[ShadowRecord] {
+  var out: List[ShadowRecord] = []
   var found = false
 
   for item in records {

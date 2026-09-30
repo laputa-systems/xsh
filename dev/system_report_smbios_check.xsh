@@ -4,7 +4,7 @@ use context
 error SmbiosCheckError = Invalid(message: Str)
 
 pure smbios_check_failure(message: Str) -> SmbiosCheckError {
-  return SmbiosCheckError.Invalid(message: message)
+  return SmbiosCheckError.Invalid(message:)
 }
 
 type SmbiosSectionStatus = {state: Str, enumeration_succeeded: Bool}
@@ -57,7 +57,7 @@ type SmbiosFieldSpec = {name: Str, offset: Int, width: Int, unit: Str}
 
 ## Reads only the kernel-exported DMI structure table within the collector's bound.
 export proc read_smbios_reference(root: FsRoot) [fs, error] -> Result[SmbiosSourceReference] {
-  let source = fs.root_read_result(root, p"sys/firmware/dmi/tables/DMI", max_bytes: 1048576)?
+  let source = root.read_result(p"sys/firmware/dmi/tables/DMI", max_bytes: 1048576)?
   if source.state == "absent" {
     return Ok({data: null, complete: true, absent: true})
   }
@@ -315,8 +315,8 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
       return Ok({records: records, complete: false, invalid_indices: invalid_indices})
     }
 
-    let record_type = data.byte_at(cursor)
-    let length = data.byte_at(cursor + 1)
+    let record_type = (data.byte_at(cursor) ?? -1)
+    let length = (data.byte_at(cursor + 1) ?? -1)
     if length < 4 or cursor + length > data.len() {
       return Ok({records: records, complete: false, invalid_indices: invalid_indices})
     }
@@ -325,7 +325,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
     let fields = smbios_reference_fields(data, cursor, record_type, length)?
     let strings_start = cursor + length
     var terminator = strings_start
-    while terminator + 1 < data.len() and (data.byte_at(terminator) != 0 or data.byte_at(terminator + 1) != 0) {
+    while terminator + 1 < data.len() and ((data.byte_at(terminator) ?? -1) != 0 or (data.byte_at(terminator + 1) ?? -1) != 0) {
       terminator += 1
     }
 
@@ -337,7 +337,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
     var string_start = strings_start
     while string_start < terminator {
       var string_end = string_start
-      while string_end < terminator and data.byte_at(string_end) != 0 {
+      while string_end < terminator and (data.byte_at(string_end) ?? -1) != 0 {
         string_end += 1
       }
 
@@ -548,26 +548,25 @@ export proc capture_smbios_bundle(
 
   let relative = p"sys/firmware/dmi/tables/DMI"
   let entry_relative = p"sys/firmware/dmi/tables/smbios_entry_point"
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, relative)? or fs.root_exists(
-    bundle,
+  if bundle.exists(p"capture.json")? or bundle.exists(relative)? or bundle.exists(
     entry_relative,
   )? {
     return Err(smbios_check_failure("SMBIOS capture destination already contains source data"))
   }
 
-  fs.root_mkdir(bundle, p"sys/firmware/dmi/tables", mode: 0o700, parents: true)?
-  let first = fs.root_read_result(source, relative, max_bytes: 1048576)?
-  let entry_first = fs.root_read_result(source, entry_relative, max_bytes: 64)?
+  bundle.mkdir(p"sys/firmware/dmi/tables", mode: 0o700, parents: true)?
+  let first = source.read_result(relative, max_bytes: 1048576)?
+  let entry_first = source.read_result(entry_relative, max_bytes: 64)?
   if first.data != null {
-    fs.root_write(bundle, relative, first.data ?? b"")?
+    bundle.write(relative, first.data ?? b"")?
   }
 
   if entry_first.data != null {
-    fs.root_write(bundle, entry_relative, entry_first.data ?? b"")?
+    bundle.write(entry_relative, entry_first.data ?? b"")?
   }
 
-  let second = fs.root_read_result(source, relative, max_bytes: 1048576)?
-  let entry_second = fs.root_read_result(source, entry_relative, max_bytes: 64)?
+  let second = source.read_result(relative, max_bytes: 1048576)?
+  let entry_second = source.read_result(entry_relative, max_bytes: 64)?
   let stable = first.state == second.state and first.truncated == second.truncated and first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data and entry_first.state == entry_second.state and entry_first.truncated == entry_second.truncated and entry_first.errno == entry_second.errno and entry_first.error_kind == entry_second.error_kind and entry_first.data == entry_second.data
   var reference: SmbiosReference? = null
   if stable and first.state == "observed" and ! first.truncated and first.data != null {
@@ -583,7 +582,7 @@ export proc capture_smbios_bundle(
     truncated: first.truncated,
     errno: first.errno,
     error_kind: first.error_kind,
-    byte_count: if first.data == null { 0 } else { (first.data ?? b"").len() },
+    byte_count: first.data?.len() ?? 0,
     sha256_hex: if first.data == null { null } else { hash.sha256(first.data ?? b"").hex() },
   }
   let entry_observation: SmbiosCaptureSource = {
@@ -592,7 +591,7 @@ export proc capture_smbios_bundle(
     truncated: entry_first.truncated,
     errno: entry_first.errno,
     error_kind: entry_first.error_kind,
-    byte_count: if entry_first.data == null { 0 } else { (entry_first.data ?? b"").len() },
+    byte_count: entry_first.data?.len() ?? 0,
     sha256_hex: if entry_first.data == null { null } else { hash.sha256(entry_first.data ?? b"").hex() },
   }
   let captured_unix_ms = time.now()
@@ -607,12 +606,12 @@ export proc capture_smbios_bundle(
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
   return {origin: origin, captured_unix_ms: captured_unix_ms, stable: stable, scoreable: reference != null}
 }
 
 proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[ValidatedSmbiosBundle] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 2097152)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 2097152)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(smbios_check_failure("SMBIOS capture metadata is missing or incomplete"))
   }
@@ -623,7 +622,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
     return Err(smbios_check_failure("SMBIOS capture metadata cannot support exact replay"))
   }
 
-  let raw = fs.root_read_result(bundle, relative, max_bytes: 1048576)?
+  let raw = bundle.read_result(relative, max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != capture.source.byte_count or hash.sha256(
     raw.data ?? b"",
   )
@@ -634,11 +633,11 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
   let entry_relative = p"sys/firmware/dmi/tables/smbios_entry_point"
   var entry_data: Bytes? = null
   if capture.entry_point.sha256_hex == null {
-    if capture.entry_point.byte_count != 0 or fs.root_exists(bundle, entry_relative)? {
+    if capture.entry_point.byte_count != 0 or bundle.exists(entry_relative)? {
       return Err(smbios_check_failure("SMBIOS entry point absence differs from metadata"))
     }
   } else {
-    let entry = fs.root_read_result(bundle, entry_relative, max_bytes: 64)?
+    let entry = bundle.read_result(entry_relative, max_bytes: 64)?
     if entry.state != "observed" or entry.truncated or entry.data == null or (entry.data ?? b"").len() != capture.entry_point.byte_count or hash.sha256(
       entry.data ?? b"",
     )
@@ -681,7 +680,7 @@ pure smbios_checksum_is_zero(data: Bytes, offset: Int, length: Int) -> Bool {
 
   var sum = 0
   for index in range(offset, offset + length) {
-    sum += data.byte_at(index)
+    sum += (data.byte_at(index) ?? -1)
   }
 
   return sum % 256 == 0
@@ -693,13 +692,13 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
     return Err(smbios_check_failure("SMBIOS dump inputs exceed their bounds or lack a table"))
   }
 
-  let is_v3 = entry_point.len() >= 24 and entry_point.slice(0, 5) == b"_SM3_"
-  let is_v2 = entry_point.len() >= 30 and entry_point.slice(0, 4) == b"_SM_"
+  let is_v3 = entry_point.len() >= 24 and entry_point[..5] == b"_SM3_"
+  let is_v2 = entry_point.len() >= 30 and entry_point[..4] == b"_SM_"
   if ! is_v3 and ! is_v2 {
     return Err(smbios_check_failure("SMBIOS entry point has an unsupported signature or length"))
   }
 
-  let entry_length = entry_point.byte_at(if is_v3 { 6 } else { 5 })
+  let entry_length = (entry_point.byte_at(if is_v3 { 6 } else { 5 }) ?? -1)
   let minimum_length = if is_v3 { 24 } else { 30 }
   let table_capacity = if is_v3 { bytes.unpack_le(entry_point, 4, 12)? } else { bytes.unpack_le(entry_point, 2, 22)? }
   if entry_length < minimum_length or entry_length > entry_point.len() or table_capacity < table.len() or ! smbios_checksum_is_zero(
@@ -715,13 +714,13 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
   let checksum_offset = if is_v3 { 5 } else { 21 }
   var prior_address_sum = 0
   for index in range(address_start, address_start + address_width) {
-    prior_address_sum += entry_point.byte_at(index)
+    prior_address_sum += (entry_point.byte_at(index) ?? -1)
   }
 
-  let relocated_checksum = (entry_point.byte_at(checksum_offset) + prior_address_sum - 32 + 256) % 256
+  let relocated_checksum = ((entry_point.byte_at(checksum_offset) ?? -1) + prior_address_sum - 32 + 256) % 256
   var header: List[Int] = []
   for index in range(32) {
-    var value = if index < entry_point.len() { entry_point.byte_at(index) } else { 0 }
+    var value = if index < entry_point.len() { (entry_point.byte_at(index) ?? -1) } else { 0 }
     if index == checksum_offset {
       value = relocated_checksum
     } else if index == address_start {
@@ -795,7 +794,7 @@ pure dmidecode_record_from_output(
   }
 
   let formatted = bytes.from_ints(formatted_octets)?
-  if length < 4 or formatted.byte_at(0) != record_type or formatted.byte_at(1) != length or bytes.unpack_le(
+  if length < 4 or (formatted.byte_at(0) ?? -1) != record_type or (formatted.byte_at(1) ?? -1) != length or bytes.unpack_le(
     formatted,
     2,
     2,
@@ -850,17 +849,17 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         return Err(smbios_check_failure("dmidecode record header is malformed"))
       }
 
-      match parts[0].split(" ").get(1, "").parse_int() {
+      match (parts[0].split(" ").get(1) ?? "").parse_int() {
         Ok(value) => handle = value
         Err(_) => return Err(smbios_check_failure("dmidecode handle is malformed"))
       }
 
-      match parts[1].split(" ").get(2, "").parse_int() {
+      match (parts[1].split(" ").get(2) ?? "").parse_int() {
         Ok(value) => record_type = value
         Err(_) => return Err(smbios_check_failure("dmidecode record type is malformed"))
       }
 
-      match parts[2].split(" ").get(0, "").parse_int() {
+      match (parts[2].split(" ").get(0) ?? "").parse_int() {
         Ok(value) => length = value
         Err(_) => return Err(smbios_check_failure("dmidecode formatted length is malformed"))
       }
@@ -1118,7 +1117,7 @@ export proc corroborate_smbios_bundle(
     "dmidecode-reference.json",
     "dmidecode-comparison.json",
   ] {
-    if fs.root_exists(bundle, fp"${name}")? {
+    if bundle.exists(fp"${name}")? {
       return Err(smbios_check_failure("SMBIOS bundle already contains dmidecode corroboration"))
     }
   }
@@ -1131,13 +1130,13 @@ export proc corroborate_smbios_bundle(
   let entry_point = validated.entry_point ?? b""
   let dump = craft_dmidecode_dump(entry_point, validated.data)?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  fs.root_write(scratch, p"dump.bin", dump)?
-  fs.root_write(scratch, p"version", "")?
-  fs.root_write(scratch, p"version-error", "")?
-  fs.root_write(scratch, p"output", "")?
-  fs.root_write(scratch, p"error", "")?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  scratch.write(p"dump.bin", dump)?
+  scratch.write(p"version", "")?
+  scratch.write(p"version-error", "")?
+  scratch.write(p"output", "")?
+  scratch.write(p"error", "")?
+  let scratch_path = scratch.host_path()?
   let version_argv = [executable, "--version"]
   let version_started = time.now()
   let version_status = process.run(
@@ -1151,13 +1150,13 @@ export proc corroborate_smbios_bundle(
     ),
   )?
   let version_ended = time.now()
-  let version_source = fs.root_read_result(scratch, p"version", max_bytes: 4096)?
-  let version_error = fs.root_read_result(scratch, p"version-error", max_bytes: 65536)?
+  let version_source = scratch.read_result(p"version", max_bytes: 4096)?
+  let version_error = scratch.read_result(p"version-error", max_bytes: 65536)?
   let version_exit = match version_status.exit_code() { Ok(code) => code, Err(_) => -1 }
   let version_bytes = version_source.data ?? b""
   let version_error_bytes = version_error.data ?? b""
-  fs.root_write_atomic(bundle, p"dmidecode-version.txt", version_bytes)?
-  fs.root_write_atomic(bundle, p"dmidecode-version-error.txt", version_error_bytes)?
+  bundle.write_atomic(p"dmidecode-version.txt", version_bytes)?
+  bundle.write_atomic(p"dmidecode-version-error.txt", version_error_bytes)?
   let probe: DmidecodeProbeMetadata = {
     schema_version: 1,
     reference_adapter: "dmidecode-hex-v1",
@@ -1180,7 +1179,7 @@ export proc corroborate_smbios_bundle(
     stderr_truncated: version_error.truncated,
   }
   let probe_wire: Any = probe
-  fs.root_write_atomic(bundle, p"dmidecode-probe.json", json.encode(probe_wire, pretty: true)?)?
+  bundle.write_atomic(p"dmidecode-probe.json", json.encode(probe_wire, pretty: true)?)?
   if version_exit != 0 or version_source.state != "observed" or version_source.truncated or version_source.data == null or version_error.truncated {
     return Err(smbios_check_failure("dmidecode version probe failed"))
   }
@@ -1204,13 +1203,13 @@ export proc corroborate_smbios_bundle(
     ),
   )?
   let ended = time.now()
-  let output = fs.root_read_result(scratch, p"output", max_bytes: 8388608)?
-  let stderr = fs.root_read_result(scratch, p"error", max_bytes: 65536)?
+  let output = scratch.read_result(p"output", max_bytes: 8388608)?
+  let stderr = scratch.read_result(p"error", max_bytes: 65536)?
   let exit_status = match status.exit_code() { Ok(code) => code, Err(_) => -1 }
   let output_bytes = output.data ?? b""
   let stderr_bytes = stderr.data ?? b""
-  fs.root_write_atomic(bundle, p"dmidecode-output.txt", output_bytes)?
-  fs.root_write_atomic(bundle, p"dmidecode-stderr.txt", stderr_bytes)?
+  bundle.write_atomic(p"dmidecode-output.txt", output_bytes)?
+  bundle.write_atomic(p"dmidecode-stderr.txt", stderr_bytes)?
   let metadata: DmidecodeRunMetadata = {
     schema_version: 1,
     reference_adapter: "dmidecode-hex-v1",
@@ -1238,7 +1237,7 @@ export proc corroborate_smbios_bundle(
     stderr_truncated: stderr.truncated,
   }
   let metadata_wire: Any = metadata
-  fs.root_write_atomic(bundle, p"dmidecode-reference.json", json.encode(metadata_wire, pretty: true)?)?
+  bundle.write_atomic(p"dmidecode-reference.json", json.encode(metadata_wire, pretty: true)?)?
   if exit_status != 0 or output.state != "observed" or output.truncated or stderr.state != "observed" or stderr.truncated {
     return Err(smbios_check_failure("dmidecode reference failed or exceeded its output bound"))
   }
@@ -1250,7 +1249,7 @@ export proc corroborate_smbios_bundle(
 
   let compared = compare_dmidecode_hex_output(validated.reference, output_bytes.utf8()?)?
   let comparison_wire: Any = compared
-  fs.root_write_atomic(bundle, p"dmidecode-comparison.json", json.encode(comparison_wire, pretty: true)?)?
+  bundle.write_atomic(p"dmidecode-comparison.json", json.encode(comparison_wire, pretty: true)?)?
   return {comparison: compared, version: version, started_unix_ms: started, ended_unix_ms: ended}
 }
 
@@ -1292,14 +1291,14 @@ export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, e
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_smbios_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -1318,7 +1317,7 @@ export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, e
   let after_started = time.now()
   let after = read_smbios_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   smbios_require_live_report(candidate)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?

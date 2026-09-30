@@ -1,4 +1,4 @@
-proc test_webp_dir_dry_run(ctx: TestContext) [fs, process, error] {
+test test_webp_dir_dry_run [fs, process, error] { |ctx|
   let dir = test.temp_dir(ctx)?
   let _ = test.temp_file(ctx, name: "photo.jpg", contents: b"fake jpeg")?
   let root = dir.display()
@@ -6,7 +6,7 @@ proc test_webp_dir_dry_run(ctx: TestContext) [fs, process, error] {
   "would be converted" in output
 }
 
-proc test_webp_dir_help() [fs, process, error] {
+test test_webp_dir_help [fs, process, error] {
   let output = run.text "xsh" "showcase/webp-dir.xsh" -- --help ?
   "quality" in output
 }

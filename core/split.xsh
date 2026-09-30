@@ -109,8 +109,8 @@ proc main(...argv: List[Str]) [fs, error, io] {
     return Err(usage_error("split", "[-l N|-b N] [FILE [PREFIX]]"))
   }
 
-  let input_path = paths.get(0, "-")
-  let prefix = paths.get(1, "x")
+  let input_path = (paths.get(0) ?? "-")
+  let prefix = (paths.get(1) ?? "x")
 
   if bytes_per_file > 0 {
     let input = read_bytes_input(input_path)?

@@ -1,4 +1,4 @@
-proc test_host_localhost(ctx: TestContext) [process, env, error] {
+test test_host_localhost [process, env, error] { |ctx|
   if env.bool("XSH_SKIP_NET_TESTS")? {
     test.skip("net feature disabled")
   }
@@ -7,7 +7,7 @@ proc test_host_localhost(ctx: TestContext) [process, env, error] {
   "localhost" in output
 }
 
-proc test_host_type_and_usage(ctx: TestContext) [fs, process, env, error] {
+test test_host_type_and_usage [fs, process, env, error] { |ctx|
   if env.bool("XSH_SKIP_NET_TESTS")? {
     test.skip("net feature disabled")
   }

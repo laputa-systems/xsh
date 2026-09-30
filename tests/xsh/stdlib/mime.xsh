@@ -10,9 +10,6 @@ pure missing_info() -> MimeInfo {
   return {mime: "missing", exts: ["missing"]}
 }
 
-# `lookup_path` reports its declared optional type but keeps the baseline
-# runtime boundary of `Ok`/`Err`, so `??` is the one form that observes both
-# spellings correctly.
 # The `type` field of a successful parse, or `rejected` when it was refused.
 pure parsed_type(result: Result[MimeParse]) -> Str {
   match result {
@@ -29,23 +26,21 @@ pure parsed_params(result: Result[MimeParse]) -> Map[Str] {
   }
 }
 
-proc test_mime_lookup_and_parse() [fs, error] {
+test test_mime_lookup_and_parse [fs, error] {
   let info = mime.lookup_ext("tar.gz") ?? {mime: "missing", exts: ["missing"]}
   info.mime == "application/tar+gzip"
   info.exts[0] == "tar.gz"
 
-  # `lookup_path` keeps the baseline runtime boundary: a hit is `Ok`, a miss is
-  # an error, even though the declared result type is a plain optional.
-  # and a present one is read with `?.` or `??`, never with `?`.
-  mime.lookup_path(p"archive.tar.gz")?.mime == "application/tar+gzip"
-  mime.lookup_ext("definitelymissingxsh") == null
+  test.eq(mime.lookup_path(p"archive.tar.gz")?.mime, "application/tar+gzip")?
+  test.eq(mime.lookup_ext("definitelymissingxsh"), null)?
+  test.eq(mime.lookup_path(p"no-extension"), null)?
   let parsed = mime.parse("Text/Plain; Charset=UTF-8")?
-  parsed.type == "text/plain"
-  parsed.params.get("charset", "") == "UTF-8"
+  test.eq(parsed.type, "text/plain")?
+  test.eq((parsed.params.get("charset") ?? ""), "UTF-8")?
   test.error_kind(mime.parse("not a media type"), "mime-parse")?
 }
 
-proc test_mime_lookup_ext_normalizes_the_query_spelling() [fs, error] {
+test test_mime_lookup_ext_normalizes_the_query_spelling [fs, error] {
   # Leading dots are dropped and ASCII case is folded before the table is
   # consulted, so these four spellings are one key.
   for spelling in ["gz", ".gz", "GZ", "..GZ"] {
@@ -67,7 +62,7 @@ proc test_mime_lookup_ext_normalizes_the_query_spelling() [fs, error] {
   jpeg.exts.join(",") == "jpg,jpeg"
 }
 
-proc test_mime_lookup_ext_rejects_unusable_extensions() [fs, error] {
+test test_mime_lookup_ext_rejects_unusable_extensions [fs, error] {
   # An empty query, and a query that normalization empties, are not lookups.
   mime.lookup_ext("") == null
   mime.lookup_ext(".") == null
@@ -84,7 +79,7 @@ proc test_mime_lookup_ext_rejects_unusable_extensions() [fs, error] {
   mime.lookup_ext("definitelymissingxsh") == null
 }
 
-proc test_mime_lookup_path_tries_longest_suffix_first() [fs, error] {
+test test_mime_lookup_path_tries_longest_suffix_first [fs, error] {
   # `tar.gz` is a table key in its own right, so the compound suffix of the
   # same name wins over the `gz` suffix the name also ends with.
   let compound = mime.lookup_path(p"archive.tar.gz") ?? missing_info()
@@ -104,35 +99,35 @@ proc test_mime_lookup_path_tries_longest_suffix_first() [fs, error] {
   (mime.lookup_path(p"archive.tar.gz.bak") ?? missing_info()).mime == "missing"
 }
 
-proc test_mime_lookup_path_uses_only_the_final_component() [fs, error] {
+test test_mime_lookup_path_uses_only_the_final_component [fs, error] {
   # A dot in a directory name is not a suffix of the file.
   (mime.lookup_path(p"dir.d/file") ?? missing_info()).mime == "missing"
   (mime.lookup_path(p"dir.d/file.txt") ?? missing_info()).mime == "text/plain"
 
   # A path with no extension at all, and one whose extension no row carries.
-  test.error_kind(mime.lookup_path(p"noext"), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p"a/b/README"), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p"dir/"), "mime-lookup")?
+  test.eq(mime.lookup_path(p"noext"), null)?
+  test.eq(mime.lookup_path(p"a/b/README"), null)?
+  test.eq(mime.lookup_path(p"dir/"), null)?
 
   # A dot that ends the name, and a leading dot, offer no usable suffix.
-  test.error_kind(mime.lookup_path(p"file."), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p".hidden"), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p".."), "mime-lookup")?
+  test.eq(mime.lookup_path(p"file."), null)?
+  test.eq(mime.lookup_path(p".hidden"), null)?
+  test.eq(mime.lookup_path(p".."), null)?
 }
 
-proc test_mime_parse_lowercases_the_type_and_parameter_names() [error] {
+test test_mime_parse_lowercases_the_type_and_parameter_names [error] {
   # The `type/subtype` field is ASCII-lowercased.
   parsed_type(mime.parse("TEXT/PLAIN")) == "text/plain"
   parsed_type(mime.parse("Application/Vnd.Demo+Json")) == "application/vnd.demo+json"
 
   # Parameter names are ASCII-lowercased; parameter values keep their case.
   let parsed = parsed_params(mime.parse("text/plain; Charset=UTF-8; NAME=\"A B\""))
-  parsed.get("charset", "absent") == "UTF-8"
-  parsed.get("name", "absent") == "A B"
-  parsed.get("NAME", "absent") == "absent"
+  test.eq((parsed.get("charset") ?? "absent"), "UTF-8")?
+  test.eq((parsed.get("name") ?? "absent"), "A B")?
+  test.eq((parsed.get("NAME") ?? "absent"), "absent")?
 }
 
-proc test_mime_parse_splits_on_semicolons_before_interpreting_quotes() [error] {
+test test_mime_parse_splits_on_semicolons_before_interpreting_quotes [error] {
   # The split happens first, so a semicolon inside a quoted value ends the
   # parameter and leaves an unterminated quote behind.
   parsed_type(mime.parse("text/plain; name=\"a;b\"")) == "rejected"
@@ -140,41 +135,41 @@ proc test_mime_parse_splits_on_semicolons_before_interpreting_quotes() [error] {
 
   # The other consequence of splitting first: a value is quoted only when its
   # own part starts with a quote.
-  parsed_params(mime.parse("text/plain; a=1; b=2")).get("b", "absent") == "2"
-  parsed_params(mime.parse("text/plain; a=\"q\"")).get("a", "absent") == "q"
+  test.eq((parsed_params(mime.parse("text/plain; a=1; b=2")).get("b") ?? "absent"), "2")?
+  test.eq((parsed_params(mime.parse("text/plain; a=\"q\"")).get("a") ?? "absent"), "q")?
 
   # Empty parts between semicolons are skipped, and semicolons alone are not
   # parameters.
-  parsed_type(mime.parse("text/plain;")) == "text/plain"
-  parsed_type(mime.parse("text/plain;;")) == "text/plain"
-  parsed_params(mime.parse("text/plain;;")).get("a", "absent") == "absent"
+  test.eq(parsed_type(mime.parse("text/plain;")), "text/plain")?
+  test.eq(parsed_type(mime.parse("text/plain;;")), "text/plain")?
+  test.eq((parsed_params(mime.parse("text/plain;;")).get("a") ?? "absent"), "absent")?
 }
 
-proc test_mime_parse_keeps_the_last_repeated_parameter() [error] {
+test test_mime_parse_keeps_the_last_repeated_parameter [error] {
   # A repeated name replaces the earlier value, and the names collide only
   # after ASCII case folding.
-  parsed_params(mime.parse("text/plain; a=1; a=2")).get("a", "absent") == "2"
-  parsed_params(mime.parse("text/plain; a=1; A=2")).get("a", "absent") == "2"
-  parsed_params(mime.parse("text/plain; a=1; b=2; a=3")).get("b", "absent") == "2"
+  test.eq((parsed_params(mime.parse("text/plain; a=1; a=2")).get("a") ?? "absent"), "2")?
+  test.eq((parsed_params(mime.parse("text/plain; a=1; A=2")).get("a") ?? "absent"), "2")?
+  test.eq((parsed_params(mime.parse("text/plain; a=1; b=2; a=3")).get("b") ?? "absent"), "2")?
 }
 
-proc test_mime_parse_reads_quoted_parameter_values() [error] {
+test test_mime_parse_reads_quoted_parameter_values [error] {
   # The outer quotes are removed; a backslash keeps the next character
   # literally, so an escaped quote or backslash survives as data.
-  parsed_params(mime.parse("text/plain; name=\"a b\"")).get("name", "absent") == "a b"
-  parsed_params(mime.parse("text/plain; name=\"a\\\"b\"")).get("name", "absent") == "a\"b"
-  parsed_params(mime.parse("text/plain; name=\"a\\\\b\"")).get("name", "absent") == "a\\b"
+  test.eq((parsed_params(mime.parse("text/plain; name=\"a b\"")).get("name") ?? "absent"), "a b")?
+  test.eq((parsed_params(mime.parse("text/plain; name=\"a\\\"b\"")).get("name") ?? "absent"), "a\"b")?
+  test.eq((parsed_params(mime.parse("text/plain; name=\"a\\\\b\"")).get("name") ?? "absent"), "a\\b")?
 
   # An empty quoted value is a value; the parameter is not dropped.
-  parsed_params(mime.parse("text/plain; name=\"\"")).get("name", "absent") == ""
+  test.eq((parsed_params(mime.parse("text/plain; name=\"\"")).get("name") ?? "absent"), "")?
 
   # Whitespace around the name and the value is trimmed before either is
   # interpreted, so a quoted value need not start at the `=`.
-  parsed_params(mime.parse("text/plain ;  charset = UTF-8 ")).get("charset", "absent") == "UTF-8"
-  parsed_params(mime.parse("text/plain; name= \"a b\"")).get("name", "absent") == "a b"
+  test.eq((parsed_params(mime.parse("text/plain ;  charset = UTF-8 ")).get("charset") ?? "absent"), "UTF-8")?
+  test.eq((parsed_params(mime.parse("text/plain; name= \"a b\"")).get("name") ?? "absent"), "a b")?
 }
 
-proc test_mime_parse_rejects_invalid_media_types() [error] {
+test test_mime_parse_rejects_invalid_media_types [error] {
   # The type field must be a non-empty `token/token` pair.
   for value in [
     "",
@@ -192,7 +187,7 @@ proc test_mime_parse_rejects_invalid_media_types() [error] {
   test.error_kind(mime.parse(""), "mime-parse")?
 }
 
-proc test_mime_parse_rejects_malformed_parameters() [error] {
+test test_mime_parse_rejects_malformed_parameters [error] {
   # A parameter must be `name=value` with a token name and a token or quoted
   # value, and nothing may follow the closing quote.
   for value in [

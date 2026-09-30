@@ -4,6 +4,11 @@ JSON is a boundary format in XSH, not the internal language of a script. Decode
 it at the edge, check the shape you intend to trust, and keep the rest of the
 program in typed XSH values.
 
+JSON object names remain strings. Encoding `Map[K, V]` requires `K = Str` and
+returns `json-compatible` for other key domains. Convert application-owned keys explicitly
+with a comprehension when a textual wire format is intended; Path display text
+can lose native byte identity.
+
 `examples/json.xsh` is the curated persistence and JSON-lines composition
 showcase. `tests/xsh/stdlib/json.xsh` owns focused acceptance and error cases.
 
@@ -31,6 +36,27 @@ Prefer this whenever the script knows what it needs. It produces better errors,
 keeps field access ordinary, and avoids scattering dynamic checks through the
 program.
 
+## Enum Wire Strings
+
+```xsh
+enum State: Str { Ready = "ready", Empty = "" }
+type Packet = {state: State, history: List[State]}
+let packet = json.decode(input)?.require(Packet)?
+json.write(output, packet)?
+```
+
+A Str-backed enum declares one unique constant string per payload-free variant.
+JSON encoding and writing use those strings, including inside records and
+collections. Raw decoding still returns strings. Explicit `.require(Packet)`
+converts only enum slots, checks the whole value before returning it, reports
+unknown strings with field and index paths, and never fills missing defaults.
+Type patterns check existing enum values without conversion. Typed Map values
+retain their declared key domain during conversion, including UInt checks. Raw
+JSON objects can supply Str-keyed maps; numeric or other key domains require
+already typed maps. JSON encoding still rejects non-Str keys, and enums do not
+become a supported key domain. Ordinary enums remain incompatible with JSON.
+`tests/xsh/wire-enums.xsh` covers these boundaries.
+
 ## Do Not Schema Every Temporary Value
 
 Do not invent a named type for every throwaway JSON fragment. Add a schema where
@@ -45,6 +71,10 @@ let event = {
 
 json.write(log_path, event)?
 ```
+
+`json.write_lines` also accepts an existing concrete list of JSON-compatible
+records. Serialization reads its values without converting the list to
+`List[Any]`; container assignments retain their invariant element domains.
 
 The record is already typed in XSH. A separate `Event` type is useful only if
 the script will read the value back, accept it from another process, or pass it
@@ -109,7 +139,7 @@ model application data.
 ## System Report Snapshots
 
 `core/lib/system_report.xsh::SystemReport` keeps observation, section, and
-source states as closed tag unions. JSON v1 uses the `SystemReportJson` wire
+source states as Str-backed nominal enums. JSON v1 uses the `SystemReportJson` wire
 schema and stable lower snake case strings for those union values. Use
 `encode_report_json` and `decode_report_json` at this boundary; the decoder
 rejects unknown state spellings and schema versions. The encoder applies the
@@ -125,7 +155,7 @@ Live collection currently reports `live_linux` and describes the
 process-visible source view and namespaces in `ObservationScope`; it does not
 claim that the process sees a physical host or the host's outer namespaces.
 The scope records mount, network, PID, cgroup, UTS, IPC, user, and time namespace
-symlink identities when `/proc/self/ns` exposes them. `fs.root_readlink_result`
+symlink identities when `/proc/self/ns` exposes them. `FsRoot.readlink_result`
 preserves absence, permission failure, and other read failures as distinct
 observation states with field-addressed issues. Default output redacts the
 symlink targets while retaining each observation state.
@@ -771,7 +801,7 @@ IDs. The live `findmnt` comparison can score only propagation class. A changing 
 recorded in `stable` but does not invalidate complete saved bytes. Empty,
 incomplete, malformed, or oversized-oracle captures remain unscoreable; replay
 rechecks both raw bytes and exact capture metadata after collection.
-Capacity reads through `fs.root_filesystem_stats` are limited to local
+Capacity reads through `FsRoot.filesystem_stats` are limited to local
 filesystems whose mount ancestors are also local and whose target paths are
 unique in the visible mount inventory. A shadowed target can resolve to a
 different mount, and a local child beneath an automount can trigger its

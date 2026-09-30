@@ -1,4 +1,4 @@
-proc fail() [process] {
+proc fail() [process, error] {
   run false
 }
 

@@ -13,7 +13,7 @@ fn batch_max_argv_splits_long_path_lists_before_running_commands() {
         source.push_str("\")");
     }
     source.push_str(
-        "]\n(files) |> batch --max-argv |> each { |chunk|\n  run true @chunk ?\n}\nprint \"ok\"\n",
+        "]\n(files) |> batch(max_argv: true) |> each { |chunk|\n  run true @chunk ?\n}\nprint \"ok\"\n",
     );
 
     let output = run_temp_script("stream-batch-max-argv", &source);
@@ -32,7 +32,7 @@ fn sigterm_cancels_traced_par_map_process_work_without_losing_trace_context() {
     let source = format!(
         "\
 let ready = Path({})
-[\"one\", \"two\"] |> par-map --jobs=2 {{ |item|
+[\"one\", \"two\"] |> par-map(jobs: 2) {{ |item|
   let _status = run sh -c {} sh (ready) ?
   item
 }}
@@ -52,6 +52,7 @@ let ready = Path({})
     assert_eq!(output.status.code(), Some(3));
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("canceled"));
+    assert!(!stderr.contains("return-outside-function"), "{stderr}");
     assert!(stderr.contains("kind=parallel.job.start"), "{stderr}");
     assert!(stderr.contains("kind=parallel.job.end"), "{stderr}");
     assert!(stderr.contains("kind=stream.item.error"), "{stderr}");
@@ -68,7 +69,7 @@ on USR1 [] {
 }
 
 let _sender = process.spawn(process.command_argv(\"sh\", [\"sh\", \"-c\", r\"sleep 0.05; kill -USR1 $PPID\"]))?
-let values = [1, 2, 3] |> par-map --jobs=2 { |value|
+let values = [1, 2, 3] |> par-map(jobs: 2) { |value|
   time.sleep(1s)?
   value
 }

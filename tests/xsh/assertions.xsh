@@ -1,4 +1,4 @@
-proc test_boolean_statement_failure_stops_script(ctx: TestContext) [error] {
+test test_boolean_statement_failure_stops_script [error] { |ctx|
   let output = test.run_script(ctx, "1 == 2\nprint \"unreachable\"\n")?
   output.status == 3
   output.stdout == ""
@@ -6,7 +6,7 @@ proc test_boolean_statement_failure_stops_script(ctx: TestContext) [error] {
   test.ok("AssertionError" in output.stderr, output.stderr)?
 }
 
-proc test_boolean_values_and_explicit_discards_remain_values(ctx: TestContext) [error] {
+test test_boolean_values_and_explicit_discards_remain_values [error] { |ctx|
   let output = test.run_script(ctx, """
 pure predicate() -> Bool { false }
 pure dynamic() -> Any { false }
@@ -21,7 +21,7 @@ print f"\${value} \${dynamic()} \${wrapped()?} \${wrapped_any()?} \${retried}"
   output.stdout == "false false false false false\n"
 }
 
-proc test_unit_tail_and_non_tail_booleans_assert(ctx: TestContext) [error] {
+test test_unit_tail_and_non_tail_booleans_assert [error] { |ctx|
   let output = test.run_script(ctx, """
 proc check() { 2 > 3 }
 check()?
@@ -31,7 +31,7 @@ print "unreachable"
   output.stdout == ""
 }
 
-proc test_membership_checks_map_keys_and_record_fields() [error] {
+test test_membership_checks_map_keys_and_record_fields [error] {
   let empty: Map[Int?] = {}
   let mapping = empty.set("present", null)
   ("present" in mapping)
@@ -41,7 +41,7 @@ proc test_membership_checks_map_keys_and_record_fields() [error] {
   ("absent" not in fields)
 }
 
-proc test_assertion_single_evaluation_short_circuit_and_value_predicates(ctx: TestContext) [error] {
+test test_assertion_single_evaluation_short_circuit_and_value_predicates [error] { |ctx|
   let output = test.run_script(ctx, """
 var calls = 0
 proc tick() -> Result[Int] { calls += 1; calls }
@@ -63,7 +63,7 @@ print "done"
   output.stdout == "done\n"
 }
 
-proc test_assertion_nominal_error_handlers_and_retry(ctx: TestContext) [error] {
+test test_assertion_nominal_error_handlers_and_retry [error] { |ctx|
   let output = test.run_script(ctx, """
 pure fail() -> Result[Unit, AssertionError] { false }
 match fail() {
@@ -83,7 +83,7 @@ attempts == 3
   test.ok("unexpected" not in output.stdout, output.stdout)?
 }
 
-proc test_assertion_defers_preserve_primary_failure(ctx: TestContext) [error] {
+test test_assertion_defers_preserve_primary_failure [error] { |ctx|
   let output = test.run_script(ctx, """
 proc cleanup(value: Str) { print $value }
 proc broken_cleanup() { error.fail("cleanup failed")? }
@@ -102,7 +102,7 @@ print "unreachable"
   test.ok("8 < 3" in output.stderr, output.stderr)?
 }
 
-proc test_assertion_contexts_require_result_effect_and_compatible_error(ctx: TestContext) [error] {
+test test_assertion_contexts_require_result_effect_and_compatible_error [error] { |ctx|
   for source in [
     "pure fail() -> Unit { false }\n",
     "proc fail() [] { false }\n",
@@ -115,7 +115,7 @@ proc test_assertion_contexts_require_result_effect_and_compatible_error(ctx: Tes
   }
 }
 
-proc test_membership_domains_views_and_source_order(ctx: TestContext) [error] {
+test test_membership_domains_views_and_source_order [error] { |ctx|
   let output = test.run_script(ctx, """
 var order = ""
 proc needle() -> Result[Str] { order = order + "n"; "é" }
@@ -137,7 +137,7 @@ print "done"
   output.stdout == "done\n"
 }
 
-proc test_boolean_literals_names_and_statement_match_tails(ctx: TestContext) [error] {
+test test_boolean_literals_names_and_statement_match_tails [error] { |ctx|
   let passed = test.run_script(ctx, """
 true
 let condition = true
@@ -161,7 +161,7 @@ print "done"
   literal.stdout == ""
 }
 
-proc test_assertion_aliases_dynamic_boundaries_and_integer_status(ctx: TestContext) [error] {
+test test_assertion_aliases_dynamic_boundaries_and_integer_status [error] { |ctx|
   let output = test.run_script(ctx, """
 type Predicate = Bool
 type PredicateResult = Result[Bool]
@@ -183,7 +183,7 @@ print "done"
   integer.status == 7
 }
 
-proc test_retained_helpers_share_core_nominal_failure(ctx: TestContext) [error] {
+test test_retained_helpers_share_core_nominal_failure [error] { |ctx|
   let output = test.run_script(ctx, """
 for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)] {
   match failure {
@@ -197,7 +197,7 @@ for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)]
   test.ok("unexpected" not in output.stdout, output.stdout)?
 }
 
-proc test_assertion_diagnostics_include_values_and_only_evaluated_operands(ctx: TestContext) [error] {
+test test_assertion_diagnostics_include_values_and_only_evaluated_operands [error] { |ctx|
   let equality = test.run_script(ctx, "let actual = [1, 2]\nactual == [1, 3]\n")?
   equality.status == 3
   test.ok("left: [1, 2]" in equality.stderr, equality.stderr)?
@@ -216,7 +216,7 @@ proc test_assertion_diagnostics_include_values_and_only_evaluated_operands(ctx: 
   test.ok("+new" in difference.stderr, difference.stderr)?
 }
 
-proc test_assertion_diagnostics_bound_record_field_names(ctx: TestContext) [error] {
+test test_assertion_diagnostics_bound_record_field_names [error] { |ctx|
   var field = ""
   for _ in range(1000) { field = field + "abcdefghij" }
   let output = test.run_script(ctx, f"let actual = {${field}: null}\n\"missing\" in actual\n")?
@@ -225,7 +225,7 @@ proc test_assertion_diagnostics_bound_record_field_names(ctx: TestContext) [erro
   output.stderr.byte_len() < 4096
 }
 
-proc test_assertion_attempt_local_effects_and_unwrapped_exists(ctx: TestContext) [error] {
+test test_assertion_attempt_local_effects_and_unwrapped_exists [error] { |ctx|
   let output = test.run_script(ctx, """
 proc local() [] {
   let attempt = retry [] { false; let _ = 0 }
@@ -242,18 +242,18 @@ p".".exists()?
   test.ok("unexpected" not in output.stdout, output.stdout)?
 }
 
-proc test_retained_assertion_named_arguments_keep_bound_evaluation_order(ctx: TestContext) [error] {
+test test_retained_assertion_named_arguments_keep_source_evaluation_order [error] { |ctx|
   let output = test.run_script(ctx, """
 var order = 0
 proc left() -> Result[Int] { order = order * 10 + 1; 1 }
 proc right() -> Result[Int] { order = order * 10 + 2; 1 }
 test.eq(right: right()?, left: left()?)?
-order == 12
+order == 21
 """)?
   test.ok(output.success, output.stderr)?
 }
 
-proc test_user_fields_and_functions_named_membership_aliases_remain_usable(ctx: TestContext) [fs, error] {
+test test_user_fields_and_functions_named_membership_aliases_remain_usable [fs, error] { |ctx|
   let helper = fp"${ctx.temp_root}/custom.xsh"
   helper.write("""
 ##! Caller-owned functions.

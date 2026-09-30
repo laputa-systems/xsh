@@ -190,7 +190,7 @@ proc stats_map_for(pids: List[Int], os_name: Str) [process, error] -> Result[Map
 
     for row in rows {
       if row.stats.rss_kb < 0 {
-        stats_by_pid[f"${row.pid}"] = fallback.get(f"${row.pid}", empty_stats())
+        stats_by_pid[f"${row.pid}"] = ({ let lookup_receiver_3 = fallback; let lookup_index_3 = f"${row.pid}"; let lookup_fallback_3 = empty_stats(); lookup_receiver_3.get(lookup_index_3) ?? lookup_fallback_3 })
       }
     }
   }
@@ -650,7 +650,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
 
   if opts.show_threads {
     for owner_pid in matched_owner_pids {
-      let items = matched_threads_by_pid.get(f"${owner_pid}", empty_rows)
+      let items = (matched_threads_by_pid.get(f"${owner_pid}") ?? empty_rows)
 
       if printed > 0 {
         print ""
@@ -659,10 +659,10 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
       printed += 1
       let row = owner_row(items[0])
       let stat_pid = row.owner_pid
-      let stats = stats_by_pid.get(f"${stat_pid}", empty_stats())
+      let stats = ({ let lookup_receiver_4 = stats_by_pid; let lookup_index_4 = f"${stat_pid}"; let lookup_fallback_4 = empty_stats(); lookup_receiver_4.get(lookup_index_4) ?? lookup_fallback_4 })
       let tree_depth = parent_lineage(row, rows_by_pid).len()
       print_lineage(row, rows_by_pid)?
-      print_row(row, stats, ports_by_pid.get(f"${stat_pid}", empty_ports))?
+      print_row(row, stats, (ports_by_pid.get(f"${stat_pid}") ?? empty_ports))?
       print_thread_names(items, tree_depth + 1)?
     }
   } else {
@@ -673,9 +673,9 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
 
       printed += 1
       let stat_pid = row.owner_pid
-      let stats = stats_by_pid.get(f"${stat_pid}", empty_stats())
+      let stats = ({ let lookup_receiver_5 = stats_by_pid; let lookup_index_5 = f"${stat_pid}"; let lookup_fallback_5 = empty_stats(); lookup_receiver_5.get(lookup_index_5) ?? lookup_fallback_5 })
       print_lineage(row, rows_by_pid)?
-      print_row(row, stats, ports_by_pid.get(f"${stat_pid}", empty_ports))?
+      print_row(row, stats, (ports_by_pid.get(f"${stat_pid}") ?? empty_ports))?
     }
   }
 }

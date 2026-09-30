@@ -39,9 +39,9 @@ proc main(...argv: List[Str]) [fs, error] {
   let name_re = if opts.pattern == "" { regex.compile(".")? } else { regex.compile(opts.pattern)? }
 
   # Sort descending by path so the lexicographically largest names (newest ISO dates) come first
-  let all_files = fs.ls(dir)
+  let all_files = fs.children(dir)
     |> where .kind == "file" and name_re.matches(.path.name())
-    |> sort-by --desc .path
+    |> sort-by(desc: true) .path
 
   if all_files.len() == 0 {
     print f"no files found in ${dir.display()}"

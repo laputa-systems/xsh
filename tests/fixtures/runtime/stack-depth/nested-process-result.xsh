@@ -9,6 +9,17 @@ type Plan = {
   unsupported: List[Str],
 }
 type Scan = {dir: Path, plan: Plan, child_dirs: List[Path], entries: List[Path]}
+type RawArchiveOwner = {object: Str, dir: Str}
+type RawComposite = {object: Str, members: List[Str]}
+type RawPlan = {
+  dirs: List[Str],
+  objects: List[Str],
+  lib_objects: List[Str],
+  archive_owners: List[RawArchiveOwner],
+  composites: List[RawComposite],
+  unsupported: List[Str],
+}
+type RawScan = {dir: Str, plan: RawPlan, child_dirs: List[Str], entries: List[Str]}
 
 proc path_from_string(item: Str) [error] -> Result[Path] {
   return fp"${item}"
@@ -18,21 +29,21 @@ proc paths_from_strings(items: List[Str]) [error] -> Result[List[Path]] {
   [path_from_string(item)? for item in items]
 }
 
-proc archive_owners_from_records(items: List[Record]) [error] -> Result[List[ArchiveOwner]] {
+proc archive_owners_from_records(items: List[RawArchiveOwner]) [error] -> Result[List[ArchiveOwner]] {
   var owners: List[ArchiveOwner] = []
   for item in items {
-    let object: Str = item.get("object")?
-    let dir: Str = item.get("dir")?
+    let object = item.object
+    let dir = item.dir
     owners = owners.push({object: fp"${object}", dir: fp"${dir}"})
   }
   return owners
 }
 
-proc composites_from_records(items: List[Record]) [error] -> Result[List[Composite]] {
+proc composites_from_records(items: List[RawComposite]) [error] -> Result[List[Composite]] {
   var composites: List[Composite] = []
   for item in items {
-    let object: Str = item.get("object")?
-    let members: List[Str] = item.get("members")?
+    let object = item.object
+    let members = item.members
     composites = composites.push({
       object: fp"${object}",
       members: paths_from_strings(members)?,
@@ -42,16 +53,17 @@ proc composites_from_records(items: List[Record]) [error] -> Result[List[Composi
 }
 
 proc materialize(item: Record) [error] -> Result[Scan] {
-  let dir_key: Str = item.get("dir")?
-  let plan_value: Record = item.get("plan")?
-  let dirs: List[Str] = plan_value.get("dirs")?
-  let objects: List[Str] = plan_value.get("objects")?
-  let lib_objects: List[Str] = plan_value.get("lib_objects")?
-  let archive_owners: List[Record] = plan_value.get("archive_owners")?
-  let composites: List[Record] = plan_value.get("composites")?
-  let unsupported: List[Str] = plan_value.get("unsupported")?
-  let child_dirs: List[Str] = item.get("child_dirs")?
-  let entries: List[Str] = item.get("entries")?
+  let checked = item.require(RawScan)?
+  let dir_key = checked.dir
+  let plan_value = checked.plan
+  let dirs = plan_value.dirs
+  let objects = plan_value.objects
+  let lib_objects = plan_value.lib_objects
+  let archive_owners = plan_value.archive_owners
+  let composites = plan_value.composites
+  let unsupported = plan_value.unsupported
+  let child_dirs = checked.child_dirs
+  let entries = checked.entries
   return {
     dir: fp"${dir_key}",
     plan: {

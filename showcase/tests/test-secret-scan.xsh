@@ -1,4 +1,4 @@
-proc test_secret_scan(ctx: TestContext) [fs, process, error] {
+test test_secret_scan [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "scan")?
 
   fp"${root}/creds.py".write("""AKIA1234567890ABCDEF

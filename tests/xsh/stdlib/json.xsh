@@ -4,7 +4,7 @@ type JsonNestedRow = {cpu: Int, online: Bool}
 
 type JsonNestedRows = {cpus: List[JsonNestedRow]}
 
-proc test_json_require_checks_nested_named_record_fields() [error] {
+test test_json_require_checks_nested_named_record_fields [error] {
   let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
   valid.require(JsonNestedRows)?.cpus[0].online == true
   let wrong_type = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":\"yes\"}]}")?
@@ -13,7 +13,7 @@ proc test_json_require_checks_nested_named_record_fields() [error] {
   test.error_kind(missing_field.require(JsonNestedRows), "schema")?
 }
 
-proc test_float_arithmetic_and_json_record_boundary() [error] {
+test test_float_arithmetic_and_json_record_boundary [error] {
   let ratio = 5.float() / 2.0
   var adjusted: Float = ratio
   adjusted += 0.25
@@ -24,7 +24,7 @@ proc test_float_arithmetic_and_json_record_boundary() [error] {
   encoded == "{\"ratio\":1.5,\"value\":2.75}"
 }
 
-proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
+test test_json_read_write_lines_and_paths [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "json")?
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true}}")?
   test.eq(json.get(value, ["name"])?, "pkg")?
@@ -45,7 +45,7 @@ proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
 }
 
-proc test_json_decode_type_patterns_and_public_boundaries() [error] {
+test test_json_decode_type_patterns_and_public_boundaries [error] {
   let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
   test.eq(decoded.quote, "\"")?
 
@@ -78,7 +78,7 @@ b""",
   encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
   test.error_kind(json.decode("not json"), "json")?
   let data = {path: p"src"}
-  let path_value = data["path"]
+  let path_value: Any = data["path"]
   test.error_kind(json.encode(path_value), "json-compatible")?
 }
 
@@ -93,7 +93,7 @@ pure json_label(value: Any) -> Result[Str] {
   }
 }
 
-proc test_json_path_helpers_report_invalid_paths() [error] {
+test test_json_path_helpers_report_invalid_paths [error] {
   let data = {items: [1]}
   test.error_kind(json.get(data, ["items", 4]), "json-path")?
   test.error_kind(json.set(data, ["items", 2], 3), "json-path")?
@@ -101,12 +101,12 @@ proc test_json_path_helpers_report_invalid_paths() [error] {
   test.error_kind(json.get(data, [-1]), "json-path")?
 }
 
-proc test_json_rejection_is_trace_visible(ctx: TestContext) [error] {
+test test_json_rejection_is_trace_visible [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
 let data = {path: Path("src")}
-let value = data["path"]
+let value: Any = data["path"]
 let _encoded = json.encode(value) ?
 """,
     ["--trace", "--raw"],
@@ -156,7 +156,7 @@ proc expect_record(label: Str, value: Any) [error] {
   }
 }
 
-proc test_json_path_get_walks_records_and_lists() [error] {
+test test_json_path_get_walks_records_and_lists [error] {
   let value = json.decode(
     "{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null,\"deep\":{\"rows\":[{\"cell\":7}]}}",
   )?
@@ -191,7 +191,7 @@ proc test_json_path_get_walks_records_and_lists() [error] {
   rejection_message(json.get(value, ["items", "x"]))? == "expected object at key `x`, found List"
 }
 
-proc test_json_path_get_keeps_maps_and_passes_values_through() [error] {
+test test_json_path_get_keeps_maps_and_passes_values_through [error] {
   let empty: Map[Any] = {}
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("nil", null)
   test.eq(json.get(tree, ["inner", "leaf"])?, 0)?
@@ -216,7 +216,7 @@ proc test_json_path_get_keeps_maps_and_passes_values_through() [error] {
   expect_map("a mixed path keeps the Map", json.get(mixed, ["rows", 0])?)?
 }
 
-proc test_json_path_is_interpreted_before_traversal() [error] {
+test test_json_path_is_interpreted_before_traversal [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2]}")?
 
   # Indexes are positions, so a negative one is rejected outright.
@@ -243,7 +243,7 @@ proc test_json_path_is_interpreted_before_traversal() [error] {
   test.error_kind(json.remove(value, [null]), "json-path")?
 }
 
-proc test_json_set_updates_the_named_position() [error] {
+test test_json_set_updates_the_named_position [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path replaces the value itself.
@@ -275,7 +275,7 @@ proc test_json_set_updates_the_named_position() [error] {
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
   expect_map("set keeps a Map", json.set(tree, ["other"], 2)?)?
   expect_map("set adds to a Map", json.set(tree, ["fresh"], 3)?)?
-  expect_map("set keeps a nested Map", json.set(tree, ["inner", "leaf"], 5)?.get("inner", null))?
+  expect_map("set keeps a nested Map", (json.set(tree, ["inner", "leaf"], 5)?.require(Map[Any])?.get("inner") ?? null))?
   test.eq(json.get(json.set(tree, ["inner", "leaf"], 5)?, ["inner", "leaf"])?, 5)?
   test.eq(json.get(json.set(tree, ["inner", "leaf"], 5)?, ["other"])?, 1)?
 
@@ -289,7 +289,7 @@ proc test_json_set_updates_the_named_position() [error] {
   test.error_kind(json.set(value, [-1], path_value), "json-compatible")?
 }
 
-proc test_json_remove_drops_the_named_position() [error] {
+test test_json_remove_drops_the_named_position [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path removes nothing and answers `null`.
@@ -322,11 +322,11 @@ proc test_json_remove_drops_the_named_position() [error] {
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
   expect_map("remove keeps a Map", json.remove(tree, ["other"])?)?
 
-  # Bound as `Any`: the inferred type of a `json.remove` result cannot take a
-  # dynamic method call, so the binding names the type the walk already uses.
-  let pruned: Any = json.remove(tree, ["inner", "leaf"])?
-  expect_map("remove keeps a nested Map", pruned.get("inner", null))?
-  "leaf" not in pruned.get("inner", null).require(Map[Any])?
+  # The path operation has a dynamic result. Validate its Map identity before
+  # calling Map methods; nested values remain dynamic until checked separately.
+  let pruned = json.remove(tree, ["inner", "leaf"])?.require(Map[Any])?
+  expect_map("remove keeps a nested Map", (pruned.get("inner") ?? null))?
+  "leaf" not in (pruned.get("inner") ?? null).require(Map[Any])?
   test.eq(json.get(pruned, ["inner", "leaf"], "gone"), "gone")?
 
   # Members the JSON codec would reject are ordinary values: they survive a
@@ -337,7 +337,7 @@ proc test_json_remove_drops_the_named_position() [error] {
   test.eq(json.get(kept, ["raw"])?, b"raw")?
 }
 
-proc test_json_get_overloads_and_encoded_lines() [error] {
+test test_json_get_overloads_and_encoded_lines [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"nil\":null}")?
 
   # The two-argument overload answers with the read or with the rejection.
@@ -387,10 +387,9 @@ b""",
   test.error_kind(json.encode_lines([path_value, 1]), "json-compatible")?
 }
 
-proc test_json_path_rejects_a_non_list_path(ctx: TestContext) [error] {
-  # `path` is declared `List[Any]`, so a path of any other type fails the call
-  # itself and aborts before the path policy runs: `path expected List` is only
-  # reachable from inside this module, where the parameter is `Any`.
+test test_json_path_rejects_a_non_list_path [error] { |ctx|
+  # The public path parameter requires a checked List shape. An unchecked
+  # dynamic path is rejected before process execution or runtime path traversal.
   let read = test.run_xsht_trace(
     ctx,
     """
@@ -400,12 +399,11 @@ let _read = json.get(value, where) ?
 """,
     ["--trace", "--raw"],
   )?
-  read.status == 3
-  "type-error" in read.stderr
+  read.status == 2
+  "check.dynamic-boundary" in read.stderr
   "List[Any]" in read.stderr
 
-  # The fallback overload converts a rejected path, not a failed call: a
-  # non-`json-path` failure is propagated instead of answering the fallback.
+  # A fallback value does not validate an unchecked path argument.
   let with_fallback = test.run_xsht_trace(
     ctx,
     """
@@ -415,8 +413,8 @@ let _read = json.get(value, where, "fallback") ?
 """,
     ["--trace", "--raw"],
   )?
-  with_fallback.status == 3
-  "type-error" in with_fallback.stderr
+  with_fallback.status == 2
+  "check.dynamic-boundary" in with_fallback.stderr
   "List[Any]" in with_fallback.stderr
 
   # An item that cannot be encoded fails the whole composition, and the failure
@@ -425,7 +423,7 @@ let _read = json.get(value, where, "fallback") ?
     ctx,
     """
 let bad: Any = Path("src")
-let items: Any = [1, bad]
+let items: List[Any] = [1, bad]
 let _lines = json.encode_lines(items) ?
 """,
     ["--trace", "--raw"],
@@ -434,4 +432,16 @@ let _lines = json.encode_lines(items) ?
   lines.stdout == ""
   "json-compatible" in lines.stderr
   "Path is not JSON-compatible" in lines.stderr
+}
+
+test test_json_lines_result_retains_list_type_in_record_fields [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+type Event = {event: Str}
+let decoded_events = "{\"event\":\"start\"}\n{\"event\":\"stop\"}\n" |> json.lines
+let second = decoded_events[1].require(Event)?
+let summary = {events: decoded_events.len(), complete: second.event == "stop"}
+print f"${summary.events}:${summary.complete}"
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "2:true\n")?
 }

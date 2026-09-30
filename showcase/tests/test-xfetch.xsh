@@ -1,4 +1,4 @@
-proc test_xfetch_summary() [process, error] {
+test test_xfetch_summary [process, error] {
   let output = run.text "xsh" "showcase/xfetch.xsh" ?
   "OS" in output
   "Kernel" in output

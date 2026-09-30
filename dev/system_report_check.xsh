@@ -4,11 +4,11 @@ use context
 error SystemReportCheckError = Invalid(message: Str)
 
 pure check_failure(message: Str) -> SystemReportCheckError {
-  return SystemReportCheckError.Invalid(message: message)
+  return SystemReportCheckError.Invalid(message:)
 }
 
 proc capture_metadata_bytes(bundle: FsRoot, max_bytes: Int = 2097152) [fs, error] -> Result[Bytes] {
-  let raw = fs.root_read_result(bundle, p"capture.json", max_bytes: max_bytes)?
+  let raw = bundle.read_result(p"capture.json", max_bytes:)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("capture metadata is missing or incomplete"))
   }
@@ -1597,7 +1597,8 @@ export type BlockQueueSourceComparison = {
   exact: Bool,
 }
 
-type BlockRawDevice = {
+## Retains raw block identities, nullable attributes, and directional dependency names.
+export type BlockRawDevice = {
   name: Str,
   major: Int,
   minor: Int,
@@ -1613,7 +1614,8 @@ type BlockRawDevice = {
   slaves: List[Str],
 }
 
-type BlockRawReference = {
+## Supplies the complete independently observed block comparison input.
+export type BlockRawReference = {
   devices: List[BlockRawDevice],
   edges: List[BlockReferenceEdge],
   queue: List[BlockQueueReference],
@@ -2670,8 +2672,8 @@ export pure select_present_lscpu_topology(
 
 pure topology_group_signatures(groups: Map[List[Int]]) -> List[Str] {
   var signatures: List[Str] = []
-  for key in groups.keys() {
-    let members = groups.get(key, []) |> sort-by .
+  for {value: group_members, ..} in groups {
+    let members = group_members |> sort-by .
     var parts = [f"${member}" for member in members]
     signatures = signatures.push(parts.join(","))
   }
@@ -2741,8 +2743,8 @@ export pure compare_lscpu_topology(
 
     let package_key = f"${item.socket ?? -1}"
     let core_key = f"${package_key}/${item.core ?? -1}"
-    reference_packages = reference_packages.set(package_key, reference_packages.get(package_key, []).push(item.cpu))
-    reference_cores = reference_cores.set(core_key, reference_cores.get(core_key, []).push(item.cpu))
+    reference_packages = reference_packages.set(package_key, (reference_packages.get(package_key) ?? []).push(item.cpu))
+    reference_cores = reference_cores.set(core_key, (reference_cores.get(core_key) ?? []).push(item.cpu))
   }
 
   for index in range(candidate.len()) {
@@ -2756,8 +2758,8 @@ export pure compare_lscpu_topology(
     continue when item.package_id == null or item.core_id == null or (item.package_id ?? -1) < 0 or (item.core_id ?? -1) < 0
     let package_key = f"${item.package_id ?? -1}"
     let core_key = f"${package_key}/${item.core_id ?? -1}"
-    candidate_packages = candidate_packages.set(package_key, candidate_packages.get(package_key, []).push(item.id))
-    candidate_cores = candidate_cores.set(core_key, candidate_cores.get(core_key, []).push(item.id))
+    candidate_packages = candidate_packages.set(package_key, (candidate_packages.get(package_key) ?? []).push(item.id))
+    candidate_cores = candidate_cores.set(core_key, (candidate_cores.get(core_key) ?? []).push(item.id))
   }
 
   var missing_ids: List[Int] = []
@@ -2795,7 +2797,7 @@ export pure compare_lscpu_topology(
 
     if item.socket != null and item.core != null {
       let core_key = f"${item.socket ?? -1}/${item.core ?? -1}"
-      let expected_siblings = reference_cores.get(core_key, []) |> sort-by .
+      let expected_siblings = (reference_cores.get(core_key) ?? []) |> sort-by .
       if actual.thread_siblings != expected_siblings {
         sibling_mismatches = sibling_mismatches.push(f"${item.cpu}.thread_siblings")
       }
@@ -2944,11 +2946,10 @@ export pure compare_cpu_cache_sharing(
   var field_mismatches: List[Str] = []
   var matched_count = 0
   var expected_by_cpu: Map[List[Str]] = {}
-  for key in reference_by_key.keys() {
-    let source = reference_by_key.get(key)?
+  for {key, value: source} in reference_by_key {
     for cpu_id in source.shared_cpus {
       let cpu_key = f"${cpu_id}"
-      expected_by_cpu = expected_by_cpu.set(cpu_key, expected_by_cpu.get(cpu_key, []).push(key))
+      expected_by_cpu = expected_by_cpu.set(cpu_key, (expected_by_cpu.get(cpu_key) ?? []).push(key))
     }
 
     if key not in candidate_by_key {
@@ -3027,15 +3028,15 @@ export pure compare_cpu_cache_sharing(
   }
 
   for cpu_key in expected_by_cpu.keys() {
-    let expected = expected_by_cpu.get(cpu_key, []) |> sort-by .
-    let actual = actual_by_cpu.get(cpu_key, []) |> sort-by .
+    let expected = (expected_by_cpu.get(cpu_key) ?? []) |> sort-by .
+    let actual = (actual_by_cpu.get(cpu_key) ?? []) |> sort-by .
     if expected != actual {
       relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
     }
   }
 
   for cpu_key in actual_by_cpu.keys() {
-    if cpu_key not in expected_by_cpu and actual_by_cpu.get(cpu_key, []).len() > 0 {
+    if cpu_key not in expected_by_cpu and (actual_by_cpu.get(cpu_key) ?? []).len() > 0 {
       relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
     }
   }
@@ -3092,7 +3093,7 @@ proc reference_cache_text(
   required: Bool,
   max_bytes: Int = 4096,
 ) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let raw = root.read_result(source_path, max_bytes:)?
   if raw.state == "absent" and ! required {
     return Ok(null)
   }
@@ -3128,7 +3129,7 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
   var rows: List[CpuCacheReference] = []
   for cpu_id in present {
     let cache_directory = fp"sys/devices/system/cpu/cpu${cpu_id}/cache"
-    let listing = fs.root_children(root, cache_directory, max_entries: 64)?
+    let listing = root.children(cache_directory, max_entries: 64)?
     continue when listing.state == "absent"
     if listing.state != "complete" {
       return Err(check_failure(f"cache reference enumeration failed for CPU ${cpu_id}"))
@@ -3485,7 +3486,7 @@ pure usb_topology_decimal(value: Str) -> Result[Int] {
     }
   }
 
-  guard let number = value.parse_int() else |_| {
+  guard let number = value.parse_int() else { |_|
     return Err(check_failure("USB topology number is outside the supported range"))
   }
 
@@ -3683,7 +3684,7 @@ export pure compare_usb_topology(
 }
 
 proc reference_usb_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" {
     return Ok(null)
   }
@@ -3711,7 +3712,7 @@ proc reference_usb_number(root: FsRoot, source_path: Path) [fs, error] -> Result
 
 ## Reads bounded USB device attributes without using the report collector or its parent joins.
 export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List[UsbTopologyReference]] {
-  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -3951,7 +3952,7 @@ pure usb_reference_hex(value: Str, width: Int) -> Result[Int] {
 }
 
 proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Result[UsbTextReference] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" {
     return Ok({value: null, complete: true})
   }
@@ -3983,7 +3984,7 @@ proc reference_usb_hex_attribute(
 
 ## Reads fixed-width USB device IDs and optional labels through bounded rooted sysfs sources.
 export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbIdsReference]] {
-  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -4042,7 +4043,7 @@ export pure parse_usb_power_number(value: Str, allow_negative: Bool) -> Result[I
     }
   }
 
-  guard let number = value.parse_int() else |_| {
+  guard let number = value.parse_int() else { |_|
     return Err(check_failure("USB power value is outside the integer range"))
   }
 
@@ -4068,7 +4069,7 @@ proc reference_usb_power_number(
 
 ## Reads USB runtime status, autosuspend policy, and active configuration independently.
 export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[UsbPowerReference]] {
-  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -4256,14 +4257,14 @@ pure parse_usb_interface_name(name: Str) -> Result[UsbInterfaceName] {
 }
 
 proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, error] -> Result[UsbTextReference] {
-  let listing = fs.root_children(root, interface_path, max_entries: 4096)?
+  let listing = root.children(interface_path, max_entries: 4096)?
   if listing.state != "complete" {
     return Ok({value: null, complete: false})
   }
 
   for entry in listing.children {
     if entry.name() == "driver" {
-      match fs.root_readlink(root, fp"${interface_path}/driver") {
+      match root.readlink(fp"${interface_path}/driver") {
         Ok(target) => {
           let name = target.name()
           if name == "" {
@@ -4282,7 +4283,7 @@ proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, err
 
 ## Reads live USB interface attributes and the device's bounded raw descriptors independently.
 export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[List[UsbInterfaceReference]] {
-  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -4297,7 +4298,7 @@ export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[Lis
     let device_name = device_path.name()
     continue when ":" in device_name
     let _ = parse_usb_topology_name(device_name)?
-    let raw = fs.root_read_result(root, fp"${device_path}/descriptors", max_bytes: 1048576)?
+    let raw = root.read_result(fp"${device_path}/descriptors", max_bytes: 1048576)?
     var descriptor_settings: List[UsbInterfaceSettingReference] = []
     var descriptors_complete = false
     if raw.state == "observed" and ! raw.truncated and raw.data != null {
@@ -4605,7 +4606,7 @@ export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int] {
     }
   }
 
-  guard let number = value.parse_int() else |_| {
+  guard let number = value.parse_int() else { |_|
     return Err(check_failure("power supply quantity is outside the integer range"))
   }
 
@@ -4617,7 +4618,7 @@ export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int] {
 }
 
 proc reference_power_text(root: FsRoot, source_path: Path) [fs, error] -> Result[PowerTextReference] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" {
     return Ok({value: null, complete: true})
   }
@@ -4655,7 +4656,7 @@ proc reference_power_number(
 
 ## Reads bounded power-supply class attributes without calling the report collector.
 export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List[PowerSupplyReference]] {
-  let listing = fs.root_children(root, p"sys/class/power_supply", max_entries: 1024)?
+  let listing = root.children(p"sys/class/power_supply", max_entries: 1024)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -4713,7 +4714,7 @@ pure power_supply_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
 
 # Selects every exported power supply attribute through its class entry.
 proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyBundleLayout] {
-  let listing = fs.root_children(root, p"sys/class/power_supply", max_entries: 1024)?
+  let listing = root.children(p"sys/class/power_supply", max_entries: 1024)?
   var entries: List[PowerSupplyBundleEntry] = []
   var paths: List[PowerSupplyBundlePath] = []
   var complete = listing.state == "complete" or listing.state == "absent"
@@ -4727,13 +4728,13 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
       return Err(check_failure("power supply class entry has an unsafe name"))
     }
 
-    let link = fs.root_readlink_result(root, entry)?
+    let link = root.readlink_result(entry)?
     var class_target: Str? = null
     var storage = entry.display()
     if link.state == "observed" {
       class_target = link.target.require(Path)?.display()
       storage = power_supply_bundle_storage_path(name, class_target ?? "")?
-    } else if fs.root_metadata(root, entry)?.kind != "dir" {
+    } else if root.metadata(entry)?.kind != "dir" {
       complete = false
     }
 
@@ -4806,21 +4807,21 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
     return Err(check_failure("power supply capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/power_supply")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/power_supply")? {
     return Err(check_failure("power supply capture destination is not empty"))
   }
 
   let layout = power_supply_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/class/power_supply", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/power_supply", mode: 0o700, parents: true)?
     for entry in layout.entries {
       let storage = fp"${entry.storage_path}"
-      if ! fs.root_exists(bundle, storage)? {
-        fs.root_mkdir(bundle, storage, mode: 0o700, parents: true)?
+      if ! bundle.exists(storage)? {
+        bundle.mkdir(storage, mode: 0o700, parents: true)?
       }
 
       if entry.class_target != null {
-        fs.root_symlink(bundle, fp"${entry.class_target ?? ""}", fp"sys/class/power_supply/${entry.name}")?
+        bundle.symlink(fp"${entry.class_target ?? ""}", fp"sys/class/power_supply/${entry.name}")?
       }
     }
   }
@@ -4829,12 +4830,12 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for item in layout.paths {
-    let raw = fs.root_read_result(source, fp"${item.path}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${item.path}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${item.path}", data)?
+      bundle.write(fp"${item.path}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -4860,7 +4861,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
   var changing_sources: List[Str] = []
   for index in range(layout.paths.len()) {
     let item = layout.paths[index]
-    let raw = fs.root_read_result(source, fp"${item.path}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${item.path}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if item.changing {
@@ -4894,11 +4895,11 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 4194304 {
+  if encoded.byte_len() > 4194304 {
     return Err(check_failure("power supply capture metadata exceeds its replay bound"))
   }
 
-  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)?
 }
 
 ## Rejects changed power supply links, source bytes, absences, and references.
@@ -4934,7 +4935,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
 
     let relative = fp"${item.path}"
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, relative)? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
         return Err(check_failure(f"power supply absent source ${item.path} differs"))
       }
 
@@ -4945,7 +4946,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
       return Err(check_failure(f"power supply capture cannot score ${item.path}"))
     }
 
-    let raw = fs.root_read_result(bundle, relative, max_bytes: 4096)?
+    let raw = bundle.read_result(relative, max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -5205,7 +5206,7 @@ proc reference_powercap_parent(
   zone_names: List[Str],
 ) [fs, error] -> Result[PowerTextReference] {
   let name = zone_path.name()
-  match fs.root_readlink(root, zone_path) {
+  match root.readlink(zone_path) {
     Ok(target) => {
       if target.name() != name {
         return Err(check_failure("powercap class link does not end at its zone name"))
@@ -5229,7 +5230,7 @@ proc reference_powercap_parent(
 
 ## Reads visible powercap zones and constraints by their class entry and numeric index.
 export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference]] {
-  let listing = fs.root_children(root, p"sys/class/powercap", max_entries: 1024)?
+  let listing = root.children(p"sys/class/powercap", max_entries: 1024)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -5257,7 +5258,7 @@ export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[Pow
   for index in range(zone_paths.len()) {
     let zone_path = zone_paths[index]
     let entry_name = zone_path.name()
-    let attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    let attributes = root.children(zone_path, max_entries: 256)?
     var constraints: List[PowerCapConstraintReference] = []
     var indices: List[Int] = []
     if attributes.state == "complete" {
@@ -5335,7 +5336,7 @@ pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] 
 
 # Lists only named powercap zones and the bounded attributes consumed by the collector.
 proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLayout] {
-  let listing = fs.root_children(root, p"sys/class/powercap", max_entries: 1024)?
+  let listing = root.children(p"sys/class/powercap", max_entries: 1024)?
   var zones: List[PowerCapBundleZone] = []
   var source_paths: List[Str] = []
   var complete = listing.state == "complete" or listing.state == "absent"
@@ -5350,7 +5351,7 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
       complete = false
     }
 
-    let link = fs.root_readlink_result(root, entry)?
+    let link = root.readlink_result(entry)?
     var target: Str? = null
     if link.state == "observed" {
       target = (link.target ?? p"").display()
@@ -5362,7 +5363,7 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
     zones = zones.push({entry_name: entry.name(), class_target: target, storage_path: storage})
     let prefix = entry.display()
     source_paths = source_paths.extend([f"${prefix}/name", f"${prefix}/energy_uj", f"${prefix}/max_energy_range_uj"])
-    let attributes = fs.root_children(root, entry, max_entries: 256)?
+    let attributes = root.children(entry, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
       continue
@@ -5406,20 +5407,20 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
     return Err(check_failure("powercap capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/powercap")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/powercap")? {
     return Err(check_failure("powercap capture destination is not empty"))
   }
 
   let layout = powercap_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/class/powercap", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/powercap", mode: 0o700, parents: true)?
     for zone in layout.zones {
-      fs.root_mkdir(bundle, fp"${zone.storage_path}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"${zone.storage_path}", mode: 0o700, parents: true)?
     }
 
     for zone in layout.zones {
       if zone.class_target != null {
-        fs.root_symlink(bundle, fp"${zone.class_target ?? ""}", fp"sys/class/powercap/${zone.entry_name}")?
+        bundle.symlink(fp"${zone.class_target ?? ""}", fp"sys/class/powercap/${zone.entry_name}")?
       }
     }
   }
@@ -5428,12 +5429,12 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -5461,7 +5462,7 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
     continue when relative.ends_with("/energy_uj")
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     let first = observations[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -5489,7 +5490,7 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Rejects altered source identities, link topology, and raw bytes before replay.
@@ -5513,7 +5514,7 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"powercap capture absent source ${relative} differs from metadata"))
       }
 
@@ -5524,7 +5525,7 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
       return Err(check_failure(f"powercap capture cannot score ${relative} source"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -5827,7 +5828,7 @@ proc device_class_reference_name(
   }
 
   let field = if class_name == "sound" { "id" } else { "name" }
-  let source = fs.root_read_result(root, fp"${entry}/${field}", max_bytes: 4096)?
+  let source = root.read_result(fp"${entry}/${field}", max_bytes: 4096)?
   if source.state == "absent" {
     return Ok({value: entry.name(), complete: true})
   }
@@ -5843,17 +5844,17 @@ proc device_class_reference_name(
 }
 
 proc device_class_reference_parent(root: FsRoot, entry: Path) [fs, error] -> Result[DeviceClassParentRead] {
-  match fs.root_readlink(root, fp"${entry}/device") {
+  match root.readlink(fp"${entry}/device") {
     Ok(target) => return Ok({target: target.display(), complete: true})
     Err(_) => {}
   }
 
-  match fs.root_readlink(root, entry) {
+  match root.readlink(entry) {
     Ok(target) => return Ok({target: target.display(), complete: true})
     Err(_) => {}
   }
 
-  match fs.root_metadata(root, entry) {
+  match root.metadata(entry) {
     Ok(metadata) => return Ok({target: null, complete: metadata.kind == "dir"})
     Err(_) => return Ok({target: null, complete: false})
   }
@@ -5876,7 +5877,7 @@ export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List
       path: p"sys/class/input",
     },
   ] {
-    let listing = fs.root_children(root, source.path, max_entries: 4096)?
+    let listing = root.children(source.path, max_entries: 4096)?
     continue when listing.state == "absent"
     if listing.state != "complete" {
       return Err(check_failure(f"${source.class_name} reference enumeration is incomplete"))
@@ -5957,7 +5958,7 @@ pure device_class_parent_ids(target: Str?) -> DeviceClassParentIds {
         pci = component
       }
 
-      let candidate = component.split(":").get(0, "")
+      let candidate = (component.split(":").get(0) ?? "")
       match parse_usb_topology_name(candidate) {
         Ok(_) => usb = candidate
         Err(_) => {}
@@ -6204,7 +6205,7 @@ pure hwmon_channel_shape(channel: Str) -> HwmonShape {
 }
 
 proc reference_hwmon_text(root: FsRoot, source_path: Path) [fs, error] -> Result[HwmonTextReference] {
-  let source = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let source = root.read_result(source_path, max_bytes: 4096)?
   if source.state == "absent" {
     return Ok({value: null, complete: true})
   }
@@ -6244,7 +6245,7 @@ proc reference_hwmon_number(
 
 ## Reads only hwmon names and the informational attributes of exported input channels.
 export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonReference]] {
-  let chips = fs.root_children(root, p"sys/class/hwmon", max_entries: 1024)?
+  let chips = root.children(p"sys/class/hwmon", max_entries: 1024)?
   if chips.state == "absent" {
     return Ok([])
   }
@@ -6258,7 +6259,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
     continue unless chip_path.name().starts_with("hwmon")
     let chip_name = reference_hwmon_text(root, fp"${chip_path}/name")?
     let parent = device_class_reference_parent(root, chip_path)?
-    let attributes = fs.root_children(root, chip_path, max_entries: 1024)?
+    let attributes = root.children(chip_path, max_entries: 1024)?
     if attributes.state != "complete" {
       return Err(check_failure("hwmon attribute enumeration is incomplete"))
     }
@@ -6341,7 +6342,7 @@ pure hwmon_bundle_device_target_safe(storage: Str, target: Str) -> Bool {
 
 # Enumerates only class links, chip names, and known channel attributes.
 proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] {
-  let listing = fs.root_children(root, p"sys/class/hwmon", max_entries: 1024)?
+  let listing = root.children(p"sys/class/hwmon", max_entries: 1024)?
   var chips: List[HwmonBundleChip] = []
   var source_paths: List[Str] = []
   var complete = listing.state == "complete" or listing.state == "absent"
@@ -6358,17 +6359,17 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
       return Err(check_failure("hwmon class identity is noncanonical"))
     }
 
-    let class_link = fs.root_readlink_result(root, entry)?
+    let class_link = root.readlink_result(entry)?
     var class_target: Str? = null
     var storage = entry.display()
     if class_link.state == "observed" {
       class_target = class_link.target.require(Path)?.display()
       storage = hwmon_bundle_storage_path(name, class_target ?? "")?
-    } else if fs.root_metadata(root, entry)?.kind != "dir" {
+    } else if root.metadata(entry)?.kind != "dir" {
       complete = false
     }
 
-    let device_link = fs.root_readlink_result(root, fp"${entry}/device")?
+    let device_link = root.readlink_result(fp"${entry}/device")?
     var device_target: Str? = null
     if device_link.state == "observed" {
       device_target = device_link.target.require(Path)?.display()
@@ -6379,7 +6380,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
       complete = false
     }
 
-    let attributes = fs.root_children(root, entry, max_entries: 1024)?
+    let attributes = root.children(entry, max_entries: 1024)?
     if attributes.state != "complete" {
       complete = false
     }
@@ -6419,24 +6420,24 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     return Err(check_failure("hwmon capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/hwmon")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/hwmon")? {
     return Err(check_failure("hwmon capture destination is not empty"))
   }
 
   let layout = hwmon_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/class/hwmon", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/hwmon", mode: 0o700, parents: true)?
     for chip in layout.chips {
-      if ! fs.root_exists(bundle, fp"${chip.storage_path}")? {
-        fs.root_mkdir(bundle, fp"${chip.storage_path}", mode: 0o700, parents: true)?
+      if ! bundle.exists(fp"${chip.storage_path}")? {
+        bundle.mkdir(fp"${chip.storage_path}", mode: 0o700, parents: true)?
       }
 
       if chip.device_target != null {
-        fs.root_symlink(bundle, fp"${chip.device_target ?? ""}", fp"${chip.storage_path}/device")?
+        bundle.symlink(fp"${chip.device_target ?? ""}", fp"${chip.storage_path}/device")?
       }
 
       if chip.class_target != null {
-        fs.root_symlink(bundle, fp"${chip.class_target ?? ""}", fp"sys/class/hwmon/${chip.name}")?
+        bundle.symlink(fp"${chip.class_target ?? ""}", fp"sys/class/hwmon/${chip.name}")?
       }
     }
   }
@@ -6445,12 +6446,12 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -6476,7 +6477,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var changing_gauges: List[Str] = []
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if hwmon_bundle_gauge(relative) {
@@ -6510,11 +6511,11 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 16777216 {
+  if encoded.byte_len() > 16777216 {
     return Err(check_failure("hwmon capture metadata exceeds its replay bound"))
   }
 
-  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)?
 }
 
 ## Rejects changed class links, source bytes, absences, and independently decoded channels.
@@ -6549,7 +6550,7 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"hwmon absent source ${relative} differs"))
       }
 
@@ -6560,7 +6561,7 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
       return Err(check_failure(f"hwmon capture cannot score ${relative}"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -7209,7 +7210,7 @@ proc reference_cpuidle_text(
   required: Bool,
   max_bytes: Int = 4096,
 ) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let raw = root.read_result(source_path, max_bytes:)?
   if raw.state == "absent" and ! required {
     return Ok(null)
   }
@@ -7256,7 +7257,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
   var states: List[CpuIdleStateReference] = []
   for cpu_id in present {
     let idle_path = fp"sys/devices/system/cpu/cpu${cpu_id}/cpuidle"
-    let listing = fs.root_children(root, idle_path, max_entries: 256)?
+    let listing = root.children(idle_path, max_entries: 256)?
     continue when listing.state == "absent"
     if listing.state != "complete" {
       return Err(check_failure(f"CPUIdle state enumeration failed for CPU ${cpu_id}"))
@@ -7352,7 +7353,7 @@ export pure parse_cpufreq_boost_reference(boost_text: Str?, no_turbo_text: Str?)
 }
 
 proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" and ! required {
     return Ok(null)
   }
@@ -7383,7 +7384,7 @@ proc reference_cpufreq_number(root: FsRoot, source_path: Path) [fs, error] -> Re
 }
 
 proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Result[CpuFreqGaugeReference] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" {
     return Ok({value: null, complete: true})
   }
@@ -7407,7 +7408,7 @@ proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Res
 
 ## Reads every visible policy through bounded sysfs sources, independent of candidate output.
 export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[List[CpuFreqPolicyReference]] {
-  let listing = fs.root_children(root, p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
+  let listing = root.children(p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -7479,7 +7480,7 @@ export pure parse_proc_status_affinity(output: Str) -> Result[List[Int]] {
         return Err(check_failure("proc status repeats Cpus_allowed_list"))
       }
 
-      affinity = line.split(":", maxsplit: 1).get(1, "").trim()
+      affinity = (line.split(":", maxsplit: 1).get(1) ?? "").trim()
     }
   }
 
@@ -7491,7 +7492,7 @@ export pure parse_proc_status_affinity(output: Str) -> Result[List[Int]] {
 }
 
 proc captured_cpu_set_text(root: FsRoot, name: Str) [fs, error] -> Result[Str] {
-  let raw = fs.root_read_result(root, fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
+  let raw = root.read_result(fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure(f"CPU set capture has no complete ${name} source"))
   }
@@ -7517,30 +7518,30 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     return Err(check_failure("CPU set capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? {
+  if bundle.exists(p"capture.json")? {
     return Err(check_failure("CPU set capture already exists"))
   }
 
   for name in ["possible", "present", "online", "offline"] {
-    if fs.root_exists(bundle, fp"sys/devices/system/cpu/${name}")? {
+    if bundle.exists(fp"sys/devices/system/cpu/${name}")? {
       return Err(check_failure("CPU set capture destination contains a source file"))
     }
   }
 
-  fs.root_mkdir(bundle, p"sys/devices/system/cpu", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)?
   var observations: List[CpuSetSourceObservation] = []
   var complete = true
   var saved_bytes: List[Bytes?] = []
   for name in ["possible", "present", "online", "offline"] {
     let relative = fp"sys/devices/system/cpu/${name}"
-    let raw = fs.root_read_result(source, relative, max_bytes: 65536)?
+    let raw = source.read_result(relative, max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
       complete = false
     }
 
-    let byte_count = if raw.data == null { 0 } else { (raw.data ?? b"").len() }
+    let byte_count = raw.data?.len() ?? 0
     if raw.data != null {
-      fs.root_write(bundle, relative, raw.data ?? b"")?
+      bundle.write(relative, raw.data ?? b"")?
     }
 
     saved_bytes = saved_bytes.push(raw.data)
@@ -7563,7 +7564,7 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var stable = true
   let names = ["possible", "present", "online", "offline"]
   for index in range(4) {
-    let again = fs.root_read_result(source, fp"sys/devices/system/cpu/${names[index]}", max_bytes: 65536)?
+    let again = source.read_result(fp"sys/devices/system/cpu/${names[index]}", max_bytes: 65536)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -7588,12 +7589,12 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Validates captured bytes and independently reparses the saved CPU-set reference.
 export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSetReference] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 65536)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 65536)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("CPU set capture metadata is missing or incomplete"))
   }
@@ -7616,7 +7617,7 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
       return Err(check_failure(f"CPU set capture cannot score ${name} source"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
+    let raw = bundle.read_result(fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or expected.sha256_hex == null or hash.sha256(
       raw.data ?? b"",
     )
@@ -7685,7 +7686,7 @@ pure cpufreq_bundle_is_gauge(relative: Str) -> Bool {
 }
 
 proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayout] {
-  let listing = fs.root_children(root, p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
+  let listing = root.children(p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
   var policies: List[Str] = []
   var source_paths: List[Str] = [
     "sys/devices/system/cpu/possible",
@@ -7713,7 +7714,7 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
       return Err(check_failure("CPUFreq capture has a noncanonical policy name"))
     }
 
-    let attributes = fs.root_children(root, entry, max_entries: 256)?
+    let attributes = root.children(entry, max_entries: 256)?
     if attributes.state != "complete" {
       return Err(check_failure("CPUFreq policy directory is incomplete"))
     }
@@ -7761,17 +7762,17 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     return Err(check_failure("CPUFreq capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/devices/system/cpu")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/devices/system/cpu")? {
     return Err(check_failure("CPUFreq capture destination is not empty"))
   }
 
   let layout = cpufreq_bundle_layout(source)?
-  fs.root_mkdir(bundle, p"sys/devices/system/cpu", mode: 0o700, parents: true)?
-  fs.root_mkdir(bundle, p"sys/devices/system/cpu/intel_pstate", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/devices/system/cpu/intel_pstate", mode: 0o700, parents: true)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/devices/system/cpu/cpufreq", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/devices/system/cpu/cpufreq", mode: 0o700, parents: true)?
     for policy in layout.policies {
-      fs.root_mkdir(bundle, fp"sys/devices/system/cpu/cpufreq/${policy}", mode: 0o700)?
+      bundle.mkdir(fp"sys/devices/system/cpu/cpufreq/${policy}", mode: 0o700)?
     }
   }
 
@@ -7779,12 +7780,12 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -7815,7 +7816,7 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var changing_gauges: List[Str] = []
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if cpufreq_bundle_is_gauge(relative) {
@@ -7855,7 +7856,7 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     policies: policies,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Rejects changed policy directories, raw bytes, absence, and decoded references.
@@ -7890,7 +7891,7 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"CPUFreq absent source ${relative} differs"))
       }
 
@@ -7901,7 +7902,7 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
       return Err(check_failure(f"CPUFreq capture cannot score ${relative}"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -7958,7 +7959,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
   var node_links: List[CpuTopologyNodeLink] = []
   for cpu_id in cpu_ids {
     let cpu_path = fp"sys/devices/system/cpu/cpu${cpu_id}"
-    let listing = fs.root_children(root, cpu_path, max_entries: 256)?
+    let listing = root.children(cpu_path, max_entries: 256)?
     if listing.state != "complete" {
       complete = false
     }
@@ -7973,7 +7974,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
         return Err(check_failure("CPU topology capture has an invalid or repeated NUMA node link"))
       }
 
-      let target = fs.root_readlink(root, entry)?.display()
+      let target = root.readlink(entry)?.display()
       if target != f"../../node/${name}" {
         return Err(check_failure("CPU topology NUMA link has an invalid target"))
       }
@@ -7996,7 +7997,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
 }
 
 proc cpu_topology_reference_text(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, fp"${relative}", max_bytes: 4096)?
+  let raw = root.read_result(fp"${relative}", max_bytes: 4096)?
   if raw.state == "absent" and ! required {
     return Ok(null)
   }
@@ -8148,18 +8149,18 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     return Err(check_failure("CPU topology capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/devices/system/cpu")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/devices/system/cpu")? {
     return Err(check_failure("CPU topology capture destination is not empty"))
   }
 
   let layout = cpu_topology_bundle_layout(source)?
-  fs.root_mkdir(bundle, p"sys/devices/system/cpu", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)?
   for cpu_id in layout.cpu_ids {
-    fs.root_mkdir(bundle, fp"sys/devices/system/cpu/cpu${cpu_id}/topology", mode: 0o700, parents: true)?
+    bundle.mkdir(fp"sys/devices/system/cpu/cpu${cpu_id}/topology", mode: 0o700, parents: true)?
   }
 
   for link in layout.node_links {
-    fs.root_symlink(bundle, fp"${link.target}", fp"sys/devices/system/cpu/cpu${link.cpu_id}/${link.name}")?
+    bundle.symlink(fp"${link.target}", fp"sys/devices/system/cpu/cpu${link.cpu_id}/${link.name}")?
   }
 
   var sources: List[CpuTopologySourceObservation] = []
@@ -8173,12 +8174,12 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     } else {
       4096
     }
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: limit)?
+    let raw = source.read_result(fp"${relative}", max_bytes: limit)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8210,7 +8211,7 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     } else {
       4096
     }
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: limit)?
+    let raw = source.read_result(fp"${relative}", max_bytes: limit)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -8245,7 +8246,7 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     topology: topology,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Validates CPU set bytes, topology values, and NUMA link targets before replay.
@@ -8271,7 +8272,7 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"CPU topology absent source ${relative} differs"))
       }
 
@@ -8289,7 +8290,7 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
     } else {
       4096
     }
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: limit)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: limit)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -8334,7 +8335,7 @@ pure memory_bundle_paths() -> List[Str] {
 }
 
 proc memory_bundle_text(bundle: FsRoot, relative: Str, bound: Int) [fs, error] -> Result[Str] {
-  let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: bound)?
+  let raw = bundle.read_result(fp"${relative}", max_bytes: bound)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure(f"memory bundle has no complete ${relative} source"))
   }
@@ -8350,7 +8351,7 @@ proc memory_bundle_reference(bundle: FsRoot) [fs, error] -> Result[MemoryBundleR
   var thp: List[ThpReferencePolicy] = []
   for name in ["enabled", "defrag"] {
     let relative = f"sys/kernel/mm/transparent_hugepage/${name}"
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
     continue when raw.state == "absent"
     thp = thp.push({name: name, value: parse_thp_reference(memory_bundle_text(bundle, relative, 4096)?)?})
   }
@@ -8364,26 +8365,26 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
     return Err(check_failure("memory capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? {
+  if bundle.exists(p"capture.json")? {
     return Err(check_failure("memory capture already exists"))
   }
 
   let paths = memory_bundle_paths()
   for relative in paths {
-    if fs.root_exists(bundle, fp"${relative}")? {
+    if bundle.exists(fp"${relative}")? {
       return Err(check_failure("memory capture destination contains a source file"))
     }
   }
 
-  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
-  fs.root_mkdir(bundle, p"sys/kernel/mm/transparent_hugepage", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/kernel/mm/transparent_hugepage", mode: 0o700, parents: true)?
   var observations: List[MemorySourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   var complete = true
   for index in range(paths.len()) {
     let relative = paths[index]
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: bound)?
+    let raw = source.read_result(fp"${relative}", max_bytes: bound)?
     if raw.state != "observed" and (index == 0 or raw.state != "absent") {
       complete = false
     }
@@ -8396,7 +8397,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8416,7 +8417,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
   var stable = true
   for index in range(paths.len()) {
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let again = fs.root_read_result(source, fp"${paths[index]}", max_bytes: bound)?
+    let again = source.read_result(fp"${paths[index]}", max_bytes: bound)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -8441,12 +8442,12 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Requires captured bytes and the saved independent memory oracle to agree.
 export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryBundleReference] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 2097152)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 2097152)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("memory capture metadata is missing or incomplete"))
   }
@@ -8465,7 +8466,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     }
 
     if expected.state == "absent" and index > 0 {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"memory capture ${relative} absent source differs from metadata"))
       }
 
@@ -8477,7 +8478,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     }
 
     let bound = if index == 0 { 1048576 } else { 4096 }
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: bound)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: bound)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -8657,7 +8658,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
       return Err(check_failure("meminfo reference has an invalid value column count"))
     }
 
-    let source_unit = fields.get(1, "")
+    let source_unit = (fields.get(1) ?? "")
     if meminfo_byte_field(name) and source_unit != "kB" {
       return Err(check_failure("meminfo reference byte field has an invalid unit"))
     }
@@ -8730,7 +8731,7 @@ export pure compare_meminfo(
   }
 
   for item in before {
-    if item.name not in after_by_name or after[after_by_name.get(item.name, -1)].unit != item.unit {
+    if item.name not in after_by_name or after[(after_by_name.get(item.name) ?? -1)].unit != item.unit {
       return Err(check_failure("meminfo reference field or unit changed around candidate collection"))
     }
   }
@@ -8758,8 +8759,8 @@ export pure compare_meminfo(
     }
 
     matched_count += 1
-    let last = after[after_by_name.get(first.name, -1)]
-    let candidate = candidates[candidate_by_name.get(first.name, -1)]
+    let last = after[(after_by_name.get(first.name) ?? -1)]
+    let candidate = candidates[(candidate_by_name.get(first.name) ?? -1)]
     if candidate.unit != first.unit {
       mismatched_names = mismatched_names.push(first.name)
       continue
@@ -8877,7 +8878,7 @@ export pure compare_thp(
   }
 
   for item in before {
-    if item.name not in after_by_name or after[after_by_name.get(item.name, -1)].value != item.value {
+    if item.name not in after_by_name or after[(after_by_name.get(item.name) ?? -1)].value != item.value {
       return Err(check_failure("THP reference policy changed around collection"))
     }
   }
@@ -8905,7 +8906,7 @@ export pure compare_thp(
     }
 
     matched_count += 1
-    if candidate_by_name.get(item.name, "") != item.value {
+    if (candidate_by_name.get(item.name) ?? "") != item.value {
       mismatched_names = mismatched_names.push(item.name)
     }
   }
@@ -8960,7 +8961,7 @@ export pure compare_vulnerabilities(
   }
 
   for item in before {
-    if item.name not in after_by_name or after_by_name.get(item.name, "") != item.description {
+    if item.name not in after_by_name or (after_by_name.get(item.name) ?? "") != item.description {
       return Err(check_failure("vulnerability reference description changed around collection"))
     }
   }
@@ -8987,7 +8988,7 @@ export pure compare_vulnerabilities(
     }
 
     matched_count += 1
-    let candidate = candidate_by_name.get(item.name, {state: "", value: null, raw_bytes_base64: null})
+    let candidate = (candidate_by_name.get(item.name) ?? {state: "", value: null, raw_bytes_base64: null})
     if candidate.state != "observed" or candidate.value != item.description or candidate.raw_bytes_base64 != null {
       mismatched_names = mismatched_names.push(item.name)
     }
@@ -9021,12 +9022,12 @@ export proc capture_vulnerabilities_bundle(
   }
 
   let directory = p"sys/devices/system/cpu/vulnerabilities"
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, directory)? {
+  if bundle.exists(p"capture.json")? or bundle.exists(directory)? {
     return Err(check_failure("vulnerability capture destination is not empty"))
   }
 
-  fs.root_mkdir(bundle, directory, mode: 0o700, parents: true)?
-  let first = fs.root_children(source, directory, max_entries: 256)?
+  bundle.mkdir(directory, mode: 0o700, parents: true)?
+  let first = source.children(directory, max_entries: 256)?
   var sources: List[VulnerabilityCaptureSource] = []
   var reference: List[VulnerabilityReference] = []
   var names: List[Str] = []
@@ -9040,10 +9041,10 @@ export proc capture_vulnerabilities_bundle(
       }
 
       names = names.push(name)
-      let raw = fs.root_read_result(source, child, max_bytes: 16384)?
+      let raw = source.read_result(child, max_bytes: 16384)?
       var digest: Str? = null
       if raw.data != null {
-        fs.root_write(bundle, child, raw.data ?? b"")?
+        bundle.write(child, raw.data ?? b"")?
         digest = hash.sha256(raw.data ?? b"").hex()
         captured_bytes += (raw.data ?? b"").len()
         if captured_bytes > 262144 {
@@ -9057,7 +9058,7 @@ export proc capture_vulnerabilities_bundle(
         truncated: raw.truncated,
         errno: raw.errno,
         error_kind: raw.error_kind,
-        byte_count: if raw.data == null { 0 } else { (raw.data ?? b"").len() },
+        byte_count: raw.data?.len() ?? 0,
         sha256_hex: digest,
       })
       if raw.state != "observed" or raw.truncated or raw.errno != null or raw.error_kind != null or raw.data == null {
@@ -9071,7 +9072,7 @@ export proc capture_vulnerabilities_bundle(
     }
   }
 
-  let second = fs.root_children(source, directory, max_entries: 256)?
+  let second = source.children(directory, max_entries: 256)?
   var second_names: List[Str] = []
   if second.state == "complete" {
     for child in second.children {
@@ -9084,8 +9085,8 @@ export proc capture_vulnerabilities_bundle(
   if first.state == "complete" {
     for item in sources {
       let relative = fp"sys/devices/system/cpu/vulnerabilities/${item.name}"
-      let later = fs.root_read_result(source, relative, max_bytes: 16384)?
-      let saved = fs.root_read_result(bundle, relative, max_bytes: 16384)?
+      let later = source.read_result(relative, max_bytes: 16384)?
+      let saved = bundle.read_result(relative, max_bytes: 16384)?
       if later.state != item.state or later.truncated != item.truncated or later.errno != item.errno or later.error_kind != item.error_kind or later.data != saved.data {
         stable = false
       }
@@ -9105,12 +9106,12 @@ export proc capture_vulnerabilities_bundle(
     reference: if scoreable and stable { reference } else { null },
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Checks the captured file set, source states, digests, and decoded descriptions.
 export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Result[List[VulnerabilityReference]] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 2097152)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 2097152)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("vulnerability capture metadata is missing or incomplete"))
   }
@@ -9121,7 +9122,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
   }
 
   let directory = p"sys/devices/system/cpu/vulnerabilities"
-  let listing = fs.root_children(bundle, directory, max_entries: 256)?
+  let listing = bundle.children(directory, max_entries: 256)?
   if listing.state != "complete" or listing.children.len() != capture.sources.len() {
     return Err(check_failure("vulnerability capture file set differs from metadata"))
   }
@@ -9137,7 +9138,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
 
     expected_names = expected_names.push(item.name)
     let relative = fp"sys/devices/system/cpu/vulnerabilities/${item.name}"
-    let raw = fs.root_read_result(bundle, relative, max_bytes: 16384)?
+    let raw = bundle.read_result(relative, max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != item.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -9252,8 +9253,8 @@ export pure compare_huge_pages(
     }
 
     matched_count += 1
-    let last = after[after_by_key.get(key, -1)]
-    let pool = candidates[candidate_by_key.get(key, -1)]
+    let last = after[(after_by_key.get(key) ?? -1)]
+    let pool = candidates[(candidate_by_key.get(key) ?? -1)]
     let fields: List[HugePageComparedField] = [
       {
         name: "total",
@@ -9468,7 +9469,7 @@ export pure compare_psi(
 
   for row in before {
     let key = psi_reference_key(row.resource, row.kind)
-    if key not in after_by_key or after[after_by_key.get(key, -1)].total_us < row.total_us {
+    if key not in after_by_key or after[(after_by_key.get(key) ?? -1)].total_us < row.total_us {
       return Err(check_failure("PSI reference identity changed or cumulative total decreased"))
     }
   }
@@ -9499,8 +9500,8 @@ export pure compare_psi(
     }
 
     matched_count += 1
-    let last = after[after_by_key.get(key, -1)]
-    let candidate = candidates[candidate_by_key.get(key, -1)]
+    let last = after[(after_by_key.get(key) ?? -1)]
+    let candidate = candidates[(candidate_by_key.get(key) ?? -1)]
     let total = candidate.total_us ?? -1
     if total < first.total_us or total > last.total_us {
       mismatched_fields = mismatched_fields.push(f"${key}.total_us")
@@ -9559,7 +9560,7 @@ export pure compare_psi(
 proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
   var rows: List[PsiReferenceRow] = []
   for resource in ["cpu", "memory", "io"] {
-    let raw = fs.root_read_result(bundle, fp"proc/pressure/${resource}", max_bytes: 16384)?
+    let raw = bundle.read_result(fp"proc/pressure/${resource}", max_bytes: 16384)?
     continue when raw.state == "absent"
     if raw.state != "observed" or raw.truncated or raw.data == null {
       return Err(check_failure(f"pressure capture ${resource} source is incomplete"))
@@ -9587,22 +9588,22 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
     return Err(check_failure("pressure capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? {
+  if bundle.exists(p"capture.json")? {
     return Err(check_failure("pressure capture already exists"))
   }
 
   for resource in ["cpu", "memory", "io"] {
-    if fs.root_exists(bundle, fp"proc/pressure/${resource}")? {
+    if bundle.exists(fp"proc/pressure/${resource}")? {
       return Err(check_failure("pressure capture destination contains a source file"))
     }
   }
 
-  fs.root_mkdir(bundle, p"proc/pressure", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc/pressure", mode: 0o700, parents: true)?
   var sources: List[PressureSourceObservation] = []
   var complete = true
   for resource in ["cpu", "memory", "io"] {
     let relative = fp"proc/pressure/${resource}"
-    let raw = fs.root_read_result(source, relative, max_bytes: 16384)?
+    let raw = source.read_result(relative, max_bytes: 16384)?
     if raw.truncated or raw.state not in ["observed", "absent"] or raw.state == "observed" and raw.data == null or raw.state == "absent" and raw.data != null {
       complete = false
     }
@@ -9611,7 +9612,7 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, relative, data)?
+      bundle.write(relative, data)?
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -9644,12 +9645,12 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Verifies each saved pressure source and reparses its independently saved rows.
 export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("pressure capture metadata is missing or incomplete"))
   }
@@ -9668,7 +9669,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"pressure capture ${relative} absent source differs from metadata"))
       }
 
@@ -9679,7 +9680,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
       return Err(check_failure(f"pressure capture cannot score ${relative} source"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 16384)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -9700,7 +9701,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
 export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[PsiReferenceComparison] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_pressure_bundle(bundle)?
-  let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PressureCapture)?
+  let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "memory", true)?
   if validate_pressure_bundle(bundle)? != reference {
@@ -9831,22 +9832,22 @@ export proc capture_proc_swaps_bundle(source: FsRoot, bundle: FsRoot, origin: St
     return Err(check_failure("proc swap capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/swaps")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/swaps")? {
     return Err(check_failure("proc swap capture destination is not empty"))
   }
 
-  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
-  let first = fs.root_read_result(source, p"proc/swaps", max_bytes: 262144)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  let first = source.read_result(p"proc/swaps", max_bytes: 262144)?
   var byte_count = 0
   var sha256_hex: Str? = null
   if first.data != null {
     let data = first.data ?? b""
-    fs.root_write(bundle, p"proc/swaps", data)?
+    bundle.write(p"proc/swaps", data)?
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
   }
 
-  let second = fs.root_read_result(source, p"proc/swaps", max_bytes: 262144)?
+  let second = source.read_result(p"proc/swaps", max_bytes: 262144)?
   let stable = first.state == second.state and first.truncated == second.truncated and first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
   var reference: List[SwapReferenceDevice]? = null
   if stable and first.state == "observed" and ! first.truncated and first.data != null {
@@ -9876,12 +9877,12 @@ export proc capture_proc_swaps_bundle(source: FsRoot, bundle: FsRoot, origin: St
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Requires saved bytes, source state, and the parsed device oracle to agree.
 export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[List[SwapReferenceDevice]] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("proc swap capture metadata is missing or incomplete"))
   }
@@ -9891,7 +9892,7 @@ export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[Lis
     return Err(check_failure("proc swap capture has no stable complete reference"))
   }
 
-  let raw = fs.root_read_result(bundle, p"proc/swaps", max_bytes: 262144)?
+  let raw = bundle.read_result(p"proc/swaps", max_bytes: 262144)?
   if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != capture.byte_count or hash.sha256(
     raw.data ?? b"",
   )
@@ -10099,7 +10100,7 @@ pure pci_reference_optional_hex(fields: Map[Str], key: Str, width: Int) -> Resul
     return Ok(null)
   }
 
-  return pci_reference_hex(fields.get(key, ""), width)?
+  return pci_reference_hex((fields.get(key) ?? ""), width)?
 }
 
 pure pci_reference_argv() -> List[Str] {
@@ -10157,18 +10158,18 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       return Err(check_failure("lspci reference is missing a required numeric identity"))
     }
 
-    let bdf = pci_reference_bdf(fields.get("Slot", ""))?
+    let bdf = pci_reference_bdf((fields.get("Slot") ?? ""))?
     if bdf.address in seen {
       return Err(check_failure("lspci reference has a duplicate slot address"))
     }
 
     seen = set.add(seen, bdf.address)
-    let class_base = pci_reference_hex(fields.get("Class", ""), 4)?
+    let class_base = pci_reference_hex((fields.get("Class") ?? ""), 4)?
     let prog_if = pci_reference_optional_hex(fields, "ProgIf", 2)?
     let revision = pci_reference_optional_hex(fields, "Rev", 2)?
     var numa_node: Int? = null
     if "NUMANode" in fields {
-      let numa_text = fields.get("NUMANode", "")
+      let numa_text = (fields.get("NUMANode") ?? "")
       for digit in numa_text.split("") {
         if digit not in "0123456789" {
           return Err(check_failure("lspci reference has a nondecimal NUMA node"))
@@ -10199,8 +10200,8 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       bus: bdf.bus,
       device: bdf.device,
       function: bdf.function,
-      vendor_id: pci_reference_hex(fields.get("Vendor", ""), 4)?,
-      device_id: pci_reference_hex(fields.get("Device", ""), 4)?,
+      vendor_id: pci_reference_hex((fields.get("Vendor") ?? ""), 4)?,
+      device_id: pci_reference_hex((fields.get("Device") ?? ""), 4)?,
       class_code: class_base * 256 + (prog_if ?? 0),
       prog_if: prog_if,
       revision: revision,
@@ -10815,7 +10816,7 @@ export pure compare_thermal_zones(
 }
 
 proc reference_thermal_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" {
     return Ok(null)
   }
@@ -10877,7 +10878,7 @@ pure reference_thermal_index(value: Str) -> Result[Int] {
 
 ## Reads every visible thermal zone and indexed trip through bounded sysfs sources.
 export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List[ThermalZoneReference]] {
-  let listing = fs.root_children(root, p"sys/class/thermal", max_entries: 1024)?
+  let listing = root.children(p"sys/class/thermal", max_entries: 1024)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -10898,7 +10899,7 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
     }
 
     seen_zones = set.add(seen_zones, f"${id}")
-    let attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
       return Err(check_failure(f"thermal reference attributes for ${zone_name} are incomplete"))
     }
@@ -10948,7 +10949,7 @@ pure thermal_bundle_trip_source(name: Str) -> Bool {
 
 # Enumerates only thermal-zone identity, temperature, and indexed trip sources.
 proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayout] {
-  let listing = fs.root_children(root, p"sys/class/thermal", max_entries: 1024)?
+  let listing = root.children(p"sys/class/thermal", max_entries: 1024)?
   var zone_paths: List[Str] = []
   var source_paths: List[Str] = []
   var complete = listing.state == "complete" or listing.state == "absent"
@@ -10961,7 +10962,7 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
     let zone = zone_path.display()
     zone_paths = zone_paths.push(zone)
     source_paths = source_paths.extend([f"${zone}/type", f"${zone}/temp"])
-    let attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
       complete = false
       continue
@@ -10993,15 +10994,15 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     return Err(check_failure("thermal capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/thermal")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/thermal")? {
     return Err(check_failure("thermal capture destination is not empty"))
   }
 
   let layout = thermal_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/class/thermal", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/thermal", mode: 0o700, parents: true)?
     for zone in layout.zone_paths {
-      fs.root_mkdir(bundle, fp"${zone}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"${zone}", mode: 0o700, parents: true)?
     }
   }
 
@@ -11009,12 +11010,12 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11040,7 +11041,7 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   let later_layout = thermal_bundle_layout(source)?
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
-    let raw = fs.root_read_result(source, fp"${layout.source_paths[index]}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${layout.source_paths[index]}", max_bytes: 4096)?
     let first = observations[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -11068,12 +11069,12 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Validates source identities, presence, byte digests, and the saved reference.
 export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[ThermalZoneReference]] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 2097152)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 2097152)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("thermal capture metadata is missing or incomplete"))
   }
@@ -11096,7 +11097,7 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"thermal capture absent source ${relative} differs from metadata"))
       }
 
@@ -11107,7 +11108,7 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
       return Err(check_failure(f"thermal capture cannot score ${relative} source"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -11164,7 +11165,7 @@ proc reference_pci_link_name(root: FsRoot, source_path: Path, present: Bool) [fs
     return Ok(null)
   }
 
-  let name = fs.root_readlink(root, source_path)?.name()
+  let name = root.readlink(source_path)?.name()
   if name == "" {
     return Err(check_failure(f"PCI binding reference link ${source_path} has an empty target"))
   }
@@ -11188,7 +11189,7 @@ proc reference_pci_numa_node(root: FsRoot, source_path: Path) [fs, error] -> Res
 
 ## Reads the PCI binding links and NUMA sentinel independently for every visible function.
 export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[PciBindingReference]] {
-  let listing = fs.root_children(root, p"sys/bus/pci/devices", max_entries: 65536)?
+  let listing = root.children(p"sys/bus/pci/devices", max_entries: 65536)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -11206,8 +11207,8 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
     }
 
     seen = set.add(seen, address)
-    let entry = fs.root_readlink(root, device_path)?
-    let attributes = fs.root_children(root, device_path, max_entries: 4096)?
+    let entry = root.readlink(device_path)?
+    let attributes = root.children(device_path, max_entries: 4096)?
     if attributes.state != "complete" {
       return Err(check_failure(f"PCI binding reference attributes for ${device_path} are incomplete"))
     }
@@ -11237,7 +11238,7 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
 }
 
 proc reference_pci_link_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" {
     return Ok(null)
   }
@@ -11268,7 +11269,7 @@ proc reference_pci_link_width(root: FsRoot, source_path: Path) [fs, error] -> Re
 
 ## Reads PCIe link speeds and widths for every visible BDF without parsing candidate output.
 export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[PciLinkReference]] {
-  let listing = fs.root_children(root, p"sys/bus/pci/devices", max_entries: 65536)?
+  let listing = root.children(p"sys/bus/pci/devices", max_entries: 65536)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -11360,7 +11361,7 @@ pure pci_bundle_storage_path(address: Str, target: Str) -> Result[Str] {
 }
 
 proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
-  let listing = fs.root_children(root, p"sys/bus/pci/devices", max_entries: 4096)?
+  let listing = root.children(p"sys/bus/pci/devices", max_entries: 4096)?
   var functions: List[PciBundleFunction] = []
   var source_paths: List[Str] = []
   if listing.state != "complete" {
@@ -11374,9 +11375,9 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
 
   for entry in listing.children {
     let address = pci_reference_bdf(entry.name())?.address
-    let class_target = fs.root_readlink(root, entry)?.display()
+    let class_target = root.readlink(entry)?.display()
     let storage = pci_bundle_storage_path(address, class_target)?
-    let attributes = fs.root_children(root, entry, max_entries: 4096)?
+    let attributes = root.children(entry, max_entries: 4096)?
     if attributes.state != "complete" {
       return Err(check_failure("PCI function attributes are incomplete"))
     }
@@ -11385,11 +11386,11 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
     var iommu_target: Str? = null
     for attribute in attributes.children {
       if attribute.name() == "driver" {
-        driver_target = fs.root_readlink(root, attribute)?.display()
+        driver_target = root.readlink(attribute)?.display()
       }
 
       if attribute.name() == "iommu_group" {
-        iommu_target = fs.root_readlink(root, attribute)?.display()
+        iommu_target = root.readlink(attribute)?.display()
       }
     }
 
@@ -11436,24 +11437,24 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     return Err(check_failure("PCI capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/bus/pci/devices")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/bus/pci/devices")? {
     return Err(check_failure("PCI capture destination is not empty"))
   }
 
   let layout = pci_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/bus/pci/devices", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/bus/pci/devices", mode: 0o700, parents: true)?
     for function in layout.functions {
-      fs.root_mkdir(bundle, fp"${function.storage_path}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"${function.storage_path}", mode: 0o700, parents: true)?
       if function.driver_target != null {
-        fs.root_symlink(bundle, fp"${function.driver_target ?? ""}", fp"${function.storage_path}/driver")?
+        bundle.symlink(fp"${function.driver_target ?? ""}", fp"${function.storage_path}/driver")?
       }
 
       if function.iommu_target != null {
-        fs.root_symlink(bundle, fp"${function.iommu_target ?? ""}", fp"${function.storage_path}/iommu_group")?
+        bundle.symlink(fp"${function.iommu_target ?? ""}", fp"${function.storage_path}/iommu_group")?
       }
 
-      fs.root_symlink(bundle, fp"${function.class_target}", fp"sys/bus/pci/devices/${function.address}")?
+      bundle.symlink(fp"${function.class_target}", fp"sys/bus/pci/devices/${function.address}")?
     }
   }
 
@@ -11461,12 +11462,12 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11494,7 +11495,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   let later_layout = pci_bundle_layout(source)?
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
-    let raw = fs.root_read_result(source, fp"${layout.source_paths[index]}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${layout.source_paths[index]}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -11536,7 +11537,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     link: link,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Rejects changed PCI links, source absence, raw bytes, and decoded identities.
@@ -11562,7 +11563,7 @@ export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleC
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"PCI absent source ${relative} differs"))
       }
 
@@ -11573,7 +11574,7 @@ export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleC
       return Err(check_failure(f"PCI capture cannot score ${relative}"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
       return Err(check_failure(f"PCI capture ${relative} read is incomplete: ${raw.state}"))
     }
@@ -11666,7 +11667,7 @@ pure usb_bundle_root_hub_interface(name: Str) -> Result[Bool] {
 }
 
 proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
-  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   var entries: List[UsbBundleEntry] = []
   var source_paths: List[Str] = []
   if listing.state != "complete" {
@@ -11689,18 +11690,18 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
       let _ = parse_usb_topology_name(name)?
     }
 
-    let class_target = fs.root_readlink(root, entry)?.display()
+    let class_target = root.readlink(entry)?.display()
     let storage = usb_bundle_storage_path(name, class_target)?
     var driver_target: Str? = null
     if interface {
-      let attributes = fs.root_children(root, entry, max_entries: 4096)?
+      let attributes = root.children(entry, max_entries: 4096)?
       if attributes.state != "complete" {
         return Err(check_failure("USB interface attributes are incomplete"))
       }
 
       for attribute in attributes.children {
         if attribute.name() == "driver" {
-          driver_target = fs.root_readlink(root, attribute)?.display()
+          driver_target = root.readlink(attribute)?.display()
         }
       }
     }
@@ -11767,31 +11768,31 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     return Err(check_failure("USB capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/bus/usb/devices")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/bus/usb/devices")? {
     return Err(check_failure("USB capture destination is not empty"))
   }
 
   let layout = usb_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/bus/usb/devices", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/bus/usb/devices", mode: 0o700, parents: true)?
     for entry in layout.entries {
-      if ! fs.root_exists(bundle, fp"${entry.storage_path}")? {
-        fs.root_mkdir(bundle, fp"${entry.storage_path}", mode: 0o700, parents: true)?
+      if ! bundle.exists(fp"${entry.storage_path}")? {
+        bundle.mkdir(fp"${entry.storage_path}", mode: 0o700, parents: true)?
       }
 
       if ":" not in entry.name {
-        if ! fs.root_exists(bundle, fp"${entry.storage_path}/power")? {
-          fs.root_mkdir(bundle, fp"${entry.storage_path}/power", mode: 0o700, parents: true)?
+        if ! bundle.exists(fp"${entry.storage_path}/power")? {
+          bundle.mkdir(fp"${entry.storage_path}/power", mode: 0o700, parents: true)?
         }
       }
     }
 
     for entry in layout.entries {
       if entry.driver_target != null {
-        fs.root_symlink(bundle, fp"${entry.driver_target ?? ""}", fp"${entry.storage_path}/driver")?
+        bundle.symlink(fp"${entry.driver_target ?? ""}", fp"${entry.storage_path}/driver")?
       }
 
-      fs.root_symlink(bundle, fp"${entry.class_target}", fp"sys/bus/usb/devices/${entry.name}")?
+      bundle.symlink(fp"${entry.class_target}", fp"sys/bus/usb/devices/${entry.name}")?
     }
   }
 
@@ -11799,12 +11800,12 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11831,7 +11832,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   var stable = layout == later_layout
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = source.read_result(fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       stable = false
@@ -11880,7 +11881,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     interfaces: interfaces,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Rejects changed USB links, source absence, descriptors, attributes, and reference values.
@@ -11906,7 +11907,7 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"USB absent source ${relative} differs"))
       }
 
@@ -11917,7 +11918,7 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
       return Err(check_failure(f"USB capture cannot score ${relative}"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -12089,7 +12090,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
 
     matched_count += 1
-    let observed = candidate[candidate_by_id.get(id_key, 0)]
+    let observed = candidate[(candidate_by_id.get(id_key) ?? 0)]
     if observed.name.state != "observed" or observed.name.value != link.name {
       field_mismatches = field_mismatches.push(f"${link.ifindex}.name")
     }
@@ -12230,13 +12231,13 @@ proc network_raw_number(
   hexadecimal: Bool,
   maximum: Int,
 ) [fs, error] -> Result[NetworkRawNumber] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Ok({value: null, complete: false})
   }
 
   let decoded = (raw.data ?? b"").utf8()
-  guard let value = decoded else |_| {
+  guard let value = decoded else { |_|
     return Ok({value: null, complete: false})
   }
 
@@ -12257,7 +12258,7 @@ proc network_raw_number(
   }
 
   let parsed = cleaned.parse_int()
-  guard let number = parsed else |_| {
+  guard let number = parsed else { |_|
     return Ok({value: null, complete: false})
   }
 
@@ -12270,7 +12271,7 @@ proc network_raw_number(
 
 ## Reads independently exported kernel link facts through bounded rooted sysfs access.
 export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[List[NetworkLinkRawReference]] {
-  let listing = fs.root_children(root, p"sys/class/net", max_entries: 65536)?
+  let listing = root.children(p"sys/class/net", max_entries: 65536)?
   if listing.state == "absent" {
     return Ok([])
   }
@@ -12970,7 +12971,7 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
     let action_name = json.get(row, ["action"], null).require(Str?)?
     let goto_target = json.get(row, ["goto"], null).require(Int?)?
     let action = if action_name != null {
-      ip_rule_action(action_name ?? "")?
+      ip_rule_action(action_name)?
     } else if "masquerade" in row.keys() or "nat_gateway" in row.keys() {
       "action_10"
     } else if goto_target != null {
@@ -14173,12 +14174,12 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
     devices = devices.push({
       name: name,
       kind: kind,
-      scheduler: if scheduler == null { null } else { scheduler.trim() },
+      scheduler: scheduler?.trim(),
       read_ahead_kb: read_ahead,
       discard_granularity_bytes: discard_granularity,
       discard_max_bytes: discard_max,
-      model: if model == null { null } else { model.trim() },
-      revision_hint: if revision == null { null } else { revision.trim() },
+      model: model?.trim(),
+      revision_hint: revision?.trim(),
     })
   }
 
@@ -14376,7 +14377,7 @@ pure parse_block_queue_stat(output: Str) -> Result[List[BlockQueueCounter]] {
 }
 
 proc bounded_block_reference_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
-  let source = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let source = root.read_result(source_path, max_bytes: 4096)?
   if source.state == "absent" {
     return null
   }
@@ -14415,7 +14416,7 @@ export proc read_block_queue_sources(
     sources = sources.push({
       name: name,
       firmware: firmware,
-      counters: if stat == null { [] } else { parse_block_queue_stat(stat ?? "")? },
+      counters: if stat == null { [] } else { parse_block_queue_stat(stat)? },
     })
   }
 
@@ -14472,7 +14473,7 @@ pure block_bundle_link_path(storage: Str, directory: Str, target: Str) -> Str? {
 
 # Preserves class identity and both block-layer relation directories.
 proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] {
-  let listing = fs.root_children(root, p"sys/class/block", max_entries: 4096)?
+  let listing = root.children(p"sys/class/block", max_entries: 4096)?
   var entries: List[BlockBundleEntry] = []
   var source_paths: List[Str] = []
   var complete = listing.state == "complete" or listing.state == "absent"
@@ -14486,19 +14487,19 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       return Err(check_failure("block class entry has an unsafe name"))
     }
 
-    let class_link = fs.root_readlink_result(root, entry)?
+    let class_link = root.readlink_result(entry)?
     var class_target: Str? = null
     var storage = entry.display()
     if class_link.state == "observed" {
       class_target = class_link.target.require(Path)?.display()
       storage = block_bundle_storage_path(name, class_target ?? "")?
-    } else if fs.root_metadata(root, entry)?.kind != "dir" {
+    } else if root.metadata(entry)?.kind != "dir" {
       complete = false
     }
 
-    let partition = fs.root_exists(root, fp"${entry}/partition")?
-    let holders_listing = fs.root_children(root, fp"${entry}/holders", max_entries: 4096)?
-    let slaves_listing = fs.root_children(root, fp"${entry}/slaves", max_entries: 4096)?
+    let partition = root.exists(fp"${entry}/partition")?
+    let holders_listing = root.children(fp"${entry}/holders", max_entries: 4096)?
+    let slaves_listing = root.children(fp"${entry}/slaves", max_entries: 4096)?
     if holders_listing.state != "complete" or slaves_listing.state != "complete" and ! (partition and slaves_listing.state == "absent") {
       complete = false
     }
@@ -14521,7 +14522,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
           return Err(check_failure("block relation has an unsafe name"))
         }
 
-        let link = fs.root_readlink_result(root, child)?
+        let link = root.readlink_result(child)?
         var target: Str? = null
         if link.state == "observed" {
           target = link.target.require(Path)?.display()
@@ -14533,7 +14534,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
           if target_parts[target_parts.len() - 1] != child_name {
             return Err(check_failure("block relation link targets a different device"))
           }
-        } else if fs.root_metadata(root, child)?.kind != "dir" {
+        } else if root.metadata(child)?.kind != "dir" {
           complete = false
         }
 
@@ -15070,22 +15071,22 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     return Err(check_failure("block capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/block")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/block")? {
     return Err(check_failure("block capture destination is not empty"))
   }
 
   let layout = block_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    fs.root_mkdir(bundle, p"sys/class/block", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/block", mode: 0o700, parents: true)?
     for entry in layout.entries {
       let storage = fp"${entry.storage_path}"
-      if ! fs.root_exists(bundle, storage)? {
-        fs.root_mkdir(bundle, storage, mode: 0o700, parents: true)?
+      if ! bundle.exists(storage)? {
+        bundle.mkdir(storage, mode: 0o700, parents: true)?
       }
 
       for nested in ["queue", "device"] {
-        if ! fs.root_exists(bundle, fp"${storage}/${nested}")? {
-          fs.root_mkdir(bundle, fp"${storage}/${nested}", mode: 0o700, parents: true)?
+        if ! bundle.exists(fp"${storage}/${nested}")? {
+          bundle.mkdir(fp"${storage}/${nested}", mode: 0o700, parents: true)?
         }
       }
 
@@ -15103,19 +15104,19 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       ] {
         continue when relation.state != "complete"
         let directory = fp"${storage}/${relation.kind}"
-        fs.root_mkdir(bundle, directory, mode: 0o700)?
+        bundle.mkdir(directory, mode: 0o700)?
         for link in relation.links {
           let destination = fp"${directory}/${link.name}"
           if link.target == null {
-            fs.root_mkdir(bundle, destination, mode: 0o700)?
+            bundle.mkdir(destination, mode: 0o700)?
           } else {
-            fs.root_symlink(bundle, fp"${link.target ?? ""}", destination)?
+            bundle.symlink(fp"${link.target ?? ""}", destination)?
           }
         }
       }
 
       if entry.class_target != null {
-        fs.root_symlink(bundle, fp"${entry.class_target ?? ""}", fp"sys/class/block/${entry.name}")?
+        bundle.symlink(fp"${entry.class_target ?? ""}", fp"sys/class/block/${entry.name}")?
       }
     }
   }
@@ -15124,12 +15125,12 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var saved_bytes: List[Bytes?] = []
   var complete = layout.complete
   for relative in layout.source_paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -15157,7 +15158,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   var changing_stats: List[Str] = []
   for index in range(layout.source_paths.len()) {
     let relative = layout.source_paths[index]
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if relative.ends_with("/stat") {
@@ -15203,11 +15204,11 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 16777216 {
+  if encoded.byte_len() > 16777216 {
     return Err(check_failure("block capture metadata exceeds its replay bound"))
   }
 
-  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)?
 }
 
 ## Rejects altered block links, source bytes, absences, and independent references.
@@ -15242,7 +15243,7 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"block absent source ${relative} differs"))
       }
 
@@ -15253,7 +15254,7 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
       return Err(check_failure(f"block capture cannot score ${relative}"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -15702,18 +15703,18 @@ export proc capture_mountinfo_bundle(source: FsRoot, bundle: FsRoot, origin: Str
   }
 
   let relative = p"proc/self/mountinfo"
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, relative)? {
+  if bundle.exists(p"capture.json")? or bundle.exists(relative)? {
     return Err(check_failure("mountinfo capture destination is not empty"))
   }
 
-  fs.root_mkdir(bundle, p"proc/self", mode: 0o700, parents: true)?
-  let first = fs.root_read_result(source, relative, max_bytes: 4194304)?
+  bundle.mkdir(p"proc/self", mode: 0o700, parents: true)?
+  let first = source.read_result(relative, max_bytes: 4194304)?
   var byte_count = 0
   var sha256_hex: Str? = null
   var reference: List[MountReference]? = null
   if first.data != null {
     let data = first.data ?? b""
-    fs.root_write(bundle, relative, data)?
+    bundle.write(relative, data)?
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
     if first.state == "observed" and ! first.truncated and first.errno == null and first.error_kind == null {
@@ -15733,7 +15734,7 @@ export proc capture_mountinfo_bundle(source: FsRoot, bundle: FsRoot, origin: Str
     }
   }
 
-  let second = fs.root_read_result(source, relative, max_bytes: 4194304)?
+  let second = source.read_result(relative, max_bytes: 4194304)?
   let stable = first.state == second.state and first.truncated == second.truncated and first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
   var capture: MountinfoCapture = {
     schema_version: 2,
@@ -15757,12 +15758,12 @@ export proc capture_mountinfo_bundle(source: FsRoot, bundle: FsRoot, origin: Str
     metadata_text = json.encode(reduced_wire, pretty: true)?
   }
 
-  fs.root_write_atomic(bundle, p"capture.json", metadata_text)?
+  bundle.write_atomic(p"capture.json", metadata_text)?
 }
 
 ## Recomputes the mount oracle from digest-checked saved procfs bytes.
 export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List[MountReference]] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 16777216)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 16777216)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("mountinfo capture metadata is missing or incomplete"))
   }
@@ -15772,7 +15773,7 @@ export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List
     return Err(check_failure("mountinfo capture has no complete reference"))
   }
 
-  let raw = fs.root_read_result(bundle, p"proc/self/mountinfo", max_bytes: 4194304)?
+  let raw = bundle.read_result(p"proc/self/mountinfo", max_bytes: 4194304)?
   if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != capture.byte_count or hash.sha256(
     raw.data ?? b"",
   )
@@ -16031,7 +16032,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
   for index in range(mounts.len()) {
     let mount = mounts[index]
     by_id = by_id.set(f"${mount.mount_id}", index)
-    target_counts = target_counts.set(mount.target, target_counts.get(mount.target, 0) + 1)
+    target_counts = target_counts.set(mount.target, (target_counts.get(mount.target) ?? 0) + 1)
   }
 
   var eligible: List[Int] = []
@@ -16048,8 +16049,8 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
       }
 
       seen = set.add(seen, key)
-      let current = mounts[by_id.get(key, -1)]
-      if ! mount_usage_local_filesystem(current.filesystem) or target_counts.get(current.target, 0) != 1 {
+      let current = mounts[(by_id.get(key) ?? -1)]
+      if ! mount_usage_local_filesystem(current.filesystem) or (target_counts.get(current.target) ?? 0) != 1 {
         safe = false
         break
       }
@@ -16173,8 +16174,8 @@ export pure compare_mount_usage(
     seen = set.add(seen, key)
     var matches = false
     if candidate.mount_id in eligible {
-      let first = before[before_by_id.get(key, -1)]
-      let last = after[after_by_id.get(key, -1)]
+      let first = before[(before_by_id.get(key) ?? -1)]
+      let last = after[(after_by_id.get(key) ?? -1)]
       let first_available = first.total_bytes != null
       let last_available = last.total_bytes != null
       if first_available != last_available or first.total_bytes != last.total_bytes {
@@ -16450,22 +16451,22 @@ export proc capture_kernel_modules_bundle(
     return Err(check_failure("kernel module capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/modules")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/modules")? {
     return Err(check_failure("kernel module capture destination is not empty"))
   }
 
-  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
-  let first = fs.root_read_result(source, p"proc/modules", max_bytes: 1048576)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  let first = source.read_result(p"proc/modules", max_bytes: 1048576)?
   var byte_count = 0
   var sha256_hex: Str? = null
   if first.data != null {
     let data = first.data ?? b""
-    fs.root_write(bundle, p"proc/modules", data)?
+    bundle.write(p"proc/modules", data)?
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
   }
 
-  let second = fs.root_read_result(source, p"proc/modules", max_bytes: 1048576)?
+  let second = source.read_result(p"proc/modules", max_bytes: 1048576)?
   let stable = first.state == second.state and first.truncated == second.truncated and first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
   var reference: List[KernelModuleReference]? = null
   if stable and first.state == "observed" and ! first.truncated and first.data != null {
@@ -16495,12 +16496,12 @@ export proc capture_kernel_modules_bundle(
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Validates saved procfs bytes before returning the independently parsed module set.
 export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result[List[KernelModuleReference]] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("kernel module capture metadata is missing or incomplete"))
   }
@@ -16510,7 +16511,7 @@ export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result
     return Err(check_failure("kernel module capture has no stable complete reference"))
   }
 
-  let raw = fs.root_read_result(bundle, p"proc/modules", max_bytes: 1048576)?
+  let raw = bundle.read_result(p"proc/modules", max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != capture.byte_count or hash.sha256(
     raw.data ?? b"",
   )
@@ -16585,18 +16586,18 @@ export proc capture_kernel_command_line_bundle(
     return Err(check_failure("kernel command-line capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/cmdline")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/cmdline")? {
     return Err(check_failure("kernel command-line capture destination is not empty"))
   }
 
-  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
-  let first = fs.root_read_result(source, p"proc/cmdline", max_bytes: 65536)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  let first = source.read_result(p"proc/cmdline", max_bytes: 65536)?
   var byte_count = 0
   var sha256_hex: Str? = null
   var reference_base64: Str? = null
   if first.data != null {
     let data = first.data ?? b""
-    fs.root_write(bundle, p"proc/cmdline", data)?
+    bundle.write(p"proc/cmdline", data)?
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
     if first.state == "observed" and ! first.truncated {
@@ -16604,7 +16605,7 @@ export proc capture_kernel_command_line_bundle(
     }
   }
 
-  let second = fs.root_read_result(source, p"proc/cmdline", max_bytes: 65536)?
+  let second = source.read_result(p"proc/cmdline", max_bytes: 65536)?
   let stable = first.state == second.state and first.truncated == second.truncated and first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
   let capture: KernelCommandLineCapture = {
     schema_version: 1,
@@ -16621,12 +16622,12 @@ export proc capture_kernel_command_line_bundle(
     reference_base64: reference_base64,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Requires the saved bytes to match the capture digest and exact byte reference.
 export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> Result[Bytes] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("kernel command-line capture metadata is missing or incomplete"))
   }
@@ -16636,7 +16637,7 @@ export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> R
     return Err(check_failure("kernel command-line capture has no stable complete reference"))
   }
 
-  let raw = fs.root_read_result(bundle, p"proc/cmdline", max_bytes: 65536)?
+  let raw = bundle.read_result(p"proc/cmdline", max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != capture.byte_count or hash.sha256(
     raw.data ?? b"",
   )
@@ -16730,7 +16731,7 @@ export pure compare_kernel_parameters(
     }
 
     matched_count += 1
-    let source = reference[reference_by_key.get(key, -1)]
+    let source = reference[(reference_by_key.get(key) ?? -1)]
     if candidate.value.state != source.state or candidate.value.value != source.value or candidate.value.raw_bytes_base64 != source.raw_bytes_base64 {
       field_mismatches = field_mismatches.push(key)
     }
@@ -16760,7 +16761,7 @@ proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[Lis
   var reference: List[KernelParameterReference] = []
   for source in kernel_parameter_sources() {
     let relative = source.path.strip_prefix(/)?
-    let raw = fs.root_read_result(bundle, relative, max_bytes: 4096)?
+    let raw = bundle.read_result(relative, max_bytes: 4096)?
     if raw.state == "absent" and ! raw.truncated and raw.data == null {
       reference = reference.push({
         name: source.name,
@@ -16808,14 +16809,14 @@ export proc capture_kernel_parameters_bundle(
     return Err(check_failure("kernel parameter capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? {
+  if bundle.exists(p"capture.json")? {
     return Err(check_failure("kernel parameter capture destination already has metadata"))
   }
 
   let sources = kernel_parameter_sources()
   for item in sources {
     let relative = item.path.strip_prefix(/)?
-    if fs.root_exists(bundle, relative)? {
+    if bundle.exists(relative)? {
       return Err(check_failure("kernel parameter capture destination contains a source file"))
     }
   }
@@ -16825,7 +16826,7 @@ export proc capture_kernel_parameters_bundle(
   var complete = true
   for item in sources {
     let relative = item.path.strip_prefix(/)?
-    let raw = fs.root_read_result(source, relative, max_bytes: 4096)?
+    let raw = source.read_result(relative, max_bytes: 4096)?
     if raw.state not in ["observed", "absent"] or raw.truncated or raw.state == "observed" and raw.data == null or raw.state == "absent" and raw.data != null {
       complete = false
     }
@@ -16834,11 +16835,11 @@ export proc capture_kernel_parameters_bundle(
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data ?? b""
-      if ! fs.root_exists(bundle, relative.parent())? {
-        fs.root_mkdir(bundle, relative.parent(), mode: 0o700, parents: true)?
+      if ! bundle.exists(relative.parent())? {
+        bundle.mkdir(relative.parent(), mode: 0o700, parents: true)?
       }
 
-      fs.root_write(bundle, relative, data)?
+      bundle.write(relative, data)?
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -16858,7 +16859,7 @@ export proc capture_kernel_parameters_bundle(
   var stable = true
   for index in range(sources.len()) {
     let relative = sources[index].path.strip_prefix(/)?
-    let again = fs.root_read_result(source, relative, max_bytes: 4096)?
+    let again = source.read_result(relative, max_bytes: 4096)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -16883,12 +16884,12 @@ export proc capture_kernel_parameters_bundle(
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Validates every saved source before returning the independently decoded nine-key oracle.
 export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Result[List[KernelParameterReference]] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("kernel parameter capture metadata is missing or incomplete"))
   }
@@ -16907,7 +16908,7 @@ export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Res
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, relative)? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
         return Err(check_failure(f"kernel parameter capture absent ${sources[index].name} differs from metadata"))
       }
 
@@ -16918,7 +16919,7 @@ export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Res
       return Err(check_failure(f"kernel parameter capture cannot score ${sources[index].name} source"))
     }
 
-    let raw = fs.root_read_result(bundle, relative, max_bytes: 4096)?
+    let raw = bundle.read_result(relative, max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -17119,28 +17120,28 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
     return Err(check_failure("os-release capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? {
+  if bundle.exists(p"capture.json")? {
     return Err(check_failure("os-release capture already exists"))
   }
 
   let paths = os_release_bundle_paths()
   for relative in paths {
-    if fs.root_exists(bundle, fp"${relative}")? {
+    if bundle.exists(fp"${relative}")? {
       return Err(check_failure("os-release capture destination contains a source file"))
     }
   }
 
-  fs.root_mkdir(bundle, p"etc", mode: 0o700, parents: true)?
-  fs.root_mkdir(bundle, p"usr/lib", mode: 0o700, parents: true)?
+  bundle.mkdir(p"etc", mode: 0o700, parents: true)?
+  bundle.mkdir(p"usr/lib", mode: 0o700, parents: true)?
   var observations: List[OsReleaseSourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   for relative in paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 65536)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 65536)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -17159,7 +17160,7 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
 
   var stable = true
   for index in range(paths.len()) {
-    let again = fs.root_read_result(source, fp"${paths[index]}", max_bytes: 65536)?
+    let again = source.read_result(fp"${paths[index]}", max_bytes: 65536)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17198,12 +17199,12 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Verifies every saved source before using its independently parsed release identity.
 export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsReleaseReference] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("os-release capture metadata is missing or incomplete"))
   }
@@ -17225,7 +17226,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
       "read_failure",
       "permission_denied",
     ] and expected.sha256_hex == null {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"os-release unavailable source ${relative} differs from metadata"))
       }
 
@@ -17236,7 +17237,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
       return Err(check_failure(f"os-release cannot score ${relative} source"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 65536)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 65536)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -17256,7 +17257,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release capture has no usable reference"))
   }
 
-  let selected = fs.root_read_result(bundle, fp"${selected_path}", max_bytes: 65536)?
+  let selected = bundle.read_result(fp"${selected_path}", max_bytes: 65536)?
   let index = if selected_path == paths[0] { 0 } else { 1 }
   if selected.state != "observed" or selected.truncated or selected.data == null or hash.sha256(selected.data ?? b"")
     .hex() != (capture.sources[index].sha256_hex ?? "") {
@@ -17342,7 +17343,7 @@ pure parse_reference_device_tree_strings(raw: Bytes) -> Result[List[Str]] {
   var start = 0
   var index = 0
   while index < raw.len() {
-    if raw.byte_at(index) == 0 {
+    if (raw.byte_at(index) ?? -1) == 0 {
       if index == start {
         return Err(check_failure("device-tree reference has an empty string"))
       }
@@ -17456,25 +17457,25 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
     return Err(check_failure("device-tree capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? {
+  if bundle.exists(p"capture.json")? {
     return Err(check_failure("device-tree capture already exists"))
   }
 
   let paths = device_tree_bundle_paths()
   for relative in paths {
-    if fs.root_exists(bundle, fp"${relative}")? {
+    if bundle.exists(fp"${relative}")? {
       return Err(check_failure("device-tree capture destination contains a source file"))
     }
   }
 
-  fs.root_mkdir(bundle, p"sys/firmware/devicetree/base", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/firmware/devicetree/base", mode: 0o700, parents: true)?
   var sources: List[DeviceTreeSourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   var complete = true
   for index in range(paths.len()) {
     let relative = paths[index]
     let limit = if index == 0 { 4096 } else { 16384 }
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: limit)?
+    let raw = source.read_result(fp"${relative}", max_bytes: limit)?
     if raw.truncated or raw.state not in ["observed", "absent"] or raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null) or raw.state == "absent" and raw.data != null {
       complete = false
     }
@@ -17483,7 +17484,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17503,7 +17504,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
   var stable = true
   for index in range(paths.len()) {
     let limit = if index == 0 { 4096 } else { 16384 }
-    let again = fs.root_read_result(source, fp"${paths[index]}", max_bytes: limit)?
+    let again = source.read_result(fp"${paths[index]}", max_bytes: limit)?
     let first = sources[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17528,12 +17529,12 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Verifies saved source states, digests, and the decoded device-tree reference.
 export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[DeviceTreeReference] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 65536)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 65536)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("device-tree capture metadata is missing or incomplete"))
   }
@@ -17553,7 +17554,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"device-tree absent source ${relative} differs from metadata"))
       }
 
@@ -17566,7 +17567,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     }
 
     let limit = if index == 0 { 4096 } else { 16384 }
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: limit)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: limit)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -17600,7 +17601,7 @@ export proc replay_device_tree_bundle(bundle: FsRoot) [fs, time, error] -> Resul
 }
 
 proc reference_dmi_text(root: FsRoot, source_path: Path) [fs, error] -> Result[DmiTextReference] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" {
     return Ok({value: null, complete: true})
   }
@@ -17652,23 +17653,23 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
     return Err(check_failure("DMI identity capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? {
+  if bundle.exists(p"capture.json")? {
     return Err(check_failure("DMI identity capture already exists"))
   }
 
   let paths = dmi_identity_bundle_paths()
   for relative in paths {
-    if fs.root_exists(bundle, fp"${relative}")? {
+    if bundle.exists(fp"${relative}")? {
       return Err(check_failure("DMI identity capture destination contains a source file"))
     }
   }
 
-  fs.root_mkdir(bundle, p"sys/class/dmi/id", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/class/dmi/id", mode: 0o700, parents: true)?
   var sources: List[DmiIdentitySourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   var complete = true
   for relative in paths {
-    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
     if raw.truncated or raw.state not in ["observed", "absent"] or raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null) or raw.state == "absent" and raw.data != null {
       complete = false
     }
@@ -17677,7 +17678,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data ?? b""
-      fs.root_write(bundle, fp"${relative}", data)?
+      bundle.write(fp"${relative}", data)?
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17696,7 +17697,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
 
   var stable = true
   for index in range(paths.len()) {
-    let again = fs.root_read_result(source, fp"${paths[index]}", max_bytes: 4096)?
+    let again = source.read_result(fp"${paths[index]}", max_bytes: 4096)?
     let first = sources[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
       stable = false
@@ -17721,12 +17722,12 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
     reference: reference,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Checks DMI class source states, digests, and the saved raw-value reference.
 export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[DmiIdentityReference] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("DMI identity capture metadata is missing or incomplete"))
   }
@@ -17745,7 +17746,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"DMI identity absent source ${relative} differs from metadata"))
       }
 
@@ -17756,7 +17757,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
       return Err(check_failure(f"DMI identity cannot score ${relative} source"))
     }
 
-    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -17985,18 +17986,18 @@ export proc capture_uptime_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
     return Err(check_failure("uptime capture has an invalid origin"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/uptime")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/uptime")? {
     return Err(check_failure("uptime capture destination is not empty"))
   }
 
-  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
-  let raw = fs.root_read_result(source, p"proc/uptime", max_bytes: 4096)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  let raw = source.read_result(p"proc/uptime", max_bytes: 4096)?
   var byte_count = 0
   var sha256_hex: Str? = null
   var reference_seconds: Int? = null
   if raw.data != null {
     let data = raw.data ?? b""
-    fs.root_write(bundle, p"proc/uptime", data)?
+    bundle.write(p"proc/uptime", data)?
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
     if raw.state == "observed" and ! raw.truncated and raw.errno == null and raw.error_kind == null {
@@ -18026,12 +18027,12 @@ export proc capture_uptime_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
     reference_seconds: reference_seconds,
   }
   let wire: Any = capture
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
 }
 
 ## Verifies saved uptime bytes before using the parsed whole-second oracle.
 export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int] {
-  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 65536)?
+  let metadata = bundle.read_result(p"capture.json", max_bytes: 65536)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("uptime capture metadata is missing or incomplete"))
   }
@@ -18041,7 +18042,7 @@ export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int] {
     return Err(check_failure("uptime capture has no complete reference"))
   }
 
-  let raw = fs.root_read_result(bundle, p"proc/uptime", max_bytes: 4096)?
+  let raw = bundle.read_result(p"proc/uptime", max_bytes: 4096)?
   if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != capture.byte_count or hash.sha256(
     raw.data ?? b"",
   )
@@ -18158,7 +18159,7 @@ export pure parse_proc_status_uid_reference(output: Str) -> Result[Int] {
       return Err(check_failure("process status reference has duplicate UID rows"))
     }
 
-    let columns = line.split(":", maxsplit: 1).get(1, "").replace("\t", " ").split(" ") |> where .trim() != ""
+    let columns = (line.split(":", maxsplit: 1).get(1) ?? "").replace("\t", " ").split(" ") |> where .trim() != ""
     if columns.len() != 4 {
       return Err(check_failure("process status reference has an incomplete UID row"))
     }
@@ -18681,7 +18682,7 @@ proc cgroup2_reference_text(
   max_bytes: Int,
   required: Bool,
 ) [fs, error] -> Result[Str?] {
-  let read = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let read = root.read_result(source_path, max_bytes:)?
   if read.state == "absent" and ! required {
     return Ok(null)
   }
@@ -18891,8 +18892,8 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
 
 # Selects the bounded sources for every cgroup2 ancestor visible through this mount.
 proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayout] {
-  let membership = fs.root_read_result(root, p"proc/self/cgroup", max_bytes: 65536)?
-  let mountinfo = fs.root_read_result(root, p"proc/self/mountinfo", max_bytes: 4194304)?
+  let membership = root.read_result(p"proc/self/cgroup", max_bytes: 65536)?
+  let mountinfo = root.read_result(p"proc/self/mountinfo", max_bytes: 4194304)?
   var ancestors: List[VisibleCgroup2Ancestor] = []
   if membership.state == "observed" and ! membership.truncated and membership.data != null and mountinfo.state == "observed" and ! mountinfo.truncated and mountinfo.data != null {
     match visible_cgroup2_reference_paths(root) {
@@ -18992,7 +18993,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     return Err(check_failure("cgroup2 capture origin is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/self")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/self")? {
     return Err(check_failure("cgroup2 capture destination is not empty"))
   }
 
@@ -19002,17 +19003,17 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var complete = true
   for item in layout.paths {
     let relative = fp"${item.path}"
-    let raw = fs.root_read_result(source, relative, max_bytes: item.max_bytes)?
+    let raw = source.read_result(relative, max_bytes: item.max_bytes)?
     var sha256_hex: Str? = null
     var byte_count = 0
     if raw.data != null {
       let data = raw.data ?? b""
       let parent = relative.parent()
-      if ! fs.root_exists(bundle, parent)? {
-        fs.root_mkdir(bundle, parent, mode: 0o700, parents: true)?
+      if ! bundle.exists(parent)? {
+        bundle.mkdir(parent, mode: 0o700, parents: true)?
       }
 
-      fs.root_write(bundle, relative, data)?
+      bundle.write(relative, data)?
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -19041,7 +19042,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   var changing_sources: List[Str] = []
   for index in range(layout.paths.len()) {
     let item = layout.paths[index]
-    let raw = fs.root_read_result(source, fp"${item.path}", max_bytes: item.max_bytes)?
+    let raw = source.read_result(fp"${item.path}", max_bytes: item.max_bytes)?
     let first = sources[index]
     if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
       if item.changing {
@@ -19080,11 +19081,11 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 1048576 {
+  if encoded.byte_len() > 1048576 {
     return Err(check_failure("cgroup2 capture metadata exceeds its replay bound"))
   }
 
-  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)?
 }
 
 ## Requires saved cgroup2 bytes, path selection, and decoded resources to agree.
@@ -19120,7 +19121,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
 
     let relative = fp"${item.path}"
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, relative)? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
         return Err(check_failure(f"cgroup2 absent source ${item.path} differs"))
       }
 
@@ -19131,7 +19132,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
       return Err(check_failure(f"cgroup2 capture cannot score ${item.path}"))
     }
 
-    let raw = fs.root_read_result(bundle, relative, max_bytes: item.max_bytes)?
+    let raw = bundle.read_result(relative, max_bytes: item.max_bytes)?
     if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
       raw.data ?? b"",
     )
@@ -19287,8 +19288,8 @@ export proc read_cpu_scope_cgroup_reference(root: FsRoot) [fs, time, error] -> R
   for path_item in paths {
     let cpuset_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpuset.cpus.effective", 65536, false)?
     let quota_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.max", 4096, false)?
-    let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw ?? "", true)? }
-    let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw ?? "")? }
+    let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw, true)? }
+    let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw)? }
     ancestors = ancestors.push(
       {path: path_item.visible_path, hierarchy_level: path_item.hierarchy_level, effective_cpus: cpus, quota: quota},
     )
@@ -19394,7 +19395,7 @@ export pure compare_cpu_scope_cgroup(
 }
 
 proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs, error] -> Result[Str?] {
-  let source = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let source = root.read_result(source_path, max_bytes:)?
   if source.state != "observed" or source.truncated or source.data == null {
     return Ok(null)
   }
@@ -19407,7 +19408,7 @@ proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs
 
 ## Captures only complete per-process sources whose PID/start identity survives both stat reads.
 export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[ProcessIdentitySnapshot] {
-  let listing = fs.root_children(root, p"proc", max_entries: 8192)?
+  let listing = root.children(p"proc", max_entries: 8192)?
   if listing.state != "complete" {
     return Err(check_failure("process reference enumeration is incomplete"))
   }
@@ -19426,7 +19427,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
 
     continue unless decimal
     let parsed_pid = process_reference_number(pid_text)
-    guard let pid = parsed_pid else |_| {
+    guard let pid = parsed_pid else { |_|
       skipped_count += 1
       continue
     }
@@ -19442,7 +19443,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    guard let first = parse_proc_stat_identity_reference(first_source ?? "") else |_| {
+    guard let first = parse_proc_stat_identity_reference(first_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19453,7 +19454,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    guard let uid = parse_proc_status_uid_reference(status_source ?? "") else |_| {
+    guard let uid = parse_proc_status_uid_reference(status_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19464,7 +19465,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    guard let last = parse_proc_stat_identity_reference(last_source ?? "") else |_| {
+    guard let last = parse_proc_stat_identity_reference(last_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19496,7 +19497,7 @@ export proc read_process_resource_snapshot(
     return Err(check_failure("process resource reference has an invalid page size"))
   }
 
-  let listing = fs.root_children(root, p"proc", max_entries: 8192)?
+  let listing = root.children(p"proc", max_entries: 8192)?
   if listing.state != "complete" {
     return Err(check_failure("process resource reference enumeration is incomplete"))
   }
@@ -19514,7 +19515,7 @@ export proc read_process_resource_snapshot(
     }
 
     continue unless decimal
-    guard let pid = process_reference_number(pid_text) else |_| {
+    guard let pid = process_reference_number(pid_text) else { |_|
       skipped_count += 1
       continue
     }
@@ -19530,7 +19531,7 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    guard let first = parse_proc_stat_thread_reference(first_source ?? "") else |_| {
+    guard let first = parse_proc_stat_thread_reference(first_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19542,12 +19543,12 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    guard let memory = parse_proc_statm_reference(statm_source ?? "", page_size_bytes) else |_| {
+    guard let memory = parse_proc_statm_reference(statm_source ?? "", page_size_bytes) else { |_|
       skipped_count += 1
       continue
     }
 
-    guard let cgroup = parse_proc_cgroup_reference(cgroup_source ?? "") else |_| {
+    guard let cgroup = parse_proc_cgroup_reference(cgroup_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19558,7 +19559,7 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    guard let last = parse_proc_stat_thread_reference(last_source ?? "") else |_| {
+    guard let last = parse_proc_stat_thread_reference(last_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19607,24 +19608,24 @@ export proc capture_process_bundle(
     return Err(check_failure("process capture page size is invalid"))
   }
 
-  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc")? {
+  if bundle.exists(p"capture.json")? or bundle.exists(p"proc")? {
     return Err(check_failure("process capture destination is not empty"))
   }
 
-  let listing = fs.root_children(source, p"proc", max_entries: 8192)?
+  let listing = source.children(p"proc", max_entries: 8192)?
   var pids: List[Int] = []
   var sources: List[ProcessBundleSource] = []
   var skipped: List[ProcessBundleSkip] = []
   var total_bytes = 0
   if listing.state == "complete" {
-    fs.root_mkdir(bundle, p"proc", mode: 0o700)?
+    bundle.mkdir(p"proc", mode: 0o700)?
     for process_path in listing.children {
       let pid_text = process_path.name()
       continue when pid_text == "" or (pid_text.split("")
         |> any { |part|
           part not in "0123456789"
         })
-      guard let pid = process_reference_number(pid_text) else |_| {
+      guard let pid = process_reference_number(pid_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "pid", "malformed"))
         continue
       }
@@ -19634,12 +19635,12 @@ export proc capture_process_bundle(
         continue
       }
 
-      if fs.root_readlink_result(source, process_path)?.state == "observed" {
+      if source.readlink_result(process_path)?.state == "observed" {
         skipped = skipped.push(process_bundle_skip(pid_text, "pid", "symlink"))
         continue
       }
 
-      let first = fs.root_read_result(source, fp"${process_path}/stat", max_bytes: 16384)?
+      let first = source.read_result(fp"${process_path}/stat", max_bytes: 16384)?
       if first.state != "observed" or first.truncated or first.data == null {
         skipped = skipped.push({
           name: pid_text,
@@ -19668,7 +19669,7 @@ export proc capture_process_bundle(
           max_bytes: 16384,
         },
       ] {
-        let raw = fs.root_read_result(source, fp"${process_path}/${field.name}", max_bytes: field.max_bytes)?
+        let raw = source.read_result(fp"${process_path}/${field.name}", max_bytes: field.max_bytes)?
         if raw.state != "observed" or raw.truncated or raw.data == null {
           skipped = skipped.push({
             name: pid_text,
@@ -19686,7 +19687,7 @@ export proc capture_process_bundle(
       }
 
       continue unless complete
-      let last = fs.root_read_result(source, fp"${process_path}/stat", max_bytes: 16384)?
+      let last = source.read_result(fp"${process_path}/stat", max_bytes: 16384)?
       if last.state != "observed" or last.truncated or last.data == null {
         skipped = skipped.push({
           name: pid_text,
@@ -19699,32 +19700,32 @@ export proc capture_process_bundle(
         continue
       }
 
-      guard let first_text = (first.data ?? b"").utf8() else |_| {
+      guard let first_text = (first.data ?? b"").utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let last_text = (last.data ?? b"").utf8() else |_| {
+      guard let last_text = (last.data ?? b"").utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let first_identity = parse_proc_stat_identity_reference(first_text) else |_| {
+      guard let first_identity = parse_proc_stat_identity_reference(first_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let last_identity = parse_proc_stat_identity_reference(last_text) else |_| {
+      guard let last_identity = parse_proc_stat_identity_reference(last_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let first_thread = parse_proc_stat_thread_reference(first_text) else |_| {
+      guard let first_thread = parse_proc_stat_thread_reference(first_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let last_thread = parse_proc_stat_thread_reference(last_text) else |_| {
+      guard let last_thread = parse_proc_stat_thread_reference(last_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
@@ -19734,17 +19735,17 @@ export proc capture_process_bundle(
         continue
       }
 
-      guard let status_text = raw_fields[2].data.utf8() else |_| {
+      guard let status_text = raw_fields[2].data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "status", "malformed"))
         continue
       }
 
-      guard let statm_text = raw_fields[1].data.utf8() else |_| {
+      guard let statm_text = raw_fields[1].data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "statm", "malformed"))
         continue
       }
 
-      guard let cgroup_text = raw_fields[3].data.utf8() else |_| {
+      guard let cgroup_text = raw_fields[3].data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "cgroup", "malformed"))
         continue
       }
@@ -19783,10 +19784,10 @@ export proc capture_process_bundle(
       }
 
       total_bytes += selected_bytes
-      fs.root_mkdir(bundle, fp"proc/${pid}", mode: 0o700)?
+      bundle.mkdir(fp"proc/${pid}", mode: 0o700)?
       for field in raw_fields {
         let relative = f"proc/${pid}/${field.name}"
-        fs.root_write(bundle, fp"${relative}", field.data)?
+        bundle.write(fp"${relative}", field.data)?
         sources = sources.push({
           path: relative,
           max_bytes: field.max_bytes,
@@ -19839,11 +19840,11 @@ export proc capture_process_bundle(
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 8388608 {
+  if encoded.byte_len() > 8388608 {
     return Err(check_failure("process capture metadata exceeds its replay bound"))
   }
 
-  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)?
 }
 
 ## Rejects changed saved process bytes, PID membership, and decoded references.
@@ -19856,7 +19857,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
     return Err(check_failure("process capture has no scoreable reference"))
   }
 
-  let listing = fs.root_children(bundle, p"proc", max_entries: 8192)?
+  let listing = bundle.children(p"proc", max_entries: 8192)?
   if listing.state != "complete" {
     return Err(check_failure("process bundle PID listing is incomplete"))
   }
@@ -19935,7 +19936,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
         return Err(check_failure("process bundle source identity differs"))
       }
 
-      let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: field.max_bytes)?
+      let raw = bundle.read_result(fp"${relative}", max_bytes: field.max_bytes)?
       if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data ?? b"").len() != expected.byte_count or hash.sha256(
         raw.data ?? b"",
       )
@@ -20035,7 +20036,7 @@ export pure compare_process_identity(
       continue
     }
 
-    let last = after[after_by_pid.get(key, -1)]
+    let last = after[(after_by_pid.get(key) ?? -1)]
     if first.start_ticks != last.start_ticks or first.parent_pid != last.parent_pid or first.uid != last.uid or first.command != last.command {
       unstable_count += 1
       continue
@@ -20047,7 +20048,7 @@ export pure compare_process_identity(
       continue
     }
 
-    let candidate = candidates[candidate_by_pid.get(key, -1)]
+    let candidate = candidates[(candidate_by_pid.get(key) ?? -1)]
     if candidate.start_ticks != first.start_ticks {
       missing_pids = missing_pids.push(first.pid)
       continue
@@ -20126,19 +20127,19 @@ export pure compare_process_resources(
   var mismatched_fields: List[Str] = []
   for first in before {
     let key = f"${first.pid}"
-    if key not in after_by_pid or after[after_by_pid.get(key, -1)].start_ticks != first.start_ticks {
+    if key not in after_by_pid or after[(after_by_pid.get(key) ?? -1)].start_ticks != first.start_ticks {
       unstable_count += 1
       continue
     }
 
     stable_count += 1
-    if key not in candidate_by_pid or candidates[candidate_by_pid.get(key, -1)].start_ticks != first.start_ticks {
+    if key not in candidate_by_pid or candidates[(candidate_by_pid.get(key) ?? -1)].start_ticks != first.start_ticks {
       missing_pids = missing_pids.push(first.pid)
       continue
     }
 
-    let last = after[after_by_pid.get(key, -1)]
-    let candidate = candidates[candidate_by_pid.get(key, -1)]
+    let last = after[(after_by_pid.get(key) ?? -1)]
+    let candidate = candidates[(candidate_by_pid.get(key) ?? -1)]
     matched_count += 1
     if first.thread_count == last.thread_count {
       scored_fields += 1
@@ -20636,11 +20637,12 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
   }
 }
 
-## Requires a fixture name to match a declared test procedure in its source.
+## Requires a fixture name to match an explicit test declaration in its source.
 export pure fixture_test_definition_exists(source: Str, test_name: Str) -> Bool {
-  let declaration = f"proc ${test_name}("
+  let declaration = f"test ${test_name}"
   for line in source.lines() {
-    if line.trim().starts_with(declaration) {
+    let trimmed = line.trim()
+    if trimmed.starts_with(f"${declaration} ") or trimmed.starts_with(f"${declaration}\t") or trimmed.starts_with(f"${declaration}{") or trimmed.starts_with(f"${declaration}[") {
       return true
     }
   }
@@ -20892,7 +20894,7 @@ pure route_netlink_query_only(message: Str) -> Bool {
   }
 
   for encoded in messages |> drop(1) {
-    let message_type = encoded.split(",").get(0, "").split("}").get(0, "").split("]").get(0, "").trim()
+    let message_type = (((encoded.split(",").get(0) ?? "").split("}").get(0) ?? "").split("]").get(0) ?? "").trim()
     if message_type not in ["RTM_GETLINK", "RTM_GETADDR", "RTM_GETROUTE", "RTM_GETRULE"] {
       return false
     }
@@ -20904,7 +20906,7 @@ pure route_netlink_query_only(message: Str) -> Bool {
 # Route-netlink queries must address the kernel unicast port, not a user port or multicast group.
 pure route_netlink_kernel_destination(destination: Str) -> Bool {
   let fields = destination.split(",")
-  let family = fields.get(0, "").trim()
+  let family = (fields.get(0) ?? "").trim()
   if family != "{sa_family=AF_NETLINK" and family != "{nl_family=AF_NETLINK" {
     return false
   }
@@ -20912,7 +20914,7 @@ pure route_netlink_kernel_destination(destination: Str) -> Bool {
   var pid_fields = 0
   var group_fields = 0
   for part in fields |> drop(1) {
-    let field = part.trim().split("}").get(0, "").trim()
+    let field = (part.trim().split("}").get(0) ?? "").trim()
     if field.starts_with("nl_pid=") {
       if field != "nl_pid=0" {
         return false
@@ -20920,7 +20922,7 @@ pure route_netlink_kernel_destination(destination: Str) -> Bool {
 
       pid_fields += 1
     } else if field.starts_with("nl_groups=") {
-      let group_bits = field.split("=", maxsplit: 1).get(1, "")
+      let group_bits = (field.split("=", maxsplit: 1).get(1) ?? "")
       if group_bits == "" {
         return false
       }
@@ -21048,7 +21050,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
         violations = violations.push("incomplete file open trace")
       }
 
-      let flags = if open_name == "open" { arguments.get(1, "") } else { arguments.get(2, "") }
+      let flags = if open_name == "open" { (arguments.get(1) ?? "") } else { (arguments.get(2) ?? "") }
       if "O_WRONLY" in flags or "O_RDWR" in flags or "O_CREAT" in flags or "O_TRUNC" in flags or "O_APPEND" in flags {
         violations = violations.push("writable file open")
       }
@@ -21056,12 +21058,12 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     for name in ["write", "writev"] {
       if traced_syscall(line, name) {
-        let descriptor = line.split(f"${name}(", maxsplit: 1)
-          .get(1, "")
+        let descriptor = (((line.split(f"${name}(", maxsplit: 1)
+          .get(1) ?? "")
           .split(",")
-          .get(0, "")
+          .get(0) ?? "")
           .split("<")
-          .get(0, "")
+          .get(0) ?? "")
           .trim()
         if descriptor != "1" and descriptor != "2" {
           violations = violations.push("write to non-output descriptor")
@@ -21076,7 +21078,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "ioctl") {
-      let request = traced_call_arguments(line, "ioctl").get(1, "")
+      let request = (traced_call_arguments(line, "ioctl").get(1) ?? "")
       if request not in [
         "TIOCGWINSZ",
         "TCGETS",
@@ -21095,9 +21097,9 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     if traced_syscall(line, "socket") {
       let arguments = traced_call_arguments(line, "socket")
-      let family = arguments.get(0, "")
-      let socket_type = arguments.get(1, "")
-      let protocol = arguments.get(2, "")
+      let family = (arguments.get(0) ?? "")
+      let socket_type = (arguments.get(1) ?? "")
+      let protocol = (arguments.get(2) ?? "")
       if family == "AF_NETLINK" and protocol not in ["NETLINK_ROUTE", "0"] {
         violations = violations.push("unexpected netlink protocol")
       } else if family == "AF_NETLINK" and ! socket_type.starts_with("SOCK_RAW") and ! socket_type.starts_with(
@@ -21124,7 +21126,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "connect") {
-      let destination = traced_call_arguments(line, "connect").get(1, "")
+      let destination = (traced_call_arguments(line, "connect").get(1) ?? "")
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations = violations.push("external network syscall")
       } else if destination.starts_with("{sa_family=AF_UNIX") {
@@ -21135,7 +21137,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "bind") {
-      let destination = traced_call_arguments(line, "bind").get(1, "")
+      let destination = (traced_call_arguments(line, "bind").get(1) ?? "")
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations = violations.push("external network syscall")
       } else if ! destination.starts_with("{sa_family=AF_NETLINK") and ! destination.starts_with(
@@ -21147,13 +21149,13 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     if traced_syscall(line, "sendto") {
       let arguments = traced_call_arguments(line, "sendto")
-      let destination = arguments.get(4, "")
+      let destination = (arguments.get(4) ?? "")
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations = violations.push("external network syscall")
       } else if destination.starts_with("{sa_family=AF_NETLINK") or destination.starts_with("{nl_family=AF_NETLINK") {
         if ! route_netlink_kernel_destination(destination) {
           violations = violations.push("non-kernel netlink destination")
-        } else if ! route_netlink_query_only(arguments.get(1, "")) {
+        } else if ! route_netlink_query_only((arguments.get(1) ?? "")) {
           violations = violations.push("non-query netlink request")
         }
       } else {
@@ -21170,17 +21172,17 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 # A relative source path needs either the known root cwd or a decoded absolute directory descriptor.
 pure unresolved_source_directory(line: Str, name: Str) -> Bool {
   let arguments = traced_call_arguments(line, name)
-  let source_argument = arguments.get(1, "")
+  let source_argument = (arguments.get(1) ?? "")
   if ! source_argument.starts_with("\"") {
     return false
   }
 
-  let source_path = source_argument.split("\"").get(1, "")
+  let source_path = (source_argument.split("\"").get(1) ?? "")
   if source_path.starts_with("/") {
     return false
   }
 
-  let directory = arguments.get(0, "")
+  let directory = (arguments.get(0) ?? "")
   if directory == "AT_FDCWD" {
     return false
   }
@@ -21213,7 +21215,7 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
     return []
   }
 
-  let traced_path = argument.split("\"").get(1, "")
+  let traced_path = (argument.split("\"").get(1) ?? "")
   var components: List[Str] = []
   for component in traced_path.split("/") {
     continue when component == "" or component == "."
@@ -21232,22 +21234,22 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
 # Resolves relative paths against a decoded descriptor path when strace provides one.
 pure normalized_traced_call_path(line: Str, name: Str, path_index: Int) -> List[Str] {
   let arguments = traced_call_arguments(line, name)
-  let argument = arguments.get(path_index, "")
+  let argument = (arguments.get(path_index) ?? "")
   if ! argument.starts_with("\"") {
     return []
   }
 
-  let traced_path = argument.split("\"").get(1, "")
+  let traced_path = (argument.split("\"").get(1) ?? "")
   if traced_path.starts_with("/") or path_index != 1 {
     return normalized_traced_path(argument)
   }
 
-  let descriptor_parts = arguments.get(0, "").split("<", maxsplit: 1)
+  let descriptor_parts = (arguments.get(0) ?? "").split("<", maxsplit: 1)
   if descriptor_parts.len() != 2 {
     return normalized_traced_path(argument)
   }
 
-  let directory = descriptor_parts[1].split(">", maxsplit: 1).get(0, "")
+  let directory = (descriptor_parts[1].split(">", maxsplit: 1).get(0) ?? "")
   if ! directory.starts_with("/") {
     return normalized_traced_path(argument)
   }
@@ -21378,12 +21380,12 @@ export pure replay_host_read_violations(trace: Str) -> List[Str] {
 export pure replay_host_read_violations_after_baseline(trace: Str, baseline: Str) -> List[Str] {
   var allowed: Map[Int] = {}
   for key in replay_host_read_keys(baseline) {
-    allowed = allowed.set(key, allowed.get(key, 0) + 1)
+    allowed = allowed.set(key, (allowed.get(key) ?? 0) + 1)
   }
 
   var violations: List[Str] = []
   for key in replay_host_read_keys(trace) {
-    let remaining = allowed.get(key, 0)
+    let remaining = (allowed.get(key) ?? 0)
     if remaining > 0 {
       allowed = allowed.set(key, remaining - 1)
     } else {
@@ -21406,10 +21408,10 @@ proc audit_no_subprocess_case(
   let trace_name = fp"trace-${label}"
   let stdout_name = fp"stdout-${label}"
   let stderr_name = fp"stderr-${label}"
-  fs.root_write(scratch, trace_name, "")?
-  fs.root_write(scratch, stdout_name, "")?
-  fs.root_write(scratch, stderr_name, "")?
-  let scratch_path = fs.root_path(scratch)?
+  scratch.write(trace_name, "")?
+  scratch.write(stdout_name, "")?
+  scratch.write(stderr_name, "")?
+  let scratch_path = scratch.host_path()?
   let trace_path = fp"${scratch_path}/${trace_name}"
   let stdout_path = fp"${scratch_path}/${stdout_name}"
   let stderr_path = fp"${scratch_path}/${stderr_name}"
@@ -21431,9 +21433,9 @@ proc audit_no_subprocess_case(
     stderr: stderr_path,
   )
   let status = process.run(command)?
-  let trace = fs.root_read_text(scratch, trace_name)?
-  let output = fs.root_read_text(scratch, stdout_name)?
-  let candidate_error = fs.root_read_text(scratch, stderr_name)?
+  let trace = scratch.read_text(trace_name)?
+  let output = scratch.read_text(stdout_name)?
+  let candidate_error = scratch.read_text(stderr_name)?
   let violations = process_trace_violations(trace).extend(host_effect_trace_violations(trace))
     .extend(forbidden_process_read_violations(trace))
 
@@ -21468,11 +21470,11 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  fs.root_write(scratch, p"malformed.json", "{invalid")?
-  fs.root_write(scratch, p"unsupported.json", "{\"schema_version\":2}")?
-  fs.root_write(scratch, p"invalid-utf8.json", b"\xff")?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  scratch.write(p"malformed.json", "{invalid")?
+  scratch.write(p"unsupported.json", "{\"schema_version\":2}")?
+  scratch.write(p"invalid-utf8.json", b"\xff")?
+  let scratch_path = scratch.host_path()?
   let malformed_path = fp"${scratch_path}/malformed.json"
   let unsupported_path = fp"${scratch_path}/unsupported.json"
   let invalid_utf8_path = fp"${scratch_path}/invalid-utf8.json"
@@ -21485,8 +21487,8 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   audit_no_subprocess_case(xsh_bin, script, ["--sensitive", "--json"], true, "sensitive-json", scratch)?
   let saved_path = fp"${scratch_path}/stdout-live-json"
   audit_no_subprocess_case(xsh_bin, script, ["--from", saved_path.display(), "--json"], true, "offline-replay", scratch)?
-  let live_json = fs.root_read_text(scratch, p"stdout-live-json")?
-  let replay_json = fs.root_read_text(scratch, p"stdout-offline-replay")?
+  let live_json = scratch.read_text(p"stdout-live-json")?
+  let replay_json = scratch.read_text(p"stdout-offline-replay")?
   if replay_json != live_json {
     return Err(check_failure("saved-report replay changed the JSON snapshot"))
   }
@@ -21511,9 +21513,9 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
     scratch,
   )?
   audit_no_subprocess_case(xsh_bin, script, ["--from", missing_path.display()], false, "missing-replay", scratch)?
-  let startup_trace = fs.root_read_text(scratch, p"trace-version")?
+  let startup_trace = scratch.read_text(p"trace-version")?
   for label in ["offline-replay", "malformed-replay", "unsupported-schema", "invalid-utf8-replay", "missing-replay"] {
-    let replay_trace = fs.root_read_text(scratch, fp"trace-${label}")?
+    let replay_trace = scratch.read_text(fp"trace-${label}")?
     let replay_reads = replay_host_read_violations_after_baseline(replay_trace, startup_trace)
     if replay_reads.len() > 0 {
       let reasons = replay_reads.join(", ")
@@ -21536,9 +21538,9 @@ proc read_uname_reference(
   scratch: FsRoot,
   name: Str,
 ) [fs, process, time, error] -> Result[UnameObservation] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let output_path = fp"${scratch_path}/${name}"
-  fs.root_write(scratch, fp"${name}", "")?
+  scratch.write(fp"${name}", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21554,7 +21556,7 @@ proc read_uname_reference(
     return Err(check_failure(f"uname ${flag} reference command failed"))
   }
 
-  let value = fs.root_read_text(scratch, fp"${name}")?.trim()
+  let value = scratch.read_text(fp"${name}")?.trim()
   if value == "" {
     return Err(check_failure(f"uname ${flag} reference command returned an empty value"))
   }
@@ -21566,8 +21568,8 @@ proc read_uptime_reference(
   scratch: FsRoot,
   name: Str,
 ) [fs, process, time, error] -> Result[UptimeReferenceObservation] {
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, fp"${name}", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(fp"${name}", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21583,7 +21585,7 @@ proc read_uptime_reference(
     return Err(check_failure("cat /proc/uptime reference command failed"))
   }
 
-  let output = fs.root_read_text(scratch, fp"${name}")?
+  let output = scratch.read_text(fp"${name}")?
   return {seconds: parse_reference_uptime_seconds(output)?, started: started, ended: ended}
 }
 
@@ -21592,8 +21594,8 @@ proc read_os_release_reference(
   source_path: Str,
   name: Str,
 ) [fs, process, time, error] -> Result[UnameObservation] {
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, fp"${name}", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(fp"${name}", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21609,7 +21611,7 @@ proc read_os_release_reference(
     return Err(check_failure(f"cat ${source_path} reference command failed"))
   }
 
-  let value = fs.root_read_text(scratch, fp"${name}")?
+  let value = scratch.read_text(fp"${name}")?
   return {value: value, started: started, ended: ended}
 }
 
@@ -21629,8 +21631,8 @@ export proc read_device_tree_raw_reference(
     return Err(check_failure("device-tree comparison needs /usr/bin/od"))
   }
 
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, fp"${name}", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(fp"${name}", "")?
   let status = process.run(
     process.command_argv(
       "/usr/bin/od",
@@ -21645,7 +21647,7 @@ export proc read_device_tree_raw_reference(
     return Err(check_failure(f"device-tree od reference failed for ${source_path}"))
   }
 
-  let output = fs.root_read_result(scratch, fp"${name}", max_bytes: max_bytes * 4 + 4096)?
+  let output = scratch.read_result(fp"${name}", max_bytes: max_bytes * 4 + 4096)?
   if output.state != "observed" or output.truncated or output.data == null {
     return Err(check_failure(f"device-tree od reference output is incomplete for ${source_path}"))
   }
@@ -21664,9 +21666,9 @@ proc read_namespace_reference(
   kernel_name: Str,
   output_name: Str,
 ) [fs, process, time, error] -> Result[NamespaceLinkObservation] {
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, fp"${output_name}", "")?
-  fs.root_write(scratch, fp"${output_name}-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(fp"${output_name}", "")?
+  scratch.write(fp"${output_name}-error", "")?
   let source_path = f"/proc/self/ns/${kernel_name}"
   let started = time.now()
   let status = process.run(
@@ -21684,7 +21686,7 @@ proc read_namespace_reference(
     return Err(check_failure(f"namespace reference ${source_path} is unavailable"))
   }
 
-  let target = fs.root_read_text(scratch, fp"${output_name}")?.trim()
+  let target = scratch.read_text(fp"${output_name}")?.trim()
   if target == "" {
     return Err(check_failure(f"namespace reference ${source_path} returned an empty target"))
   }
@@ -21698,11 +21700,11 @@ proc read_reference_tool_version(
   scratch: FsRoot,
   name: Str,
 ) [fs, process, error] -> Result[Str] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let output_name = fp"${name}-version"
   let error_name = fp"${name}-version-error"
-  fs.root_write(scratch, output_name, "")?
-  fs.root_write(scratch, error_name, "")?
+  scratch.write(output_name, "")?
+  scratch.write(error_name, "")?
   let status = process.run(
     process.command_argv(
       binary,
@@ -21713,14 +21715,14 @@ proc read_reference_tool_version(
       stderr: fp"${scratch_path}/${error_name}",
     ),
   )?
-  let output = fs.root_read_text(scratch, output_name)?
-  let error_output = fs.root_read_text(scratch, error_name)?
+  let output = scratch.read_text(output_name)?
+  let error_output = scratch.read_text(error_name)?
   let busybox_lines = error_output.lines() |> where .starts_with("BusyBox")
   if status.exited_with(0) {
-    return output.lines().get(0, "unavailable")
+    return ((output.lines() |> collect).get(0) ?? "unavailable")
   }
 
-  return busybox_lines.get(0, "unavailable")
+  return (busybox_lines.get(0) ?? "unavailable")
 }
 
 # Brackets a candidate report with independent kernel identity observations.
@@ -21745,9 +21747,9 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     ""
   }
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let before_release = read_uname_reference("-r", scratch, "release-before")?
   let before_architecture = read_uname_reference("-m", scratch, "architecture-before")?
   let before_uptime = read_uptime_reference(scratch, "uptime-before")?
@@ -21769,8 +21771,8 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     "device-tree-compatible-before",
   )?
   let before_dmi = read_dmi_identity_reference(source)?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -21824,7 +21826,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
 
   let uname_version = read_reference_tool_version("/bin/uname", "uname", scratch, "uname")?
   let cat_version = read_reference_tool_version("/bin/cat", "cat", scratch, "cat")?
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_identity(candidate, before_release.value, before_architecture.value)?
   let uptime_compared = compare_uptime(candidate, before_uptime.seconds, after_uptime.seconds)?
@@ -21989,7 +21991,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
     },
   ]
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   var before: List[NamespaceReference] = []
   var reference_argv: List[List[Str]] = []
   let before_started = time.now()
@@ -22000,8 +22002,8 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   }
 
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22030,7 +22032,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   }
 
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_namespace_scope(candidate, before)?
   let version = read_reference_tool_version("/usr/bin/readlink", "readlink", scratch, "readlink")?
@@ -22040,7 +22042,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   let missing = json.encode(compared.missing_fields)?
   let mismatched = json.encode(compared.mismatched_fields)?
   let argv_display = json.encode(reference_argv)?
-  let agreement = if compared.exact { "exact" } else if compared.eligible { "mismatch" } else { "reference_incomplete" }
+  let agreement = if compared.exact { "exact" } else { "mismatch" }
   print f"identity.scope.namespaces: ${agreement}; reference=${compared.reference_count}, matched=${compared.matched_count}, candidate_missing=${missing}, mismatched=${mismatched}"
   print f"reference: ${version}; executable=/usr/bin/readlink; argv_each_bracket=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if ! compared.exact {
@@ -22057,9 +22059,9 @@ proc print_cpu_id_set_result(name: Str, result: CpuIdSetComparison) [error, io] 
 
 # Reads a bounded raw host-memory snapshot with its observation interval.
 proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, error] -> Result[MeminfoObservation] {
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, fp"${name}", "")?
-  fs.root_write(scratch, fp"${name}-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(fp"${name}", "")?
+  scratch.write(fp"${name}-error", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22076,7 +22078,7 @@ proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, erro
     return Err(check_failure("meminfo raw reference command failed"))
   }
 
-  let raw = fs.root_read_result(scratch, fp"${name}", max_bytes: 1048576)?
+  let raw = scratch.read_result(fp"${name}", max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("meminfo raw reference is incomplete"))
   }
@@ -22101,11 +22103,11 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_meminfo_reference(scratch, "meminfo-before")?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22123,7 +22125,7 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let after = read_meminfo_reference(scratch, "meminfo-after")?
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
@@ -22147,15 +22149,15 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
 
 # Reads available sysfs policy files through an explicit raw cat reference.
 proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] -> Result[ThpObservation] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   var policies: List[ThpReferencePolicy] = []
   let started = time.now()
   for name in ["enabled", "defrag"] {
     let source_path = fp"/sys/kernel/mm/transparent_hugepage/${name}"
     continue unless source_path.exists()?
     let output_name = f"thp-${label}-${name}"
-    fs.root_write(scratch, fp"${output_name}", "")?
-    fs.root_write(scratch, fp"${output_name}-error", "")?
+    scratch.write(fp"${output_name}", "")?
+    scratch.write(fp"${output_name}-error", "")?
     let status = process.run(
       process.command_argv(
         "/bin/cat",
@@ -22170,7 +22172,7 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
       return Err(check_failure(f"THP ${name} raw reference command failed"))
     }
 
-    let raw = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 4096)?
+    let raw = scratch.read_result(fp"${output_name}", max_bytes: 4096)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
       return Err(check_failure(f"THP ${name} raw reference is incomplete"))
     }
@@ -22198,11 +22200,11 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_thp_reference(scratch, "before")?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22225,7 +22227,7 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
     return Ok(false)
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
@@ -22290,7 +22292,7 @@ pure parse_huge_page_size_reference(name: Str) -> Result[Int] {
     return Err(check_failure("huge-page reference has an invalid pool name"))
   }
 
-  let size_text = parts[1].split("kB").get(0, "")
+  let size_text = (parts[1].split("kB").get(0) ?? "")
   if f"${size_text}kB" != parts[1] {
     return Err(check_failure("huge-page reference has an invalid size suffix"))
   }
@@ -22304,7 +22306,7 @@ pure parse_huge_page_size_reference(name: Str) -> Result[Int] {
 }
 
 proc read_huge_page_counter_reference(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Int?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  let raw = root.read_result(source_path, max_bytes: 4096)?
   if raw.state == "absent" and ! required {
     return Ok(null)
   }
@@ -22351,7 +22353,7 @@ proc read_huge_page_pool_reference(
 export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[HugePageObservation] {
   let started = time.now()
   var pools: List[HugePageReferencePool] = []
-  let global = fs.root_children(root, p"sys/kernel/mm/hugepages", max_entries: 1024)?
+  let global = root.children(p"sys/kernel/mm/hugepages", max_entries: 1024)?
   if global.state != "complete" and global.state != "absent" {
     return Err(check_failure("global huge-page reference enumeration is incomplete"))
   }
@@ -22362,7 +22364,7 @@ export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[H
     }
   }
 
-  let nodes = fs.root_children(root, p"sys/devices/system/node", max_entries: 1024)?
+  let nodes = root.children(p"sys/devices/system/node", max_entries: 1024)?
   if nodes.state != "complete" and nodes.state != "absent" {
     return Err(check_failure("NUMA node reference enumeration is incomplete"))
   }
@@ -22371,7 +22373,7 @@ export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[H
     continue unless node.name().starts_with("node")
     let node_text = (node.name().split("") |> drop(4)).join("")
     let node_id = parse_huge_page_counter_reference(node_text)?
-    let listing = fs.root_children(root, fp"${node}/hugepages", max_entries: 1024)?
+    let listing = root.children(fp"${node}/hugepages", max_entries: 1024)?
     if listing.state != "complete" and listing.state != "absent" {
       return Err(check_failure(f"NUMA huge-page reference enumeration is incomplete for node ${node_id}"))
     }
@@ -22393,13 +22395,13 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_huge_page_reference(source)?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22417,7 +22419,7 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
   }
 
   let after = read_huge_page_reference(source)?
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
@@ -22459,7 +22461,7 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
 # Reads each available pressure source with an explicit raw reference command.
 proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] -> Result[PsiObservation] {
   let started = time.now()
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   var rows: List[PsiReferenceRow] = []
   var available_resources: List[Str] = []
   for resource in ["cpu", "memory", "io"] {
@@ -22467,8 +22469,8 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
     continue unless source_path.exists()?
     available_resources = available_resources.push(resource)
     let output_name = f"psi-${label}-${resource}"
-    fs.root_write(scratch, fp"${output_name}", "")?
-    fs.root_write(scratch, fp"${output_name}-error", "")?
+    scratch.write(fp"${output_name}", "")?
+    scratch.write(fp"${output_name}-error", "")?
     let status = process.run(
       process.command_argv(
         "/bin/cat",
@@ -22483,7 +22485,7 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
       return Err(check_failure(f"PSI ${resource} raw reference command failed"))
     }
 
-    let raw = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 16384)?
+    let raw = scratch.read_result(fp"${output_name}", max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
       return Err(check_failure(f"PSI ${resource} raw reference is incomplete"))
     }
@@ -22511,11 +22513,11 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_psi_reference(scratch, "before")?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22537,7 +22539,7 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
     return Err(check_failure("PSI source availability changed around collection"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
@@ -22590,9 +22592,9 @@ proc read_vulnerability_reference(
   label: Str,
 ) [fs, process, time, error] -> Result[VulnerabilityObservation] {
   let source_root = fs.open_root(/sys/devices/system/cpu)?
-  defer fs.close_root(source_root)?
+  defer source_root.close()?
   let started = time.now()
-  let listing = fs.root_children(source_root, p"vulnerabilities", max_entries: 256)?
+  let listing = source_root.children(p"vulnerabilities", max_entries: 256)?
   if listing.state == "absent" {
     return Ok({descriptions: [], started: started, ended: time.now()})
   }
@@ -22601,7 +22603,7 @@ proc read_vulnerability_reference(
     return Err(check_failure("vulnerability reference directory enumeration is incomplete"))
   }
 
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   var descriptions: List[VulnerabilityReference] = []
   for index in range(listing.children.len()) {
     let name = listing.children[index].name()
@@ -22610,8 +22612,8 @@ proc read_vulnerability_reference(
     }
 
     let output_name = f"vulnerability-${label}-${index}"
-    fs.root_write(scratch, fp"${output_name}", "")?
-    fs.root_write(scratch, fp"${output_name}-error", "")?
+    scratch.write(fp"${output_name}", "")?
+    scratch.write(fp"${output_name}-error", "")?
     let source_path = fp"/sys/devices/system/cpu/vulnerabilities/${name}"
     let status = process.run(
       process.command_argv(
@@ -22627,7 +22629,7 @@ proc read_vulnerability_reference(
       return Err(check_failure(f"vulnerability ${name} raw reference command failed"))
     }
 
-    let raw = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 16384)?
+    let raw = scratch.read_result(fp"${output_name}", max_bytes: 16384)?
     if raw.state != "observed" or raw.truncated or raw.data == null {
       return Err(check_failure(f"vulnerability ${name} raw reference is incomplete"))
     }
@@ -22655,11 +22657,11 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_vulnerability_reference(scratch, "before")?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22682,7 +22684,7 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
     return Ok(false)
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
@@ -22732,8 +22734,8 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
   let argv = ["swapon", "--show=NAME,TYPE,SIZE,USED,PRIO", "--raw", "--bytes"]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
     process.command_argv(
@@ -22750,7 +22752,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("swapon reference failed before candidate collection"))
   }
 
-  let before = parse_swapon_raw(fs.root_read_text(scratch, p"swapon-before")?)?
+  let before = parse_swapon_raw(scratch.read_text(p"swapon-before")?)?
 
   let candidate_started = time.now()
   let candidate_status = process.run(
@@ -22784,13 +22786,13 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("swapon reference failed after candidate collection"))
   }
 
-  let after = parse_swapon_raw(fs.root_read_text(scratch, p"swapon-after")?)?
+  let after = parse_swapon_raw(scratch.read_text(p"swapon-after")?)?
   if ! swap_reference_stable(before, after) {
     print "memory.swap: unstable (reference swap set or gauges changed around candidate collection)"
     return Err(check_failure("memory.swap could not be scored because the reference changed"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
@@ -22836,7 +22838,7 @@ proc lspci_reference_binary() [fs, error] -> Result[Str] {
 }
 
 proc read_lspci_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
-  let raw = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 16777216)?
+  let raw = scratch.read_result(fp"${output_name}", max_bytes: 16777216)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("lspci reference output is incomplete"))
   }
@@ -22857,8 +22859,8 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
   let argv = pci_reference_argv()
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let version_status = process.run(
     process.command_argv(
       binary,
@@ -22930,7 +22932,7 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
     return Err(check_failure("PCI functions changed during reference capture"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_lspci_identity(candidate, before)?
   let candidate_data = json.decode(candidate)?
@@ -22952,14 +22954,14 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_pci_link_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22978,7 +22980,7 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
   let after_started = time.now()
   let after = read_pci_link_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_pci_links(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23004,14 +23006,14 @@ proc compare_live_usb_topology(
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_usb_topology_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23030,7 +23032,7 @@ proc compare_live_usb_topology(
   let after_started = time.now()
   let after = read_usb_topology_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_usb_topology(candidate, before, after)?
   if compared.reference_count == 0 and after.len() == 0 {
@@ -23062,14 +23064,14 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_usb_ids_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23088,7 +23090,7 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after_started = time.now()
   let after = read_usb_ids_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_usb_ids(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23111,14 +23113,14 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_usb_power_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23137,7 +23139,7 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
   let after_started = time.now()
   let after = read_usb_power_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_usb_power(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23163,14 +23165,14 @@ proc compare_live_usb_interfaces(
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_usb_interface_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23189,7 +23191,7 @@ proc compare_live_usb_interfaces(
   let after_started = time.now()
   let after = read_usb_interface_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_usb_interfaces(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23215,14 +23217,14 @@ proc compare_live_power_supplies(
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_power_supply_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23241,7 +23243,7 @@ proc compare_live_power_supplies(
   let after_started = time.now()
   let after = read_power_supply_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_power_supplies(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23264,14 +23266,14 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_powercap_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23290,7 +23292,7 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
   let after_started = time.now()
   let after = read_powercap_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_powercap(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23316,18 +23318,18 @@ proc compare_live_device_classes(
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
-  guard let before = read_device_class_reference(source) else |_| {
+  guard let before = read_device_class_reference(source) else { |_|
     print "devices.graphics-audio-input: reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }
 
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23344,13 +23346,13 @@ proc compare_live_device_classes(
   }
 
   let after_started = time.now()
-  guard let after = read_device_class_reference(source) else |_| {
+  guard let after = read_device_class_reference(source) else { |_|
     print "devices.graphics-audio-input: later reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }
 
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_device_classes(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23373,18 +23375,18 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
-  guard let before = read_hwmon_reference(source) else |_| {
+  guard let before = read_hwmon_reference(source) else { |_|
     print "sensors.hwmon: reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }
 
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23401,13 +23403,13 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
   }
 
   let after_started = time.now()
-  guard let after = read_hwmon_reference(source) else |_| {
+  guard let after = read_hwmon_reference(source) else { |_|
     print "sensors.hwmon: later reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }
 
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_hwmon(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23435,14 +23437,14 @@ proc compare_live_pci_bindings(
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_pci_binding_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23461,7 +23463,7 @@ proc compare_live_pci_bindings(
   let after_started = time.now()
   let after = read_pci_binding_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_pci_bindings(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23484,14 +23486,14 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_thermal_zone_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23510,7 +23512,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after_started = time.now()
   let after = read_thermal_zone_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_thermal_zones(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -23527,7 +23529,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
 }
 
 proc read_ip_json_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
-  let raw = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 16777216)?
+  let raw = scratch.read_result(fp"${output_name}", max_bytes: 16777216)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("ip JSON reference output is incomplete"))
   }
@@ -23561,7 +23563,7 @@ proc ip_reference_binary() [fs, error] -> Result[Str] {
 }
 
 proc ip_reference_version(binary: Str, scratch: FsRoot) [fs, process, error] -> Result[Str] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let status = process.run(
     process.command_argv(
       binary,
@@ -23576,8 +23578,8 @@ proc ip_reference_version(binary: Str, scratch: FsRoot) [fs, process, error] -> 
     return Err(check_failure("network comparison needs iproute2 ip, not a non-JSON substitute"))
   }
 
-  let version_stdout = fs.root_read_text(scratch, p"ip-version")?.trim()
-  let version_stderr = fs.root_read_text(scratch, p"ip-version-error")?.trim()
+  let version_stdout = scratch.read_text(p"ip-version")?.trim()
+  let version_stderr = scratch.read_text(p"ip-version-error")?.trim()
   return if version_stdout != "" { version_stdout } else { version_stderr }
 }
 
@@ -23591,10 +23593,10 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
   let argv = ["ip", "-json", "-details", "link", "show"]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
-  let scratch_path = fs.root_path(scratch)?
+  defer source.close()?
+  let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
 
   let before_started = time.now()
@@ -23659,7 +23661,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
     return Err(check_failure("network links changed during reference capture"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_ip_links(candidate, before)?
   let raw_compared = compare_network_link_raw(candidate, raw_before, raw_after)?
@@ -23704,8 +23706,8 @@ proc compare_live_ip_addresses(
   let argv = ["ip", "-json", "address", "show"]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
 
   let before_started = time.now()
@@ -23763,7 +23765,7 @@ proc compare_live_ip_addresses(
     return Err(check_failure("network addresses changed during reference capture"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_ip_addresses(candidate, before)?
   let lifetimes = compare_ip_address_lifetimes(candidate, before, after)?
@@ -23800,7 +23802,7 @@ proc read_ip_rule_family(
     return Err(check_failure("ip rule reference needs an explicit family"))
   }
 
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let status = process.run(
     process.command_argv(
       binary,
@@ -23826,8 +23828,8 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
 
   let binary = ip_reference_binary()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
   let before_started = time.now()
   let before_ipv4 = read_ip_rule_family(binary, scratch, "ip-rule-ipv4-before", "ipv4")?
@@ -23859,7 +23861,7 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
     return Err(check_failure("network rules changed during reference capture"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_ip_rules(candidate, before)?
   let candidate_data = json.decode(candidate)?
@@ -23890,7 +23892,7 @@ proc read_ip_route_family(
     return Err(check_failure("ip route reference needs an explicit family"))
   }
 
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let status = process.run(
     process.command_argv(
       binary,
@@ -23919,8 +23921,8 @@ proc compare_live_ip_routes(
 
   let binary = ip_reference_binary()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
   let before_started = time.now()
   let before_ipv4 = read_ip_route_family(binary, scratch, "ip-route-ipv4-before", "ipv4")?
@@ -23952,7 +23954,7 @@ proc compare_live_ip_routes(
     return Err(check_failure("network routes changed during reference capture"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_ip_routes(candidate, before)?
   let candidate_data = json.decode(candidate)?
@@ -24004,8 +24006,8 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
     process.command_argv(
@@ -24022,7 +24024,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("lsblk reference failed before candidate collection"))
   }
 
-  let before = parse_lsblk_json(fs.root_read_text(scratch, p"lsblk-before")?)?
+  let before = parse_lsblk_json(scratch.read_text(p"lsblk-before")?)?
 
   let candidate_started = time.now()
   let candidate_status = process.run(
@@ -24056,13 +24058,13 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("lsblk reference failed after candidate collection"))
   }
 
-  let after = parse_lsblk_json(fs.root_read_text(scratch, p"lsblk-after")?)?
+  let after = parse_lsblk_json(scratch.read_text(p"lsblk-after")?)?
   if ! block_reference_stable(before, after) {
     print "storage.devices: unstable (reference block inventory changed around candidate collection)"
     return Err(check_failure("storage.devices could not be scored because the reference changed"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
@@ -24119,10 +24121,10 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
-  let scratch_path = fs.root_path(scratch)?
+  defer source.close()?
+  let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
     process.command_argv(
@@ -24138,7 +24140,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("lsblk queue reference failed before candidate collection"))
   }
 
-  let before = parse_lsblk_queue_json(fs.root_read_text(scratch, p"lsblk-queue-before")?)?
+  let before = parse_lsblk_queue_json(scratch.read_text(p"lsblk-queue-before")?)?
   let before_sources = read_block_queue_sources(source, before)?
   let before_ended = time.now()
 
@@ -24173,7 +24175,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("lsblk queue reference failed after candidate collection"))
   }
 
-  let after = parse_lsblk_queue_json(fs.root_read_text(scratch, p"lsblk-queue-after")?)?
+  let after = parse_lsblk_queue_json(scratch.read_text(p"lsblk-queue-after")?)?
   let after_sources = read_block_queue_sources(source, after)?
   let after_ended = time.now()
   if ! block_queue_reference_stable(before, after) {
@@ -24181,7 +24183,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("storage.queue could not be scored because lsblk values changed"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
@@ -24252,8 +24254,8 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
     process.command_argv(
@@ -24270,7 +24272,7 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
     return Err(check_failure("findmnt reference failed before candidate collection"))
   }
 
-  let before = parse_findmnt_json(fs.root_read_text(scratch, p"findmnt-before")?)?
+  let before = parse_findmnt_json(scratch.read_text(p"findmnt-before")?)?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -24303,13 +24305,13 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
     return Err(check_failure("findmnt reference failed after candidate collection"))
   }
 
-  let after = parse_findmnt_json(fs.root_read_text(scratch, p"findmnt-after")?)?
+  let after = parse_findmnt_json(scratch.read_text(p"findmnt-after")?)?
   if ! mount_reference_stable(before, after) {
     print "storage.mountinfo: unstable (reference mount inventory changed around candidate collection)"
     return Err(check_failure("storage.mountinfo could not be scored because the reference changed"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
@@ -24339,7 +24341,7 @@ proc read_mount_usage_references(
   name: Str,
   mounts: List[MountReference],
 ) [fs, process, error] -> Result[List[MountUsageReference]] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   var observations: List[MountUsageReference] = []
   for id in mount_usage_eligible_ids(mounts) {
     let output_name = f"${name}-${id}"
@@ -24369,7 +24371,7 @@ proc read_mount_usage_references(
       return Err(check_failure(f"findmnt capacity reference failed for mount ID ${id}"))
     }
 
-    observations = observations.push(parse_findmnt_usage_json(fs.root_read_text(scratch, fp"${output_name}")?, id)?)
+    observations = observations.push(parse_findmnt_usage_json(scratch.read_text(fp"${output_name}")?, id)?)
   }
 
   return observations
@@ -24418,8 +24420,8 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
     process.command_argv(
@@ -24435,7 +24437,7 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
     return Err(check_failure("findmnt inventory failed before mount usage collection"))
   }
 
-  let before_mounts = parse_findmnt_json(fs.root_read_text(scratch, p"usage-inventory-before")?)?
+  let before_mounts = parse_findmnt_json(scratch.read_text(p"usage-inventory-before")?)?
   let before_usage = read_mount_usage_references(binary, scratch, "usage-before", before_mounts)?
   let before_ended = time.now()
   let candidate_started = time.now()
@@ -24469,14 +24471,14 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
     return Err(check_failure("findmnt inventory failed after mount usage collection"))
   }
 
-  let after_mounts = parse_findmnt_json(fs.root_read_text(scratch, p"usage-inventory-after")?)?
+  let after_mounts = parse_findmnt_json(scratch.read_text(p"usage-inventory-after")?)?
   if ! mount_reference_stable(before_mounts, after_mounts) {
     return Err(check_failure("storage.mount-usage could not be scored because the mount inventory changed"))
   }
 
   let after_usage = read_mount_usage_references(binary, scratch, "usage-after", after_mounts)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"usage-candidate")?
+  let candidate = scratch.read_text(p"usage-candidate")?
   require_live_linux_report(candidate)?
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
@@ -24512,7 +24514,7 @@ proc read_kernel_module_reference(
   scratch: FsRoot,
   name: Str,
 ) [fs, process, time, error] -> Result[KernelModuleObservation] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let started = time.now()
   let formatted_status = process.run(
     process.command_argv(
@@ -24545,8 +24547,8 @@ proc read_kernel_module_reference(
 
   return {
     modules: parse_lsmod_reference(
-      fs.root_read_text(scratch, fp"${name}-lsmod")?,
-      fs.root_read_text(scratch, fp"${name}-proc")?,
+      scratch.read_text(fp"${name}-lsmod")?,
+      scratch.read_text(fp"${name}-proc")?,
     )?,
     started: started,
     ended: ended,
@@ -24572,9 +24574,9 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_kernel_module_reference(binary, scratch, "modules-before")?
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -24597,7 +24599,7 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("kernel.modules could not be scored because the reference changed"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
@@ -24624,7 +24626,7 @@ proc read_kernel_command_line_reference(
   scratch: FsRoot,
   name: Str,
 ) [fs, process, time, error] -> Result[KernelCommandLineObservation] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -24641,7 +24643,7 @@ proc read_kernel_command_line_reference(
     return Err(check_failure("proc command-line reference failed"))
   }
 
-  let read = fs.root_read_result(scratch, fp"${name}", max_bytes: 65536)?
+  let read = scratch.read_result(fp"${name}", max_bytes: 65536)?
   if read.state != "observed" or read.truncated or read.data == null {
     return Err(check_failure("proc command-line reference is incomplete"))
   }
@@ -24661,8 +24663,8 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let before = read_kernel_command_line_reference(scratch, "cmdline-before")?
   let sensitive_started = time.now()
   let sensitive_status = process.run(
@@ -24701,8 +24703,8 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
     return Err(check_failure("kernel.command-line could not be scored because the source changed"))
   }
 
-  let sensitive = fs.root_read_text(scratch, p"cmdline-sensitive")?
-  let redacted = fs.root_read_text(scratch, p"cmdline-redacted")?
+  let sensitive = scratch.read_text(p"cmdline-sensitive")?
+  let redacted = scratch.read_text(p"cmdline-redacted")?
   require_live_linux_report(sensitive)?
   require_live_linux_report(redacted)?
   let compared = compare_kernel_command_line(sensitive, redacted, before.data)?
@@ -24775,7 +24777,7 @@ proc read_kernel_parameter_reference(
   scratch: FsRoot,
   name: Str,
 ) [fs, process, time, error] -> Result[KernelParameterObservation] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let started = time.now()
   var values: List[KernelParameterReference] = []
   for item in kernel_parameter_sources() |> enumerate() {
@@ -24804,7 +24806,7 @@ proc read_kernel_parameter_reference(
       return Err(check_failure(f"kernel parameter reference failed for ${source.name}"))
     }
 
-    let read = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 4096)?
+    let read = scratch.read_result(fp"${output_name}", max_bytes: 4096)?
     if read.state != "observed" or read.truncated or read.data == null {
       return Err(check_failure(f"kernel parameter reference is incomplete for ${source.name}"))
     }
@@ -24842,9 +24844,9 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_kernel_parameter_reference(sysctl_binary, scratch, "parameters-before")?
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -24866,7 +24868,7 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
     return Err(check_failure("kernel.parameters could not be scored because a reference value changed"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"parameters-candidate")?
+  let candidate = scratch.read_text(p"parameters-candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_kernel_parameters(candidate, before.values)?
   let version = read_reference_tool_version(sysctl_binary, "sysctl", scratch, "sysctl")?
@@ -24891,10 +24893,10 @@ proc read_proc_status_affinity_reference(
   scratch: FsRoot,
   name: Str,
 ) [fs, process, time, error] -> Result[ProcStatusAffinityObservation] {
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let output_name = fp"${name}"
-  fs.root_write(scratch, output_name, "")?
-  fs.root_write(scratch, fp"${name}-error", "")?
+  scratch.write(output_name, "")?
+  scratch.write(fp"${name}-error", "")?
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -24911,7 +24913,7 @@ proc read_proc_status_affinity_reference(
     return Err(check_failure("proc status affinity reference command failed"))
   }
 
-  let raw_read = fs.root_read_result(scratch, output_name, max_bytes: 65536)?
+  let raw_read = scratch.read_result(output_name, max_bytes: 65536)?
   if raw_read.state != "observed" or raw_read.truncated or raw_read.data == null {
     return Err(check_failure("proc status affinity reference is incomplete"))
   }
@@ -24937,14 +24939,14 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let affinity_before = read_proc_status_affinity_reference(scratch, "cpu-scope-before")?
   let cgroup_before = read_cpu_scope_cgroup_reference(source)?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -24963,7 +24965,7 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
 
   let cgroup_after = read_cpu_scope_cgroup_reference(source)?
   let affinity_after = read_proc_status_affinity_reference(scratch, "cpu-scope-after")?
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
@@ -25004,13 +25006,13 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before = read_cgroup2_resource_reference(source)?
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -25028,7 +25030,7 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let after = read_cgroup2_resource_reference(source)?
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
@@ -25071,14 +25073,14 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_cpu_cache_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -25097,7 +25099,7 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
   let after_started = time.now()
   let after = read_cpu_cache_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_cpu_cache_sharing(candidate, before, after)?
   if compared.reference_count == 0 {
@@ -25139,8 +25141,8 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let argv = ["lscpu", "--json", "--extended=CPU,ONLINE,SOCKET,CORE,NODE", "--all"]
   let reference_env = {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"}
   let before_started = time.now()
@@ -25159,11 +25161,11 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
 
   let before_sets = read_reference_cpu_sets()?
   let before = select_present_lscpu_topology(
-    parse_lscpu_topology(fs.root_read_text(scratch, p"before")?)?,
+    parse_lscpu_topology(scratch.read_text(p"before")?)?,
     before_sets.present,
   )?
   let before_ended = time.now()
-  fs.root_write(scratch, p"candidate", "")?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -25199,11 +25201,11 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
   }
 
   let after = select_present_lscpu_topology(
-    parse_lscpu_topology(fs.root_read_text(scratch, p"after")?)?,
+    parse_lscpu_topology(scratch.read_text(p"after")?)?,
     after_sets.present,
   )?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_lscpu_topology(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -25232,14 +25234,14 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_cpufreq_policy_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -25258,7 +25260,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after_started = time.now()
   let after = read_cpufreq_policy_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_cpufreq_policies(candidate, before, after)?
   if before.len() == 0 {
@@ -25301,14 +25303,14 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let before_started = time.now()
   let before = read_cpuidle_reference(source)?
   let before_ended = time.now()
-  let scratch_path = fs.root_path(scratch)?
-  fs.root_write(scratch, p"candidate", "")?
+  let scratch_path = scratch.host_path()?
+  scratch.write(p"candidate", "")?
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -25327,7 +25329,7 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after_started = time.now()
   let after = read_cpuidle_reference(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_cpuidle(candidate, before, after)?
   let data = json.decode(candidate)?
@@ -25367,12 +25369,12 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
-    fs.root_write(scratch, fp"${name}", "")?
+    scratch.write(fp"${name}", "")?
   }
 
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let reference_argv = ["lscpu", "--json", "--extended=CPU,ONLINE,NODE,SOCKET,CORE"]
   let reference_env = {PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let before_sysfs_started = time.now()
@@ -25437,12 +25439,12 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     ),
   )?
   let version = if version_status.exited_with(0) {
-    fs.root_read_text(scratch, p"lscpu-version")?.trim()
+    scratch.read_text(p"lscpu-version")?.trim()
   } else {
     "unavailable"
   }
-  let before = fs.root_read_text(scratch, p"lscpu-before")?
-  let after = fs.root_read_text(scratch, p"lscpu-after")?
+  let before = scratch.read_text(p"lscpu-before")?
+  let after = scratch.read_text(p"lscpu-after")?
   let before_ids = parse_lscpu_online_cpu_ids(before)?
   let after_ids = parse_lscpu_online_cpu_ids(after)?
   if before_sets.possible != after_sets.possible or before_sets.present != after_sets.present or before_sets.online != after_sets.online or before_sets.offline != after_sets.offline or before_ids != after_ids {
@@ -25455,7 +25457,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     return Err(check_failure("cpu.sets independent references disagree"))
   }
 
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_cpu_sets(candidate, before_sets)?
   let candidate_data = json.decode(candidate)?
@@ -25482,17 +25484,17 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let units = system.execution_units()?
   let before_started = time.now()
   let before_identity = read_process_identity_snapshot(source)?
   let before_resources = read_process_resource_snapshot(source, units.page_size_bytes)?
   let before_ended = time.now()
-  fs.root_write(scratch, p"candidate", "")?
-  fs.root_write(scratch, p"candidate-error", "")?
+  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate-error", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -25513,7 +25515,7 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
   let after_resources = read_process_resource_snapshot(source, units.page_size_bytes)?
   let after_identity = read_process_identity_snapshot(source)?
   let after_ended = time.now()
-  let candidate = fs.root_read_text(scratch, p"candidate")?
+  let candidate = scratch.read_text(p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_process_identity(candidate, before_identity.processes, after_identity.processes)?
   let resources = compare_process_resources(candidate, before_resources.processes, after_resources.processes)?
@@ -25545,9 +25547,9 @@ export pure fixture_single_test_passed(output: Str) -> Bool {
     return false
   }
 
-  let lines = output.trim().lines()
+  let lines = output.trim().lines() |> collect
   return """running 1 tests
-""" in output and lines.get(lines.len() - 1, "") == "test result: ok. 1 passed; 0 failed; 0 skipped"
+""" in output and (lines.get(lines.len() - 1) ?? "") == "test result: ok. 1 passed; 0 failed; 0 skipped"
 }
 
 ## Requires Cargo to report exactly one successful Rust fixture test.
@@ -25556,23 +25558,23 @@ export pure rust_fixture_single_test_passed(output: Str) -> Bool {
     return false
   }
 
-  let lines = output.trim().lines()
+  let lines = output.trim().lines() |> collect
   return """running 1 test
-""" in output and lines.get(lines.len() - 1, "")
+""" in output and (lines.get(lines.len() - 1) ?? "")
   .starts_with("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;")
 }
 
 ## Reports a failed test summary or the diagnostic from a command that could not start its test.
 export pure fixture_failure_summary(output: Str, stderr_output: Str) -> Str {
-  let result_lines = output.trim().lines()
-  let result = result_lines.get(result_lines.len() - 1, "")
+  let result_lines = output.trim().lines() |> collect
+  let result = (result_lines.get(result_lines.len() - 1) ?? "")
   if result.starts_with("test result:") {
     return result
   }
 
-  let error_lines = stderr_output.trim().lines()
+  let error_lines = stderr_output.trim().lines() |> collect
   if error_lines.len() > 0 {
-    return error_lines.get(error_lines.len() - 1, "")
+    return (error_lines.get(error_lines.len() - 1) ?? "")
   }
 
   if result != "" {
@@ -25669,8 +25671,8 @@ proc run_fixture_cases(
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  let scratch_path = fs.root_path(scratch)?
+  defer scratch.close()?
+  let scratch_path = scratch.host_path()?
   let stdout_path = fp"${scratch_path}/stdout"
   let stderr_path = fp"${scratch_path}/stderr"
   var passed_cases = 0
@@ -25683,19 +25685,16 @@ proc run_fixture_cases(
     var case_passed = true
     for test_name in fixture_case.tests {
       if test_name in test_results {
-        if ! test_results.get(test_name, false) {
+        if ! (test_results.get(test_name) ?? false) {
           case_passed = false
-          print f"fixture ${fixture_case.scenario}: failed ${test_name} (${test_failures.get(
-            test_name,
-            "cached failure",
-          )})"
+          print f"fixture ${fixture_case.scenario}: failed ${test_name} (${(test_failures.get(test_name) ?? "cached failure")})"
         }
 
         continue
       }
 
-      fs.root_write(scratch, p"stdout", "")?
-      fs.root_write(scratch, p"stderr", "")?
+      scratch.write(p"stdout", "")?
+      scratch.write(p"stderr", "")?
       let rust_case = rust_fixture_name(test_name)
       let status = if rust_case {
         process.run(
@@ -25726,7 +25725,7 @@ proc run_fixture_cases(
           ),
         )?
       }
-      let output = fs.root_read_text(scratch, p"stdout")?
+      let output = scratch.read_text(p"stdout")?
       let one_test_passed = if rust_case {
         rust_fixture_single_test_passed(output)
       } else {
@@ -25736,7 +25735,7 @@ proc run_fixture_cases(
       test_results = test_results.set(test_name, passed)
       if ! passed {
         case_passed = false
-        let stderr_output = fs.root_read_text(scratch, p"stderr")?
+        let stderr_output = scratch.read_text(p"stderr")?
         let result_line = fixture_failure_summary(output, stderr_output)
         test_failures = test_failures.set(test_name, result_line)
         print f"fixture ${fixture_case.scenario}: failed ${test_name} (${result_line})"
@@ -26440,19 +26439,19 @@ export proc validate_and_run(
   if options.capture_cpu_bundle != "" {
     let destination = path.absolute(fp"${options.capture_cpu_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("CPU set capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_cpu_set_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(CpuSetCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"CPU set raw capture saved at ${destination}; origin=live_capture; stable=${capture.stable}; scoreable=${scoreable}"
     print f"Replay with --replay-cpu-bundle ${destination}"
@@ -26461,9 +26460,9 @@ export proc validate_and_run(
 
   if options.replay_cpu_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_cpu_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_cpu_set_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(CpuSetCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"CPU set raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms"
     print_cpu_id_set_result("possible", result.possible)?
@@ -26480,19 +26479,19 @@ export proc validate_and_run(
   if options.capture_cpufreq_bundle != "" {
     let destination = path.absolute(fp"${options.capture_cpufreq_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("CPUFreq capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_cpufreq_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(CpuFreqBundleCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuFreqBundleCapture)?
     print f"CPUFreq raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; policies=${capture.layout.policies.len()}; changing_gauges=${capture.changing_gauges.len()}"
     print f"Replay with --replay-cpufreq-bundle ${destination}"
     return
@@ -26500,7 +26499,7 @@ export proc validate_and_run(
 
   if options.replay_cpufreq_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_cpufreq_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_cpufreq_bundle(bundle)?
     let bounds_state = if result.policies.exact_bounds {
       "exact"
@@ -26527,19 +26526,19 @@ export proc validate_and_run(
   if options.capture_cpu_topology_bundle != "" {
     let destination = path.absolute(fp"${options.capture_cpu_topology_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("CPU topology capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_cpu_topology_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(CpuTopologyBundleCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuTopologyBundleCapture)?
     print f"CPU topology raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; CPUs=${capture.layout.cpu_ids.len()}; node_links=${capture.layout.node_links.len()}"
     print f"Replay with --replay-cpu-topology-bundle ${destination}"
     return
@@ -26547,7 +26546,7 @@ export proc validate_and_run(
 
   if options.replay_cpu_topology_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_cpu_topology_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_cpu_topology_bundle(bundle)?
     print f"CPU topology raw replay: sets=${result.sets.exact}; topology=${result.topology.exact}; CPUs=${result.topology.reference_count}; mismatches=${result.topology.field_mismatches.len()}"
     if ! result.sets.exact or ! result.topology.exact {
@@ -26560,19 +26559,19 @@ export proc validate_and_run(
   if options.capture_memory_bundle != "" {
     let destination = path.absolute(fp"${options.capture_memory_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("memory capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_memory_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(MemoryCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"memory raw capture saved at ${destination}; origin=live_capture; stable=${capture.stable}; scoreable=${scoreable}"
     print f"Replay with --replay-memory-bundle ${destination}"
@@ -26581,9 +26580,9 @@ export proc validate_and_run(
 
   if options.replay_memory_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_memory_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_memory_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(MemoryCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
     let meminfo_state = if result.meminfo.exact_scored { "exact" } else { "mismatch" }
     let thp_state = if result.thp.reference_count == 0 {
       "unavailable"
@@ -26603,17 +26602,17 @@ export proc validate_and_run(
   if options.capture_cgroup2_bundle != "" {
     let destination = path.absolute(fp"${options.capture_cgroup2_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("cgroup2 capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_cgroup2_bundle(source, bundle, "live_capture")?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
     print f"cgroup2 raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; ancestors=${capture.layout.ancestors.len()}; resources=${capture.reference_resources.len()}; changing_sources=${capture.changing_sources.len()}"
@@ -26623,7 +26622,7 @@ export proc validate_and_run(
 
   if options.replay_cgroup2_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_cgroup2_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_cgroup2_bundle(bundle)?
     let state = if result.exact_scored { "exact" } else if result.exact_stable { "partial" } else { "mismatch" }
     print f"cgroup2 raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; mismatched=${result.field_mismatches.len()}"
@@ -26637,17 +26636,17 @@ export proc validate_and_run(
   if options.capture_process_bundle != "" {
     let destination = path.absolute(fp"${options.capture_process_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("process capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     let units = system.execution_units()?
     capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
@@ -26658,7 +26657,7 @@ export proc validate_and_run(
 
   if options.replay_process_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_process_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_process_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"process raw replay: ${state}; identity=${result.identity.matched_count}; resource_fields=${result.resources.scored_fields}; candidate=${result.identity.candidate_count}"
@@ -26672,17 +26671,17 @@ export proc validate_and_run(
   if options.capture_power_supply_bundle != "" {
     let destination = path.absolute(fp"${options.capture_power_supply_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("power supply capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_power_supply_bundle(source, bundle, "live_capture")?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
     print f"power supply raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; supplies=${capture.layout.entries.len()}; changing_sources=${capture.changing_sources.len()}"
@@ -26695,7 +26694,7 @@ export proc validate_and_run(
 
   if options.replay_power_supply_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_power_supply_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_power_supply_bundle(bundle)?
     let mismatch = result.missing_names.len() > 0 or result.unexpected_names.len() > 0 or result.field_mismatches.len() > 0
     let state = if result.exact { "exact" } else if mismatch { "mismatch" } else { "partial" }
@@ -26710,19 +26709,19 @@ export proc validate_and_run(
   if options.capture_pressure_bundle != "" {
     let destination = path.absolute(fp"${options.capture_pressure_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("pressure capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_pressure_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PressureCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"pressure raw capture saved at ${destination}; origin=live_capture; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-pressure-bundle ${destination}"
@@ -26731,9 +26730,9 @@ export proc validate_and_run(
 
   if options.replay_pressure_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_pressure_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_pressure_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PressureCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
     let state = if result.exact_scored { "exact" } else { "mismatch" }
     print f"pressure raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.mismatched_fields.len()}"
     if ! result.exact_scored {
@@ -26746,19 +26745,19 @@ export proc validate_and_run(
   if options.capture_swaps_bundle != "" {
     let destination = path.absolute(fp"${options.capture_swaps_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("swap capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_proc_swaps_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(ProcSwapsCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"swap raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-swaps-bundle ${destination}"
@@ -26767,9 +26766,9 @@ export proc validate_and_run(
 
   if options.replay_swaps_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_swaps_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_proc_swaps_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(ProcSwapsCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"swap raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; source_issue=${result.source_issue}"
     if ! result.exact {
@@ -26782,19 +26781,19 @@ export proc validate_and_run(
   if options.capture_os_release_bundle != "" {
     let destination = path.absolute(fp"${options.capture_os_release_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("os-release capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_os_release_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(OsReleaseCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"os-release raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; selected=${capture.selected_path}"
     print f"Replay with --replay-os-release-bundle ${destination}"
@@ -26803,9 +26802,9 @@ export proc validate_and_run(
 
   if options.replay_os_release_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_os_release_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_os_release_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(OsReleaseCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"os-release raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; selected=${capture.selected_path}"
     if ! result.exact {
@@ -26818,19 +26817,19 @@ export proc validate_and_run(
   if options.capture_uptime_bundle != "" {
     let destination = path.absolute(fp"${options.capture_uptime_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("uptime capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_uptime_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(UptimeCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
     let scoreable = if capture.reference_seconds != null { "yes" } else { "no" }
     print f"uptime raw capture saved at ${destination}; origin=${capture.origin}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-uptime-bundle ${destination}"
@@ -26839,9 +26838,9 @@ export proc validate_and_run(
 
   if options.replay_uptime_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_uptime_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_uptime_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(UptimeCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
     let state = if result.bracketed { "exact" } else { "mismatch" }
     let candidate_seconds = if result.candidate_seconds == null { "null" } else { f"${result.candidate_seconds ?? -1}" }
     print f"uptime raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference_seconds=${result.before_seconds}; candidate_seconds=${candidate_seconds}"
@@ -26855,19 +26854,19 @@ export proc validate_and_run(
   if options.capture_dmi_identity_bundle != "" {
     let destination = path.absolute(fp"${options.capture_dmi_identity_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("DMI identity capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_dmi_identity_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DmiIdentityCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"DMI identity raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-dmi-identity-bundle ${destination}"
@@ -26876,9 +26875,9 @@ export proc validate_and_run(
 
   if options.replay_dmi_identity_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_dmi_identity_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_dmi_identity_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DmiIdentityCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"DMI identity raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; mismatched=${result.sensitive.field_mismatches.len()}; unstable=${result.sensitive.unstable_fields.len()}; default_redacted=${result.default_redacted}"
     if ! result.exact {
@@ -26891,19 +26890,19 @@ export proc validate_and_run(
   if options.capture_device_tree_bundle != "" {
     let destination = path.absolute(fp"${options.capture_device_tree_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("device-tree capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_device_tree_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DeviceTreeCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"device-tree raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-device-tree-bundle ${destination}"
@@ -26912,9 +26911,9 @@ export proc validate_and_run(
 
   if options.replay_device_tree_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_device_tree_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_device_tree_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DeviceTreeCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"device-tree raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; source=${result.source_exact}; model=${result.model_exact}; compatible=${result.compatible_exact}"
     if ! result.exact {
@@ -26927,19 +26926,19 @@ export proc validate_and_run(
   if options.capture_kernel_command_line_bundle != "" {
     let destination = path.absolute(fp"${options.capture_kernel_command_line_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("kernel command-line capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_kernel_command_line_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelCommandLineCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
     let scoreable = if capture.stable and capture.reference_base64 != null { "yes" } else { "no" }
     print f"kernel command-line raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-kernel-command-line-bundle ${destination}"
@@ -26948,9 +26947,9 @@ export proc validate_and_run(
 
   if options.replay_kernel_command_line_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_kernel_command_line_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_kernel_command_line_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelCommandLineCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"kernel command-line raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; sensitive_exact=${result.sensitive_exact}; redacted_exact=${result.redacted_exact}"
     if ! result.exact {
@@ -26963,19 +26962,19 @@ export proc validate_and_run(
   if options.capture_kernel_modules_bundle != "" {
     let destination = path.absolute(fp"${options.capture_kernel_modules_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("kernel module capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_kernel_modules_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelModulesCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"kernel module raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-kernel-modules-bundle ${destination}"
@@ -26984,9 +26983,9 @@ export proc validate_and_run(
 
   if options.replay_kernel_modules_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_kernel_modules_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_kernel_modules_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelModulesCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"kernel module raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
     if ! result.exact {
@@ -26999,19 +26998,19 @@ export proc validate_and_run(
   if options.capture_vulnerabilities_bundle != "" {
     let destination = path.absolute(fp"${options.capture_vulnerabilities_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("vulnerability capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_vulnerabilities_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(VulnerabilityCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"vulnerability raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-vulnerabilities-bundle ${destination}"
@@ -27020,9 +27019,9 @@ export proc validate_and_run(
 
   if options.replay_vulnerabilities_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_vulnerabilities_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_vulnerabilities_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(VulnerabilityCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"vulnerability raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.mismatched_names.len()}"
     if ! result.exact {
@@ -27035,17 +27034,17 @@ export proc validate_and_run(
   if options.capture_mountinfo_bundle != "" {
     let destination = path.absolute(fp"${options.capture_mountinfo_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("mountinfo capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_mountinfo_bundle(source, bundle, "live_capture")?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -27056,7 +27055,7 @@ export proc validate_and_run(
 
   if options.replay_mountinfo_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_mountinfo_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_mountinfo_bundle(bundle)?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -27071,19 +27070,19 @@ export proc validate_and_run(
   if options.capture_kernel_parameters_bundle != "" {
     let destination = path.absolute(fp"${options.capture_kernel_parameters_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("kernel parameter capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_kernel_parameters_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelParametersCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"kernel parameter raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-kernel-parameters-bundle ${destination}"
@@ -27092,9 +27091,9 @@ export proc validate_and_run(
 
   if options.replay_kernel_parameters_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_kernel_parameters_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_kernel_parameters_bundle(bundle)?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelParametersCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"kernel parameter raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
     if ! result.exact {
@@ -27107,19 +27106,19 @@ export proc validate_and_run(
   if options.capture_thermal_bundle != "" {
     let destination = path.absolute(fp"${options.capture_thermal_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("thermal capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_thermal_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(ThermalCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ThermalCapture)?
     print f"thermal raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-thermal-bundle ${destination}"
     return
@@ -27127,7 +27126,7 @@ export proc validate_and_run(
 
   if options.replay_thermal_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_thermal_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_thermal_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"thermal raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
@@ -27141,19 +27140,19 @@ export proc validate_and_run(
   if options.capture_hwmon_bundle != "" {
     let destination = path.absolute(fp"${options.capture_hwmon_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("hwmon capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_hwmon_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(HwmonBundleCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(HwmonBundleCapture)?
     print f"hwmon raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; chips=${capture.layout.chips.len()}; changing_gauges=${capture.changing_gauges.len()}"
     print f"Replay with --replay-hwmon-bundle ${destination}"
     return
@@ -27161,7 +27160,7 @@ export proc validate_and_run(
 
   if options.replay_hwmon_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_hwmon_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_hwmon_bundle(bundle)?
     let mismatch = result.field_mismatches.len() > 0 or result.missing_names.len() > 0 or result.unexpected_names.len() > 0
     let state = if result.exact {
@@ -27184,19 +27183,19 @@ export proc validate_and_run(
   if options.capture_block_bundle != "" {
     let destination = path.absolute(fp"${options.capture_block_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("block capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_block_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(BlockBundleCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(BlockBundleCapture)?
     print f"block raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; devices=${capture.layout.entries.len()}; changing_stats=${capture.changing_stats.len()}"
     print f"Replay with --replay-block-bundle ${destination}"
     return
@@ -27204,7 +27203,7 @@ export proc validate_and_run(
 
   if options.replay_block_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_block_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_block_bundle(bundle)?
     let identity = if result.identity.exact { "exact" } else { "mismatch" }
     let queue = if result.queue.exact { "exact" } else { "mismatch" }
@@ -27220,19 +27219,19 @@ export proc validate_and_run(
   if options.capture_powercap_bundle != "" {
     let destination = path.absolute(fp"${options.capture_powercap_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("powercap capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_powercap_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PowerCapCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PowerCapCapture)?
     print f"powercap raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; captured=${capture.captured_unix_ms} ms"
     print f"Replay with --replay-powercap-bundle ${destination}"
     return
@@ -27240,7 +27239,7 @@ export proc validate_and_run(
 
   if options.replay_powercap_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_powercap_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_powercap_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"powercap raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
@@ -27254,19 +27253,19 @@ export proc validate_and_run(
   if options.capture_pci_bundle != "" {
     let destination = path.absolute(fp"${options.capture_pci_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("PCI capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_pci_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PciBundleCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PciBundleCapture)?
     print f"PCI raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; functions=${capture.layout.functions.len()}"
     print f"Replay with --replay-pci-bundle ${destination}"
     return
@@ -27274,7 +27273,7 @@ export proc validate_and_run(
 
   if options.replay_pci_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_pci_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_pci_bundle(bundle)?
     let binding_state = if ! result.binding.eligible {
       "unavailable"
@@ -27296,19 +27295,19 @@ export proc validate_and_run(
   if options.capture_usb_bundle != "" {
     let destination = path.absolute(fp"${options.capture_usb_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("USB capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     capture_usb_bundle(source, bundle, "live_capture")?
-    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(UsbBundleCapture)?
+    let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UsbBundleCapture)?
     print f"USB raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; entries=${capture.layout.entries.len()}"
     print f"Replay with --replay-usb-bundle ${destination}"
     return
@@ -27316,7 +27315,7 @@ export proc validate_and_run(
 
   if options.replay_usb_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_usb_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let result = replay_usb_bundle(bundle)?
     let power_unavailable = ! result.power.eligible and result.power.missing_names.len() == 0 and result.power.unexpected_names.len() == 0 and result.power.field_mismatches.len() == 0 and result.power.unstable_fields.len() == 0
     let interface_unavailable = ! result.interface.eligible and result.interface.missing_names.len() == 0 and result.interface.unexpected_names.len() == 0 and result.interface.field_mismatches.len() == 0 and result.interface.unstable_fields.len() == 0
@@ -27339,17 +27338,17 @@ export proc validate_and_run(
   if options.capture_smbios_bundle != "" {
     let destination = path.absolute(fp"${options.capture_smbios_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer fs.close_root(parent)?
+    defer parent.close()?
     let leaf = fp"${destination.name()}"
-    if fs.root_exists(parent, leaf)? {
+    if parent.exists(leaf)? {
       return Err(check_failure("SMBIOS capture destination already exists"))
     }
 
-    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)?
     let bundle = fs.open_root(destination)?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let source = fs.open_root(/)?
-    defer fs.close_root(source)?
+    defer source.close()?
     let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let captured = smbios_module.capture_smbios_bundle(source, bundle, "live_capture")?
     print f"SMBIOS raw capture saved at ${destination}; origin=${captured.origin}; stable=${captured.stable}; scoreable=${captured.scoreable}; captured=${captured.captured_unix_ms} ms"
@@ -27359,7 +27358,7 @@ export proc validate_and_run(
 
   if options.replay_smbios_bundle != "" {
     let bundle = fs.open_root(fp"${options.replay_smbios_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let result = smbios_module.replay_smbios_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -27377,7 +27376,7 @@ export proc validate_and_run(
     }
 
     let bundle = fs.open_root(fp"${options.corroborate_smbios_bundle}")?
-    defer fs.close_root(bundle)?
+    defer bundle.close()?
     let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let result = smbios_module.corroborate_smbios_bundle(bundle, options.dmidecode_bin)?
     let compared = result.comparison

@@ -52,9 +52,6 @@ fn collect_api_symbols(output: &mut BTreeSet<String>) {
                     collect_type_symbols(&param.ty, output);
                 }
                 collect_type_symbols(&overload.sig.return_ty, output);
-                if let crate::signature::MethodReturn::Type(ty) = &overload.return_ty {
-                    collect_type_symbols(ty, output);
-                }
             }
         }
     }
@@ -85,7 +82,7 @@ fn collect_error_symbols(output: &mut BTreeSet<String>) {
 
 fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
     match ty {
-        Type::List(inner) | Type::Map(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
             collect_type_symbols(inner, output);
         }
         Type::Record(fields) | Type::Module(fields) => {
@@ -94,11 +91,13 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
                 collect_type_symbols(ty, output);
             }
         }
+        Type::Map(key, value) => { collect_type_symbols(key, output); collect_type_symbols(value, output); }
         Type::Result(ok, err) => {
             collect_type_symbols(ok, output);
             collect_type_symbols(err, output);
         }
-        Type::Any
+        Type::BuiltinParameter(_)
+        | Type::Any
         | Type::Unknown
         | Type::Invalid
         | Type::Null
@@ -121,6 +120,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::Command
         | Type::ProcessHandle
         | Type::NetJob
+        | Type::FsRoot
         | Type::Unit => {}
     }
 }
@@ -213,9 +213,6 @@ mod tests {
                         assert_type_symbols_are_present(symbols, &param.ty);
                     }
                     assert_type_symbols_are_present(symbols, &overload.sig.return_ty);
-                    if let crate::signature::MethodReturn::Type(ty) = &overload.return_ty {
-                        assert_type_symbols_are_present(symbols, ty);
-                    }
                 }
             }
         }
@@ -246,7 +243,7 @@ mod tests {
 
     fn assert_type_symbols_are_present(symbols: &BTreeSet<String>, ty: &Type) {
         match ty {
-            Type::List(inner) | Type::Map(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
                 assert_type_symbols_are_present(symbols, inner);
             }
             Type::Record(fields) | Type::Module(fields) => {
@@ -255,11 +252,13 @@ mod tests {
                     assert_type_symbols_are_present(symbols, ty);
                 }
             }
+            Type::Map(key, value) => { assert_type_symbols_are_present(symbols, key); assert_type_symbols_are_present(symbols, value); }
             Type::Result(ok, err) => {
                 assert_type_symbols_are_present(symbols, ok);
                 assert_type_symbols_are_present(symbols, err);
             }
-            Type::Any
+            Type::BuiltinParameter(_)
+        | Type::Any
             | Type::Unknown
             | Type::Invalid
             | Type::Null
@@ -282,6 +281,7 @@ mod tests {
             | Type::Command
             | Type::ProcessHandle
             | Type::NetJob
+            | Type::FsRoot
             | Type::Unit => {}
         }
     }

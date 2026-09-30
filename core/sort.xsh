@@ -14,16 +14,16 @@ type SortOptions = {
 }
 
 pure numeric_key(line: Str) -> Int {
-  return line.trim().words().get(0, "0").parse_int() ?? 0
+  return (line.trim().words().get(0) ?? "0").parse_int() ?? 0
 }
 
 pure key_index(spec: Str) -> Int {
-  return (spec.split(",").get(0, "1").split(".").get(0, "1").parse_int() ?? 1) - 1
+  return (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
 }
 
 pure field_key(line: Str, delimiter: Str, field: Int, fold_case: Bool) -> Str {
   let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  let key = parts.get(field, "")
+  let key = (parts.get(field) ?? "")
   return if fold_case { key.lower() } else { key }
 }
 
@@ -83,22 +83,22 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
   let sorted = if opts.numeric and has_key {
     if opts.reverse {
-      input.lines() |> sort-by --desc numeric_field_key(., delimiter, key_field)
+      input.lines() |> sort-by(desc: true) numeric_field_key(., delimiter, key_field)
     } else {
       input.lines() |> sort-by numeric_field_key(., delimiter, key_field)
     }
   } else if has_key {
     if opts.reverse {
-      input.lines() |> sort-by --desc field_key(., delimiter, key_field, opts.fold_case)
+      input.lines() |> sort-by(desc: true) field_key(., delimiter, key_field, opts.fold_case)
     } else {
       input.lines() |> sort-by field_key(., delimiter, key_field, opts.fold_case)
     }
   } else if opts.numeric {
-    if opts.reverse { input.lines() |> sort-by --desc numeric_key(.) } else { input.lines() |> sort-by numeric_key(.) }
+    if opts.reverse { input.lines() |> sort-by(desc: true) numeric_key(.) } else { input.lines() |> sort-by numeric_key(.) }
   } else if opts.fold_case {
-    if opts.reverse { input.lines() |> sort-by --desc .lower() } else { input.lines() |> sort-by .lower() }
+    if opts.reverse { input.lines() |> sort-by(desc: true) .lower() } else { input.lines() |> sort-by .lower() }
   } else if opts.reverse {
-    input.lines() |> sort-by --desc .
+    input.lines() |> sort-by(desc: true) .
   } else {
     input.lines() |> sort
   }

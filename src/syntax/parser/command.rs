@@ -1,8 +1,7 @@
 use super::{
     CoreCommand, Diagnostic, DurationLiteral, FixHint, IntLiteral, Keyword, Label, Name, Parser,
     RedirectionKind, RunKind, Severity, Span, TokenKindMatch, TokenTag,
-    decode_interpolation_text_for, dollar_shorthand_end, interpolation_diagnostic, is_ident_start,
-    literal, parse_interpolation_expr_arena_only_for,
+    decode_interpolation_text_for, parse_interpolation_expr_arena_only_for,
 };
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaEnvAssignmentValue, ArenaProgramBuilder, ArenaRange,
@@ -139,9 +138,7 @@ impl<'a> Parser<'a> {
                 block = Some(id);
             }
             CoreCommand::Env => {
-                if self.lookahead_is_env_expr_assignment_block() {
-                    env = self.parse_env_expr_assignment_block_arena_only(arena)?;
-                } else {
+                {
                     arena.begin_env_assignments();
                     while !self.at(TokenKindMatch::LBrace) && !self.at(TokenKindMatch::Eof) {
                         if self.parse_env_assignment_arena_only(arena).is_none() {
@@ -206,11 +203,16 @@ impl<'a> Parser<'a> {
         let start = self.current_start();
         self.bump();
         let mut kind = RunKind::Plain;
-        let mut builtin = false;
         if self.consume(TokenKindMatch::Dot).is_some() {
             let name = self.expect_member_name("expected run form after `run.`")?;
             if name == "builtin" {
-                builtin = true;
+                let alias_span = self.span(start + 3, self.previous_end());
+                self.diagnostics.push(
+                    Diagnostic::error("`run.builtin` was removed; use the corresponding `run` form")
+                        .with_code("parse.compatibility-vocabulary")
+                        .with_label(Label::primary(alias_span, "redundant run qualifier"))
+                        .with_fix_hint(FixHint::replacement(alias_span, "remove the qualifier", "")),
+                );
                 if self.consume(TokenKindMatch::Dot).is_some() {
                     let name =
                         self.expect_member_name("expected run builtin form after `run.builtin.`")?;
@@ -220,7 +222,7 @@ impl<'a> Parser<'a> {
                 kind = self.parse_run_kind_after_dot(&name.as_str())?;
             }
         }
-        let (timeout_id, cpu_max_id) = self.parse_run_options_arena_only(arena);
+        let (timeout_id, cpu_max_id, accept_id) = self.parse_run_options_arena_only(arena);
         let env_range = self.parse_env_assignments_arena_only(arena);
         let grouped = self.at(TokenKindMatch::LParen)
             && self
@@ -254,9 +256,9 @@ impl<'a> Parser<'a> {
         let span = self.span(start, self.previous_end());
         arena.push_run_segment_parts(
             kind,
-            builtin,
             timeout_id,
             cpu_max_id,
+            accept_id,
             env_range,
             grouped,
             target,
@@ -326,9 +328,10 @@ impl<'a> Parser<'a> {
     fn parse_run_options_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
-    ) -> (Option<ExprId>, Option<ExprId>) {
+    ) -> (Option<ExprId>, Option<ExprId>, Option<ExprId>) {
         let mut timeout_id = None;
         let mut cpu_max_id = None;
+        let mut accept_id = None;
         loop {
             let save = self.index;
             if !(self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus)) {
@@ -362,13 +365,18 @@ impl<'a> Parser<'a> {
                         cpu_max_id = Some(id);
                     }
                 }
+                "accept" => {
+                    self.expect(TokenKindMatch::Equals, "expected `=` after `--accept`");
+                    if accept_id.is_some() { self.diagnostic_previous("duplicate `--accept` option", "parse.run-option"); }
+                    if let Some(id) = self.parse_run_option_expr_arena_only(arena) { accept_id = Some(id); }
+                }
                 _ => {
                     self.index = save;
                     break;
                 }
             }
         }
-        (timeout_id, cpu_max_id)
+        (timeout_id, cpu_max_id, accept_id)
     }
 
     fn parse_run_option_expr_arena_only(
@@ -394,7 +402,13 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Some(arena.push_ident_expr(value, span))
             }
-            _ => self.parse_expr_id_arena_only(arena),
+            _ => {
+                let previous = self.command_arg_expr;
+                self.command_arg_expr = true;
+                let expression = self.parse_expr_id_arena_only(arena);
+                self.command_arg_expr = previous;
+                expression
+            }
         }
     }
 
@@ -437,37 +451,45 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    pub(super) fn parse_env_expr_assignment_block_arena_only(
-        &mut self,
-        arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<ArenaRange> {
-        self.expect(
-            TokenKindMatch::LBrace,
-            "expected `{` to start env assignments",
-        )?;
+    pub(super) fn parse_legacy_env_scope_arena_only(
+        &mut self, arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ExprId> {
+        let start = self.current_start();
+        let introducer = self.current_span();
+        self.bump();
+        let opening = self.expect(TokenKindMatch::LBrace, "expected environment assignments")?;
+        let mut diagnostic = Diagnostic::error("expression environment assignments require an explicit overlay")
+            .with_code("parse.env-scope-migration")
+            .with_label(Label::primary(introducer, "use `env ({NAME: value}) { body }`"))
+            .with_fix_hint(FixHint::replacement(introducer, "open explicit overlay", "env ("));
         self.skip_separators();
-        arena.begin_env_assignments();
+        let mut fields = Vec::new();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
-            let start = self.current_start();
-            let Some(name) = self.expect_ident("expected environment name") else {
-                arena.discard_env_assignments();
-                return None;
-            };
-            self.expect(TokenKindMatch::Equals, "expected `=` in env assignment");
-            let Some(value_id) = self.parse_expr_id_arena_only(arena) else {
-                arena.discard_env_assignments();
-                return None;
-            };
-            let end = self.expect_terminator();
-            arena.push_env_assignment_input(
-                name,
-                ArenaEnvAssignmentValue::Expr(value_id),
-                self.span(start, end),
-            );
+            let field_start = self.current_start();
+            let name = self.expect_ident("expected environment name")?;
+            let equals = self.expect(TokenKindMatch::Equals, "expected `=` in env assignment")?;
+            let value = self.parse_expr_id_arena_only(arena)?;
+            let value_end = self.previous_end();
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(equals, "use a record field", ":"));
+            if self.current_tag() == TokenTag::Semicolon {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.current_span(), "separate overlay fields", ","));
+            } else {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.span(value_end, value_end), "separate overlay fields", ","));
+            }
+            fields.push(crate::syntax::arena::ArenaRecordFieldInput::Named { name, value, span: self.span(field_start, value_end) });
+            self.expect_terminator();
             self.skip_separators();
         }
-        self.expect(TokenKindMatch::RBrace, "expected `}` after env assignments");
-        Some(arena.finish_env_assignments())
+        let closing = self.expect(TokenKindMatch::RBrace, "expected `}` after env assignments")?;
+        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(closing, "close explicit overlay", "})"));
+        self.diagnostics.push(diagnostic);
+        arena.begin_record_fields();
+        for field in fields { arena.push_record_field_input(field); }
+        let fields = arena.finish_record_fields();
+        let input = arena.push_record_expr(fields, self.span(opening.start(), closing.end()));
+        self.skip_separators();
+        let block = self.parse_block_arena_only(arena)?;
+        Some(arena.push_context_scope_expr(crate::syntax::arena::ContextScopeKind::Env, input, block, false, self.span(start, self.previous_end())))
     }
 
     pub(super) fn parse_redirection_arena_only(
@@ -501,7 +523,11 @@ impl<'a> Parser<'a> {
             return None;
         };
 
-        let target_arg = self.parse_command_arg_arena_only(arena)?;
+        let target_arg = if self.current_tag() == TokenTag::Bytes {
+            let start = self.current_start();
+            let expr = self.with_command_arg_expr(|parser| parser.parse_expr_id_arena_only(arena))?;
+            arena.typed_command_arg(expr, self.span(start, self.previous_end()))
+        } else { self.parse_command_arg_arena_only(arena)? };
         let arena_target = match kind {
             RedirectionKind::StdoutDup | RedirectionKind::StdinDup => {
                 ArenaRedirectionTarget::Fd(target_arg)
@@ -605,9 +631,16 @@ impl<'a> Parser<'a> {
                 None => return false,
             };
             match tag {
+                TokenTag::Question
+                    if self.start_at(pos) == self.end_at(pos - 1)
+                        && self.start_at(pos + 1) == self.end_at(pos)
+                        && matches!(self.token_table.tag_at(pos + 1), Some(TokenTag::Dot | TokenTag::LBracket)) =>
+                {
+                    pos += 1;
+                }
                 TokenTag::Dot => {
                     if self.start_at(pos + 1) != self.end_at(pos)
-                        || self.token_table.tag_at(pos + 1) != Some(TokenTag::Ident)
+                        || self.peek_label_name(pos + 1 - self.index).is_none()
                     {
                         return false;
                     }
@@ -800,9 +833,7 @@ impl<'a> Parser<'a> {
                     if self.peek_start(1) != Some(self.current_end()) {
                         break;
                     }
-                    let Some(name) = self
-                        .peek_name(1)
-                        .filter(|_| self.peek_tag(1) == Some(TokenTag::Ident))
+                    let Some(name) = self.peek_label_name(1)
                     else {
                         break;
                     };
@@ -856,14 +887,7 @@ impl<'a> Parser<'a> {
                             .with_label(Label::primary(span, "expected literal capture mode")),
                     );
                 }
-                let (text, diagnostics) = decode_interpolation_text_for(
-                    self.source_id,
-                    &raw,
-                    span,
-                    self.string_content_offset(span),
-                );
-                self.diagnostics.extend(diagnostics);
-                text
+                self.decoded_quoted_text(span, false).to_string()
             }
             _ => {
                 self.diagnostics.push(
@@ -891,154 +915,33 @@ impl<'a> Parser<'a> {
         raw_literal: bool,
         search_from: &mut usize,
     ) {
-        let source_id = self.source_id;
-        let raw = self.quoted_content(span);
-        if raw_literal || !raw.contains('$') {
-            let text = if raw_literal {
-                Arc::from(raw)
-            } else {
-                let (text, decode_diagnostics) = decode_interpolation_text_for(
-                    source_id,
-                    raw,
-                    span,
-                    self.string_content_offset(span),
-                );
-                self.diagnostics.extend(decode_diagnostics);
-                Arc::from(text)
-            };
-            arena.push_quoted_word_part_text(&text, span, search_from, span.end());
-            return;
-        }
-
-        let mut diagnostics = Vec::new();
+        let (chunks, mut diagnostics) = self.quoted_text_chunks(span, !raw_literal);
         let mut any_part = false;
-        let content_offset = self.string_content_offset(span);
-        let mut rest_start = 0usize;
-        let mut search_start = 0usize;
-        let bytes = raw.as_bytes();
-        while let Some(relative) = raw[search_start..].find('$') {
-            let dollar = search_start + relative;
-            if literal::is_escaped(bytes, dollar) {
-                search_start = dollar + 1;
-                continue;
-            }
-            let Some(next) = bytes.get(dollar + 1).copied() else {
-                break;
-            };
-            if next == b'{' {
-                if dollar > rest_start {
-                    let (text, decode_diagnostics) = decode_interpolation_text_for(
-                        source_id,
-                        &raw[rest_start..dollar],
-                        span,
-                        content_offset + rest_start,
-                    );
-                    diagnostics.extend(decode_diagnostics);
-                    arena.push_quoted_word_part_text(
-                        &Arc::from(text),
-                        span,
-                        search_from,
-                        span.end(),
-                    );
-                }
-                let expr_start = dollar + 2;
-                let Some(close) = literal::interpolation_close(raw, expr_start) else {
-                    diagnostics.push(interpolation_diagnostic(
-                        span,
-                        "unterminated string interpolation",
-                        "interpolation starts in this string",
-                    ));
-                    // Unlike the old recursive-AST path (which discards
-                    // whatever parts it accumulated for this token and
-                    // replaces them with one part covering the whole raw
-                    // content), this pushes directly into the caller's
-                    // already-open word-parts list alongside any earlier
-                    // tokens, so it can't retroactively discard — push one
-                    // more part for just the unparsed remainder instead.
-                    let (text, decode_diagnostics) = decode_interpolation_text_for(
-                        source_id,
-                        &raw[dollar..],
-                        span,
-                        content_offset + dollar,
-                    );
-                    diagnostics.extend(decode_diagnostics);
-                    arena.push_quoted_word_part_text(
-                        &Arc::from(text),
-                        span,
-                        search_from,
-                        span.end(),
-                    );
-                    self.diagnostics.extend(diagnostics);
-                    return;
-                };
-                let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(
-                    source_id,
-                    &raw[expr_start..close],
-                    content_offset + expr_start,
-                    arena,
-                );
-                diagnostics.extend(parse_diagnostics);
-                if let Some(expr_id) = expr_id {
+        for chunk in chunks {
+            match chunk {
+                super::InterpolationChunk::Text { source, offset } => {
+                    let text = if raw_literal { Arc::from(source) } else {
+                        let (text, decode_diagnostics) = decode_interpolation_text_for(self.source_id, source, span, offset);
+                        diagnostics.extend(decode_diagnostics);
+                        Arc::from(text)
+                    };
                     any_part = true;
-                    arena.push_interpolation_word_part_expr(expr_id);
+                    arena.push_quoted_word_part_text(&text, span, search_from, span.end());
                 }
-                rest_start = close + 1;
-                search_start = rest_start;
-                continue;
+                super::InterpolationChunk::Expr { source, offset } => {
+                    let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(self.source_id, source, offset, arena);
+                    diagnostics.extend(parse_diagnostics);
+                    if let Some(expr_id) = expr_id {
+                        any_part = true;
+                        if self.source[..offset].ends_with("${") { arena.push_interpolation_word_part_expr(expr_id); }
+                        else { arena.push_shorthand_word_part_expr(expr_id); }
+                    }
+                }
             }
-
-            if is_ident_start(next) {
-                if dollar > rest_start {
-                    let (text, decode_diagnostics) = decode_interpolation_text_for(
-                        source_id,
-                        &raw[rest_start..dollar],
-                        span,
-                        content_offset + rest_start,
-                    );
-                    diagnostics.extend(decode_diagnostics);
-                    any_part = true;
-                    arena.push_quoted_word_part_text(
-                        &Arc::from(text),
-                        span,
-                        search_from,
-                        span.end(),
-                    );
-                }
-                let expr_start = dollar + 1;
-                let shorthand_end = dollar_shorthand_end(raw, expr_start);
-                let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(
-                    source_id,
-                    &raw[expr_start..shorthand_end],
-                    content_offset + expr_start,
-                    arena,
-                );
-                diagnostics.extend(parse_diagnostics);
-                if let Some(expr_id) = expr_id {
-                    any_part = true;
-                    arena.push_shorthand_word_part_expr(expr_id);
-                }
-                rest_start = shorthand_end;
-                search_start = rest_start;
-                continue;
-            }
-
-            search_start = dollar + 1;
-        }
-        if rest_start < raw.len() {
-            let (text, decode_diagnostics) = decode_interpolation_text_for(
-                source_id,
-                &raw[rest_start..],
-                span,
-                content_offset + rest_start,
-            );
-            diagnostics.extend(decode_diagnostics);
-            any_part = true;
-            arena.push_quoted_word_part_text(&Arc::from(text), span, search_from, span.end());
         }
         self.diagnostics.extend(diagnostics);
-        if !any_part {
-            arena.push_quoted_word_part_text(&Arc::from(""), span, search_from, span.end());
-        }
+        if !any_part { arena.push_quoted_word_part_text(&Arc::from(""), span, search_from, span.end()); }
+
     }
 }
 

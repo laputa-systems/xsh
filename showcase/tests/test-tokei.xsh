@@ -1,4 +1,4 @@
-proc test_tokei_json_shape_counts_and_ignores(ctx: TestContext) [fs, process, error] {
+test test_tokei_json_shape_counts_and_ignores [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "tokei-root")?
 
   fp"${root}/.tokeignore".write("""ignored
@@ -81,18 +81,19 @@ comment */
   test.eq(data["JSON"]["code"], 1)?
   test.eq(data["TOML"]["comments"], 1)?
   test.eq(data["JavaScript"]["comments"], 2)?
+  test.eq(data["HTML"]["children"]["JavaScript"].require(List[Any])?.len(), 1)?
   test.eq(data["HTML"]["children"]["JavaScript"][0]["stats"]["code"], 1)?
   test.eq(data["Markdown"]["children"]["BASH"][0]["stats"]["comments"], 1)?
   test.eq(data["Markdown"]["children"]["Shell"][0]["stats"]["code"], 1)?
   test.eq(data["MDX"]["comments"], 4)?
   test.eq(data["MDX"]["blanks"], 1)?
-  test.eq(data["MDX"]["children"].keys().len(), 0)?
+  test.eq(data["MDX"]["children"].require(Record)?.keys().len(), 0)?
   test.eq(data["Rust"]["children"]["Markdown"][0]["stats"]["blobs"]["TOML"]["code"], 1)?
   test.eq(data["Total"]["code"], 16)?
   test.eq(data["Total"]["comments"], 23)?
   test.eq(data["Total"]["blanks"], 5)?
   ".hidden" not in data["Total"]["children"]["JSON"][0]["name"].require(Str)?
-  test.eq(data["Rust"]["reports"].len(), 1)?
+  test.eq(data["Rust"]["reports"].require(List[Any])?.len(), 1)?
   let table = run.text "xsh" "showcase/tokei.xsh" -- $root ?
 
   # tokei-format table: heavy rules, capitalized header, embedded ("|-") child rows,

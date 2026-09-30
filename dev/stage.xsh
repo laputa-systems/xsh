@@ -25,9 +25,10 @@ export pure command(
 
 ## Resolves a required external program with a named diagnostic on absence.
 export proc require_tool(name: Str) [process, error] -> Result[Path] {
-  match process.which(name) {
-    Ok(tool_path) => return tool_path
-    Err(_) => return Err(StageError.MissingTool(tool: name))
+  if let Ok(tool_path) = process.which(name) {
+    return tool_path
+  } else {
+    return Err(StageError.MissingTool(tool: name))
   }
 }
 
@@ -53,5 +54,5 @@ export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[U
   } else {
     "unknown process status"
   }
-  return Err(StageError.Failed(stage: spec.stage, target: spec.target, detail: detail))
+  return Err(StageError.Failed(stage: spec.stage, target: spec.target, detail:))
 }

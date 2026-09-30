@@ -98,7 +98,7 @@ impl Evaluator {
                 handle_id,
                 pid,
                 status,
-                error: error.map(|error| TraceError::new(&error.kind, &error.message)),
+                error: error.map(TraceError::from_run_error),
             },
         );
     }
@@ -121,7 +121,7 @@ impl Evaluator {
                 pid,
                 signal: signal.to_string(),
                 kill_after_ms: kill_after.as_millis().try_into().unwrap_or(u64::MAX),
-                error: error.map(|error| TraceError::new(&error.kind, &error.message)),
+                error: error.map(TraceError::from_run_error),
             },
         );
     }
@@ -172,7 +172,10 @@ impl Evaluator {
             }
             Err(error) => {
                 let error = error.with_span(span);
-                self.trace_wait_end(span, Some(handle.id), pid, None, Some(&error));
+                if let Some(status) = &error.status {
+                    self.last_status = Some((**status).clone());
+                }
+                self.trace_wait_end(span, Some(handle.id), pid, error.status.as_deref().map(trace_status), Some(&error));
                 Ok(process_handle_error(error))
             }
         }
@@ -263,7 +266,8 @@ impl Evaluator {
                 }
                 Err(error) => {
                     let error = error.with_span(span);
-                    self.trace_wait_end(span, Some(handle.id), pid, None, Some(&error));
+                    self.last_status = error.status.as_deref().cloned().or_else(|| self.last_status.clone());
+                    self.trace_wait_end(span, Some(handle.id), pid, error.status.as_deref().map(trace_status), Some(&error));
                     if first_error.is_none() {
                         first_error = Some(error);
                     }

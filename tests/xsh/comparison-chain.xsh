@@ -1,0 +1,89 @@
+test test_comparison_chain_adjacent_types_and_order [error] {
+  test.eq(0 <= 1 < 2 <= 2, true)?
+  test.eq(4 > 3 >= 3 > 1, true)?
+  test.eq(1 < 3 > 2, true)?
+  test.eq(0 < 0 < 1, false)?
+  test.eq(0.0 <= 1.0 < 2.0, true)?
+  let nan = 0.0 / 0.0
+  test.eq(0.0 < nan < 1.0, false)?
+  test.eq("a" < "b" <= "b", true)?
+  test.eq(1 + 1 < 3 * 2 <= 6 and true, true)?
+  test.eq(false or 1 < 2 < 3, true)?
+  test.eq((1 < 2) == true, true)?
+}
+
+test test_comparison_chain_evaluates_reached_operands_once [error] { |ctx|
+  let reached = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
+  print f"${n}"
+  return n
+}
+let result = observed(1) < observed(2) <= observed(3)
+print f"${result}"
+""")?
+  test.ok(reached.success, reached.stderr)?
+  test.eq(reached.stdout, "1\n2\n3\ntrue\n")?
+
+  let skipped = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
+  print f"${n}"
+  return n
+}
+let result = observed(3) < observed(2) <= observed(1)
+print f"${result}"
+""")?
+  test.ok(skipped.success, skipped.stderr)?
+  test.eq(skipped.stdout, "3\n2\nfalse\n")?
+}
+
+test test_comparison_chain_rejects_invalid_adjacent_types [error] { |ctx|
+  let invalid = test.run_script(ctx, "let value = 0 < 1 < \"two\"\n")?
+  test.ok(! invalid.success, invalid.stderr)?
+  test.ok("check.type-mismatch" in invalid.stderr)?
+  let numeric = test.run_script(ctx, "let value = 0 < 1.0 < 2.0\n")?
+  test.ok(! numeric.success, numeric.stderr)?
+  test.ok("check.type-mismatch" in numeric.stderr)?
+  let grouped = test.run_script(ctx, "let value = (0 < 1) < 2\n")?
+  test.ok(! grouped.success, grouped.stderr)?
+  test.ok("comparison requires Int, Float, Str, or Duration" in grouped.stderr)?
+}
+
+test test_comparison_chain_requires_grouping_for_mixed_tests [error] { |ctx|
+  for source in [
+    "let value = 0 < 1 < 2 == true\n",
+    "let value = (0 + 0) < 1 < 2 == true\n",
+    "let value = 0 < 1 in [1, 2]\n",
+    "let value = 1 in [1, 2] < 3\n",
+    "let value = 0 < 1 < 2 is Bool\n",
+    "let value: Any = 1\nlet result = value is Int < true\n",
+  ] {
+    let invalid = test.run_script(ctx, source)?
+    test.ok(! invalid.success, invalid.stderr)?
+    test.ok("parse.mixed-comparison" in invalid.stderr)?
+  }
+  let explicit = test.run_script(ctx, "let value = (0 < 1 < 2) == true\n")?
+  test.ok(explicit.success, explicit.stderr)?
+}
+
+test test_comparison_chain_skips_failing_last_operand [error] { |ctx|
+  let result = test.run_script(ctx, r"""let result = 2 < 1 < (1 / 0)
+print f"${result}"
+""")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "false\n")?
+  let reached = test.run_script(ctx, "let result = 0 < 1 < (1 / 0)\n")?
+  test.ok(! reached.success, reached.stderr)?
+  test.ok("division-by-zero" in reached.stderr)?
+}
+
+test test_comparison_chain_bare_assertion_reports_reached_failed_pair [error] { |ctx|
+  let failed = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
+  print f"${n}"
+  return n
+}
+observed(1) < observed(2) < observed(1) < (1 / 0)
+""")?
+  test.ok(! failed.success, failed.stderr)?
+  test.eq(failed.stdout, "1\n2\n1\n")?
+  test.ok("AssertionError.Failed" in failed.stderr)?
+  test.ok("2 < 1" in failed.stderr)?
+  test.ok("division-by-zero" not in failed.stderr, failed.stderr)?
+}

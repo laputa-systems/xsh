@@ -25,6 +25,15 @@ impl Checker {
     ) {
         for module in &program.modules {
             if module.internal {
+                if program.module_statements(module).any(|id| {
+                    let kind = match program.arena.stmt(id).kind {
+                        ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                        other => other,
+                    };
+                    matches!(kind, ArenaStmtKind::PureDef(id) if program.arena.function_def(id).return_ty_defaulted)
+                }) {
+                    self.check_user_module_arena(program, type_program.clone(), source, module);
+                }
                 // Embedded implementations are not user modules: they have no
                 // `use` path, no module contract, and no public documentation
                 // obligations. Their bodies are checked with the program and
@@ -56,6 +65,51 @@ impl Checker {
         }
     }
 
+    fn check_test_declaration_names_arena(
+        &mut self, program: &ArenaProgram, statements: &[StmtId], module: bool,
+    ) {
+        let mut tests = FxHashSet::default();
+        for &statement in statements {
+            let (kind, span) = exported_stmt_kind_arena(program, statement);
+            if let ArenaStmtKind::ProcDef(id) = kind {
+                let def = program.arena.function_def(id);
+                if def.test_declaration && !tests.insert(def.name) && module {
+                    self.error(span, "duplicate module test name", "check.duplicate-name");
+                }
+            }
+        }
+        for &statement in statements {
+            let (kind, span) = exported_stmt_kind_arena(program, statement);
+            let mut names = Vec::new();
+            match kind {
+                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+                    let mut targets = vec![target];
+                    while let Some(target) = targets.pop() {
+                        match program.arena.binding_target(target).kind {
+                            ArenaBindingTargetKind::Name(name) => names.push(name),
+                            ArenaBindingTargetKind::Record { fields, .. } => targets.extend(
+                                program.arena.destructure_fields(fields).iter().map(|field| field.target)),
+                        }
+                    }
+                }
+                ArenaStmtKind::Use(id) => {
+                    let declaration = program.arena.use_stmt(id);
+                    names.extend(declaration.alias.or_else(|| program.arena.names(declaration.path).last()));
+                }
+                ArenaStmtKind::ProcDef(id) | ArenaStmtKind::PureDef(id) | ArenaStmtKind::StreamDef(id)
+                    if module && !program.arena.function_def(id).test_declaration => {
+                    names.push(program.arena.function_def(id).name);
+                }
+                ArenaStmtKind::TypeDef(id) if module => names.push(program.arena.type_def(id).name),
+                ArenaStmtKind::ErrorDef(id) if module => names.push(program.arena.error_def(id).name),
+                _ => {}
+            }
+            if names.iter().any(|name| tests.contains(name)) {
+                self.error(span, "name conflicts with a test declaration", "check.duplicate-name");
+            }
+        }
+    }
+
     pub(super) fn collect_definitions_arena(
         &mut self,
         program: &ArenaProgram,
@@ -64,6 +118,7 @@ impl Checker {
         statements: impl IntoIterator<Item = StmtId>,
     ) {
         let stmt_ids: Vec<StmtId> = statements.into_iter().collect();
+        self.check_test_declaration_names_arena(program, &stmt_ids, false);
         let mut names = FxHashSet::default();
         for stmt_id in &stmt_ids {
             let (kind, span) = exported_stmt_kind_arena(program, *stmt_id);
@@ -88,7 +143,8 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
-                    let body = type_def_body_arena(type_program.clone(), def_id);
+                    self.check_enum_constructor_names(program, def, &mut names);
+                    let body = type_def_body_arena(type_program.clone(), def_id, self.current_namespace);
                     self.type_defs.insert(def.name, body.clone());
                     if let TypeDefBody::TagUnion(variants) = &body {
                         for variant in variants {
@@ -100,7 +156,7 @@ impl Checker {
                             self.tag_variants.insert(
                                 variant.name,
                                 TagVariantInfo {
-                                    type_name: def.name,
+                                    type_name: variant.type_name,
                                     field_count: variant.fields.len(),
                                     field_types,
                                 },
@@ -160,11 +216,12 @@ impl Checker {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     let sig = self.function_sig_arena(program, source, def_id);
-                    self.procs.insert(def.name, sig);
+                    if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
@@ -178,6 +235,25 @@ impl Checker {
         }
     }
 
+    fn check_enum_constructor_names(
+        &mut self,
+        program: &ArenaProgram,
+        def: &ArenaTypeDef,
+        names: &mut FxHashSet<Name>,
+    ) {
+        let ArenaTypeDefBody::TagUnion(variants) = def.body else { return; };
+        for variant in program.arena.tag_variants(variants) {
+            let span = program.arena.span(variant.span);
+            self.check_standard_module_shadow(&variant.name.as_str(), span);
+            if !names.insert(variant.name) || (self.current_namespace.is_none() && self.tag_variants.contains_key(&variant.name)) {
+                self.error(span, "duplicate enum constructor name", "check.duplicate-name");
+            }
+            if is_builtin_or_standard_record_type_name(variant.name.as_str()) {
+                self.error(span, "enum constructor conflicts with a built-in type", "check.duplicate-name");
+            }
+        }
+    }
+
     pub(super) fn check_user_module_arena(
         &mut self,
         program: &ArenaProgram,
@@ -185,6 +261,7 @@ impl Checker {
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
+        self.prepare_local_inference(program);
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();
@@ -197,13 +274,22 @@ impl Checker {
         let saved_pure = self.in_pure;
         let saved_exported = self.current_exported;
         let saved_module_depth = self.module_depth;
+        let saved_namespace = self.current_namespace;
+        self.current_namespace = Some(module.name);
         let saved_scopes = self.scopes.clone();
         self.scopes = vec![FxHashMap::default()];
         self.module_depth += 1;
         self.define_standard_values();
 
         let stmt_ids: Vec<StmtId> = program.module_statements(module).collect();
-        self.check_public_docs(program, module.statements, &stmt_ids);
+        self.check_test_declaration_names_arena(program, &stmt_ids, true);
+        if !module.internal { self.check_public_docs(program, module.statements, &stmt_ids); }
+        for statement in &stmt_ids {
+            if matches!(program.arena.stmt(*statement).kind, ArenaStmtKind::CliMain(_)) {
+                self.error(program.arena.stmt(*statement).span,
+                    "`cli main` is only permitted in the entry module", "check.cli-entry");
+            }
+        }
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
         let mut names = FxHashSet::default();
         for stmt_id in &stmt_ids {
@@ -222,8 +308,9 @@ impl Checker {
                     if self.type_defs.contains_key(&def.name) || !names.insert(def.name) {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
                     }
+                    self.check_enum_constructor_names(program, def, &mut names);
                     self.type_defs
-                        .insert(def.name, type_def_body_arena(type_program.clone(), def_id));
+                        .insert(def.name, type_def_body_arena(type_program.clone(), def_id, self.current_namespace));
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     let def = program.arena.error_def(def_id);
@@ -236,18 +323,28 @@ impl Checker {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
+                    if !names.insert(def.name) {
+                        self.error(span, "duplicate module name", "check.duplicate-name");
+                    }
                     let sig = self.function_sig_arena(program, source, def_id);
-                    self.procs.insert(def.name, sig);
+                    if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    if !names.insert(def.name) {
+                        self.error(span, "duplicate module name", "check.duplicate-name");
+                    }
+                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
+                    if !names.insert(def.name) {
+                        self.error(span, "duplicate module name", "check.duplicate-name");
+                    }
                     let sig = self.function_sig_arena(program, source, def_id);
                     self.streams.insert(def.name, sig);
                 }
@@ -255,6 +352,19 @@ impl Checker {
             }
         }
 
+        // Inferred bodies need constructor signatures before any statement
+        // bodies are checked, just as root declarations do.
+        for &stmt_id in &stmt_ids {
+            if let ArenaStmtKind::TypeDef(def_id) = exported_stmt_kind_arena(program, stmt_id).0 {
+                let def = program.arena.type_def(def_id);
+                if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) {
+                    self.check_type_def_arena(program, source, def, program.arena.stmt(stmt_id).span);
+                }
+            }
+        }
+        self.infer_default_parameter_types(program, source, &stmt_ids);
+        self.infer_local_pure_returns(program, source, &stmt_ids);
+        self.infer_default_parameter_types(program, source, &stmt_ids);
         let mut exports = UserModuleSig::default();
         for stmt_id in &stmt_ids {
             let stmt = program.arena.stmt(*stmt_id);
@@ -281,6 +391,10 @@ impl Checker {
                             target,
                             ty,
                             initializer,
+                        } | ArenaStmtKind::Const {
+                            target,
+                            ty,
+                            initializer,
                         } => {
                             if matches!(
                                 program.arena.binding_target(target).kind,
@@ -304,7 +418,10 @@ impl Checker {
                             if let Some(name) = binding_target_simple_name_arena(program, target)
                                 && let Some(binding) = self.lookup(name)
                             {
-                                exports.values.insert(name, binding.ty.clone());
+                                if let Some(alias) = &binding.callable_alias {
+                                    if alias.pure { exports.pures.insert(name, alias.signature.clone()); }
+                                    else { exports.procs.insert(name, alias.signature.clone()); }
+                                } else { exports.values.insert(name, binding.ty.clone()); }
                             }
                         }
                         ArenaStmtKind::ProcDef(def_id) => {
@@ -333,11 +450,11 @@ impl Checker {
                             self.check_type_def_arena(program, source, def, inner.span);
                             exports.types.insert(
                                 def.name,
-                                type_def_body_arena(type_program.clone(), def_id),
+                                type_def_body_arena(type_program.clone(), def_id, self.current_namespace),
                             );
-                            exports
-                                .resolved_types
-                                .insert(def.name, self.type_from_name(def.name, inner.span));
+                            if def.type_parameters.is_empty() {
+                                exports.resolved_types.insert(def.name, self.type_from_name(def.name, inner.span));
+                            }
                             if let ArenaTypeDefBody::TagUnion(variants) = def.body {
                                 for variant in program.arena.tag_variants(variants) {
                                     if let Some(info) =
@@ -374,6 +491,10 @@ impl Checker {
                     );
                 }
                 ArenaStmtKind::Let {
+                    target,
+                    ty,
+                    initializer,
+                } | ArenaStmtKind::Const {
                     target,
                     ty,
                     initializer,
@@ -421,6 +542,7 @@ impl Checker {
         self.in_pure = saved_pure;
         self.current_exported = saved_exported;
         self.module_depth = saved_module_depth;
+        self.current_namespace = saved_namespace;
         self.scopes = saved_scopes;
         exports
     }
@@ -432,27 +554,33 @@ impl Checker {
         def_id: FunctionDefId,
     ) -> FunctionSig {
         let def = program.arena.function_def(def_id);
+        let effect_declaration = self.effect_declaration_id(program, def.body);
         FunctionSig {
+            effect_declaration: Some(effect_declaration),
+            inferred_effects: self.effect_graph.is_inferred(effect_declaration),
+            explicit_return: !def.return_ty_defaulted,
+            is_alias: false,
+            definition: Some(program.arena.span(program.arena.block(def.body).span)),
             params: program
                 .arena
                 .params(def.params)
                 .iter()
                 .map(|param| FunctionParamSig {
                     name: param.name,
-                    ty: self.type_from_arena(program, param.ty),
+                    ty: self.checked_parameter_type(program, param).unwrap_or_else(|| if param.ty_defaulted { Type::Unknown } else { self.type_from_arena(program, param.ty) }),
+                    schema_expectation: self.record_constructors.annotation_expectation(&program.arena, param.ty, self.current_namespace).ok(),
                     defaulted: param.default.is_some(),
                     rest: param.rest,
                 })
                 .collect(),
             return_ty: self.type_from_arena(program, def.return_ty),
-            effects: def
-                .effects
-                .map(|effects| program.arena.effects(effects).collect()),
+            return_schema: (!def.return_ty_defaulted).then(|| self.record_constructors.annotation_expectation(&program.arena, def.return_ty, self.current_namespace).ok()).flatten(),
+            effects: self.effective_function_effects(program, def),
         }
     }
 }
 
-fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
+pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
     super::CallableType {
         params: sig
             .params
@@ -519,11 +647,9 @@ impl Checker {
             return;
         };
         self.import_user_module_types(key, Some(namespace), span, false);
-        self.define(
-            namespace,
-            Binding::new(module_type_from_user_signature(&module), false),
-            span,
-        );
+        let mut binding = Binding::new(module_type_from_user_signature(&module), false);
+        binding.static_namespace = true;
+        self.define(namespace, binding, span);
         for (name, sig) in &module.procs {
             self.qualified_procs
                 .insert(QualifiedName::new(namespace, *name), sig.clone());
@@ -606,7 +732,7 @@ impl Checker {
                         self.tag_variants.insert(
                             variant.name,
                             TagVariantInfo {
-                                type_name: name,
+                                type_name: variant.type_name,
                                 field_count: variant.fields.len(),
                                 field_types,
                             },
@@ -626,7 +752,7 @@ impl Checker {
                             self.tag_variants.insert(
                                 variant.name,
                                 TagVariantInfo {
-                                    type_name: name,
+                                    type_name: variant.type_name,
                                     field_count: variant.fields.len(),
                                     field_types,
                                 },
@@ -670,7 +796,7 @@ fn module_top_level_allowed_arena(program: &ArenaProgram, stmt_id: StmtId) -> bo
     matches!(
         &program.arena.stmt(stmt_id).kind,
         ArenaStmtKind::Use(_)
-            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
             | ArenaStmtKind::ProcDef(_)
             | ArenaStmtKind::PureDef(_)
             | ArenaStmtKind::StreamDef(_)
@@ -693,8 +819,11 @@ fn binding_target_simple_name_arena(
 fn type_def_body_arena(
     program: Arc<ArenaProgram>,
     id: crate::syntax::arena::TypeDefId,
+    namespace: Option<Name>,
 ) -> TypeDefBody {
     let def = program.arena.type_def(id);
+    if !def.type_parameters.is_empty() { return TypeDefBody::Parameterized(def.type_parameters.len()); }
+    if matches!(def.body, ArenaTypeDefBody::Alias(_) | ArenaTypeDefBody::RecordSchema(_)) { return TypeDefBody::Declared(program, id); }
     match def.body {
         ArenaTypeDefBody::Alias(ty) => TypeDefBody::Alias(TypeAnnRef::new(program, ty)),
         ArenaTypeDefBody::RecordSchema(fields) => TypeDefBody::RecordSchema(
@@ -746,6 +875,7 @@ fn type_def_body_arena(
                 .tag_variants(variants)
                 .iter()
                 .map(|variant| TagVariant {
+                    type_name: namespace.map_or_else(|| crate::sema::wire_enums::declaring_enum_name(&program, id), |namespace| crate::sema::wire_enums::nominal_enum_name(Some(namespace), program.arena.type_def(id).name)),
                     name: variant.name,
                     fields: program
                         .arena
@@ -767,6 +897,7 @@ fn params_arena(program: Arc<ArenaProgram>, range: ArenaRange) -> Vec<ContractPa
         .params(range)
         .iter()
         .map(|param| ContractParam {
+            source: param.clone(),
             name: param.name,
             ty: TypeAnnRef::new(program.clone(), param.ty),
             defaulted: param.default.is_some() || param.ty_defaulted,
@@ -822,10 +953,43 @@ impl Checker {
     pub(super) fn check_type_def_arena(
         &mut self,
         arena: &ArenaProgram,
-        _source: &str,
+        source: &str,
         def: &ArenaTypeDef,
         span: Span,
     ) {
+        if !def.type_parameters.is_empty() {
+            let mut names = FxHashSet::default();
+            for parameter in arena.arena.names(def.type_parameters) {
+                if !names.insert(parameter) {
+                    self.error(span, "duplicate type parameter", "check.type-parameters");
+                }
+                if Type::builtin_from_name(&parameter.as_str()).is_some() || standard_record_type(&parameter.as_str()).is_some() || matches!(parameter.as_str().as_str(), "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown") {
+                    self.error(span, "type parameter name is reserved", "check.type-parameters");
+                }
+            }
+            let namespace = self.current_namespace;
+            match self.record_constructors.template_field_types(&arena.arena, def, namespace) {
+                Ok(fields) => {
+                    if let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
+                        let mut field_names = FxHashSet::default();
+                        for field in arena.arena.schema_fields(schema_fields) {
+                            if !field_names.insert(field.name) { self.error(arena.arena.span(field.span), "duplicate schema field", "check.duplicate-record-field"); }
+                            if let Some(default) = field.default {
+                                let allowed = self.record_constructors.definition(namespace, def.name).and_then(|id| self.record_constructors.defaults(id)).is_some_and(|defaults| defaults.contains_key(&field.name));
+                                if !allowed { self.error(arena.arena.expr(default).span, "record default must be a literal or a previously declared immutable literal constant", "check.record-default"); }
+                                if let Some(expected) = fields.get(&field.name) {
+                                    let actual = self.check_expr_arena(arena, source, default, Some(expected));
+                                    self.expect_type(expected, &actual, arena.arena.expr(default).span);
+                                }
+                            }
+                        }
+                        if field_names.is_empty() { self.error(span, "record schema needs at least one field", "check.schema"); }
+                    }
+                }
+                Err(error) => self.error(span, &error.message, error.code),
+            }
+            return;
+        }
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
                 self.type_from_arena(arena, *ty);
@@ -842,7 +1006,19 @@ impl Checker {
                             "check.duplicate-record-field",
                         );
                     }
-                    self.type_from_arena(arena, field.ty);
+                    let expected = self.type_from_arena(arena, field.ty);
+                    if let Some(default) = field.default {
+                        let definition = self.record_constructors.definition(self.current_namespace, def.name);
+                        let allowed = definition.and_then(|id| self.record_constructors.defaults(id))
+                            .is_some_and(|defaults| defaults.contains_key(&field.name));
+                        if !allowed {
+                            self.error(arena.arena.expr(default).span,
+                                "record default must be a literal or a previously declared immutable literal constant",
+                                "check.record-default");
+                        }
+                        let actual = self.check_expr_arena(arena, source, default, Some(&expected));
+                        self.expect_type(&expected, &actual, arena.arena.expr(default).span);
+                    }
                 }
                 if field_list.is_empty() {
                     self.error(
@@ -873,7 +1049,7 @@ impl Checker {
                         }
                         | ArenaModuleContractEntryKind::Pure { params, return_ty } => {
                             for param in arena.arena.params(*params) {
-                                self.type_from_arena(arena, param.ty);
+                                self.infer_checked_parameter(arena, source, param);
                             }
                             self.type_from_arena(arena, *return_ty);
                         }
@@ -901,7 +1077,7 @@ impl Checker {
                     self.tag_variants.insert(
                         variant.name,
                         TagVariantInfo {
-                            type_name: def.name,
+                            type_name: crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(arena.root_nominal_namespace), def.name),
                             field_count: field_types.len(),
                             field_types,
                         },

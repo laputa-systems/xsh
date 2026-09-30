@@ -1,4 +1,4 @@
-proc test_split_lines(ctx: TestContext) [fs, process, env, error] {
+test test_split_lines [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "split")?
   let input = fp"${root}/input.txt"
 

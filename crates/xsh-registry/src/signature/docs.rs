@@ -16,6 +16,7 @@ pub fn associated_module_functions(
 ) -> &'static [(&'static str, &'static str)] {
     match receiver {
         MethodReceiver::Map => &[("map", "empty")],
+        MethodReceiver::FsRoot => &[("fs", "open_root"), ("fs", "tempdir"), ("fs", "project_root"), ("fs", "user_root")],
         _ => &[],
     }
 }
@@ -39,6 +40,7 @@ pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::Regex => "Regex",
         MethodReceiver::ProcessHandle => "ProcessHandle",
         MethodReceiver::NetJob => "NetJob",
+        MethodReceiver::FsRoot => "FsRoot",
     }
 }
 
@@ -329,7 +331,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command") => Some((
             "Builds a typed command plan without starting it.",
-            "The plan captures argv, cwd, environment, and redirection before execution or spawn.",
+            "The plan captures argv, cwd, environment, and redirection before execution or spawn. Stdin accepts a file Path or immutable Bytes content; empty Bytes closes input, and text must be explicitly encoded. Optional accept stores the same bounded exit-code policy as a run entry's --accept option; supply one spelling per plan.",
             &["process", "argv", "plan"],
         )),
         ("process", "spawn") => Some((
@@ -344,7 +346,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("cli", "parse") => Some((
             "Parses script arguments into a typed option record.",
-            "The descriptor record is the command-line contract; validate defaults and repeated/positional fields there.",
+            "Inline and prepared const descriptors retain the same checked option shape; dynamic descriptors remain runtime-validated.",
             &["cli", "typed", "argv"],
         )),
         ("cli", "applet") => Some((
@@ -354,7 +356,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("cli", "commands") => Some((
             "Dispatches a typed subcommand schema.",
-            "Command and fallback descriptors own positional conversion and rest-argument behavior.",
+            "Command and fallback descriptors own positional conversion and rest-argument behavior. Literal and prepared const descriptors retain the fields common to every command/fallback shape; command-specific fields and genuinely dynamic descriptors still require explicit validation. The same normalized command plan supplies checking and runtime parsing.",
             &["cli", "subcommands", "typed"],
         )),
         ("module", "load") => Some((
@@ -464,7 +466,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("cli", "parse_full") => Some((
             "Parses the complete script argument schema including help and usage policy.",
-            "The full descriptor remains the source of truth for conversion, defaults, and help behavior.",
+            "Established constant descriptors retain the concrete values shape; source provenance and warnings keep their ordinary contracts.",
             &["cli", "typed", "usage"],
         )),
         ("cli", "tokens") => Some((
@@ -557,7 +559,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Repository discovery is filesystem state; a path outside a Git worktree returns an error.",
             &["filesystem", "git", "root"],
         )),
-        ("fs", "ls" | "children") => Some((
+        ("fs", "children") => Some((
             "Lists immediate filesystem children as structured entries.",
             "The operation is shallow; use walk or files when recursive traversal is intended.",
             &["filesystem", "listing", "streaming"],
@@ -956,7 +958,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["linux", "shutdown", "privileged", "host-global"],
         )),
         ("map", "empty") => Some((
-            "Creates an empty string-keyed Map with `map.empty()`; grow it with Map methods.",
+            "Creates an empty Map with key and value domains determined by the checked context or subsequent Map operations.",
             "The new map owns its entries and has no inherited process or module state. `{}` is an empty Record unless a Map type is expected.",
             &["map", "collection", "constructor"],
         )),
@@ -967,7 +969,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("mime", "lookup_path") => Some((
             "Looks up a MIME type from a path's extension.",
-            "Only the path spelling is inspected; the file need not exist and its bytes are not read.",
+            "A matching extension returns MimeInfo; a missing extension or unknown row returns null. Only the path spelling is inspected; the file need not exist and its bytes are not read.",
             &["mime", "lookup", "path"],
         )),
         ("mime", "parse") => Some((
@@ -1022,12 +1024,12 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command_argv") => Some((
             "Builds a command plan from an executable and argv list.",
-            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs.",
+            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits.",
             &["process", "argv", "plan"],
         )),
         ("process", "run") => Some((
             "Runs a typed command and returns its process status.",
-            "A nonzero child status is status data at this boundary; setup and execution failures remain errors.",
+            "A nonzero child status is status data unless the plan has an explicit accept policy; policy rejection returns ProcessError.UnexpectedExit with the actual status. Setup and execution failures remain errors.",
             &["process", "status-data", "execution"],
         )),
         ("process", "wait_any") => Some((
@@ -1047,7 +1049,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("regex", "compile") => Some((
             "Compiles a regular expression into a reusable Regex value.",
-            "Invalid syntax is reported at compilation and is not deferred to a later match call.",
+            "Dynamic patterns return structured regex-compile errors. Static patterns can use raw rx literals validated once during checked program preparation.",
             &["regex", "parsing", "compiled"],
         )),
         ("set", "empty") => Some((
@@ -1141,8 +1143,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["time", "sleep", "effect"],
         )),
         ("time", "millis" | "seconds") => Some((
-            "Converts a duration to an integer time unit.",
-            "Conversion follows the declared unit and does not query the wall clock.",
+            "Converts an Int count of milliseconds or seconds into Duration.",
+            "Negative counts clamp to zero; seconds saturate at the largest representable Duration. Checked Duration arithmetic instead rejects negative factors and overflow. Conversion does not query the wall clock.",
             &["time", "duration", "conversion"],
         )),
         ("time", "measure") => Some((
@@ -1260,6 +1262,18 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
 }
 
 fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
+    if receiver == "FsRoot" {
+        let legacy = match method {
+            "close" => "close_root", "host_path" => "root_path", "open_root" => "root",
+            "read_bytes" => "root_read", "read_text" => "root_read_text", "read_result" => "root_read_result",
+            "filesystem_stats" => "root_filesystem_stats", "children" => "root_children",
+            "write" => "root_write", "write_atomic" => "root_write_atomic", "metadata" => "root_metadata",
+            "exists" => "root_exists", "mkdir" => "root_mkdir", "remove" => "root_remove",
+            "readlink" => "root_readlink", "readlink_result" => "root_readlink_result",
+            "symlink" => "root_symlink", "chmod" => "root_chmod", _ => return None,
+        };
+        return function_doc("fs", legacy);
+    }
     let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (
         receiver, method,
     ) {
@@ -1479,8 +1493,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["numeric", "math"],
         )),
         ("Record", "get") => Some((
-            "Reads a dynamic record field.",
-            "Missing fields return an error result so callers cannot confuse absence with a null-like value.",
+            "Reads a record field, retaining its checked type for a known constant key.",
+            "Missing fields return an error result distinct from Ok(null). Dynamic keys and fields outside the checked receiver contract keep a dynamic success type.",
             &["record", "lookup", "dynamic"],
         )),
         ("Record", "keys") => Some((
@@ -1494,8 +1508,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["map", "collection"],
         )),
         ("Map", "get") => Some((
-            "Reads a map value with or without a fallback.",
-            "The fallback overload distinguishes missing keys from stored values and never inserts the fallback.",
+            "Reads a map value as Result.",
+            "Missing keys return map-missing; present null values return Ok(null). Use ?? for explicit recovery; the two-argument fallback overload is removed.",
             &["map", "lookup", "fallback"],
         )),
         ("Map", "set") => Some((
@@ -1515,8 +1529,13 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Map", "keys" | "values") => Some((
             "Lists map keys or values.",
-            "The result is a snapshot collection and does not retain a live map handle.",
+            "The result is a snapshot collection in canonical scalar key order. Key types remain the receiver key domain; native Bytes and Path keys preserve byte identity.",
             &["map", "collection"],
+        )),
+        ("List", "collect") => Some((
+            "Returns an already materialized list.",
+            "Elements keep their existing checked domain and order; no live source is pulled.",
+            &["list", "materialization", "ownership"],
         )),
         ("List", "len") => Some((
             "Returns the number of list elements.",
@@ -1524,18 +1543,18 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["list", "collection"],
         )),
         ("List", "get") => Some((
-            "Reads a list element with or without a fallback.",
-            "The fallback overload distinguishes an out-of-range index from a stored value and does not resize the list.",
+            "Reads a list element as Result.",
+            "Out-of-range indices return index-out-of-bounds; present null values return Ok(null). Use ?? for explicit recovery; the two-argument fallback overload is removed.",
             &["list", "lookup", "fallback"],
         )),
         ("List", "push") => Some((
             "Returns a list with one value appended.",
-            "The operation produces an updated list value rather than relying on hidden mutable collection state.",
+            "The operation produces an updated list value rather than relying on hidden mutable collection state. Use `items += [item]` for a local update; `push` remains useful in expression chains.",
             &["list", "mutation"],
         )),
         ("List", "extend") => Some((
             "Returns a list with another list appended.",
-            "Elements are copied in input order and the source list remains independently owned.",
+            "Elements are copied in input order and the source list remains independently owned. Use `items += more` for a local update or `items + more` for concatenation; `extend` remains useful in expression chains.",
             &["list", "mutation", "collection"],
         )),
         ("List", "join") => Some((
@@ -1588,21 +1607,26 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The method returns a new value and applies its character policy without changing byte data in place.",
             &["text", "transform"],
         )),
-        ("Str", "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len") => {
+        ("Str", "count_lines" | "count_words" | "count_chars" | "byte_len") => {
             Some((
                 "Counts a text property.",
                 "Character, byte, and line counts are distinct UTF-8 measurements; select the method that matches the boundary.",
                 &["text", "count", "utf8"],
             ))
         }
-        ("Str", "byte_at" | "byte_slice") => Some((
+        ("Str", "byte_at") => Some((
+            "Reads one byte as Int or null.",
+            "The index is a nonnegative byte offset, independent of UTF-8 scalar boundaries. Negative and out-of-range indices return null; there is no configurable fallback argument.",
+            &["text", "utf8", "absence"],
+        )),
+        ("Str", "byte_slice") => Some((
             "Reads a byte position or range from UTF-8 text.",
             "Indices are byte offsets and must land on valid UTF-8 boundaries where a Str result is required.",
             &["text", "utf8", "bounds"],
         )),
         ("Str", "find") => Some((
             "Finds a text substring position.",
-            "The result uses the documented byte-offset convention and absence remains distinguishable.",
+            "The result is Int? with successful byte offsets, including zero, and null on a miss or invalid start. An empty needle matches at the start, including the end; negative starts do not count from the end.",
             &["text", "lookup", "offset"],
         )),
         ("Str", "parse_int") => Some((
@@ -1642,7 +1666,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Bytes", "slice") => Some((
             "Returns a byte range.",
-            "The range is bounds-checked and the result owns its copied bytes.",
+            "Uses offset/count with nonnegative bounds; an offset past the end is an error and the count clamps to remaining bytes. Bracket slices use half-open, normalized bounds instead.",
             &["bytes", "bounds"],
         )),
         ("Bytes", "dump") => Some((
@@ -1677,7 +1701,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Bytes", "byte_at") => Some((
             "Reads one byte at an explicit offset.",
-            "The offset is bounds-checked and the result is independent of UTF-8 decoding.",
+            "The result is Int?; negative and out-of-range offsets return null. There is no configurable fallback argument and no UTF-8 decoding.",
             &["bytes", "lookup", "bounds"],
         )),
         ("Bytes", "count_lines") => Some((
@@ -1687,7 +1711,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Bytes", "lines") => Some((
             "Splits bytes into line-oriented chunks.",
-            "The operation is byte-oriented and does not require valid UTF-8; each emitted chunk remains Bytes.",
+            "The operation materializes a List[Bytes] from the existing buffer and does not require valid UTF-8.",
             &["bytes", "lines", "streaming"],
         )),
         ("Bytes", "lower") => Some((

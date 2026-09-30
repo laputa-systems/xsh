@@ -9,8 +9,8 @@ print "dependency trim"
 print f"  tokio absent: ${! tokio_probe.status.exited_with(0)}"
 
 let root_handle = fs.tempdir()?
-defer fs.close_root(root_handle)?
-let root = fs.root_path(root_handle)?
+defer root_handle.close()?
+let root = root_handle.host_path()?
 let src = fp"${root}/src"
 let bin = fp"${src}/usr/bin"
 bin.mkdir()

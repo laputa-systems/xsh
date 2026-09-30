@@ -5,6 +5,107 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
 #[test]
+fn callable_alias_signatures_agree_in_full_and_compact_facts() {
+    let source = "pure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\nlet format = render\nlet again = format\nlet result = again(prefix: \"item:\", value: \"one\")\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert_eq!(checked.static_callable_aliases, declarations.static_callable_aliases);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (expression, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(expression).span;
+        if source[span.range()].starts_with("again(") {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+        }
+    }
+    assert!(!checked.annotation_facts.iter().any(|fact| matches!(fact.kind, AnnotationFactKind::Binding { initializer, .. } if source[initializer.range()] == *"render" || source[initializer.range()] == *"format")));
+}
+
+#[test]
+fn removed_record_require_identity_fix_uses_plain_values_and_exact_named_schema() {
+    for source in [
+        "type Name = {name: Str}\nlet value = record.require({name: \"café\", extra: 7}, {name: \"Str\"})?\n",
+        "type Name = {name: Str}\nconst required = {name: \"Str\"}\nconst raw = {name: \"demo\"}\nlet value = record.require(raw, required)?\n",
+        "type Name = {name: Str}\nlet value = record.require(Name(name: \"demo\"), {name: \"Str\"})?\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
+        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
+        let [hint] = diagnostic.fix_hints.as_slice() else { panic!("expected identity migration: {diagnostics:?}"); };
+        let mut fixed = source.to_string();
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+        assert!(fixed.contains(".require(Name)"), "{fixed}");
+        assert!(check(&fixed).is_empty(), "{fixed}: {:?}", check(&fixed));
+    }
+}
+
+#[test]
+fn removed_record_require_refuses_unproved_or_different_contracts() {
+    for source in [
+        "type Name = {name: Str}\nlet value = record.require(json.decode(\"{}\")?, {name: \"Str\"})?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, {name: \"Str\"}, optional: {version: \"Str\"})?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, {name: \"Str\"}, source: p\"manifest\")?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: 1}, {name: \"Str\"})?\n",
+        "type Root = {root: Path}\nlet value = record.require({root: p\".\"}, {root: \"Path\"})?\n",
+        "type Name = {name: UInt}\nlet value = record.require({name: 1}, {name: \"Int\"})?\n",
+        "type Count = Int\ntype Name = {name: Count}\nlet value = record.require({name: 1}, {name: \"Int\"})?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, # retained comment\n {name: \"Str\"})?\n",
+        "let value = record.require({}, {action: \"Proc(Path) -> Result[Unit]\"})?\n",
+        "proc validate(raw: FsEntry) -> Result[Record] { record.require(raw, {name: \"Str\"}) }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
+        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
+        assert!(diagnostic.fix_hints.is_empty(), "{source}: {diagnostic:?}");
+    }
+}
+
+#[test]
+fn callable_alias_module_projection_contracts_preserve_full_compact_facts() {
+    let source = "type Plugin = module { export pure render(value: Str, suffix: Str = \"!\") -> Str; export proc clock() [time] -> Int }\nproc invoke(plugin: Plugin) [time, error] -> Str { let format = plugin.get(\"render\")?; let clock = plugin[\"clock\"]; let _ = clock(); format(value: \"one\") }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert_eq!(checked.static_callable_aliases, declarations.static_callable_aliases);
+    assert!(!checked.static_callable_aliases.is_empty());
+    assert!(checked.static_callable_aliases.values().all(|alias| alias.definition.is_none()));
+    for invalid in [source.replace("value: \"one\"", "value: 1"), source.replace("[time, error]", "[error]")] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &invalid);
+        let checked = Checker::check_arena(&parsed.arena, &invalid);
+        assert!(!checked.diagnostics.is_empty(), "{invalid}");
+    }
+}
+
+#[test]
+fn boolean_guard_checked_facts_preserve_refinement_and_statement_position() {
+    let source = "pure choose(name: Str?) -> Str {\n  guard name != null else { return \"missing\" }\n  name.trim()\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.definitely_exiting_block_spans.len(), 1);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, position) in compact.statement_positions {
+        assert_eq!(checked.statement_positions.get(&parsed.arena.arena.stmt(id).span), Some(&position));
+    }
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "name" && span.start() > source.find("return").unwrap() {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+        }
+    }
+}
+
+#[test]
 fn checker_accepts_error_propagation_in_value_returning_proc() {
     let output = check(
         r#"
@@ -112,7 +213,7 @@ let also_bad = 1.0 < 2
 }
 
 #[test]
-fn checker_explains_unknown_methods_and_list_concatenation() {
+fn checker_explains_unknown_methods_and_accepts_list_concatenation() {
     let source = r#"
 let text = "abc"
 let bad_length = text.length()
@@ -136,15 +237,9 @@ let joined = left + right
             .any(|note| note.contains("count_chars") && note.contains("byte_len"))
     );
 
-    let list = diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.operator-type"))
-        .expect("expected list operator diagnostic");
-    assert!(
-        list.notes
-            .iter()
-            .any(|note| note.contains(".extend(other)"))
-    );
+    assert!(!diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_deref() == Some("check.operator-type")
+    }));
 }
 
 #[test]
@@ -206,7 +301,7 @@ fn checker_rejects_stage_5_acceptance_cases() {
         ),
         ("run.text echo hi\n", "check.ignored-result"),
         (
-            "proc bad() -> Unit { run.status false ? }\n",
+            "proc bad() [process] -> Unit { run.status false ? }\n",
             "check.try-context",
         ),
         ("let b = b\"x\"\nrun echo (b) ?\n", "check.argv-conversion"),
@@ -296,7 +391,6 @@ fn checker_rejects_standard_module_shadowing() {
         "let linux = 1\n",
         "let map = 1\n",
         "let module = 1\n",
-        "let record = 1\n",
         "type fs = Str\n",
         "proc bytes() -> Result[Unit] { return Ok() }\n",
         "pure hash() -> Int { return 1 }\n",
@@ -440,17 +534,17 @@ let numbers = [1].push(2)
 let more = numbers.extend([3])
 let flat = numbers.extend(more)
 let contains = 3 in flat
-let fallback: Int = flat.get(9, 4)
-let get_or_fallback: Int = flat.get(10, 5)
-let first: Int = flat.get(0, 0)
-var argv = ["cc"]
+let fallback: Int = (flat.get(9) ?? 4)
+let get_or_fallback: Int = (flat.get(10) ?? 5)
+let first: Int = (flat.get(0) ?? 0)
+var argv: List[Any] = ["cc"]
 argv = argv.extend([p"main.c", "-o", p"main.o"])
 let argv_command = process.command_argv(p"cc", argv)
 let m0: Map[Int] = {}
 let m1 = m0.set("one", 1)
 let value = m1.get("one")?
-let fallback = m1.get("missing", 2)
-let get_or_fallback = m1.get("missing", 3)
+let map_fallback = (m1.get("missing") ?? 2)
+let map_get_or_fallback = (m1.get("missing") ?? 3)
 let keys = m1.keys()
 let values = m1.values()
 let by_name = {row.name: row.version for row in [{name: "pkg", version: "1"}]}
@@ -463,7 +557,9 @@ let row = {name: "pkg", version: "1"}
 let has_name = "name" in row
 let field: Str = row.get("name")?
 let fields = row.keys()
-let checked = record.require(row, {name: "Str"}, optional: {version: "Str"})?
+type RecordName = {name: Str}
+let checked = row.require(RecordName)?
+if "version" in checked { let _ = checked.get("version")?.require(Str)? }
 "#,
     );
     assert_no_codes(&ok, &["check.type-mismatch", "check.unknown-module-api"]);
@@ -474,7 +570,7 @@ let checked = record.require(row, {name: "Str"}, optional: {version: "Str"})?
         "let row = {name: \"pkg\"}\nlet _ = record.keys(row)\n",
     ] {
         let output = check(source);
-        assert!(has_code(&output, "check.unknown-module-api"));
+        assert!(has_code(&output, "check.unresolved-name"));
     }
 
     let bad_list = check("let xs = [1].push(\"two\")\n");
@@ -635,15 +731,15 @@ let path = path_value()?
 fn checker_handles_batch_stream_stage() {
     let ok = check(
         r#"
-let chunks = [Path("a"), Path("b")] |> batch --count=1 --max-argv
+let chunks = [Path("a"), Path("b")] |> batch(count: 1, max_argv: true)
 "#,
     );
-    assert_no_codes(&ok, &["check.stream-batch", "check.stream-stage-option"]);
+    assert_no_codes(&ok, &["check.stream-batch", "check.arity"]);
 
     let missing_limit = check("[1, 2] |> batch\n");
     assert!(has_code(&missing_limit, "check.stream-batch"));
 
-    let bad_argv = check("[{ name: \"a\" }] |> batch --max-argv\n");
+    let bad_argv = check("[{ name: \"a\" }] |> batch(max_argv: true)\n");
     assert!(has_code(&bad_argv, "check.stream-batch"));
 }
 
@@ -668,7 +764,7 @@ let squeezed = "nooo".squeeze(chars: "o")
 let line_count = "a\nb\n".count_lines()
 let word_count = "a b".count_words()
 let char_count = "hé".count_chars()
-let byte_count = "hé".count_bytes()
+let byte_count = "hé".byte_len()
 "#,
     );
     assert_no_codes(&ok, &["check.stream-input", "check.type-mismatch"]);
@@ -680,7 +776,7 @@ let byte_count = "hé".count_bytes()
     assert!(has_code(&bad_stream, "check.stream-adapter"));
 
     let missing_chunk_size = check("b\"abc\" |> bytes.chunks()\n");
-    assert!(has_code(&missing_chunk_size, "check.arity"));
+    assert!(has_code(&missing_chunk_size, "check.named-arg"));
 
     let bad_json = check("1 |> json.stream()\n");
     assert!(has_code(&bad_json, "check.type-mismatch"));
@@ -694,7 +790,7 @@ fn checker_handles_fold_accumulator_plus_item_blocks() {
     let sum = check(
         r#"
 let total = [1, 2, 3] |> fold(0) { |acc, it| acc + it }
-let counted = ["a", "b", "a"] |> fold(map.empty()) { |acc, it| acc.set(it, acc.get(it, 0) + 1) }
+let counted = ["a", "b", "a"] |> fold(map.empty()) { |acc, it| acc.set(it, (acc.get(it) ?? 0) + 1) }
 "#,
     );
     assert_no_codes(
@@ -778,8 +874,8 @@ fn checker_handles_standard_module_signatures_and_status_methods() {
         r#"
 let p = Path("tmp")
 let exists = fs.exists(p) ?
-let listing = fs.ls(p)
-fs.ls(p) |> sort-by { .size } |> table.print(columns: ["name", "size"])
+let listing = fs.children(p)
+fs.children(p) |> sort-by { .size } |> table.print(columns: ["name", "size"])
 let processes = process.list() |> where { "xsh" in .command } |> count()
 let port_rows = process.port(1)
 let pid_port_rows = process.ports(1)
@@ -1060,8 +1156,8 @@ fn checker_rejects_removed_verbose_apis() {
         ),
         ("let _ = [1] |> collect(1)\n", "check.arity"),
         (
-            "let _ = [1] |> collect --jobs=1\n",
-            "check.stream-stage-option",
+            "let _ = [1] |> collect(jobs: 1)\n",
+            "check.arity",
         ),
         ("let _ = [1] |> collect { . }\n", "check.arity"),
     ];
@@ -1135,10 +1231,12 @@ fn checker_rejects_process_time_system_identity_calls_in_pure_functions() {
 }
 
 #[test]
-fn checker_suggests_empty_effect_list_for_unrestricted_callee() {
+fn checker_requires_explicit_contract_for_unrestricted_public_callee() {
     let messages = check_messages(
         r#"
-proc trim_line(value: Str) -> Str {
+##! Public effect boundary.
+## Trims a line.
+export proc trim_line(value: Str) -> Str {
   return value
 }
 
@@ -1149,13 +1247,15 @@ proc main() [fs, error] -> Result[Str] {
     );
     assert!(
         messages.iter().any(|message| message
-            .contains("if it is side-effect-free, declare it with an empty effect list `[]`")),
+            .contains("establish an explicit checked contract at its declaration")),
         "expected actionable unrestricted-proc diagnostic, got {messages:?}"
     );
 
     let accepted = check(
         r#"
-proc trim_line(value: Str) [] -> Str {
+##! Public effect boundary.
+## Trims a line.
+export proc trim_line(value: Str) [] -> Str {
   return value
 }
 
@@ -1431,11 +1531,11 @@ let part = b"abcd".slice(1, 2)
 let dump = b"abcd".dump("hex-u8")
 let markers = b"\0abcd\0".strings(3)
 let comparison = b"abc".compare(b"abd")
-env {
-  HOME = root
-  CC = formatted_child.display()
-  JOBS = 4
-} {
+env ({
+  HOME: root,
+  CC: formatted_child.display(),
+  JOBS: 4,
+}) {
   print ${trimmed} ${lines[0]} ${digest}
 } ?
 "#,
@@ -1582,7 +1682,7 @@ pure bad(flag: Bool) -> Int {
 }
 "#,
     );
-    assert!(has_code(&ambiguous, "check.missing-return"));
+    assert!(has_code(&ambiguous, "check.if-value-else"));
 }
 
 #[test]
@@ -1786,7 +1886,7 @@ fn checker_rejects_foundation_contract_errors() {
 #[test]
 fn checker_rejects_stage_7_fs_path_contract_errors() {
     let cases = [
-        ("use fs\nlet listing = fs.ls(1) ?\n", "check.type-mismatch"),
+        ("use fs\nlet listing = fs.children(1) ?\n", "check.type-mismatch"),
         (
             "use fs\nlet _written = fs.write(Path(\"out\"), 1) ?\n",
             "check.type-mismatch",
@@ -1874,20 +1974,20 @@ fn checker_accepts_group_by_key_sort_by_for_scalar_keys() {
 }
 
 #[test]
-fn checker_accepts_sort_by_desc_flag() {
-    let output = check("[1, 2, 3] |> sort-by --desc .\n");
+fn checker_accepts_sort_by_desc_named_argument() {
+    let output = check("[1, 2, 3] |> sort-by(desc: true) .\n");
     assert!(output.is_empty(), "{:?}", output);
-    let output_bad = check("[1, 2, 3] |> sort-by --unknown .\n");
+    let output_bad = check("[1, 2, 3] |> sort-by(unknown: true) .\n");
     assert!(
-        has_code(&output_bad, "check.stream-stage-option"),
-        "expected check.stream-stage-option in: {:?}",
+        has_code(&output_bad, "check.named-arg"),
+        "expected check.named-arg in: {:?}",
         output_bad
     );
 }
 
 #[test]
 fn checker_accepts_sort_by_any_typed_record_fields_from_map_get() {
-    // Map.empty() is Map[Any]; Map.get(k, 0) therefore yields an Any-typed
+    // Map.empty() is Map[Any]; Map.get(k) ?? 0 therefore yields an Any-typed
     // field. The map-accumulator pattern (and its list-comprehension
     // equivalent) sorts by that field at runtime with a supported scalar, so
     // the checker must accept it the same way the runtime does.
@@ -1896,11 +1996,11 @@ let counts = map.empty()
 let keys = ["b", "a"]
 let acc = counts.set("a", 2).set("b", 1)
 let by_count = keys
-  |> map { |k| {count: acc.get(k, 0), ext: k} }
+  |> map { |k| {count: (acc.get(k) ?? 0), ext: k} }
   |> sort-by .count
   |> collect()
 let by_count_comp = [
-  {count: acc.get(k, 0), ext: k}
+  {count: (acc.get(k) ?? 0), ext: k}
   for k in keys
 ] |> sort-by .count |> collect()
 "#;
@@ -2277,8 +2377,8 @@ fn checker_handles_ergonomic_sugar_pass_forms() {
         r#"
 let pkg = {name: "demo", version: "1.0", path: Path("src")}
 let {name, version, ..} = pkg
-var {path, ..} = pkg
-path = Path("dist")
+var {path: package_path, ..} = pkg
+package_path = Path("dist")
 for {name, ..} in [pkg] {
   print $name
 }
@@ -2408,8 +2508,8 @@ match value {
 }
 
 #[test]
-fn strict_checker_reports_unvalidated_any_flows() {
-    let output = check_strict(
+fn checker_reports_unvalidated_dynamic_flows() {
+    let output = check(
         r#"
 type Row = {name: Str}
 
@@ -2432,14 +2532,14 @@ let mixed = [1, json.decode("1")?]
 
     let count = output
         .iter()
-        .filter(|code| code.as_deref() == Some("check.strict-any"))
+        .filter(|code| code.as_deref() == Some("check.dynamic-boundary"))
         .count();
-    assert!(count >= 3, "expected strict Any diagnostics: {output:?}");
+    assert!(count >= 2, "expected dynamic boundary diagnostics: {output:?}");
 }
 
 #[test]
-fn strict_checker_accepts_validated_dynamic_data_and_dynamic_storage() {
-    let output = check_strict(
+fn checker_accepts_validated_dynamic_data_and_dynamic_storage() {
+    let output = check(
         r#"
 type Row = {name: Str}
 
@@ -2447,14 +2547,14 @@ let raw: Any = json.decode("{\"name\":\"demo\"}")?
 let row = raw.require(Row)?
 let name: Str = row.name
 let still_dynamic: Any = json.read(Path("row.json"))?
-let checked = record.require({name: "demo"}, {name: "Str"}, optional: {version: "Any"})?
+let checked = ({name: "demo"}).require(Row)?
 var seen: Map[Bool] = map.empty()
 "#,
     );
     assert_no_codes(
         &output,
         &[
-            "check.strict-any",
+            "check.dynamic-boundary",
             "check.unknown-field",
             "check.contract-type",
             "check.type-mismatch",
@@ -2464,7 +2564,7 @@ var seen: Map[Bool] = map.empty()
 
 #[test]
 fn checker_types_require_schema_checks() {
-    let output = check_strict(
+    let output = check(
         r#"
 type Config = {name: Str, ports: List[Int], note: Str?}
 
@@ -2478,11 +2578,154 @@ let note: Str? = cfg.note
     assert_no_codes(
         &output,
         &[
-            "check.strict-any",
+            "check.dynamic-boundary",
             "check.unknown-field",
             "check.type-mismatch",
         ],
     );
+}
+
+#[test]
+fn checker_cli_command_descriptors_match_inline_const_and_spread_shapes() {
+    let source = r#"
+const commands = {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
+const invocation = {argv: ["build", "workspace"], commands: commands}
+let prepared = cli.commands(["build", "workspace"], commands)?
+let inline = cli.commands(["build", "workspace"], {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}})?
+let spread = cli.commands(...invocation)?
+let root: Path = prepared.root
+proc dynamic(commands: Record) [error] -> Result[Record] { cli.commands([], commands) }
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut shapes = Vec::new();
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if source[span.range()].starts_with("cli.commands(") && !source[span.range()].ends_with('?') {
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            if source[span.range()].contains("cli.commands([],") { assert!(!shapes.contains(&ty)); }
+            else { shapes.push(ty); }
+        }
+    }
+    assert_eq!(shapes.len(), 3);
+    assert!(shapes.windows(2).all(|pair| pair[0] == pair[1]));
+    parsed.arena.symbol_owner().with_current(|| {
+        let xsh::frontend::check::Type::Result(value, _) = &shapes[0] else { panic!("command result") };
+        let xsh::frontend::check::Type::Record(fields) = value.as_ref() else { panic!("command fields") };
+        assert_eq!(fields.get(&xsh::frontend::symbols::Name::intern("root")), Some(&xsh::frontend::check::Type::Path));
+        assert_eq!(fields.len(), 4);
+    });
+}
+
+#[test]
+fn checker_cli_command_descriptors_keep_conditional_fields_and_dynamic_fallback_erased() {
+    let source = r#"
+const commands = {build: {positionals: ["root"], types: {root: "Path"}}, clean: {positionals: ["count"], types: {count: "Int"}}}
+let common = cli.commands(["build", "workspace"], commands)?
+proc fallback() [] -> Record { {rest: "raw"} }
+let dynamic = cli.commands([], "build", commands, fallback())?
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let mut common = None;
+    let mut dynamic = None;
+    for (span, ty) in &checked.expr_types {
+        let spelling = &source[span.range()];
+        if spelling == "cli.commands([\"build\", \"workspace\"], commands)" { common = Some(ty.clone()); }
+        if spelling == "cli.commands([], \"build\", commands, fallback())" { dynamic = Some(ty.clone()); }
+    }
+    parsed.arena.symbol_owner().with_current(|| {
+        let Some(xsh::frontend::check::Type::Result(value, _)) = &common else { panic!("known common result") };
+        let xsh::frontend::check::Type::Record(fields) = value.as_ref() else { panic!("common fields") };
+        assert_eq!(fields.len(), 2);
+        assert!(!fields.contains_key(&xsh::frontend::symbols::Name::intern("root")));
+        assert!(!fields.contains_key(&xsh::frontend::symbols::Name::intern("count")));
+    });
+    assert!(dynamic.is_some());
+    assert_ne!(common, dynamic);
+}
+
+#[test]
+fn checker_cli_constant_descriptors_match_inline_and_compact_facts() {
+    let source = r#"
+const schema = {
+  item: {kind: "Int", form: "ITEM", required: false},
+  defaulted: {kind: "Int", form: "DEFAULT", default: 5},
+  repeated: "List[UInt]",
+  flag: {kind: "Bool", flag: false},
+}
+
+let constant = cli.parse([], schema)?
+let inline = cli.parse([], {
+  item: {kind: "Int", form: "ITEM", required: false},
+  defaulted: {kind: "Int", form: "DEFAULT", default: 5},
+  repeated: "List[UInt]",
+  flag: {kind: "Bool", flag: false},
+})?
+let full = cli.parse_full([], schema)?
+let item: Int? = constant.item
+let defaulted: Int = constant.defaulted
+let repeated: List[Int] = constant.repeated
+let flag: Bool? = constant.flag
+let full_item: Int? = full.values.item
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut shapes = Vec::new();
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if source[span.range()].starts_with("cli.parse(") && !source[span.range()].ends_with('?') {
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            shapes.push(ty);
+        }
+    }
+    assert_eq!(shapes.len(), 2);
+    assert_eq!(shapes[0], shapes[1]);
+}
+
+#[test]
+fn checker_cli_dynamic_full_descriptors_keep_the_outcome_envelope() {
+    let source = r#"
+proc descriptor() [] -> Record { {count: {kind: "Int", default: 2}} }
+let full = cli.parse_full([], descriptor())?
+let warnings: List[Str] = full.warnings
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let (span, ty) = checked.expr_types.iter().find(|(span, _)| &source[span.range()] == "cli.parse_full([], descriptor())").unwrap();
+    let compact_ty = compact.expr_types.iter().find(|(id, _)| parsed.arena.arena.expr(**id).span == *span).unwrap().1;
+    assert_eq!(ty, compact_ty);
+    parsed.arena.symbol_owner().with_current(|| {
+        let xsh::frontend::check::Type::Result(value, _) = ty else { panic!("full result") };
+        let xsh::frontend::check::Type::Record(fields) = value.as_ref() else { panic!("full envelope") };
+        assert_eq!(fields.len(), 3);
+        assert_eq!(fields.get(&xsh::frontend::symbols::Name::intern("warnings")), Some(&xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::Str))));
+    });
+}
+
+#[test]
+fn checker_cli_constant_descriptor_errors_keep_the_declaration_origin() {
+    let source = "const schema = {count: {kind: \"Nope\"}}\nlet _ = cli.parse([], schema)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let error = checked.diagnostics.iter().find(|error| error.code.as_deref() == Some("check.cli-descriptor")).unwrap();
+    assert!(error.message.contains("unsupported option type `Nope`"));
+    assert!(error.labels.iter().any(|label| &source[label.span.range()] == "{kind: \"Nope\"}"));
 }
 
 #[test]
@@ -2524,8 +2767,8 @@ fn checker_treats_old_schema_helper_name_as_unresolved_call() {
 }
 
 #[test]
-fn strict_checker_reports_missing_known_record_fields_and_bad_contracts() {
-    let output = check_strict(
+fn checker_reports_missing_known_record_fields_and_removed_record_contracts() {
+    let output = check(
         r#"
 type Row = {name: Str}
 let row: Row = {name: "demo"}
@@ -2535,15 +2778,15 @@ let loaded = record.require({}, {build: "Proc(Path -> Result[Unit]"})
 "#,
     );
     assert!(has_code(&output, "check.unknown-field"));
-    assert!(has_code(&output, "check.contract-type"));
+    assert!(has_code(&output, "check.removed-record-require"));
 }
 
 #[test]
 fn checker_narrows_optional_record_membership_result_and_tag_flows() {
-    let output = check_strict(
+    let output = check(
         r#"
 type Row = {name: Str}
-type State = Ready(Str) | Stopped
+enum State { Ready(Str), Stopped }
 
 let maybe: Str? = "demo"
 if maybe != null {
@@ -2582,7 +2825,7 @@ match state {
     assert_no_codes(
         &output,
         &[
-            "check.strict-any",
+            "check.dynamic-boundary",
             "check.type-mismatch",
             "check.unknown-field",
             "check.pattern-type",
@@ -2593,7 +2836,7 @@ match state {
 #[test]
 fn checker_retains_annotation_facts_and_reveal_notes() {
     let source = r#"
-type State = Ready | Stopped
+enum State { Ready, Stopped }
 let count = 1
 var names = ["a", "b"]
 let state = Ready
@@ -2614,7 +2857,6 @@ reveal_type(names)
         source,
         CheckOptions {
             interactive_commands: None,
-            strict_dynamic: false,
             reveal_types: true,
             migration_diagnostics: false,
         },
@@ -2709,7 +2951,6 @@ fn check_with_migration(source: &str) -> Vec<Option<String>> {
         source,
         CheckOptions {
             interactive_commands: None,
-            strict_dynamic: false,
             reveal_types: false,
             migration_diagnostics: true,
         },
@@ -2728,7 +2969,6 @@ fn check_reveal(source: &str) -> RevealCheckOutput {
         source,
         CheckOptions {
             interactive_commands: None,
-            strict_dynamic: false,
             reveal_types: true,
             migration_diagnostics: false,
         },
@@ -2747,24 +2987,6 @@ fn check_reveal(source: &str) -> RevealCheckOutput {
     }
 }
 
-fn check_strict(source: &str) -> Vec<Option<String>> {
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    Checker::check_arena_with_options(
-        &parsed.arena,
-        source,
-        CheckOptions {
-            interactive_commands: None,
-            strict_dynamic: true,
-            reveal_types: false,
-            migration_diagnostics: false,
-        },
-    )
-    .diagnostics
-    .into_iter()
-    .map(|diagnostic| diagnostic.code)
-    .collect()
-}
 
 fn check_interactive(source: &str) -> Vec<Option<String>> {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -3024,7 +3246,7 @@ let value = retry ["soon"] {
 fn checker_accepts_match_with_all_returning_arms_as_function_body() {
     let output = check(
         r#"
-type Tok = TOp(Str) | TEOF
+enum Tok { TOp(Str), TEOF }
 
 pure is_op(t: Tok, name: Str) -> Bool {
   match t {
@@ -3041,7 +3263,7 @@ pure is_op(t: Tok, name: Str) -> Bool {
 fn checker_accepts_match_with_all_returning_arms_and_no_trailing_return() {
     let output = check(
         r#"
-type Kind = A | B | C
+enum Kind { A, B, C }
 
 pure kind_name(k: Kind) -> Str {
   match k {
@@ -3059,7 +3281,7 @@ pure kind_name(k: Kind) -> Str {
 fn checker_still_rejects_non_exhaustive_returning_match_without_catchall() {
     let output = check_with_migration(
         r#"
-type Kind = A | B | C
+enum Kind { A, B, C }
 
 pure kind_name(k: Kind) -> Str {
   match k {
@@ -3082,7 +3304,7 @@ pure kind_name(k: Kind) -> Str {
 fn checker_accepts_match_with_all_arms_returning_in_nested_function() {
     let output = check(
         r#"
-type Opt = Some(Int) | None
+enum Opt { Some(Int), None }
 
 pure unwrap(o: Opt) -> Int {
   match o {
@@ -3221,4 +3443,1052 @@ export let exported: Int = value
         "{output:?}"
     );
     assert!(has_code(&output, "check.orphan-doc-comment"), "{output:?}");
+}
+
+#[test]
+fn checker_records_value_and_statement_bool_positions() {
+    let source = "pure choose(flag: Bool) -> Bool {\n  let asserted: Result[Unit] = try { true }\n  let _ = asserted\n  if flag { false } else { true }\n}\nproc assertions() {\n  if true { false }\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let true_positions = checked.statement_positions.iter().filter(|(span, _)| source[span.range()].trim() == "true").map(|(_, position)| *position).collect::<Vec<_>>();
+    assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Value));
+    assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Statement));
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, position) in compact.statement_positions {
+        let span = parsed.arena.arena.stmt(id).span;
+        assert_eq!(checked.statement_positions.get(&span), Some(&position));
+    }
+}
+
+#[test]
+fn checker_list_compound_assignment_points_at_scalar_rhs() {
+    let source = "var items = [1]\nitems += 2\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
+    let mismatch = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("scalar append rejection");
+    assert!(mismatch.labels.iter().any(|label| &source[label.span.range()] == "2"));
+}
+
+#[test]
+fn checker_accepts_half_open_slicing_types_and_rejects_bad_bounds() {
+    let source = "let values: List[Int] = [1, 2][..]\nlet text: Str = \"é🦀\"[1..]\nlet data: Bytes = b\"abc\"[-2..99]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let output = Checker::check_arena(&parsed.arena, source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let source = "let wrong = b\"abc\"[true..]\nlet unsupported = 42[..]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty());
+    let output = Checker::check_arena(&parsed.arena, source);
+    let bounds = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("bound must be Int");
+    assert!(bounds.labels.iter().any(|label| &source[label.span.range()] == "true"));
+    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.slice-type")));
+}
+
+#[test]
+fn checker_rejects_nested_record_binding_contract_violations() {
+    let cases = [
+        ("let {outer: {missing}} = {outer: {known: 1}}\n", "check.destructure-field"),
+        ("let {outer: {value}} = {outer: 1}\n", "check.destructure-type"),
+        ("let {a: same, b: {c: same}} = {a: 1, b: {c: 2}}\n", "check.duplicate-name"),
+        ("let {a: one, a: two} = {a: 1}\n", "check.destructure-field"),
+        ("type Fields = {a: Int}\npure take(value: Any) -> Unit { let {a}: Fields = value }\n", "check.destructure-type"),
+        ("let {a: fs} = {a: 1}\n", "check.standard-module-shadow"),
+        ("type Inner = {a: Int}\ntype Outer = {inner: Inner}\npure take(value: Any) -> Unit { let {inner: {a}}: Outer = {inner: value} }\n", "check.destructure-type"),
+    ];
+    for (source, code) in cases {
+        let output = check(source);
+        assert!(has_code(&output, code), "expected {code} for {source}: {:?}", output);
+    }
+}
+
+#[test]
+fn checker_keeps_selected_nested_record_field_types() {
+    let output = check("let {outer: {value: selected}} = {outer: {value: 1}}\nlet wrong: Str = selected\n");
+    assert!(has_code(&output, "check.type-mismatch"));
+    let discards = check("let {a: _, b: {c: _, ..}, ..} = {a: 1, b: {c: 2}}\n");
+    assert!(discards.is_empty(), "{:?}", discards);
+}
+
+#[test]
+fn checker_guarded_value_control_narrows_only_the_selected_payload() {
+    let output = check(r#"
+pure cached(value: Str?) -> Str {
+  return value when value != null
+  return value unless value == null
+  return "missing"
+}
+"#);
+    assert!(output.is_empty(), "{output:?}");
+    let invalid = check(r#"
+pure cached(value: Str?) -> Str {
+  return value when value == null
+  return value
+}
+"#);
+    assert!(invalid.iter().any(|code| code.as_deref() == Some("check.type-mismatch")), "{invalid:?}");
+    let invalid_condition = check("pure value() -> Int { return 1 when 2; return 3 }\n");
+    assert!(invalid_condition.iter().any(|code| code.as_deref() == Some("check.guarded-stmt-condition")), "{invalid_condition:?}");
+}
+
+#[test]
+fn checker_guarded_value_control_retains_lexical_targets_and_effects() {
+    for source in [
+        "break 1 when false\n",
+        "yield 1 when false\n",
+        "pure value(selected: Bool) -> Int { return 1 when selected }\n",
+        "pure value() -> Int { return \"bad\" when false; return 1 }\n",
+        "proc value() [] -> Status { return (run.status /usr/bin/true) when false; return (run.status /usr/bin/true) }\n",
+    ] {
+        assert!(!check(source).is_empty(), "unexpected acceptance: {source}");
+    }
+}
+
+#[test]
+fn checker_multi_clause_comprehensions_retain_nested_item_types() {
+    let output = check("type Entry = {key: Str, values: List[Int]}\nlet entries: List[Entry] = []\nlet values: List[Int] = [number for entry in entries if entry.key != \"\" for number in entry.values if number > 0]\nlet by_key: Map[Int] = {entry.key: number for entry in entries for number in entry.values if number > 0}\n");
+    assert!(output.is_empty(), "{output:?}");
+}
+
+#[test]
+fn checker_multi_clause_comprehensions_reject_invalid_inner_domains_and_filters() {
+    let output = check("let values = [inner for outer in [1] for inner in outer]\n");
+    assert!(has_code(&output, "check.listcomp-iterator"), "{output:?}");
+    let output = check("let values = [inner for outer in [1] for inner in [outer] if inner]\n");
+    assert!(has_code(&output, "check.listcomp-condition"), "{output:?}");
+    let output = check("let by_key = {entry.key: inner for entry in [{key: \"a\"}] for inner in 1}\n");
+    assert!(has_code(&output, "check.mapcomp-iterator"), "{output:?}");
+}
+
+#[test]
+fn guarded_postfix_preserves_outer_result_effect_checks() {
+    let output = check("proc value(input: Result[List[Int]]) [io] -> Int {\n  return input?[0]\n}\n");
+    assert!(output.iter().any(|code| code.as_deref() == Some("check.effect-violation")), "{:?}", output);
+    let output = check("proc value(input: Result[Str]) [io] -> Str {\n  return input?.trim()\n}\n");
+    assert!(output.iter().any(|code| code.as_deref() == Some("check.effect-violation")), "{:?}", output);
+}
+
+#[test]
+fn guarded_postfix_rejects_guessed_wrappers_and_unguarded_nullable_hops() {
+    for source in [
+        "let value: Any = null\nlet item = value?[0]\n",
+        "let value: Any? = null\nlet item = value?.trim()\n",
+        "let value: Str? = null\nlet item = value?.trim().trim()\n",
+        "let value: Result[Str?] = Ok(null)\nlet item = value?.trim()\n",
+    ] {
+        let output = check(source);
+        assert!(!output.is_empty(), "accepted {source}: {:?}", output);
+    }
+}
+
+#[test]
+fn checker_map_iteration_preserves_entry_types_and_error_boundaries() {
+    let cases = [
+        ("pure wrong(values: Map[Int]) -> Unit { for entry in values { let bad: Int = entry.key } }\n", "check.type-mismatch"),
+        ("pure wrong(values: Map[Int]) -> Unit { for entry in values { let bad: Str = entry.value } }\n", "check.type-mismatch"),
+        ("pure wrong(values: Map[Int]) -> Unit { for {missing} in values {} }\n", "check.destructure-field"),
+        ("proc wrong(values: Result[Map[Int]]) [] { for entry in values {} }\n", "check.effect-violation"),
+        ("error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Map[Int], MapError]) -> Result[List[Str], OtherError] { [entry.key for entry in values] }\n", "check.try-error"),
+    ];
+    for (source, code) in cases {
+        let diagnostics = check(source);
+        assert!(has_code(&diagnostics, code), "{source}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn checker_list_splice_errors_cover_the_original_splice_span() {
+    let source = "let values = [@\"wrong\"]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let diagnostic = checked.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.list-splice-type")).expect("splice domain diagnostic");
+    assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "@\"wrong\""));
+}
+
+#[test]
+fn checker_deferred_block_restores_mutable_capture_types() {
+    let mutable = check("proc work(input: Str?) [] { var value: Str? = input; if value != null { defer { let text: Str = value; print $text } } }\n");
+    assert!(!mutable.is_empty(), "mutable refinement cannot survive registration");
+    let immutable = check("proc work(input: Str?) [] { let value: Str? = input; if value != null { defer { let text: Str = value; print $text } } }\n");
+    assert!(immutable.is_empty(), "{:?}", immutable);
+}
+
+#[test]
+fn checker_deferred_block_rejects_yield_delegation() {
+    let diagnostics = check("stream values() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\n");
+    assert!(has_code(&diagnostics, "check.defer-control-flow"), "{:?}", diagnostics);
+}
+
+#[test]
+fn error_fallback_checked_facts_keep_nominal_error_and_value_tail() {
+    let source = "error Failure = invalid(message: Str)\nlet outcome: Result[Bool, Failure] = Err(Failure.invalid(message: \"bad\"))\nlet value = outcome ?? { |failure|\n  let message = failure.message\n  let _ = message\n  false\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, position) in &compact.statement_positions {
+        assert_eq!(checked.statement_positions.get(&parsed.arena.arena.stmt(*id).span), Some(position));
+    }
+    let mut exact_error = false;
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "failure" {
+            assert!(matches!(ty, xsh::frontend::check::Type::ErrorFamily(_)));
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            exact_error = true;
+        }
+    }
+    assert!(exact_error);
+}
+
+#[test]
+fn private_pure_inference_publishes_exact_returns_and_annotations() {
+    let source = "pure later(value: Int) { value + 1 }\npure earlier(value: Int) { later(value) }\npure predicate(value: Int) { value > 0 }\nlet number: Int = earlier(2)\nlet flag: Bool = predicate(-1)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.function_return_types.len(), 3);
+    assert_eq!(checked.annotation_facts.iter().filter(|fact| matches!(fact.kind, AnnotationFactKind::InferredPureReturn { .. })).count(), 3);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    parsed.arena.symbol_owner().with_current(|| {
+        assert_eq!(declarations.pures[&xsh::frontend::symbols::Name::intern("earlier")].return_ty.to_string(), "Int");
+        assert_eq!(declarations.pures[&xsh::frontend::symbols::Name::intern("predicate")].return_ty.to_string(), "Bool");
+    });
+}
+
+#[test]
+fn private_pure_inference_requires_annotations_for_recursive_and_contextual_returns() {
+    for source in [
+        "pure first(value: Int) { second(value) }\npure second(value: Int) -> Int { first(value) }\n",
+        "export pure value() { 1 }\n",
+    ] { assert!(has_code(&check(source), "check.required-return"), "{source}"); }
+    for source in [
+        "pure value() { [] }\n",
+        "pure value(input: Any) { input }\n",
+        "pure value(flag: Bool) { if flag { Ok(1) } else { 1 } }\n",
+        "pure value(flag: Bool) { if flag { return 1 }; let unused = 2 }\n",
+    ] { assert!(has_code(&check(source), "check.infer-return"), "{source}"); }
+    assert!(has_code(&check("pure value() { map.empty() }\n"), "check.local-inference"));
+    assert!(has_code(&check("pure parsed(text: Str) { text.parse_int()? }\n"), "check.try-context"));
+}
+
+#[test]
+fn private_pure_inference_destructured_capture() {
+    let source = "let {left, right} = {left: 2, right: 3}\npure destructured() { left + right }\n";
+    assert!(check(source).is_empty(), "{:?}", check(source));
+}
+
+#[test]
+fn private_pure_inference_preserves_prefix_capture_visibility() {
+    assert!(has_code(&check("pure captured() { prefix + \"!\" }\nlet prefix = \"later\"\n"), "check.unresolved-name"));
+}
+
+#[test]
+fn private_pure_inference_pattern_captures_do_not_create_recursive_dependencies() {
+    for source in [
+        "pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected + 1 } else { 0 } }\n",
+        "pure selected(outcome: Result[Int]) { let value = if let Ok(selected) = outcome { selected + 1 } else { 0 }; value }\n",
+        "pure selected(outcome: Result[Int]) { var value = 0; while let Ok(selected) = outcome { value += selected; break }; value }\n",
+        "pure recovered(outcome: Result[Str]) { outcome ?? { |recovered| recovered.message } }\n",
+    ] {
+        let diagnostics = check(source);
+        assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+    }
+    assert!(has_code(&check("pure selected(outcome: Result[Int]) { if let Ok(selected) = selected(outcome) { selected } else { 0 } }\n"), "check.required-return"));
+    assert!(has_code(&check("pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n"), "check.required-return"));
+}
+
+#[test]
+fn private_pure_inference_imported_module_predeclares_tag_variants() {
+    let diagnostics = check_with_module("use helper\nlet selected: Bool = helper.enabled()\n", "##! Inferred tag helper module.\nenum Selection { Included, Excluded }\npure private_enabled(value: Selection) { value == Included }\n## Checks the selected tag.\nexport pure enabled() -> Bool { private_enabled(Included) }\n");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn computed_map_literals_locate_key_errors_without_weakening_values() {
+    let source = "let values = {[1.5]: 2}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let diagnostic = checked.diagnostics.iter().find(|d| d.code.as_deref() == Some("check.map-key-type")).expect("unsupported scalar key diagnostic");
+    assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "1.5"));
+    for source in ["let values = {[\"one\"]: 1, two: \"bad\"}\n", "let key: Any = \"one\"\nlet values = {[key]: 1}\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.is_empty(), "accepted {source}");
+    }
+}
+
+#[test]
+fn checker_rejects_nested_record_update_contract_violations() {
+    for (source, code) in [
+        ("let value = {a.b: 1}\n", "check.record-update-base"),
+        ("pure update(value: Record) -> Unit { let base = {a: {b: {c: 1}}}; let result = {...base, a.b: value} }\n", "check.record-update-value"),
+        ("pure update(base: Map[Int]) -> Unit { let result = {...base, a.b: 2} }\n", "check.record-update-shape"),
+        ("pure update(value: Any) -> Unit { let base = {a: {b: 1}}; let result = {...base, a.b: value} }\n", "check.record-update-value"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, ...base}\n", "check.record-update-base"),
+        ("pure update(base: Any) -> Any { return {...base, a.b: 1} }\n", "check.record-update-shape"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.missing: 2}\n", "check.record-update-field"),
+        ("let base = {a: [1]}\nlet value = {...base, a.b: 2}\n", "check.record-update-field"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a: {b: 2}, a.b: 3}\n", "check.record-update-overlap"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 3, a: {b: 2}}\n", "check.record-update-overlap"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, a.b: 3}\n", "check.record-update-overlap"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: true}\n", "check.type-mismatch"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, added: 3}\n", "check.record-update-field"),
+    ] {
+        let diagnostics = check(source);
+        assert!(has_code(&diagnostics, code), "expected {code} for {source}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn checker_preserves_nested_record_update_schema_and_context() {
+    let diagnostics = check("type Inner = {values: List[Int], if: Bool}\ntype Outer = {inner: Inner}\nlet base = Outer(inner: Inner(values: [1], if: false))\nlet updated: Outer = {...base, inner.values: [], inner.if: true}\nlet selected: List[Int] = updated.inner.values\n");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn checker_try_capture_infers_nominal_error_and_keeps_result_tail_data() {
+    let source = "error LocalError = Failed(message: Str)\nproc fail() [] -> Result[Int, LocalError] { Err(LocalError.Failed(message: \"failure\")) }\nproc local() [] -> Result[Int, LocalError] { try { fail()? } }\nlet nested: Result[Result[Int, LocalError]] = try { fail() }\n";
+    let output = check(source);
+    assert!(output.is_empty(), "{output:?}");
+}
+
+#[test]
+fn checker_try_capture_rejects_underconstrained_success_and_outer_effects() {
+    let source = "error LocalError = Failed(message: Str)\nlet result = try { Err(LocalError.Failed(message: \"failure\"))? }\nproc outer() [] -> Int { try { 7 }? }\n";
+    let output = check(source);
+    assert!(has_code(&output, "check.try-success-type"), "{output:?}");
+    assert!(has_code(&output, "check.effect-violation"), "{output:?}");
+}
+
+#[test]
+fn value_pipeline_holes_publish_the_checked_input_and_ordinary_call_types() {
+    let source = "pure wrapped(value: Int) { value |> increment(_) }\npure increment(value: Int) -> Int { value + 1 }\nlet selected: Int = wrapped(2)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
+    for raw in 0..parsed.arena.arena.expr_tags.len() {
+        let id = xsh::frontend::syntax::arena::ExprId::from_index(raw);
+        if let xsh::frontend::syntax::arena::ArenaExprKind::ValuePipelineCall { input, call, hole } = parsed.arena.arena.expr(id).kind {
+            for expr in [id, input, call, hole] {
+                assert_eq!(checked.expr_types[&parsed.arena.arena.expr(expr).span], xsh::frontend::check::Type::Int);
+                assert_eq!(bodies.expr_types[&expr], xsh::frontend::check::Type::Int);
+            }
+        }
+    }
+}
+
+#[test]
+fn value_pipeline_holes_preserve_record_presence_refinement() {
+    let output = check("type Row = {name: Str}\npure project(value: Any) -> Any { value }\npure version(row: Row) -> Any { if \"version\" in row { row.version |> project(_) } else { null } }\n");
+    assert_no_codes(&output, &["check.record-field", "check.unknown-field", "check.type-mismatch"]);
+    assert!(output.is_empty(), "{output:?}");
+}
+
+#[test]
+fn duration_arithmetic_compact_and_full_checked_types_agree() {
+    let source = "pure intervals(left: Duration, right: Duration) -> Int { let count = left / right; count }\npure scale(value: Duration, factor: Int) -> Duration { let pause = value * factor + 1s; pause }\nlet scaled = 2 * 1ms\nlet quantized = 5ms / 2\nlet compared = 1ms < 1s\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, ty) in compact.expr_types {
+        if matches!(parsed.arena.arena.expr(id).kind, xsh::frontend::syntax::arena::ArenaExprKind::Binary { .. }) {
+            assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(id).span), Some(&ty), "{}", &source[parsed.arena.arena.expr(id).span.range()]);
+        }
+    }
+}
+
+#[test]
+fn checker_try_capture_merges_variants_within_their_nominal_family() {
+    let source = "error LocalError = First(message: Str) | Second(message: Str)\nlet value = try {\n  if true {\n    let _ = Err(LocalError.First(message: \"first\"))?\n  } else {\n    let _ = Err(LocalError.Second(message: \"second\"))?\n  }\n  7\n}\nlet narrow: Result[Int, LocalError] = value\n";
+    let output = check(source);
+    assert!(output.is_empty(), "{output:?}");
+}
+
+#[test]
+fn parametric_record_separate_module_arenas_keep_private_schema_dependencies() {
+    let output = check_with_module(
+        "use helper as h\ntype Owner = {name: Int}\nlet value: h.Box[Int] = {value: 7, owner: {name: \"module\"}}\n",
+        "##! Parameterized records.\ntype Owner = {name: Str}\n## A declaration-owned schema.\nexport type Box[T] = {value: T, owner: Owner}\n",
+    );
+    assert_no_codes(&output, &["check.unknown-type", "check.type-mismatch", "check.type-application"]);
+}
+
+#[test]
+fn private_proc_effects_publish_matching_full_and_compact_facts() {
+    let source = "proc caller() [time] -> Int { forwarding() }\nproc forwarding() -> Int { clock() }\nproc clock() -> Int { let _ = time.now(); 42 }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let compact = Checker::check_compact_declarations(&parsed.arena);
+    parsed.arena.symbol_owner().with_current(|| {
+        for name in ["forwarding", "clock"] {
+            let effects = Some(vec![xsh::frontend::syntax::node::Effect::Time]);
+            assert_eq!(checked.callable_effects[name], effects);
+            let signature = &compact.procs[&xsh::frontend::symbols::Name::intern(name)];
+            assert_eq!(signature.effects, effects);
+            assert!(signature.inferred_effects);
+        }
+    });
+    assert_eq!(checked.function_effect_facts.len(), 3);
+    assert_eq!(checked.function_effect_facts.values().filter(|fact| fact.inferred).count(), 2);
+}
+
+#[test]
+fn private_proc_effects_preserve_unknown_and_declaration_boundaries() {
+    for (source, name) in [
+        ("proc opaque(callback: Proc) -> Int { let _ = callback.call(); 42 }\n", "opaque"),
+        ("proc main() -> Int { 42 }\n", "main"),
+        ("##! Boundary.\n## Public.\nexport proc published() -> Int { 42 }\n", "published"),
+        ("stream values() -> Stream[Int] { yield 42 }\n", "values"),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.callable_effects[name], None);
+        let compact = Checker::check_compact_declarations(&parsed.arena);
+        parsed.arena.symbol_owner().with_current(|| {
+            let name = xsh::frontend::symbols::Name::intern(name);
+            let signature = compact.procs.get(&name).or_else(|| compact.streams.get(&name)).unwrap();
+            assert_eq!(signature.effects, None);
+        });
+    }
+    let source = "test registered { assert true, \"checked\" }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.function_effect_facts.len(), 1);
+    let fact = checked.function_effect_facts.values().next().unwrap();
+    assert!(!fact.inference_allowed);
+    assert!(!fact.inferred);
+    assert_eq!(fact.effective, None);
+    assert!(checked.callable_effects.is_empty());
+}
+
+#[test]
+fn private_proc_effects_module_helpers_use_declaring_module_identity() {
+    let diagnostics = check_with_module("use helper\nproc caller() [] -> Int { helper.answer() }\n", "##! Effect helper.\nproc private_answer() -> Int { 42 }\n## Checked public boundary.\nexport proc answer() [] -> Int { private_answer() }\n");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn signature_cli_checks_body_without_registering_a_callable() {
+    let accepted = check("type Root = Path\ncli main(root: Root, jobs: Int = 4, ...paths: List[Path]) [error] { guard jobs > 0 else { return error.fail(\"positive\") }; print ${root.display()} ${paths.len()} }\n");
+    assert!(accepted.is_empty(), "{:?}", accepted);
+    let rejected = check("cli main() [] {}\nlet callable = main\nmain()\n");
+    assert!(rejected.iter().any(|diagnostic| diagnostic.as_deref() == Some("check.unresolved-name")), "{:?}", rejected);
+    let effects = check("cli main() [] { fs.read_text(p\"file\")? }\n");
+    assert!(effects.iter().any(|diagnostic| diagnostic.as_deref() == Some("check.effect-violation")), "{:?}", effects);
+}
+
+#[test]
+fn signature_cli_rejects_imported_entries_and_unprepared_defaults() {
+    let source = "##! Imported entry.\ncli main() [] {}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(1), source);
+    let entry = Parser::parse_source_arena_only(SourceId::new(0), "use module\n");
+    let output = Checker::check_arena_with_modules((&entry.arena, "use module\n"), &[("module", "module", &parsed.arena, source)]);
+    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.cli-entry")), "{:?}", output.diagnostics);
+    for source in ["let jobs = 4\ncli main(jobs: Int = jobs) [] {}\n", "cli main(verbose: Bool = false, root: Path) [] {}\n", "type Count = UInt\ncli main(count: Count = -1) [] {}\n"] {
+        let output = check(source);
+        assert!(output.iter().any(|diagnostic| diagnostic.as_deref() == Some("check.cli-entry")), "{source}: {output:?}");
+    }
+}
+
+#[test]
+fn signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries() {
+    let source = "type Count = UInt\nconst DEFAULT_COUNT = 4\ncli main(count: Count = DEFAULT_COUNT) [] { let value: Int = count + 1; print $value }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    assert_eq!(declarations.function_defs, 1);
+    assert!(declarations.procs.is_empty());
+    assert!(declarations.pures.is_empty());
+    assert!(declarations.streams.is_empty());
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    for (expression, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(expression).span;
+        assert_eq!(checked.expr_types.get(&span), Some(&ty), "{}", &source[span.range()]);
+    }
+}
+
+#[test]
+fn signature_cli_inferred_defaults_reuse_checked_parameter_facts() {
+    let source = "const defaults = {jobs: 4, timeout: 20ms}\ncli main(jobs = defaults.jobs + 1, timeout = defaults.timeout) [] { let count: Int = jobs; let delay: Duration = timeout }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    for parameter in &parsed.arena.arena.params {
+        let span = parsed.arena.arena.span(parameter.span);
+        assert!(parameter.ty_defaulted);
+        assert_eq!(checked.parameter_types.get(&span), declarations.parameter_types.get(&span));
+        assert!(checked.parameter_types.contains_key(&span));
+    }
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    for (expression, ty) in compact.expr_types {
+        assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(expression).span), Some(&ty));
+    }
+}
+
+#[test]
+fn typed_cause_full_and_compact_inference_retains_only_outer_error() {
+    use xsh::frontend::check::Type;
+    let source = "error Outer = Failed(message: Str)\nerror Inner = Failed(message: Str)\nlet value = Err(cause: Inner.Failed(message: \"inner\"), Outer.Failed(message: \"outer\"))\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let full = Checker::check_arena(&parsed.arena, source);
+    assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let (span, full_type) = full.expr_types.iter().find(|(span, _)| source[span.range()].starts_with("Err(")).unwrap();
+    let Type::Result(_, error) = full_type else { panic!("Err produces Result data") };
+    parsed.arena.symbol_owner().with_current(|| {
+        assert!(matches!(error.as_ref(), Type::ErrorVariant { family, .. } if family.as_str().as_str() == "Outer"));
+    });
+    let compact_type = compact.expr_types.iter().find_map(|(id, ty)| (parsed.arena.arena.expr(*id).span == *span).then_some(ty)).unwrap();
+    assert_eq!(compact_type, full_type);
+}
+
+#[test]
+fn typed_cause_flattened_handler_guidance_has_no_automatic_fix() {
+    let source = "error Input = Failed(message: Str)\nerror Outer = Failed(message: Str)\nproc translate(input: Result[Int, Input]) -> Result[Int, Outer] {\n match input { Ok(value) => return value; Err(failure) => return Err(Outer.Failed(message: failure.message)) }\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions {
+        migration_diagnostics: true, ..CheckOptions::default()
+    });
+    let guidance = checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("check.error-cause")).collect::<Vec<_>>();
+    assert_eq!(guidance.len(), 1, "{:?}", checked.diagnostics);
+    assert!(guidance[0].fix_hints.is_empty());
+    for replacement in [
+        "Err(Outer.Failed(message: failure.message), cause: failure)",
+        "Err(Outer.Failed(message: \"custom\"))",
+    ] {
+        let improved = source.replace("Err(Outer.Failed(message: failure.message))", replacement);
+        assert!(!check_with_migration(&improved).contains(&Some("check.error-cause".to_string())));
+    }
+    let richer = source.replace("Outer = Failed(message: Str)", "Outer = Failed(message: Str, code: Int)")
+        .replace("Outer.Failed(message: failure.message)", "Outer.Failed(message: failure.message, code: 7)");
+    assert!(!check_with_migration(&richer).contains(&Some("check.error-cause".to_string())));
+}
+
+#[test]
+fn checker_accept_policy_requires_bounded_int_codes_on_every_plan_route() {
+    for source in [
+        "run --accept=[] sh\n",
+        "run --accept=[0,0] sh\n",
+        "run --accept=[256] sh\n",
+        "let command = process.command { accept = [-1]\nrun sh }\n",
+        "let command = process.command_argv(\"sh\", [\"sh\"], accept: [0,0])\n",
+    ] {
+        let output = check(source);
+        assert!(has_code(&output, "check.accept-policy"), "{source}: {output:?}");
+    }
+    for source in [
+        "run --accept=[true] sh\n",
+        "let command = process.command { accept = [\"zero\"]\nrun sh }\n",
+        "let command = process.command_argv(\"sh\", [\"sh\"], accept: [false])\n",
+    ] {
+        let output = check(source);
+        assert!(has_code(&output, "check.type-mismatch"), "{source}: {output:?}");
+    }
+}
+
+#[test]
+fn checker_record_proof_types_agree_on_full_and_compact_routes() {
+    let source = "type Inner = {value: Str?}\ntype Outer = {inner: Inner}\npure select(report: Outer) -> Str {\n  let available = report.inner.value != null\n  let retained = available\n  if !retained { return \"missing\" }\n  report.inner.value\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let full = Checker::check_arena(&parsed.arena, source);
+    assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "report.inner.value" && span.start() > source.find("return").unwrap() {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(full.expr_types.get(&span), Some(&ty));
+        }
+    }
+}
+
+#[test]
+fn constant_key_projection_full_and_compact_facts_preserve_field_types() {
+    let source = r#"
+type Config = {workers: Int, value: Str?, if: Bool}
+const field = "workers"
+proc read(config: Config) [error] {
+  let workers = config.get(field)?
+  let value = config.get("value")?
+  let enabled = config["if"]
+  let unknown = config.get("hidden")?
+  let spread = config.get(...{field: "workers"})?
+}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert_eq!(checked.projections.len(), 4);
+    assert_eq!(compact.projections.len(), 4);
+    for (id, ty) in &compact.expr_types {
+        let span = parsed.arena.arena.expr(*id).span;
+        if &source[span.range()] == "config.get(\"hidden\")" {
+            assert_eq!(Some(ty), checked.expr_types.get(&span));
+        }
+    }
+    for (id, projection) in compact.projections {
+        let span = parsed.arena.arena.expr(id).span;
+        let full = checked.projections.get(&span).unwrap();
+        assert_eq!(full.field, projection.field);
+        assert_eq!(full.receiver, projection.receiver);
+        assert_eq!(full.value_type, projection.value_type);
+        assert_eq!(full.operation, projection.operation);
+        assert_eq!(full.callable, projection.callable);
+        assert_eq!(checked.expr_types.get(&span), compact.expr_types.get(&id));
+    }
+    let hidden = source.find("config.get(\"hidden\")").unwrap();
+    let (_, ty) = checked.expr_types.iter().find(|(span, _)| span.start() == hidden && &source[span.range()] == "config.get(\"hidden\")").unwrap();
+    assert_eq!(ty, &xsh::frontend::check::Type::Result(Box::new(xsh::frontend::check::Type::Any), Box::new(xsh::frontend::check::Type::Error)));
+}
+
+#[test]
+fn constant_key_projection_keeps_module_get_exports_and_callable_metadata() {
+    let source = r#"
+type Plugin = module { export pure get(value: Str) -> Str }
+proc read(plugin: Plugin) {
+  let ordinary = plugin.get("get")
+  let selected = plugin["get"]
+}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert_eq!(checked.projections.len(), 1);
+    assert_eq!(compact.projections.len(), 1);
+    for (id, projection) in compact.projections {
+        let span = parsed.arena.arena.expr(id).span;
+        assert_eq!(checked.projections.get(&span), Some(&projection));
+        assert!(matches!(projection.callable, Some(xsh::frontend::check::ModuleExportType::Pure { .. })));
+    }
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "plugin.get(\"get\")" {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+        }
+    }
+}
+
+#[test]
+fn constant_key_projection_guarded_access_keeps_optional_result_layers() {
+    let source = "type Config = {workers: Int}\nproc read(config: Config?) [error] {\n  let getter = config?.get(\"workers\")\n  let index = config?[\"workers\"]\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert_eq!(checked.projections.len(), 2);
+    assert_eq!(compact.projections.len(), 2);
+    for (id, projection) in compact.projections {
+        let span = parsed.arena.arena.expr(id).span;
+        assert_eq!(checked.projections.get(&span), Some(&projection));
+        assert_eq!(checked.expr_types.get(&span), compact.expr_types.get(&id));
+    }
+}
+
+#[test]
+fn default_parameter_types_are_checked_declaration_facts_shared_with_compact() {
+    let source = "const config = {jobs: 4}\npure choose(jobs = config.jobs + 1) -> Int { jobs }\nlet a = choose()\nlet b = choose(jobs: 9)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    assert_eq!(checked.parameter_types, declarations.parameter_types);
+    assert_eq!(checked.parameter_types.values().collect::<Vec<_>>(), vec![&xsh::frontend::check::Type::Int]);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "jobs" { assert_eq!(checked.expr_types.get(&span), Some(&ty)); }
+    }
+}
+
+#[test]
+fn default_parameter_inference_needs_own_default_anchor_and_never_body_or_callers() {
+    for source in [
+        "pure choose(value = null) -> Str { value.trim() }\nlet x = choose(\"anchored caller\")\n",
+        "pure choose(value = []) -> List[Int] { value }\nlet x = choose([1])\n",
+        "pure choose(first: Int = 1, second = first) -> Int { second }\n",
+        "pure choose(value = later) -> Int { value }\nlet later = 4\nlet supplied = choose(9)\n",
+    ] {
+        let checked = check(source);
+        assert!(checked.iter().any(|code| code.as_deref() == Some("check.infer-param")), "{:?}", checked);
+    }
+}
+
+#[test]
+fn default_parameter_contract_headers_keep_checked_omitted_literal_types() {
+    let source = "type Runner = module { export pure choose(value = 4) -> Int }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(checked.parameter_types.values().any(|ty| *ty == xsh::frontend::check::Type::Int));
+    let compact = Checker::check_compact_declarations(&parsed.arena);
+    assert_eq!(compact.parameter_types, checked.parameter_types);
+}
+
+#[test]
+fn inferred_require_full_and_compact_targets_preserve_schema_identity() {
+    let source = "type Marker[T] = {name: Str}\npure validate(raw: Any) -> Result[Marker[Int]] { raw.require()? }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    assert_eq!(checked.requirement_targets.len(), 1);
+    assert_eq!(compact.requirement_targets.len(), 1);
+    for (expr, target) in compact.requirement_targets {
+        assert_eq!(checked.requirement_targets.get(&parsed.arena.arena.expr(expr).span), Some(&target));
+        assert_eq!(target.context.instances[0].arguments, vec![xsh::frontend::check::Type::Int]);
+    }
+}
+
+#[test]
+fn builtin_template_checked_facts_agree_on_full_and_compact_routes() {
+    let source = "error Nested = Missing(code: Int)\npure value(items: List[Result[List[Int], Nested]], table: Map[Int, List[Int]]) -> Int {\n  let one = items.get(index: 0)\n  let two = table.set(value: [2], key: 1)\n  let three = two.keys()\n  let four = two.values()\n  three.len() + four.len()\n}\npure dynamic(items: List[Any]) -> Unit { let value = items.get(0) }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut calls = 0;
+    for (id, ty) in &compact.expr_types {
+        let span = parsed.arena.arena.expr(*id).span;
+        if ["items.get(index: 0)", "table.set(value: [2], key: 1)", "two.keys()", "two.values()", "items.get(0)"].contains(&&source[span.range()]) {
+            assert_eq!(checked.expr_types.get(&span), Some(ty), "{}", &source[span.range()]);
+            assert!(!ty.contains_inference());
+            if &source[span.range()] == "items.get(0)" {
+                assert_eq!(ty.result_ok(), Some(&xsh::frontend::check::Type::Any));
+            }
+            calls += 1;
+        }
+    }
+    assert_eq!(calls, 5);
+}
+
+#[test]
+fn checker_cli_prepared_descriptor_context_uses_the_refined_result() {
+    let source = r#"
+type ParsedValues = {count: Int}
+type CommandValues = {command: Str, action: Str, root: Path, raw: List[Str]}
+const schema = {count: {kind: "Int", default: 2}}
+const commands = {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
+let parsed: ParsedValues = cli.parse([], schema)?
+let applet_values: ParsedValues = cli.applet([], schema)?
+let command: CommandValues = cli.commands(["build", "workspace"], commands)?
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut calls = 0;
+    for (id, ty) in &compact.expr_types {
+        let span = parsed.arena.arena.expr(*id).span;
+        if source[span.range()].starts_with("cli.") && source[span.range()].contains('(') && !source[span.range()].ends_with('?') {
+            assert_eq!(checked.expr_types.get(&span), Some(ty));
+            calls += 1;
+        }
+    }
+    assert_eq!(calls, 3);
+    let incorrect = source.replace("{count: Int}", "{count: Str}");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &incorrect);
+    let checked = Checker::check_arena(&parsed.arena, &incorrect);
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")));
+}
+
+#[test]
+fn dynamic_boundary_record_facts_agree_across_checked_representations() {
+    let source = "let erased: Record = {name: \"demo\"}\nlet empty = {}\nlet erased_value = erased\nlet empty_value = empty\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let mut found = 0;
+    for (expression, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(expression).span;
+        let expected = match &source[span.range()] {
+            "erased" => Some(xsh::frontend::check::Type::ErasedRecord),
+            "empty" => Some(xsh::frontend::check::Type::Record(Default::default())),
+            _ => None,
+        };
+        if let Some(expected) = expected {
+            assert_eq!(ty, expected);
+            assert_eq!(checked.expr_types.get(&span), Some(&expected));
+            found += 1;
+        }
+    }
+    assert_eq!(found, 2);
+
+}
+
+#[test]
+fn yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts() {
+    let source = "stream lines(file: Path) [fs, error] -> Stream[Str] { yield @(file.lines()?); yield @[\"last\"] }\nstream batches() [] -> Stream[List[Int]] { yield @[[], [1]] }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    assert!(checked.expr_types.iter().any(|(span, ty)| &source[span.range()] == "[[], [1]]"
+        && *ty == xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::Int))))));
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut found = 0;
+    for (expression, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(expression).span;
+        if matches!(&source[span.range()], "file.lines()" | "file.lines()?") {
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            found += 1;
+        }
+    }
+    assert_eq!(found, 2);
+}
+
+#[test]
+fn compact_count_and_json_adapter_facts_match_checked_pipeline_outputs() {
+    use xsh::frontend::check::Type;
+    let source = r#"
+let stats = ["rs", "md", "rs"] |> count { |ext| ext }
+let total = ["rs", "md"] |> count
+let rows = "{}\n{}\n" |> json.lines
+let values = "{} {}" |> json.stream
+let keys = stats.keys()
+let lengths = {lines: rows.len(), values: values.len()}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut found = 0;
+    for (id, actual) in &compact.expr_types {
+        let expression = parsed.arena.arena.expr(*id);
+        if !matches!(expression.kind, xsh::frontend::syntax::arena::ArenaExprKind::StructuredPipeline { .. }) {
+            continue;
+        }
+        let expected = match &source[expression.span.range()] {
+            text if text.ends_with("count { |ext| ext }") => Type::Map(Box::new(Type::Str), Box::new(Type::Int)),
+            text if text.ends_with("count") => Type::Int,
+            text if text.ends_with("json.lines") || text.ends_with("json.stream") => Type::List(Box::new(Type::Any)),
+            text => panic!("unexpected pipeline: {text}"),
+        };
+        assert_eq!(checked.expr_types.get(&expression.span), Some(&expected));
+        assert_eq!(actual, &expected);
+        found += 1;
+    }
+    assert_eq!(found, 4);
+}
+
+#[test]
+fn compact_stream_stage_result_matrix_matches_canonical_checked_facts() {
+    let source = r#"
+let parallel = ["a"] |> par-map { |value| value.byte_len() }
+let batches = [1, 2] |> batch(count: 2)
+let numbered = ["a"] |> enumerate
+let pairs = ["a"] |> zip([1])
+let generated = ["a"] |> range(start: 0, end: 2)
+let groups = ["a"] |> group-by { |value| value }
+let sum = [1, 2] |> sum
+let first = [1, 2] |> first
+let last = [1, 2] |> last
+let minimum = [1, 2] |> min
+let maximum = [1, 2] |> max
+let accumulators = [1, 2] |> reduce-by(sum: true) { |value| {key: "n", value: value} }
+let folded = [1, 2] |> fold(0) { |acc, value| Ok(acc + value)? }
+let reduced = [1, 2] |> reduce(0) { |acc, value| Ok(acc + value)? }
+let lines = "a\nb\n" |> text.lines
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut pipelines = 0;
+    for (id, actual) in &compact.expr_types {
+        let expression = parsed.arena.arena.expr(*id);
+        if matches!(expression.kind, xsh::frontend::syntax::arena::ArenaExprKind::StructuredPipeline { .. }) {
+            assert_eq!(Some(actual), checked.expr_types.get(&expression.span), "{}", &source[expression.span.range()]);
+            assert!(!actual.contains_inference());
+            pipelines += 1;
+        }
+    }
+    assert_eq!(pipelines, 15);
+}
+
+#[test]
+fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::symbols::Name;
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ArenaExprOrRun, ArenaProgramBuilder, ArenaStmtKind};
+    let mut builder = ArenaProgramBuilder::with_token_capacity(64);
+    let entry = Parser::parse_source_into_arena_builder(SourceId::new(0), "", &mut builder);
+    for (name, source) in [("left", "let value = [1] |> sum\n"), ("right", "let value = [1] |> min\n")] {
+        let fragment = Parser::parse_source_into_arena_builder(SourceId::new(0), source, &mut builder);
+        assert!(fragment.diagnostics.is_empty(), "{:?}", fragment.diagnostics);
+        let name = builder.symbol_owner().with_current(|| Name::intern(name));
+        builder.push_arena_module(name.to_string(), name, fragment.statements);
+    }
+    let program = builder.finish_with_statements(entry.statements);
+    let declarations = Checker::check_compact_declarations(&program);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    let compact = Checker::probe_compact_bodies(&program, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut span = None;
+    for (index, module) in program.modules.iter().enumerate() {
+        let statement = program.module_statements(module).next().expect("module binding");
+        let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expression), .. } = program.arena.stmt(statement).kind else { panic!("binding") };
+        let ArenaExprKind::StructuredPipeline { stages, .. } = program.arena.expr(expression).kind else { panic!("pipeline") };
+        let stage_span = program.arena.span(program.arena.stream_stages(stages)[0].span);
+        if let Some(previous) = span { assert_eq!(stage_span, previous); }
+        span = Some(stage_span);
+        let expected = if index == 0 { Type::Int } else { Type::Result(Box::new(Type::Int), Box::new(Type::Error)) };
+        assert_eq!(declarations.stream_stage_types.get(&(Some(module.name), stage_span)).map(|fact| &fact.output), Some(&expected));
+        assert_eq!(compact.expr_types.get(&expression), Some(&expected));
+    }
+}
+
+#[test]
+fn fold_complete_accumulator_contracts_match_full_and_compact_facts() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::syntax::arena::ArenaExprKind;
+    for stage in ["fold", "reduce"] {
+        let source = format!("let initial: Result[Int] = Ok(0)\nlet total = [1, 2] |> {stage}(initial) {{ |acc, item| match acc {{ Ok(value) => Ok(value + item), Err(error) => Err(error) }} }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+        let expected = Type::Result(Box::new(Type::Int), Box::new(Type::Error));
+        let mut pipelines = 0;
+        for (id, actual) in &compact.expr_types {
+            let expression = parsed.arena.arena.expr(*id);
+            if matches!(expression.kind, ArenaExprKind::StructuredPipeline { .. }) {
+                assert_eq!(actual, &expected);
+                assert_eq!(checked.expr_types.get(&expression.span), Some(actual));
+                pipelines += 1;
+            }
+        }
+        assert_eq!(pipelines, 1);
+    }
+}
+
+#[test]
+fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::symbols::Name;
+    use xsh::frontend::syntax::arena::ArenaExprKind;
+    for stage in [
+        "map { |item| produce(item) }",
+        "par-map(jobs: 2) { |item| produce(item) }",
+        "where { |item| Ok(item > 0)? }",
+        "any { |item| Ok(item > 0)? }",
+        "all { |item| Ok(item > 0)? }",
+        "count { |item| Ok(item)? }",
+        "sort-by { |item| Ok(item)? }",
+        "group-by { |item| produce(item) }",
+        "unique-by { |item| produce(item) }",
+        "flat-map { |item| Ok([item]) }",
+    ] {
+        let source = format!("error ItemError = Stop(item: Int)\npure produce(item: Int) -> Result[Int, ItemError] {{ if item == 2 {{ Err(ItemError.Stop(item)) }} else {{ item }} }}\nlet values = [1, 2, 3] |> {stage}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{stage}: {:?}", checked.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        assert_eq!(checked.stream_stage_types.len(), declarations.stream_stage_types.len());
+        for (key, fact) in &checked.stream_stage_types {
+            let compact_fact = declarations.stream_stage_types.get(key).expect("checked stage retained");
+            assert_eq!(fact.input, compact_fact.input);
+            assert_eq!(fact.output, compact_fact.output);
+        }
+        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(compact.diagnostics.is_empty(), "{stage}: {:?}", compact.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let payload = Type::Result(Box::new(Type::Int), Box::new(Type::ErrorFamily(Name::intern("ItemError"))));
+            let expected = if stage.starts_with("map ") || stage.starts_with("par-map") {
+                Type::List(Box::new(payload))
+            } else if stage.starts_with("any ") || stage.starts_with("all ") {
+                Type::Bool
+            } else if stage.starts_with("count ") {
+                Type::Map(Box::new(Type::Str), Box::new(Type::Int))
+            } else if stage.starts_with("group-by ") {
+                Type::List(Box::new(Type::Record(std::collections::BTreeMap::from([
+                    (Name::intern("key"), payload),
+                    (Name::intern("items"), Type::List(Box::new(Type::Int))),
+                ]))))
+            } else { Type::List(Box::new(Type::Int)) };
+            let mut pipelines = 0;
+            for (id, actual) in &compact.expr_types {
+                let expression = parsed.arena.arena.expr(*id);
+                if matches!(expression.kind, ArenaExprKind::StructuredPipeline { .. }) {
+                    assert_eq!(actual, &expected, "{stage}");
+                    assert_eq!(checked.expr_types.get(&expression.span), Some(actual));
+                    assert!(!actual.contains_inference());
+                    pipelines += 1;
+                }
+            }
+            assert_eq!(pipelines, 1, "{stage}");
+        });
+    }
 }

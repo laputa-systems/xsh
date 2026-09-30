@@ -1,16 +1,10 @@
 #!/bin/xsh
 pure delimiter(raw: Str) -> Str {
-  if raw == "\\t" {
-    return "\t"
-  }
+  return "\t" when raw == "\\t"
 
-  if raw == "\\n" {
-    return "\n"
-  }
+  return "\n" when raw == "\\n"
 
-  if raw == "" {
-    return "\t"
-  }
+  return "\t" when raw == ""
 
   return raw
 }
@@ -35,7 +29,7 @@ proc paste_parallel(paths: List[Str], delim: Str) [fs, error, io] {
 
   for item in paths {
     let lines = read_input(item)?
-    columns = columns.push(lines)
+    columns += [lines]
 
     if lines.len() > count {
       count = lines.len()
@@ -43,7 +37,7 @@ proc paste_parallel(paths: List[Str], delim: Str) [fs, error, io] {
   }
 
   for index in range(count) {
-    let row = [column.get(index, "") for column in columns]
+    let row = [(column.get(index) ?? "") for column in columns]
     print row.join(delim)
   }
 }
@@ -72,7 +66,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   var paths = opts.paths
 
   if paths.len() == 0 {
-    paths = paths.push("-")
+    paths += ["-"]
   }
 
   if serial {

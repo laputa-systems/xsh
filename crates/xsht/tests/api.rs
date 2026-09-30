@@ -8,6 +8,56 @@ fn workspace_root() -> std::path::PathBuf {
         .expect("workspace root")
 }
 
+#[test]
+fn api_fs_root_inventory_exposes_native_receiver_operations_and_retains_factories() {
+    let output = xsht(&["api", "method:FsRoot.read_bytes", "method:FsRoot.mkdir", "method:FsRoot.close"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["method.FsRoot.read_bytes", "method.FsRoot.mkdir", "method.FsRoot.close", "root.write", "payload"] {
+        assert!(text.contains(fragment), "{text}");
+    }
+    let registry = xsh_registry::signature::api_spec();
+    let methods = &registry.methods.iter().find(|entry| entry.receiver == xsh_registry::signature::MethodReceiver::FsRoot).unwrap().methods;
+    assert_eq!(methods.len(), 18);
+    assert_eq!(methods.iter().map(|method| method.overloads.len()).sum::<usize>(), 20);
+    for name in ["open_root", "tempdir", "project_root", "user_root", "root_install_file"] {
+        assert!(registry.modules.iter().find(|module| module.name == "fs").unwrap().sig.functions.iter().any(|function| function.name == name));
+    }
+    for name in ["close_root", "root_path", "root", "root_read", "root_mkdir"] {
+        assert!(!registry.modules.iter().find(|module| module.name == "fs").unwrap().sig.functions.iter().any(|function| function.name == name));
+    }
+}
+
+#[test]
+fn api_builtin_templates_render_receiver_argument_and_result_relationships() {
+    let output = xsht(&["api", "method:List.get", "method:Map.set", "method:Map.values", "method:List.join", "method:List.collect", "method:Str.lines", "method:Bytes.lines"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for signature in [
+        "List[T].get(index: Int) -> Result[T, Error]",
+        "Map[K, V].set(key: K, value: V) -> Map[K, V]",
+        "Map[K, V].values() -> List[V]",
+        "List[Str].join(separator: Str = default) -> Str",
+        "List[T].collect() -> List[T]",
+        "Str.lines() -> List[Str]",
+        "Bytes.lines() -> List[Bytes]",
+    ] {
+        assert!(stdout.contains(signature), "missing {signature}: {stdout}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_boolean_guards_explains_exits_refinements_and_no_error_input() {
+    let output = xsht(&["api", "language:core.boolean-guards"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["Bool", "Status", "evaluates once", "every reachable failure path", "no input parameter or new Result boundary", "mutation invalidation", "Float", "NaN", "guard let"] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
 fn xsht(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(args)
@@ -466,11 +516,11 @@ fn api_stream_sort_by_shows_options_before_block() {
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("status: exact"), "{stdout}");
     assert!(
-        stdout.contains("signature: sort-by(--desc: Bool = false, block) -> Stream[T]"),
+        stdout.contains("signature: sort-by(desc: Bool = false, block) -> Stream[T]"),
         "{stdout}"
     );
     assert!(
-        stdout.contains("|> sort-by --desc { |e| e.size }"),
+        stdout.contains("|> sort-by(desc: true) { |e| e.size }"),
         "{stdout}"
     );
     assert!(
@@ -686,4 +736,328 @@ fn api_surface_matches_the_recorded_reference() {
         expected.trim_end(),
         "the public API surface changed; regenerate the fixture only when the change is intended"
     );
+}
+
+#[test]
+fn api_core_procs_demonstrates_lexical_named_argument_puns() {
+    let output = xsht(&["api", "language:core.procs"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("ordinary lexical value"), "{stdout}");
+    assert!(stdout.contains("greet(name:)"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_core_fallback_explains_error_parameter_and_lexical_targets() {
+    let output = xsht(&["api", "language:core.fallback"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in [
+        "{ |failure| statements; tail_value }",
+        "exactly one immutable parameter containing the exact error",
+        "Handler tails match the success type",
+        "lexical return, loop, propagation, and cleanup targets",
+        "right-associative",
+        "lint.error-fallback-block",
+    ] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_slicing_documents_bounds_units_and_retained_count_method() {
+    let output = xsht(&["api", "language:core.slicing", "method:Bytes.slice"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in [
+        "api: language.core.slicing",
+        "negative bounds count from the end",
+        "Str counts Unicode scalars; Bytes counts bytes",
+        "data[..2]",
+        "data[2..]",
+        "api: method.Bytes.slice",
+        "Uses offset/count with nonnegative bounds",
+    ] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+}
+
+#[test]
+fn api_comprehensions_reference_exposes_order_cleanup_and_example() {
+    let output = xsht(&["api", "language:core.comprehensions"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 API output");
+    assert!(stdout.contains("later duplicate keys win"), "{stdout}");
+    assert!(stdout.contains("Streams are pulled lazily"), "{stdout}");
+    assert!(stdout.contains("for package in packages"), "{stdout}");
+}
+
+#[test]
+fn api_list_splicing_documents_nesting_order_and_explicit_domains() {
+    let output = xsht(&["api", "language:core.list-splicing"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["ordinary List-valued element remains nested", "left to right", "Results require explicit handling", "@flags", "collect"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}
+
+#[test]
+fn api_regex_literals_exposes_preparation_raw_syntax_and_dynamic_compile() {
+    let output = xsht(&["api", "language:core.regex-literals", "module:regex.compile"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["rx\"", "no escapes or interpolation", "unreachable code", "repeated calls share", "regex.compile(runtime_pattern)", "structured regex-compile errors"] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+}
+
+#[test]
+fn api_streams_explains_yield_delegation_and_cleanup_order() {
+    let output = xsht(&["api", "language:core.streams"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["yield @source", "Results require explicit handling", "closes children before parent cleanup", "yield @rows()"] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+}
+
+#[test]
+fn api_core_records_demonstrates_schema_owned_defaults_and_constructor_puns() {
+    let output = xsht(&["api", "language:core.records"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("bounded literal constants"), "{stdout}");
+    assert!(stdout.contains("enabled: Bool = true"), "{stdout}");
+    assert!(stdout.contains("Config(name:)"), "{stdout}");
+    assert!(stdout.contains("Observation[T]"), "{stdout}");
+    assert!(stdout.contains("CountObservation(value: 7)"), "{stdout}");
+    assert!(stdout.contains("Observation(value: \"demo\", samples: [\"demo\"])"), "{stdout}");
+    assert!(stdout.contains("let absent: Observation[Int] = Observation(value: null)"), "{stdout}");
+    assert!(stdout.contains("disjoint existing field paths"), "{stdout}");
+    assert!(stdout.contains("{...settings, build.jobs: 4}"), "{stdout}");
+}
+
+#[test]
+fn api_private_pure_returns_explain_definition_inference_and_explicit_boundaries() {
+    let output = xsht(&["api", "language:core.pure-functions"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    for fragment in ["Defaulted parameters infer concrete checked types", "null and unconstrained empty collections", "only for omitted slots", "build_defaults.jobs + 1", "jobs = initial_jobs()"] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    assert!(stdout.contains("Private helpers"), "{stdout}");
+    assert!(stdout.contains("recursive"), "{stdout}");
+    assert!(stdout.contains("pure add(left: Int, right: Int) {"), "{stdout}");
+}
+
+#[test]
+fn api_field_labels_distinguishes_wire_names_from_lexical_bindings() {
+    let output = xsht(&["api", "language:core.field-labels"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["Keyword spellings", "reserved binding and import names", "cannot be shorthand or puns", "dynamic values retain require validation", "Entry(type:", "type: entry_kind"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}
+
+#[test]
+fn api_map_literals_exposes_classification_order_and_boundaries() {
+    let output = xsht(&["api", "language:core.map-literals"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["Map[K, V]", "Int, UInt, Bool, Bytes, Path, or Duration", "constant labels remain Str keys", "spread-only Maps require context", "canonical key order", "[name]", "before its value"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}
+
+#[test]
+fn api_causes_exposes_typed_translation_and_source_example() {
+    let output = xsht(&["api", "language:core.causes"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 API output");
+    for text in ["cause: failure", "nominal family", "immutable", "once", "BuildCauseError", "Matching inspects only the outer error"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}
+
+#[test]
+fn api_core_assert_documents_lazy_context_and_core_error_identity() {
+    let output = xsht(&["api", "language:core.assert"]);
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(output.status.success(), "{stdout}");
+    assert!(stdout.contains("api: language.core.assert"), "{stdout}");
+    assert!(stdout.contains("assert actual == expected"), "{stdout}");
+    assert!(stdout.contains("assertion-failed"), "{stdout}");
+    assert!(stdout.contains("only on false"), "{stdout}");
+}
+
+#[test]
+fn api_core_enums_documents_nominal_constructors_aliases_and_singletons() {
+    let references = xsh_registry::reference::language_references();
+    let reference = references.iter().find(|entry| entry.id == "core.enums").expect("enum inventory entry");
+    assert_documented("language.core.enums", &reference.docs);
+    let output = xsht(&["api", "language:core.enums"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("API text");
+    for fragment in ["nominal", "module namespace", "parse.enum-migration", "enum Token { Present(Str) }", "type SelectedMode = Mode", "enum State: Str", "atomically", "never convert Str"] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    let source = reference.docs.example.as_deref().expect("enum source example");
+    let source_id = xsh::frontend::source::SourceId::new(0);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn api_path_interpolation_distinguishes_native_bytes_and_human_text() {
+    let output = xsht(&["api", "language:core.path-literals"]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("Path fragments as native bytes"), "{text}");
+    assert!(text.contains("F-strings, print"), "{text}");
+    assert!(text.contains("${config_path}.sha256"), "{text}");
+    let output = xsht(&["api", "language:core.command-interpolation"]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("Compound process words retain interpolated Path bytes"), "{text}");
+}
+
+#[test]
+fn api_duration_arithmetic_explains_dimensions_and_adapter_boundaries() {
+    let output = xsht(&["api", "language:core.duration-arithmetic"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["nonnegative Int", "interval count", "once left to right", "pure", "clamping and saturation", "250ms * attempt"] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+    let output = xsht(&["api", "api:time.millis"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Negative counts clamp to zero"), "{stdout}");
+}
+
+#[test]
+fn api_block_strings_explains_exact_margin_source_boundaries_and_literal_domains() {
+    let output = xsht(&["api", "language:core.block-strings"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["exact prefix", "no implicit trailing newline", "longest matching", "original source spans", "Bytes, Path, glob, regex", "name=$name"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}
+
+#[test]
+fn api_process_commands_document_exact_bytes_stdin_ownership() {
+    let output = xsht(&["api", "api:process.command_argv", "api:process.command"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["stdin: Bytes", "stdin: Path", "temporary file", "empty Bytes", "hello"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}
+
+#[test]
+fn api_core_procs_demonstrates_static_named_argument_spreading() {
+    let output = xsht(&["api", "language:core.procs"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("checked finite Record fields"), "{stdout}");
+    assert!(stdout.contains("greet(...options)"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn api_lexical_error_context_retains_contract_and_executable_example() {
+    let output = xsht(&["api", "language:core.error-context"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: language.core.error-context"), "{stdout}");
+    assert!(stdout.contains("Stored or directly returned Err data stays unchanged"), "{stdout}");
+    assert!(stdout.contains("let count = ctx"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn api_constants_retains_preparation_contract_and_executable_example() {
+    let output = xsht(&["api", "language:core.constants"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("prepared immutable data"), "{stdout}");
+    assert!(stdout.contains("const format_version = 1"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn api_value_pipeline_retains_argument_placement_and_evaluation_contract() {
+    let output = xsht(&["api", "language:core.value-pipelines"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("Input evaluates once before"), "{stdout}");
+    assert!(stdout.contains("pipeline_join(\"[\", _, \"]\")"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn api_absence_lookups_preserves_byte_and_result_boundaries() {
+    let output = xsht(&["api", "language:core.absence-lookups"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["successful zero", "negative/out-of-range", "Ok(null)", "typed errors", "ordered receiver/index/fallback", "checked lookup origin", "entries.get(\"missing\") ?? 7"] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+}
+
+#[test]
+fn api_scalar_iteration_keeps_direct_source_and_snapshot_contract() {
+    let output = xsht(&["api", "language:core.scalar-iteration"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("api: language.core.scalar-iteration"), "{stdout}");
+    assert!(stdout.contains("retains its snapshot and view bounds"), "{stdout}");
+    assert!(stdout.contains("for character in \"café\""), "{stdout}");
+    assert!(stdout.contains("for octet in b\"\\x00\\xff\""), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn api_process_accept_policy_documents_actual_status_and_completion_boundary() {
+    let output = xsht(&["api", "language:run.status"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--accept=EXPR"), "{stdout}");
+    assert!(stdout.contains("ProcessError.UnexpectedExit"), "{stdout}");
+    assert!(stdout.contains("actual Status and .ok are unchanged"), "{stdout}");
+    let output = xsht(&["api", "api:process.command_argv"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("accept: List[Int] = default"), "{stdout}");
+}
+
+#[test]
+fn api_context_scopes_describes_restoration_and_demonstrates_value_forms() {
+    let output = xsht(&["api", "language:core.context-scopes"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("body ? propagates"), "{stdout}");
+    assert!(stdout.contains("env ({CC:"), "{stdout}");
+    assert!(stdout.contains("cd (p\".\")"), "{stdout}");
+}
+
+#[test]
+fn api_local_inference_describes_one_fixed_type_and_static_contributions() {
+    let output = xsht(&["api", "language:core.local-inference"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("Aliases share the same type identity"), "{stdout}");
+    assert!(stdout.contains("var selected = null"), "{stdout}");
+    assert!(output.stderr.is_empty());
 }

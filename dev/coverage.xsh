@@ -5,13 +5,14 @@ use stage as stages
 use targets
 
 ## Concrete coverage execution backend.
-export type CoverageBackend = NativeBackend | DockerBackend
+export enum CoverageBackend { NativeBackend, DockerBackend }
 
 # Parsed coverage request, including automatic selection.
-type CoverageRequest =
-    Automatic
-  | NativeRequest
-  | DockerRequest
+enum CoverageRequest {
+    Automatic,
+    NativeRequest,
+    DockerRequest,
+}
 
 ## Decodes the CLI coverage request before workflow dispatch.
 export pure parse_request(value: Str) -> Result[CoverageRequest] {
@@ -70,10 +71,7 @@ export pure docker_target_triple(host_arch: targets.HostArch, selected: Str) -> 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
 export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[CoverageBackend] {
   let alpine_linux = p"/etc/alpine-release".exists()?
-  let cargo_available = match process.which("cargo") {
-    Ok(_) => true,
-    Err(_) => false,
-  }
+  let cargo_available = process.which("cargo") is Ok(_)
   var linker_available = false
 
   for name in ["cc", "clang", "gcc"] {
@@ -97,9 +95,8 @@ export proc native_linker() [process, env, error] -> Result[Path] {
   }
 
   for name in ["cc", "clang", "gcc"] {
-    match process.which(name) {
-      Ok(found) => return found
-      Err(_) => {}
+    if let Ok(found) = process.which(name) {
+      return found
     }
   }
 

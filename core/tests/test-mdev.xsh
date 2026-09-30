@@ -1,4 +1,4 @@
-proc test_mdev_wrapper_preserves_platform_boundary(ctx: TestContext) [fs, process, env, error] {
+test test_mdev_wrapper_preserves_platform_boundary [fs, process, env, error] { |ctx|
   if system.uname()?.sysname == "Linux" {
     test.skip("mdev scan behavior is covered by tests/xsh/stdlib/auth.xsh")
     return

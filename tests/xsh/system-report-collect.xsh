@@ -16,16 +16,15 @@ type SystemReportCgroupParser = module {
   export pure parse_pci_decimal_value(value: Str) -> Result[Int]
 }
 
-proc test_system_report_bounded_text_reader_withholds_truncated_prefix() [fs, error] {
+test test_system_report_bounded_text_reader_withholds_truncated_prefix [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   var padding = " "
   while padding.count_chars() < 4096 {
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(
-    root,
+  root.write(
     p"source",
     f"""42
 ${padding}""",
@@ -36,7 +35,7 @@ ${padding}""",
   read.observation.value == null
 }
 
-proc test_system_report_pci_decimal_attribute_rejects_nondecimal_and_inexact_values() [fs, error] {
+test test_system_report_pci_decimal_attribute_rejects_nondecimal_and_inexact_values [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   parser.parse_pci_decimal_value("8")? == 8
   parser.parse_pci_decimal_value("9007199254740991")? == 9007199254740991
@@ -45,7 +44,7 @@ proc test_system_report_pci_decimal_attribute_rejects_nondecimal_and_inexact_val
   }
 }
 
-proc test_system_report_idle_state_index_requires_canonical_json_safe_directory_name() [fs, error] {
+test test_system_report_idle_state_index_requires_canonical_json_safe_directory_name [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   parser.parse_idle_state_index("state0")? == 0
   parser.parse_idle_state_index("state42")? == 42
@@ -54,7 +53,7 @@ proc test_system_report_idle_state_index_requires_canonical_json_safe_directory_
   }
 }
 
-proc test_system_report_cpufreq_members_accept_kernel_space_separated_ids() [fs, error] {
+test test_system_report_cpufreq_members_accept_kernel_space_separated_ids [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   parser.parse_cpufreq_members("0 2 7")? == [0, 2, 7]
   parser.parse_cpufreq_members("4")? == [4]
@@ -63,14 +62,14 @@ proc test_system_report_cpufreq_members_accept_kernel_space_separated_ids() [fs,
   test.error_kind(parser.parse_cpufreq_members("0-0"), "SystemReportSourceError.InvalidCpuFreqMembers")?
 }
 
-proc test_system_report_cache_shared_cpu_list_rejects_ambiguous_membership() [fs, error] {
+test test_system_report_cache_shared_cpu_list_rejects_ambiguous_membership [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   parser.parse_cache_shared_cpus("0,2-3")? == [0, 2, 3]
   test.error_kind(parser.parse_cache_shared_cpus("0,,2"), "SystemReportSourceError.InvalidCacheSharing")?
   test.error_kind(parser.parse_cache_shared_cpus(""), "SystemReportSourceError.InvalidCacheSharing")?
 }
 
-proc test_system_report_unified_cgroup_path_preserves_name_and_rejects_ambiguous_rows() [fs, error] {
+test test_system_report_unified_cgroup_path_preserves_name_and_rejects_ambiguous_rows [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   let observed = parser.parse_unified_cgroup_path("""0::/team:blue
 """)
@@ -110,7 +109,7 @@ proc test_system_report_unified_cgroup_path_preserves_name_and_rejects_ambiguous
   v1.has_v1 == true
 }
 
-proc test_system_report_cgroup_mount_selection_uses_longest_visible_root() [fs, error] {
+test test_system_report_cgroup_mount_selection_uses_longest_visible_root [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   let mounts: List[CgroupMount] = [
     {

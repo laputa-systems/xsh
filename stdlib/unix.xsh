@@ -62,7 +62,7 @@ pure parse_field_int(text: Str) -> Int? {
     return null
   }
   # 43 is `+` and 45 is `-`.
-  let first = text.byte_at(0, 0)
+  let first = (text.byte_at(0) ?? 0)
   var start = 0
   var negative = false
   if first == 43 or first == 45 {
@@ -75,7 +75,7 @@ pure parse_field_int(text: Str) -> Int? {
   var value = 0
   var index = start
   while index < end {
-    let byte = text.byte_at(index, 0)
+    let byte = (text.byte_at(index) ?? 0)
     if byte < 48 or byte > 57 {
       return null
     }

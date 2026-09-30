@@ -1,4 +1,4 @@
-proc test_todo_scan(ctx: TestContext) [fs, process, error] {
+test test_todo_scan [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "todos")?
 
   fp"${root}/main.rs".write("""// TODO: fix this

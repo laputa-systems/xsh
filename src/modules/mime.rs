@@ -32,7 +32,7 @@ pub(crate) fn parse(value: &str, span: Span) -> Result<Value, RuntimeError> {
         .ok_or_else(|| RuntimeError::new("mime-parse", "malformed media type").with_span(span))?;
     let mut params = BTreeMap::new();
     for (name, value) in parsed.params {
-        params.insert(name, Value::Str(value.into()));
+        params.insert(name.into(), Value::Str(value.into()));
     }
     Ok(Value::Record(RecordMap::from([
         (Arc::from("type"), Value::Str(parsed.mime.into())),

@@ -311,10 +311,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
       },
     },
   )?
-  let show_args = opts.show_args
-  let show_pids = opts.show_pids
-  let show_parents = opts.show_parents
-  let help = opts.show_help
+  let {show_args, show_pids, show_parents, show_help: help, ..} = opts
   let ascii = opts.ascii and ! opts.vt100
   let operands = opts.operands
 

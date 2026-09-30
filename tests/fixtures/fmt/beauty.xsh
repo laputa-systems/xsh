@@ -1,7 +1,7 @@
 # Calls and method chains: keep authored argument breaks and break chains between calls.
 let fmt_source_path = Path("source")
 let fmt_normalized = "a very long source name with slash / and dash - that keeps the chain readable".replace("/", "_").replace("-", "_")
-let fmt_selected = "alpha,beta,gamma".split(",").get(0, "")
+let fmt_selected = ("alpha,beta,gamma".split(",").get(0) ?? "")
 let fmt_encoded = bytes.from_text(
   "generated source metadata that should remain grouped as one call argument",
 )

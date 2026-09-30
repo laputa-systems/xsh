@@ -182,6 +182,7 @@ impl Checker {
         }
         let ty = self.check_command_arena(arena, source, &stmt.command, span);
         if command_stmt_asserts_success_arena(arena, &stmt.command) {
+            self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
             return;
         }
         if stmt.propagate || command_ty_auto_propagates(&ty) {
@@ -209,6 +210,7 @@ impl Checker {
                 block,
             } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
+                self.record_required_effect(Effect::Process);
                 if let Some(effs) = &self.current_effects
                     && !Self::effects_covers(effs, &Effect::Process)
                 {
@@ -231,6 +233,19 @@ impl Checker {
         name: Name,
         span: Span,
     ) -> Type {
+        if name == "_" {
+            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+            return Type::Invalid;
+        }
+
+
+        if let Some(expr) = self.prepared_constants.tail_bindings.get(&span) {
+            if let Some(ty) = self.prepared_constants.types.get(expr) {
+                let ty = ty.clone();
+                self.expr_types.insert(span, ty.clone());
+                return ty;
+            }
+        }
         if self.procs.contains_key(&name) {
             if self.in_pure {
                 self.error(
@@ -249,6 +264,9 @@ impl Checker {
         }
         if let Some(binding) = self.lookup(name) {
             return binding.ty.clone();
+        }
+        if self.tag_variants.get(&name).is_some_and(|info| info.field_count == 0) {
+            return self.lookup_expr_ident(name, span);
         }
         self.check_proc_command_arena(arena, source, &name.as_str(), ArenaRange::default(), span)
     }
@@ -309,6 +327,9 @@ impl Checker {
         args: ArenaRange,
         span: Span,
     ) -> Type {
+        if let Some(required) = api_spec().module_required_effect(module, name) {
+            self.require_effect(required, span, &format!("`{module}.{name}`"));
+        }
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", "check.unknown-module");
             return Type::Unknown;
@@ -451,6 +472,7 @@ impl Checker {
                 Type::Unit
             }
             CoreCommand::Cd => {
+                self.require_effect(Effect::Env, span, "`cd`");
                 if args.len() != 1 {
                     self.error(
                         span,
@@ -467,6 +489,7 @@ impl Checker {
                 Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
             }
             CoreCommand::Env => {
+                self.require_effect(Effect::Env, span, "`env`");
                 if !args.is_empty() {
                     self.error(span, "`env` accepts assignments", "check.core-env-arity");
                 }
@@ -516,6 +539,10 @@ impl Checker {
             self.check_run_segment_arena(arena, source, segment);
         }
         let is_pipeline = segments.len() > 1;
+        if segments.iter().skip(1).any(|segment| arena.arena.redirections(segment.redirections).iter().any(|item|
+            matches!(item.kind, crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup))) {
+            self.error(run_span, "stdin redirection is only valid on the first byte pipeline segment", "check.pipeline-stdin");
+        }
         if is_pipeline
             && segments
                 .iter()
@@ -635,6 +662,15 @@ impl Checker {
                 "check.cpumax",
             );
         }
+        if let Some(accept) = segment.accept {
+            let expected = Type::List(Box::new(Type::Int));
+            let actual = self.check_expr_arena(arena, source, accept, Some(&expected));
+            let span = arena.arena.expr(accept).span;
+            self.expect_type(&expected, &actual, span);
+            self.require_effect(Effect::Error, span, "explicit process completion validation");
+            self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
+            self.check_static_accepted_exit_codes(arena, accept);
+        }
         if matches!(
             segment.target.kind,
             ArenaCommandArgKind::SpliceName(_) | ArenaCommandArgKind::SpliceExpr(_)
@@ -653,8 +689,30 @@ impl Checker {
         for arg in arena.arena.command_args(segment.args) {
             self.check_external_arg_arena(arena, source, arg);
         }
-        for redirection in arena.arena.redirections(segment.redirections) {
-            self.check_redirection_arena(arena, source, redirection);
+        let redirections = arena.arena.redirections(segment.redirections);
+        let stdin_sources = redirections.iter().filter(|item| matches!(item.kind,
+            crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup)).count();
+        let mut bytes_input = false;
+        for redirection in redirections {
+            bytes_input |= self.check_redirection_arena(arena, source, redirection);
+        }
+        if bytes_input && stdin_sources > 1 {
+            self.error(arena.arena.span(segment.span), "Bytes input cannot compete with another stdin source", "check.stdin-source");
+        }
+    }
+
+    /// Validates bounded literal policies. Dynamic values use the earlier
+    /// run-option conversion boundary before a child starts.
+    pub(super) fn check_static_accepted_exit_codes(&mut self, arena: &ArenaProgram, expr: ExprId) {
+        let Some(crate::sema::constants::LiteralConstant::List(items)) = crate::sema::constants::LiteralConstant::analyze(
+            &arena.arena, expr, &rustc_hash::FxHashMap::default(),
+        ) else { return; };
+        let codes = items.iter().map(|item| match item {
+            crate::sema::constants::LiteralConstant::Int(value) => Some(*value),
+            _ => None,
+        }).collect::<Option<Vec<_>>>();
+        if let Some(codes) = codes && let Err(error) = crate::runtime::process::AcceptedExitCodes::new(&codes) {
+            self.error(arena.arena.expr(expr).span, &error.message, "check.accept-policy");
         }
     }
 
@@ -735,17 +793,21 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         redirection: &ArenaRedirection,
-    ) {
+    ) -> bool {
         match &redirection.target {
             ArenaRedirectionTarget::Path(arg) => {
                 let ty = self.check_command_arg_arena(arena, source, arg, None);
                 let arg_span = arena.arena.span(arg.span);
-                self.expect_command_value_conversion(&Type::Path, &ty, arg_span);
+                if redirection.kind != crate::syntax::node::RedirectionKind::StdinRead || ty != Type::Bytes {
+                    self.expect_command_value_conversion(&Type::Path, &ty, arg_span);
+                }
+                ty == Type::Bytes && redirection.kind == crate::syntax::node::RedirectionKind::StdinRead
             }
             ArenaRedirectionTarget::Fd(arg) => {
                 let ty = self.check_command_arg_arena(arena, source, arg, None);
                 let arg_span = arena.arena.span(arg.span);
                 self.expect_command_value_conversion(&Type::Int, &ty, arg_span);
+                false
             }
         }
     }

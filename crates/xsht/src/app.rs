@@ -49,11 +49,10 @@ pub fn main() -> ExitCode {
         }
         Ok(Command::Check {
             paths,
-            strict,
             annotation_selection,
             summary,
         }) => finish_command(|| {
-            check_paths_with_summary_options(&paths, strict, annotation_selection, summary)
+            check_paths_with_summary_options(&paths, annotation_selection, summary)
         }),
         Ok(Command::Fmt { files, check }) => finish_command(|| format_files(&files, check)),
         Ok(Command::Lint {
@@ -83,7 +82,6 @@ enum Command {
     Help(String),
     Check {
         paths: Vec<String>,
-        strict: bool,
         annotation_selection: Option<AnnotationSelection>,
         summary: bool,
     },
@@ -163,13 +161,12 @@ fn command_help_text(command: &str) -> String {
 }
 
 fn parse_check(args: &[String]) -> Result<Command, String> {
-    let mut strict = false;
     let mut summary = false;
     let mut annotation_selection = None;
     let mut paths = Vec::new();
     for arg in args {
         match arg.as_str() {
-            "--strict" => strict = true,
+            "--strict" => return Err("`xsht check --strict` was removed; dynamic boundaries are checked by default; remove `--strict`".to_string()),
             "--summary" => summary = true,
             "--annotate" => annotation_selection = Some(AnnotationSelection::Configured),
             "--help" | "-h" => return Ok(Command::Help(command_help_text("check"))),
@@ -190,7 +187,6 @@ fn parse_check(args: &[String]) -> Result<Command, String> {
     }
     Ok(Command::Check {
         paths,
-        strict,
         annotation_selection,
         summary,
     })

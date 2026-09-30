@@ -1,6 +1,11 @@
 #![allow(clippy::single_call_fn)]
 
-use crate::runtime::process::ProcessStatus;
+pub use crate::map_key::{MapKey, MapKeyRef};
+mod error_cause;
+mod resource_values;
+pub use error_cause::ErrorCause;
+
+use crate::runtime::process::{AcceptedExitCodes, ProcessStatus};
 use crate::source::Span;
 use crate::symbol::{Name, NameText, QualifiedName, SymbolOwner};
 use rustc_hash::FxHashMap;
@@ -866,7 +871,7 @@ pub enum Value {
     Regex(RegexValue),
     Path(PathValue),
     List(Vec<Value>),
-    Map(BTreeMap<String, Value>),
+    Map(BTreeMap<MapKey, Value>),
     Stream(Box<StreamValue>),
     Record(RecordMap),
     FsEntry(FsEntryValue),
@@ -884,8 +889,14 @@ pub enum Value {
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
+    FsRoot(FsRootValue),
     Unit,
-    Tag { name: Arc<str>, fields: Vec<Value> },
+    Tag {
+        type_name: Name,
+        name: Arc<str>,
+        fields: Vec<Value>,
+        wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+    },
 }
 
 impl Value {
@@ -932,6 +943,7 @@ impl Value {
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::NetJob(_) => "NetJob",
+            Self::FsRoot(_) => "FsRoot",
             Self::Unit => "Unit",
             Self::Tag { .. } => "Tag",
         }
@@ -1036,6 +1048,7 @@ pub struct CommandPlan {
     pub redirections: Vec<CommandRedirection>,
     pub timeout: Option<DurationValue>,
     pub cpu_max: Option<i64>,
+    pub accepted_exit_codes: Option<AcceptedExitCodes>,
     pub detach: bool,
     pub new_session: bool,
     pub ignore_hup: bool,
@@ -1043,6 +1056,7 @@ pub struct CommandPlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandRedirection {
+    Input { bytes: Arc<[u8]> },
     File {
         stream: CommandRedirectionStream,
         mode: CommandRedirectionMode,
@@ -1073,6 +1087,22 @@ pub struct ProcessHandleValue {
     pub detached: bool,
 }
 
+/// Opaque filesystem capability identity. Aliases share explicit close state;
+/// child roots retain their own open directory handle. The owner token prevents
+/// a capability passed between evaluators from selecting an unrelated slot.
+#[derive(Clone, Debug)]
+pub struct FsRootValue {
+    pub(crate) id: i64,
+    pub(crate) owner: Arc<()>,
+}
+
+impl PartialEq for FsRootValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for FsRootValue {}
+
 /// Opaque evaluator-owned network job identity.
 ///
 /// The evaluator's live-job registry owns the transport task, completion
@@ -1097,17 +1127,41 @@ pub struct StreamValue {
     pub(crate) script: Option<ScriptStreamState>,
 }
 
+/// A pull either emits a value, ends, or asks the evaluator to pull a child.
+/// Child pulls are scheduled iteratively so delegation depth does not consume
+/// the native call stack.
+pub(crate) enum ScriptStreamStep {
+    Yielded(Value),
+    Finished,
+    Delegate {
+        child: ScriptStreamState,
+        span: Span,
+        scopes: Vec<u64>,
+        context: Option<crate::runtime::eval::ScopedProducerContext>,
+    },
+}
+
 /// A script producer as a stream value sees it.
 pub(crate) trait ScriptStream: Send {
     /// Whether the producer has already finished or been stopped.
     fn finished(&self) -> bool;
 
     /// Resumes the producer until it yields, finishes, or fails.
-    fn pull(
+    fn poll(
         &mut self,
         evaluator: &mut crate::runtime::eval::Evaluator,
         span: Span,
-    ) -> Result<Option<Value>, RuntimeError>;
+    ) -> Result<ScriptStreamStep, RuntimeError>;
+
+    /// Validate one reached item before it crosses this producer's boundary.
+    fn validate_item(&self, value: &Value, span: Span) -> Result<(), RuntimeError>;
+
+    /// Resume this frame after its delegated child has exhausted.
+    fn delegated_finished(&mut self);
+
+    /// Removes an active child before cancellation, retaining parent scopes
+    /// while the driver stops the child first.
+    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>);
 
     /// Stops a producer early, running the defers its body registered.
     fn cancel(
@@ -1137,6 +1191,10 @@ impl ScriptStreamState {
         self.producer.lock().map_err(|_| {
             RuntimeError::new("stream-state", "stream producer state is poisoned").with_span(span)
         })
+    }
+
+    pub(crate) fn identity(&self) -> usize {
+        Arc::as_ptr(&self.producer) as usize
     }
 
     pub(crate) fn same_as(&self, other: &Self) -> bool {
@@ -1367,7 +1425,12 @@ pub struct RuntimeError {
     pub facets: Vec<String>,
     pub span: Option<Span>,
     pub contexts: Vec<ErrorContext>,
+    pub cause: Option<ErrorCause>,
     pub abort: Option<AbortSignal>,
+    // Checked propagation may cross runtime-error transport before local capture.
+    pub(crate) propagated: bool,
+    // Retain process payloads that the diagnostic error representation cannot hold.
+    pub(crate) propagated_run_error: Option<Box<RunError>>,
     pub(crate) family_name: Name,
     pub(crate) variant_name: Name,
     pub(crate) _symbols: SymbolOwner,
@@ -1387,7 +1450,10 @@ impl RuntimeError {
             facets: Vec::new(),
             span: None,
             contexts: Vec::new(),
+            cause: None,
             abort: None,
+            propagated: false,
+            propagated_run_error: None,
             family_name: Name::ERROR,
             variant_name,
             _symbols: symbols,
@@ -1422,7 +1488,10 @@ impl RuntimeError {
             facets,
             span: None,
             contexts: Vec::new(),
+            cause: None,
             abort: None,
+            propagated: false,
+            propagated_run_error: None,
             family_name,
             variant_name,
             _symbols: symbols,
@@ -1440,6 +1509,9 @@ impl RuntimeError {
             facets: Vec::new(),
             span: None,
             contexts: Vec::new(),
+            propagated: false,
+            propagated_run_error: None,
+            cause: None,
             abort: Some(AbortSignal { status, force }),
             family_name: Name::ERROR,
             variant_name: symbols.intern("Abort"),
@@ -1476,6 +1548,7 @@ pub struct AbortSignal {
 pub struct ErrorContext {
     pub kind: String,
     pub message: Option<String>,
+    pub span: Option<Span>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1485,6 +1558,7 @@ pub struct RunError {
     pub span: Option<Span>,
     pub status: Option<Box<ProcessStatus>>,
     pub contexts: Vec<ErrorContext>,
+    pub cause: Option<ErrorCause>,
 }
 
 impl RunError {
@@ -1495,6 +1569,7 @@ impl RunError {
             span: None,
             status: None,
             contexts: Vec::new(),
+            cause: None,
         }
     }
 
@@ -1505,6 +1580,7 @@ impl RunError {
             span: None,
             status: status.map(Box::new),
             contexts: Vec::new(),
+            cause: None,
         }
     }
 
@@ -1516,6 +1592,7 @@ impl RunError {
             span: None,
             status: Some(Box::new(status)),
             contexts: Vec::new(),
+            cause: None,
         }
     }
 
@@ -1539,6 +1616,7 @@ impl RunError {
             "not-found" => "NotFound",
             "permission-denied" => "PermissionDenied",
             "nonzero-exit" => "NonzeroExit",
+            "unexpected-exit" => "UnexpectedExit",
             "signal" => "Signal",
             "timeout" => "Timeout",
             "canceled" => "Canceled",
@@ -1565,7 +1643,7 @@ impl RunError {
             "CaptureLimit" => vec!["CaptureLimit".to_string()],
             "InvalidUtf8" | "InvalidTarget" => vec!["InvalidData".to_string()],
             "Io" | "Redirection" => vec!["HostIo".to_string()],
-            "PipelineFailure" | "ExecFailure" | "Spawn" => vec!["ProcessFailure".to_string()],
+            "PipelineFailure" | "ExecFailure" | "Spawn" | "UnexpectedExit" => vec!["ProcessFailure".to_string()],
             _ => Vec::new(),
         }
     }
@@ -1791,7 +1869,10 @@ mod tests {
 
     #[test]
     fn value_layout_stays_within_the_compact_runtime_budget() {
-        assert_eq!(size_of::<Value>(), 48);
+        // Tag values retain one shared wire-mapping pointer alongside their
+        // nominal name and fields; the compact enum budget includes that word.
+        assert_eq!(size_of::<Value>(), 56);
+        assert_eq!(size_of::<Option<Arc<crate::sema::wire_enums::WireEnumMapping>>>(), 8);
     }
 
     #[test]

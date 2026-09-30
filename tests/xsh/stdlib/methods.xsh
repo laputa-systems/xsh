@@ -1,6 +1,6 @@
 error TestBaseError = Base(message: Str)
 
-proc test_list_push_and_extend_preserve_older_values() [error] {
+test test_list_push_and_extend_preserve_older_values [error] {
   let base = [1, 2]
   let alias = base
   let pushed = base.push(3)
@@ -12,14 +12,129 @@ proc test_list_push_and_extend_preserve_older_values() [error] {
   extended == [1, 2, 3, 4, 5]
 }
 
-proc test_collection_number_text_status_and_result_methods() [process, error] {
+test test_list_concatenation_and_compound_assignment_preserve_aliases [error] {
+  var items: List[Int] = []
+  items += []
+  items += [1]
+  let alias = items
+  items += [2, 3]
+  test.eq(alias, [1])?
+  test.eq(items, [1, 2, 3])?
+  items += items
+  test.eq(items, [1, 2, 3, 1, 2, 3])?
+  test.eq(alias, [1])?
+  let joined = alias + [4, 5]
+  test.eq(joined, alias.extend([4, 5]))?
+  test.eq([] + [6], [6])?
+  test.eq([6] + [], [6])?
+  let empty: List[Str] = [] + []
+  test.eq(empty, [])?
+  var container = {items: [1]}
+  let record_alias = container
+  container.items += [2]
+  test.eq(container.items, [1, 2])?
+  test.eq(record_alias.items, [1])?
+  container.items += container.items
+  test.eq(container.items, [1, 2, 1, 2])?
+  test.eq(record_alias.items, [1])?
+  var table: Map[List[Int]] = map.empty().set("entry", [1])
+  let table_alias = table
+  table["entry"] += [2]
+  test.eq(table.get("entry")?, [1, 2])?
+  test.eq(table_alias.get("entry")?, [1])?
+  table["entry"] += table.get("entry")?
+  test.eq(table.get("entry")?, [1, 2, 1, 2])?
+  test.eq(table_alias.get("entry")?, [1])?
+}
+
+test test_list_compound_assignment_checks_targets_and_elements [error] { |ctx|
+  for source in [
+    "var items = [1]\nitems += 2\n",
+    "var items = [1]\nitems += [\"wrong\"]\n",
+    "let items = [1]\nitems += [2]\n",
+    "var items = [1]\nitems -= [2]\n",
+    "let items = [1] + [\"wrong\"]\n",
+  ] {
+    let result = test.run_script(ctx, source)?
+    test.ok(! result.success, result.stderr)?
+    "check." in result.stderr
+  }
+}
+
+test test_list_compound_assignment_evaluates_selectors_before_rhs_once [error] { |ctx|
+  let result = test.run_script(
+    ctx,
+    r"""proc key() [io] -> Str {
+  print "selector"
+  return "entry"
+}
+proc more() [io] -> List[Int] {
+  print "rhs"
+  return [2]
+}
+proc item() [io] -> Int {
+  print "item"
+  return 3
+}
+var table: Map[List[Int]] = map.empty().set("entry", [1])
+table[key()] += more()
+table[key()] += [item()]
+let values = table.get("entry")?
+print ${values[0]} ${values[1]} ${values[2]}
+""",
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "selector\nrhs\nselector\nitem\n1 2 3\n")?
+}
+
+test test_list_concatenation_evaluates_operands_once_in_source_order [error] { |ctx|
+  let result = test.run_script(
+    ctx,
+    r"""proc left() [io] -> List[Int] {
+  print "left"
+  return [1]
+}
+proc right() [io] -> List[Int] {
+  print "right"
+  return [2]
+}
+let values = left() + right()
+print values.len()
+""",
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "left\nright\n2\n")?
+}
+
+test test_list_compound_assignment_retains_target_on_dynamic_rhs_failure [error] { |ctx|
+  let result = test.run_script(
+    ctx,
+    r"""pure wrong() -> Any {
+  return 2
+}
+proc report(values: List[Int]) [io] -> Unit {
+  print values.len()
+}
+proc main() [io, error] {
+  var values = [1]
+  defer report(values)
+  values += wrong().require(List[Int])?
+}
+""",
+  )?
+  test.ok(! result.success, result.stderr)?
+  "schema check failed at $: expected List, found Int" in result.stderr
+  test.eq(result.stdout, "1\n")?
+}
+
+test test_collection_number_text_status_and_result_methods [process, error] {
   let base = ["alpha"]
   let pushed = base.push("beta")
   let extended = pushed.extend(["gamma"])
   extended.len() == 3
   ("gamma" in extended)
   extended.get(0)? == "alpha"
-  extended.get(9, "fallback") == "fallback"
+  (extended.get(9) ?? "fallback") == "fallback"
   ["a", "b", "c"].join(":") == "a:b:c"
   3.float().format(precision: 1) == "3.0"
   3.2.floor()? == 3
@@ -65,13 +180,13 @@ b
 
   "one two".count_words() == 2
   "caf\u{e9}".count_chars() == 4
-  "caf\u{e9}".count_bytes() == 5
   "caf\u{e9}".byte_len() == 5
-  "caf\u{e9}".byte_at(0) == 99
-  "caf\u{e9}".byte_at(3) == 195
-  "caf\u{e9}".byte_at(4) == 169
-  "caf\u{e9}".byte_at(9) == -1
-  "caf\u{e9}".byte_at(9, default: 0) == 0
+  "caf\u{e9}".byte_len() == 5
+  ("caf\u{e9}".byte_at(0) ?? -1) == 99
+  ("caf\u{e9}".byte_at(3) ?? -1) == 195
+  ("caf\u{e9}".byte_at(4) ?? -1) == 169
+  "caf\u{e9}".byte_at(9) == null
+  ("caf\u{e9}".byte_at(9) ?? 0) == 0
   "caf\u{e9}".byte_slice(0, 3) == "caf"
   "caf\u{e9}".byte_slice(3) == "\u{e9}"
 
@@ -82,7 +197,7 @@ beta""".find("\n") == 5
 beta""".find("a", 1) == 4
 
   """alpha
-beta""".find("z") == -1
+beta""".find("z") == null
 
   "42".parse_int()? == 42
   "42".parse_int_decimal()? == 42
@@ -116,7 +231,7 @@ beta""".find("z") == -1
   test.error_kind(result.context("wrapped", "extra"), "TestBaseError.Base")?
 }
 
-proc test_int_bitset_methods(ctx: TestContext) [fs, error] {
+test test_int_bitset_methods [fs, error] { |ctx|
   let mode = 0o754
   mode.bit_and(0o070) == 0o050
   mode.bit_or(0o002) == 0o756

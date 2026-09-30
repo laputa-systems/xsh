@@ -32,7 +32,6 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("FsLock", fs_lock_type()),
         ("FsMount", fs_mount_type()),
         ("FsRemoveManifestResult", fs_remove_manifest_result_type()),
-        ("FsRoot", fs_root_type()),
         ("FsRootChildrenResult", fs_root_children_result_type()),
         ("FsRootReadResult", fs_root_read_result_type()),
         ("FsRootReadlinkResult", fs_root_readlink_result_type()),
@@ -277,7 +276,7 @@ pub fn mime_info_type() -> Type {
 pub fn mime_parse_type() -> Type {
     Type::Record(name_type_map(vec![
         ("type".to_string(), Type::Str),
-        ("params".to_string(), Type::Map(Box::new(Type::Str))),
+        ("params".to_string(), Type::Map(Box::new(Type::Str), Box::new(Type::Str))),
     ]))
 }
 
@@ -330,7 +329,7 @@ pub fn fs_lock_type() -> Type {
 }
 
 pub fn fs_root_type() -> Type {
-    Type::Record(name_type_map(vec![("id".to_string(), Type::Int)]))
+    Type::FsRoot
 }
 
 pub fn fs_root_children_result_type() -> Type {

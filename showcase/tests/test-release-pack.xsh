@@ -1,4 +1,4 @@
-proc test_release_pack(ctx: TestContext) [fs, process, error] {
+test test_release_pack [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "release-src")?
   let out = test.temp_path(ctx, name: "release-out")
   fp"${root}/bin".mkdir()?
@@ -9,7 +9,7 @@ proc test_release_pack(ctx: TestContext) [fs, process, error] {
   ! fp"${out.parent}/.${out.name()}.xsh-stage".exists()?
 }
 
-proc test_release_pack_refuses_existing_output(ctx: TestContext) [fs, process, error] {
+test test_release_pack_refuses_existing_output [fs, process, error] { |ctx|
   let source = test.temp_dir(ctx, name: "release-source")?
   fp"${source}/input".write("new release")?
   let out = test.temp_dir(ctx, name: "existing-release")?
@@ -21,7 +21,7 @@ proc test_release_pack_refuses_existing_output(ctx: TestContext) [fs, process, e
   old_archive.read_text()? == "previous release"
 }
 
-proc test_release_pack_cleans_failed_staging(ctx: TestContext) [fs, process, error] {
+test test_release_pack_cleans_failed_staging [fs, process, error] { |ctx|
   let source = test.temp_file(ctx, name: "not-a-directory", contents: b"invalid source")?
   let out = test.temp_path(ctx, name: "new-release")
   let pending = fp"${out.parent}/.${out.name()}.xsh-stage"
@@ -31,7 +31,7 @@ proc test_release_pack_cleans_failed_staging(ctx: TestContext) [fs, process, err
   ! pending.exists()?
 }
 
-proc test_release_pack_rejects_output_inside_input(ctx: TestContext) [fs, process, error] {
+test test_release_pack_rejects_output_inside_input [fs, process, error] { |ctx|
   let source = test.temp_dir(ctx, name: "nested-source")?
   fp"${source}/input".write("unchanged")?
   let out = fp"${source}/release"

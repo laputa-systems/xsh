@@ -42,9 +42,13 @@ pub(super) enum TypeTag {
     Command,
     ProcessHandle,
     NetJob,
+    FsRoot,
     Unit,
     Tag,
     Optional,
+    UInt,
+    ErasedRecord,
+    DynamicModule,
 }
 
 impl TypeTag {
@@ -52,9 +56,12 @@ impl TypeTag {
         matches!(
             self,
             Self::Any
+                | Self::ErasedRecord
+                | Self::DynamicModule
                 | Self::Null
                 | Self::Bool
                 | Self::Int
+                | Self::UInt
                 | Self::Float
                 | Self::Duration
                 | Self::Str
@@ -71,12 +78,13 @@ impl TypeTag {
                 | Self::Command
                 | Self::ProcessHandle
                 | Self::NetJob
+                | Self::FsRoot
                 | Self::Unit
         )
     }
 
     fn has_one_type(self) -> bool {
-        matches!(self, Self::List | Self::Map | Self::Stream | Self::Optional)
+        matches!(self, Self::List | Self::Stream | Self::Optional)
     }
 
     fn has_one_name(self) -> bool {
@@ -213,9 +221,12 @@ impl SemanticPools {
         };
         Ok(match tag {
             TypeTag::Any => Type::Any,
+            TypeTag::ErasedRecord => Type::ErasedRecord,
+            TypeTag::DynamicModule => Type::DynamicModule,
             TypeTag::Null => Type::Null,
             TypeTag::Bool => Type::Bool,
             TypeTag::Int => Type::Int,
+            TypeTag::UInt => Type::UInt,
             TypeTag::Float => Type::Float,
             TypeTag::Duration => Type::Duration,
             TypeTag::Str => Type::Str,
@@ -224,7 +235,7 @@ impl SemanticPools {
             TypeTag::Regex => Type::Regex,
             TypeTag::Path => Type::Path,
             TypeTag::List => Type::List(Box::new(child(data.lhs)?)),
-            TypeTag::Map => Type::Map(Box::new(child(data.lhs)?)),
+            TypeTag::Map => Type::Map(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
             TypeTag::Stream => Type::Stream(Box::new(child(data.lhs)?)),
             TypeTag::Record => {
                 let (names, raw_types) = self.record_fields(id)?;
@@ -299,6 +310,7 @@ impl SemanticPools {
             TypeTag::Command => Type::Command,
             TypeTag::ProcessHandle => Type::ProcessHandle,
             TypeTag::NetJob => Type::NetJob,
+            TypeTag::FsRoot => Type::FsRoot,
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
@@ -363,9 +375,12 @@ impl SemanticPools {
         let data = self.type_data[id.index()];
         let scalar = match tag {
             TypeTag::Any => Some("Any"),
+            TypeTag::ErasedRecord => Some("Record"),
+            TypeTag::DynamicModule => Some("Module"),
             TypeTag::Null => Some("Null"),
             TypeTag::Bool => Some("Bool"),
             TypeTag::Int => Some("Int"),
+            TypeTag::UInt => Some("UInt"),
             TypeTag::Float => Some("Float"),
             TypeTag::Duration => Some("Duration"),
             TypeTag::Str => Some("Str"),
@@ -384,6 +399,7 @@ impl SemanticPools {
             TypeTag::Command => Some("Command"),
             TypeTag::ProcessHandle => Some("ProcessHandle"),
             TypeTag::NetJob => Some("NetJob"),
+            TypeTag::FsRoot => Some("FsRoot"),
             TypeTag::Unit => Some("Unit"),
             _ => None,
         };
@@ -396,7 +412,6 @@ impl SemanticPools {
             let inner = self.display_type_inner(inner, depth + 1)?;
             return Ok(match tag {
                 TypeTag::List => format!("List[{inner}]"),
-                TypeTag::Map => format!("Map[{inner}]"),
                 TypeTag::Stream => format!("Stream[{inner}]"),
                 TypeTag::Optional => format!("{inner}?"),
                 _ => unreachable!("one-type tags are exhaustive"),
@@ -406,6 +421,13 @@ impl SemanticPools {
             return Ok(Name::from_symbol(Symbol::from_raw(data.lhs)).to_string());
         }
         match tag {
+            TypeTag::Map => {
+                let key = TypeId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("map key type id is invalid"))?;
+                let value = TypeId::from_raw(data.rhs).ok_or_else(|| IrVerifyError::new("map value type id is invalid"))?;
+                let key = self.display_type_inner(key, depth + 1)?;
+                let value = self.display_type_inner(value, depth + 1)?;
+                Ok(if key == "Str" { format!("Map[{value}]") } else { format!("Map[{key}, {value}]") })
+            }
             TypeTag::Result => {
                 let ok = TypeId::from_raw(data.lhs)
                     .ok_or_else(|| IrVerifyError::new("result ok type id is invalid"))?;
@@ -520,9 +542,15 @@ impl SemanticPools {
                 continue;
             }
             match tag {
-                TypeTag::Result => {
+                TypeTag::Map | TypeTag::Result => {
                     verify_type_raw(self, data.lhs, Some(index))?;
                     verify_type_raw(self, data.rhs, Some(index))?;
+                    if tag == TypeTag::Map {
+                        let key = TypeId::from_raw(data.lhs).expect("verified key type id");
+                        if !matches!(self.type_tags[key.index()], TypeTag::Any | TypeTag::Str | TypeTag::Int | TypeTag::UInt | TypeTag::Bool | TypeTag::Bytes | TypeTag::Path | TypeTag::Duration) {
+                            return Err(IrVerifyError::new("Map key type is not an ordered scalar domain"));
+                        }
+                    }
                 }
                 TypeTag::ErrorVariant => {}
                 TypeTag::Record => {
@@ -731,13 +759,18 @@ impl SemanticPoolBuilder {
         ty: &Type,
     ) -> Result<TypeId, IrBuildError> {
         let (key, data, extra) = match ty {
-            Type::Unknown | Type::Invalid => {
+            Type::Inference(_) => {
+                return Err(IrBuildError::format("unresolved_type", None, 0, 0));
+            }
+            Type::BuiltinParameter(_) | Type::Unknown | Type::Invalid => {
                 return Err(IrBuildError::format("recovery_type", None, 0, 0));
             }
             Type::Any => scalar(TypeTag::Any),
+            Type::ErasedRecord => scalar(TypeTag::ErasedRecord),
             Type::Null => scalar(TypeTag::Null),
             Type::Bool => scalar(TypeTag::Bool),
             Type::Int => scalar(TypeTag::Int),
+            Type::UInt => scalar(TypeTag::UInt),
             Type::Float => scalar(TypeTag::Float),
             Type::Duration => scalar(TypeTag::Duration),
             Type::Str => scalar(TypeTag::Str),
@@ -746,7 +779,11 @@ impl SemanticPoolBuilder {
             Type::Regex => scalar(TypeTag::Regex),
             Type::Path => scalar(TypeTag::Path),
             Type::List(inner) => self.unary(pools, TypeTag::List, inner)?,
-            Type::Map(inner) => self.unary(pools, TypeTag::Map, inner)?,
+            Type::Map(key, value) => {
+                let key = self.intern_type(pools, key)?;
+                let value = self.intern_type(pools, value)?;
+                (TypeKey::Pair(TypeTag::Map, key, value), IrData::new(key.raw(), value.raw()), Vec::new())
+            },
             Type::Stream(inner) => self.unary(pools, TypeTag::Stream, inner)?,
             Type::Record(fields) => {
                 let names = fields.keys().copied().collect::<Vec<_>>();
@@ -785,7 +822,7 @@ impl SemanticPoolBuilder {
                 let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
                 (key, IrData::new(shape.raw(), start), words)
             }
-            Type::DynamicModule => scalar(TypeTag::Module),
+            Type::DynamicModule => scalar(TypeTag::DynamicModule),
             Type::Result(ok, err) => {
                 let ok = self.intern_type(pools, ok)?;
                 let err = self.intern_type(pools, err)?;
@@ -811,6 +848,7 @@ impl SemanticPoolBuilder {
             Type::Command => scalar(TypeTag::Command),
             Type::ProcessHandle => scalar(TypeTag::ProcessHandle),
             Type::NetJob => scalar(TypeTag::NetJob),
+            Type::FsRoot => scalar(TypeTag::FsRoot),
             Type::Unit => scalar(TypeTag::Unit),
             Type::Tag(name) => named(TypeTag::Tag, *name),
             Type::Optional(inner) => self.unary(pools, TypeTag::Optional, inner)?,
@@ -990,6 +1028,20 @@ fn checked_u32(value: usize, construct: &'static str) -> Result<u32, IrBuildErro
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn typed_map_keys_semantic_pool_retains_both_types_and_rejects_float_keys() {
+        let mut pools = super::SemanticPools::default();
+        let mut builder = super::SemanticPoolBuilder::default();
+        let float = builder.intern_type(&mut pools, &crate::sema::types::Type::Float).unwrap();
+        let map = crate::sema::types::Type::Map(Box::new(crate::sema::types::Type::UInt), Box::new(crate::sema::types::Type::Str));
+        let id = builder.intern_type(&mut pools, &map).unwrap();
+        pools.verify().unwrap();
+        assert_eq!(pools.to_type(id).unwrap(), map);
+        assert_eq!(pools.display_type(id).unwrap(), "Map[UInt, Str]");
+        pools.type_data[id.index()].lhs = float.raw();
+        assert!(pools.verify().unwrap_err().message.contains("Map key type"));
+    }
+
     use super::*;
     use crate::sema::types::{CallableParamType, CallableType};
     use std::collections::BTreeMap;
@@ -1064,6 +1116,23 @@ mod tests {
         let module_shape = ShapeId::from_raw(pools.type_data[module_id.index()].lhs).unwrap();
         assert_eq!(record_shape, module_shape);
         assert_eq!(pools.shape_count(), 1);
+        pools.verify().unwrap();
+    }
+
+    #[test]
+    fn erased_record_and_module_facts_remain_distinct_from_empty_shapes() {
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let erased_record = builder.intern_type(&mut pools, &Type::ErasedRecord).unwrap();
+        let empty_record = builder.intern_type(&mut pools, &Type::Record(BTreeMap::new())).unwrap();
+        let dynamic_module = builder.intern_type(&mut pools, &Type::DynamicModule).unwrap();
+        let empty_module = builder.intern_type(&mut pools, &Type::Module(BTreeMap::new())).unwrap();
+        assert_ne!(erased_record, empty_record);
+        assert_ne!(dynamic_module, empty_module);
+        assert_eq!(pools.to_type(erased_record).unwrap(), Type::ErasedRecord);
+        assert_eq!(pools.to_type(empty_record).unwrap(), Type::Record(BTreeMap::new()));
+        assert_eq!(pools.to_type(dynamic_module).unwrap(), Type::DynamicModule);
+        assert_eq!(pools.to_type(empty_module).unwrap(), Type::Module(BTreeMap::new()));
         pools.verify().unwrap();
     }
 

@@ -1,9 +1,9 @@
-proc test_path_absolute() [fs, error] {
+test test_path_absolute [fs, error] {
   let absolute = path.absolute(p"docs")?
   absolute.display().ends_with("/docs")
 }
 
-proc test_membership_operator_supports_strings_lists_bytes_and_paths() [error] {
+test test_membership_operator_supports_strings_lists_bytes_and_paths [error] {
   ("lib" in "usr/lib/libz.so")
   ("libz.so" in ["libz.so", "libc.so"])
   (b"TODO" in b"one TODO two")
@@ -11,7 +11,7 @@ proc test_membership_operator_supports_strings_lists_bytes_and_paths() [error] {
   (p"bin" in p"usr/lib/libz.so") == false
 }
 
-proc test_path_methods(ctx: TestContext) [fs, error] {
+test test_path_methods [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "path-methods")?
   let file = fp"${root}/dir/file.txt"
   file.parent().mkdir()?
@@ -70,7 +70,7 @@ proc test_path_methods(ctx: TestContext) [fs, error] {
   Path.parse_bytes(b"byte/path")?.display() == "byte/path"
 }
 
-proc test_path_edge_cases_and_standard_record_schema(ctx: TestContext) [fs, process, error] {
+test test_path_edge_cases_and_standard_record_schema [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "path-edge")?
   let spaced = fp"${root}/space name"
 
@@ -105,7 +105,7 @@ pure path_entry_name(entry: FsEntry) -> Str {
   return entry.name
 }
 
-proc test_absolute_glob_traverses_symlinked_literal_components(ctx: TestContext) [fs, error] {
+test test_absolute_glob_traverses_symlinked_literal_components [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "absolute-glob-symlink")?
   let real = fp"${root}/real"
   let link = fp"${root}/link"
@@ -125,4 +125,49 @@ print \${files[0]}
 
   output.stdout == """hit.txt
 """
+}
+
+test test_path_interpolation_retains_native_bytes_and_text_boundaries [error] { |ctx|
+  let raw = Path.parse_bytes(b"raw\xff name")?
+  test.ok(fp"prefix/${raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?)?
+  test.ok(fp"${p"left"}/${"right"}/${7}/${false}" == p"left/right/7/false")?
+  test.ok(fp"${raw:>12}" == Path.parse_bytes(b"   raw\xff name")?)?
+  test.eq(f"${raw}", raw.display())?
+  test.ok(fp"${raw.display()}" != raw)?
+  let output = test.run_script(ctx, r"""
+let raw = Path.parse_bytes(b"raw\xff name/'\"")?
+run printf "%s" "--target=$raw" ?
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout_bytes, b"--target=raw\xff name/'\"")?
+}
+
+test test_path_interpolation_rejects_nul_and_keeps_effect_order [error] { |ctx|
+  let failed = test.run_script(ctx, r"""
+let text = "\0"
+let invalid = fp"prefix/${text}"
+print "unexpected"
+""")?
+  test.ok(!failed.success)?
+  test.ok("NUL" in failed.stderr)?
+  let argv_failed = test.run_script(ctx, r"""
+let text = "\0"
+run printf "%s" "value=$text" ?
+""")?
+  test.ok(!argv_failed.success)?
+  test.ok("NUL" in argv_failed.stderr)?
+  test.eq(argv_failed.stdout_bytes, b"")?
+  let bytes_failed = test.run_script(ctx, r"""
+let invalid = fp"${b"raw"}"
+""")?
+  test.ok(!bytes_failed.success)?
+  test.ok("display" in bytes_failed.stderr)?
+  let ordered = test.run_script(ctx, r"""
+proc piece(label: Str) [io] -> Path { print --flush $label; return Path(label) }
+let result = fp"${piece("first")}/${piece("second")}/../last"
+print --flush $result
+run printf "%s\n" "${piece("third")}/${piece("fourth")}" ?
+""")?
+  test.ok(ordered.success, ordered.stderr)?
+  test.eq(ordered.stdout, "first\nsecond\nfirst/second/../last\nthird\nfourth\nthird/fourth\n")?
 }

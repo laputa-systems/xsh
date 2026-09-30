@@ -1,20 +1,26 @@
+use crate::runtime::eval::lowered_run::validate_parameter_default;
+use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
+use crate::map_key::MapKey;
+use super::{LoweredMapCursor, LoweredScalarCursor};
+use crate::runtime::eval::LoweredCompTarget;
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
 };
 use super::{
-    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
+    checked_indexed_assignment, IndexedAssignStep, ResolvedAssignStep, decode_assign_path, apply_indexed_path_assignment, resolve_assign_index, IndexedCompQualifier, decode_comp_qualifiers, decode_record_updates, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
-    LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
-    indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
-    lowered_assign_value, lowered_binary_value, lowered_bytes_parts,
+    comparison_chain_assertion_failure, indexed_callable_identity, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
+    append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
-    lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
-    lowered_str_parts, lowered_value_from_runtime_any, lowered_value_satisfies_require,
-    push_lowered_fmt_value,
+    lowered_splice_arg_items, lowered_result_ok, lowered_result_err_value,
+
+    lowered_str_parts, lowered_value_from_runtime_any,
+    push_lowered_fmt_value, push_lowered_native_fmt_value, capture_checked_error,
 };
 
 enum FrameValue {
@@ -30,16 +36,29 @@ enum FrameRecordEntry {
     Spread(u32),
 }
 
+// Pending projections and the work stack share producer ownership so error and
+// return unwinding can cancel every active producer from innermost to outermost.
+// The mutex keeps frame state movable between evaluator threads; only the
+// active evaluator pulls the streams.
+type CompStreams = Arc<std::sync::Mutex<Vec<Option<(StreamValue, Span)>>>>;
+
+enum CompIterator {
+    Scalars { cursor: LoweredScalarCursor, clause: usize },
+    Map { cursor: LoweredMapCursor, clause: usize },
+    Items { items: std::vec::IntoIter<LoweredValue>, clause: usize },
+    Stream { stream: usize, clause: usize },
+}
+
 struct ListCompState {
     map: bool,
     key: Option<u32>,
     value: u32,
-    target: LoweredCompTarget,
-    condition: Option<u32>,
-    items: Vec<LoweredValue>,
-    index: usize,
+    qualifiers: Vec<IndexedCompQualifier>,
+    cursor: usize,
+    iterators: Vec<CompIterator>,
+    streams: CompStreams,
     values: Vec<LoweredValue>,
-    map_values: BTreeMap<String, LoweredValue>,
+    map_values: BTreeMap<MapKey, LoweredValue>,
     span: Span,
 }
 
@@ -47,6 +66,7 @@ struct FmtState {
     parts: Vec<FmtPart>,
     index: usize,
     text: String,
+    native: Vec<u8>,
     path_span: Option<Span>,
 }
 
@@ -56,18 +76,68 @@ enum FmtPart {
     Expr(u32, Span, Option<FormatSpec>),
 }
 
+struct AssignPathState {
+    slot: usize,
+    path: Vec<IndexedAssignStep>,
+    selectors: Vec<ResolvedAssignStep>,
+    position: usize,
+    op: AssignOp,
+    value: u32,
+    singleton: bool,
+    check: Option<LoweredTypeCheck>,
+    span: Span,
+}
+
 enum FrameContinuation {
+    WithBinding {
+        bindings: Vec<(usize, u32)>,
+        position: usize,
+        body: u32,
+        else_param_slot: Option<usize>,
+        else_body: u32,
+        span: Span,
+    },
+    GuardInput {
+        target: LoweredCompTarget,
+        else_param_slot: Option<usize>,
+        else_body: u32,
+        span: Span,
+    },
     Store(usize),
+    ParameterDefault { slot: usize, kind: LoweredType, check: Option<LoweredTypeCheck>, span: Span },
     Assign {
         slot: usize,
         op: AssignOp,
+        singleton: bool,
+        check: Option<LoweredTypeCheck>,
         span: Span,
     },
+    AssignSelector(AssignPathState),
+    AssignPath(AssignPathState),
     Return,
+    BlockValue,
+    ErrorContextEntry { body: u32, span: Span, next: Box<FrameContinuation> },
+    ContextScopeEntry { kind: crate::syntax::arena::ContextScopeKind, body: u32, span: Span, next: Box<FrameContinuation> },
     Discard(Span),
     Assert { span: Span, next: Box<FrameContinuation> },
     AssertLeft { op: BinaryOp, right: u32, span: Span, next: Box<FrameContinuation> },
     AssertRight { op: BinaryOp, left: LoweredValue, span: Span, next: Box<FrameContinuation> },
+    ComparisonLeft {
+        pairs: Vec<(BinaryOp, u32, Span)>,
+        assertion: bool,
+        next: Box<FrameContinuation>,
+    },
+    ComparisonRight {
+        left: LoweredValue,
+        pairs: Vec<(BinaryOp, u32, Span)>,
+        position: usize,
+        assertion: bool,
+        next: Box<FrameContinuation>,
+    },
+    Field { name: String, span: Span, next: Box<FrameContinuation> },
+    IndexBase { instruction: u32, span: Span, next: Box<FrameContinuation> },
+    IndexValue { base: LoweredValue, span: Span, next: Box<FrameContinuation> },
+    ModuleArguments { op: super::RuntimeOp, cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>, args: Vec<Option<u32>>, position: usize, values: Vec<Option<LoweredValue>>, span: Span, next: Box<FrameContinuation> },
     BinaryLeft {
         op: BinaryOp,
         right: u32,
@@ -141,10 +211,14 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     BreakLoop,
-    Defer,
     /// A `yield` statement's value: the frame suspends here and hands the value
     /// to whoever pulled the producer.
     Yield,
+    YieldDelegate {
+        span: Span,
+    },
+    DynamicCallee { args: Vec<(u32, u32)>, span: Span, next: Box<FrameContinuation> },
+    DynamicArguments { callee: LoweredValue, args: Vec<(u32, u32)>, argument: usize, values: Vec<LoweredValue>, span: Span, next: Box<FrameContinuation> },
     CallArguments {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
@@ -155,8 +229,14 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     WrapOk(Box<FrameContinuation>),
-    WrapErr(Box<FrameContinuation>),
+    WrapErr { cause: Option<u32>, span: Span, next: Box<FrameContinuation> },
+    AttachErrCause { error: crate::runtime::value::Value, span: Span, next: Box<FrameContinuation> },
     Try {
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    CheckedValue {
+        check: LoweredTypeCheck,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -197,10 +277,25 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     ListItems {
-        items: Vec<u32>,
+        items: Vec<(u32, bool, Span)>,
         index: usize,
         values: Vec<LoweredValue>,
         next: Box<FrameContinuation>,
+    },
+    MapLiteralItems {
+        entries: Vec<(Option<u32>, u32, Span)>,
+        index: usize,
+        fields: BTreeMap<MapKey, LoweredValue>,
+        key: Option<MapKey>,
+        reading_key: bool,
+        next: Box<FrameContinuation>,
+    },
+    RecordUpdateBase {
+        updates: Vec<(Vec<Name>, u32, Span)>, span: Span, next: Box<FrameContinuation>,
+    },
+    RecordUpdateItems {
+        base: LoweredValue, updates: Vec<(Vec<Name>, u32, Span)>, index: usize,
+        values: Vec<(Vec<Name>, LoweredValue, Span)>, span: Span, next: Box<FrameContinuation>,
     },
     RecordItems {
         entries: Vec<FrameRecordEntry>,
@@ -223,12 +318,79 @@ enum FrameContinuation {
     },
     ListCompValue {
         state: Box<ListCompState>,
-        key: Option<String>,
+        key: Option<MapKey>,
         next: Box<FrameContinuation>,
     },
 }
 
+// Propagated initializer errors stop compound evaluation at the existing With
+// handler. Explicit returns and loop transfers retain their separate targets.
+fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Option<usize>, u32, Span)> {
+    loop {
+        continuation = match continuation {
+            FrameContinuation::WithBinding { else_param_slot, else_body, span, .. } => return Some((*else_param_slot, *else_body, *span)),
+            FrameContinuation::Field { next, .. }
+            | FrameContinuation::IndexBase { next, .. }
+            | FrameContinuation::IndexValue { next, .. }
+            | FrameContinuation::ModuleArguments { next, .. }
+            | FrameContinuation::ComparisonLeft { next, .. }
+            | FrameContinuation::ComparisonRight { next, .. }
+            | FrameContinuation::Assert { next, .. }
+            | FrameContinuation::AssertLeft { next, .. }
+            | FrameContinuation::AssertRight { next, .. }
+            | FrameContinuation::BinaryLeft { next, .. }
+            | FrameContinuation::BinaryRight { next, .. }
+            | FrameContinuation::BoolBinaryRight { next, .. }
+            | FrameContinuation::If { next, .. }
+            | FrameContinuation::MatchExprValue { next, .. }
+            | FrameContinuation::MatchExprGuard { next, .. }
+            | FrameContinuation::CallArguments { next, .. }
+            | FrameContinuation::DynamicCallee { next, .. }
+            | FrameContinuation::DynamicArguments { next, .. }
+            | FrameContinuation::Try { next, .. }
+            | FrameContinuation::Require { next, .. }
+            | FrameContinuation::CheckedValue { next, .. }
+            | FrameContinuation::MethodReceiver { next, .. }
+            | FrameContinuation::MethodArg { next, .. }
+            | FrameContinuation::FmtValue { next, .. }
+            | FrameContinuation::ResultFallback { next, .. }
+            | FrameContinuation::ListItems { next, .. }
+            | FrameContinuation::RecordItems { next, .. }
+            | FrameContinuation::ListCompIter { next, .. }
+            | FrameContinuation::ListCompCondition { next, .. }
+            | FrameContinuation::ListCompKey { next, .. }
+            | FrameContinuation::ListCompValue { next, .. }
+            | FrameContinuation::WrapErr { next, .. }
+            | FrameContinuation::AttachErrCause { next, .. }
+            | FrameContinuation::WrapOk(next) => next,
+            _ => return None,
+        };
+    }
+}
+
+// Expression boundaries own completion and failure routing within one lexical
+// call frame, so producers can suspend without creating recursive evaluators.
+enum ExpressionBoundaryPolicy {
+    Value,
+    Context(crate::runtime::value::ErrorContext),
+    Capture,
+    Scope(super::ContextScopeRestore),
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CleanupFailureResources {
+    Release,
+    Retain,
+    RejectContextEscape,
+}
+
 enum FrameWork {
+    ClearSlots(Vec<usize>),
+    GuardFailureEnd(Span),
+    // A lexical expression retains its destination across producer suspension.
+    // Its statement scope owns defers; this boundary consumes only the body value.
+    ExpressionBoundary { policy: ExpressionBoundaryPolicy, next: FrameContinuation },
+    CompCleanup(CompStreams),
     Statements {
         statements: Vec<u32>,
         complete_call: bool,
@@ -244,6 +406,8 @@ enum FrameWork {
         value: FrameValue,
         next: FrameContinuation,
     },
+    ForScalars { slot: usize, cursor: LoweredScalarCursor, body: u32, span: Span },
+    ForMap { slot: usize, cursor: LoweredMapCursor, body: u32, span: Span },
     ForItems {
         slot: usize,
         items: Vec<LoweredValue>,
@@ -298,7 +462,13 @@ pub(super) struct CallFrame<'p> {
     work: Vec<FrameWork>,
     pub(super) defers: Vec<u32>,
     pub(super) block_scopes: Vec<u64>,
+    block_defer_offsets: Vec<usize>,
     return_to: Option<FrameContinuation>,
+}
+
+enum ProducerSuspension {
+    Yielded(LoweredValue),
+    Delegated { value: LoweredValue, span: Span },
 }
 
 pub(super) struct ExplicitFrames<'a, 'p> {
@@ -307,9 +477,9 @@ pub(super) struct ExplicitFrames<'a, 'p> {
     calls: Vec<CallFrame<'p>>,
     result: Option<Result<LoweredValue, RuntimeError>>,
     pending_error: Option<RuntimeError>,
-    /// Set when a producer frame executes a `yield`: the value the puller
-    /// receives, with the frame's remaining work left on its stack.
-    suspended: Option<LoweredValue>,
+    /// The yielded item or delegation source, with the remaining work saved
+    /// on the frame's stack until its consumer requests another item.
+    suspended: Option<ProducerSuspension>,
 }
 
 impl Evaluator {
@@ -400,6 +570,12 @@ pub(super) enum ProducerStep {
     /// state is the continuation.
     Yielded {
         value: LoweredValue,
+        state: ProducerFrameState,
+    },
+    /// The parent pauses while this source supplies elements to its consumer.
+    Delegated {
+        value: LoweredValue,
+        span: Span,
         state: ProducerFrameState,
     },
     /// The body ended, propagated an error, or returned a stream.
@@ -523,6 +699,7 @@ pub(super) struct ProducerFrameState {
     slot_scopes: Vec<u64>,
     defers: Vec<u32>,
     block_scopes: Vec<u64>,
+    block_defer_offsets: Vec<usize>,
     scope_id: u64,
 }
 
@@ -539,6 +716,7 @@ impl ProducerFrameState {
             slot_scopes: Vec::new(),
             defers: Vec::new(),
             block_scopes: Vec::new(),
+            block_defer_offsets: Vec::new(),
             scope_id: 0,
         }
     }
@@ -556,6 +734,10 @@ impl ProducerFrameState {
         scopes
     }
 
+    pub(super) fn has_context_scope(&self) -> bool {
+        self.work.iter().any(|work| matches!(work, FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+    }
+
     /// Enters the body's call scope, so its slots belong to a live scope.
     pub(super) fn start(&mut self, scope_id: u64) {
         self.scope_id = scope_id;
@@ -566,8 +748,11 @@ impl ProducerFrameState {
 impl<'p> CallFrame<'p> {
     /// Drops the body's remaining work, keeping its registered defers.
     pub(super) fn discard_body(&mut self) {
-        self.work.clear();
-        self.work.push(FrameWork::Statements {
+        self.work.retain(|work| matches!(work, FrameWork::Statements { scope_id: Some(_), .. } | FrameWork::ExpressionBoundary { .. }));
+        for work in &mut self.work {
+            if let FrameWork::Statements { statements, .. } = work { statements.clear(); }
+        }
+        self.work.insert(0, FrameWork::Statements {
             statements: Vec::new(),
             complete_call: true,
             scope_id: None,
@@ -581,6 +766,7 @@ impl<'p> CallFrame<'p> {
             slot_scopes: self.slot_scopes,
             defers: self.defers,
             block_scopes: self.block_scopes,
+            block_defer_offsets: self.block_defer_offsets,
             scope_id: self.scope_id,
         }
     }
@@ -614,6 +800,7 @@ impl<'p> CallFrame<'p> {
             work: state.work,
             defers: state.defers,
             block_scopes: state.block_scopes,
+            block_defer_offsets: state.block_defer_offsets,
             return_to: None,
         }))
     }
@@ -654,9 +841,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .checked_sub(1)
                 .expect("active indexed frame");
             let work = self.calls[index].work.pop().expect("indexed frame work");
-            if let Err(error) = self.step(index, work)
-                && self.pending_error.is_none()
-            {
+            if let Err(error) = self.step(index, work) {
                 self.begin_error_unwind(error);
             }
         }
@@ -673,17 +858,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .checked_sub(1)
                 .expect("active indexed frame");
             let work = self.calls[index].work.pop().expect("indexed frame work");
-            if let Err(error) = self.step(index, work)
-                && self.pending_error.is_none()
-            {
+            if let Err(error) = self.step(index, work) {
                 self.begin_error_unwind(error);
             }
         }
-        if let Some(value) = self.suspended.take() {
-            let frame = self.calls.pop().expect("suspended producer frame");
-            return ProducerStep::Yielded {
-                value,
-                state: frame.into_state(),
+        if let Some(suspension) = self.suspended.take() {
+            let state = self.calls.pop().expect("suspended producer frame").into_state();
+            return match suspension {
+                ProducerSuspension::Yielded(value) => ProducerStep::Yielded { value, state },
+                ProducerSuspension::Delegated { value, span } => ProducerStep::Delegated { value, span, state },
             };
         }
         ProducerStep::Finished(self.result.take().expect("indexed frame result"))
@@ -695,7 +878,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.result = Some(Err(error));
             return;
         }
-        self.pending_error = Some(error);
+        if self.pending_error.is_some() {
+            self.evaluator.report_cleanup_error(&error, self.calls.last().map(|call| call.call_span).unwrap_or_else(crate::runtime::eval::zero_span));
+        } else {
+            self.pending_error = Some(error);
+        }
         let Some(index) = self.calls.len().checked_sub(1) else {
             self.result = Some(Err(self
                 .pending_error
@@ -703,11 +890,69 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .expect("pending indexed frame error")));
             return;
         };
-        // An error abandons the active lexical blocks before it enters this
-        // function's defers. Their owned processes and NetJobs must observe
-        // the same lexical cleanup boundary as they do on normal completion.
-        let _ = self.discard_work_from(index, 0);
-        self.calls[index].work.push(FrameWork::FinishError);
+        if let Err(error) = self.unwind_error_frame(index) { self.begin_error_unwind(error); }
+    }
+
+    fn capture_boundary(&self, index: usize) -> Option<usize> {
+        self.calls[index].work.iter().rposition(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Capture, .. }))
+    }
+
+    fn boundary_survivor_scope(&self, index: usize, boundary: usize) -> u64 {
+        self.calls[index].work[..boundary].iter().rev().find_map(|work| match work {
+            FrameWork::Statements { scope_id: Some(scope), .. } => Some(*scope),
+            _ => None,
+        }).unwrap_or(self.calls[index].scope_id)
+    }
+
+    fn discarded_statement_scopes(&self, index: usize, keep: usize) -> Vec<u64> {
+        self.calls[index].work[keep..].iter().filter_map(|work| match work {
+            FrameWork::Statements { scope_id: Some(scope), .. } => Some(*scope),
+            _ => None,
+        }).collect()
+    }
+
+    fn crosses_context_scope(&self, index: usize, keep: usize) -> bool {
+        self.calls[index].work[keep..].iter().any(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+    }
+
+    // Callee cleanup completes before searching its caller for a local capture.
+    // The selected boundary remains live while its inner lexical scopes unwind.
+    fn unwind_error_frame(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let mut boundary = self.pending_error.as_ref().filter(|error|
+            error.abort.is_none() && error.propagated)
+            .and_then(|_| self.capture_boundary(index));
+        let mut keep = boundary.map_or(0, |boundary| boundary + 1);
+        if self.crosses_context_scope(index, keep)
+            && self.pending_error.as_ref().is_some_and(Evaluator::context_scope_runtime_error_escapes) {
+            self.evaluator.pending_traceback = None;
+            self.pending_error = Some(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            boundary = None;
+            keep = 0;
+        }
+        let survivor = boundary.map_or(self.calls[index].scope_id, |boundary| self.boundary_survivor_scope(index, boundary));
+        let sources = self.discarded_statement_scopes(index, keep);
+        if let Some(error) = self.pending_error.as_ref()
+            && error.abort.is_none() && error.propagated {
+            for source in sources {
+                self.evaluator.transfer_owned_host_resources_in_runtime_error(error, source, survivor);
+            }
+        }
+        if let Err(error) = self.discard_work_from(index, keep) {
+            if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
+            self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
+        }
+        if boundary.is_some() {
+            let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop() else { unreachable!() };
+            let error = self.pending_error.take().expect("checked indexed frame failure");
+            let value = capture_checked_error(error)?;
+            self.evaluator.pending_traceback = None;
+            self.push_value(index, FrameValue::Value(value), next);
+        } else {
+            self.calls[index].work.push(FrameWork::FinishError);
+        }
+        Ok(())
     }
 
     fn discard_calls(&mut self) {
@@ -732,6 +977,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     &call.slots,
                     call.call_span,
                 );
+            }
+            // Forced discard skips user defers but still closes inner owned
+            // scopes before restoring each evaluator context in lexical order.
+            for work in call.work.drain(..).rev() {
+                match work {
+                    FrameWork::Statements { scope_id: Some(scope_id), .. } => {
+                        if call.block_scopes.last() == Some(&scope_id) {
+                            call.block_scopes.pop();
+                            let _ = self.evaluator.exit_owned_host_scope(scope_id);
+                        }
+                    }
+                    FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), .. } => self.evaluator.restore_indexed_context_scope(restore),
+                    _ => {}
+                }
             }
             let _ = self.cleanup_call_scopes(&mut call);
             self.evaluator.recycle_lowered_slots(call.slots);
@@ -789,6 +1048,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         self.push_call(function, kind, values, span, Some(next))
+    }
+
+    fn push_dynamic_arguments(&mut self, index: usize, callee: LoweredValue, args: Vec<(u32, u32)>, mut argument: usize, mut values: Vec<LoweredValue>, span: Span, next: FrameContinuation) -> Result<(), RuntimeError> {
+        while let Some((kind, instruction)) = args.get(argument).copied() {
+            if kind == 2 {
+                values.push(self.evaluator.indexed_argument_default(&callee, instruction as usize, span)?);
+                argument += 1;
+            } else {
+                self.push_expr(index, instruction, span, FrameContinuation::DynamicArguments { callee, args, argument, values, span, next: Box::new(next) });
+                return Ok(());
+            }
+        }
+        self.evaluator.frame_scratch.recycle_call_args(args);
+        let (function, kind) = indexed_callable_identity(&callee, span)?;
+        if self.program.function_view(function, kind).map_err(|error| indexed_error(error, span))?.is_some() {
+            self.push_resolved_call(index, function, kind, values, span, next)
+        } else if let LoweredFunctionKey::Qualified(qualified) = function {
+            let value = self.evaluator.eval_indexed_external_call(qualified, &values, span)?;
+            self.push_value(index, FrameValue::Value(value), next);
+            Ok(())
+        } else {
+            Err(RuntimeError::new("unresolved-lowered-call", function.display_name()).with_span(span))
+        }
     }
 
     fn push_call(
@@ -909,6 +1191,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             defers: Vec::new(),
             block_scopes: Vec::new(),
+            block_defer_offsets: Vec::new(),
             return_to,
         });
         Ok(())
@@ -916,6 +1199,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn step(&mut self, index: usize, work: FrameWork) -> Result<(), RuntimeError> {
         match work {
+            FrameWork::ClearSlots(slots) => {
+                for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
+                Ok(())
+            }
+            FrameWork::GuardFailureEnd(span) => Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span)),
+            FrameWork::ExpressionBoundary { policy, next } => {
+                let value = match policy {
+                    ExpressionBoundaryPolicy::Capture => LoweredValue::ResultOk(Box::new(LoweredValue::Unit)),
+                    ExpressionBoundaryPolicy::Scope(restore) => {
+                        self.evaluator.restore_indexed_context_scope(restore);
+                        lowered_result_ok(LoweredValue::Unit)
+                    }
+                    _ => LoweredValue::Unit,
+                };
+                self.push_value(index, FrameValue::Value(value), next);
+                Ok(())
+            }
+            FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
             FrameWork::Statements {
                 mut statements,
                 complete_call,
@@ -948,7 +1249,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.complete_call(index, StmtFlow::None)
                     } else {
                         if let Some(scope_id) = scope_id {
-                            self.exit_block_scope(index, scope_id)?;
+                            self.exit_block_scope(index, scope_id, true, CleanupFailureResources::Retain)?;
                         }
                         Ok(())
                     };
@@ -968,6 +1269,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 next,
             } => self.eval_expr(index, instruction, span, next),
             FrameWork::Value { value, next } => self.continue_value(index, value, next),
+            FrameWork::ForMap { slot, mut cursor, body, span } => {
+                self.evaluator.service_pending_signal(span)?;
+                if self.evaluator.signal_state.shutdown_complete { return Ok(()); }
+                if let Some(item) = cursor.next() {
+                    self.calls[index].slots[slot] = item;
+                    self.calls[index].work.push(FrameWork::ForMap { slot, cursor, body, span });
+                    self.push_statement_block(index, body, span)?;
+                }
+                Ok(())
+            }
+            FrameWork::ForScalars { slot, mut cursor, body, span } => {
+                self.evaluator.service_pending_signal(span)?;
+                if self.evaluator.signal_state.shutdown_complete { return Ok(()); }
+                if let Some(item) = cursor.next() {
+                    self.calls[index].slots[slot] = item;
+                    self.calls[index].work.push(FrameWork::ForScalars { slot, cursor, body, span });
+                    self.push_statement_block(index, body, span)?;
+                }
+                Ok(())
+            }
             FrameWork::ForItems {
                 slot,
                 items,
@@ -1013,6 +1334,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             span,
         )?;
         match tag {
+            FullTag::StmtDefaultParameter => {
+                let slot = indexed_decode::<usize>(&mut payload, &self.calls[index].execution, span)?;
+                let value = indexed_raw(&mut payload, span)?;
+                let kind = indexed_decode::<LoweredType>(&mut payload, &self.calls[index].execution, span)?;
+                let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                if matches!(self.calls[index].slots[slot], LoweredValue::OmittedArgument) {
+                    self.push_expr(index, value, span, FrameContinuation::ParameterDefault { slot, kind, check, span });
+                }
+                Ok(())
+            }
             FullTag::StmtLet => {
                 let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
@@ -1020,6 +1353,44 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_expr(index, value, span, FrameContinuation::Store(slot));
                 Ok(())
             }
+            FullTag::StmtWith => {
+                let (_, mut binding_words) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let count = indexed_raw(&mut binding_words, span)? as usize;
+                let mut bindings = Vec::with_capacity(count);
+                for _ in 0..count {
+                    bindings.push((indexed_decode::<usize>(&mut binding_words, &self.calls[index].execution, span)?, indexed_raw(&mut binding_words, span)?));
+                }
+                indexed_finish(binding_words, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let else_param_slot = indexed_decode::<Option<usize>>(&mut payload, &self.calls[index].execution, span)?;
+                let else_body = indexed_raw(&mut payload, span)?;
+                let captures = indexed_decode::<Vec<usize>>(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let scope_id = self.evaluator.enter_owned_host_scope();
+                let defer_offset = self.calls[index].defers.len();
+                self.calls[index].block_scopes.push(scope_id);
+                self.calls[index].block_defer_offsets.push(defer_offset);
+                self.calls[index].work.push(FrameWork::Statements { statements: Vec::new(), complete_call: false, scope_id: Some(scope_id) });
+                self.calls[index].work.push(FrameWork::ClearSlots(captures));
+                if let Some((_, value)) = bindings.first().copied() {
+                    self.push_expr(index, value, span, FrameContinuation::WithBinding { bindings, position: 0, body, else_param_slot, else_body, span });
+                    Ok(())
+                } else {
+                    self.push_statement_block(index, body, span)
+                }
+            }
+            FullTag::StmtGuard => {
+                let target = indexed_decode::<LoweredCompTarget>(&mut payload, &self.calls[index].execution, span)?;
+                let value = indexed_raw(&mut payload, span)?;
+                let else_param_slot = indexed_decode::<Option<usize>>(&mut payload, &self.calls[index].execution, span)?;
+                let else_body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, value, span, FrameContinuation::GuardInput { target, else_param_slot, else_body, span });
+                Ok(())
+            }
+
             FullTag::StmtLetInt => {
                 let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
@@ -1038,7 +1409,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.calls[index].slots[slot] = LoweredValue::Int(value)
                     }
                     ControlFlow::Break(value) => {
-                        return self.complete_call(index, StmtFlow::Return(value));
+                        return self.complete_expression_escape(index, value);
                     }
                 }
                 Ok(())
@@ -1061,7 +1432,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.calls[index].slots[slot] = LoweredValue::Bool(value)
                     }
                     ControlFlow::Break(value) => {
-                        return self.complete_call(index, StmtFlow::Return(value));
+                        return self.complete_expression_escape(index, value);
                     }
                 }
                 Ok(())
@@ -1070,8 +1441,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
+                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
+                let (value, singleton) = indexed_assignment_operand(&self.calls[index].execution, value, op, value_span)?;
                 self.push_expr(
                     index,
                     value,
@@ -1079,9 +1452,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::Assign {
                         slot,
                         op,
+                        singleton,
+                        check,
                         span: value_span,
                     },
                 );
+                Ok(())
+            }
+            FullTag::StmtAssignPath => {
+                let slot = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let path = decode_assign_path(&self.calls[index].execution, &mut payload, span)?;
+                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let value = indexed_raw(&mut payload, span)?;
+                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let (value, singleton) = indexed_assignment_operand(&self.calls[index].execution, value, op, span)?;
+                self.advance_assign_path(index, AssignPathState { slot, path, selectors: Vec::new(), position: 0, op, value, singleton, check, span });
                 Ok(())
             }
             FullTag::StmtExpr => {
@@ -1152,7 +1539,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                         ControlFlow::Continue(false) => {}
                         ControlFlow::Break(value) => {
-                            return self.complete_call(index, StmtFlow::Return(value));
+                            return self.complete_expression_escape(index, value);
                         }
                     }
                 }
@@ -1269,8 +1656,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 indexed_finish(payload, span)?;
                 self.continue_loop(index)
             }
-            FullTag::StmtYield => {
+            FullTag::StmtYield | FullTag::StmtYieldDelegate => {
                 let value = indexed_raw(&mut payload, span)?;
+                let span = if tag == FullTag::StmtYieldDelegate {
+                    indexed_decode(&mut payload, &self.calls[index].execution, span)?
+                } else { span };
                 indexed_finish(payload, span)?;
                 if !self.calls[index].producer {
                     return Err(
@@ -1278,13 +1668,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             .with_span(span),
                     );
                 }
-                self.push_expr(index, value, span, FrameContinuation::Yield);
+                let continuation = if tag == FullTag::StmtYieldDelegate {
+                    FrameContinuation::YieldDelegate { span }
+                } else {
+                    FrameContinuation::Yield
+                };
+                self.push_expr(index, value, span, continuation);
                 Ok(())
             }
             FullTag::StmtDefer => {
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
                 self.calls[index].defers.push(value);
+                Ok(())
+            }
+            FullTag::StmtValue => {
+                let value = indexed_raw(&mut payload, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, value, span, FrameContinuation::BlockValue);
                 Ok(())
             }
             FullTag::StmtReturn => {
@@ -1307,6 +1708,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 match flow {
                     StmtFlow::None => Ok(()),
+                    StmtFlow::Value(value) => self.complete_expression_value(index, value),
                     StmtFlow::Return(value) => self.complete_call(index, StmtFlow::Return(value)),
                     StmtFlow::Propagate(value) => {
                         self.complete_call(index, StmtFlow::Propagate(value))
@@ -1382,6 +1784,59 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 } else {
                     self.push_expr(index, value, assertion_span, FrameContinuation::Assert { span: assertion_span, next: Box::new(next) });
                 }
+            }
+            FullTag::ExprValueBlock => {
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Value, next });
+                self.push_statement_block(index, body, span)?;
+            }
+            FullTag::ExprCapture => {
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Capture, next });
+                self.push_statement_block(index, body, span)?;
+            }
+            FullTag::ExprContextScope => {
+                let kind = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let input = indexed_raw(&mut payload, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, input, span, FrameContinuation::ContextScopeEntry { kind, body, span, next: Box::new(next) });
+            }
+            FullTag::ExprErrorContext => {
+                let message = indexed_raw(&mut payload, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, message, span, FrameContinuation::ErrorContextEntry { body, span, next: Box::new(next) });
+            }
+            FullTag::ExprComparisonChain => {
+                let (_, mut values) = self.calls[index].execution.block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut values, span)? as usize;
+                let assertion = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let mut pairs = Vec::with_capacity(len);
+                let mut first = None;
+                for _ in 0..len {
+                    let pair = indexed_raw(&mut values, span)?;
+                    let (tag, mut pair_payload) = indexed_value(self.calls[index].execution.instruction_id(pair), span)?;
+                    if tag != FullTag::ExprBinary { return Err(RuntimeError::new("indexed-ir", "comparison chain requires binary pairs").with_span(span)); }
+                    let op = indexed_decode(&mut pair_payload, &self.calls[index].execution, span)?;
+                    let left = indexed_raw(&mut pair_payload, span)?;
+                    let right = indexed_raw(&mut pair_payload, span)?;
+                    let pair_span = indexed_decode(&mut pair_payload, &self.calls[index].execution, span)?;
+                    indexed_finish(pair_payload, span)?;
+                    first.get_or_insert(left);
+                    pairs.push((op, right, pair_span));
+                }
+                indexed_finish(values, span)?;
+                let first = first.ok_or_else(|| RuntimeError::new("indexed-ir", "comparison chain is empty").with_span(span))?;
+                self.push_expr(index, first, span, FrameContinuation::ComparisonLeft { pairs, assertion, next: Box::new(next) });
             }
             FullTag::ExprBinary => {
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
@@ -1466,37 +1921,55 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprList => {
-                let (_, mut values) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
+            FullTag::ExprList | FullTag::ExprListBuild => {
+                let (_, mut elements) = self.calls[index].execution.block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, span))?;
-                let len = indexed_raw(&mut values, span)? as usize;
+                let len = indexed_raw(&mut elements, span)? as usize;
                 let mut items = Vec::with_capacity(len);
                 for _ in 0..len {
-                    items.push(indexed_raw(&mut values, span)?);
+                    let splice = if tag == FullTag::ExprListBuild {
+                        indexed_decode::<bool>(&mut elements, &self.calls[index].execution, span)?
+                    } else { false };
+                    let value = indexed_raw(&mut elements, span)?;
+                    let item_span = if tag == FullTag::ExprListBuild {
+                        indexed_decode::<Span>(&mut elements, &self.calls[index].execution, span)?
+                    } else { span };
+                    items.push((value, splice, item_span));
                 }
-                indexed_finish(values, span)?;
+                indexed_finish(elements, span)?;
                 indexed_finish(payload, span)?;
-                if let Some(&instruction) = items.first() {
-                    self.push_expr(
-                        index,
-                        instruction,
-                        span,
-                        FrameContinuation::ListItems {
-                            items,
-                            index: 0,
-                            values: Vec::with_capacity(len),
-                            next: Box::new(next),
-                        },
-                    );
+                if let Some(&(instruction, _, item_span)) = items.first() {
+                    self.push_expr(index, instruction, item_span, FrameContinuation::ListItems {
+                        items, index: 0, values: Vec::with_capacity(len), next: Box::new(next),
+                    });
                 } else {
-                    self.push_value(
-                        index,
-                        FrameValue::Value(LoweredValue::List(Vec::new())),
-                        next,
-                    );
+                    self.push_value(index, FrameValue::Value(LoweredValue::List(Vec::new())), next);
                 }
+            }
+            FullTag::ExprMapLiteral => {
+                let (_, mut input) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut input, span)? as usize;
+                let mut entries = Vec::with_capacity(len);
+                for _ in 0..len {
+                    let key = indexed_optional_raw(&mut input, span)?;
+                    let value = indexed_raw(&mut input, span)?;
+                    let entry_span = indexed_decode::<Span>(&mut input, &self.calls[index].execution, span)?;
+                    entries.push((key, value, entry_span));
+                }
+                indexed_finish(input, span)?;
+                indexed_finish(payload, span)?;
+                if let Some(&(key, value, entry_span)) = entries.first() {
+                    self.push_expr(index, key.unwrap_or(value), entry_span, FrameContinuation::MapLiteralItems {
+                        entries, index: 0, fields: BTreeMap::new(), key: None, reading_key: key.is_some(), next: Box::new(next),
+                    });
+                } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(BTreeMap::new()))), next); }
+            }
+            FullTag::ExprRecordUpdate => {
+                let base = indexed_raw(&mut payload, span)?;
+                let updates = decode_record_updates(&self.calls[index].execution, &mut payload, span)?;
+                let update_span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, base, update_span, FrameContinuation::RecordUpdateBase { updates, span: update_span, next: Box::new(next) });
             }
             FullTag::ExprRecord => {
                 let (_, mut entries) = self.calls[index]
@@ -1533,7 +2006,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         index,
                         instruction,
                         span,
-                        FrameContinuation::RecordItems {
+                                    FrameContinuation::RecordItems {
                             entries: decoded_entries,
                             index: 0,
                             fields: Vec::new(),
@@ -1553,32 +2026,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let map = tag == FullTag::ExprMapComp;
                 let key = map.then(|| indexed_raw(&mut payload, span)).transpose()?;
                 let value = indexed_raw(&mut payload, span)?;
-                let target = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let iter = indexed_raw(&mut payload, span)?;
-                let condition = indexed_optional_raw(&mut payload, span)?;
+                let qualifiers = decode_comp_qualifiers(&self.calls[index].execution, &mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                let state = ListCompState {
-                    map,
-                    key,
-                    value,
-                    target,
-                    condition,
-                    items: Vec::new(),
-                    index: 0,
-                    values: Vec::new(),
-                    map_values: BTreeMap::new(),
-                    span: value_span,
-                };
-                self.push_expr(
-                    index,
-                    iter,
-                    value_span,
-                    FrameContinuation::ListCompIter {
-                        state: Box::new(state),
-                        next: Box::new(next),
-                    },
-                );
+                let streams = Arc::new(std::sync::Mutex::new(Vec::new()));
+                self.calls[index].work.push(FrameWork::CompCleanup(streams.clone()));
+                let state = ListCompState { map, key, value, qualifiers, cursor: 0, iterators: Vec::new(), streams, values: Vec::new(), map_values: BTreeMap::new(), span: value_span };
+                self.step_comp_qualifier(index, state, next)?;
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
                 let path = tag == FullTag::ExprPathFmtString;
@@ -1626,6 +2080,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         parts,
                         index: 0,
                         text: String::new(),
+                        native: Vec::new(),
                         path_span,
                     },
                     next,
@@ -1658,13 +2113,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprErr => {
                 let value = indexed_raw(&mut payload, span)?;
+                let cause = indexed_optional_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(
-                    index,
-                    value,
-                    span,
-                    FrameContinuation::WrapErr(Box::new(next)),
-                );
+                self.push_expr(index, value, span,
+                    FrameContinuation::WrapErr { cause, span, next: Box::new(next) });
             }
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, span)?;
@@ -1678,6 +2130,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         next: Box::new(next),
                     },
                 );
+            }
+            FullTag::ExprCheckedValue => {
+                let value = indexed_raw(&mut payload, span)?;
+                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, value, span, FrameContinuation::CheckedValue { check, span, next: Box::new(next) });
             }
             FullTag::ExprRequire => {
                 let value = indexed_raw(&mut payload, span)?;
@@ -1715,8 +2174,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 // taken out of the slot rather than copied. Anything else — a
                 // nested call, a different destination — keeps the plain copy.
                 let consume = match &next {
-                    FrameContinuation::Assign { slot, op, .. }
-                        if *op == AssignOp::Set
+                    FrameContinuation::Assign { slot, op, check, .. }
+                        if *op == AssignOp::Set && check.is_none()
                             && indexed_slot_read(
                                 &self.calls[index].execution,
                                 receiver,
@@ -1739,6 +2198,46 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         next: Box::new(next),
                     },
                 );
+            }
+            FullTag::ExprDynamicCall => {
+                let callee = indexed_raw(&mut payload, span)?;
+                let mut args = self.evaluator.frame_scratch.take_call_args();
+                decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, callee, value_span, FrameContinuation::DynamicCallee { args, span: value_span, next: Box::new(next) });
+            }
+            FullTag::ExprField => {
+                let base = indexed_raw(&mut payload, span)?;
+                let name = indexed_string(&mut payload, &self.calls[index].execution, span)?.to_string();
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                if let Some(base) = Evaluator::indexed_field_chain_ref(&self.calls[index].execution, base, &self.calls[index].slots, value_span)?
+                    && let Some(value) = super::lowered_record_field_value(base, &name)
+                {
+                    self.push_value(index, FrameValue::Value(value), next);
+                    return Ok(());
+                }
+                self.push_expr(index, base, value_span, FrameContinuation::Field { name, span: value_span, next: Box::new(next) });
+            }
+            FullTag::ExprIndex => {
+                let base = indexed_raw(&mut payload, span)?;
+                let instruction = indexed_raw(&mut payload, span)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, base, value_span, FrameContinuation::IndexBase { instruction, span: value_span, next: Box::new(next) });
+            }
+            FullTag::ExprModuleCall => {
+                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let cli_plan = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let (_, mut encoded_args) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut encoded_args, span)? as usize;
+                let mut args = Vec::with_capacity(len);
+                for _ in 0..len { args.push(indexed_optional_raw(&mut encoded_args, span)?); }
+                indexed_finish(encoded_args, span)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.step_module_arguments(index, op, cli_plan, args, 0, Vec::new(), value_span, next)?;
             }
             FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
                 let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
@@ -1805,6 +2304,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         value: FrameValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        if matches!(value, FrameValue::Break(LoweredValue::ResultErr(_)))
+            && matches!(self.evaluator.pending_value_block_flow, None | Some(StmtFlow::Propagate(_)))
+            && let Some((else_param_slot, else_body, span)) = with_initializer_handler(&next)
+        {
+            let FrameValue::Break(LoweredValue::ResultErr(error)) = value else { unreachable!("checked propagated Result error") };
+            self.evaluator.pending_value_block_flow = None;
+            self.evaluator.pending_traceback = None;
+            if let Some(slot) = else_param_slot { self.calls[index].slots[slot] = LoweredValue::Error(error); }
+            return self.push_statement_block(index, else_body, span);
+        }
+        if let Some(flow) = self.evaluator.pending_value_block_flow.take() {
+            return match flow {
+                StmtFlow::Break(_) => self.break_loop(index),
+                StmtFlow::Continue => self.continue_loop(index),
+                flow => self.complete_call(index, flow),
+            };
+        }
         match next {
             FrameContinuation::Assert { span, next } => match value {
                 FrameValue::Value(value) => {
@@ -1828,19 +2344,93 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
+            FrameContinuation::Field { name, span, next } => match value {
+                FrameValue::Value(base) => {
+                    let value = self.evaluator.indexed_field_value(base, &name, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::IndexBase { instruction, span, next } => match value {
+                FrameValue::Value(base) => self.push_expr(index, instruction, span, FrameContinuation::IndexValue { base, span, next }),
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::IndexValue { base, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let value = super::lowered_index_value(base, value, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::ModuleArguments { op, cli_plan, args, position, mut values, span, next } => match value {
+                FrameValue::Value(value) => {
+                    values.push(Some(value));
+                    self.step_module_arguments(index, op, cli_plan, args, position + 1, values, span, *next)?;
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::WithBinding { bindings, position, body, else_param_slot, else_body, span } => {
+                let value = match value {
+                    FrameValue::Value(value) => value,
+                    FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+                };
+                let value = match value {
+                    LoweredValue::ResultErr(error) => {
+                        self.evaluator.pending_traceback = None;
+                        if let Some(slot) = else_param_slot { self.calls[index].slots[slot] = LoweredValue::Error(error); }
+                        return self.push_statement_block(index, else_body, span);
+                    }
+                    LoweredValue::ResultOk(value) => *value,
+                    value => value,
+                };
+                let slot = bindings[position].0;
+                self.calls[index].slots[slot] = value;
+                self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
+                if let Some((_, value)) = bindings.get(position + 1).copied() {
+                    self.push_expr(index, value, span, FrameContinuation::WithBinding { bindings, position: position + 1, body, else_param_slot, else_body, span });
+                } else {
+                    self.push_statement_block(index, body, span)?;
+                }
+            }
+            FrameContinuation::GuardInput { target, else_param_slot, else_body, span } => match value {
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+                FrameValue::Value(LoweredValue::ResultOk(value)) => {
+                    bind_lowered_comp_target(&target, *value, &mut self.calls[index].slots, span)?;
+                }
+                FrameValue::Value(LoweredValue::ResultErr(error)) => {
+                    if let Some(slot) = else_param_slot { self.calls[index].slots[slot] = LoweredValue::Error(error); }
+                    self.calls[index].work.push(FrameWork::GuardFailureEnd(span));
+                    self.calls[index].work.push(FrameWork::ClearSlots(else_param_slot.into_iter().collect()));
+                    self.push_statement_block(index, else_body, span)?;
+                }
+                FrameValue::Value(other) => return Err(RuntimeError::new("type-error", format!("guard expected Result, found {}", other.type_name())).with_span(span)),
+            },
+            FrameContinuation::ParameterDefault { slot, kind, check, span } => match value {
+                FrameValue::Value(value) => {
+                    validate_parameter_default(&value, kind, check.as_ref(), span)?;
+                    self.calls[index].slots[slot] = value;
+                    self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
             FrameContinuation::Store(slot) => match value {
                 FrameValue::Value(value) => {
                     self.calls[index].slots[slot] = value;
                     self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Assign { slot, op, span } => match value {
+            FrameContinuation::Assign { slot, op, singleton, check, span } => match value {
                 FrameValue::Value(value) => {
-                    let current = self.calls[index].slots[slot].clone();
-                    let value = lowered_assign_value(op, current, value, span)?;
+                    self.check_context_assignment(index, slot, &value, span)?;
+                    let value = if let Some(check) = check.as_ref() {
+                        checked_indexed_assignment(&self.calls[index].slots[slot], op, value, singleton, check, span)?
+                    } else {
+                        apply_indexed_assignment(&mut self.calls[index].slots[slot], op, value, singleton, span)?
+                    };
+
                     let owner_scope = self.calls[index].slot_scopes[slot];
                     let source_scope = self.evaluator.current_scope_id();
                     self.evaluator
@@ -1852,15 +2442,54 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.calls[index].slots[slot] = value;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Return => {
-                let value = match value {
-                    FrameValue::Value(value) | FrameValue::Break(value) => value,
-                };
-                return self.complete_call(index, StmtFlow::Return(value));
-            }
+            FrameContinuation::AssignSelector(mut state) => match value {
+                FrameValue::Value(value) => {
+                    state.selectors.push(resolve_assign_index(value, state.span)?);
+                    self.advance_assign_path(index, state);
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::AssignPath(state) => match value {
+                FrameValue::Value(value) => {
+                    self.check_context_assignment(index, state.slot, &value, state.span)?;
+                    apply_indexed_path_assignment(&mut self.calls[index].slots[state.slot], &state.selectors, state.op, value, state.singleton, state.check.as_ref(), state.span)?;
+
+                    self.evaluator.transfer_owned_host_resources_in_lowered_value(
+                        &self.calls[index].slots[state.slot], self.evaluator.current_scope_id(), self.calls[index].slot_scopes[state.slot],
+                    );
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::Return => return self.complete_call(index, match value {
+                FrameValue::Value(value) => StmtFlow::Return(value),
+                FrameValue::Break(value) => StmtFlow::Propagate(value),
+            }),
+            FrameContinuation::BlockValue => return match value {
+                FrameValue::Value(value) => self.complete_expression_value(index, value),
+                FrameValue::Break(value) => self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::ContextScopeEntry { kind, body, span, next } => match value {
+                FrameValue::Value(value) => match self.evaluator.enter_indexed_context_scope(kind, value, span) {
+                    Ok(restore) => {
+                        self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), next: *next });
+                        self.push_statement_block(index, body, span)?;
+                    }
+                    Err(error) => self.push_value(index, FrameValue::Value(lowered_result_err_value(error)), *next),
+                },
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::ErrorContextEntry { body, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let description = super::lowered_str_arg_owned(Some(value), "", "ctx description", span)?;
+                    let context = crate::runtime::value::ErrorContext { kind: "ctx".to_string(), message: Some(description), span: Some(span) };
+                    self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), next: *next });
+                    self.push_statement_block(index, body, span)?;
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
             FrameContinuation::Discard(span) => match value {
                 FrameValue::Value(value @ LoweredValue::ResultErr(_)) => {
                     let value = self
@@ -1873,7 +2502,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::BinaryLeft {
+            FrameContinuation::ComparisonLeft { pairs, assertion, next } => match value {
+                FrameValue::Value(left) => {
+                    let (_, right, span) = pairs[0];
+                    self.push_expr(index, right, span, FrameContinuation::ComparisonRight { left, pairs, position: 0, assertion, next });
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::ComparisonRight { left, pairs, position, assertion, next } => match value {
+                FrameValue::Value(right) => {
+                    let (op, _, span) = pairs[position];
+                    let result = lowered_binary_value(op, left.clone(), right.clone(), span)?;
+                    if result == LoweredValue::Bool(false) && assertion { return Err(comparison_chain_assertion_failure(op, &left, &right, span)?); }
+                    if result == LoweredValue::Bool(false) || position + 1 == pairs.len() {
+                        self.push_value(index, FrameValue::Value(result), *next);
+                    } else {
+                        let position = position + 1;
+                        let (_, operand, span) = pairs[position];
+                        self.push_expr(index, operand, span, FrameContinuation::ComparisonRight { left: right, pairs, position, assertion, next });
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+                        FrameContinuation::BinaryLeft {
                 op,
                 right,
                 span,
@@ -1904,7 +2555,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BinaryRight {
@@ -1919,7 +2570,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     *next,
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BoolBinaryRight { next, span } => match value {
@@ -1929,7 +2580,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     *next,
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::If {
@@ -1966,7 +2617,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::StatementIf {
@@ -2003,7 +2654,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ForItems { slot, body, span } => match value {
@@ -2024,6 +2675,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         });
                         return Ok(());
                     }
+                    let value = match LoweredScalarCursor::try_new(value) {
+                        Ok(cursor) => {
+                            self.calls[index].work.push(FrameWork::ForScalars { slot, cursor, body, span });
+                            return Ok(());
+                        }
+                        Err(value) => value,
+                    };
+                    if let LoweredValue::Map(entries) = value {
+                        self.calls[index].work.push(FrameWork::ForMap { slot, cursor: LoweredMapCursor::new(entries), body, span });
+                        return Ok(());
+                    }
                     let items = self.evaluator.lowered_list_items(
                         value,
                         span,
@@ -2038,7 +2700,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     });
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ForPipelineInput {
@@ -2070,12 +2732,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             });
                         }
                         ControlFlow::Break(value) => {
-                            return self.complete_call(index, StmtFlow::Return(value));
+                            return self.complete_expression_escape(index, value);
                         }
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ForStrLines { slot, body, span } => match value {
@@ -2101,7 +2763,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     });
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::While {
@@ -2121,13 +2783,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchValue { arms, span } => match value {
                 FrameValue::Value(value) => self.select_match_arm(index, arms, 0, value, span)?,
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchGuard {
@@ -2144,7 +2806,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchExprValue {
@@ -2154,7 +2816,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.select_expr_match_arm(index, arms, 0, value, span, *next)?;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchExprGuard {
@@ -2179,24 +2841,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BreakLoop => match value {
                 FrameValue::Value(_) => return self.break_loop(index),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Defer => match value {
-                FrameValue::Value(_) => {}
-                FrameValue::Break(_) => {
-                    return Err(RuntimeError::new(
-                        "defer-control-flow",
-                        "deferred expression produced invalid control flow",
-                    )
-                    .with_span(self.calls[index].call_span));
+            FrameContinuation::DynamicCallee { args, span, next } => match value {
+                FrameValue::Value(callee) => self.push_dynamic_arguments(index, callee, args, 0, Vec::new(), span, *next)?,
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::DynamicArguments { callee, args, argument, mut values, span, next } => match value {
+                FrameValue::Value(value) => {
+                    match args[argument].0 {
+                        0 => values.push(value),
+                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        _ => return Err(RuntimeError::new("indexed-ir", "invalid dynamic call argument kind").with_span(span)),
+                    }
+                    self.push_dynamic_arguments(index, callee, args, argument + 1, values, span, *next)?;
                 }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::CallArguments {
                 function,
@@ -2241,7 +2908,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::WrapOk(next) => match value {
@@ -2251,17 +2918,30 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     *next,
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::WrapErr(next) => match value {
-                FrameValue::Value(value) => self.push_value(
-                    index,
-                    FrameValue::Value(LoweredValue::ResultErr(Box::new(value.into_value()))),
-                    *next,
-                ),
+            FrameContinuation::WrapErr { cause, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let error = value.into_value();
+                    if let Some(cause) = cause {
+                        self.push_expr(index, cause, span,
+                            FrameContinuation::AttachErrCause { error, span, next });
+                    } else {
+                        self.push_value(index, FrameValue::Value(LoweredValue::ResultErr(Box::new(error))), *next);
+                    }
+                }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+            },
+            FrameContinuation::AttachErrCause { error, span, next } => match value {
+                FrameValue::Value(cause) => {
+                    let error = error.with_error_cause(cause.into_value()).map_err(|error| error.with_span(span))?;
+                    self.push_value(index, FrameValue::Value(LoweredValue::ResultErr(Box::new(error))), *next);
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::Try { span, next } => match value {
@@ -2282,24 +2962,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
+            FrameContinuation::CheckedValue { check, span, next } => match value {
+                FrameValue::Value(value) => {
+                    super::super::checked_unsigned_value(&value, &check, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
             FrameContinuation::Require { check, span, next } => match value {
                 FrameValue::Value(value) => {
-                    let value =
-                        if lowered_value_satisfies_require(self.evaluator, &value, &check.ty) {
-                            lowered_result_ok(value)
-                        } else {
-                            lowered_result_err_value(
-                                RuntimeError::new(
-                                    "schema",
-                                    format!(
-                                        "schema check failed: expected {}, found {}",
-                                        check.name,
-                                        value.type_name()
-                                    ),
-                                )
-                                .with_span(span),
-                            )
-                        };
+                    let value = super::super::super::require::require_value(self.evaluator, value, &check, span);
                     self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
@@ -2336,7 +3008,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MethodArg {
@@ -2375,7 +3047,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::FmtValue {
@@ -2385,11 +3057,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    push_lowered_fmt_value(&mut state.text, &value, span, spec.as_ref())?;
+                    if state.path_span.is_some() { push_lowered_native_fmt_value(&mut state.native, &value, span, spec.as_ref())?; }
+                    else { push_lowered_fmt_value(&mut state.text, &value, span, spec.as_ref())?; }
                     self.step_fmt(index, state, *next)?;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ResultFallback { right, span, next } => match value {
@@ -2409,9 +3082,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    values.push(value);
-                    if let Some(&instruction) = items.get(item_index + 1) {
-                        let span = self.calls[index].call_span;
+                    let (_, splice, item_span) = items[item_index];
+                    append_lowered_list_element(&mut values, value, splice, item_span)?;
+                    if let Some(&(instruction, _, span)) = items.get(item_index + 1) {
                         self.push_expr(
                             index,
                             instruction,
@@ -2432,8 +3105,51 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
+            },
+            FrameContinuation::MapLiteralItems { entries, index: entry_index, mut fields, key, reading_key, next } => match value {
+                FrameValue::Value(value) => {
+                    let (_, value_instruction, span) = entries[entry_index];
+                    if reading_key {
+                        let key = Some(lowered_map_literal_key(&value, span)?);
+                        self.push_expr(index, value_instruction, span, FrameContinuation::MapLiteralItems {
+                            entries, index: entry_index, fields, key, reading_key: false, next,
+                        });
+                    } else {
+                        append_lowered_map_literal(&mut fields, key, value, span)?;
+                        if let Some(&(key, value, span)) = entries.get(entry_index + 1) {
+                            self.push_expr(index, key.unwrap_or(value), span, FrameContinuation::MapLiteralItems {
+                                entries, index: entry_index + 1, fields, key: None, reading_key: key.is_some(), next,
+                            });
+                        } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(fields))), *next); }
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::RecordUpdateBase { updates, span, next } => match value {
+                FrameValue::Value(base) => {
+                    if let Some((_, instruction, field_span)) = updates.first() {
+                        self.push_expr(index, *instruction, *field_span, FrameContinuation::RecordUpdateItems {
+                            base, updates, index: 0, values: Vec::new(), span, next,
+                        });
+                    } else { self.push_value(index, FrameValue::Value(base), *next); }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::RecordUpdateItems { base, updates, index: item_index, mut values, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let (path, _, field_span) = &updates[item_index];
+                    values.push((path.clone(), value, *field_span));
+                    if let Some((_, instruction, field_span)) = updates.get(item_index + 1) {
+                        self.push_expr(index, *instruction, *field_span, FrameContinuation::RecordUpdateItems {
+                            base, updates, index: item_index + 1, values, span, next,
+                        });
+                    } else {
+                        self.push_value(index, FrameValue::Value(lowered_record_update_batch(base, values, span)?), *next);
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::RecordItems {
                 entries,
@@ -2471,76 +3187,75 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ListCompIter { mut state, next } => match value {
                 FrameValue::Value(value) => {
-                    state.items = self.evaluator.lowered_list_items(
-                        value,
-                        state.span,
-                        if state.map {
-                            "map comprehension expected List"
-                        } else {
-                            "list comprehension expected List"
-                        },
-                    )?;
+                    let iterable = lowered_comp_iterable(value, state.span)?;
+                    let clause = state.cursor;
+                    let iterable = match LoweredScalarCursor::try_new(iterable) {
+                        Ok(cursor) => {
+                            state.iterators.push(CompIterator::Scalars { cursor, clause });
+                            return self.step_list_comp(index, *state, *next);
+                        }
+                        Err(iterable) => iterable,
+                    };
+                    if let LoweredValue::Stream(stream) = iterable {
+                        let stream_index = {
+                            let mut streams = state.streams.lock().expect("comprehension stream state poisoned");
+                            let slot = streams.iter().position(Option::is_none).unwrap_or(streams.len());
+                            if slot == streams.len() { streams.push(None); }
+                            streams[slot] = Some((*stream, state.qualifiers[clause].span()));
+                            slot
+                        };
+                        state.iterators.push(CompIterator::Stream { stream: stream_index, clause });
+                    } else if let LoweredValue::Map(entries) = iterable {
+                        state.iterators.push(CompIterator::Map { cursor: LoweredMapCursor::new(entries), clause });
+                    } else {
+                        let items = self.evaluator.lowered_list_items(iterable, state.qualifiers[clause].span(), "comprehension expected List or Stream")?;
+                        state.iterators.push(CompIterator::Items { items: items.into_iter(), clause });
+                    }
                     self.step_list_comp(index, *state, *next)?;
                 }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
-                }
+                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Propagate(value)); }
             },
-            FrameContinuation::ListCompCondition { state, next } => match value {
+            FrameContinuation::ListCompCondition { mut state, next } => match value {
                 FrameValue::Value(value) => {
-                    if frame_condition_bool(value, state.span)? {
-                        self.push_list_comp_projection(index, *state, *next)?;
-                    } else {
-                        let mut state = *state;
-                        state.index += 1;
-                        self.step_list_comp(index, state, *next)?;
-                    }
+                    if frame_condition_bool(value, state.qualifiers[state.cursor].span())? {
+                        state.cursor += 1;
+                        self.step_comp_qualifier(index, *state, *next)?;
+                    } else { self.step_list_comp(index, *state, *next)?; }
                 }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
-                }
+                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Propagate(value)); }
             },
             FrameContinuation::ListCompKey { state, next } => match value {
-                FrameValue::Value(LoweredValue::Str(key)) => {
-                    self.push_expr(
-                        index,
-                        state.value,
-                        state.span,
-                        FrameContinuation::ListCompValue {
-                            state,
-                            key: Some(key.to_string()),
-                            next,
-                        },
-                    );
-                }
                 FrameValue::Value(value) => {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        format!(
-                            "map comprehension key expected Str, found {}",
-                            value.type_name()
-                        ),
-                    )
-                    .with_span(state.span));
+                    let key = lowered_map_literal_key(&value, state.span)?;
+                    self.push_expr(index, state.value, state.span, FrameContinuation::ListCompValue { state, key: Some(key), next });
                 }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::YieldDelegate { span } => match value {
+                FrameValue::Value(value) => {
+                    self.suspended = Some(ProducerSuspension::Delegated { value, span });
+                    return Ok(());
                 }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::Yield => match value {
                 FrameValue::Value(value) => {
+                    if self.calls[index].work.iter().any(|work| matches!(work, FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+                        && Evaluator::context_scope_value_escapes(&value) {
+                        return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape through yield").with_span(self.calls[index].call_span));
+                    }
                     // The frame keeps everything after this statement on its
                     // work stack; the puller receives the value.
-                    self.suspended = Some(value);
+                    self.suspended = Some(ProducerSuspension::Yielded(value));
                     return Ok(());
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ListCompValue {
@@ -2556,34 +3271,117 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else {
                         state.values.push(value);
                     }
-                    state.index += 1;
                     self.step_list_comp(index, *state, *next)?;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
         }
         Ok(())
     }
 
-    fn complete_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
-        if let StmtFlow::Return(value) | StmtFlow::Break(Some(value)) = &flow {
+    fn complete_expression_escape(&mut self, index: usize, value: LoweredValue) -> Result<(), RuntimeError> {
+        match self.evaluator.pending_value_block_flow.take().unwrap_or(StmtFlow::Propagate(value)) {
+            StmtFlow::Value(value) => self.complete_expression_value(index, value),
+            StmtFlow::Break(_) => self.break_loop(index),
+            StmtFlow::Continue => self.continue_loop(index),
+            flow => self.complete_call(index, flow),
+        }
+    }
+
+    fn check_context_assignment(&self, index: usize, slot: usize, value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        if !Evaluator::context_scope_value_escapes(value) { return Ok(()); }
+        let Some(boundary) = self.calls[index].work.iter().rposition(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })) else { return Ok(()); };
+        let owner = self.calls[index].slot_scopes[slot];
+        if self.calls[index].work[boundary + 1..].iter().any(|work| matches!(work,
+            FrameWork::Statements { scope_id: Some(scope), .. } if *scope == owner)) { return Ok(()); }
+        Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape through an outer assignment").with_span(span))
+    }
+
+    fn complete_expression_value(&mut self, index: usize, value: LoweredValue) -> Result<(), RuntimeError> {
+        let Some(boundary) = self.calls[index].work.iter().rposition(|work| matches!(work, FrameWork::ExpressionBoundary { .. })) else {
+            return self.complete_call(index, StmtFlow::Value(value));
+        };
+        if matches!(&self.calls[index].work[boundary], FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })
+            && Evaluator::context_scope_value_escapes(&value) {
+            return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+        }
+        self.evaluator.transfer_owned_host_resources_in_lowered_value(&value,
+            self.evaluator.current_scope_id(), self.evaluator.parent_owned_host_scope());
+        self.discard_work_from(index, boundary + 1)?;
+        let Some(FrameWork::ExpressionBoundary { policy, next }) = self.calls[index].work.pop() else { unreachable!() };
+        let value = match policy {
+            ExpressionBoundaryPolicy::Capture => LoweredValue::ResultOk(Box::new(value)),
+            ExpressionBoundaryPolicy::Scope(restore) => {
+                self.evaluator.restore_indexed_context_scope(restore);
+                lowered_result_ok(value)
+            }
+            _ => value,
+        };
+        self.push_value(index, FrameValue::Value(value), next);
+        Ok(())
+    }
+
+    fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
+        if let StmtFlow::Propagate(value) = &flow
+            && let Some(boundary) = self.capture_boundary(index) {
+            if self.crosses_context_scope(index, boundary + 1)
+                && Evaluator::context_scope_value_escapes(value) {
+                self.evaluator.pending_traceback = None;
+                return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            }
+            let survivor = self.boundary_survivor_scope(index, boundary);
+            for source in self.discarded_statement_scopes(index, boundary + 1) {
+                self.evaluator.transfer_owned_host_resources_in_lowered_value(value, source, survivor);
+            }
+            let contexts = self.calls[index].work[boundary + 1..].iter().rev().filter_map(|work| match work {
+                FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
+                _ => None,
+            }).collect::<Vec<_>>();
+            let cleanup = self.discard_work_from_with_primary(index, boundary + 1, true);
+            if let Err(error) = cleanup {
+                if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
+                self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
+            }
+            let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop() else { unreachable!() };
+            let value = contexts.into_iter().fold(value.clone(), contextualize_propagation);
+            self.evaluator.pending_traceback = None;
+            self.push_value(index, FrameValue::Value(value), next);
+            return Ok(());
+        }
+        let contexts: Vec<_> = self.calls[index].work.iter().rev().filter_map(|work| match work {
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
+            _ => None,
+        }).collect();
+        if let StmtFlow::Return(value) | StmtFlow::Propagate(value) | StmtFlow::Break(Some(value)) = &flow {
+            if self.calls[index].work.iter().any(|work| matches!(work, FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+                && Evaluator::context_scope_value_escapes(value) {
+                self.evaluator.pending_traceback = None;
+                return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            }
             let function_scope = self.calls[index].scope_id;
-            let current_scope = self.evaluator.current_scope_id();
-            if current_scope != function_scope {
-                self.evaluator
-                    .transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        current_scope,
-                        function_scope,
-                    );
+            for source in self.discarded_statement_scopes(index, 0) {
+                self.evaluator.transfer_owned_host_resources_in_lowered_value(value, source, function_scope);
             }
         }
-        // A return may leave nested statement blocks. Transfer an escaping
-        // resource above, then close those blocks before running this
-        // function's defers.
-        self.discard_work_from(index, 0)?;
+        // Lexical exits and checked failures retain resources from every
+        // discarded block before cleanup runs in the registering scopes.
+        let cleanup = self.discard_work_from_with_primary(index, 0, matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))));
+        if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
+            return Err(cleanup.expect_err("forced cleanup abort"));
+        }
+        if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
+            if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
+        } else {
+            cleanup?;
+        }
+        if let StmtFlow::Propagate(value) = flow {
+            let value = contexts.into_iter().fold(value, contextualize_propagation);
+            update_context_traceback(self.evaluator, &value);
+            flow = StmtFlow::Propagate(value);
+        }
         if self.calls[index].defers.is_empty() {
             self.finish_call(index, flow)
         } else {
@@ -2609,39 +3407,56 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         first_error.map_or(Ok(()), Err)
     }
 
-    fn step_list_comp(
-        &mut self,
-        index: usize,
-        state: ListCompState,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        if state.index < state.items.len() {
-            let item = state.items[state.index].clone();
-            bind_lowered_comp_target(
-                &state.target,
-                item,
-                &mut self.calls[index].slots,
-                state.span,
-            )?;
-            if let Some(condition) = state.condition {
-                self.push_expr(
-                    index,
-                    condition,
-                    state.span,
-                    FrameContinuation::ListCompCondition {
-                        state: Box::new(state),
-                        next: Box::new(next),
-                    },
-                );
-                return Ok(());
+    fn cleanup_comp_streams(&mut self, streams: CompStreams) -> Result<(), RuntimeError> {
+        let mut first_error = None;
+        for stream in streams.lock().expect("comprehension stream state poisoned").iter_mut().rev() {
+            if let Some((mut stream, span)) = stream.take() {
+                if let Err(error) = self.evaluator.stream_cancel(&mut stream, span) {
+                    if first_error.is_none() { first_error = Some(error); }
+                }
             }
-            return self.push_list_comp_projection(index, state, next);
         }
-        let value = if state.map {
-            LoweredValue::Map(Arc::new(state.map_values))
-        } else {
-            LoweredValue::List(state.values)
-        };
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn step_comp_qualifier(&mut self, index: usize, state: ListCompState, next: FrameContinuation) -> Result<(), RuntimeError> {
+        match state.qualifiers.get(state.cursor).cloned() {
+            Some(IndexedCompQualifier::For { iter, span, .. }) => self.push_expr(index, iter, span, FrameContinuation::ListCompIter { state: Box::new(state), next: Box::new(next) }),
+            Some(IndexedCompQualifier::If { condition, span }) => self.push_expr(index, condition, span, FrameContinuation::ListCompCondition { state: Box::new(state), next: Box::new(next) }),
+            None => return self.push_list_comp_projection(index, state, next),
+        }
+        Ok(())
+    }
+
+    fn step_list_comp(&mut self, index: usize, mut state: ListCompState, next: FrameContinuation) -> Result<(), RuntimeError> {
+        while let Some(iterator) = state.iterators.last_mut() {
+            let (item, clause) = match iterator {
+                CompIterator::Items { items, clause } => (items.next(), *clause),
+                CompIterator::Map { cursor, clause } => (cursor.next(), *clause),
+                CompIterator::Scalars { cursor, clause } => {
+                    self.evaluator.service_pending_signal(state.qualifiers[*clause].span())?;
+                    if self.evaluator.signal_state.shutdown_complete { (None, *clause) }
+                    else { (cursor.next(), *clause) }
+                }
+                CompIterator::Stream { stream, clause } => {
+                    self.evaluator.service_pending_signal(state.qualifiers[*clause].span())?;
+                    let mut streams = state.streams.lock().expect("comprehension stream state poisoned");
+                    let (producer, span) = streams[*stream].as_mut().expect("active comprehension stream");
+                    let item = self.evaluator.stream_next(producer, *span)?;
+                    let item = item.map(|item| lowered_value_from_runtime_any(&item).ok_or_else(|| RuntimeError::new("type-error", "stream produced unsupported comprehension item").with_span(*span))).transpose()?;
+                    if item.is_none() { streams[*stream] = None; }
+                    (item, *clause)
+                }
+            };
+            if let Some(item) = item {
+                let IndexedCompQualifier::For { target, span, .. } = &state.qualifiers[clause] else { unreachable!("iterator belongs to for clause") };
+                bind_lowered_comp_target(target, item, &mut self.calls[index].slots, *span)?;
+                state.cursor = clause + 1;
+                return self.step_comp_qualifier(index, state, next);
+            }
+            state.iterators.pop();
+        }
+        let value = if state.map { LoweredValue::Map(Arc::new(state.map_values)) } else { LoweredValue::List(state.values) };
         self.push_value(index, FrameValue::Value(value), next);
         Ok(())
     }
@@ -2674,6 +3489,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         }
+        Ok(())
+    }
+
+    // Argument holes preserve omitted native defaults; present operands run once
+    // in source order without retaining recursive evaluator frames across calls.
+    fn step_module_arguments(
+        &mut self, index: usize, op: super::RuntimeOp,
+        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
+        args: Vec<Option<u32>>, mut position: usize,
+        mut values: Vec<Option<LoweredValue>>, span: Span, next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        while let Some(argument) = args.get(position).copied() {
+            if let Some(instruction) = argument {
+                self.push_expr(index, instruction, span, FrameContinuation::ModuleArguments { op, cli_plan, args, position, values, span, next: Box::new(next) });
+                return Ok(());
+            }
+            values.push(None);
+            position += 1;
+        }
+        let flow = self.evaluator.eval_indexed_module_call_values(op, super::super::NativeArgumentValues::new(values), span, cli_plan.as_deref())?;
+        self.push_value(index, match flow { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) }, next);
         Ok(())
     }
 
@@ -2726,7 +3562,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let Some(part) = state.parts.get(state.index).cloned() else {
                 let value = if let Some(span) = state.path_span {
                     LoweredValue::Path(
-                        PathValue::from_text(state.text).map_err(|error| error.with_span(span))?,
+                        PathValue::new(state.native).map_err(|error| error.with_span(span))?,
                     )
                 } else {
                     LoweredValue::Str(state.text.into())
@@ -2736,7 +3572,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
             state.index += 1;
             match part {
-                FmtPart::Text(text) => state.text.push_str(&text),
+                FmtPart::Text(text) => {
+                    if state.path_span.is_some() { state.native.extend_from_slice(text.as_bytes()); }
+                    else { state.text.push_str(&text); }
+                }
                 FmtPart::Expr(instruction, span, spec) => {
                     self.push_expr(
                         index,
@@ -2756,23 +3595,37 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
-        let Some(value) = self.calls[index].defers.pop() else {
-            return self.finish_call(index, flow);
-        };
-        let span = self.calls[index].call_span;
-        self.calls[index].work.push(FrameWork::Finish(flow));
-        self.push_expr(index, value, span, FrameContinuation::Defer);
-        Ok(())
+        let previous_contexts = self.install_cleanup_contexts();
+        let defers = std::mem::take(&mut self.calls[index].defers);
+        let call = &mut self.calls[index];
+        let cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
+        let cleanup = if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
+            cleanup
+        } else if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
+            if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
+            Ok(())
+        } else { cleanup };
+        self.evaluator.cleanup_error_contexts = previous_contexts;
+        cleanup?;
+        self.finish_call(index, flow)
     }
 
     fn finish_error_deferred_call(&mut self, index: usize) -> Result<(), RuntimeError> {
-        let Some(value) = self.calls[index].defers.pop() else {
-            return self.finish_error_call(index);
+        let previous_contexts = self.install_cleanup_contexts();
+        let defers = std::mem::take(&mut self.calls[index].defers);
+        let call = &mut self.calls[index];
+        let cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
+        let cleanup = match cleanup {
+            Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
+            Err(error) => {
+                self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
+                Ok(())
+            }
+            Ok(()) => Ok(()),
         };
-        let span = self.calls[index].call_span;
-        self.calls[index].work.push(FrameWork::FinishError);
-        self.push_expr(index, value, span, FrameContinuation::Defer);
-        Ok(())
+        self.evaluator.cleanup_error_contexts = previous_contexts;
+        cleanup?;
+        self.finish_error_call(index)
     }
 
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
@@ -2797,6 +3650,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator
                     .write_back_lowered_captures(&header, &call.slots, call.call_span);
         }
+        if let Some(error) = self.pending_error.as_ref()
+            && error.abort.is_none() && error.propagated {
+            let parent = self.evaluator.parent_owned_host_scope();
+            self.evaluator.transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
+        }
         // An active error remains primary; cleanup failure is intentionally
         // secondary, but the scope still must release its owned resources.
         let _ = self.cleanup_call_scopes(&mut call);
@@ -2817,8 +3675,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
         }
         if let Some(parent) = self.calls.len().checked_sub(1) {
-            let _ = self.discard_work_from(parent, 0);
-            self.calls[parent].work.push(FrameWork::FinishError);
+            self.unwind_error_frame(parent)?;
         } else {
             self.result = Some(Err(self
                 .pending_error
@@ -2842,9 +3699,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call.call_span))?;
+        // Producer failures leave the stream boundary as runtime errors. Keep
+        // the original propagation location when converting the Result value.
+        let return_span = if call.producer {
+            self.evaluator.pending_traceback.as_ref()
+                .and_then(|traceback| traceback.failing_span)
+                .unwrap_or(call.call_span)
+        } else {
+            call.call_span
+        };
         let value = match flow {
-            StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                lowered_return_value(header.return_kind, value, call.call_span)
+            StmtFlow::Return(LoweredValue::Unit) if call.producer => Ok(LoweredValue::Unit),
+            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                super::super::checked_lowered_return_value(&header, value, return_span)
             }
             // A producer ends by running out of statements; that is the end of
             // the stream, not a function that failed to return.
@@ -2870,6 +3737,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 call.scope_id,
                 parent_scope,
             );
+        }
+        if let Err(error) = &value
+            && error.abort.is_none() && error.propagated {
+            let parent = self.evaluator.parent_owned_host_scope();
+            self.evaluator.transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
         }
         let cleanup = self.cleanup_call_scopes(&mut call);
         self.evaluator.recycle_lowered_slots(call.slots);
@@ -3093,7 +3965,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.push_statement_block(index, body, span)
                 }
                 ControlFlow::Continue(false) => Ok(()),
-                ControlFlow::Break(value) => self.complete_call(index, StmtFlow::Return(value)),
+                ControlFlow::Break(value) => self.complete_expression_escape(index, value),
             }
         } else {
             self.push_expr(
@@ -3114,7 +3986,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(loop_index) = self.calls[index].work.iter().rposition(|work| {
             matches!(
                 work,
-                FrameWork::ForItems { .. }
+                FrameWork::ForScalars { .. } | FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
                     | FrameWork::ForStream { .. }
                     | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }
@@ -3254,7 +4126,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(loop_index) = self.calls[index].work.iter().rposition(|work| {
             matches!(
                 work,
-                FrameWork::ForItems { .. }
+                FrameWork::ForScalars { .. } | FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
                     | FrameWork::ForStream { .. }
                     | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }
@@ -3294,6 +4166,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
+    fn advance_assign_path(&mut self, index: usize, mut state: AssignPathState) {
+        while state.position < state.path.len() {
+            let step = state.path[state.position].clone();
+            state.position += 1;
+            match step {
+                IndexedAssignStep::Field(name) => state.selectors.push(ResolvedAssignStep::Field(name)),
+                IndexedAssignStep::Index(expr) => {
+                    self.push_expr(index, expr, state.span, FrameContinuation::AssignSelector(state));
+                    return;
+                }
+            }
+        }
+        self.push_expr(index, state.value, state.span, FrameContinuation::AssignPath(state));
+    }
+
     fn push_expr(&mut self, index: usize, instruction: u32, span: Span, next: FrameContinuation) {
         self.calls[index].work.push(FrameWork::Expr {
             instruction,
@@ -3317,7 +4204,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let mut statements = self.evaluator.frame_scratch.take_statements();
         decode_statement_block_into(&self.calls[index].execution, body, span, &mut statements)?;
         let scope_id = self.evaluator.enter_owned_host_scope();
+        let defer_offset = self.calls[index].defers.len();
         self.calls[index].block_scopes.push(scope_id);
+        self.calls[index].block_defer_offsets.push(defer_offset);
         self.calls[index].work.push(FrameWork::Statements {
             statements,
             complete_call: false,
@@ -3326,34 +4215,155 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn exit_block_scope(&mut self, index: usize, scope_id: u64) -> Result<(), RuntimeError> {
-        let popped = self.calls[index].block_scopes.pop();
-        debug_assert_eq!(popped, Some(scope_id));
-        self.evaluator.exit_owned_host_scope(scope_id)
-    }
-
-    /// Drop work that cannot execute (return, error, break, or continue) and
-    /// close each lexical statement scope it carried from innermost to outer.
-    fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
-        let discarded = self.calls[index].work.split_off(keep);
-        for work in discarded.into_iter().rev() {
-            match work {
-                FrameWork::Statements {
-                    scope_id: Some(scope_id),
-                    ..
-                } => self.exit_block_scope(index, scope_id)?,
-                // A loop that is being discarded holds a producer nothing will
-                // pull again: stopping it runs its defers.
-                FrameWork::ForStream {
-                    mut stream, span, ..
-                } => self.evaluator.stream_cancel(&mut stream, span)?,
-                FrameWork::ForPipeline { mut pipeline, .. } => {
-                    pipeline.finish(self.evaluator, self.pending_error.as_ref())?
-                }
-                _ => {}
+    fn exit_block_scope(&mut self, index: usize, scope_id: u64, include_work_contexts: bool, mut disposition: CleanupFailureResources) -> Result<(), RuntimeError> {
+        let previous_contexts = include_work_contexts.then(|| self.install_cleanup_contexts());
+        let defer_offset = self.calls[index].block_defer_offsets.pop().expect("live block owns a defer boundary");
+        let defers = self.calls[index].defers.split_off(defer_offset);
+        let call = &mut self.calls[index];
+        let mut cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
+        if include_work_contexts && disposition == CleanupFailureResources::Retain {
+            let keep = self.capture_boundary(index).map_or(0, |boundary| boundary + 1);
+            if self.crosses_context_scope(index, keep) { disposition = CleanupFailureResources::RejectContextEscape; }
+        }
+        if let Err(error) = &cleanup
+            && error.abort.is_none() && error.propagated {
+            if disposition == CleanupFailureResources::RejectContextEscape
+                && Evaluator::context_scope_runtime_error_escapes(error) {
+                self.evaluator.pending_traceback = None;
+                cleanup = Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            } else if disposition == CleanupFailureResources::Retain {
+                let parent = self.evaluator.parent_owned_host_scope();
+                self.evaluator.transfer_owned_host_resources_in_runtime_error(error, scope_id, parent);
             }
         }
-        Ok(())
+        let popped = self.calls[index].block_scopes.pop();
+        debug_assert_eq!(popped, Some(scope_id));
+        let host_cleanup = self.evaluator.exit_owned_host_scope(scope_id);
+        let result = match (cleanup, host_cleanup) {
+            (Err(error), Err(secondary)) => {
+                self.evaluator.report_cleanup_error(&secondary, self.calls[index].call_span);
+                Err(error)
+            }
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
+        };
+        if let Some(previous) = previous_contexts { self.evaluator.cleanup_error_contexts = previous; }
+        result
+    }
+
+    /// Abandoned work unwinds every lexical cleanup action from innermost to outermost.
+    fn install_cleanup_contexts(&mut self) -> Vec<crate::runtime::value::ErrorContext> {
+        let previous = self.evaluator.cleanup_error_contexts.clone();
+        self.evaluator.cleanup_error_contexts.extend(self.calls.iter().flat_map(|call| call.work.iter()).filter_map(|work| match work {
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
+            _ => None,
+        }));
+        previous
+    }
+
+    fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
+        self.discard_work_from_with_primary(index, keep, self.pending_error.is_some())
+    }
+
+    fn discard_work_from_with_primary(&mut self, index: usize, keep: usize, primary_failed: bool) -> Result<(), RuntimeError> {
+        let previous_contexts = self.install_cleanup_contexts();
+        let discarded = self.calls[index].work.split_off(keep);
+        let mut context_scopes = discarded.iter().filter(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })).count();
+        let mut first_error: Option<RuntimeError> = None;
+        let mut discarded = discarded.into_iter().rev();
+        while let Some(work) = discarded.next() {
+            if !primary_failed && context_scopes > 0
+                && first_error.as_ref().is_some_and(Evaluator::context_scope_runtime_error_escapes) {
+                self.evaluator.pending_traceback = None;
+                first_error = Some(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            }
+            let result = match work {
+                FrameWork::ClearSlots(slots) => {
+                    for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
+                    Ok(())
+                }
+                FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => {
+                    self.evaluator.cleanup_error_contexts.pop();
+                    if let Some(error) = self.pending_error.take() {
+                        self.pending_error = Some(contextualize_runtime_error(error, context.clone()));
+                    }
+                    if let Some(error) = first_error.take() {
+                        first_error = Some(contextualize_runtime_error(error, context));
+                    }
+                    if let Some(error) = &self.pending_error {
+                        if let Some(traceback) = &mut self.evaluator.pending_traceback { traceback.error = crate::trace::TraceError::from_runtime_error(error); }
+                    }
+                    Ok(())
+                }
+                FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), .. } => {
+                    context_scopes -= 1;
+                    self.evaluator.restore_indexed_context_scope(restore);
+                    Ok(())
+                }
+                FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
+                FrameWork::Statements { scope_id: Some(scope_id), .. } => {
+                    if !primary_failed && let Some(error) = &first_error
+                        && error.abort.is_none() && error.propagated {
+                        let parent = self.evaluator.parent_owned_host_scope();
+                        self.evaluator.transfer_owned_host_resources_in_runtime_error(error, scope_id, parent);
+                    }
+                    let disposition = if primary_failed || first_error.is_some() {
+                        CleanupFailureResources::Release
+                    } else if context_scopes > 0 {
+                        CleanupFailureResources::RejectContextEscape
+                    } else { CleanupFailureResources::Retain };
+                    self.exit_block_scope(index, scope_id, false, disposition)
+                }
+                FrameWork::ForStream { mut stream, span, .. } => self.evaluator.stream_cancel(&mut stream, span),
+                FrameWork::ForPipeline { mut pipeline, .. } => pipeline.finish(self.evaluator, self.pending_error.as_ref()),
+                _ => Ok(()),
+            };
+            if let Err(error) = result {
+                if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                    for work in discarded {
+                        match work {
+                            FrameWork::Statements { scope_id: Some(scope_id), .. } => {
+                                if self.calls[index].block_scopes.last() == Some(&scope_id) {
+                                    self.calls[index].block_scopes.pop();
+                                    self.calls[index].block_defer_offsets.pop();
+                                    let _ = self.evaluator.exit_owned_host_scope(scope_id);
+                                }
+                            }
+                            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), .. } => self.evaluator.restore_indexed_context_scope(restore),
+                            _ => {}
+                        }
+                    }
+                    self.evaluator.cleanup_error_contexts = previous_contexts;
+                    return Err(error);
+                }
+                if first_error.is_none() { first_error = Some(error); }
+                else { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
+            }
+        }
+        self.evaluator.cleanup_error_contexts = previous_contexts;
+        first_error.map_or(Ok(()), Err)
+    }
+
+}
+
+fn contextualize_propagation(value: LoweredValue, context: crate::runtime::value::ErrorContext) -> LoweredValue {
+    match value {
+        LoweredValue::ResultErr(error) => LoweredValue::ResultErr(Box::new(crate::runtime::eval::add_error_context(*error, context))),
+        other => LoweredValue::Error(Box::new(crate::runtime::eval::add_error_context(other.into_value(), context))),
+    }
+}
+
+fn contextualize_runtime_error(error: RuntimeError, context: crate::runtime::value::ErrorContext) -> RuntimeError {
+    if error.abort.is_some() { return error; }
+    let crate::runtime::value::Value::Error(error) = crate::runtime::eval::add_error_context(crate::runtime::value::Value::Error(Box::new(error)), context) else { unreachable!() };
+    *error
+}
+
+fn update_context_traceback(evaluator: &mut Evaluator, value: &LoweredValue) {
+    if let Some(traceback) = &mut evaluator.pending_traceback {
+        let error = match value { LoweredValue::ResultErr(error) | LoweredValue::Error(error) => error.as_ref(), _ => return };
+        traceback.error = crate::trace::TraceError::from_value(error);
     }
 }
 

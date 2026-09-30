@@ -57,7 +57,7 @@ proc main() {
     break when index >= 4
   }
 
-  guard let positive = nonnegative(total) else |failure| {
+  guard let positive = nonnegative(total) else { |failure|
     print $failure.message
     return
   }

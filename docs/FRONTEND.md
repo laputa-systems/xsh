@@ -132,6 +132,20 @@ sequence is a range into a shared table, not a nested allocation. A finalized
 `FullProgram` is self-contained for execution: it does not retain CST, arena,
 checker-output, or construction-body references.
 
+Computed brace keys retain `ArenaRecordFieldKind::Computed { key, value, span }`
+with ordered child expressions. The checked expected type decides constant-key
+Map classification, without source text guesses or runtime Record conversion.
+`ExprMapLiteral` verifies its optional key child, value child, and source location;
+a missing key child denotes a Map spread. Keyed entries evaluate key then value.
+
+List literal children use `ArenaListElementRange`, whose entries retain the
+value expression and optional original splice span. `AstArena::list_elements`
+exposes that distinction; `list_element_exprs` is the ordered traversal API.
+Mixed literals encode `(splice, child, span)` entries in `ExprListBuild`; the
+verifier checks boolean flags, child ownership, and location references before
+execution. Pure scalar literals retain `ExprList` to preserve existing specialized
+lowering.
+
 ### Semantic and Runtime Identities
 
 `SemanticPoolBuilder` assigns program-owned IDs to executable types,
@@ -333,3 +347,77 @@ autofixers as part of this workflow.
 The frontend redesign is complete. Further work begins with a measurable
 user-visible cost, not an attempt to recreate a previous representation.
 This document and `docs/TEST-MAP.md` own measurement and verification rules.
+
+`ArenaExprKind::ValueBlock` retains ordinary lexical statements for expression
+branches. Its scope creates no callable, propagation, or loop target.
+`StatementPosition` facts in `CheckOutput::statement_positions` and
+`CompactBodyProbeOutput::statement_positions` preserve the checked purpose of tails
+through lowering and tooling. Compact `block_types` retain inferred tail types
+before branch scopes disappear. The indexed value-block instruction evaluates its
+selected tail before defers and resource cleanup; lexical transfers keep their
+original targets. A parameter block as the RHS of `BinaryOp::ResultFallback`
+binds the checked Result error type before checking its statements. Full checking
+uses `check_tail_block_contents_arena` after validating the single parameter;
+compact checking retains that binding and records the same value-tail positions.
+Lowering creates a lazy indexed `MatchExpr` with an Ok payload arm and an Err
+binding arm whose value is the ordinary lexical `ValueBlock`.
+
+`ArenaStmtKind::BooleanGuard` stores a condition and failure `BlockId`, separately
+from Result-binding `Guard`. `Checker::check_block_arena` rejects a failure
+header because the statement supplies no input. Checked guaranteed exits are
+published in `CheckOutput::definitely_exiting_block_spans` for tooling. Compact
+body checking retains condition and body types in statement context; lowering
+emits the existing verified `If`/`IfBool` instructions with an empty success
+body and the authored failure block. The runtime adds no propagation boundary.
+
+Guarded index and slice expressions retain a `guarded` flag in
+`ArenaExprKind::Index` and `ArenaExprKind::Slice`, with distinct arena tags.
+Formatting preserves adjacent `?[` syntax, and structural matching compares
+the flag so ordinary and guarded operations never match interchangeably.
+`lint.prefer-optional-postfix` uses checked receiver/result types and source
+spans to replace equivalent immutable null branches. It preserves precedence
+with grouping and declines comments, mutation, dynamic receiver domains, and
+present results whose own null value would change fallback selection.
+
+An omitted private pure return is retained by
+`ArenaFunctionDef::return_ty_defaulted`; its synthetic Unit annotation is only
+parser storage. Semantic consumers use checked `function_return_types` facts
+keyed by the body span. The return inference pass checks dependency components
+before callers and retains Bool tail value classifications. Exported and
+recursive pure signatures remain explicit.
+
+## Nullable lookup lowering
+
+Checked `Str.find` and byte lookup facts retain `Int?` through indexed lowering.
+The ordinary byte instruction produces `Int` or null. Integer byte slots are
+selected only when an explicit `??` supplies a proven inert Int literal; a
+direct nullable lookup cannot initialize an Int slot. Collection lookup
+instructions retain Result tags, including successful null payloads.
+
+## Checked default parameters
+
+Omitted defaulted parameter annotations are retained by `ArenaParam::ty_defaulted`.
+The placeholder `ty` is parser storage; semantic consumers read
+`CheckOutput::parameter_types` and `CompactDeclOutput::parameter_types`, keyed by
+parameter span. Declaration analysis checks defaults in their outer lexical
+environment and publishes only concrete canonical substitutions. It runs before
+callers and after private return dependencies are established.
+
+Prepared defaults retain their compact values. Other checked defaults lower to
+`BuildStmtRow::DefaultParameter` at callee entry. Argument binding preserves an
+unforgeable private omission marker; entry evaluates only marked slots, in
+parameter order, after all supplied arguments. The shared call frame evaluates
+default expressions and their cleanup without introducing a new return or error
+boundary. A lazy producer executes this entry prefix on its first pull; supplied
+arguments are still bound during the call, and a producer stopped before its
+first pull executes no defaults. `FullParam` records expression-default presence separately from the
+semantic signature's defaulted flag; omission markers cannot be encoded as
+literal values.
+
+CLI entry validation consumes these checked parameter types after declaration
+analysis; an omitted annotation supplies its parser spelling from the concrete
+supported type. Explicit alias annotations preserve their parser constraints,
+including UInt. CLI default values still come exclusively from preparation.
+Static callable alias dispatch retains lowered arguments through callee binding,
+including private omission markers; nested local alias calls use the same heap
+frame engine as direct calls.

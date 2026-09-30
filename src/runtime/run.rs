@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::runtime::process::{
-    CancellationPolicy, ProcessEnd, ProcessInvocation, ProcessStatus, run_capture_with_policy,
+    completion_error, rejected_segment, CancellationPolicy, ProcessEnd, ProcessInvocation, ProcessStatus, run_capture_with_policy,
     run_capture_with_stderr_policy, run_pipeline_inherit_with_policy,
 };
 use crate::runtime::value::{RecordMap, RunError, RuntimeError, StreamValue, Value};
@@ -44,25 +44,13 @@ fn run_status_form_with_policy(
     match run_pipeline_inherit_with_policy(invocations, policy) {
         Ok(mut end) => {
             let status = end.status.clone().expect("completed process has status");
-            if assert_success {
-                if status.success {
-                    RunExecution {
-                        value: Ok(Value::ok(Value::Status(status))),
-                        end,
-                    }
-                } else {
-                    let error = run_error_from_status(status, invocations).with_span(span);
-                    end.error = Some(error.clone());
-                    RunExecution {
-                        value: Ok(Value::err(Value::RunError(Box::new(error)))),
-                        end,
-                    }
-                }
+            if let Some(error) = run_completion_error(&status, invocations, assert_success) {
+                let error = error.with_span(span);
+                end.error = Some(error.clone());
+                RunExecution { value: Ok(Value::err(Value::RunError(Box::new(error)))), end }
             } else {
-                RunExecution {
-                    value: Ok(Value::Status(status)),
-                    end,
-                }
+                let value = Value::Status(status);
+                RunExecution { value: Ok(if assert_success { Value::ok(value) } else { value }), end }
             }
         }
         Err(error) => run_error_value(error, span),
@@ -91,19 +79,10 @@ fn run_capture_form_with_policy(
                 .status
                 .clone()
                 .expect("completed process has status");
-            if !status.success
-                && !matches!(
-                    kind,
-                    RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord
-                )
-            {
-                let error =
-                    run_error_from_status(status, std::slice::from_ref(invocation)).with_span(span);
+            if let Some(error) = run_completion_error(&status, std::slice::from_ref(invocation), !capture_stderr) {
+                let error = error.with_span(span);
                 output.end.error = Some(error.clone());
-                return RunExecution {
-                    value: Ok(Value::err(Value::RunError(Box::new(error)))),
-                    end: output.end,
-                };
+                return RunExecution { value: Ok(Value::err(Value::RunError(Box::new(error)))), end: output.end };
             }
 
             let value = match kind {
@@ -182,26 +161,17 @@ fn capture_record(
     ]))
 }
 
-fn run_error_from_status(status: ProcessStatus, invocations: &[ProcessInvocation]) -> RunError {
-    let mut error = RunError::from_status(status);
-    let Some(status) = error.status.as_deref() else {
-        return error;
-    };
-    let Some(segment) = status.segments.iter().find(|segment| !segment.success) else {
-        return error;
-    };
-    let Some(invocation) = invocations.get(segment.index) else {
-        return error;
-    };
-    error.message.push_str("\ncwd: ");
-    error
-        .message
-        .push_str(&invocation.cwd.display().to_string());
-    error.message.push_str("\nargv: ");
-    error
-        .message
-        .push_str(&shell_escaped_argv(&invocation.target, &invocation.argv));
-    error
+pub(crate) fn run_completion_error(status: &ProcessStatus, invocations: &[ProcessInvocation], require_zero: bool) -> Option<RunError> {
+    let policies = invocations.iter().map(|invocation| invocation.accepted_exit_codes).collect::<Vec<_>>();
+    let mut error = completion_error(status, &policies, require_zero)?;
+    let segment = rejected_segment(status, &policies, require_zero)?;
+    if let Some(invocation) = invocations.get(segment.index) {
+        error.message.push_str("\ncwd: ");
+        error.message.push_str(&invocation.cwd.display().to_string());
+        error.message.push_str("\nargv: ");
+        error.message.push_str(&shell_escaped_argv(&invocation.target, &invocation.argv));
+    }
+    Some(error)
 }
 
 fn shell_escaped_argv(target: &[u8], argv: &[Vec<u8>]) -> String {
@@ -291,6 +261,7 @@ mod tests {
             redirections: Vec::new(),
             timeout: None,
             cpu_max: None,
+            accepted_exit_codes: None,
         };
 
         let execution = execute_run_with_policy(

@@ -1,4 +1,4 @@
-proc test_archive_tar_cpio_and_compression(ctx: TestContext) [fs, error] {
+test test_archive_tar_cpio_and_compression [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "archive")?
   let src = fp"${root}/src"
   let out = fp"${root}/out"
@@ -55,7 +55,7 @@ proc test_archive_tar_cpio_and_compression(ctx: TestContext) [fs, error] {
   fp"${out}/lzma.out".read_text()?.trim() == "alpha"
 }
 
-proc test_archive_zip_error_contracts(ctx: TestContext) [fs, error] {
+test test_archive_zip_error_contracts [fs, error] { |ctx|
   let not_zip = test.temp_file(ctx, name: "not.zip", contents: b"not a zip")?
   test.error_kind(archive.zip_list(not_zip), "archive-zip-open")?
   test.error_kind(archive.zip_extract(not_zip, test.temp_path(ctx, name: "zip-out")), "archive-zip-open")?

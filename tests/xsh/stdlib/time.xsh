@@ -1,4 +1,4 @@
-proc test_time_module() [process, time, error] {
+test test_time_module [process, time, error] {
   let before = time.now()
   time.sleep(1ms)?
   (time.now() >= before)

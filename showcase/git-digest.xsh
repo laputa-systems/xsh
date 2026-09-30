@@ -53,8 +53,8 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> where .split("\t").len() >= 3
     |> map { |line|
       let parts = line.split("\t")
-      let added = json.decode(if parts[0] == "-" { "0" } else { parts[0] })?
-      let removed = json.decode(if parts[1] == "-" { "0" } else { parts[1] })?
+      let added = json.decode(if parts[0] == "-" { "0" } else { parts[0] })?.require(Int)?
+      let removed = json.decode(if parts[1] == "-" { "0" } else { parts[1] })?.require(Int)?
       let file_path = parts[2]
       {path: file_path, added: added, removed: removed, total: added + removed}
     }
@@ -71,7 +71,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print ""
 
   let top = file_stats
-    |> sort-by --desc .total
+    |> sort-by(desc: true) .total
     |> take(opts.limit)
 
   print f"top ${top.len()} file(s) by change volume:"

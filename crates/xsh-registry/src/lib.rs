@@ -12,6 +12,7 @@ pub mod reference;
 pub mod runtime_op;
 pub mod signature;
 pub mod symbols;
+pub mod stream_parameters;
 pub mod types;
 
 pub use runtime_op::RuntimeOp;
@@ -43,9 +44,10 @@ pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[
     "Command",
     "ProcessHandle",
     "NetJob",
+    "FsRoot",
     "Result",
 ];
 
 pub const FIXED_SEMANTIC_SYMBOLS: &[&str] = &[
-    "ARGV", "Err", "Ok", "args", "false", "main", "module", "true",
+    "Err", "Ok", "args", "false", "main", "module", "true",
 ];

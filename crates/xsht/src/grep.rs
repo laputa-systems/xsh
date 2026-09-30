@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaProgram, AstArena, ExprId,
+    ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaStmtKind, ArenaProgram, AstArena, BlockId, ExprId, PatternId,
 };
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
@@ -79,25 +79,36 @@ fn match_expr_structural(
         (ArenaExprKind::Float(a), ArenaExprKind::Float(b)) => {
             p.float_literal(*a) == t.float_literal(*b)
         }
+        (ArenaExprKind::Regex(a), ArenaExprKind::Regex(b)) => {
+            p.regex_literal(*a).pattern == t.regex_literal(*b).pattern
+        }
         (ArenaExprKind::Str(a), ArenaExprKind::Str(b)) => {
             p.string_literal(*a) == t.string_literal(*b)
         }
+        (ArenaExprKind::Duration(a), ArenaExprKind::Duration(b)) => p.duration_literal(*a) == t.duration_literal(*b),
+        (ArenaExprKind::Bytes(a), ArenaExprKind::Bytes(b)) => p.bytes_literal(*a) == t.bytes_literal(*b),
         (ArenaExprKind::Ident(a), ArenaExprKind::Ident(b)) => a == b,
         (
             ArenaExprKind::Field { base: pb, name: pn },
             ArenaExprKind::Field { base: tb, name: tn },
         ) => pn == tn && match_expr(p, *pb, t, *tb, source, bindings),
         (
+            ArenaExprKind::NullSafeField { base: pb, name: pn },
+            ArenaExprKind::NullSafeField { base: tb, name: tn },
+        ) => pn == tn && match_expr(p, *pb, t, *tb, source, bindings),
+        (
             ArenaExprKind::Index {
                 base: pb,
                 index: pi,
+                guarded: pg,
             },
             ArenaExprKind::Index {
                 base: tb,
                 index: ti,
+                guarded: tg,
             },
         ) => {
-            match_expr(p, *pb, t, *tb, source, bindings)
+            pg == tg && match_expr(p, *pb, t, *tb, source, bindings)
                 && match_expr(p, *pi, t, *ti, source, bindings)
         }
         (
@@ -105,14 +116,16 @@ fn match_expr_structural(
                 base: pb,
                 start: ps,
                 end: pe,
+                guarded: pg,
             },
             ArenaExprKind::Slice {
                 base: tb,
                 start: ts,
                 end: te,
+                guarded: tg,
             },
         ) => {
-            match_expr(p, *pb, t, *tb, source, bindings)
+            pg == tg && match_expr(p, *pb, t, *tb, source, bindings)
                 && match ps.zip(*ts) {
                     Some((ps, ts)) => match_expr(p, ps, t, ts, source, bindings),
                     None => ps.is_none() && ts.is_none(),
@@ -142,8 +155,19 @@ fn match_expr_structural(
             *bindings = b2;
             true
         }
+        (ArenaExprKind::ValuePipelineCall { input: pi, call: pc, .. }, ArenaExprKind::ValuePipelineCall { input: ti, call: tc, .. }) => {
+            let mut next = bindings.clone();
+            if match_expr(p, *pi, t, *ti, source, &mut next) && match_expr(p, *pc, t, *tc, source, &mut next) {
+                *bindings = next; true
+            } else { false }
+        }
         (ArenaExprKind::Unary { op: po, expr: pe }, ArenaExprKind::Unary { op: to, expr: te }) => {
             po == to && match_expr(p, *pe, t, *te, source, bindings)
+        }
+        (ArenaExprKind::ComparisonChain(pp), ArenaExprKind::ComparisonChain(tp)) => {
+            let pp = p.expr_ids(*pp).collect::<Vec<_>>();
+            let tp = t.expr_ids(*tp).collect::<Vec<_>>();
+            pp.len() == tp.len() && pp.into_iter().zip(tp).all(|(pp, tp)| match_expr(p, pp, t, tp, source, bindings))
         }
         (
             ArenaExprKind::Binary {
@@ -161,23 +185,141 @@ fn match_expr_structural(
                 && match_expr(p, *pl, t, *tl, source, bindings)
                 && match_expr(p, *pr, t, *tr, source, bindings)
         }
+        (ArenaExprKind::PatternTest { value: pv, arms: pa }, ArenaExprKind::PatternTest { value: tv, arms: ta })
+        | (ArenaExprKind::PatternCondition { value: pv, arms: pa }, ArenaExprKind::PatternCondition { value: tv, arms: ta })
+        | (ArenaExprKind::Match { value: pv, arms: pa }, ArenaExprKind::Match { value: tv, arms: ta }) => {
+            let pa = p.match_expr_arms(*pa);
+            let ta = t.match_expr_arms(*ta);
+            let mut candidate = bindings.clone();
+            if pa.len() != ta.len() || !match_expr(p, *pv, t, *tv, source, &mut candidate) { return false; }
+            if !pa.iter().zip(ta).all(|(pa, ta)| {
+                match_pattern(p, pa.pattern, t, ta.pattern, source, &mut candidate)
+                    && match (pa.guard, ta.guard) {
+                        (Some(pg), Some(tg)) => match_expr(p, pg, t, tg, source, &mut candidate),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && match_expr(p, pa.value, t, ta.value, source, &mut candidate)
+            }) { return false; }
+            *bindings = candidate;
+            true
+        }
+        (ArenaExprKind::Capture(pb), ArenaExprKind::Capture(tb))
+        | (ArenaExprKind::ValueBlock(pb), ArenaExprKind::ValueBlock(tb)) => match_value_block(p, *pb, t, *tb, source, bindings),
+        (ArenaExprKind::Retry { delays: pd, pattern: pp, block: pb }, ArenaExprKind::Retry { delays: td, pattern: tp, block: tb }) => {
+            let pd = p.expr_ids(*pd).collect::<Vec<_>>();
+            let td = t.expr_ids(*td).collect::<Vec<_>>();
+            let mut candidate = bindings.clone();
+            if pd.len() != td.len() || !pd.into_iter().zip(td).all(|(pd, td)| match_expr(p, pd, t, td, source, &mut candidate)) { return false; }
+            if !match (pp, tp) {
+                (Some(pp), Some(tp)) => match_pattern(p, *pp, t, *tp, source, &mut candidate),
+                (None, None) => true,
+                _ => false,
+            } || !match_value_block(p, *pb, t, *tb, source, &mut candidate) { return false; }
+            *bindings = candidate;
+            true
+        }
+        (ArenaExprKind::ContextScope { kind: pk, input: pi, block: pb, value_body: pv }, ArenaExprKind::ContextScope { kind: tk, input: ti, block: tb, value_body: tv }) => {
+            let mut candidate = bindings.clone();
+            if pk != tk || pv != tv || !match_expr(p, *pi, t, *ti, source, &mut candidate) || !match_context_block(p, *pb, t, *tb, source, &mut candidate) { return false; }
+            *bindings = candidate;
+            true
+        }
+        (ArenaExprKind::ErrorContext { message: pm, block: pb }, ArenaExprKind::ErrorContext { message: tm, block: tb }) => {
+            let mut candidate = bindings.clone();
+            if !match_expr(p, *pm, t, *tm, source, &mut candidate) || !match_context_block(p, *pb, t, *tb, source, &mut candidate) { return false; }
+            *bindings = candidate;
+            true
+        }
         (ArenaExprKind::Try(pe), ArenaExprKind::Try(te)) => {
             match_expr(p, *pe, t, *te, source, bindings)
         }
+        (ArenaExprKind::Record(pfields), ArenaExprKind::Record(tfields)) => {
+            use xsh::frontend::syntax::arena::ArenaRecordFieldKind as Field;
+            let pfields = p.record_fields(*pfields);
+            let tfields = t.record_fields(*tfields);
+            if pfields.len() != tfields.len() { return false; }
+            let mut local = bindings.clone();
+            for (pf, tf) in pfields.iter().zip(tfields) {
+                let matched = match (&pf.kind, &tf.kind) {
+                    (Field::Computed { key: pk, value: pv, .. }, Field::Computed { key: tk, value: tv, .. }) => match_expr(p, *pk, t, *tk, source, &mut local) && match_expr(p, *pv, t, *tv, source, &mut local),
+                    (Field::Path { path: pp, value: pv, .. }, Field::Path { path: tp, value: tv, .. }) => p.names(*pp).eq(t.names(*tp)) && match_expr(p, *pv, t, *tv, source, &mut local),
+                    (Field::Named { name: pn, value: pv, .. }, Field::Named { name: tn, value: tv, .. }) => pn == tn && match_expr(p, *pv, t, *tv, source, &mut local),
+                    (Field::Shorthand { name: pn, .. }, Field::Shorthand { name: tn, .. }) => pn == tn,
+                    (Field::Spread { expr: pe, .. }, Field::Spread { expr: te, .. }) => match_expr(p, *pe, t, *te, source, &mut local),
+                    _ => false,
+                };
+                if !matched { return false; }
+            }
+            *bindings = local; true
+        }
         (ArenaExprKind::List(pi), ArenaExprKind::List(ti)) => {
-            let pitems: Vec<ExprId> = p.expr_ids(*pi).collect();
-            let titems: Vec<ExprId> = t.expr_ids(*ti).collect();
+            let pitems: Vec<_> = p.list_elements(*pi).collect();
+            let titems: Vec<_> = t.list_elements(*ti).collect();
             if pitems.len() != titems.len() {
                 return false;
             }
             let mut b2 = bindings.clone();
             for (pe, te) in pitems.into_iter().zip(titems) {
-                if !match_expr(p, pe, t, te, source, &mut b2) {
+                if pe.splice_span.is_some() != te.splice_span.is_some()
+                    || !match_expr(p, pe.value, t, te.value, source, &mut b2) {
                     return false;
                 }
             }
             *bindings = b2;
             true
+        }
+        _ => false,
+    }
+}
+
+fn match_context_block(p: &AstArena, pb: BlockId, t: &AstArena, tb: BlockId, source: &str, bindings: &mut FxHashMap<String, Span>) -> bool {
+    let ps: Vec<_> = p.stmt_ids(p.block(pb).statements).collect();
+    let ts: Vec<_> = t.stmt_ids(t.block(tb).statements).collect();
+    if ps.len() != ts.len() { return false; }
+    ps.into_iter().zip(ts).all(|(pstmt, tstmt)| match (p.stmt(pstmt).kind, t.stmt(tstmt).kind) {
+        (ArenaStmtKind::Expr(pe), ArenaStmtKind::Expr(te)) => match_expr(p, pe, t, te, source, bindings),
+        (ArenaStmtKind::TailBareIdent(name), _) if is_metavar(name.as_str().as_str()) => {
+            let span = t.stmt(tstmt).span;
+            if let Some(previous) = bindings.get(name.as_str().as_str()) { source.get(previous.range()) == source.get(span.range()) }
+            else { bindings.insert(name.to_string(), span); true }
+        }
+        (ArenaStmtKind::TailBareIdent(pn), ArenaStmtKind::TailBareIdent(tn)) => pn == tn,
+        _ => false,
+    })
+}
+
+fn match_pattern(p: &AstArena, pi: PatternId, t: &AstArena, ti: PatternId, source: &str, bindings: &mut FxHashMap<String, Span>) -> bool {
+    use xsh::frontend::check::Type;
+    match (&p.pattern(pi).kind, &t.pattern(ti).kind) {
+        (ArenaPatternKind::Group(a), _) => match_pattern(p, *a, t, ti, source, bindings),
+        (_, ArenaPatternKind::Group(b)) => match_pattern(p, pi, t, *b, source, bindings),
+        (ArenaPatternKind::Alias { pattern: a, name: an, .. }, ArenaPatternKind::Alias { pattern: b, name: bn, .. }) => an == bn && match_pattern(p, *a, t, *b, source, bindings),
+        (ArenaPatternKind::Wildcard, ArenaPatternKind::Wildcard) => true,
+        (ArenaPatternKind::Binding(a), ArenaPatternKind::Binding(b)) | (ArenaPatternKind::Facet(a), ArenaPatternKind::Facet(b)) => a == b,
+        (ArenaPatternKind::TestName { name: a, ty: at }, ArenaPatternKind::TestName { name: b, ty: bt }) => a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt),
+        (ArenaPatternKind::Type { binding: a, ty: at }, ArenaPatternKind::Type { binding: b, ty: bt }) => a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt),
+        (ArenaPatternKind::Literal(a), ArenaPatternKind::Literal(b)) => match_expr(p, *a, t, *b, source, bindings),
+        (ArenaPatternKind::List { elements: a, rest: ar }, ArenaPatternKind::List { elements: b, rest: br }) => {
+            let a: Vec<_> = p.pattern_ids(*a).collect();
+            let b: Vec<_> = t.pattern_ids(*b).collect();
+            a.len() == b.len() && a.into_iter().zip(b).all(|(a, b)| match_pattern(p, a, t, b, source, bindings))
+                && match ar.zip(*br) { Some((a,b)) => match_pattern(p,a,t,b,source,bindings), None => ar.is_none() && br.is_none() }
+        }
+        (ArenaPatternKind::Record { fields: a, rest: ar }, ArenaPatternKind::Record { fields: b, rest: br }) => {
+            let a = p.pattern_fields(*a);
+            let b = t.pattern_fields(*b);
+            ar == br && a.len() == b.len() && a.iter().zip(b).all(|(a,b)| a.name == b.name && match_pattern(p,a.pattern,t,b.pattern,source,bindings))
+        }
+        (ArenaPatternKind::Constructor { name: a, arg: aa }, ArenaPatternKind::Constructor { name: b, arg: ba }) => a == b && match aa.zip(*ba) { Some((a,b)) => match_pattern(p,a,t,b,source,bindings), None => aa.is_none() && ba.is_none() },
+        (ArenaPatternKind::Tuple(a), ArenaPatternKind::Tuple(b)) | (ArenaPatternKind::Alternation(a), ArenaPatternKind::Alternation(b)) => {
+            let a: Vec<_> = p.pattern_ids(*a).collect();
+            let b: Vec<_> = t.pattern_ids(*b).collect();
+            a.len() == b.len() && a.into_iter().zip(b).all(|(a,b)| match_pattern(p,a,t,b,source,bindings))
+        }
+        (ArenaPatternKind::ErrorVariant { family: af, variant: av, fields: a }, ArenaPatternKind::ErrorVariant { family: bf, variant: bv, fields: b }) => {
+            let a = p.pattern_fields(*a); let b = t.pattern_fields(*b);
+            af == bf && av == bv && a.len() == b.len() && a.iter().zip(b).all(|(a,b)| a.name == b.name && match_pattern(p,a.pattern,t,b.pattern,source,bindings))
         }
         _ => false,
     }
@@ -191,18 +333,21 @@ fn match_args(
     source: &str,
     bindings: &mut FxHashMap<String, Span>,
 ) -> bool {
-    let pargs: Vec<ExprId> = p
-        .call_args(pattern_args)
-        .iter()
-        .map(call_arg_expr)
-        .collect();
-    let targs: Vec<ExprId> = t.call_args(target_args).iter().map(call_arg_expr).collect();
+    let pargs = p.call_args(pattern_args);
+    let targs = t.call_args(target_args);
     if pargs.len() != targs.len() {
         return false;
     }
     let mut b2 = bindings.clone();
-    for (pe, te) in pargs.into_iter().zip(targs) {
-        if !match_expr(p, pe, t, te, source, &mut b2) {
+    for (pa, ta) in pargs.iter().zip(targs) {
+        let same_position = match (&pa.kind, &ta.kind) {
+            (ArenaCallArgKind::Positional(_), ArenaCallArgKind::Positional(_))
+            | (ArenaCallArgKind::Splice { .. }, ArenaCallArgKind::Splice { .. })
+            | (ArenaCallArgKind::NamedSpread { .. }, ArenaCallArgKind::NamedSpread { .. }) => true,
+            (ArenaCallArgKind::Named { name: pn, .. }, ArenaCallArgKind::Named { name: tn, .. }) => pn == tn,
+            _ => false,
+        };
+        if !same_position || !match_expr(p, call_arg_expr(pa), t, call_arg_expr(ta), source, &mut b2) {
             return false;
         }
     }
@@ -214,7 +359,7 @@ fn call_arg_expr(arg: &xsh::frontend::syntax::arena::ArenaCallArg) -> ExprId {
     match &arg.kind {
         ArenaCallArgKind::Positional(expr) => *expr,
         ArenaCallArgKind::Named { value, .. } => *value,
-        ArenaCallArgKind::Splice { value, .. } => *value,
+        ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => *value,
     }
 }
 
@@ -273,9 +418,22 @@ fn build_replacement_text(
             let span = m.bindings.get(name.as_str().as_str())?;
             Some(target_source.get(span.start()..span.end())?.to_string())
         }
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+            let input = build_replacement_text(arena, *input, m, target_source, pattern_source)?;
+            let call = build_replacement_text(arena, *call, m, target_source, pattern_source)?;
+            Some(format!("{input} |> {call}"))
+        }
         ArenaExprKind::Field { base, name } => {
             let base_text = build_replacement_text(arena, *base, m, target_source, pattern_source)?;
             Some(format!("{base_text}.{name}"))
+        }
+        ArenaExprKind::NullSafeField { base, name } => {
+            let base = build_replacement_text(arena, *base, m, target_source, pattern_source)?;
+            Some(format!("({base})?.{name}"))
+        }
+        ArenaExprKind::Try(inner) => {
+            let inner = build_replacement_text(arena, *inner, m, target_source, pattern_source)?;
+            Some(format!("({inner})?"))
         }
         ArenaExprKind::Call { callee, args } => {
             let callee_text =
@@ -283,15 +441,107 @@ fn build_replacement_text(
             let mut arg_parts = Vec::new();
             for arg in arena.call_args(*args) {
                 let e = call_arg_expr(arg);
-                arg_parts.push(build_replacement_text(
-                    arena,
-                    e,
-                    m,
-                    target_source,
-                    pattern_source,
-                )?);
+                let value = build_replacement_text(arena, e, m, target_source, pattern_source)?;
+                arg_parts.push(match arg.kind {
+                    ArenaCallArgKind::Positional(_) => value,
+                    ArenaCallArgKind::Named { name, value: expr, span } => {
+                        if arena.expr(expr).span.start() == arena.span(span).start() { format!("{name}:") }
+                        else { format!("{name}: {value}") }
+                    }
+                    ArenaCallArgKind::Splice { .. } => format!("@({value})"),
+                    ArenaCallArgKind::NamedSpread { .. } => format!("...{value}"),
+                });
             }
             Some(format!("{callee_text}({})", arg_parts.join(", ")))
+        }
+        ArenaExprKind::Record(fields) => {
+            use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
+            let mut text = pattern_source.get(expr.span.start()..expr.span.end())?.to_string();
+            let mut edits = Vec::new();
+            for field in arena.record_fields(*fields) {
+                let children = match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => vec![key, value],
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => vec![value],
+                    ArenaRecordFieldKind::Spread { expr, .. } => vec![expr],
+                    ArenaRecordFieldKind::Shorthand { .. } => Vec::new(),
+                };
+                for child in children {
+                    let span = arena.expr(child).span;
+                    let replacement = build_replacement_text(arena, child, m, target_source, pattern_source)?;
+                    edits.push((span.start() - expr.span.start(), span.end() - expr.span.start(), replacement));
+                }
+            }
+            edits.sort_unstable_by_key(|(start, _, _)| std::cmp::Reverse(*start));
+            for (start, end, replacement) in edits { text.replace_range(start..end, &replacement); }
+            Some(text)
+        }
+        ArenaExprKind::PatternTest { value, arms } => {
+            let subject = build_replacement_text(arena, *value, m, target_source, pattern_source)?;
+            let selected = arena.match_expr_arms(*arms).first()?;
+            let pattern_span = arena.span(arena.pattern(selected.pattern).span);
+            let pattern = pattern_source.get(pattern_span.range())?;
+            Some(format!("({subject}) is {pattern}"))
+        }
+        ArenaExprKind::Retry { delays, block, .. } => {
+            let mut text = pattern_source.get(expr.span.range())?.to_string();
+            let mut children = arena.expr_ids(*delays).collect::<Vec<_>>();
+            for statement in arena.stmt_ids(arena.block(*block).statements) {
+                let xsh::frontend::syntax::arena::ArenaStmtKind::Expr(value) = arena.stmt(statement).kind else { return None };
+                children.push(value);
+            }
+            children.sort_by_key(|child| std::cmp::Reverse(arena.expr(*child).span.start()));
+            for child in children {
+                let replacement = build_replacement_text(arena, child, m, target_source, pattern_source)?;
+                let span = arena.expr(child).span;
+                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
+            }
+            Some(text)
+        }
+        ArenaExprKind::Match { value, arms } => {
+            let mut text = pattern_source.get(expr.span.range())?.to_string();
+            let mut edits = vec![(*value, build_replacement_text(arena, *value, m, target_source, pattern_source)?)];
+            for arm in arena.match_expr_arms(*arms) {
+                edits.push((arm.value, build_replacement_text(arena, arm.value, m, target_source, pattern_source)?));
+                if let Some(guard) = arm.guard { edits.push((guard, build_replacement_text(arena, guard, m, target_source, pattern_source)?)); }
+            }
+            edits.sort_by_key(|(id, _)| std::cmp::Reverse(arena.expr(*id).span.start()));
+            for (id, replacement) in edits {
+                let span = arena.expr(id).span;
+                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
+            }
+            Some(text)
+        }
+        ArenaExprKind::ValueBlock(block) => {
+            let mut replacements = Vec::new();
+            for statement in arena.stmt_ids(arena.block(*block).statements) {
+                let xsh::frontend::syntax::arena::ArenaStmtKind::Expr(value) = arena.stmt(statement).kind else { return None; };
+                let value_span = arena.expr(value).span;
+                let replacement = build_replacement_text(arena, value, m, target_source, pattern_source)?;
+                replacements.push((value_span, replacement));
+            }
+            let mut text = pattern_source.get(expr.span.range())?.to_owned();
+            for (span, replacement) in replacements.into_iter().rev() {
+                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
+            }
+            Some(text)
+        }
+        ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => {
+            let description = build_replacement_text(arena, *message, m, target_source, pattern_source)?;
+            let mut text = pattern_source.get(expr.span.range())?.to_string();
+            let message_span = arena.expr(*message).span;
+            let mut edits = vec![(message_span, description)];
+            for statement in arena.stmt_ids(arena.block(*block).statements) {
+                let node = arena.stmt(statement);
+                let replacement = match node.kind {
+                    ArenaStmtKind::Expr(value) => build_replacement_text(arena, value, m, target_source, pattern_source)?,
+                    ArenaStmtKind::TailBareIdent(name) if is_metavar(name.as_str().as_str()) => target_source.get(m.bindings.get(name.as_str().as_str())?.range())?.to_string(),
+                    _ => continue,
+                };
+                edits.push((node.span, replacement));
+            }
+            edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start()));
+            for (span, replacement) in edits { text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement); }
+            Some(text)
         }
         ArenaExprKind::Ident(name) => Some(name.to_string()),
         // For non-metavar, non-structural nodes: fall back to pattern source text.
@@ -300,6 +550,33 @@ fn build_replacement_text(
             Some(text.to_string())
         }
     }
+}
+
+fn match_value_block(
+    p: &AstArena, pb: BlockId, t: &AstArena, tb: BlockId,
+    source: &str, bindings: &mut FxHashMap<String, Span>,
+) -> bool {
+    let ps = p.stmt_ids(p.block(pb).statements).collect::<Vec<_>>();
+    let ts = t.stmt_ids(t.block(tb).statements).collect::<Vec<_>>();
+    if ps.len() != ts.len() || !p.block(pb).params.is_empty() || !t.block(tb).params.is_empty() { return false; }
+    let mut candidate = bindings.clone();
+            for (ps, ts) in ps.into_iter().zip(ts) {
+                match (p.stmt(ps).kind, t.stmt(ts).kind) {
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::Expr(pe), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) => {
+                        if !match_expr(p, pe, t, te, source, &mut candidate) { return false; }
+                    }
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(name), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) if is_metavar(name.as_str().as_str()) => {
+                        let target = t.expr(te).span;
+                        if let Some(previous) = candidate.get(name.as_str().as_str()) {
+                            if source.get(previous.start()..previous.end()) != source.get(target.start()..target.end()) { return false; }
+                        } else { candidate.insert(name.to_string(), target); }
+                    }
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(a), xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(b)) if a == b => {}
+                    _ => return false,
+                }
+            }
+    *bindings = candidate;
+    true
 }
 
 /// Extract the line number (1-based) containing byte offset `offset` from `source`.
@@ -345,6 +622,9 @@ pub fn parse_pattern_expr(pattern: &str) -> Result<PatternExpr, String> {
         .ok_or_else(|| format!("failed to parse pattern '{pattern}': no statements"))?;
     let root = match program.arena.stmt(stmt_id).kind {
         ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Expr(expr),
+            ..
+        } | ArenaStmtKind::Const {
             initializer: ArenaExprOrRun::Expr(expr),
             ..
         } => expr,

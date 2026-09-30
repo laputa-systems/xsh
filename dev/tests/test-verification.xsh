@@ -28,7 +28,7 @@ ${body}
   fs.chmod(tool_path, 0o755)?
 }
 
-proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestContext) [fs, process, error, io] {
+test test_binary_verification_rejects_missing_and_non_elf_products [fs, process, error, io] { |ctx|
   let root = test.temp_dir(ctx, name: "verify-binary")?
   let verify_ctx = verification_context(root)?
 
@@ -51,13 +51,13 @@ proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestCont
   }
 }
 
-proc test_distribution_product_paths_are_stable() [error] {
+test test_distribution_product_paths_are_stable [error] {
   let target_dir = /repo/target
   distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh").display() == "/repo/target/x86_64-unknown-linux-musl/release/xsh"
   distributions.distribution_product_path(target_dir, "aarch64-unknown-linux-musl", "xsht").display() == "/repo/target/aarch64-unknown-linux-musl/dist/xsht"
 }
 
-proc test_linux_verification_rejects_wrong_machine_and_dynamic_binaries(ctx: TestContext) [fs, error] {
+test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "verify-linux")?
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
   product.parent().mkdir()?
@@ -75,7 +75,7 @@ proc test_linux_verification_rejects_wrong_machine_and_dynamic_binaries(ctx: Tes
   write_fake_tool(
     fp"${tools}/readelf",
     xsh,
-    """if "-h" in ARGV {
+    """if "-h" in args {
   print "Machine: AArch64"
 } else {
   print ""
@@ -107,7 +107,7 @@ main()?
   write_fake_tool(
     fp"${tools}/readelf",
     xsh,
-    """if "-h" in ARGV {
+    """if "-h" in args {
   print "Machine: Advanced Micro Devices X86-64"
 } else {
   print "NEEDED"

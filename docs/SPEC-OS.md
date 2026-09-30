@@ -29,6 +29,14 @@ The OS runtime is not a service supervisor, bytecode VM, async runtime, event
 loop, green-thread scheduler, or job control implementation. It does not try to
 manage descendants that intentionally move into another process group.
 
+Native Path fragments cross argv and file-redirection boundaries as bytes,
+including compound command words such as `"--target=$target"`. Direct runs,
+stored command plans, and their redirections share `lower_run_arg` and the
+indexed native fragment builder. Text fragments use UTF-8, and NUL rejection
+precedes the host invocation. Human text and trace rendering retain their
+existing display/escaping policy; diagnostic text does not become an argv
+encoding. Concatenation establishes no filesystem access or confinement.
+
 ## 2. Overall Design
 
 The OS runtime is the coordination layer between tree-shaped XSH evaluation and
@@ -50,6 +58,15 @@ The implementation is intentionally split into three responsibilities:
 - The signal substrate owns process-global handler installation, async-signal
   safe signal recording, handler restoration, and child signal-disposition
   reset before exec.
+
+Value scopes `cd (path) { tail }` and `env (overlay) { tail }` select evaluator
+state without changing process-global cwd or environment. Entering a scope
+validates its input before the body starts. Environment values use the existing
+scalar argv conversion, including native Path bytes and NUL rejection; inherited
+raw environment bytes remain unchanged. Scope cleanup and defers finish before
+restoration, including lexical transfers and cancellation. A live producer or
+host handle cannot escape after restoration. `Result` wrapping records normal
+completion and entry errors; body propagation keeps its enclosing destination.
 
 No layer is allowed to smuggle host behavior around the others. The process
 substrate does not decide XSH control flow. Signal handlers do not inspect
@@ -241,6 +258,13 @@ effect_list      = "[" (effect ("," effect)*)? "]"
 identifiers written with or without one leading `SIG` prefix. Numeric hook
 declarations are rejected.
 
+Explicit `run --accept=EXPR` completion checks ordinary exit codes without
+normalizing Status or accepting signal termination. The validated code set stays
+with `Command` and the owned child; ordinary waits check it after reaping. Early
+stream termination and explicit handle cancellation stop the process group and
+retain cancellation identity. Each pipeline segment owns its policy, and a set on
+one segment cannot accept a failing sibling.
+
 Process fan-out uses `spawn`, `wait`, and `ProcessHandle.cancel`:
 
 ```xsh
@@ -271,6 +295,14 @@ to `Command` and starts that plan as an owned handle. `wait handle` returns
 `Result[Status, ProcessError]`; `wait [handles]` returns
 `Result[List[Status], ProcessError]`. A trailing `?` applies to the `Result`
 produced by the whole `spawn`, `wait`, or `cancel` expression.
+
+Bytes stdin payloads belong to the process owner. `InputDelivery` retains one
+immutable byte allocation and a nonblocking child pipe, advancing bounded
+writes at capture, managed-wait, and pipeline polling checkpoints. Evaluator
+checkpoints also drive live owned handles. Captured stdout/stderr are drained
+while input delivery proceeds; successful consumers may close stdin early.
+Completion, timeout, cancellation, lexical cleanup, and detached reaping close
+the pipe and release the payload without a temporary file or extra feeder task.
 
 ## 3. Signal State
 

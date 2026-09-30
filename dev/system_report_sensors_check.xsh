@@ -4,7 +4,7 @@ use context
 error SensorsCheckError = Invalid(message: Str)
 
 pure sensors_check_failure(message: Str) -> SensorsCheckError {
-  return SensorsCheckError.Invalid(message: message)
+  return SensorsCheckError.Invalid(message:)
 }
 
 ## Keeps the bus-qualified chip key and raw subfeature name distinct from display labels.
@@ -144,19 +144,19 @@ export pure compare_sensors_json(
   var candidate_indices: Map[Int] = {}
   for reading in before {
     let key = f"${reading.chip}:${reading.subfeature}"
-    before_chip_counts = before_chip_counts.set(key, before_chip_counts.get(key, 0) + 1)
+    before_chip_counts = before_chip_counts.set(key, (before_chip_counts.get(key) ?? 0) + 1)
   }
 
   for reading in after {
     let key = f"${reading.chip_key}:${reading.subfeature}"
-    after_counts = after_counts.set(key, after_counts.get(key, 0) + 1)
+    after_counts = after_counts.set(key, (after_counts.get(key) ?? 0) + 1)
     after_values = after_values.set(key, reading.value)
   }
 
   for index in range(candidate.channels.len()) {
     let item = candidate.channels[index]
     let key = f"${item.chip}:${item.channel}"
-    candidate_counts = candidate_counts.set(key, candidate_counts.get(key, 0) + 1)
+    candidate_counts = candidate_counts.set(key, (candidate_counts.get(key) ?? 0) + 1)
     candidate_indices = candidate_indices.set(key, index)
   }
 
@@ -167,11 +167,11 @@ export pure compare_sensors_json(
     continue when scale == null
     reference_count += 1
     let key = f"${reading.chip_key}:${reading.subfeature}"
-    let before_chip_matches = before_chip_counts.get(f"${reading.chip}:${reading.subfeature}", 0)
-    let after_matches = after_counts.get(key, 0)
-    let following = after_values.get(key, reading.value)
+    let before_chip_matches = (before_chip_counts.get(f"${reading.chip}:${reading.subfeature}") ?? 0)
+    let after_matches = (after_counts.get(key) ?? 0)
+    let following = (after_values.get(key) ?? reading.value)
     let candidate_key = f"${reading.chip}:${channel}"
-    let candidate_matches = candidate_counts.get(candidate_key, 0)
+    let candidate_matches = (candidate_counts.get(candidate_key) ?? 0)
     var raw: Int? = null
     if candidate_matches == 1 {
       raw = candidate.channels[candidate_indices.get(candidate_key)?].value
@@ -219,12 +219,12 @@ export proc compare_live_sensors_json(
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
-    fs.root_write(scratch, fp"${name}", "")?
+    scratch.write(fp"${name}", "")?
   }
 
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let version_status = process.run(
     process.command_argv(
       executable,
@@ -239,7 +239,7 @@ export proc compare_live_sensors_json(
     return Err(sensors_check_failure("sensors version probe failed"))
   }
 
-  let version_source = fs.root_read_result(scratch, p"version", max_bytes: 4096)?
+  let version_source = scratch.read_result(p"version", max_bytes: 4096)?
   if version_source.state != "observed" or version_source.truncated or version_source.data == null {
     return Err(sensors_check_failure("sensors version probe output is incomplete"))
   }
@@ -290,9 +290,9 @@ export proc compare_live_sensors_json(
     return Err(sensors_check_failure("candidate sensor collection failed"))
   }
 
-  let before_source = fs.root_read_result(scratch, p"before", max_bytes: 8388608)?
-  let after_source = fs.root_read_result(scratch, p"after", max_bytes: 8388608)?
-  let candidate_source = fs.root_read_result(scratch, p"candidate", max_bytes: 8388608)?
+  let before_source = scratch.read_result(p"before", max_bytes: 8388608)?
+  let after_source = scratch.read_result(p"after", max_bytes: 8388608)?
+  let candidate_source = scratch.read_result(p"candidate", max_bytes: 8388608)?
   if before_source.truncated or after_source.truncated or candidate_source.truncated or before_source.data == null or after_source.data == null or candidate_source.data == null {
     return Err(sensors_check_failure("sensor comparison output exceeds its bound"))
   }

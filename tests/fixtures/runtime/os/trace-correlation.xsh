@@ -1,4 +1,4 @@
-let helper = fp"${ARGV[0]}"
+let helper = fp"${args[0]}"
 
 on USR1 --pre-cancel=0ms [time, error] {
   time.sleep(50ms)?
@@ -7,7 +7,7 @@ on USR1 --pre-cancel=0ms [time, error] {
 
 let command = process.command_argv(
   helper,
-  ["os-probe", "trap-and-wait", fp"${ARGV[1]}".display(), fp"${ARGV[2]}".display(), "USR1"],
+  ["os-probe", "trap-and-wait", fp"${args[1]}".display(), fp"${args[2]}".display(), "USR1"],
 )
 
 let h = spawn command?

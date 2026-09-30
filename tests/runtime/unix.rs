@@ -168,7 +168,7 @@ let log = Path({})
 let command = process.command_argv(\"sh\", [\"sh\", \"-c\", \"printf service-out; printf service-err >&2\"])
 let logger = process.command_argv(\"sh\", [\"sh\", \"-c\", f\"cat > ${{log.display()}}\"] )
 let child = unix.spawn_logged_process_group(command, logger)?
-var events: List[Record] = []
+var events = unix.reap_child_events()?.collect()
 var tries = 0
 while events.len() < 2 and tries < 100 {{
   time.sleep(10ms)?

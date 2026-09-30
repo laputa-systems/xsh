@@ -1,4 +1,4 @@
-proc test_chgrp_current_group(ctx: TestContext) [fs, process, env, error] {
+test test_chgrp_current_group [fs, process, env, error] { |ctx|
   let target = test.temp_file(ctx, name: "grouped.txt", contents: b"payload")?
   let current = group.current()?
   let name = current.name

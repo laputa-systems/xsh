@@ -35,6 +35,89 @@ struct OptionSpec {
     file: bool,
     dir: bool,
     default: Option<Value>,
+    positional_order: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SignatureParameter {
+    pub name: String,
+    pub type_name: String,
+    pub default: Option<Value>,
+    pub rest: bool,
+}
+
+/// A signature-derived schema uses the same conversion, help and usage-error
+/// policy as an explicit strict CLI schema. Its only ordering override is the
+/// declaration order of positional parameters.
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedSignatureCli {
+    specs: BTreeMap<String, OptionSpec>,
+    parameters: Vec<SignatureParameter>,
+    description: String,
+    pub span: Span,
+}
+
+impl PreparedSignatureCli {
+    pub(crate) fn prepare(parameters: Vec<SignatureParameter>, description: String, span: Span) -> Result<Self, RuntimeError> {
+        let mut schema = RecordMap::new();
+        for parameter in &parameters {
+            let mut descriptor = RecordMap::from([
+                (Arc::from("kind"), Value::Str(parameter.type_name.clone().into())),
+                (Arc::from("positional"), Value::Bool(parameter.default.is_none())),
+                (Arc::from("required"), Value::Bool(parameter.default.is_none() && !parameter.rest)),
+                (Arc::from("help"), Value::Str(signature_parameter_help(parameter).into())),
+            ]);
+            if parameter.rest {
+                descriptor.insert(Arc::from("form"), Value::Str(format!("...{}", parameter.name.to_ascii_uppercase()).into()));
+            }
+            if let Some(default) = &parameter.default { descriptor.insert(Arc::from("default"), default.clone()); }
+            schema.insert(Arc::from(parameter.name.as_str()), Value::Record(descriptor));
+        }
+        let mut specs = parse_schema(schema, span)?;
+        for (index, parameter) in parameters.iter().enumerate() {
+            specs.get_mut(&parameter.name).expect("prepared signature has a schema entry").positional_order = Some(index);
+        }
+        long_option_specs(&specs, span)?;
+        short_option_specs(&specs, span)?;
+        Ok(Self { specs, parameters, description, span })
+    }
+
+    pub(crate) fn parse(&self, argv: &[String], command: &str) -> Result<Vec<Value>, RuntimeError> {
+        let usage = usage_text(&self.specs, command);
+        let usage = if self.description.is_empty() { usage } else { format!("{}\n\n{usage}", self.description) };
+        if argv_requests_help(argv, &self.specs, ParsePolicy::Strict) { return Err(cli_help_error(usage, self.span)); }
+        let parsed = parse_values(argv, &self.specs, &RecordMap::new(), self.span, ParsePolicy::Strict)
+            .map_err(|error| cli_usage_error(error, usage))?;
+        let mut values = parsed.values.into_iter().collect::<BTreeMap<_, _>>();
+        let mut arguments = Vec::new();
+        for parameter in &self.parameters {
+            let value = values.remove(parameter.name.as_str()).expect("checked CLI schema supplies every parameter");
+            if parameter.rest {
+                let Value::List(values) = value else { return Err(cli_error("rest parameter did not produce a List", self.span)); };
+                arguments.extend(values);
+            } else { arguments.push(value); }
+        }
+        Ok(arguments)
+    }
+}
+
+fn signature_parameter_help(parameter: &SignatureParameter) -> String {
+    let mut help = parameter.type_name.clone();
+    if let Some(default) = &parameter.default {
+        let text = match default {
+            Value::List(values) => format!("[{}]", values.iter().filter_map(value_choice_text).collect::<Vec<_>>().join(", ")),
+            Value::Str(text) => format!("{text:?}"),
+            value => value_choice_text(value).unwrap_or_default(),
+        };
+        help.push_str(&format!(", default: {text}"));
+    }
+    help
+}
+
+fn positional_specs(specs: &BTreeMap<String, OptionSpec>) -> Vec<(&String, &OptionSpec)> {
+    let mut positionals = specs.iter().filter(|(_, spec)| spec.positional).collect::<Vec<_>>();
+    positionals.sort_by_key(|(_, spec)| spec.positional_order);
+    positionals
 }
 
 #[derive(Clone, Debug, Default)]
@@ -108,9 +191,133 @@ struct ParsedValues {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ParsePolicy {
+pub(crate) enum ParsePolicy {
     Strict,
     Applet,
+}
+
+/// One normalized descriptor supplies both checked field types and argument
+/// parsing policy. Prepared calls retain this plan without exposing it as a
+/// language value; dynamic descriptors use the same normalization at runtime.
+#[derive(Clone, Debug)]
+pub(crate) struct CliDescriptorPlan {
+    specs: BTreeMap<String, OptionSpec>,
+    policy: ParsePolicy,
+    commands: Option<(BTreeMap<String, CommandSpec>, Option<CommandSpec>)>,
+}
+
+impl CliDescriptorPlan {
+    pub(crate) fn normalize(schema: RecordMap, span: Span, policy: ParsePolicy, origins: &BTreeMap<String, Span>) -> Result<Self, RuntimeError> {
+        Ok(Self { specs: parse_schema_at(schema, span, policy, origins)?, policy, commands: None })
+    }
+
+    pub(crate) fn normalize_commands(schema: RecordMap, fallback: Option<RecordMap>, span: Span, origins: &BTreeMap<String, Span>, fallback_span: Span) -> Result<Self, RuntimeError> {
+        let specs = parse_command_schema_at(schema, span, origins)?;
+        let fallback = fallback.map(|descriptor| parse_command_descriptor("fallback_command", Value::Record(descriptor), fallback_span)).transpose()?;
+        Ok(Self { specs: BTreeMap::new(), policy: ParsePolicy::Strict, commands: Some((specs, fallback)) })
+    }
+
+    pub(crate) fn matches_operation(&self, op: xsh_registry::RuntimeOp) -> bool {
+        use xsh_registry::RuntimeOp;
+        if self.commands.is_some() { return op == RuntimeOp::CliCommands; }
+        matches!((self.policy, op), (ParsePolicy::Applet, RuntimeOp::CliApplet)
+            | (ParsePolicy::Strict, RuntimeOp::CliParse | RuntimeOp::CliParseFull))
+    }
+
+    pub(crate) fn values_type(&self) -> crate::sema::types::Type {
+        use crate::sema::types::Type;
+        if let Some((commands, fallback)) = &self.commands {
+            let mut shapes = commands.values().chain(fallback.iter()).map(command_value_type);
+            let mut common = shapes.next().unwrap_or_else(|| BTreeMap::from([
+                (crate::symbol::Name::intern("command"), Type::Str), (crate::symbol::Name::intern("action"), Type::Str),
+            ]));
+            for shape in shapes { common.retain(|name, ty| shape.get(name) == Some(ty)); }
+            return Type::Record(common);
+        }
+        option_values_type(&self.specs)
+    }
+
+    pub(crate) fn return_type(&self, full: bool) -> crate::sema::types::Type {
+        use crate::sema::types::Type;
+        let values = self.values_type();
+        let result = if full { Type::Record(BTreeMap::from(xsh_registry::types::cli_full_fields(
+            values, Type::ErasedRecord, Type::List(Box::new(Type::Str)),
+        ).map(|(name, ty)| (crate::symbol::Name::intern(name), ty)))) } else { values };
+        Type::Result(Box::new(result), Box::new(Type::Error))
+    }
+}
+
+fn command_scalar_type(value: ArgValueType) -> crate::sema::types::Type {
+    use crate::sema::types::Type;
+    match value { ArgValueType::Str => Type::Str, ArgValueType::Int => Type::Int, ArgValueType::UInt => Type::UInt,
+        ArgValueType::Bool => Type::Bool, ArgValueType::Path => Type::Path, ArgValueType::Duration => Type::Duration }
+}
+
+/// Every successful command record publishes only its own positional, option,
+/// and rest fields. The common result contract excludes conditional fields.
+fn command_value_type(spec: &CommandSpec) -> BTreeMap<crate::symbol::Name, crate::sema::types::Type> {
+    use crate::sema::types::Type;
+    let mut fields = BTreeMap::from([(crate::symbol::Name::intern("command"), Type::Str), (crate::symbol::Name::intern("action"), Type::Str)]);
+    if let Type::Record(options) = option_values_type(&spec.options) { fields.extend(options); }
+    for name in &spec.positionals { fields.insert(crate::symbol::Name::intern(name), command_scalar_type(spec.types.get(name).unwrap_or(&ArgValueType::Str).clone())); }
+    if let Some(rest) = &spec.rest { fields.insert(crate::symbol::Name::intern(rest), Type::List(Box::new(Type::Str))); }
+    fields
+}
+
+fn option_values_type(specs: &BTreeMap<String, OptionSpec>) -> crate::sema::types::Type {
+    use crate::sema::types::Type;
+    Type::Record(specs.iter().map(|(name, spec)| {
+        let scalar = match spec.value_ty {
+            ArgValueType::Str => Type::Str,
+            ArgValueType::Int | ArgValueType::UInt => Type::Int,
+            ArgValueType::Bool => Type::Bool,
+            ArgValueType::Path => Type::Path,
+            ArgValueType::Duration => Type::Duration,
+        };
+        // A forced non-Bool flag produces Bool for an unvalued spelling
+        // and its declared scalar for attached values or defaults.
+        let scalar = if spec.flag && scalar != Type::Bool { Type::Any } else { scalar };
+        let ty = if spec.repeated { Type::List(Box::new(scalar)) }
+            else if spec.flag || spec.required || spec.default.is_some() { scalar }
+            else { Type::Optional(Box::new(scalar)) };
+        (crate::symbol::Name::intern(name), ty)
+    }).collect())
+}
+
+pub(crate) fn command_descriptor_sources(
+    arguments: &[crate::sema::arguments::ExpandedArgument], slots: &[usize], parameters: &[crate::symbol::Name],
+) -> Option<(crate::sema::arguments::ArgumentValueSource, Option<crate::sema::arguments::ArgumentValueSource>)> {
+    let mut commands = None;
+    let mut fallback = None;
+    for (argument, slot) in arguments.iter().zip(slots) {
+        match parameters.get(*slot)?.as_str().as_str() {
+            "commands" => commands = Some(argument.value),
+            "fallback_command" => fallback = Some(argument.value),
+            _ => {}
+        }
+    }
+    Some((commands?, fallback))
+}
+
+pub(crate) fn descriptor_argument(args: &[crate::syntax::arena::ArenaCallArg]) -> Option<crate::syntax::arena::ExprId> {
+    use crate::syntax::arena::ArenaCallArgKind;
+    let mut occupied = [false; 4];
+    let mut positional = 0;
+    let mut schema = None;
+    for arg in args {
+        let (slot, value) = match arg.kind {
+            ArenaCallArgKind::Named { name, value, .. } => (
+                ["argv", "schema", "env", "command"].iter().position(|field| name == *field)?, value),
+            ArenaCallArgKind::Positional(value) => {
+                while occupied.get(positional) == Some(&true) { positional += 1; }
+                let slot = positional; positional += 1; (slot, value)
+            }
+            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
+        };
+        if let Some(occupied) = occupied.get_mut(slot) { *occupied = true; }
+        if slot == 1 { schema = Some(value); }
+    }
+    schema
 }
 
 impl ParsePolicy {
@@ -124,8 +331,9 @@ pub(crate) fn parse_cli(
     schema: RecordMap,
     command: &str,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Strict)
+    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Strict, prepared)
 }
 
 pub(crate) fn parse_cli_applet(
@@ -133,8 +341,9 @@ pub(crate) fn parse_cli_applet(
     schema: RecordMap,
     command: &str,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Applet)
+    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Applet, prepared)
 }
 
 fn parse_cli_with_policy(
@@ -143,8 +352,10 @@ fn parse_cli_with_policy(
     command: &str,
     span: Span,
     policy: ParsePolicy,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_schema_with_policy(schema, span, policy)?;
+    let dynamic;
+    let specs = if let Some(plan) = prepared { &plan.specs } else { dynamic = parse_schema_with_policy(schema, span, policy)?; &dynamic };
     if argv_requests_help(&argv, &specs, policy) {
         return Err(cli_help_error(
             usage_text_with_policy(&specs, command, policy),
@@ -162,27 +373,20 @@ pub(crate) fn parse_cli_full(
     env: RecordMap,
     command: &str,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_schema(schema, span)?;
+    let dynamic;
+    let specs = if let Some(plan) = prepared { &plan.specs } else { dynamic = parse_schema(schema, span)?; &dynamic };
     if argv_requests_help(&argv, &specs, ParsePolicy::Strict) {
         return Err(cli_help_error(usage_text(&specs, command), span));
     }
     let parsed = parse_values(&argv, &specs, &env, span, ParsePolicy::Strict)
         .map_err(|error| cli_usage_error(error, usage_text(&specs, command)))?;
-    Ok(Value::ok(Value::Record(RecordMap::from([
-        (Arc::from("values"), Value::Record(parsed.values)),
-        (Arc::from("sources"), Value::Record(parsed.sources)),
-        (
-            Arc::from("warnings"),
-            Value::List(
-                parsed
-                    .warnings
-                    .into_iter()
-                    .map(|warning| Value::Str(warning.into()))
-                    .collect(),
-            ),
-        ),
-    ]))))
+    let fields = xsh_registry::types::cli_full_fields(
+        Value::Record(parsed.values), Value::Record(parsed.sources),
+        Value::List(parsed.warnings.into_iter().map(|warning| Value::Str(warning.into())).collect()),
+    );
+    Ok(Value::ok(Value::Record(RecordMap::from(fields.map(|(name, value)| (Arc::from(name), value))))))
 }
 
 pub(crate) fn render_usage(
@@ -200,14 +404,14 @@ pub(crate) fn parse_commands(
     commands: RecordMap,
     fallback_command: Option<RecordMap>,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_command_schema(commands, span)?;
-    let fallback = fallback_command
-        .map(|descriptor| {
-            parse_command_descriptor("fallback_command", Value::Record(descriptor), span)
-        })
-        .transpose()?;
-    let parsed = parse_command_values(&argv, &rootless_default, &specs, fallback.as_ref(), span)?;
+    let owned;
+    let plan = if let Some(plan) = prepared { plan } else {
+        owned = CliDescriptorPlan::normalize_commands(commands, fallback_command, span, &BTreeMap::new(), span)?; &owned
+    };
+    let Some((specs, fallback)) = &plan.commands else { return Err(cli_commands_error("invalid prepared command descriptor", span)); };
+    let parsed = parse_command_values(&argv, &rootless_default, specs, fallback.as_ref(), span)?;
     Ok(Value::ok(Value::Record(parsed)))
 }
 
@@ -437,10 +641,17 @@ fn parse_schema_with_policy(
     span: Span,
     policy: ParsePolicy,
 ) -> Result<BTreeMap<String, OptionSpec>, RuntimeError> {
+    parse_schema_at(schema, span, policy, &BTreeMap::new())
+}
+
+fn parse_schema_at(schema: RecordMap, span: Span, policy: ParsePolicy, origins: &BTreeMap<String, Span>)
+    -> Result<BTreeMap<String, OptionSpec>, RuntimeError>
+{
     let mut specs = BTreeMap::new();
     for (name, descriptor) in schema {
-        let spec = parse_descriptor(&name, descriptor, span)?;
-        validate_not_reserved_help(&name, &spec, span, policy)?;
+        let descriptor_span = origins.get(name.as_ref()).copied().unwrap_or(span);
+        let spec = parse_descriptor(&name, descriptor, descriptor_span)?;
+        validate_not_reserved_help(&name, &spec, descriptor_span, policy)?;
         specs.insert(name.to_string(), spec);
     }
     Ok(specs)
@@ -461,13 +672,14 @@ fn validate_not_reserved_help(
     Ok(())
 }
 
-fn parse_command_schema(
+fn parse_command_schema_at(
     schema: RecordMap,
     span: Span,
+    origins: &BTreeMap<String, Span>,
 ) -> Result<BTreeMap<String, CommandSpec>, RuntimeError> {
     let mut specs = BTreeMap::new();
     for (name, descriptor) in schema {
-        let spec = parse_command_descriptor(&name, descriptor, span)?;
+        let spec = parse_command_descriptor(&name, descriptor, origins.get(name.as_ref()).copied().unwrap_or(span))?;
         for alias in &spec.aliases {
             let key = command_key(alias);
             if specs.insert(key, spec.clone()).is_some() {
@@ -513,6 +725,7 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 file: false,
                 dir: false,
                 default: None,
+                positional_order: None,
             })
         }
         Value::Record(fields) => {
@@ -623,6 +836,7 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 file,
                 dir,
                 default,
+                positional_order: None,
             })
         }
         value => Err(cli_error(
@@ -1200,8 +1414,7 @@ fn parse_values(
     span: Span,
     policy: ParsePolicy,
 ) -> Result<ParsedValues, RuntimeError> {
-    let positionals: Vec<(&String, &OptionSpec)> =
-        specs.iter().filter(|(_, spec)| spec.positional).collect();
+    let positionals = positional_specs(specs);
     let long_specs = long_option_specs(specs, span)?;
     let short_specs = short_option_specs(specs, span)?;
     let mut positional_index = 0usize;
@@ -1267,7 +1480,7 @@ fn parse_values(
             };
             let key = normalize_arg_name(raw_name);
             let name = long_specs.get(&key).cloned().unwrap_or_else(|| key.clone());
-            let Some(spec) = specs.get(&name) else {
+            let Some(spec) = specs.get(&name).filter(|spec| !spec.positional || spec.positional_order.is_none()) else {
                 return Err(cli_error(
                     format!("unknown argument at argv[{index}]: --{raw_name}"),
                     span,
@@ -1847,7 +2060,7 @@ fn usage_text_with_policy(
     policy: ParsePolicy,
 ) -> String {
     let mut usage = format!("usage: {command}");
-    for (name, spec) in specs {
+    for (name, spec) in positional_specs(specs) {
         if spec.hidden {
             continue;
         }
@@ -1871,9 +2084,9 @@ fn usage_text_with_policy(
         .iter()
         .filter(|(_, spec)| !spec.hidden && !spec.positional)
         .collect::<Vec<_>>();
-    let visible_positionals = specs
-        .iter()
-        .filter(|(_, spec)| !spec.hidden && spec.positional && spec.help.is_some())
+    let visible_positionals = positional_specs(specs)
+        .into_iter()
+        .filter(|(_, spec)| !spec.hidden && spec.help.is_some())
         .collect::<Vec<_>>();
     usage.push_str(" [OPTIONS]");
     let mut output = usage;

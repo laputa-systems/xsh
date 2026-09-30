@@ -15,6 +15,8 @@ type Interface = {
 
 type Config = {auto: List[Str], interfaces: List[Interface]}
 
+type InterfaceSelection = {physical: Str, logical: Str}
+
 pure empty_interface() -> Interface {
   let pre_down: List[Str] = []
   let down: List[Str] = []
@@ -40,12 +42,16 @@ pure empty_config() -> Config {
 }
 
 proc default_interfaces_path() [env] -> Result[Path] {
-  let raw = match env("XSH_IFUP_INTERFACES") { Ok(path_value) => path_value, Err(_) => "/etc/network/interfaces" }
+  let raw = env("XSH_IFUP_INTERFACES") ?? { |_|
+    "/etc/network/interfaces"
+  }
   return fp"${raw}"
 }
 
 proc default_state_path() [env] -> Result[Path] {
-  let raw = match env("XSH_IFUP_STATE") { Ok(path_value) => path_value, Err(_) => "/run/network/ifstate" }
+  let raw = env("XSH_IFUP_STATE") ?? { |_|
+    "/run/network/ifstate"
+  }
   return fp"${raw}"
 }
 
@@ -273,7 +279,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
 }
 
 proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, process, error] {
-  if ! dir.exists()? {
+  guard dir.exists()? else {
     return
   }
 
@@ -419,7 +425,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
   state_remove_iface(state_path, physical)?
 }
 
-pure split_iface_arg(arg: Str) -> Record {
+pure split_iface_arg(arg: Str) -> InterfaceSelection {
   let parts = arg.split("=", maxsplit: 1)
 
   if parts.len() >= 2 {
@@ -431,7 +437,7 @@ pure split_iface_arg(arg: Str) -> Record {
 
 type IfdownOptions = {all: Bool, operands: List[Str]}
 
-stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Record] {
+stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[InterfaceSelection] {
   if ! state_path.exists()? {
     return
   }

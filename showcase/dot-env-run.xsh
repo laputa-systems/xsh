@@ -22,10 +22,10 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let content = file.read_text()?
 
   # Captures key and raw value; value gets everything after the first =
-  let kv_re = regex.compile("^([A-Za-z_][A-Za-z0-9_]*)=(.*)")?
-  let comment_re = regex.compile("^\\s*#")?
-  let dquote_re = regex.compile("^\"(.*)\"$")?
-  let squote_re = regex.compile("^'(.*)'$")?
+  let kv_re = rx"^([A-Za-z_][A-Za-z0-9_]*)=(.*)"
+  let comment_re = rx"^\s*#"
+  let dquote_re = rx"""^"(.*)"$"""
+  let squote_re = rx"^'(.*)'$"
   var pairs: List[KV] = []
 
   for line in content.lines() {
@@ -42,7 +42,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   }
 
   print f"loaded ${pairs.len()} var(s) from ${file.display()}"
-  let env_args = ["env"].extend([f"${kv.key}=${kv.val}" for kv in pairs]).extend(cmd_args)
+  let env_args = ["env", @[f"${kv.key}=${kv.val}" for kv in pairs], @cmd_args]
   let command = process.command_argv("env", env_args)
   let status = process.run(command)?
 

@@ -32,6 +32,8 @@ pub enum AnnotationSelection {
 }
 
 impl AnnotationPolicy {
+    pub(crate) fn annotates_returns(self) -> bool { self.returns }
+
     pub fn defaults() -> Self {
         Self {
             params: true,
@@ -112,7 +114,6 @@ impl AnnotationPolicy {
 pub fn check_script(script: &str) -> CliOutput {
     check_one_script(
         script,
-        false,
         None,
         &[],
         XshConfig::default().format.line_width,
@@ -121,15 +122,13 @@ pub fn check_script(script: &str) -> CliOutput {
 
 pub fn check_paths_with_options(
     paths: &[String],
-    strict_dynamic: bool,
     annotation_selection: Option<AnnotationSelection>,
 ) -> CliOutput {
-    check_paths_with_summary_options(paths, strict_dynamic, annotation_selection, false)
+    check_paths_with_summary_options(paths, annotation_selection, false)
 }
 
 pub fn check_paths_with_summary_options(
     paths: &[String],
-    strict_dynamic: bool,
     annotation_selection: Option<AnnotationSelection>,
     summary: bool,
 ) -> CliOutput {
@@ -217,7 +216,6 @@ pub fn check_paths_with_summary_options(
 
     let check_options = CheckOptions {
         interactive_commands: None,
-        strict_dynamic,
         reveal_types: true,
         migration_diagnostics: true,
     };
@@ -571,7 +569,7 @@ fn diagnostic_summary_location(diagnostic: &Diagnostic, sources: &SourceMap) -> 
     )
 }
 
-pub fn check_script_with_options(script: &str, strict_dynamic: bool, annotate: bool) -> CliOutput {
+pub fn check_script_with_options(script: &str, annotate: bool) -> CliOutput {
     let config = match load_config() {
         Ok(config) => config,
         Err(message) => {
@@ -615,7 +613,6 @@ pub fn check_script_with_options(script: &str, strict_dynamic: bool, annotate: b
     };
     check_one_script(
         script,
-        strict_dynamic,
         annotation_policy,
         &module_roots,
         line_width,
@@ -624,7 +621,6 @@ pub fn check_script_with_options(script: &str, strict_dynamic: bool, annotate: b
 
 fn check_one_script(
     script: &str,
-    strict_dynamic: bool,
     annotation_policy: Option<AnnotationPolicy>,
     module_roots: &[PathBuf],
     line_width: usize,
@@ -634,7 +630,6 @@ fn check_one_script(
         module_roots.to_vec(),
         CheckOptions {
             interactive_commands: None,
-            strict_dynamic,
             reveal_types: true,
             migration_diagnostics: true,
         },
@@ -866,7 +861,7 @@ fn annotation_edits(
                     edits.push((offset, offset, format!(": {ty} ")));
                 }
             }
-            AnnotationFactKind::ExportedProcReturn { body } => {
+            AnnotationFactKind::InferredPureReturn { body } | AnnotationFactKind::ExportedProcReturn { body } => {
                 if policy.returns && body.source_id == target_source {
                     edits.push((body.start(), body.start(), format!(" -> {ty} ")));
                 }

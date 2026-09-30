@@ -60,9 +60,9 @@ proc main(...argv: List[Str]) [fs, error] {
       if caps.len() >= 4 {
         old_line = line
         version_line_index = item.index
-        major = json.decode(caps[1])?
-        minor = json.decode(caps[2])?
-        patch_component = json.decode(caps[3])?
+        major = json.decode(caps[1])?.require(Int)?
+        minor = json.decode(caps[2])?.require(Int)?
+        patch_component = json.decode(caps[3])?.require(Int)?
         break
       }
     }

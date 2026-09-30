@@ -21,13 +21,13 @@ let root = if path_arg != "" { fp"${path_arg}" } else { fs.cwd()? }
 # records; the size path keeps one {count, size} record per extension.
 if show_size {
   let stats = fs.files(root, stat: true)
-    |> reduce-by --sum { |entry|
+    |> reduce-by(sum: true) { |entry|
       {key: entry.ext.lower(), value: {count: 1, size: entry.size}}
     }
 
   let rows = stats.keys()
     |> map { |ext|
-      let totals = stats.get(ext, {count: 0, size: 0})
+      let totals = (stats.get(ext) ?? {count: 0, size: 0})
       let label = if ext == "" { "(none)" } else { ext }
       {ext: label, count: totals.count, size: totals.size}
     }
@@ -45,7 +45,7 @@ if show_size {
   let rows = counts.keys()
     |> map { |ext|
       let label = if ext == "" { "(none)" } else { ext }
-      {ext: label, count: counts.get(ext, 0)}
+      {ext: label, count: (counts.get(ext) ?? 0)}
     }
     |> sort-by .count
 

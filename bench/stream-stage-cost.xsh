@@ -19,7 +19,7 @@ proc main(...argv: List[Str]) [io, error] {
   } else if mode == "map-where" {
     value = numbers(size) |> map { |n| n } |> where { |n| n >= 0 } |> count()
   } else if mode == "par-map" {
-    value = numbers(size) |> par-map --jobs=8 { |n| n } |> count()
+    value = numbers(size) |> par-map(jobs: 8) { |n| n } |> count()
   } else {
     abort(2)
   }

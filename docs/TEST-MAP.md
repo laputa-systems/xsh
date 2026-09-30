@@ -1,12 +1,144 @@
 # Test Map
 
+Callable aliases: `tests/xsh/callable-aliases.xsh` covers defaults, named and
+spread arguments, alias chains, captured values, qualified exports, dynamic
+module contracts, and erased/effect rejection boundaries.
+`callable_alias_signatures_agree_in_full_and_compact_facts` pins authoritative
+signature facts and annotation preservation. The xsht `callable_alias`
+integration filter covers exact forwarder fixes, refusal, and convergence.
+Run the native module, the focused checker/tooling filters, then ordinary
+semantic and tooling integration suites.
+
 Choose the narrowest useful command first, then run the broader gate for the
 area touched. Agents do not run formatters or linters; leave gates that invoke
 them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
 
+## IR coverage report tool
+
+`target/debug/xsht check tools/xsh-ir-coverage.xsh` checks the maintained scanner.
+`target/debug/xsht test --jobs 1 tests/xsh/ir-coverage-tool.xsh` checks its CLI,
+concrete JSON report, source counts, fallback groups, and invalid-root errors.
+The exact Rust test `runtime::coverage::ir_coverage_scans_multiline_top_level_regions_once`
+retains multiline region coverage without invoking formatters or linters.
+
+## Nullable lookup APIs
+
+`target/debug/xsht test --jobs 1 tests/xsh/absence-lookups.xsh` covers byte
+offsets, zero hits, invalid starts, nullable bytes, present-null collection
+entries, removed overloads, eager snapshots, lazy fallback, and integer fast
+paths. Run the native Str/Bytes/List/Map modules, checker integration tests,
+indexed verifier tests, and `cargo test -p xsht --test integration absence_lookup`
+for migration proof, refusal, rechecking, and convergence.
+`target/debug/xsht test --jobs 1 tests/xsh/constant-key-projections.xsh`
+covers visible record/module key selection, nullable values, keyword labels,
+optional exports, and receiver evaluation. `cargo test -p xsh --test integration
+sema::constant_key_projection` checks full/compact fact parity; `cargo test
+-p xsht --test integration constant_key_projection` covers identity-only schema
+require fixes and conversion/dynamic/no-fix boundaries.
+
+## Boolean guards
+
+`target/debug/xsht test --jobs 1 tests/xsh/boolean-guards.xsh` covers once-only
+conditions, Status, success/failure refinements, rejected fallthrough and
+parameters, mutation invalidation, lexical loop targets, and cleanup before
+return. Run the syntax and checker gates, indexed runtime verifier tests, and
+`cargo test -p xsht --test integration lint::` for the checked negative-if rewrite.
+
+## Explicit native test declarations
+
+`target/debug/xsht test --jobs 1 tests/xsh/test-declarations.xsh` covers checked
+registration, immutable context headers, effects, and ordinary-script behavior.
+`cargo test -p xsht --test integration native_test_declaration -- --test-threads=1`
+covers discovery, stable file/name IDs, isolation, legacy migration diagnostics,
+and rejection at the CLI boundary. Test bodies use `test NAME { ... }`, or
+`test NAME [effects] { |ctx| ... }` for context helpers. Maintain exact old names
+when migrating existing harness entrypoints; new declarations need no prefix.
+
+## Bare lexical blocks
+
+Bare lexical block consumption, scope cleanup, and lexical transfers are covered
+by `target/debug/xsht test --jobs 1 tests/xsh/lexical-blocks.xsh`. The grammar and
+formatting distinction between blocks and literals is covered by
+`cargo test --test integration syntax::parser_and_formatter_preserve_bare_block_literal_distinctions`.
+
+The native lexical-block module also owns safe lint prefix edits, preserved
+comments, refusal cases, normal rechecking, and second-pass convergence. It also
+covers lexical block grep/refactor, the public API snippet, dynamic module
+permissions, integer exits, and resource escape versus deferred invalidation.
+
+## List patterns
+
+`target/debug/xsht test --jobs 2 tests/xsh/list-pattern.xsh` covers exact and
+prefix lengths, nested captures, dynamic narrowing, rejected subjects, rest
+value semantics, guards, and conservative exhaustiveness. The shared matcher
+slot publication and invalid indexed rest boundary are covered by
+`cargo test -p xsh --lib list_pattern -- --test-threads=1` and
+`cargo test -p xsh --lib verifier_rejects_invalid_list_rest_patterns -- --test-threads=1`.
+Focused tooling acceptance uses `cargo test -p xsht --test integration list_pattern`;
+the core argument parsing migration uses
+`target/debug/xsht test --jobs 2 core/tests/test-ip.xsh`.
+
+## Pattern aliases and alternatives
+
+`target/debug/xsht test --jobs 2 tests/xsh/pattern-aliases.xsh` covers nested
+aliases, resolved capture types, alternative order, subject/guard evaluation,
+conditional binding contexts, atomic capture publication, and syntax/type
+rejections. Indexed slot boundaries use
+`cargo test -p xsh --lib pattern_aliases -- --test-threads=1` and
+`cargo test -p xsh --lib verifier_rejects_incompatible_alternative_and_alias_capture_slots -- --test-threads=1`.
+Focused tooling acceptance uses
+`cargo test -p xsht --test integration pattern_`; run the existing list and
+pattern conditional native modules after changes to the shared matcher.
+## Core assertions
+
+`target/debug/xsht test --jobs 1 tests/xsh/assert.xsh` independently observes
+subprocess status, stdout, and diagnostics for lazy context, operand evaluation,
+short circuiting, bounded rendering, message propagation, retry capture, cleanup,
+and rejected types/effects. Broader gates are the syntax/checker tests,
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests --features native-tests`,
+and `cargo test -p xsht --test integration core_assert --features native-tests`.
+`cargo build -p xsh --bin xsh --no-default-features` witnesses independence from
+native-test support.
+
+## Local Result capture
+
+`target/debug/xsht test --jobs 1 tests/xsh/try-capture.xsh` covers nearest
+propagation, nested Result data, nominal inference, Unit assertions, process
+error identity, lexical exits, cleanup priority, producer suspension and
+cancellation, and recursive calls through heap frames. Shared regressions also
+use `tests/xsh/retry.xsh`, `tests/xsh/error-context-blocks.xsh`, and
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests --features native-tests`.
+Focused tooling uses `cargo test -p xsht --test integration try_capture`.
+
+## Lexical error contexts
+
+`target/debug/xsht test --jobs 1 tests/xsh/error-context-blocks.xsh` covers
+nested propagation, untouched error data, handled failures, label evaluation,
+ordinary `ctx` names, value tails, deferred cleanup, and abort behavior.
+Shared boundaries also use the capture/retry/deferred-block native modules,
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests`, and focused
+formatter/lint/structural-tooling acceptance tests.
+
+## Direct scalar iteration
+
+`target/debug/xsht test --jobs 1 tests/xsh/scalar-iteration.xsh` covers Unicode
+scalars, invalid UTF-8 bytes, snapshots, nested comprehensions, Result identity,
+immutable bindings, source evaluation, suspension, and lexical cleanup.
+`cargo test -p xsh --lib scalar_cursor` checks retained source representation
+and incremental element construction. Tooling acceptance uses
+`cargo test -p xsht --test integration scalar_iteration`; run the checker,
+indexed verifier, collection, and deferred-block gates after cursor changes.
+
 ## Routine CI
+
+`target/debug/xsht test --jobs 1 tests/xsh/stage-functions.xsh` owns statically
+resolved unary stage calls, literal/aggregate defaults, named configuration,
+qualified imports, Result data, effects, cleanup, short-circuiting, and exact
+wrapper fixes. Related gates are native `stdlib/streams.xsh`, syntax and sema,
+`cargo test -p xsht --test integration stage_callable_wrapper`, and
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests`.
 
 `.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests
 and pushes to `master` with read-only repository permission. Both run on
@@ -67,10 +199,30 @@ after the shell terminated it.
 
 | Change | Narrow command | Broader gate |
 |---|---|---|
+| Error payload/cause ownership transfers and long shared resource reachability | `target/debug/xsht test --jobs 1 tests/xsh/error-resource-ownership.xsh` and `cargo test -p xsh --lib resource_reachable_values -j1 -- --test-threads=1` | Rebuild exact debug xsh/xsht binaries; `tests/xsh/stdlib/process.xsh` and `tests/xsh/typed-causes.xsh` |
+| Typed causes, outer Result error inference, immutable aliases, context/process metadata, bounded diagnostics, and constructor frames | `target/debug/xsht test --jobs 1 tests/xsh/typed-causes.xsh` and `cargo test -p xsh --lib typed_cause -- --test-threads=1` | Syntax/checker gates, indexed verifier tests, `cargo test -p xsht --test integration typed_cause`; rebuild the exact debug xsh/xsht binaries before native tests |
 | Rust compile only | `cargo build` | relevant filtered package tests; unfiltered `cargo test` is owner-run |
+| Local empty collection and nullable inference, monomorphic aliases, static branch/loop contributions, and concrete indexed publication | `target/debug/xsht test --jobs 1 tests/xsh/local-inference.xsh` and `cargo test -p xsh --lib local_collection_inference_publishes_concrete_indexed_call_and_slot_types -- --test-threads=1` | Checker and syntax gates; shared constraint solver tests; `empty_map_fold_inference_publishes_concrete_accumulator_types`; focused annotation rewrite acceptance |
+| Canonical builtin signature templates and collection call binding | `target/debug/xsht test --jobs 1 tests/xsh/builtin-templates.xsh` | Native collection and Map suites; checker, indexed verifier, registry signature, and API gates |
+| Checked dynamic boundaries and removed check strict option | `target/debug/xsht test --jobs 1 tests/xsh/dynamic-boundaries.xsh` and `cargo test -p xsht --test integration check_dynamic_boundary` / `check_strict_option` | Checker full/compact facts, indexed verifier, native JSON/module/auth gates; checker and runners share `tests/fixtures/sema/invalid/unchecked-json-boundary.xsh`, and rejected annotation passes preserve source bytes |
 | `Lexer::lex_compact`, `Parser::parse_source_arena_only`, or formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |
 | `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, or lint | targeted `cargo test --test integration sema::TEST_NAME` for checker or `cargo test -p xsht --test integration lint::TEST_NAME` for lint | `cargo test --test integration sema::` for checker or `cargo test -p xsht --test integration` for lint |
 | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, or runtime behavior | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::example_corpus_is_formatted --skip runtime::examples::example_corpus_lints_without_warnings --test-threads=1`; run relevant `runtime::coverage` tests by exact name only when they do not invoke formatters or linters |
+| Computed-key Map literals and fresh initialization rewrites | `target/debug/xsht test --jobs 1 tests/xsh/stdlib/map.xsh` and `cargo test -p xsht --test integration map_literal` | Syntax/checker gates, full indexed verifier, registry/API tests; tooling acceptance covers comments, observations, checked conversions, grep/refactor, and rewrite convergence |
+| List literal splicing and safe construction rewrites | `target/debug/xsht test --jobs 1 tests/xsh/collections.xsh` and `cargo test -p xsht --test integration list_splicing` | Syntax and checker gates plus indexed verifier and API registry tests; tooling acceptance tests check parse/check, no-fix boundaries, and formatter idempotence without invoking CLI formatting or linting |
+| Stream yield delegation and chained cancellation | `xsht test --jobs 1 tests/xsh/yield-delegation.xsh` and `cargo test -p xsh --test integration small_stack_yield_delegation` | Native stream suite, indexed verifier tests, frontend-indexed producer lifecycle fixtures, syntax/checker gates, and xsht integration/API gates |
+| Adjacent ordering chains and stable repeated operand rewrites | `target/debug/xsht test --jobs 1 tests/xsh/comparison-chain.xsh` and `cargo test -p xsht --test integration comparison_chain` | Syntax and checker gates plus `cargo test -p xsh --lib runtime::eval::indexed::full::tests --features native-tests`; bare assertion coverage requires checked statement classification |
+| pattern-bound conditionals and loops, branch captures, value contexts, loop cleanup, safe lint fixes | `target/debug/xsht test --jobs 2 tests/xsh/pattern-conditionals.xsh` | native `basic.xsh`, `ergonomics.xsh`, `pattern-tests.xsh`; indexed verifier tests; xsht integration and API tests |
+| non-binding pattern predicates, nominal resolution, Result inspection, narrowing, formatter and lint fixes | `target/debug/xsht test --jobs 1 tests/xsh/pattern-tests.xsh` | `cargo test -p xsh --lib runtime::eval::indexed::full::tests`; `cargo test -p xsht --test integration lint::`; `cargo test -p xsht --test api` |
+| Result error fallback blocks, exact error binding, lazy success, lexical exits, retry and cleanup | `target/debug/xsht test --jobs 1 tests/xsh/fallback-blocks.xsh` | Syntax and checker gates; `cargo test -p xsht --test integration lint::`; `cargo test -p xsht --test api api_core_fallback`; `cargo test -p xsh --lib runtime::eval::indexed::full::tests` |
+| Nested functional record updates, snapshots, typed replacements, failure propagation, and safe nested spread fixes | `target/debug/xsht test --jobs 1 tests/xsh/record-update.xsh`, `cargo test -p xsh --test integration nested_record_update`, and `cargo test -p xsht --test integration nested_record_update` | Syntax/checker gates, `cargo test -p xsh --lib record_update`, `cargo test -p xsht --test integration static_record_update`, and native collection/storage gates |
+
+| Static named argument spreading, finite visible fields, occupancy, defaults, source order, native operations, and safe forwarding fixes | `target/debug/xsht test --jobs 1 tests/xsh/named-argument-spreading.xsh` and `cargo test -p xsht --test integration named_argument_spread` | Syntax/checker gates, indexed verifier tests, API registry tests, and `target/debug/xsht test --jobs 1 core/tests/test-fd.xsh` |
+| Constructor inference, nested constraints, declared receiver slots, expected unused arguments, constants, and structural compatibility | `target/debug/xsht test --jobs 1 tests/xsh/generic-constructors.xsh` | `cargo test -p xsh --lib inferred_record_constructors_keep_concrete_facts_after_frontend_drop` and `cargo test -p xsht --test integration generic_record_constructor` |
+| Parameterized record schemas, concrete aliases, universal defaults, exact specialization rejection, imported private dependencies, and safe constructor fixes | `target/debug/xsht test --jobs 1 tests/xsh/parametric-records.xsh` and `cargo test -p xsht --test integration parametric_record_constructor` | `cargo test -p xsh --test integration parametric_record_separate_module`, syntax/checker gates and `target/debug/xsht test --jobs 1 tests/xsh/record-constructors.xsh` |
+| Typed record constructors, lexical literal defaults, aliases, source order, validation boundaries, and safe constructor fixes | `target/debug/xsht test --jobs 1 tests/xsh/record-constructors.xsh` and `cargo test -p xsht --test integration record_constructor` | Syntax and checker gates, `target/debug/xsht test --jobs 1 tests/xsh/collections.xsh`, and `cargo test -p xsht --test api api_core_records_demonstrates_schema_owned_defaults_and_constructor_puns` |
+| Explicit nominal enum declarations, singleton payloads, imported constructors, aliases, and legacy migration | `target/debug/xsht test --jobs 1 tests/xsh/enum-declarations.xsh` | Syntax and checker gates; `cargo test -p xsht --test integration enum_`; imported module native tests |
+| Checked Duration arithmetic, dimensions, operand order, quantization, constant defaults, and timeout inputs | `target/debug/xsht test --jobs 1 tests/xsh/duration-arithmetic.xsh` | Syntax and checker gates; `cargo test -p xsht --test integration duration_arithmetic`; indexed verifier tests; native `tests/xsh/stdlib/time.xsh` and `tests/xsh/retry.xsh` |
 | native XSH module behavior | `target/debug/xsht test --exact --jobs 1 PATH::TEST_NAME` | `target/debug/xsht test --jobs 1 tests/xsh/stdlib` |
 | development command `--target` override reaches the context | `xsht test --exact --jobs 1 dev/tests/test-targets.xsh::test_dev_main_target_override_reaches_context` | `xsht test --jobs 1 dev/tests/test-targets.xsh`; the pinned amd64 image passed all 17 cases after the environment value was evaluated as the requested triple |
 | `xshi` long-listing parity across filesystems | `cargo test -p xsh --test integration runtime::interactive::parity::scenarios::l_ -- --test-threads=1` | Run the filtered runtime integration gate in `xsh-test` with Docker `--init`. The comparison masks directory link counts and size-column padding, which vary with the filesystem, while retaining file link counts, file sizes, modes, dates, names, and symlink targets. |
@@ -246,7 +398,8 @@ the differing but valid words.
 | system-report private raw mountinfo capture and storage collector replay | `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_mountinfo_raw_reference_preserves_ids_escapes_and_options`, `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_mountinfo_capture_validates_saved_bytes_and_oracle`, `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_mountinfo_capture_preserves_absent_source_without_scoring`, and `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_mountinfo_capture_replays_production_storage_collector` | In the pinned ARM64 image, run `xsh dev system-report-check --capture-mountinfo-bundle NEW_DIRECTORY` followed by `xsh dev system-report-check --replay-mountinfo-bundle NEW_DIRECTORY`. Bundle schema v2 retains at most 4 MiB of raw `/proc/self/mountinfo` bytes, source state, digest, and an independent decoded oracle. Replay checks exact saved metadata and compares production mount IDs, relationships, paths, options, propagation class, and sanitized group IDs without capacity path traversal. Unknown optional fields remain redacted entries. The parser and saved-source fixtures pass locally; production replay needs the pinned rebuild. |
 | system-report independently selected safe mount capacity and explicit skips | `target/debug/xsht test --exact --jobs 1 tests/xsh/stdlib/fs.xsh::test_fs_root_operations_reject_traversal`, `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_findmnt_usage_scores_safe_mounts_and_explicit_skips`, `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_findmnt_usage_rejects_ambiguous_or_unsafe_rows`, and `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_findmnt_usage_keeps_unavailable_capacity_explicit` | In the pinned Linux image, `xsh dev system-report-check --compare-mount-usage --xsh-bin ABSOLUTE_XSH --script ABSOLUTE_SYSTEM_REPORT` brackets the candidate with ID-filtered `findmnt --df --bytes` observations for independently eligible local mounts, including regular file bind mounts |
 | system-report queue reference fields and bounded firmware/stat snapshots | `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_lsblk_queue_json_scores_supported_fields`, `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_lsblk_queue_json_rejects_duplicate_and_unsafe_rows`, `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_block_queue_raw_sources_bracket_counters_and_firmware`, and `target/debug/xsht test --exact --jobs 1 dev/tests/test-system-report-check.xsh::test_system_report_block_queue_raw_sources_reject_incomplete_and_unsafe_stats` | In the pinned ARM64 image, `xsh dev system-report-check --compare-queue --xsh-bin ABSOLUTE_XSH --script ABSOLUTE_SYSTEM_REPORT` brackets explicit `lsblk` type and static queue fields with bounded sysfs firmware/stat observations; partition rows may project parent queue values while the report retains absent partition sources; changing in-flight I/O is unscored rather than counted as an exact match. The amd64 live check matched all 28 devices and scored exact when the in-flight gauge remained stable |
-| system-report raw block class, partition, layer, queue, and counter replay | `target/debug/xsht test --jobs 1 test_system_report_block_bundle`, `target/debug/xsht test --jobs 1 test_system_report_block_raw_reference_checks_each_layer_direction` | In the pinned Linux image, run `xsh dev system-report-check --capture-block-bundle NEW_DIRECTORY` then `--replay-block-bundle NEW_DIRECTORY`. The private bundle preserves class links and relation links to the listed peer device paths, source absence, SHA-256 byte digests, up to 8192 paths at 4096 bytes each, and independent sysfs interpretations. It checks holder and slave directions separately. Static fields must be stable; changed `stat` sources are recorded separately. The amd64 image captured 28 devices, three graph edges, and two changing stat files; production replay matched identity, optional partition queue fields, firmware, and saved counters exactly. Mountinfo has its own bundle. |
+| system-report raw block class, partition, layer, queue, and counter replay | `target/debug/xsht test --jobs 1 test_system_report_block_bundle`, `target/debug/xsht test --jobs 1 test_system_report_block_raw_reference_checks_each_layer_direction` | In the pinned Linux image, run `xsh dev system-report-check --capture-block-bundle NEW_DIRECTORY` then `--replay-block-bundle NEW_DIRECTORY`. The private bundle preserves class links and relation links to the listed peer device paths, source absence, SHA-256 byte digests, up to 8192 paths at 4096 bytes each, and independent sysfs interpretations. It checks holder and slave directions separately. `dev/system_report_check.xsh::BlockRawReference` and `BlockRawDevice` are exported construction contracts for independent references; fixtures annotate these domains before invariant collection checking. Static fields must be stable; changed `stat` sources are recorded separately. The amd64 image captured 28 devices, three graph edges, and two changing stat files; production replay matched identity, optional partition queue fields, firmware, and saved counters exactly. Mountinfo has its own bundle. |
+| Lossless formatted Path and compound process interpolation | `cargo test -p xsh --test integration path_interpolation` and `target/debug/xsht test --jobs 1 test_path_interpolation` | Native path/process gates and both indexed routes. The raw filesystem fixture explicitly reports macOS `EILSEQ` at filename creation; native argv coverage still runs on that host |
 | Raw host path, argv, environment bytes, bounded rooted reads, rooted directory enumeration, typed rooted symlink observations, and rooted filesystem counters | `target/debug/xsht test --exact --jobs 1 tests/xsh/stdlib/fs_root_children.xsh::test_fs_root_children_reads_newly_created_directory`, `cargo test -p xsh-root --test security readable_directory_open_rejects_files_fifos_and_escapes -- --exact`, and `target/debug/xsht test --exact --jobs 1 tests/xsh/stdlib/fs_root_readlink_result.xsh::test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure` | Native stdlib gate plus the filtered runtime gate; the filesystem-name case skips on macOS because the host returns `EILSEQ` |
 | Privileged Linux mount and `switch_root` behavior | In the pinned privileged `xsh-test` image: `cargo test -p xsh --target aarch64-unknown-linux-musl --test linux_priv --features linux-priv-tests linux_priv_mount_and_switch_root_fail_within_private_namespace -- --exact --nocapture` | Run the full `linux_priv` test binary in the same image with the target and feature flags |
 | Privileged Linux loop lifecycle | In the pinned privileged `xsh-test` image: `cargo test -p xsh --target aarch64-unknown-linux-musl --test linux_priv --features linux-priv-tests linux_priv_loop_attach_list_and_detach_release_device -- --exact --nocapture` | Run the full `linux_priv` test binary and `xsht test tests/xsh/stdlib/linux.xsh` in that image. On this amd64 host, the focused case, all seven privileged tests, and all 13 native Linux module tests passed after excluding the `/dev/loop` directory from numbered-device enumeration. |
@@ -280,7 +433,14 @@ the differing but valid words.
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
 | API registry/reference/examples | see `API Gate` below | same |
 | Broad cross-cutting work | closest targeted tests | relevant filtered package tests; unfiltered `cargo test` is owner-run |
+| Coordinated language ergonomics and statement/value contexts | `target/debug/xsht test --jobs 1 tests/xsh/ergonomics.xsh` and `target/debug/xsht test --jobs 1 tests/xsh/ergonomics-extended.xsh` plus the nearest feature test module | syntax and checker integration suites, isolated lint acceptance tests, the filtered runtime gate, and native stdlib tests |
 | Ambient filesystem authority policy | `cargo test --test ambient_fs_policy` | relevant filtered tests; unfiltered `cargo test --tests` is owner-run |
+
+The coordinated syntax smoke fixtures are
+`tests/fixtures/runtime/ergonomics-coordinated.xsh` and
+`tests/fixtures/runtime/ergonomics-extended.xsh`. Execute both with the ordinary
+`xsh` binary built using `--no-default-features --features net,tools` to check
+that the language features do not depend on native-test support.
 
 Network link, address, route, and rule reference adapters score the fields they
 can compare when all four route-netlink dumps and entity decodes finished,
@@ -420,6 +580,17 @@ unless the owner explicitly chooses to publish it.
 
 ## Native XSH Test Rule
 
+Retired record string contracts: `tests/xsh/record-contract-removal.xsh` covers
+the removed diagnostic, nested schema validation, extra fields, aliases,
+optional absence versus present null, and retained CLI descriptor strings.
+Run `target/debug/xsht test --jobs 1 tests/xsh/record-contract-removal.xsh`,
+the existing `tests/xsh/stdlib/record.xsh` module, and focused
+`cargo test -p xsh --test integration removed_record_require` and
+`cargo test -p xsht --test integration removed_record_require` gates.
+The tooling witnesses use isolated fixture files for CST edits, Unicode,
+comments, ordinary rechecking, refusal, and convergence. API inventory removal
+is covered by the registry and aggregate API gates.
+
 Language behavior **must** be specified in the native XSH corpus, normally in
 `tests/xsh/stdlib/` or the nearest `tests/xsh/*.xsh` module. Do not embed new
 XSH source strings in Rust tests merely to exercise language behavior.
@@ -469,6 +640,7 @@ cargo build -p xsh -p xshi -p xsht --bin xsh --bin xshi --bin xsht
 cargo metadata --no-deps --format-version 1
 cargo test --test integration libxsh_api
 cargo test -p xsh-registry --lib
+cargo test -p xsh-registry --test api_reference
 cargo test -p xsh --lib modules::signature
 cargo test -p xsht --test api
 target/debug/xsht api
@@ -515,7 +687,8 @@ stack boundaries.
 
 | Area | File |
 |---|---|
-| collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |
+| half-open List/Unicode scalar Str/Bytes slicing and evaluation order | `tests/xsh/slicing.xsh`, `tests/syntax.rs`, `tests/sema.rs`, `crates/xsht/tests/lint.rs` |
+| list concatenation, compound updates, collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
 | frontend indexed fixtures | `tests/xsh/frontend-indexed.xsh`, `tests/runtime/frontend_indexed.rs` |
 | `fs.walk`/`fs.files` options and walk value consumption | `tests/xsh/stdlib/fs.xsh` |
@@ -526,10 +699,16 @@ stack boundaries.
 | standard modules | `tests/xsh/stdlib/module.xsh`, `tests/runtime/modules.rs` |
 | embedded standard-module linkage and copied checker/runner binaries | `tests/stdlib_port.rs`, `tests/runtime/run.rs::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules` |
 | OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
+| Explicit accepted exit policies, actual Status, signal/setup/decode failures, invalid pre-spawn options, Command/waits, per-segment pipelines, and late stream failures | `tests/xsh/run-accept.xsh`, `tests/xsh/run-accept-stream-capture.xsh`, `tests/runtime/process.rs::accepted_process_*`, `tests/runtime/process.rs::accept_policy_expression_runs_once_before_child_spawn`, `tests/syntax.rs::parser_and_formatter_preserve_accept_policy_expressions`, `tests/sema.rs::checker_accept_policy_requires_bounded_int_codes_on_every_plan_route`, `crates/xsht/tests/lint.rs::explicit_accept_policy_keeps_propagation_and_custom_status_handlers` |
+| Exit policy composition with cwd/environment scopes, typed causes, named stages, and checked callable aliases | `tests/xsh/run-accept-cross-feature.xsh`; `target/debug/xsht test --jobs 1 tests/xsh/run-accept` |
+| Bytes stdin redirection, concurrent capture delivery, early closure, Command/stream/pipeline routes, and owned spawn cleanup | `tests/runtime/process.rs::bytes_stdin_*`, `tests/xsh/stdlib/process.xsh::test_bytes_stdin_*`; `cargo test -p xsh --test integration bytes_stdin` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/xsh/run.xsh`, `tests/xsh/stdlib/process.xsh`, `tests/runtime/process.rs`, `tests/runtime/run.rs` |
-| retry blocks | `tests/xsh/retry.xsh` |
-| stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |
+| local Result capture, nested Result data, lexical exits, assertion and cleanup failures | `tests/xsh/try-capture.xsh` |
+| retry blocks, selective nominal/facet patterns, error identity, cleanup and selection trace | `tests/xsh/retry.xsh` |
+| stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` (including Result projections inside native arguments, operand order, and error cleanup); `tests/xsh/expression-continuations.xsh` pins ordinary and traced native argument order and dispatch boundaries |
 | structured stream behavior | `tests/xsh/stdlib/streams.xsh` |
+| Owned and sliced Str field equality in where predicates | `tests/xsh/stdlib/streams.xsh::test_stream_where_string_views_match_ordinary_record_comparison` |
+| Structured stage named configuration, spreads, modes, entry timing, and migration | `tests/xsh/stream-options.xsh`, `tests/syntax.rs::stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes`, and xsht CLI migration tests |
 | stream argv and signal process boundaries | `tests/runtime/streams.rs` |
 
 ## Fixture Locations
@@ -551,3 +730,273 @@ stack boundaries.
 - The `dist` profile is reserved for release packaging, not local agent
   verification.
 - Benchmark commands intentionally use release code generation.
+
+Nested and renamed record binding behavior is covered by
+`tests/xsh/record_binding.xsh`. Parser spans and checker rejection cases live in
+`parser_retains_nested_renamed_record_binding_targets_and_spans`,
+`checker_rejects_nested_record_binding_contract_violations`, and
+`checker_keeps_selected_nested_record_field_types`. The
+`lint.prefer-record-destructuring` rule combines adjacent unannotated field
+bindings from one checked record identifier; annotations, comments, effectful
+receivers, dynamic schemas, and retained intermediate bindings require manual
+review. Its focused tooling tests verify formatter preservation and convergence.
+
+Guarded value control uses `tests/xsh/guarded-control.xsh` for condition-first
+payload laziness, selected-branch narrowing, stream yields, and deferred cleanup.
+`tests/syntax.rs::guarded_value_controls_round_trip_without_absorbing_guard_into_run_argv`
+and `guarded_value_control_keeps_payload_and_condition_source_spans` cover the
+parser/formatter boundary; `tests/sema.rs::checker_guarded_value_control_*` retain
+ordinary target/type/effect rejection. `crates/xsht/tests/lint.rs::linter_prefer_guard_*`
+cover safe fixes, refusal cases, grouping, and convergence.
+
+Optional postfix evaluation, layer preservation, and strict receiver boundaries
+are covered by `tests/xsh/optional-postfix.xsh`. Run
+`xsht test --jobs 1 tests/xsh/optional-postfix.xsh` and the focused xsht
+`optional_postfix`/`guarded_postfix` integration filters before the ordinary
+syntax, semantic, tooling, and native stdlib gates. The null-branch migration
+rule is `lint.prefer-optional-postfix`; it refuses mutation, lost comments,
+and results whose null value would change fallback behavior.
+`test_optional_record_return_field_alias_preserves_receiver_type` pins named
+callable return schemas through unannotated field aliases. The rooted storage
+regression gate is `xsht test --jobs 1 test_system_report_storage`.
+
+Direct typed map iteration is covered in `tests/xsh/stdlib/map.xsh` by the
+`test_map_iteration_*` procedures. These pin entry types/order, snapshot value
+semantics, nested destructuring and qualifiers, nominal Result propagation,
+break/continue, and lexical restoration. `lint.prefer-map-entry-iteration` has
+focused fix, refusal, Unicode-span, formatter, and convergence coverage in
+`crates/xsht/tests/lint.rs`; mutable sources, annotations, comments on the
+lookup, and nonstandard receivers remain manual transformations.
+
+`tests/xsh/defer-blocks.xsh` owns deferred-block registration, mutable reads and
+snapshots, LIFO order, local control, statement failures, secondary diagnostics,
+and stream cancellation. `tests/syntax.rs::deferred_block_parses_and_formats_as_statement_body`
+checks comment/span preservation and formatter convergence. The
+`linter_defer_block_helper_*` tests in `crates/xsht/tests/lint.rs` cover the narrow
+`lint.prefer-defer-block` fix and refusal boundaries.
+
+Prepared regex literals: `tests/xsh/regex-literals.xsh` covers raw syntax,
+existing operations, Unicode byte offsets, defaults, repeated calls, and dynamic
+compile errors. `src/modules/regex.rs` checks source spans, unreachable invalid
+patterns, and shared preparation across frontend passes. The indexed-store
+`prepared_regex_pool_survives_frontend_and_evaluator_reuse` test verifies engine
+identity and pool bounds. `crates/xsht/tests/lint.rs` covers exact re-encoding,
+conservative exclusions, comment retention, and convergence; `crates/xsht/tests/cli.rs`
+checks invalid unreachable literals without script execution.
+
+Private proc effect inference is exercised by
+`tests/xsh/private-proc-effects.xsh` (transitive calls, recursion, explicit bounds,
+references, mutation, assertions, capture, host requirements, and unknown call
+chains). `tests/sema.rs::private_proc_effects_*` checks full/compact facts and
+separately parsed module identity. `crates/xsht/tests/lint.rs::private_proc_effects_*`
+checks inference convergence and conservative annotation removal. Run
+`target/debug/xsht test --jobs 1 tests/xsh/private-proc-effects.xsh`, then
+`CARGO_BUILD_JOBS=1 cargo test -p xsh --test integration private_proc_effects -- --test-threads=1`
+and `CARGO_BUILD_JOBS=1 cargo test -p xsht --test integration private_proc_effects -- --test-threads=1`.
+
+Private pure return inference is exercised by
+`tests/xsh/private-pure-inference.xsh` (values, dependency order, captures,
+Result boundaries, pattern/fallback capture shadowing, imported tag variants,
+and rejection paths). `tests/sema.rs::private_pure_inference_*`
+checks published full/compact signature facts; `crates/xsht/tests/lint.rs::private_pure_return_*`
+and the matching CLI tests cover exact opt-in annotation removal, refusal,
+convergence, and `--annotate=returns` preservation. Run the native module, then
+`cargo test -p xsh --test integration sema::` and
+`cargo test -p xsht --test integration private_pure_return`.
+
+Field label semantics: `tests/xsh/field-labels.xsh` covers keyword schemas,
+constructors/error payload patterns, access and mutation, renamed destructuring,
+serialization parity, all keyword spellings, validation, duplicates, and illegal
+bindings/puns. Syntax coverage pins brace disambiguation, lossless key spelling,
+formatter round trips, and quoted dotted keys. Focused tooling acceptance uses
+`cargo test -p xsht --test integration field_label`; bare label rewrites
+recheck and converge. Known get calls retain their Result behavior, including
+comments, consumer conversions, and error contexts.
+List element and nested assignment behavior lives in `tests/xsh/list-assignment.xsh`.
+It pins existing record/Map evaluation policy, same-root selector/RHS mutation,
+strict bounds, contextual schemas, alias independence, and cleanup after failure.
+`assignment_path_reuses_unique_storage_and_preserves_aliases` owns internal
+allocation identity; `list_assignment_verifies_paths_and_executes_both_routes`
+checks malformed indexed paths and both runtime routes. The
+`linter_list_element_assignment_*` tooling tests cover exact-bound fixes,
+refusal, Unicode/comments, normal rechecking, and convergence.
+Block header unification is covered by `tests/xsh/block-parameters.xsh`:
+nominal with/guard handler types, sequential initializer short-circuiting,
+lexical scope, cleanup, invalid headers, and rejected legacy syntax. Its
+isolated tooling fixtures verify comment preservation, source rechecking,
+and migration convergence. `tests/xsh/basic.xsh` retains guard loop transfers.
+
+Structured pipeline fact parity is covered by
+`tests/sema.rs::compact_stream_stage_result_matrix_matches_canonical_checked_facts`
+and `canonical_stream_stage_facts_distinguish_equal_spans_in_modules`.
+`tests/xsh/stdlib/streams.xsh` retains keyed-count downstream methods and
+procedure-local terminal/callback contracts; `tests/xsh/stdlib/json.xsh`
+retains JSON adapter lists consumed through validated record fields.
+Run the checker integration suite and both native modules for these boundaries.
+
+Explicit value pipeline holes are covered by `tests/xsh/value-pipeline-holes.xsh`
+for positional/named placement, input and argument order, optional laziness,
+Result boundaries, and rejected contexts. `tests/sema.rs::value_pipeline_holes_*`
+pins full/compact facts and record presence refinement. `tests/syntax.rs::parser_value_pipeline_holes_*`
+checks arena spans and formatter convergence; the matching xsht grep/refactor
+and lint tests check structural retention, safe migration, refusal, and a stable
+second fix pass, including the isolated CLI convergence/execution test. Run the
+native module, syntax/checker integration suites, and
+focused xsht integration tests before the full relevant gates.
+
+
+Block strings: `tests/xsh/block-strings.xsh` pins exact margins, empty/shared
+breaks, blank lines, raw/formatted text, interpolation order, unaffected literal
+domains, rejection, CRLF/tabs, and isolated formatter/lint execution parity.
+`src/syntax/literal.rs::block_string_tests` covers byte-level layout and untouched
+interpolation source slices; `tests/syntax.rs` covers original diagnostic spans
+and formatter round trips. Run the native module with `xsht test --jobs 1`,
+`cargo test -p xsh --lib block_string`, and the focused xsht `block_string` tests
+before the ordinary syntax/tooling gates.
+
+## Prepared constants
+
+`target/debug/xsht test --jobs 1 tests/xsh/constants.xsh` covers lexical and
+qualified references, forward dependencies, concrete empty containers, schema
+and tag construction, immutable aliases, and rejected runtime initialization.
+`cargo test -p xsh --lib prepared_constant_pool --features native-tests -- --test-threads=1`
+checks pool reuse, checkpoint rewind, and verifier rejection. Tooling acceptance
+uses `cargo test -p xsht --test integration prepared_constant_fix`; it checks
+keyword preservation, inert migration boundaries, comments, and convergence
+through library APIs. Broaden with the syntax/checker integration gates and the
+indexed verifier suite; formatting and lint CLI gates remain owner-run.
+
+
+Typed scalar Map domains, numeric and byte order, receiver-bound methods, aliases,
+empty contexts, absent versus null, nested COW updates, and JSON rejection:
+`target/debug/xsht test --jobs 1 tests/xsh/typed-map-keys.xsh`; broaden with native
+stdlib map/collections, syntax and semantics Rust gates, indexed verifier tests,
+and xsht formatter/lint/grep integration coverage.
+
+## Str-backed enum boundaries
+
+`target/debug/xsht test --jobs 1 tests/xsh/wire-enums.xsh` covers constant
+mappings, nested JSON conversion, atomic rejection, nominal imports, ordinary
+enum rejection, and constructor-only defaults. Run the indexed verifier gate
+and `cargo test -p xsht --test api api_core_enums` for pool validity, both runtime
+routes after frontend drop, and API example lookup. System report codec changes
+also require the JSON golden and rejection cases in `tests/xsh/system-report.xsh`.
+
+### FsRoot receiver methods
+
+Nearest gate: `target/debug/xsht test --jobs 1 tests/xsh/stdlib/fs_root_methods.xsh`.
+The native cases cover all receiver methods, parent/child close independence,
+bounded observations, raw byte names, symlink confinement, named argument order,
+forged records, removed aliases, lazy optional receivers, method trace IDs, and
+filesystem effects. The opaque owner identity is covered by
+`cargo test -p xsh --lib opaque_fs_root_identity --features native-tests`; both
+indexed execution routes and missing default slots are covered by
+`cargo test -p xsh --lib fs_root_methods_keep_opaque_identity --features native-tests`.
+Broaden with
+`target/debug/xsht test --jobs 1 tests/xsh/stdlib/fs.xsh`,
+`tests/xsh/stdlib/fs_root_children.xsh`, and
+`tests/xsh/stdlib/fs_root_readlink_result.xsh`. Tool boundaries use
+`cargo test -p xsht --test integration fs_root_receiver --features native-tests`
+and `cargo test -p xsht --test api api_fs_root --features native-tests`.
+## Signature CLI entries
+
+`target/debug/xsht test --jobs 1 tests/xsh/signature-cli.xsh` covers typed
+positionals, options, repeated defaults, rest operands, aliases, prepared
+constants, help, and declaration rejection. The process and module initializer
+boundary uses `cargo test -p xsh --test integration signature_cli -- --test-threads=1`:
+help exits 0, invalid argv exits 2, and filesystem markers remain absent before
+successful dispatch. `cargo test -p xsht --test integration signature_cli`
+covers literal-schema migration, comment preservation, policy rejection, and
+fix convergence. Ordinary explicit CLI parsing remains covered by
+`tests/xsh/stdlib/cli.xsh`.
+## Constant CLI descriptors
+
+`tests/xsh/stdlib/cli_commands_constants.xsh` covers common command shapes,
+options, rootless/fallback selection, imported composition, named spreads,
+dynamic validation, and rejection of unreachable invalid descriptors.
+`checker_cli_command_descriptors` pins full/compact parity;
+`cli_command_descriptor_plans` pins shared prepared plans on both indexed routes.
+
+`target/debug/xsht test --jobs 1 tests/xsh/stdlib/cli_constants.xsh` covers
+constant, imported, projected, and composed descriptors, defaults, aliases,
+repeated fields, explicit optional positionals, applet duplicate policy,
+`parse_full.values`, named argument evaluation order, dynamic validation, and
+declaration-time rejection with imported source provenance.
+Broaden with `target/debug/xsht test --jobs 1 tests/xsh/stdlib/cli.xsh`.
+`cargo test --test integration checker_cli_constant_descriptor` checks full
+and compact type parity and declaration spans. The indexed plan pool, verifier
+boundaries, and both execution routes use
+`cargo test -p xsh --lib cli_descriptor_plans --features native-tests`; broaden
+with the filtered indexed runtime gate. `prepared_cli_plan_pool_rewinds_with_builder_checkpoint`
+covers speculative plan pool cleanup.
+Record projection and Boolean alias provenance is owned by
+`src/sema/check/proof.rs::BindingProof` and `ConditionNarrowings`. Full and compact
+checkers share subject identities, bounded mutation stamps, path overlap rules,
+and continuation intersections. Immutable aliases retain shared proof sets;
+`condition_proofs` records when predicates were checked so later mutations cannot
+revive stale evidence. Both routes publish precise expression types and proved
+Optional fallback receivers. Indexed lowering reads those facts and inserts no
+casts or runtime proof checks.
+
+## Record proof provenance
+
+`target/debug/xsht test --jobs 1 tests/xsh/proof-provenance.xsh` covers nested
+projections, bounded alias DAGs, short circuit scopes, assertion success,
+continuation intersections, snapshots, sibling updates, mutation, shadowing,
+capture invalidation, recovery joins, and unreachable fallback calls.
+`cargo test -p xsh --test integration checker_record_proof_types` checks exact
+full/compact facts. The indexed verifier gate includes
+`record_proof_precise_types_and_unreachable_fallback_survive_frontend_drop` for
+both executor routes without retained frontend state. `cargo test -p xsht --test integration record_proof_fallback_fix`
+uses tooling library APIs to check proof-only fixes, refusal, and convergence.
+Broaden with semantic integration tests, Boolean guard and pattern native modules,
+and indexed verifier tests.
+Compatibility vocabulary removal is covered by
+`target/debug/xsht test --jobs 1 tests/xsh/compatibility-vocabulary.xsh`:
+preparation before effects, byte/character distinction, direct-child ordering and
+missing-path errors, every run result mode, exact comment/argv preservation,
+shorthand wire keys, shadowing, invalid arguments, rechecking and idempotence.
+The migrated syntax and checker fixtures remain under `tests/syntax.rs` and
+`tests/sema.rs`; public inventory is checked through native API queries.
+## Cwd and environment value scopes
+
+`target/debug/xsht test --jobs 1 tests/xsh/context-scopes.xsh` covers tail values,
+nested Results, entry failure, source order, lexical transfers, transparent
+propagation, nested restoration, defer timing, and producer escape rejection.
+It also checks suspended and delegated producer isolation and cancellation cleanup.
+Error payloads and shared nominal or process error causes are covered by
+`test_scope_rejects_producers_hidden_in_error_causes`,
+`test_scope_rejects_producers_hidden_in_process_error_causes`, and
+`test_scope_preserves_scalar_error_causes_as_data`.
+Run `tests/xsh/stdlib/env.xsh`, the syntax and sema integration targets, indexed
+verifier unit tests, and xsht scope tooling acceptance tests for the full gate.
+`cargo test -p xsh --lib context_scope_` checks native environment bytes,
+fatal and forced cleanup, and dynamic outer assignment on both evaluator routes.
+Default parameter declarations are covered by `tests/xsh/default-parameters.xsh`:
+constant/import projections, already permitted calls, lexical shadowing, lazy
+omission, supplied argument order, cleanup and error propagation. Native
+coverage also pairs explicit and inferred lazy producer defaults, including
+unconsumed producers and eager supplied arguments. Focused host
+checks use `cargo test --test integration default_parameter` and
+`cargo test -p xsht --test integration default_parameter`; broaden to syntax,
+checker, lint acceptance tests and indexed verifier tests after those pass.
+
+Mixed enum and removed-record migrations across imports are covered by
+`cargo test -p xsht --test integration cli::mixed_enum_and_record_require`.
+The isolated CLI fixtures pin normal graph rechecking, exact comment and Unicode
+retention, execution after repair, staged convergence, and refusal without partial writes
+for unrelated errors in the entry, an import, or a removed-result consumer.
+
+`target/debug/xsht test --jobs 1 tests/xsh/inferred-require.xsh` covers
+independently anchored validation targets, unchanged validation failures,
+and rejected unanchored contexts. `cargo test -p xsht --test integration
+inferred_require` covers argument-only source fixes and convergence;
+`cargo test -p xsh --lib inferred_require` covers prepared schemas after
+frontend disposal on both indexed execution routes.
+
+UInt mutation boundaries: `tests/xsh/uint-mutation.xsh` pins scalar, record,
+List, Map, whole replacement, compound arithmetic, selector order, RHS effects,
+failure atomicity, call arguments/defaults/returns, constructor payloads, functional
+method operands, and reached producer items. Broaden with native list-assignment
+and stdlib Map gates,
+and indexed verifier execution on both routes.

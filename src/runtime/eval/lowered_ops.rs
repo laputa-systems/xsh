@@ -4,6 +4,7 @@
 //! split out of the monolithic `eval.rs`. The IR types live in the parent
 //! module and are imported via `super::`.
 
+use crate::map_key::{MapKey, MapKeyRef};
 use super::lower::take_shared;
 use super::{
     LoweredReturnKind, LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType,
@@ -24,6 +25,71 @@ use crate::syntax::node::{AssignOp, BinaryOp};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// Appends one literal element or the elements of an explicitly spliced list.
+/// Capacity failures retain the splice's source attribution.
+pub(super) fn append_lowered_list_element(output: &mut Vec<LoweredValue>, value: LoweredValue, splice: bool, span: Span) -> Result<(), RuntimeError> {
+    if splice {
+        let items = match value {
+            LoweredValue::List(items) => items,
+            LoweredValue::SharedList(items) => take_shared(items),
+            other => return Err(RuntimeError::new("type-error", format!("list literal splice requires List, found {}", other.type_name())).with_span(span)),
+        };
+        output.try_reserve(items.len()).map_err(|_| RuntimeError::new("list-capacity", "list literal exceeds available capacity").with_span(span))?;
+        output.extend(items);
+    } else {
+        output.try_reserve(1).map_err(|_| RuntimeError::new("list-capacity", "list literal exceeds available capacity").with_span(span))?;
+        output.push(value);
+    }
+    Ok(())
+}
+
+pub(super) fn lowered_map_key_ref(value: &LoweredValue, span: Span) -> Result<MapKeyRef<'_>, RuntimeError> {
+    let key = match value {
+        LoweredValue::Int(value) => MapKeyRef::Int(*value),
+        LoweredValue::Bool(value) => MapKeyRef::Bool(*value),
+        LoweredValue::Duration(value) => MapKeyRef::Duration(value.millis),
+        LoweredValue::Path(value) => MapKeyRef::Path(&value.bytes),
+        _ if lowered_str_value(value).is_some() => MapKeyRef::Str(lowered_str_value(value).unwrap()),
+        _ if lowered_bytes_value(value).is_some() => MapKeyRef::Bytes(lowered_bytes_value(value).unwrap()),
+        _ => return Err(RuntimeError::new("type-error", "Map keys require an ordered scalar value").with_span(span)),
+    };
+    Ok(key)
+}
+
+pub(super) fn lowered_map_key_value(key: &MapKey) -> LoweredValue {
+    match key {
+        MapKey::Str(value) => LoweredValue::Str(value.clone()),
+        MapKey::Int(value) => LoweredValue::Int(*value),
+        MapKey::Bool(value) => LoweredValue::Bool(*value),
+        MapKey::Bytes(value) => LoweredValue::Bytes(value.clone()),
+        MapKey::Path(value) => LoweredValue::Path(PathValue { bytes: value.to_vec() }),
+        MapKey::Duration(value) => LoweredValue::Duration(crate::runtime::value::DurationValue { millis: *value }),
+    }
+}
+
+pub(super) fn lowered_map_literal_key(value: &LoweredValue, span: Span) -> Result<MapKey, RuntimeError> {
+    Ok(lowered_map_key_ref(value, span)?.to_owned())
+}
+
+pub(super) fn require_lowered_map_key_domain(map: &BTreeMap<MapKey, LoweredValue>, key: MapKeyRef<'_>, span: Span) -> Result<(), RuntimeError> {
+    if map.first_key_value().is_some_and(|(existing, _)| !existing.as_ref().same_domain(key)) {
+        return Err(RuntimeError::new("type-error", "Map keys require one scalar domain without conversion").with_span(span));
+    }
+    Ok(())
+}
+
+pub(super) fn append_lowered_map_literal(output: &mut BTreeMap<MapKey, LoweredValue>, key: Option<MapKey>, value: LoweredValue, span: Span) -> Result<(), RuntimeError> {
+    if let Some(key) = key { require_lowered_map_key_domain(output, key.as_ref(), span)?; output.insert(key, value); }
+    else {
+        let LoweredValue::Map(values) = value else {
+            return Err(RuntimeError::new("type-error", "map literal spreads require Map").with_span(span));
+        };
+        if let Some((key, _)) = values.first_key_value() { require_lowered_map_key_domain(output, key.as_ref(), span)?; }
+        output.extend(take_shared(values));
+    }
+    Ok(())
+}
 
 pub(super) fn lowered_binary_op(op: BinaryOp) -> bool {
     matches!(
@@ -62,6 +128,9 @@ pub(super) fn lowered_binary_value(
     if op == BinaryOp::Ne {
         return Ok(LoweredValue::Bool(left != right));
     }
+    if op == BinaryOp::Add && matches!(left, LoweredValue::List(_) | LoweredValue::SharedList(_)) {
+        return lowered_method_value(left, "extend", vec![right], span);
+    }
     if let (Some(left_text), Some(right_text)) =
         (lowered_str_value(&left), lowered_str_value(&right))
     {
@@ -79,6 +148,25 @@ pub(super) fn lowered_binary_value(
                 RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
             ),
         };
+    }
+    if matches!(&left, LoweredValue::Duration(_)) || matches!(&right, LoweredValue::Duration(_)) {
+        if let (LoweredValue::Duration(a), LoweredValue::Duration(b)) = (&left, &right) {
+            let ordered = match op {
+                BinaryOp::Lt => Some(a.millis < b.millis), BinaryOp::Le => Some(a.millis <= b.millis),
+                BinaryOp::Gt => Some(a.millis > b.millis), BinaryOp::Ge => Some(a.millis >= b.millis), _ => None,
+            };
+            if let Some(value) = ordered { return Ok(LoweredValue::Bool(value)); }
+        }
+        let operand = |value: &LoweredValue| match value {
+            LoweredValue::Duration(value) => Ok(crate::duration::DurationOperand::Millis(value.millis)),
+            LoweredValue::Int(value) => Ok(crate::duration::DurationOperand::Count(*value)),
+            _ => Err(RuntimeError::new("type-error", "invalid Duration arithmetic dimensions").with_span(span)),
+        };
+        return crate::duration::checked_duration_binary(op, operand(&left)?, operand(&right)?)
+            .map(|value| match value {
+                crate::duration::DurationResult::Millis(millis) => LoweredValue::Duration(crate::runtime::value::DurationValue { millis }),
+                crate::duration::DurationResult::Count(value) => LoweredValue::Int(value),
+            }).map_err(|error| { let (code, message) = error.diagnostic(); RuntimeError::new(code, message).with_span(span) });
     }
     match (op, left, right) {
         (BinaryOp::Add, LoweredValue::Float(left), LoweredValue::Float(right)) => Ok(
@@ -147,7 +235,11 @@ pub(super) fn lowered_membership_value(
     match container {
         LoweredValue::List(items) => Ok(items.iter().any(|item| item == needle)),
         LoweredValue::SharedList(items) => Ok(items.iter().any(|item| item == needle)),
-        LoweredValue::Map(fields) => Ok(fields.contains_key(lowered_str_arg(needle, "in", span)?)),
+        LoweredValue::Map(fields) => {
+            let key = lowered_map_key_ref(needle, span)?;
+            require_lowered_map_key_domain(fields, key, span)?;
+            Ok(key.contains_key(fields))
+        },
         LoweredValue::Record(fields) => Ok(fields.contains_key(lowered_str_arg(needle, "in", span)?)),
         LoweredValue::RecordVec(fields) => Ok(lowered_record_vec_get(fields, lowered_str_arg(needle, "in", span)?).is_some()),
         LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_) => Ok(matches!(lowered_str_arg(needle, "in", span)?, "blanks" | "blobs" | "code" | "comments")),
@@ -182,6 +274,7 @@ pub(super) fn lowered_assertion_comparison(
         match (left, right) {
             (LoweredValue::Int(left), LoweredValue::Int(right)) => Some(left.cmp(right)),
             (LoweredValue::Float(left), LoweredValue::Float(right)) => left.0.partial_cmp(&right.0),
+            (LoweredValue::Duration(left), LoweredValue::Duration(right)) => Some(left.millis.cmp(&right.millis)),
             _ => return Err(RuntimeError::new("type-error", "unsupported comparison operands").with_span(span)),
         }
     };
@@ -211,6 +304,12 @@ pub(super) fn lowered_assertion_value_detail(value: &LoweredValue) -> String {
             if values.len() > 8 { result.push_str(", …"); }
             format!("[{result}]")
         }
+        fn render_map_key(key: &MapKey, depth: usize) -> String {
+            match key {
+                MapKey::Str(value) => format!("{:?}", value.chars().take(64).collect::<String>()),
+                _ => render(&lowered_map_key_value(key), depth + 1),
+            }
+        }
         match value {
             LoweredValue::Int(value) => value.to_string(),
             LoweredValue::Float(value) => value.format(),
@@ -219,7 +318,7 @@ pub(super) fn lowered_assertion_value_detail(value: &LoweredValue) -> String {
             LoweredValue::Path(path) => format!("p{:?}", path.display().chars().take(256).collect::<String>()),
             LoweredValue::List(values) => items(values, depth),
             LoweredValue::SharedList(values) => items(values, depth),
-            LoweredValue::Map(fields) => format!("{{{}}}", fields.iter().take(8).map(|(key, value)| format!("{:?}: {}", key.chars().take(64).collect::<String>(), render(value, depth + 1))).collect::<Vec<_>>().join(", ")),
+            LoweredValue::Map(fields) => format!("{{{}}}", fields.iter().take(8).map(|(key, value)| format!("{}: {}", render_map_key(key, depth), render(value, depth + 1))).collect::<Vec<_>>().join(", ")),
             LoweredValue::Record(fields) => format!("{{{}}}", fields.iter().take(8).map(|(key, value)| format!("{}: {}", key.chars().take(64).collect::<String>(), render(value, depth + 1))).collect::<Vec<_>>().join(", ")),
             LoweredValue::RecordVec(fields) => format!("{{{}}}", fields.iter().take(8).map(|(key, value)| format!("{}: {}", key.as_str().as_str().chars().take(64).collect::<String>(), render(value, depth + 1))).collect::<Vec<_>>().join(", ")),
             _ => value.type_name().to_string(),
@@ -697,7 +796,9 @@ pub(super) fn lowered_return_value(
 ) -> Result<LoweredValue, RuntimeError> {
     match (kind, value) {
         (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
-            Err(super::runtime_error_from_value(*error, span))
+            let mut error = super::runtime_error_from_value(*error, span);
+            error.propagated = true;
+            Err(error)
         }
         (LoweredReturnKind::Plain(kind), value) if lowered_value_matches(kind, &value) => Ok(value),
         // The error arm comes first because a `Result[Any]` slot matches every
@@ -738,6 +839,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::Command, LoweredValue::Command(_))
             | (LoweredType::ProcessHandle, LoweredValue::ProcessHandle(_))
             | (LoweredType::NetJob, LoweredValue::NetJob(_))
+            | (LoweredType::FsRoot, LoweredValue::FsRoot(_))
             | (LoweredType::Stream, LoweredValue::Stream(_))
             | (LoweredType::Pure, LoweredValue::Pure(_))
             | (LoweredType::Proc, LoweredValue::Proc(_))
@@ -774,6 +876,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
         LoweredType::Command => "Command",
         LoweredType::ProcessHandle => "ProcessHandle",
         LoweredType::NetJob => "NetJob",
+        LoweredType::FsRoot => "FsRoot",
         LoweredType::Stream => "Stream",
         LoweredType::Pure => "Pure",
         LoweredType::Proc => "Proc",
@@ -820,6 +923,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
             Some(LoweredValue::ProcessHandle(value.clone()))
         }
         (LoweredType::NetJob, Value::NetJob(value)) => Some(LoweredValue::NetJob(value.clone())),
+        (LoweredType::FsRoot, Value::FsRoot(value)) => Some(LoweredValue::FsRoot(value.clone())),
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Pure, Value::Pure(value)) => Some(LoweredValue::Pure(*value)),
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
@@ -829,8 +933,10 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
         (LoweredType::List, Value::List(value)) => lowered_list_from_runtime(value),
         (LoweredType::Map, Value::Map(value)) => lowered_map_from_runtime(value),
-        (LoweredType::Tag, Value::Tag { name, fields }) => {
+        (LoweredType::Tag, Value::Tag { type_name, name, fields, wire }) => {
             Some(LoweredValue::Tag(Box::new(LoweredTagValue {
+                type_name: *type_name,
+                wire: wire.clone(),
                 name: name.clone(),
                 fields: fields
                     .iter()
@@ -861,6 +967,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Command(value) => Some(LoweredValue::Command(Box::new((**value).clone()))),
         Value::ProcessHandle(value) => Some(LoweredValue::ProcessHandle(value.clone())),
         Value::NetJob(value) => Some(LoweredValue::NetJob(value.clone())),
+        Value::FsRoot(value) => Some(LoweredValue::FsRoot(value.clone())),
         Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
         Value::Pure(value) => Some(LoweredValue::Pure(*value)),
         Value::Proc(value) => Some(LoweredValue::Proc(*value)),
@@ -869,7 +976,9 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Module(value) => lowered_module_from_runtime(value),
         Value::List(value) => lowered_list_from_runtime(value),
         Value::Map(value) => lowered_map_from_runtime(value),
-        Value::Tag { name, fields } => Some(LoweredValue::Tag(Box::new(LoweredTagValue {
+        Value::Tag { type_name, name, fields, wire } => Some(LoweredValue::Tag(Box::new(LoweredTagValue {
+            type_name: *type_name,
+            wire: wire.clone(),
             name: name.clone(),
             fields: fields
                 .iter()
@@ -928,7 +1037,7 @@ pub(super) fn lowered_list_from_runtime(value: &[Value]) -> Option<LoweredValue>
     Some(LoweredValue::List(items))
 }
 
-pub(super) fn lowered_map_from_runtime(value: &BTreeMap<String, Value>) -> Option<LoweredValue> {
+pub(super) fn lowered_map_from_runtime(value: &BTreeMap<MapKey, Value>) -> Option<LoweredValue> {
     let mut map = BTreeMap::new();
     for (key, value) in value {
         map.insert(key.clone(), lowered_value_from_runtime_any(value)?);
@@ -1082,7 +1191,7 @@ fn improve_unsupported_method_error(
         .map(|candidate| format!("`{candidate}()`"))
         .collect::<Vec<_>>();
     if receiver_type == "Str" && matches!(name, "len" | "length") {
-        names = ["byte_len", "count_bytes", "count_chars"]
+        names = ["byte_len", "count_chars"]
             .into_iter()
             .map(|candidate| format!("`{candidate}()`"))
             .collect();
@@ -1414,30 +1523,13 @@ pub(super) fn lowered_str_method_value(
         "count_chars" if args.is_empty() => {
             Ok(LoweredValue::Int(text_value.chars().count() as i64))
         }
-        "count_bytes" if args.is_empty() => Ok(LoweredValue::Int(text_value.len() as i64)),
         "byte_len" if args.is_empty() => Ok(LoweredValue::Int(text_value.len() as i64)),
-        "byte_at" if args.len() == 1 || args.len() == 2 => {
+        "byte_at" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(RuntimeError::new("type-error", "byte_at expected Int").with_span(span));
             };
-            let default = match args.get(1) {
-                Some(LoweredValue::Int(value)) => *value,
-                Some(_) => {
-                    return Err(
-                        RuntimeError::new("type-error", "byte_at default expected Int")
-                            .with_span(span),
-                    );
-                }
-                None => -1,
-            };
-            Ok(LoweredValue::Int(
-                text_value
-                    .as_bytes()
-                    .get(usize::try_from(*index).unwrap_or(usize::MAX))
-                    .copied()
-                    .map(i64::from)
-                    .unwrap_or(default),
-            ))
+            Ok(usize::try_from(*index).ok().and_then(|index| text_value.as_bytes().get(index))
+                .map(|value| LoweredValue::Int(i64::from(*value))).unwrap_or(LoweredValue::Null))
         }
         "byte_slice" if args.len() == 1 || args.len() == 2 => {
             let LoweredValue::Int(offset) = &args[0] else {
@@ -1470,9 +1562,8 @@ pub(super) fn lowered_str_method_value(
                 }
                 None => 0,
             };
-            Ok(LoweredValue::Int(lowered_find_text_bytes(
-                text_value, needle, start,
-            )))
+            let position = lowered_find_text_bytes(text_value, needle, start);
+            Ok(if position < 0 { LoweredValue::Null } else { LoweredValue::Int(position) })
         }
         "starts_with" if args.len() == 1 => {
             let prefix = lowered_str_arg(&args[0], "starts_with", span)?;
@@ -1612,27 +1703,12 @@ pub(super) fn lowered_bytes_method_value(
         "sha512" if args.is_empty() => Ok(LoweredValue::Digest(Box::new(
             crate::modules::hash::digest_bytes(crate::modules::hash::HashAlgorithm::Sha512, bytes),
         ))),
-        "byte_at" if args.len() == 1 || args.len() == 2 => {
+        "byte_at" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(RuntimeError::new("type-error", "byte_at expected Int").with_span(span));
             };
-            let default = match args.get(1) {
-                Some(LoweredValue::Int(value)) => *value,
-                Some(_) => {
-                    return Err(
-                        RuntimeError::new("type-error", "byte_at default expected Int")
-                            .with_span(span),
-                    );
-                }
-                None => -1,
-            };
-            Ok(LoweredValue::Int(
-                bytes
-                    .get(usize::try_from(*index).unwrap_or(usize::MAX))
-                    .copied()
-                    .map(i64::from)
-                    .unwrap_or(default),
-            ))
+            Ok(usize::try_from(*index).ok().and_then(|index| bytes.get(index))
+                .map(|value| LoweredValue::Int(i64::from(*value))).unwrap_or(LoweredValue::Null))
         }
         "slice" if args.len() == 1 || args.len() == 2 => {
             let LoweredValue::Int(offset) = &args[0] else {
@@ -1964,12 +2040,77 @@ fn lowered_inline_stats_method_value(
     })
 }
 
+// All replacements are evaluated and checked before this private snapshot is
+// rebuilt. Grouping siblings makes each shared ancestor detach only once.
+pub(super) fn lowered_record_update_batch(
+    mut base: LoweredValue,
+    updates: Vec<(Vec<Name>, LoweredValue, Span)>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    #[derive(Default)]
+    struct UpdateBranch {
+        replacement: Option<LoweredValue>,
+        fields: BTreeMap<Name, UpdateBranch>,
+    }
+    fn apply(value: &mut LoweredValue, branch: UpdateBranch, span: Span) -> Result<(), RuntimeError> {
+        if let Some(replacement) = branch.replacement {
+            *value = replacement;
+        } else {
+            for (field, child) in branch.fields {
+                apply(lowered_record_field_mut(value, field, span)?, child, span)?;
+            }
+        }
+        Ok(())
+    }
+    let mut root = UpdateBranch::default();
+    for (path, replacement, field_span) in updates {
+        let mut selected = &base;
+        let mut branch = &mut root;
+        for field in path {
+            selected = super::lower::lowered_record_field(selected, &field.as_str()).ok_or_else(|| {
+                RuntimeError::new("missing-field", format!("record update field `{field}` is absent")).with_span(field_span)
+            })?;
+            branch = branch.fields.entry(field).or_default();
+        }
+        branch.replacement = Some(replacement);
+    }
+    apply(&mut base, root, span)?;
+    Ok(base)
+}
+
+/// Selects an existing record field while retaining value semantics.
+/// Shared storage is copied only when another value still owns it.
+pub(super) fn lowered_record_field_mut<'a>(
+    value: &'a mut LoweredValue,
+    field: Name,
+    span: Span,
+) -> Result<&'a mut LoweredValue, RuntimeError> {
+    if matches!(value, LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)) {
+        let stats = std::mem::replace(value, LoweredValue::Unit);
+        *value = LoweredValue::RecordVec(Arc::new(match stats {
+            LoweredValue::Stats { blanks, code, comments } => super::lowered_inline_stats_to_record_vec(blanks, code, comments),
+            LoweredValue::StatsBlob(stats) => stats.to_record_vec(),
+            _ => unreachable!("checked stats record"),
+        }));
+    }
+    let selected = match value {
+        LoweredValue::Record(fields) => Arc::make_mut(fields).get_mut(field.as_str().as_str()),
+        LoweredValue::RecordVec(fields) => super::lowered_record_vec_get_mut(Arc::make_mut(fields).as_mut_slice(), field.as_str().as_str()),
+        _ => return Err(RuntimeError::new("type-error", "lowered expression expected Record").with_span(span)),
+    };
+    selected.ok_or_else(|| RuntimeError::new("missing-field", field.to_string()).with_span(span))
+}
+
 pub(super) fn lowered_index_value(
     base: LoweredValue,
     index: LoweredValue,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (base, index) {
+        (LoweredValue::Map(values), index) => {
+            let key = lowered_map_key_ref(&index, span)?;
+            key.get(&values).cloned().ok_or_else(|| RuntimeError::new("map-missing", format!("map has no key {key:?}")).with_span(span))
+        }
         (LoweredValue::List(values), LoweredValue::Int(index)) => values
             .get(index as usize)
             .cloned()
@@ -2061,43 +2202,35 @@ pub(super) fn lowered_slice_value(
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
             Ok(LoweredValue::List(values[start..end].to_vec()))
         }
-        LoweredValue::Str(text) => {
-            let len = text.chars().count();
+        value @ (LoweredValue::Str(_) | LoweredValue::StrView(_)) => {
+            let (text, view_start, view_end) = lowered_str_parts(&value).expect("text slice receiver");
+            let slice = &text[view_start..view_end];
+            let len = slice.chars().count();
             let start = to_index(start, len, span)?.unwrap_or(0);
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(LoweredValue::Str(
-                text.chars()
-                    .skip(start)
-                    .take(end - start)
-                    .collect::<String>()
-                    .into(),
+            // Bounds count Unicode scalars; the backing view uses UTF-8 bytes.
+            let mut boundaries = slice.char_indices()
+                .map(|(offset, _)| offset)
+                .chain(std::iter::once(slice.len()));
+            let byte_start = boundaries.nth(start).expect("normalized scalar start");
+            let byte_end = if start == end {
+                byte_start
+            } else {
+                boundaries.nth(end - start - 1).expect("normalized scalar end")
+            };
+            Ok(lowered_str_view_value(
+                text, view_start + byte_start, view_start + byte_end,
             ))
         }
-        LoweredValue::StrView(view) => {
-            let text = view.as_str();
-            let len = text.chars().count();
+        value @ (LoweredValue::Bytes(_) | LoweredValue::BytesView(_)) => {
+            let (bytes, view_start, view_end) = lowered_bytes_parts(&value)
+                .expect("byte slice receiver");
+            let len = view_end - view_start;
             let start = to_index(start, len, span)?.unwrap_or(0);
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(LoweredValue::Str(
-                text.chars()
-                    .skip(start)
-                    .take(end - start)
-                    .collect::<String>()
-                    .into(),
+            Ok(lowered_bytes_view_value(
+                bytes, view_start + start, view_start + end,
             ))
-        }
-        LoweredValue::Bytes(bytes) => {
-            let len = bytes.len();
-            let start = to_index(start, len, span)?.unwrap_or(0);
-            let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(lowered_bytes_view_value(bytes, start, end))
-        }
-        LoweredValue::BytesView(view) => {
-            let bytes = view.as_slice();
-            let len = bytes.len();
-            let start = to_index(start, len, span)?.unwrap_or(0);
-            let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(LoweredValue::Bytes(bytes[start..end].into()))
         }
         value => Err(RuntimeError::new(
             "type-error",
@@ -2116,29 +2249,15 @@ pub(super) fn lowered_list_method_value(
     match name {
         "collect" if args.is_empty() => Ok(LoweredValue::List(items)),
         "len" if args.is_empty() => Ok(LoweredValue::Int(items.len() as i64)),
-        "get" if args.len() == 1 || args.len() == 2 => {
+        "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
-                return Err(
-                    RuntimeError::new("type-error", "get expected Int index").with_span(span)
-                );
+                return Err(RuntimeError::new("type-error", "get expected Int index").with_span(span));
             };
-            if *index >= 0
-                && let Some(value) = items.get(*index as usize).cloned()
-            {
-                return if args.len() == 2 {
-                    Ok(value)
-                } else {
-                    Ok(LoweredValue::ResultOk(Box::new(value)))
-                };
-            }
-            if args.len() == 2 {
-                Ok(args[1].clone())
-            } else {
-                Ok(lowered_result_err(
-                    "index-out-of-bounds",
-                    format!("list index {index} is out of bounds"),
-                ))
-            }
+            let result = match usize::try_from(*index).ok().and_then(|index| items.get(index)) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("index-out-of-bounds", format!("list index {index} is out of bounds")),
+            };
+            Ok(result)
         }
         "push" if args.len() == 1 => {
             let mut items = items;
@@ -2176,29 +2295,15 @@ pub(super) fn lowered_list_method_ref(
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(items.len() as i64))),
-        "get" if args.len() == 1 || args.len() == 2 => {
+        "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
-                return Err(
-                    RuntimeError::new("type-error", "get expected Int index").with_span(span)
-                );
+                return Err(RuntimeError::new("type-error", "get expected Int index").with_span(span));
             };
-            if *index >= 0
-                && let Some(value) = items.get(*index as usize).cloned()
-            {
-                return if args.len() == 2 {
-                    Ok(Some(value))
-                } else {
-                    Ok(Some(LoweredValue::ResultOk(Box::new(value))))
-                };
-            }
-            if args.len() == 2 {
-                Ok(Some(args[1].clone()))
-            } else {
-                Ok(Some(lowered_result_err(
-                    "index-out-of-bounds",
-                    format!("list index {index} is out of bounds"),
-                )))
-            }
+            let result = match usize::try_from(*index).ok().and_then(|index| items.get(index)) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("index-out-of-bounds", format!("list index {index} is out of bounds")),
+            };
+            Ok(Some(result))
         }
         "join" if args.is_empty() || args.len() == 1 => {
             lowered_join_list(items, &args, span).map(Some)
@@ -2246,85 +2351,72 @@ pub(super) fn lowered_nonnegative_count(
 /// updating methods (`set`, `push`, `remove`) return a new map and take the
 /// receiver by value instead.
 fn lowered_map_method_ref(
-    map: &BTreeMap<String, LoweredValue>,
+    map: &BTreeMap<MapKey, LoweredValue>,
     name: &str,
     args: &[LoweredValue],
     span: Span,
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
+        "keys" if args.is_empty() => Ok(Some(LoweredValue::List(map.keys().map(lowered_map_key_value).collect()))),
+        "values" if args.is_empty() => Ok(Some(LoweredValue::List(map.values().cloned().collect()))),
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
-        "get" if args.len() == 1 || args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "get", span)?;
-            match map.get(key) {
-                Some(value) => Ok(Some(if args.len() == 2 {
-                    value.clone()
-                } else {
-                    LoweredValue::ResultOk(Box::new(value.clone()))
-                })),
-                None => match args.get(1) {
-                    Some(fallback) => Ok(Some(fallback.clone())),
-                    None => Ok(Some(LoweredValue::ResultErr(Box::new(Value::Error(
-                        Box::new(RuntimeError::new(
-                            "map-missing",
-                            format!("map has no key `{key}`"),
-                        )),
-                    ))))),
-                },
-            }
+        "get" if args.len() == 1 => {
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
+            let result = match key.get(&map) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("map-missing", format!("map has no key {key:?}")),
+            };
+            Ok(Some(result))
         }
         _ => Ok(None),
     }
 }
 
 pub(super) fn lowered_map_method_value(
-    map: BTreeMap<String, LoweredValue>,
+    map: BTreeMap<MapKey, LoweredValue>,
     name: &str,
     args: Vec<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(LoweredValue::Int(map.len() as i64)),
-        "get" if args.len() == 1 || args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "get", span)?;
-            if let Some(value) = map.get(key).cloned() {
-                return if args.len() == 2 {
-                    Ok(value)
-                } else {
-                    Ok(LoweredValue::ResultOk(Box::new(value)))
-                };
-            }
-            if args.len() == 2 {
-                Ok(args[1].clone())
-            } else {
-                Ok(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                    RuntimeError::new("map-missing", format!("map has no key `{key}`")),
-                )))))
-            }
+        "get" if args.len() == 1 => {
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
+            let result = match key.get(&map) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("map-missing", format!("map has no key {key:?}")),
+            };
+            Ok(result)
         }
         "set" if args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "set", span)?;
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
             let mut map = map;
-            map.insert(key.to_string(), args[1].clone());
+            map.insert(key.to_owned(), args[1].clone());
             Ok(LoweredValue::Map(Arc::new(map)))
         }
         "remove" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "remove", span)?;
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
             let mut map = map;
-            map.remove(key);
+            key.remove(&mut map);
             Ok(LoweredValue::Map(Arc::new(map)))
         }
         "push" if args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "push", span)?;
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
             let mut map = map;
-            match map.remove(key) {
+            match key.remove(&mut map) {
                 Some(LoweredValue::List(mut items)) => {
                     items.push(args[1].clone());
-                    map.insert(key.to_string(), LoweredValue::List(items));
+                    map.insert(key.to_owned(), LoweredValue::List(items));
                 }
                 Some(LoweredValue::SharedList(items)) => {
                     let mut items = take_shared(items);
                     items.push(args[1].clone());
-                    map.insert(key.to_string(), LoweredValue::List(items));
+                    map.insert(key.to_owned(), LoweredValue::List(items));
                 }
                 Some(other) => {
                     return Err(RuntimeError::new(
@@ -2334,14 +2426,14 @@ pub(super) fn lowered_map_method_value(
                     .with_span(span));
                 }
                 None => {
-                    map.insert(key.to_string(), LoweredValue::List(vec![args[1].clone()]));
+                    map.insert(key.to_owned(), LoweredValue::List(vec![args[1].clone()]));
                 }
             }
             Ok(LoweredValue::Map(Arc::new(map)))
         }
         "keys" if args.is_empty() => Ok(LoweredValue::List(
             map.keys()
-                .map(|key| LoweredValue::Str(key.as_str().into()))
+                .map(lowered_map_key_value)
                 .collect(),
         )),
         "values" if args.is_empty() => Ok(LoweredValue::List(map.into_values().collect())),
@@ -2368,6 +2460,7 @@ pub(super) fn lowered_result_method_value(
             let context = ErrorContext {
                 kind: kind.to_string(),
                 message,
+                span: None,
             };
             Ok(match result {
                 LoweredValue::ResultOk(value) => LoweredValue::ResultOk(value),
@@ -2466,4 +2559,74 @@ pub(super) fn lowered_result_err(
     message: impl Into<String>,
 ) -> LoweredValue {
     LoweredValue::ResultErr(Box::new(error_constructor(kind, message)))
+}
+
+#[cfg(test)]
+mod slice_tests {
+    use std::sync::Arc;
+
+    use super::{LoweredValue, lowered_bytes_parts, lowered_slice_value, lowered_str_parts};
+    use crate::source::{SourceId, Span};
+
+    #[test]
+    fn nested_text_and_byte_slices_retain_immutable_backing_storage() {
+        let span = Span::new(SourceId::new(0), 0, 1);
+        let text: Arc<str> = Arc::from("aé🦀z");
+        let selected = lowered_slice_value(
+            LoweredValue::Str(text.clone()), Some(LoweredValue::Int(1)), None, span,
+        ).unwrap();
+        let selected = lowered_slice_value(
+            selected, None, Some(LoweredValue::Int(2)), span,
+        ).unwrap();
+        let (backing, start, end) = lowered_str_parts(&selected).unwrap();
+        assert!(Arc::ptr_eq(&text, &backing));
+        assert_eq!(&backing[start..end], "é🦀");
+
+        let bytes: Arc<[u8]> = Arc::from(&b"a\0\xffbcd"[..]);
+        let selected = lowered_slice_value(
+            LoweredValue::Bytes(bytes.clone()),
+            Some(LoweredValue::Int(1)), Some(LoweredValue::Int(5)), span,
+        ).unwrap();
+        let selected = lowered_slice_value(
+            selected, Some(LoweredValue::Int(1)), Some(LoweredValue::Int(-1)), span,
+        ).unwrap();
+        let (backing, start, end) = lowered_bytes_parts(&selected).unwrap();
+        assert!(Arc::ptr_eq(&bytes, &backing));
+        assert_eq!(&backing[start..end], b"\xffb");
+    }
+}
+
+#[cfg(test)]
+mod record_update_tests {
+    use super::{LoweredValue, lowered_record_update_batch};
+    use crate::source::{SourceId, Span};
+    use crate::symbol::Name;
+    use std::sync::Arc;
+
+    #[test]
+    fn record_update_detaches_shared_ancestors_and_retains_untouched_storage() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let span = Span::new(SourceId::new(0), 0, 1);
+        let a = Name::intern("a");
+        let b = Name::intern("b");
+        let c = Name::intern("c");
+        let untouched = Name::intern("untouched");
+        let inner = Arc::new(vec![(b, LoweredValue::Int(1)), (c, LoweredValue::Int(2))]);
+        let retained = Arc::new(vec![(b, LoweredValue::Int(5))]);
+        let base = Arc::new(vec![(a, LoweredValue::RecordVec(inner.clone())), (untouched, LoweredValue::RecordVec(retained.clone()))]);
+        let updated = lowered_record_update_batch(LoweredValue::RecordVec(base.clone()), vec![
+            (vec![a, b], LoweredValue::Int(3), span),
+            (vec![a, c], LoweredValue::Int(4), span),
+        ], span).unwrap();
+        let LoweredValue::RecordVec(updated) = updated else { panic!("record representation"); };
+        assert!(!Arc::ptr_eq(&base, &updated));
+        let LoweredValue::RecordVec(changed) = &updated[0].1 else { panic!("changed ancestor"); };
+        assert!(!Arc::ptr_eq(&inner, changed));
+        assert!(matches!(changed[0].1, LoweredValue::Int(3)));
+        assert!(matches!(changed[1].1, LoweredValue::Int(4)));
+        assert!(matches!(inner[0].1, LoweredValue::Int(1)));
+        let LoweredValue::RecordVec(shared) = &updated[1].1 else { panic!("untouched sibling"); };
+        assert!(Arc::ptr_eq(&retained, shared));
+    }
 }

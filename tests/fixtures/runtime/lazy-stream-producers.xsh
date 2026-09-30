@@ -91,7 +91,7 @@ proc main() [io, fs, env, error] {
   # file cannot change the stream.
   fs.remove(fp"${root}/input.txt")?
   let collected = numbers.collect()
-  print f"rows=${collected.len()} values=${collected.get(0, -1)}"
+  print f"rows=${collected.len()} values=${collected.get(0) ?? -1}"
 
   # 2. An early stop does not reach later rows, and an unconsumed producer is
   #    still stopped once the program can no longer reach it.

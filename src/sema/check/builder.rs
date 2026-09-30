@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use super::{BTreeMap, BuilderKind, Checker, FxHashSet, Name, Span, Type};
+use super::{BuilderKind, Checker, FxHashSet, Name, Span, Type};
 use crate::syntax::arena::{
     ArenaBuilderBlock, ArenaBuilderEntryKind, ArenaCallArg, ArenaExprKind, ArenaProgram,
     BuilderBlockId, ExprId,
@@ -85,11 +85,13 @@ impl Checker {
                     if expected.is_none() && !builder_allows_field(kind, &name.as_str()) {
                         self.error(entry_span, "unknown builder field", "check.builder-field");
                     }
-                    let actual = self.check_expr_arena(arena, source, *value, expected.as_ref());
-                    if let Some(expected) = expected {
+                    let byte_input = kind == BuilderKind::ProcessCommand && *name == "stdin";
+                    let actual = self.check_expr_arena(arena, source, *value, if byte_input { None } else { expected.as_ref() });
+                    if let Some(expected) = expected && !(byte_input && actual == Type::Bytes) {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(&expected, &actual, value_span);
                     }
+                    if kind == BuilderKind::ProcessCommand && *name == "accept" { self.check_static_accepted_exit_codes(arena, *value); }
                     if kind == BuilderKind::ProcessCommand && *name == "cpu_max" {
                         self.check_static_positive_builder_int_arena(
                             arena,
@@ -230,7 +232,8 @@ pub(super) fn builder_field_type(kind: BuilderKind, name: &str) -> Option<Type> 
         (BuilderKind::ProcessCommand, "cwd") => Some(Type::Path),
         (BuilderKind::ProcessCommand, "timeout") => Some(Type::Duration),
         (BuilderKind::ProcessCommand, "cpu_max") => Some(Type::Int),
-        (BuilderKind::ProcessCommand, "env") => Some(Type::Record(BTreeMap::new())),
+        (BuilderKind::ProcessCommand, "accept") => Some(Type::List(Box::new(Type::Int))),
+        (BuilderKind::ProcessCommand, "env") => Some(Type::ErasedRecord),
         (BuilderKind::ProcessCommand, "stdin") => Some(Type::Path),
         (BuilderKind::ProcessCommand, "stdout") => Some(Type::Path),
         (BuilderKind::ProcessCommand, "stderr") => Some(Type::Path),

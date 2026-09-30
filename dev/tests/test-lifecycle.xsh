@@ -33,7 +33,7 @@ ${body}
   fs.chmod(tool_path, 0o755)?
 }
 
-proc test_build_failure_stops_at_the_cargo_boundary(ctx: TestContext) [fs, env, error] {
+test test_build_failure_stops_at_the_cargo_boundary [fs, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "build-failure")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -72,7 +72,7 @@ match build.build(ctx) {
   cargo_marker.exists()?
 }
 
-proc test_lint_fix_rebuilds_the_debug_xsh_binary(ctx: TestContext) [fs, error] {
+test test_lint_fix_rebuilds_the_debug_xsh_binary [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "lint-build-xsh")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -88,8 +88,8 @@ proc test_lint_fix_rebuilds_the_debug_xsh_binary(ctx: TestContext) [fs, error] {
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""if "--bin" in ARGV and "xsh" in ARGV {
-  p"${xsh_marker.display()}".write(ARGV.join("|"))?
+    f"""if "--bin" in args and "xsh" in args {
+  p"${xsh_marker.display()}".write(args.join("|"))?
 }
 """,
   )?
@@ -117,7 +117,7 @@ ${result.stderr}""",
   test.ok("--bin|xsh" in xsh_marker.read_text()?, xsh_marker.read_text()?)?
 }
 
-proc test_docker_container_failure_runs_target_ownership_cleanup(ctx: TestContext) [fs, error] {
+test test_docker_container_failure_runs_target_ownership_cleanup [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "container-cleanup")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -161,7 +161,7 @@ match internal.linux_ci_test(ctx) {
   cleanup_marker.exists()?
 }
 
-proc test_docker_image_and_container_failures_are_staged(ctx: TestContext) [fs, error] {
+test test_docker_image_and_container_failures_are_staged [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "docker-failures")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -171,8 +171,8 @@ proc test_docker_image_and_container_failures_are_staged(ctx: TestContext) [fs, 
   write_fake_tool(
     fp"${tools}/docker",
     xsh,
-    f"""p"${docker_marker.display()}".write(ARGV.join("|"))?
-if "run" in ARGV {
+    f"""p"${docker_marker.display()}".write(args.join("|"))?
+if "run" in args {
   abort(24)
 }
 """,
@@ -200,7 +200,7 @@ match docker.run_internal(ctx, "dist", false, []) {
   "run" in docker_marker.read_text()?
 }
 
-proc test_docker_image_build_failure_prevents_the_container_stage(ctx: TestContext) [fs, error] {
+test test_docker_image_build_failure_prevents_the_container_stage [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "docker-image-failure")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -210,7 +210,7 @@ proc test_docker_image_build_failure_prevents_the_container_stage(ctx: TestConte
   write_fake_tool(
     fp"${tools}/docker",
     xsh,
-    f"""p"${docker_marker.display()}".write(ARGV.join("|"))?
+    f"""p"${docker_marker.display()}".write(args.join("|"))?
 abort(24)""",
   )?
   let result = test.run_script(
@@ -235,7 +235,7 @@ match docker.run_internal(ctx, "dist", false, []) {
   "build" in docker_marker.read_text()?
 }
 
-proc test_trace_keeps_process_status_for_a_failed_child(ctx: TestContext) [error] {
+test test_trace_keeps_process_status_for_a_failed_child [error] { |ctx|
   let traced = test.run_xsht_trace(
     ctx,
     """
@@ -249,7 +249,7 @@ run.status false
   "status={kind:exit success:false code:1}" in traced.stderr
 }
 
-proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error] {
+test test_make_facade_only_delegates_to_the_development_entrypoint [fs, error] {
   let facade = p"Makefile".read_text()?
 
   for command in [
@@ -269,7 +269,7 @@ proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error]
   }
 }
 
-proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: TestContext) [fs, process, error] {
+test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary [fs, process, error] { |ctx|
   match process.which("make") {
     Err(_) => {
       test.skip("requires make executable")
@@ -304,7 +304,7 @@ proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: T
 """
 }
 
-proc test_codesign_failure_stops_darwin_installation(ctx: TestContext) [fs, error] {
+test test_codesign_failure_stops_darwin_installation [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "codesign-failure")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -319,7 +319,7 @@ proc test_codesign_failure_stops_darwin_installation(ctx: TestContext) [fs, erro
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write(ARGV.join("|"))?
+    f"""p"${cargo_marker.display()}".write(args.join("|"))?
 """,
   )?
   write_fake_tool(
@@ -355,7 +355,7 @@ match install.darwin(ctx) {
   test.ok("build-std" in cargo_marker.read_text()?, cargo_marker.read_text()?)?
 }
 
-proc test_darwin_install_rejects_linux_target_before_building(ctx: TestContext) [fs, error] {
+test test_darwin_install_rejects_linux_target_before_building [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "darwin-rejects-linux")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -403,7 +403,7 @@ match install.darwin(ctx) {
   test.ok(! cargo_marker.exists()?, "darwin install with a Linux target must fail before cargo")?
 }
 
-proc test_linux_install_requires_native_musl_target(ctx: TestContext) [fs, error] {
+test test_linux_install_requires_native_musl_target [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "linux-requires-native")?
   let tools = fp"${root}/tools"
   tools.mkdir()?

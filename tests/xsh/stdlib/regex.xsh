@@ -1,5 +1,5 @@
-proc test_regex_module_and_methods() [error] {
-  let re = regex.compile("([A-Z]+)-(\\d+)")?
+test test_regex_module_and_methods [error] {
+  let re = rx"([A-Z]+)-(\d+)"
   re.matches("ERR-42")
   re.captures("ERR-42")[1] == "ERR"
   re.find("ERR-42 OK-7").len() == 2

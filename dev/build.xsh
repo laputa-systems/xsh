@@ -131,7 +131,7 @@ export proc check(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
       "check-xsh",
       ctx.target.triple,
       xsht.display(),
-      [xsht.display(), "check", "--strict"],
+      [xsht.display(), "check"],
       ctx.root,
       {},
     ),

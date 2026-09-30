@@ -1,4 +1,4 @@
-proc test_bytes_construction_encoding_and_copy(ctx: TestContext) [fs, error] {
+test test_bytes_construction_encoding_and_copy [fs, error] { |ctx|
   let data = bytes.concat([bytes.from_text("A"), bytes.from_ints([66, 67])?, bytes.zero(2)?])
   data == b"ABC\0\0"
   bytes.human(-1) == "-"
@@ -40,7 +40,7 @@ proc test_bytes_construction_encoding_and_copy(ctx: TestContext) [fs, error] {
   test.error_kind(bytes.copy(data_path, copy), "bytes-copy")?
 }
 
-proc test_bytes_methods_and_decode_errors() [error] {
+test test_bytes_methods_and_decode_errors [error] {
   let encoded = b"\0hello\xff".base64()
   encoded == "AGhlbGxv/w=="
   encoded.base64_decode()? == b"\0hello\xff"
@@ -64,8 +64,8 @@ WJj""".base64_decode()? == b"abc"
   test.eq(report.lines().collect(), [b"  Header", b"alpha", b"TODO item", b"omega  "])?
   report.count_lines() == 4
   b"AbC\xff".lower() == b"abc\xff"
-  report.byte_at(2) == 72
-  report.byte_at(999, -1) == -1
+  (report.byte_at(2) ?? -1) == 72
+  (report.byte_at(999) ?? -1) == -1
   b"\0hello marker-one\0xx marker-two!!\xff".strings(min_len: 7)[0] == "hello marker-one"
   "68 65 6c 6c 6f" in b"hello".dump("hex-u8")
   b"hello".dump("octal-u8") == "0000000 150 145 154 154 157"

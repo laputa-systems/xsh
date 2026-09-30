@@ -2,8 +2,8 @@ use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
-    ArenaCommandArgKind, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
-    ArenaPatternKind, ArenaPipeStageKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
+    ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
+    ArenaPatternKind, ArenaRecordFieldKind, ArenaPipeStageKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
     ArenaWordPart, ExprId, StmtId,
 };
 use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
@@ -14,6 +14,23 @@ use xsh::frontend::syntax::node::{
 use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 use xsh::frontend::syntax::token::TokenTag;
 use xsht::format::Formatter;
+
+#[test]
+fn boolean_guards_keep_separate_arena_kind_and_cst_round_trip() {
+    let source = "proc checked(name: Str?) [] -> Str {\n  guard name != null else {\n    # Preserve the authored failure.\n    return \"missing\"\n  }\n\n  name.trim()\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let arena = &parsed.arena.arena;
+    let function = arena.stmt_ids(parsed.arena.statements).next().unwrap();
+    let ArenaStmtKind::ProcDef(def) = arena.stmt(function).kind else { panic!("expected proc") };
+    let guard = arena.stmt_ids(arena.block(arena.function_def(def).body).statements).next().unwrap();
+    assert!(matches!(arena.stmt(guard).kind, ArenaStmtKind::BooleanGuard { .. }));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+}
 
 fn assert_parse_and_check(source_id: SourceId, source: &str) {
     let parsed = Parser::parse_source_arena_only(source_id, source);
@@ -28,6 +45,22 @@ fn assert_parse_and_check(source_id: SourceId, source: &str) {
         "formatted output has check errors:\n---\n{source}\n---\n{:?}",
         checked.diagnostics
     );
+}
+
+#[test]
+fn identifier_subtraction_preserves_negative_command_arguments() {
+    let source = "value - 1\nemit -1\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
+    let arena = &parsed.arena.arena;
+    for statement in &statements[..1] {
+        let ArenaStmtKind::Expr(expr) = arena.stmt(*statement).kind else {
+            panic!("expected subtraction expression");
+        };
+        assert!(matches!(arena.expr(expr).kind, ArenaExprKind::Binary { op: BinaryOp::Sub, .. }));
+    }
+    assert!(matches!(arena.stmt(statements[1]).kind, ArenaStmtKind::Command(_)));
 }
 
 /// The expression initializer of the `index`-th root `let` statement, via the
@@ -194,7 +227,7 @@ proc main(name: Str) [fs, error] -> Result[Unit] {
         kind => panic!("expected nums let, got {kind:?}"),
     };
     let item_ids: Vec<_> = match &arena.expr(nums_expr).kind {
-        ArenaExprKind::List(range) => arena.expr_ids(*range).collect(),
+        ArenaExprKind::List(range) => arena.list_element_exprs(*range).collect(),
         kind => panic!("expected list expression, got {kind:?}"),
     };
     let values: Vec<_> = item_ids
@@ -357,37 +390,25 @@ fn parser_and_formatter_accept_map_comprehensions() {
 }
 
 #[test]
-fn parser_rejects_bracketed_map_comprehension_keys() {
-    let source = "let by_name = {[item.name]: item.version for item in items}\n";
+fn parser_accepts_bracketed_computed_map_literal_keys() {
+    use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
+    let source = "let by_name = {[item.name]: item.version}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(
-        output
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("parse.expected-record-field")),
-        "{:?}",
-        output.diagnostics
-    );
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let arena = &output.arena.arena;
+    let ArenaExprKind::Record(fields) = arena.expr(root_let_init_expr(&output, 0)).kind else { panic!("map literal"); };
+    assert!(matches!(arena.record_fields(fields)[0].kind, ArenaRecordFieldKind::Computed { .. }));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
 }
 
 #[test]
-fn parser_reports_reserved_record_fields_by_name_without_cascade() {
-    let source =
-        "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n";
+fn parser_accepts_keyword_schema_and_record_field_labels() {
+    let source = "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert_eq!(output.diagnostics.len(), 2, "{:?}", output.diagnostics);
-    assert_eq!(
-        output.diagnostics[0].code.as_deref(),
-        Some("parse.reserved-schema-field")
-    );
-    assert!(output.diagnostics[0].message.contains("`run`"));
-    assert_eq!(
-        output.diagnostics[1].code.as_deref(),
-        Some("parse.reserved-record-field")
-    );
-    assert!(output.diagnostics[1].message.contains("`run`"));
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_parse_and_check(SourceId::new(0), source);
 }
 
 #[test]
@@ -770,10 +791,10 @@ fn parser_accepts_path_literals_and_expr_env_blocks() {
 let root = ./src
 let cc = /usr/bin/cc
 let parent = ../src/main.c
-env {
-  HOME = root
-  JOBS = cpu.count()
-} {
+env ({
+  HOME: root,
+  JOBS: cpu.count(),
+}) {
   run make -C p\"src\" ?
 } ?
 ",
@@ -788,16 +809,9 @@ env {
         ));
     }
     let root: Vec<_> = output.arena.statement_ids().collect();
-    let ArenaStmtKind::Command(cmd_id) = arena.stmt(root[3]).kind else {
-        panic!("expected env command");
-    };
-    let ArenaCommand::Core { env, .. } = &arena.command_stmt(cmd_id).command else {
-        panic!("expected core command");
-    };
-    assert!(matches!(
-        arena.env_assignments(*env)[0].value,
-        ArenaEnvAssignmentValue::Expr(_)
-    ));
+    let ArenaStmtKind::Expr(expr) = arena.stmt(root[3]).kind else { panic!("expected environment scope"); };
+    let ArenaExprKind::Try(scope) = arena.expr(expr).kind else { panic!("expected propagation"); };
+    assert!(matches!(arena.expr(scope).kind, ArenaExprKind::ContextScope { kind: xsh::frontend::syntax::arena::ContextScopeKind::Env, value_body: false, .. }));
 }
 
 #[test]
@@ -824,7 +838,7 @@ let spaced = 1 / 2
             };
             assert!(
                 arena
-                    .expr_ids(items)
+                    .list_element_exprs(items)
                     .all(|id| matches!(arena.expr(id).kind, ArenaExprKind::PathStr(_)))
             );
         } else {
@@ -971,69 +985,25 @@ fn parser_accepts_structured_pipeline_stages() {
     let block = arena.block(stages[1].block.unwrap());
     assert_eq!(arena.block_params(block.params)[0].name, "file");
 
-    let batch = Parser::parse_source_arena_only(
-        SourceId::new(0),
-        "[Path(\"a\")] |> batch --count=1 --max-argv\n",
-    );
-    assert!(batch.diagnostics.is_empty(), "{:?}", batch.diagnostics);
-    let barena = &batch.arena.arena;
-    let broot: Vec<_> = batch.arena.statement_ids().collect();
-    let ArenaStmtKind::Expr(bexpr) = barena.stmt(broot[0]).kind else {
-        panic!("expected expression statement");
-    };
-    let ArenaExprKind::StructuredPipeline { stages, .. } = barena.expr(bexpr).kind else {
-        panic!("expected structured pipeline");
-    };
-    let stages = barena.stream_stages(stages);
-    assert_eq!(stages[0].kind, StreamStageKind::Batch);
-    let opts = barena.stream_options(stages[0].options);
-    assert_eq!(opts[0].name, "count");
-    assert!(opts[0].value.is_some());
-    assert_eq!(opts[1].name, "max-argv");
-    assert!(opts[1].value.is_none());
-
-    // A stream-stage option's `${...}`-wrapped value can itself contain a
-    // full nested pipeline with its own options — exercises that staging
-    // `stream_stage_option_inputs`/`fmt_part_inputs` correctly, since the
-    // inner option's begin/finish pair runs fully inside the still-open
-    // outer one.
     let nested = Parser::parse_source_arena_only(
         SourceId::new(0),
-        "[1, 2, 3] |> batch --count=${[4, 5] |> batch --count=1} --max-argv\n",
+        "[1, 2, 3] |> batch(count: ([4, 5] |> batch(count: 1)).len(), max_argv: true)\n",
     );
     assert!(nested.diagnostics.is_empty(), "{:?}", nested.diagnostics);
     let narena = &nested.arena.arena;
     let nroot: Vec<_> = nested.arena.statement_ids().collect();
-    let ArenaStmtKind::Expr(nexpr) = narena.stmt(nroot[0]).kind else {
-        panic!("expected expression statement");
-    };
-    let ArenaExprKind::StructuredPipeline { stages, .. } = narena.expr(nexpr).kind else {
-        panic!("expected outer structured pipeline");
-    };
-    let outer_stages = narena.stream_stages(stages);
-    assert_eq!(outer_stages.len(), 1);
-    let outer_opts = narena.stream_options(outer_stages[0].options);
-    assert_eq!(outer_opts.len(), 2);
-    assert_eq!(outer_opts[0].name, "count");
-    let inner_expr = outer_opts[0].value.expect("count option has a value");
-    let ArenaExprKind::StructuredPipeline {
-        stages: inner_stages,
-        ..
-    } = narena.expr(inner_expr).kind
-    else {
-        panic!("expected nested structured pipeline as option value");
-    };
-    let inner_stages = narena.stream_stages(inner_stages);
-    assert_eq!(inner_stages.len(), 1);
-    let inner_opts = narena.stream_options(inner_stages[0].options);
-    assert_eq!(inner_opts.len(), 1);
-    assert_eq!(inner_opts[0].name, "count");
-    assert_eq!(outer_opts[1].name, "max-argv");
-    assert!(outer_opts[1].value.is_none());
+    let ArenaStmtKind::Expr(nexpr) = narena.stmt(nroot[0]).kind else { panic!("expected expression"); };
+    let ArenaExprKind::StructuredPipeline { stages, .. } = narena.expr(nexpr).kind else { panic!("expected pipeline"); };
+    let stage = &narena.stream_stages(stages)[0];
+    assert_eq!(stage.kind, StreamStageKind::Batch);
+    let args = narena.call_args(stage.args);
+    assert_eq!(args.len(), 2);
+    assert!(matches!(args[0].kind, xsh::frontend::syntax::arena::ArenaCallArgKind::Named { name, .. } if name == "count"));
+    assert!(matches!(args[1].kind, xsh::frontend::syntax::arena::ArenaCallArgKind::Named { name, .. } if name == "max_argv"));
 
     let table = Parser::parse_source_arena_only(
         SourceId::new(0),
-        "fs.ls(\".\") |> sort-by { .size } |> table.print(columns: [\"name\", \"size\"])\n",
+        "fs.children(\".\") |> sort-by { .size } |> table.print(columns: [\"name\", \"size\"])\n",
     );
     assert!(table.diagnostics.is_empty(), "{:?}", table.diagnostics);
     let tarena = &table.arena.arena;
@@ -1214,8 +1184,8 @@ let command = process.command {
   cpu_max = 80
   run --timeout=1s --cpumax=80 make check
 }
-run.builtin.status --cpumax=80 echo ok
-run.builtin.capture --text echo ok
+run.status --cpumax=80 echo ok
+run.capture --text echo ok
 let raw_lines = run.stream --text printf "%s\n" a b
 let lines = raw_lines |> take(1)
 match Err(Error(kind: "not-found")) {
@@ -1333,7 +1303,7 @@ let commands = [1, run true ?, wait h?]
     let ArenaExprKind::List(values) = arena.expr(root_let_init_expr(&output, 1)).kind else {
         panic!("expected list literal");
     };
-    let values: Vec<_> = arena.expr_ids(values).collect();
+    let values: Vec<_> = arena.list_element_exprs(values).collect();
     assert_eq!(values.len(), 5);
     assert!(matches!(
         arena.expr(values[1]).kind,
@@ -1355,7 +1325,7 @@ let commands = [1, run true ?, wait h?]
     let ArenaExprKind::List(commands) = arena.expr(root_let_init_expr(&output, 2)).kind else {
         panic!("expected list literal");
     };
-    let commands: Vec<_> = arena.expr_ids(commands).collect();
+    let commands: Vec<_> = arena.list_element_exprs(commands).collect();
     assert_eq!(commands.len(), 3);
     assert!(matches!(
         arena.expr(commands[1]).kind,
@@ -1368,10 +1338,10 @@ let commands = [1, run true ?, wait h?]
 }
 
 #[test]
-fn parser_marks_builtin_and_cpumax_run_segments() {
+fn parser_preserves_cpumax_and_timeout_run_segments() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),
-        "run.builtin.stream --bytes --cpumax=80 --timeout=1s echo ok\n",
+        "run.stream --bytes --cpumax=80 --timeout=1s echo ok\n",
     );
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
@@ -1385,7 +1355,6 @@ fn parser_marks_builtin_and_cpumax_run_segments() {
     };
     let segments = arena.run_segments(arena.run_form(*run_id).segments);
     let segment = &segments[0];
-    assert!(segment.builtin);
     assert_eq!(segment.kind, RunKind::StreamBytes);
     assert!(segment.cpu_max.is_some());
     assert!(segment.timeout.is_some());
@@ -1787,9 +1756,10 @@ run.text printf "%s" ${label} ?
     };
     let params = arena.params(arena.function_def(p1).params);
     assert!(params.iter().all(|param| param.ty_defaulted));
-    assert!(arena.type_expr_named(params[0].ty, "Int"));
-    assert!(arena.type_expr_named(params[1].ty, "Bool"));
-    assert!(arena.type_expr_named(params[2].ty, "Path"));
+    assert!(params.iter().all(|param| arena.type_expr_data[param.ty.index()].lhs == xsh::frontend::symbols::Name::UNKNOWN.symbol().raw()));
+    let checked = Checker::check_arena(&output.arena, "");
+    let types = params.iter().map(|param| checked.parameter_types.get(&arena.span(param.span)).unwrap()).collect::<Vec<_>>();
+    assert_eq!(types, vec![&xsh::frontend::check::Type::Int, &xsh::frontend::check::Type::Bool, &xsh::frontend::check::Type::Path]);
     let ArenaStmtKind::Assign { op, .. } = arena.stmt(root[3]).kind else {
         panic!("expected assignment");
     };
@@ -1912,22 +1882,22 @@ fn parser_and_formatter_preserve_spawn_wait_forms() {
     let source = r#"
 let h=spawn run --cpumax=80 true ?
 let s=wait h?
-let hs=[spawn run true ?,spawn run.builtin false ?]
+let hs=[spawn run true ?,spawn run false ?]
 let statuses=wait hs?
 let cmd=process.command {
 cpu_max=80
-run.builtin true
+run true
 }
 let h2=spawn (cmd)?
 h2.cancel(signal:"TERM",kill_after:0ms)?
 "#;
     let expected = r#"let h = spawn run --cpumax=80 true ?
 let s = wait h?
-let hs = [spawn run true ?, spawn run.builtin false ?]
+let hs = [spawn run true ?, spawn run false ?]
 let statuses = wait hs?
 let cmd = process.command {
   cpu_max = 80
-  run.builtin true
+  run true
 }
 let h2 = spawn cmd?
 h2.cancel(signal: "TERM", kill_after: 0ms)?
@@ -1983,7 +1953,7 @@ let once = retry [] {
     let ArenaExprKind::Try(inner) = arena.expr(root_let_init_expr(&parsed, 0)).kind else {
         panic!("expected retry result propagation");
     };
-    let ArenaExprKind::Retry { delays, block } = arena.expr(inner).kind else {
+    let ArenaExprKind::Retry { delays, block, .. } = arena.expr(inner).kind else {
         panic!("expected retry expression");
     };
     assert_eq!(arena.expr_ids(delays).count(), 3);
@@ -2514,8 +2484,8 @@ let label = render(
 
 #[test]
 fn formatter_preserves_multiline_match_expressions() {
-    let source = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0, \"\")\n  Err(_) => \"\"\n}\n";
-    let expected = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0, \"\"),\n  Err(_) => \"\",\n}\n";
+    let source = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => (text_value.split(\"\\n\").get(0) ?? \"\")\n  Err(_) => \"\"\n}\n";
+    let expected = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0) ?? \"\",\n  Err(_) => \"\",\n}\n";
 
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
 
@@ -3039,7 +3009,7 @@ fn parser_allows_multiline_record() {
 
 #[test]
 fn parser_allows_multiline_tag_union() {
-    let source = "type T =\n  A\n| B\n| C(Int)\n";
+    let source = "enum T {\n  A,\n B,\n C(Int),\n}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let arena = &output.arena.arena;
@@ -3051,7 +3021,7 @@ fn parser_allows_multiline_tag_union() {
 
 #[test]
 fn parser_allows_multiline_tag_union_with_paren_variants() {
-    let source = "type Tok =\n  TNum(Float)\n| TStr(Str)\n| TOp(Str)\n| TEOF\n";
+    let source = "enum Tok {\n  TNum(Float),\n TStr(Str),\n TOp(Str),\n TEOF,\n}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let arena = &output.arena.arena;
@@ -3234,4 +3204,785 @@ proc main(input: Path, candidate: Path, tarball: Path, name: Str, suffix: Str) {
         panic!("expected run form");
     };
     assert!(arena.run_form(*run_id).propagate);
+}
+
+#[test]
+fn formatter_round_trips_value_branch_blocks_and_record_arms() {
+    let source = "let choice = if true { let detail = 2; detail } else { 3 }\nlet record = match choice { 2 => {}, _ => {\"run\": 4} }\nlet text = match choice { 2 => { let detail = \"é\"; detail }, _ => \"other\" }\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(!first.formatted.contains("{ {"));
+    assert!(first.formatted.contains("let detail = 2"));
+    assert!(first.formatted.contains("\"run\": 4"));
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_eq!(first.formatted, second.formatted);
+}
+
+#[test]
+fn parser_and_formatter_preserve_bare_block_literal_distinctions() {
+    let source = "let value = 7\nlet shorthand = {value}\nlet empty = {}\nlet named = {if: 1}\nlet computed = {[\"key\"]: 2}\nlet grouped = { (value) }\nlet result = { let next = 8; next }\nlet negative = { false }\nlet accessed = { shorthand.value }\n";
+    assert_parse_and_check(SourceId::new(0), source);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("(value)"));
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+    for malformed in ["let bad = {field:}\n", "let bad = {[\"key\"]:}\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), malformed);
+        assert!(!parsed.diagnostics.is_empty());
+    }
+}
+
+#[test]
+fn parser_named_argument_puns_keep_identifier_spans_and_formatting() {
+    use xsh::frontend::syntax::arena::ArenaCallArgKind;
+
+    let source = include_str!("fixtures/syntax/valid/named-argument-puns.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_parse_and_check(SourceId::new(0), source);
+    let arena = &parsed.arena.arena;
+    let mut puns = 0;
+    for index in 0..arena.expr_tags.len() {
+        let expression = arena.expr(ExprId::from_index(index));
+        let ArenaExprKind::Call { args, .. } = expression.kind else {
+            continue;
+        };
+        for argument in arena.call_args(args) {
+            let ArenaCallArgKind::Named { name, value, span } = argument.kind else {
+                continue;
+            };
+            let value = arena.expr(value);
+            let span = arena.span(span);
+            if value.span.start() == span.start() {
+                puns += 1;
+                assert!(matches!(value.kind, ArenaExprKind::Ident(identifier) if identifier == name));
+                assert_eq!(&source[value.span.range()], name.as_str().as_str());
+                assert_eq!(&source[span.range()], format!("{name}:"));
+            }
+        }
+    }
+    assert_eq!(puns, 10);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, source);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
+fn checker_named_argument_pun_missing_name_labels_original_identifier() {
+    let source = include_str!("fixtures/sema/named-argument-pun-missing.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.unresolved-name"))
+        .expect("the pun must resolve an ordinary lexical name");
+    assert_eq!(diagnostic.labels.len(), 1);
+    assert_eq!(&source[diagnostic.labels[0].span.range()], "value");
+    assert_eq!(
+        diagnostic.labels[0].span.start(),
+        source.rfind("value:").unwrap(),
+    );
+}
+
+#[test]
+fn formatter_preserves_half_open_slicing_bounds_and_unicode() {
+    let source = "\
+let data = b\"abcd\"
+let all = data[..]
+let prefix = data[..2]
+let suffix = data[2..]
+let middle = data[-3..-1]
+let unicode = \"é🦀\"[..1][..]
+print ${all.base64()} ${prefix.base64()} ${suffix.base64()} ${middle.base64()} $unicode
+";
+    let source_id = SourceId::new(0);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty());
+    let canonical = source.replace("é🦀", r"\u{e9}\u{1f980}");
+    assert_eq!(formatted.formatted, canonical);
+    assert_parse_and_check(source_id, &formatted.formatted);
+    assert_eq!(Formatter::new().format_source(source_id, &formatted.formatted).formatted, canonical);
+}
+
+#[test]
+fn parser_rejects_colon_inclusive_and_stride_slices() {
+    for source in [
+        "let part = b\"abcd\"[0:2]\n",
+        "let part = b\"abcd\"[..=2]\n",
+        "let part = b\"abcd\"[0..2..1]\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(!parsed.diagnostics.is_empty(), "unexpectedly accepted {source}");
+    }
+}
+
+#[test]
+fn parser_retains_nested_renamed_record_binding_targets_and_spans() {
+    let source = "let {root, build: {jobs, target: target_name, ..}, ..} = config\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let ArenaStmtKind::Let { target, .. } = arena.stmt(parsed.arena.statement_ids().next().unwrap()).kind else { panic!("expected binding"); };
+    let ArenaBindingTargetKind::Record { fields, rest: true } = arena.binding_target(target).kind else { panic!("expected record"); };
+    let outer = arena.destructure_fields(fields);
+    assert_eq!(outer.len(), 2);
+    let ArenaBindingTargetKind::Record { fields, rest: true } = arena.binding_target(outer[1].target).kind else { panic!("expected nested record"); };
+    let renamed = &arena.destructure_fields(fields)[1];
+    assert_eq!(&source[arena.span(renamed.span).range()], "target: target_name");
+    assert!(matches!(arena.binding_target(renamed.target).kind, ArenaBindingTargetKind::Name(name) if name.as_str() == "target_name"));
+}
+
+#[test]
+fn guarded_value_controls_round_trip_without_absorbing_guard_into_run_argv() {
+    let source = r#"proc cached(value: Str?) [] -> Str {
+  return value when value != null
+  return "missing"
+}
+proc command(selected: Bool) [process] -> Status {
+  return (run.status /usr/bin/true) unless !selected
+  return run.status /usr/bin/true when unless
+}
+stream items() [] -> Stream[Int] {
+  yield 1 when true
+  yield 2 unless false
+}
+let value = loop {
+  break 4 when false
+  break 5 unless false
+}
+"#;
+    let source_id = SourceId::new(0);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("return (run.status /usr/bin/true) unless ! selected"), "{}", formatted.formatted);
+    assert!(formatted.formatted.contains("return run.status /usr/bin/true when unless"));
+    assert_parse_and_check(source_id, &formatted.formatted);
+    let second = Formatter::new().format_source(source_id, &formatted.formatted);
+    assert_eq!(formatted.formatted, second.formatted);
+}
+
+#[test]
+fn guarded_value_control_keeps_payload_and_condition_source_spans() {
+    let source = "return \"é\" when false\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let root = parsed.arena.statement_ids().next().unwrap();
+    let arena = &parsed.arena.arena;
+    let ArenaStmtKind::GuardedStmt { stmt, condition, negate } = arena.stmt(root).kind else {
+        panic!("expected guarded return");
+    };
+    assert!(!negate);
+    assert_eq!(&source[arena.stmt(stmt).span.range()], "return \"é\"");
+    assert_eq!(&source[arena.expr(condition).span.range()], "false");
+}
+
+#[test]
+fn grouped_run_payload_preserves_adjacent_propagation_before_guard() {
+    let source = r#"proc capture(selected: Bool) [process, error] -> Str {
+  return (run.text /usr/bin/printf "selected")? when selected
+  return "fallback"
+}
+"#;
+    let source_id = SourceId::new(0);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(source_id, &formatted.formatted);
+    let second = Formatter::new().format_source(source_id, &formatted.formatted);
+    assert_eq!(formatted.formatted, second.formatted);
+}
+
+#[test]
+fn parser_multi_clause_comprehensions_share_qualifiers_and_source_spans() {
+    use xsh::frontend::syntax::arena::ArenaCompQualifier;
+    let source = "let list = [inner for outer in [1] if outer > 0 for inner in [outer] if inner < 2]\nlet map = {entry.key: inner for entry in entries if entry.ok for inner in entry.values}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let qualifiers = parsed.arena.statement_ids().map(|stmt| {
+        let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(stmt).kind else { panic!("expected let") };
+        let range = match arena.expr(expr).kind {
+            ArenaExprKind::ListComp { qualifiers, .. } | ArenaExprKind::MapComp { qualifiers, .. } => qualifiers,
+            _ => panic!("expected comprehension"),
+        };
+        arena.comp_qualifiers(range)
+    }).collect::<Vec<_>>();
+    assert_eq!(qualifiers[0].len(), 4);
+    assert_eq!(qualifiers[1].len(), 3);
+    assert!(matches!(qualifiers[0][0], ArenaCompQualifier::For { .. }));
+    assert!(matches!(qualifiers[0][1], ArenaCompQualifier::If { .. }));
+    assert!(matches!(qualifiers[0][2], ArenaCompQualifier::For { .. }));
+    for sequence in qualifiers {
+        for qualifier in sequence {
+            assert!(source[qualifier.span().range()].starts_with(match qualifier { ArenaCompQualifier::For { .. } => "for ", ArenaCompQualifier::If { .. } => "if " }));
+        }
+    }
+}
+
+#[test]
+fn formatter_multi_clause_comprehensions_are_readable_and_idempotent() {
+    let source = "let values = [inner for outer in [1] if outer > 0 for inner in [outer] if inner < 2]\nlet by_key = {entry.key: inner for entry in entries if entry.ok for inner in entry.values}\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("\n  for outer in [1]\n  if outer > 0\n  for inner in [outer]\n  if inner < 2\n"), "{}", first.formatted);
+    assert!(first.formatted.contains("\n  for entry in entries\n  if entry.ok\n  for inner in entry.values\n"), "{}", first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_eq!(first.formatted, second.formatted);
+}
+
+#[test]
+fn formatter_multi_clause_comprehensions_retain_unicode_comments() {
+    let source = "let values = [\n  # sélection\n  inner\n  for outer in [1]\n  # répétition\n  for inner in [outer]\n  # filtre\n  if inner > 0\n]\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, source);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
+fn guarded_postfix_records_index_and_slice_flags_and_byte_spans() {
+    let source = "let text: Str? = \"αβ\"\nlet a = text?[0]\nlet b = text?[..2]\nlet c = text[1..]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let statements: Vec<_> = parsed.arena.arena.stmt_ids(parsed.arena.statements).collect();
+    for (stmt, guarded, spelling) in [(statements[1], true, "text?[0]"), (statements[2], true, "text?[..2]"), (statements[3], false, "text[1..]")] {
+        let xsh::frontend::syntax::arena::ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. } = parsed.arena.arena.stmt(stmt).kind else { panic!("binding"); };
+        let expression = parsed.arena.arena.expr(expr);
+        assert_eq!(&source[expression.span.start()..expression.span.end()], spelling);
+        match expression.kind {
+            ArenaExprKind::Index { guarded: actual, .. } | ArenaExprKind::Slice { guarded: actual, .. } => assert_eq!(actual, guarded),
+            _ => panic!("guarded postfix"),
+        }
+    }
+}
+
+#[test]
+fn parser_requires_grouping_between_ordering_and_pattern_tests() {
+    for source in ["let result = 0 < 1 < 2 is Bool\n", "let result = value is Str < true\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.mixed-comparison")), "{source}: {:?}", parsed.diagnostics);
+    }
+    for source in ["let result = (0 < 1 < 2) is Bool\n", "let result = (value is Str) < true\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+    }
+}
+
+#[test]
+fn parser_keeps_type_pattern_match_arms_after_unbraced_values() {
+    let source = "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    _ => return \"other\"\n  }\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+}
+
+#[test]
+fn list_literal_splices_retain_element_and_splice_spans() {
+    let source = "let values = [1, @more, @[2],]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let ArenaExprKind::List(items) = arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("list"); };
+    let items: Vec<_> = arena.list_elements(items).collect();
+    assert_eq!(items.len(), 3);
+    assert!(items[0].splice_span.is_none());
+    assert_eq!(&source[arena.span(items[1].splice_span.unwrap()).range()], "@more");
+    assert_eq!(&source[arena.span(items[2].splice_span.unwrap()).range()], "@[2]");
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("@more"));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn deferred_block_parses_and_formats_as_statement_body() {
+    let source_id = SourceId::new(0);
+    let source = "proc cleanup() [error] {\n  defer {\n    # café remains inside cleanup\n    let message = \"done\"\n    print $message\n    true\n  }\n}\n\ncleanup()\n";
+    let parsed = Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    let again = Formatter::new().format_source(source_id, &formatted.formatted);
+    assert_eq!(again.formatted, source);
+}
+
+#[test]
+fn regex_literals_parse_as_prepared_regex_atoms_with_raw_source_spans() {
+    let source = "let rx = \"ordinary identifier\"\nlet single = rx\"^\\d+\\$\\{literal\\}$\"\nlet multiline = rx\"\"\"(?x)\n  ^ [a-z]+ # raw pattern comment\n  $\n\"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(7), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    for index in [1, 2] {
+        let expression = parsed.arena.arena.expr(root_let_init_expr(&parsed, index));
+        let ArenaExprKind::Regex(id) = expression.kind else { panic!("expected regex literal"); };
+        let literal = parsed.arena.arena.regex_literal(id);
+        assert_eq!(expression.span, literal.span);
+        assert_eq!(literal.span.source_id, SourceId::new(7));
+        assert_eq!(&source[literal.span.range()], literal.source_text.as_ref());
+    }
+    assert_eq!(parsed.arena.arena.regex_literals[0].pattern.as_ref(), r"^\d+\$\{literal\}$");
+    let formatted = Formatter::new().format_source(SourceId::new(7), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(SourceId::new(7), &formatted.formatted);
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(7), &formatted.formatted).formatted);
+}
+
+#[test]
+fn regex_literal_unterminated_delimiters_are_lexical_errors() {
+    for source in ["let pattern = rx\"abc", "let pattern = rx\"\"\"abc\n"] {
+        let lexed = Lexer::new(SourceId::new(0), source).lex_compact();
+        assert!(lexed.diagnostics.iter().any(|d| d.code.as_deref() == Some("lex.unterminated-string")), "{:?}", lexed.diagnostics);
+    }
+}
+
+#[test]
+fn parser_yield_delegation_retains_source_expression_and_unicode_byte_span() {
+    let source = "stream rows() [] -> Stream[Str] {\n  yield \"α\"\n  yield @[\"β\", \"γ\"]\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let stmt = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
+    let ArenaStmtKind::StreamDef(function) = parsed.arena.arena.stmt(stmt).kind else { panic!("stream definition"); };
+    let block = parsed.arena.arena.function_def(function).body;
+    let statements: Vec<_> = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(block).statements).collect();
+    assert!(matches!(parsed.arena.arena.stmt(statements[0]).kind, ArenaStmtKind::Yield(_)));
+    let ArenaStmtKind::YieldDelegate(expr) = parsed.arena.arena.stmt(statements[1]).kind else { panic!("delegation"); };
+    assert_eq!(&source[parsed.arena.arena.expr(expr).span.range()], "[\"β\", \"γ\"]");
+    assert!(matches!(parsed.arena.arena.expr(expr).kind, ArenaExprKind::List(_)));
+}
+
+#[test]
+fn error_fallback_blocks_round_trip_without_record_ambiguity() {
+    let source = "let recovered = Ok(false) ?? { |failure|\n  let _ = failure\n  false\n}\nlet record = Ok({name: \"original\"}) ?? {name: \"record\"}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, right, .. } = parsed.arena.arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("fallback"); };
+    let ArenaExprKind::ValueBlock(block) = parsed.arena.arena.expr(right).kind else { panic!("error block"); };
+    assert_eq!(parsed.arena.arena.block_params(parsed.arena.arena.block(block).params).len(), 1);
+    let ArenaExprKind::Binary { right, .. } = parsed.arena.arena.expr(root_let_init_expr(&parsed, 1)).kind else { panic!("fallback"); };
+    assert!(matches!(parsed.arena.arena.expr(right).kind, ArenaExprKind::Record(_)));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, source);
+}
+
+#[test]
+fn parser_record_defaults_preserve_spans_and_stable_formatting() {
+    let source = "let names = [\"é\"]\ntype Config = {name: Str = \"é\", names: List[Str] = names, nested: Map[Int] = {}}\nlet config = Config()\nprint $config.name\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let ArenaStmtKind::TypeDef(definition) = parsed.arena.arena.stmt(parsed.arena.statement_ids().nth(1).unwrap()).kind else { panic!("schema"); };
+    let ArenaTypeDefBody::RecordSchema(fields) = parsed.arena.arena.type_def(definition).body else { panic!("record schema"); };
+    let defaults: Vec<_> = parsed.arena.arena.schema_fields(fields).iter().map(|field| {
+        let span = parsed.arena.arena.expr(field.default.unwrap()).span;
+        &source[span.range()]
+    }).collect();
+    assert_eq!(defaults, ["\"é\"", "names", "{}"]);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+}
+
+#[test]
+fn field_label_braces_spans_and_formatter_preserve_keyword_and_dotted_keys() {
+    let source = "type Entry = {type: Str, in: Int}\nlet value = Entry(type: \"file\", in: 2)\nlet selected = match true { _ => {type: value.type, in: value.in, r\"wire.type\": 3} }\nlet {type: kind, in: ordinal, ..} = value\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(9), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let formatted = Formatter::new().format_source(SourceId::new(9), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("{type: value.type, in: value.in, \"wire.type\": 3}"), "{}", formatted.formatted);
+    assert_parse_and_check(SourceId::new(9), &formatted.formatted);
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(9), &formatted.formatted).formatted);
+}
+
+#[test]
+fn field_label_keywords_cannot_be_shorthand_puns_or_lexical_bindings() {
+    for source in [
+        "let row = {type}\n", "let {type} = {type: 1}\n",
+        "type Entry = {type: Int}\nlet entry = Entry(type:)\n",
+        "let row = {type: 1}\nlet selected = match row { {type} => 1, _ => 2 }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.iter().any(|d| d.code.as_deref() == Some("parse.keyword-label-binding")), "{source}: {:?}", parsed.diagnostics);
+    }
+    for source in ["let type = 1\n", "pure value(match: Int) -> Int { 1 }\n", "use fs as type\n"] {
+        assert!(!Parser::parse_source_arena_only(SourceId::new(0), source).diagnostics.is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn computed_map_keys_retain_expression_nodes_and_original_spans() {
+    use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
+    let source = "let values = {[key.trim()]: amount, \"literal.dot\": 2, ...more,}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let ArenaExprKind::Record(fields) = arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("brace literal"); };
+    let ArenaRecordFieldKind::Computed { key, value, span } = arena.record_fields(fields)[0].kind else { panic!("computed entry"); };
+    assert_eq!(&source[arena.expr(key).span.range()], "key.trim()");
+    assert_eq!(&source[arena.expr(value).span.range()], "amount");
+    assert_eq!(&source[arena.span(span).range()], "[key.trim()]: amount");
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("[key.trim()]: amount"));
+    assert!(formatted.formatted.contains("\"literal.dot\""));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn parser_nested_record_update_paths_keep_labels_spans_and_comments() {
+    let source = "let base = {build: {jobs: 1, if: false}}\nlet after = {\n  ...base,\n  build.jobs: 2, # é worker count\n  build.if: true,\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let statement = parsed.arena.statement_ids().nth(1).unwrap();
+    let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. } = arena.stmt(statement).kind else { panic!("binding"); };
+    let ArenaExprKind::Record(fields) = arena.expr(value).kind else { panic!("update"); };
+    let ArenaRecordFieldKind::Path { path, value, span } = arena.record_fields(fields)[1].kind else { panic!("path"); };
+    assert_eq!(arena.names(path).map(|name| name.to_string()).collect::<Vec<_>>(), ["build", "jobs"]);
+    assert_eq!(&source[arena.span(span).range()], "build.jobs: 2");
+    assert_eq!(&source[arena.expr(value).span.range()], "2");
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("# é worker count"));
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+}
+
+#[test]
+fn error_handler_headers_have_one_authoritative_parameter_range() {
+    let source = include_str!("fixtures/frontend-indexed/block-parameters.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let mut handlers = 0;
+    for raw in 0..parsed.arena.arena.stmt_tags.len() {
+        let statement = parsed.arena.arena.stmt(StmtId::from_index(raw));
+        let block = match statement.kind {
+            ArenaStmtKind::With { else_block, .. } | ArenaStmtKind::Guard { else_block, .. } => else_block,
+            _ => continue,
+        };
+        let params = parsed.arena.arena.block_params(parsed.arena.arena.block(block).params);
+        assert_eq!(params.len(), 1);
+        let parameter = parsed.arena.arena.span(params[0].span);
+        assert_eq!(&source[parameter.start()..parameter.end()], if handlers == 0 { "_" } else { "failure" });
+        handlers += 1;
+    }
+    assert_eq!(handlers, 2);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+    assert!(!formatted.formatted.contains("else |"));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn try_capture_parser_formatter_preserves_value_body_and_result_tail() {
+    let source = "let value = try {\n  let nested = Ok(7)\n  nested\n}\nlet empty = try {}\nlet fields = {try: 7}\nrun printf try\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(parsed.arena.arena.expr_tags.iter().any(|tag| matches!(tag, xsh::frontend::syntax::arena::ArenaExprTag::Capture)));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
+    assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+}
+
+#[test]
+fn parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting() {
+    let source = "pure render(prefix: Str, value: Str) -> Str { prefix + value }\nlet rendered = \"é\" |> render(\"[\", value: (_))\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let value = root_let_init_expr(&parsed, 1);
+    let ArenaExprKind::ValuePipelineCall { input, call, hole } = parsed.arena.arena.expr(value).kind else { panic!("explicit pipeline call"); };
+    assert_eq!(&source[parsed.arena.arena.expr(input).span.range()], "\"é\"");
+    assert_eq!(&source[parsed.arena.arena.expr(hole).span.range()], "_");
+    assert!(matches!(parsed.arena.arena.expr(call).kind, ArenaExprKind::Call { .. }));
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("|> render(\"[\", value: _)"), "{}", first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+}
+
+#[test]
+fn parser_value_pipeline_holes_reject_nested_multiple_and_spread_arguments() {
+    for source in ["1 |> render(_, _)\n", "1 |> render(_ + 1)\n", "1 |> render(nested(_))\n", "1 |> render(@_)\n", "1 |> render(if true { _ } else { 0 })\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.pipeline-hole")), "{source}: {:?}", parsed.diagnostics);
+    }
+}
+
+#[test]
+fn stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes() {
+    let source = "# café\nlet values = [1] |> par-map --jobs=workers { |item| item } # retain\nlet groups = values |> reduce-by --sum --jobs=2 { |item| {key: \"all\", value: item} }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert_eq!(parsed.diagnostics.len(), 2, "{:?}", parsed.diagnostics);
+    let mut fixed = source.to_string();
+    for diagnostic in parsed.diagnostics.iter().rev() {
+        assert_eq!(diagnostic.code.as_deref(), Some("parse.stream-option-migration"));
+        let hint = diagnostic.fix_hints.first().expect("unambiguous stage flag fix");
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("par-map (jobs: workers) { |item| item } # retain"));
+    assert!(fixed.contains("reduce-by (sum: true, jobs: 2)"));
+    assert!(fixed.starts_with("# café\n"));
+    let second = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+}
+
+#[test]
+fn stream_stage_flag_migration_refuses_ambiguous_argument_lists() {
+    let source = "let values = [1] |> sort-by --desc (.size)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let migration = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("parse.stream-option-migration")).expect("stage migration diagnostic");
+    assert!(migration.fix_hints.is_empty());
+    let command = Parser::parse_source_arena_only(SourceId::new(0), "run printf --jobs --desc --max-bytes\n");
+    assert!(command.diagnostics.is_empty(), "{:?}", command.diagnostics);
+}
+
+#[test]
+fn formatter_keeps_named_stream_configuration_and_spreads_idempotent() {
+    let source = "let jobs = 2\nlet values = [1, 2] |> par-map(jobs:) { |item| item + 1 } |> sort(...{desc: true})\nlet batches = values |> batch(count: 2, max_argv: false)\nprint batches.len()\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+    assert!(first.formatted.contains("par-map(jobs:)"));
+    assert!(first.formatted.contains("sort(...{desc: true})"));
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+}
+
+#[test]
+fn parser_enum_migration_preserves_comments_exports_and_aliases() {
+    let source = "## Nominal café.\nexport type Choice =\n  Selected(Int) # first variant\n  | Empty # second variant\ntype Alias = Choice\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
+    let migration = &parsed.diagnostics[0];
+    assert_eq!(migration.code.as_deref(), Some("parse.enum-migration"));
+    let mut edits: Vec<_> = migration.fix_hints.iter().map(|hint| {
+        (hint.span.expect("migration edit span"), hint.replacement.as_ref().expect("migration replacement"))
+    }).collect();
+    edits.sort_by_key(|(span, _)| span.start());
+    let mut fixed = source.to_string();
+    for (span, replacement) in edits.into_iter().rev() {
+        assert!(!parsed.cst.get().contains_comment(span));
+        fixed.replace_range(span.range(), replacement);
+    }
+    assert!(fixed.contains("export enum Choice {"), "{fixed}");
+    assert!(fixed.contains("# first variant"));
+    assert!(fixed.contains("# second variant"));
+    assert!(fixed.contains("type Alias = Choice"));
+    assert!(fixed.contains("café"));
+    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
+    assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+}
+
+#[test]
+fn parser_enum_singleton_is_nominal_and_identifier_rhs_stays_alias() {
+    let source = "enum Token { Present(Str), }\ntype Alias = Token\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let kinds: Vec<_> = parsed.arena.statement_ids().map(|id| parsed.arena.arena.stmt(id).kind).collect();
+    let ArenaStmtKind::TypeDef(token) = kinds[0] else { panic!("enum declaration"); };
+    let ArenaTypeDefBody::TagUnion(variants) = parsed.arena.arena.type_def(token).body else { panic!("nominal enum"); };
+    assert_eq!(parsed.arena.arena.tag_variants(variants).len(), 1);
+    let ArenaStmtKind::TypeDef(alias) = kinds[1] else { panic!("alias declaration"); };
+    assert!(matches!(parsed.arena.arena.type_def(alias).body, ArenaTypeDefBody::Alias(_)));
+}
+
+#[test]
+fn parser_and_formatter_preserve_selective_retry() {
+    let source = "let result=retry [0ms] on (FetchError.Busy | FetchError.Timeout) {\n  fetch()?\n}\n";
+    let expected = "let result = retry [0ms] on (FetchError.Busy | FetchError.Timeout) {\n  fetch()?\n}\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, expected);
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_eq!(second.formatted, expected);
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), expected);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let ArenaExprKind::Retry { pattern, .. } = parsed.arena.arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("expected retry") };
+    assert!(pattern.is_some());
+}
+
+#[test]
+fn selective_retry_requires_parenthesized_clause_and_retains_on_names() {
+    let invalid = Parser::parse_source_arena_only(SourceId::new(0), "let result = retry [] on FetchError.Busy { fetch()? }");
+    assert!(invalid.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.expected-token")));
+    let ordinary = Parser::parse_source_arena_only(SourceId::new(0), "let on = 1\nlet result = retry [] { on }\nrun echo on\n");
+    assert!(ordinary.diagnostics.is_empty(), "{:?}", ordinary.diagnostics);
+}
+
+// These assertions own CST and original byte spans, including offsets into
+// interpolation source that a native value assertion cannot inspect.
+#[test]
+fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
+    let source = "let name = \"café\"\nlet value = f\"\"\"\n  ${if true {\n# } inside comment\n  r\"\"\"nested\n exact\"\"\"\n} else { \"\" }}\n  $name\n  \"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(19), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let arena = &parsed.arena.arena;
+    let ArenaExprKind::FmtString(parts) = arena.expr(root_let_init_expr(&parsed, 1)).kind else { panic!("formatted block"); };
+    let expressions = arena.fmt_parts(parts).filter_map(|part| match part { ArenaFmtPart::Expr(expr, _) => Some(arena.expr(expr).span), _ => None }).collect::<Vec<_>>();
+    assert_eq!(expressions.len(), 2);
+    assert!(source[expressions[0].range()].starts_with("if true {"));
+    assert_eq!(&source[expressions[1].range()], "name");
+    assert!(expressions.iter().all(|span| span.source_id == SourceId::new(19)));
+    let formatted = Formatter::new().format_source(SourceId::new(19), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(SourceId::new(19), &formatted.formatted);
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(19), &formatted.formatted).formatted);
+
+    let invalid = "let name = \"café\"\nlet value = f\"\"\"\n  ${@}\n  \"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(19), invalid);
+    assert!(parsed.diagnostics.iter().flat_map(|diagnostic| &diagnostic.labels).any(|label| &invalid[label.span.range()] == "@"), "{:?}", parsed.diagnostics);
+    let invalid = "let name = \"café\"\nlet value = \"\"\"\n  good\n wrong\n  \"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(19), invalid);
+    let issue = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("parse.block-string-margin")).unwrap();
+    assert_eq!(&invalid[issue.labels[0].span.range()], " w");
+}
+
+#[test]
+fn parser_and_formatter_retain_bare_bytes_stdin_as_one_typed_operand() {
+    let source = "let copied = run.bytes cat < b\"a\\0\\xff\" ?\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, source);
+}
+
+#[test]
+fn named_argument_spread_preserves_source_spans_and_formatter_round_trips() {
+    use xsh::frontend::syntax::arena::{ArenaCallArgKind, ExprId};
+    let source = include_str!("fixtures/syntax/valid/named-argument-spreads.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_parse_and_check(SourceId::new(0), source);
+    let arena = &parsed.arena.arena;
+    let mut spreads = 0;
+    for index in 0..arena.expr_tags.len() {
+        let ArenaExprKind::Call { args, .. } = arena.expr(ExprId::from_index(index)).kind else { continue; };
+        for argument in arena.call_args(args) {
+            if let ArenaCallArgKind::NamedSpread { value, span } = argument.kind {
+                spreads += 1;
+                let span = arena.span(span);
+                assert!(source[span.range()].starts_with("..."));
+                assert!(span.start() < arena.expr(value).span.start());
+                assert_eq!(span.end(), arena.expr(value).span.end());
+            }
+        }
+    }
+    assert_eq!(spreads, 3);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("...options"));
+    assert!(formatted.formatted.contains("# Keep the spread entry comment."));
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+}
+
+#[test]
+fn parser_and_formatter_preserve_wire_enum_constant_expressions() {
+    let source = "const prefix = \"rea\"\nenum State: Str {\n  # External spelling stays stable.\n  Ready = prefix + \"dy\",\n  Empty = \"\",\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let ArenaStmtKind::TypeDef(id) = parsed.arena.arena.stmt(parsed.arena.statement_ids().nth(1).unwrap()).kind else { panic!("enum declaration") };
+    let ArenaTypeDefBody::TagUnion(variants) = parsed.arena.arena.type_def(id).body else { panic!("enum variants") };
+    assert!(parsed.arena.arena.tag_variants(variants).iter().all(|variant| variant.wire_value.is_some()));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    for fragment in ["enum State: Str", "# External spelling stays stable.", "prefix + \"dy\"", "Empty = \"\""] {
+        assert!(formatted.formatted.contains(fragment), "{}", formatted.formatted);
+    }
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn signature_cli_retains_a_distinct_entry_declaration_and_contextual_cli_calls() {
+    let source = "cli main(root: Path, jobs: Int = 4) [fs, error] { print $root $jobs }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let root = parsed.arena.statement_ids().collect::<Vec<_>>();
+    assert!(matches!(parsed.arena.arena.stmt(root[0]).kind, xsh::frontend::syntax::arena::ArenaStmtKind::CliMain(_)));
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty());
+    assert!(first.formatted.starts_with("cli main("), "{}", first.formatted);
+    assert_eq!(first.formatted, Formatter::new().format_source(SourceId::new(0), &first.formatted).formatted);
+    let ordinary = Parser::parse_source_arena_only(SourceId::new(0), "let parsed = cli.parse(args, {})?\n");
+    assert!(ordinary.diagnostics.is_empty(), "{:?}", ordinary.diagnostics);
+}
+
+#[test]
+fn parser_and_formatter_preserve_accept_policy_expressions() {
+    let source = "pure policy() -> List[Int] { [0,1] }\nlet codes = [0,1]\nrun.status --accept=(codes) sh --accept=[9]\nrun.status --accept=policy() --timeout=1s sh\nlet child = spawn run --timeout=1s --accept=[0,1] sh ?\nlet command = process.command {\naccept=[0,1]\nrun sh\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("--accept=codes sh --accept=[9]"));
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+}
+
+#[test]
+fn parser_context_scopes_keep_nested_expression_spans_and_body_modes() {
+    let source = "let selected = env ({X: 7}) { false }?\nenv ({X: 8}) { print ok }?\n";
+    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let arena = &output.arena.arena;
+    let init = root_let_init_expr(&output, 0);
+    let ArenaExprKind::Try(scope) = arena.expr(init).kind else { panic!("scope propagation"); };
+    let ArenaExprKind::ContextScope { input, value_body: true, .. } = arena.expr(scope).kind else { panic!("value body"); };
+    assert_eq!(&source[arena.expr(input).span.range()], "{X: 7}");
+    assert_eq!(&source[arena.expr(scope).span.range()], "env ({X: 7}) { false }");
+}
+
+#[test]
+fn default_parameter_parser_retains_omission_without_synthesizing_source_types() {
+    let source = "const config = {jobs: 4}\npure choose(jobs = config.jobs + 1, label = \"café\") -> Int { jobs }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    assert!(parsed.arena.arena.function_defs.iter().flat_map(|def| parsed.arena.arena.params(def.params)).all(|param| param.ty_defaulted));
+    let output = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let formatted = output.formatted;
+    assert!(formatted.contains("jobs = config.jobs + 1"));
+    assert!(!formatted.contains("Unknown"));
+    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted);
+    assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+    assert!(Checker::check_arena(&reparsed.arena, &formatted).diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted).formatted, formatted);
 }

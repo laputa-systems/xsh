@@ -196,7 +196,7 @@ print ${{aaaa[0].name}} ${{aaaa[0].record}} ${{aaaa[0].value}} ${{aaaa[0].ttl}}
         String::from_utf8(output.stdout).unwrap(),
         "fixture.test A 192.0.2.10 60\nfixture.test AAAA 2001:db8::42 60\n"
     );
-    assert_eq!(summary.handled, 2);
+    assert_eq!(summary.expect("DNS server").handled, 2);
 }
 
 #[cfg(feature = "net")]
@@ -556,7 +556,11 @@ fn assert_native_xsh_test(test_name: &str, output: std::process::Output) {
 #[cfg(feature = "net")]
 #[test]
 fn native_xsh_dns_explicit_server_transport() {
-    let server = LocalDnsServer::spawn(2);
+    // Resolve the test runner before the server starts its request deadline.
+    crate::runtime::common::workspace_binary("xsht");
+    // Native test discovery precedes the first query; subsequent queries retain
+    // the ordinary request deadline.
+    let server = LocalDnsServer::spawn_with_startup_timeout(2, Duration::from_secs(60));
     let output = run_native_xsh_test(
         "tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport",
         &[("XSH_DNS_TEST_SERVER", &server.addr)],
@@ -565,6 +569,7 @@ fn native_xsh_dns_explicit_server_transport() {
     let summary = server.join();
 
     assert_native_xsh_test("test_dns_explicit_server_transport", output);
+    let summary = summary.expect("DNS server");
     assert_eq!(summary.handled, 2);
 }
 
@@ -586,8 +591,36 @@ fn native_xsh_net_http_contracts() {
 
 #[cfg(feature = "net")]
 #[test]
-fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
+fn net_job_progresses_while_synchronous_request_waits() {
     let server = ConcurrentProgressServer::spawn();
+    let _idle = std::net::TcpStream::connect(server.url.strip_prefix("http://").unwrap())
+        .expect("open idle concurrent-progress connection");
+    let source = format!(
+        r#"
+let job = net.start({{method: "GET", url: "{url}/job", headers: [{{name: "Connection", value: "close"}}]}})?
+let foreground = net.request({{method: "GET", url: "{url}/sync", headers: [{{name: "Connection", value: "close"}}]}})?
+print ${{foreground.body.utf8()?}} ${{job.wait()?.body.utf8()?}}
+"#,
+        url = server.url,
+    );
+    let output = run_temp_script("net-concurrent-progress", &source);
+    let completion = server.join();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    completion.expect("concurrent-progress server");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "sync job\n");
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
+    crate::runtime::common::workspace_binary("xsht");
+    // Native test discovery precedes transport; parsed requests start the
+    // ordinary request deadline, while idle connections leave startup intact.
+    let server = ConcurrentProgressServer::spawn_with_startup_timeout(Duration::from_secs(60));
     // The fixture waits for two parsed requests, even if another socket is idle.
     let _idle = std::net::TcpStream::connect(server.url.strip_prefix("http://").unwrap())
         .expect("open idle concurrent-progress connection");
@@ -596,12 +629,13 @@ fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
         &[("XSH_NET_TEST_CONCURRENT_URL", &server.url)],
         false,
     );
-    server.join();
+    let completion = server.join();
 
     assert_native_xsh_test(
         "test_net_job_progresses_while_synchronous_request_waits",
         output,
     );
+    completion.expect("concurrent-progress server");
 }
 
 #[cfg(feature = "net")]
@@ -1739,16 +1773,25 @@ struct LocalDnsSummary {
 #[cfg(feature = "net")]
 impl LocalDnsServer {
     fn spawn(expected: usize) -> Self {
+        Self::spawn_with_startup_timeout(expected, Duration::from_secs(10))
+    }
+
+    fn spawn_with_startup_timeout(expected: usize, startup_timeout: Duration) -> Self {
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind DNS listener");
         socket
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .expect("set DNS read timeout");
+            .set_read_timeout(Some(startup_timeout))
+            .expect("set DNS startup timeout");
         let addr = socket.local_addr().expect("DNS listener addr").to_string();
         let handle = std::thread::spawn(move || {
             let mut handled = 0;
             let mut request = [0_u8; 512];
             while handled < expected {
                 let (len, peer) = socket.recv_from(&mut request).expect("read DNS request");
+                if handled == 0 {
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(10)))
+                        .expect("set DNS request timeout");
+                }
                 let response = local_dns_response(&request[..len]);
                 socket.send_to(&response, peer).expect("write DNS response");
                 handled += 1;
@@ -1758,8 +1801,8 @@ impl LocalDnsServer {
         Self { addr, handle }
     }
 
-    fn join(self) -> LocalDnsSummary {
-        self.handle.join().expect("DNS server")
+    fn join(self) -> std::thread::Result<LocalDnsSummary> {
+        self.handle.join()
     }
 }
 
@@ -1812,6 +1855,10 @@ struct ConcurrentProgressServer {
 #[cfg(feature = "net")]
 impl ConcurrentProgressServer {
     fn spawn() -> Self {
+        Self::spawn_with_startup_timeout(Duration::from_secs(30))
+    }
+
+    fn spawn_with_startup_timeout(startup_timeout: Duration) -> Self {
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").expect("bind concurrent-progress listener");
         listener
@@ -1826,13 +1873,22 @@ impl ConcurrentProgressServer {
         let handle = std::thread::spawn(move || {
             let completed = Arc::new(AtomicUsize::new(0));
             let done = Arc::new(AtomicBool::new(false));
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let request_started = Arc::new(AtomicBool::new(false));
+            let startup_deadline = Instant::now() + startup_timeout;
+            let mut request_deadline = None;
             let mut workers = Vec::new();
-            while completed.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+            while completed.load(Ordering::SeqCst) < 2 {
+                if request_deadline.is_none() && request_started.load(Ordering::SeqCst) {
+                    request_deadline = Some(Instant::now() + Duration::from_secs(30));
+                }
+                if Instant::now() >= request_deadline.unwrap_or(startup_deadline) {
+                    break;
+                }
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let completed = Arc::clone(&completed);
                         let done = Arc::clone(&done);
+                        let request_started = Arc::clone(&request_started);
                         let job_started_tx = job_started_tx.clone();
                         let job_started_rx = job_started_rx.clone();
                         let sync_started_tx = sync_started_tx.clone();
@@ -1850,6 +1906,7 @@ impl ConcurrentProgressServer {
                                 job_response_sent_rx,
                                 completed,
                                 done,
+                                request_started,
                             );
                         }));
                     }
@@ -1875,8 +1932,8 @@ impl ConcurrentProgressServer {
         }
     }
 
-    fn join(self) {
-        self.handle.join().expect("concurrent-progress server");
+    fn join(self) -> std::thread::Result<()> {
+        self.handle.join()
     }
 }
 
@@ -1891,6 +1948,7 @@ fn handle_concurrent_progress_connection(
     job_response_sent_rx: crossbeam_channel::Receiver<()>,
     completed: Arc<AtomicUsize>,
     done: Arc<AtomicBool>,
+    request_started: Arc<AtomicBool>,
 ) {
     stream
         .set_read_timeout(Some(Duration::from_secs(1)))
@@ -1916,6 +1974,7 @@ fn handle_concurrent_progress_connection(
         }
     }
 
+    request_started.store(true, Ordering::SeqCst);
     match path {
         "/job" => {
             job_started_tx
@@ -2828,4 +2887,73 @@ fn handle_local_https_connection(
         .expect("write HTTPS response");
     stream.flush().expect("flush HTTPS response");
     stream.conn.alpn_protocol().map(ToOwned::to_owned)
+}
+
+#[test]
+fn path_interpolation_preserves_native_bytes_in_literals_and_compound_argv() {
+    let expected = hex(b"--target=raw\xff name/'\"");
+    let source = format!(r#"
+let show = Path({show})
+let raw = Path.parse_bytes(b"raw\xff name/'\"")?
+let composed = fp"prefix/${{raw}}/../end"
+print --flush ${{composed == Path.parse_bytes(b"prefix/raw\xff name/'\"/../end")?}}
+let direct = run.text (show) "--target=$raw" ?
+print --flush ${{direct == {expected}}}
+let spliced = run.text (show) @([raw, p""]) ?
+print --flush ${{spliced == {spliced}}}
+let human = run.text (show) (f"--target=$raw") ?
+print --flush ${{human == {human}}}
+let stored = process.command {{
+  run (show) "--target=${{raw}}"
+}}
+process.run(stored)?
+"#,
+        show = xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
+        expected = xsh_string_literal(&(expected.clone() + "\n")),
+        spliced = xsh_string_literal(&(hex(b"raw\xff name/\'\"") + "\n\n")),
+        human = xsh_string_literal(&(hex(String::from_utf8_lossy(b"--target=raw\xff name/\'\"").as_bytes()) + "\n")),
+    );
+    let output = run_temp_script("native-path-interpolation", &source);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), format!("true\ntrue\ntrue\ntrue\n{expected}\n"));
+}
+
+#[test]
+fn path_interpolation_preserves_real_native_filename_and_redirection_bytes() {
+    let root = temp_path("native-path-interpolation-files");
+    std::fs::create_dir_all(&root).unwrap();
+    let raw_name = std::ffi::OsString::from_vec(b"source\xff name".to_vec());
+    let source_path = root.join(&raw_name);
+    match std::fs::write(&source_path, b"native contents") {
+        Ok(()) => {},
+        Err(error) if cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EILSEQ) => {
+            // Some macOS filesystems reject invalid UTF-8 names at creation.
+            // The separate argv fixture still exercises native bytes there.
+            eprintln!("host filesystem rejected invalid UTF-8 filename: {error}");
+            std::fs::remove_dir_all(root).unwrap();
+            return;
+        }
+        Err(error) => panic!("create native filename: {error}"),
+    }
+    let output_path = root.join(std::ffi::OsString::from_vec(b"output\xff name".to_vec()));
+    let script = format!(r#"
+let root = Path({root})
+let name = Path.parse_bytes(b"source\xff name")?
+let destination = Path.parse_bytes(b"output\xff name")?
+let composed = fp"${{root}}/${{name}}"
+print ${{composed.read_bytes()? == b"native contents"}}
+let direct = run.bytes cat < "$root/$name" ?
+print ${{direct == b"native contents"}}
+let command = process.command {{
+  stdin = fp"${{root}}/${{name}}"
+  stdout = fp"${{root}}/${{destination}}"
+  run cat
+}}
+process.run(command)?
+"#, root = xsh_string_literal(root.to_str().unwrap()));
+    let output = run_temp_script("native-path-file-redirections", &script);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"true\ntrue\n");
+    assert_eq!(std::fs::read(output_path).unwrap(), b"native contents");
+    std::fs::remove_dir_all(root).unwrap();
 }

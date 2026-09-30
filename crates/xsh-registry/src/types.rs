@@ -55,11 +55,23 @@ builtin_type_names!(
     (Command, "Command"),
     (ProcessHandle, "ProcessHandle"),
     (NetJob, "NetJob"),
+    (FsRoot, "FsRoot"),
     (Result, "Result"),
 );
 
+/// Fixed relationships used only by builtin signature templates.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum BuiltinTypeParameter { Receiver, Element, Key, Value, Error }
+
+impl BuiltinTypeParameter {
+    pub const fn label(self) -> &'static str {
+        match self { Self::Receiver => "Self", Self::Element => "T", Self::Key => "K", Self::Value => "V", Self::Error => "E" }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
+    BuiltinParameter(BuiltinTypeParameter),
     Any,
     Unknown,
     Invalid,
@@ -74,7 +86,7 @@ pub enum Type {
     Regex,
     Path,
     List(Box<Type>),
-    Map(Box<Type>),
+    Map(Box<Type>, Box<Type>),
     Stream(Box<Type>),
     Record(BTreeMap<String, Type>),
     Module(BTreeMap<String, Type>),
@@ -89,6 +101,7 @@ pub enum Type {
     Command,
     ProcessHandle,
     NetJob,
+    FsRoot,
     Unit,
     Optional(Box<Type>),
 }
@@ -113,4 +126,10 @@ mod tests {
             .collect();
         assert_eq!(CORE_BUILTIN_SYMBOLS, names.as_slice());
     }
+}
+
+/// The full CLI outcome always contains this envelope, independently of the
+/// descriptor that determines the values record's fields.
+pub fn cli_full_fields<T>(values: T, sources: T, warnings: T) -> [(&'static str, T); 3] {
+    [("values", values), ("sources", sources), ("warnings", warnings)]
 }

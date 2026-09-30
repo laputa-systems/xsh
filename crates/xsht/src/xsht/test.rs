@@ -388,11 +388,10 @@ enum TestOutcomeKind {
     Skipped(String),
 }
 
-/// The proc def a top-level statement exposes as a test, unwrapping `export`.
-fn exported_test_proc(program: &ArenaProgram, id: StmtId) -> Option<FunctionDefId> {
+/// Only explicitly registered declarations are harness entrypoints.
+fn registered_test_declaration(program: &ArenaProgram, id: StmtId) -> Option<FunctionDefId> {
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) => exported_test_proc(program, inner),
-        ArenaStmtKind::ProcDef(def) => Some(def),
+        ArenaStmtKind::ProcDef(def) if program.arena.function_def(def).test_declaration => Some(def),
         _ => None,
     }
 }
@@ -406,6 +405,19 @@ fn test_id_matches(id: &str, options: &TestOptions) -> bool {
     } else {
         id.contains(filter)
     }
+}
+
+fn test_file_matches(program: &ArenaProgram, file: &str, options: &TestOptions) -> bool {
+    test_id_matches(file, options) || program.statement_ids().any(|id| {
+        let kind = match program.arena.stmt(id).kind {
+            ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+            kind => kind,
+        };
+        let ArenaStmtKind::ProcDef(def) = kind else { return false };
+        let def = program.arena.function_def(def);
+        (def.test_declaration || def.name.as_str().starts_with("test_"))
+            && test_id_matches(&format!("{file}::{}", def.name), options)
+    })
 }
 
 fn test_top_level_diagnostics(program: &ArenaProgram) -> Vec<Diagnostic> {
@@ -428,7 +440,7 @@ fn test_top_level_diagnostics(program: &ArenaProgram) -> Vec<Diagnostic> {
 fn test_top_level_allowed(program: &ArenaProgram, id: StmtId) -> bool {
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
@@ -444,7 +456,7 @@ fn native_test_signature_uses_ctx(
 ) -> Result<bool, String> {
     let def = program.arena.function_def(id);
     if !Type::from_arena(&program.arena, def.return_ty).is_result_unit() {
-        return Err("test proc must return Result[Unit]".to_string());
+        return Err("native test entrypoint must return Result[Unit]".to_string());
     }
     match program.arena.params(def.params) {
         [] => Ok(false),
@@ -455,8 +467,8 @@ fn native_test_signature_uses_ctx(
         {
             Ok(true)
         }
-        [_] => Err("test proc parameter must be `ctx: TestContext`".to_string()),
-        _ => Err("test proc accepts at most one TestContext parameter".to_string()),
+        [_] => Err("native test entrypoint parameter must be TestContext".to_string()),
+        _ => Err("native test entrypoint accepts at most one TestContext parameter".to_string()),
     }
 }
 
@@ -491,7 +503,7 @@ fn discover_native_tests(
         };
         if !parsed.diagnostics.is_empty() {
             let id = file_name.clone();
-            if test_id_matches(&id, options) {
+            if test_file_matches(&parsed.arena, &file_name, options) {
                 cases.push(TestCase::Invalid {
                     id,
                     message: DiagnosticRenderer::new().render(&parsed.diagnostics, &sources),
@@ -500,10 +512,31 @@ fn discover_native_tests(
             continue;
         }
 
-        let top_level_errors = test_top_level_diagnostics(&parsed.arena);
+        let mut top_level_errors = test_top_level_diagnostics(&parsed.arena);
+        for stmt_id in parsed.arena.statement_ids() {
+            let kind = parsed.arena.arena.stmt(stmt_id).kind;
+            let def_id = match kind {
+                ArenaStmtKind::ProcDef(def) => Some(def),
+                ArenaStmtKind::Export(inner) => match parsed.arena.arena.stmt(inner).kind {
+                    ArenaStmtKind::ProcDef(def) => Some(def), _ => None,
+                },
+                _ => None,
+            };
+            if let Some(def_id) = def_id {
+                let def = parsed.arena.arena.function_def(def_id);
+                if !def.test_declaration && def.name.as_str().starts_with("test_")
+                    && native_test_signature_uses_ctx(&parsed.arena, def_id).is_ok()
+                {
+                    top_level_errors.push(Diagnostic::error("legacy native test proc requires migration: replace its signature with `test NAME { |ctx| ... }`; extract callable shared work into an ordinary helper")
+                        .with_code("check.legacy-test-proc")
+                        .with_label(Label::primary(parsed.arena.arena.stmt(stmt_id).span, "keep the exact declared name to preserve the test ID")));
+                }
+            }
+        }
+
         if !top_level_errors.is_empty() {
             let id = file_name.clone();
-            if test_id_matches(&id, options) {
+            if test_file_matches(&parsed.arena, &file_name, options) {
                 cases.push(TestCase::Invalid {
                     id,
                     message: DiagnosticRenderer::new().render(&top_level_errors, &sources),
@@ -526,7 +559,7 @@ fn discover_native_tests(
         let checked = Checker::check_arena(&parsed.arena, &entry_text);
         if !checked.diagnostics.is_empty() {
             let id = file_name.clone();
-            if test_id_matches(&id, options) {
+            if test_file_matches(&parsed.arena, &file_name, options) {
                 cases.push(TestCase::Invalid {
                     id,
                     message: DiagnosticRenderer::new().render(&checked.diagnostics, &sources),
@@ -539,13 +572,10 @@ fn discover_native_tests(
         let sources = Arc::new(sources);
         let mut matching_tests = Vec::new();
         for stmt_id in arena.statement_ids() {
-            let Some(def_id) = exported_test_proc(&arena, stmt_id) else {
+            let Some(def_id) = registered_test_declaration(&arena, stmt_id) else {
                 continue;
             };
             let name = arena.arena.function_def(def_id).name;
-            if !name.as_str().starts_with("test_") {
-                continue;
-            }
             let id = format!("{file_name}::{name}");
             if test_id_matches(&id, options) {
                 matching_tests.push((id, name.to_string(), def_id));
@@ -752,6 +782,11 @@ fn native_test_host(request: NativeTestRunRequest) -> Result<Value, RuntimeError
             command
         }
     };
+    // Fixture arguments are already script data. Protect a leading `--`
+    // from the host CLI's optional compatibility separator.
+    if request.kind != NativeTestRunKind::Xsh || request.tool_args.last().is_none_or(|arg| arg != "--") {
+        command.arg("--");
+    }
     command.args(&request.script_args);
     command.envs(&request.env);
     command.stdout(Stdio::piped());
@@ -1018,10 +1053,10 @@ fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
         }
         Some(Value::Unit) => TestOutcomeKind::Passed,
         Some(value) => TestOutcomeKind::Failed(format!(
-            "test proc returned {}, expected Result[Unit]",
+            "test declaration returned {}, expected Result[Unit]",
             value.type_name()
         )),
-        None => TestOutcomeKind::Failed("test proc did not return a value".to_string()),
+        None => TestOutcomeKind::Failed("test declaration did not return a value".to_string()),
     }
 }
 
