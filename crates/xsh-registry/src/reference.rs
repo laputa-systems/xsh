@@ -232,6 +232,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "absence-lookups",
     "slicing",
     "results",
+    "causes",
     "pattern-tests",
     "pattern-conditionals",
     "boolean-guards",
@@ -885,7 +886,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "map-literals" => (
             "Constructs typed Maps with explicit computed keys and Map spreads.",
-            "`{[key]: value, fixed: other, ...more}` selects Map literal mode when any computed key exists or the expected type is Map[T]. Computed keys require Str; constant-key braces otherwise remain Records, and spread-only Maps require context. Spread operands must be Maps. Every key runs before its value, entries run once in source order, and failure skips subsequent entries. Later duplicates replace earlier values; iteration keeps canonical key order and aliases retain earlier contents. Quoted dots are one key, and incompatible concrete values do not widen to Any.",
+            "`{[key]: value, fixed: other, ...more}` selects Map literal mode when any computed key exists or the expected type is Map[K, V]. Computed keys use one checked scalar domain: Str, Int, UInt, Bool, Bytes, Path, or Duration. Keys are never implicitly displayed or converted between domains; constant labels remain Str keys; constant-key braces otherwise remain Records, and spread-only Maps require context. Spread operands must be Maps. Every key runs before its value, entries run once in source order, and failure skips subsequent entries. Later duplicates replace earlier values; iteration keeps canonical key order and aliases retain earlier contents. Quoted dots are one key, and incompatible concrete values do not widen to Any.",
         ),
         "assert" => (
             "Asserts a Bool condition with failure-only context.",
@@ -902,6 +903,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "results" => (
             "Defines Result values and error families.",
             "Expected host failures remain Result data until ? or another explicit boundary propagates them.",
+        ),
+        "causes" => (
+            "Retains typed causes when deliberately translating errors.",
+            "`Err(error, cause: failure)` attaches an Error cause to an outer Error without changing its nominal family, facets, payload, or Result error type. Operands evaluate once in written order, including named spreads; construction remains Result data and propagation stays explicit. Shared immutable metadata leaves other aliases unchanged and retains the cause chain, spans, contexts, and process status. Matching inspects only the outer error; a payload field named cause remains ordinary data. Use ctx to contextualize the same failure and cause to record a translation. Human and structured traces render bounded chains and mark truncation; no script introspection API is introduced.",
         ),
         "try" => (
             "Captures local Result propagation in a value block.",
@@ -937,7 +942,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "comprehensions" => (
             "Builds lists and maps through ordered nested iteration and filtering.",
-            "List and map comprehensions share interleaved for/if clauses. Direct Map[T] iteration supplies {key: Str, value: T} entries in key order from retained snapshot storage; source Result[Map[T], E] failures propagate with E and the ordinary error effect. Later clauses see earlier bindings; each inner iterable is evaluated anew for each reached outer item. False filters skip subsequent clauses and the projection. Streams are pulled lazily and closed on exhaustion, propagation, or early return. Maps evaluate each key before its value and later duplicate keys win.",
+            "List and map comprehensions share interleaved for/if clauses. Direct Map[K, V] iteration supplies {key: K, value: V} entries in key order from retained snapshot storage; source Result[Map[K, V], E] failures propagate with E and the ordinary error effect. Str iteration supplies one-scalar Str values in Unicode scalar order; Bytes iteration supplies Int byte values from 0 through 255. Both retain the immutable source and have no line/word splitting or implicit decoding. Later clauses see earlier bindings; each inner iterable is evaluated anew for each reached outer item. False filters skip subsequent clauses and the projection. Streams are pulled lazily and closed on exhaustion, propagation, or early return. Maps evaluate each key before its value and later duplicate keys win.",
         ),
         "native-tests" => (
             "Defines native XSH test declarations and harness context.",

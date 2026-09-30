@@ -627,6 +627,7 @@ cargo build -p xsh -p xshi -p xsht --bin xsh --bin xshi --bin xsht
 cargo metadata --no-deps --format-version 1
 cargo test --test integration libxsh_api
 cargo test -p xsh-registry --lib
+cargo test -p xsh-registry --test api_reference
 cargo test -p xsh --lib modules::signature
 cargo test -p xsht --test api
 target/debug/xsht api

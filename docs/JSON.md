@@ -151,7 +151,7 @@ Live collection currently reports `live_linux` and describes the
 process-visible source view and namespaces in `ObservationScope`; it does not
 claim that the process sees a physical host or the host's outer namespaces.
 The scope records mount, network, PID, cgroup, UTS, IPC, user, and time namespace
-symlink identities when `/proc/self/ns` exposes them. `fs.root_readlink_result`
+symlink identities when `/proc/self/ns` exposes them. `FsRoot.readlink_result`
 preserves absence, permission failure, and other read failures as distinct
 observation states with field-addressed issues. Default output redacts the
 symlink targets while retaining each observation state.
@@ -797,7 +797,7 @@ IDs. The live `findmnt` comparison can score only propagation class. A changing 
 recorded in `stable` but does not invalidate complete saved bytes. Empty,
 incomplete, malformed, or oversized-oracle captures remain unscoreable; replay
 rechecks both raw bytes and exact capture metadata after collection.
-Capacity reads through `fs.root_filesystem_stats` are limited to local
+Capacity reads through `FsRoot.filesystem_stats` are limited to local
 filesystems whose mount ancestors are also local and whose target paths are
 unique in the visible mount inventory. A shadowed target can resolve to a
 different mount, and a local child beneath an automount can trigger its
