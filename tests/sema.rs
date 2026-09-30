@@ -4298,3 +4298,40 @@ fn yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts() {
     }
     assert_eq!(found, 2);
 }
+
+#[test]
+fn compact_count_and_json_adapter_facts_match_checked_pipeline_outputs() {
+    use xsh::frontend::check::Type;
+    let source = r#"
+let stats = ["rs", "md", "rs"] |> count { |ext| ext }
+let total = ["rs", "md"] |> count
+let rows = "{}\n{}\n" |> json.lines
+let values = "{} {}" |> json.stream
+let keys = stats.keys()
+let lengths = {lines: rows.len(), values: values.len()}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut found = 0;
+    for (id, actual) in &compact.expr_types {
+        let expression = parsed.arena.arena.expr(*id);
+        if !matches!(expression.kind, xsh::frontend::syntax::arena::ArenaExprKind::StructuredPipeline { .. }) {
+            continue;
+        }
+        let expected = match &source[expression.span.range()] {
+            text if text.ends_with("count { |ext| ext }") => Type::Map(Box::new(Type::Str), Box::new(Type::Int)),
+            text if text.ends_with("count") => Type::Int,
+            text if text.ends_with("json.lines") || text.ends_with("json.stream") => Type::List(Box::new(Type::Any)),
+            text => panic!("unexpected pipeline: {text}"),
+        };
+        assert_eq!(checked.expr_types.get(&expression.span), Some(&expected));
+        assert_eq!(actual, &expected);
+        found += 1;
+    }
+    assert_eq!(found, 4);
+}

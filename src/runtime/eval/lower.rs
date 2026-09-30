@@ -5508,7 +5508,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ArenaPipeStageKind::Expr(_) => None,
                 });
                 match last_stream.map(|s| s.kind.clone()) {
-                    Some(StreamStageKind::Count) => Some(LoweredType::Int),
+                    Some(StreamStageKind::Count) => Some(
+                        if last_stream.is_some_and(|stage| stage.block.is_some()) {
+                            LoweredType::Map
+                        } else {
+                            LoweredType::Int
+                        },
+                    ),
                     Some(StreamStageKind::Any | StreamStageKind::All) => Some(LoweredType::Bool),
                     Some(StreamStageKind::Sum) => Some(LoweredType::Int),
                     Some(

@@ -2373,6 +2373,9 @@ impl CompactBodyProbe<'_> {
             current = match (stage.kind.clone(), callback) {
                 (StreamStageKind::Map, Some(value)) => Type::List(Box::new(value)),
                 (StreamStageKind::FlatMap, Some(Type::List(item) | Type::Stream(item))) => Type::List(item),
+                (StreamStageKind::Count, _) if stage.block.is_some() => Type::Map(Box::new(Type::Str), Box::new(Type::Int)),
+                (StreamStageKind::Count, _) => Type::Int,
+                (StreamStageKind::JsonLines | StreamStageKind::JsonStream, _) => Type::List(Box::new(Type::Any)),
                 (StreamStageKind::Any | StreamStageKind::All, _) => Type::Bool,
                 (StreamStageKind::Each, _) => Type::Unit,
                 (StreamStageKind::Fold | StreamStageKind::Reduce, Some(value)) => value,

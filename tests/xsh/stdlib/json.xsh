@@ -448,3 +448,15 @@ let _lines = json.encode_lines(items) ?
   test.contains(lines.stderr, "json-compatible")?
   test.contains(lines.stderr, "Path is not JSON-compatible")?
 }
+
+test test_json_lines_result_retains_list_type_in_record_fields [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+type Event = {event: Str}
+let decoded_events = "{\"event\":\"start\"}\n{\"event\":\"stop\"}\n" |> json.lines
+let second = decoded_events[1].require(Event)?
+let summary = {events: decoded_events.len(), complete: second.event == "stop"}
+print f"${summary.events}:${summary.complete}"
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "2:true\n")?
+}

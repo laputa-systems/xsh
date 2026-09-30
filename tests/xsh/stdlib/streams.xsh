@@ -2703,3 +2703,16 @@ test test_fs_files_lazy_folding_terminals_match_eager_results [fs, error] { |ctx
     6,
   )?
 }
+
+
+test test_keyed_count_result_retains_map_type_through_later_pipelines [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+let stats = ["rs", "md", "rs"] |> count { |ext| ext }
+let counts = stats.keys()
+  |> map { |ext| {count: stats.get(ext) ?? 0, ext: ext} }
+  |> sort-by .count
+for row in counts { print f"${row.ext}:${row.count}" }
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "md:1\nrs:2\n")?
+}
