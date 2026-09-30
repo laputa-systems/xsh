@@ -29,6 +29,23 @@ fn api_fs_root_inventory_exposes_native_receiver_operations_and_retains_factorie
 }
 
 #[test]
+fn api_builtin_templates_render_receiver_argument_and_result_relationships() {
+    let output = xsht(&["api", "method:List.get", "method:Map.set", "method:Map.values", "method:List.join"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for signature in [
+        "List[T].get(index: Int) -> Result[T, Error]",
+        "List[T].get(index: Int, fallback: T) -> T",
+        "Map[K, V].set(key: K, value: V) -> Map[K, V]",
+        "Map[K, V].values() -> List[V]",
+        "List[Str].join(separator: Str = default) -> Str",
+    ] {
+        assert!(stdout.contains(signature), "missing {signature}: {stdout}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn api_boolean_guards_explains_exits_refinements_and_no_error_input() {
     let output = xsht(&["api", "language:core.boolean-guards"]);
     assert!(output.status.success());

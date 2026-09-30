@@ -2754,7 +2754,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
 }
 
 fn compact_checked_type_is_concrete(ty: &Type) -> bool {
-    !matches!(ty, Type::Any | Type::Unknown | Type::Invalid) && !ty.contains_any()
+    !matches!(ty, Type::Any | Type::Unknown | Type::Invalid) && !ty.contains_any() && !ty.contains_inference()
 }
 
 fn compact_call_blocker_index(program: &ArenaProgram, callee: ExprId) -> usize {
@@ -4638,12 +4638,18 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn checked_method_call_args(&self, base: ExprId, name: Name, args: &[ArenaCallArg], slots: &SlotScope) -> Option<Vec<ExprId>> {
         let ty = self.infer_checked_expr_type_with_slots(base, slots)
             .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known));
-        let receiver = match ty? {
+        let ty = match ty? {
+            Type::Optional(inner) => *inner,
+            Type::Result(inner, _) if name != "context" => *inner,
+            other => other,
+        };
+        let receiver = match &ty {
             Type::Str => MethodReceiver::Str,
             Type::Bytes => MethodReceiver::Bytes,
-            Type::Int => MethodReceiver::Int,
+            Type::Int | Type::UInt => MethodReceiver::Int,
             Type::Float => MethodReceiver::Float,
             Type::List(_) => MethodReceiver::List,
+            Type::Stream(_) => MethodReceiver::Stream,
             Type::Map(_, _) => MethodReceiver::Map,
             Type::Record(_) => MethodReceiver::Record,
             Type::Result(_, _) => MethodReceiver::Result,
@@ -4656,9 +4662,18 @@ impl CompactLowerConstructProbe<'_, '_> {
             Type::Regex => MethodReceiver::Regex,
             _ => return None,
         };
+        use crate::sema::arguments::{bind_static_arguments, expand_named_arguments, ArgumentValueSource};
+        let expanded = expand_named_arguments(self.program, args, |id| self.bodies.expr_types.get(&id).cloned()).ok()?;
         api_spec().method_overloads(receiver, &name.as_str())?.iter().find_map(|method| {
-            let bindings = compact_module_bindings(args, &method.sig)?;
-            bindings.into_iter().flatten().map(|index| compact_call_arg_expr(&args[index])).collect()
+            let signature = crate::sema::builtin_templates::concrete_method_signature(method, &ty)?;
+            let params = crate::sema::builtin_templates::callable_parameters(&signature);
+            let binding = bind_static_arguments(&params, &expanded).ok()?;
+            let mut values = vec![None; params.len()];
+            for (argument, slot) in expanded.iter().zip(binding.argument_slots) {
+                let ArgumentValueSource::Expression(value) = argument.value else { return None; };
+                values[slot] = Some(value);
+            }
+            Some(values.into_iter().flatten().collect())
         })
     }
 
@@ -4845,32 +4860,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(return_ty);
                 }
                 let base_ty = base_ty?;
-                if name == "set" || name == "remove" || name == "push" {
-                    return Some(base_ty);
-                }
-                if name == "keys" {
-                    return Some(Type::List(Box::new(Type::Str)));
-                }
-                if name == "values" {
-                    let item =
-                        self.infer_checked_get_value_type(base, args, &self.top_level_known)?;
-                    return Some(Type::List(Box::new(item)));
-                }
-                if name == "get" {
-                    return match (&base_ty, args_vec.len()) {
-                        (Type::List(item) | Type::Map(_, item), 1) => {
-                            Some(Type::Result(item.clone(), Box::new(Type::Error)))
-                        }
-                        _ => None,
-                    };
-                }
                 if !lowered_method_supported_for_type(&base_ty, name, args_vec.len()) {
                     if let Some(return_ty) = module_export_call_return_type(base_ty.clone(), name) {
                         return Some(return_ty);
                     }
                     return None;
                 }
-                infer_checked_method_return_type(&base_ty, name)
+                infer_checked_method_return_type(&base_ty, name, args_vec.len())
             }
             ArenaExprKind::Require { schema, .. } => {
                 // Validation retains the full schema type. Runtime storage
@@ -5218,23 +5214,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         else {
             return None;
         };
-        if name == "set" || name == "remove" || name == "push" {
-            return self.infer_checked_expr_type(base, known);
-        }
-        if name == "keys" {
-            return Some(Type::List(Box::new(Type::Str)));
-        }
-        if name == "values" {
-            let item = self.infer_checked_get_value_type(base, args, known)?;
-            return Some(Type::List(Box::new(item)));
-        }
-        if name == "get" {
-            let value = self.infer_checked_get_value_type(base, args, known)?;
-            return match args_vec.len() {
-                1 => Some(Type::Result(Box::new(value), Box::new(Type::Error))),
-                _ => None,
-            };
-        }
         if name == "require" {
             let [arg] = args_vec else {
                 return None;
@@ -5286,7 +5265,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         if let Some(return_ty) = self
             .infer_checked_expr_type(base, known)
-            .and_then(|ty| infer_checked_method_return_type(&ty, name))
+            .and_then(|ty| infer_checked_method_return_type(&ty, name, args_vec.len()))
         {
             return Some(return_ty);
         }
@@ -5363,30 +5342,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                     _ => Type::Str,
                 };
                 Some(Type::Result(Box::new(value), Box::new(Type::Error)))
-            }
-            _ => None,
-        }
-    }
-
-    fn infer_checked_get_value_type(
-        &self,
-        base: ExprId,
-        args: crate::syntax::arena::ArenaRange,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<Type> {
-        match self.infer_checked_expr_type(base, known)? {
-            Type::List(item) | Type::Map(_, item) => Some(*item),
-            Type::Record(fields) => {
-                let args = self.program.arena.call_args(args);
-                let [arg, ..] = args else {
-                    return None;
-                };
-                let key = compact_call_arg_expr(arg)?;
-                let ArenaExprKind::Str(key) = self.program.arena.expr(key).kind else {
-                    return None;
-                };
-                let key = Name::intern(self.program.arena.string_literal(key).as_ref());
-                fields.get(&key).cloned()
             }
             _ => None,
         }
@@ -13833,140 +13788,25 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
     }
 }
 
-fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type> {
-    match receiver {
-        Type::Optional(inner) => infer_checked_method_return_type(inner, name),
-        Type::Result(ok, err) => {
-            if name == "context" {
-                Some(Type::Result(ok.clone(), err.clone()))
-            } else {
-                infer_checked_method_return_type(ok, name)
-            }
-        }
-        Type::Int | Type::UInt => match name.as_str().as_str() {
-            "float" => Some(Type::Float),
-            "bit_and" | "bit_or" | "clear_bits" => Some(Type::Int),
-            _ => None,
-        },
-        Type::Str => match name.as_str().as_str() {
-            "trim" | "lower" | "upper" | "reverse" | "format" | "replace" | "translate"
-            | "delete" | "squeeze" | "byte_slice" | "slice" => Some(Type::Str),
-            "lines" | "words" | "fields" | "split" | "wrap" => {
-                Some(Type::List(Box::new(Type::Str)))
-            }
-            "base64_decode" | "base32_decode" => {
-                Some(Type::Result(Box::new(Type::Bytes), Box::new(Type::Error)))
-            }
-            "parse_int" | "parse_int_decimal" | "parse_uint" | "parse_uint_positive" => {
-                Some(Type::Result(Box::new(Type::Int), Box::new(Type::Error)))
-            }
-            "parse_float" => Some(Type::Result(Box::new(Type::Float), Box::new(Type::Error))),
-            "count_lines" | "count_words" | "count_chars" | "byte_len"
-            => Some(Type::Int),
-            "byte_at" | "find" => Some(Type::Optional(Box::new(Type::Int))),
-            "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
-            _ => None,
-        },
-        Type::Bytes => match name.as_str().as_str() {
-            "trim" | "lower" | "slice" => Some(Type::Bytes),
-            "base64" | "base32" | "dump" => Some(Type::Str),
-            "strings" => Some(Type::List(Box::new(Type::Str))),
-            "lines" => Some(Type::Stream(Box::new(Type::Bytes))),
-            "chunks" => Some(Type::List(Box::new(Type::Bytes))),
-            "utf8" => Some(Type::Result(Box::new(Type::Str), Box::new(Type::Error))),
-            "compare" => {
-                let mut fields = BTreeMap::new();
-                fields.insert(Name::intern("equal"), Type::Bool);
-                fields.insert(Name::intern("byte"), Type::Int);
-                fields.insert(Name::intern("line"), Type::Int);
-                fields.insert(Name::intern("left"), Type::Int);
-                fields.insert(Name::intern("right"), Type::Int);
-                Some(Type::Record(fields))
-            }
-            "count_lines" | "len" => Some(Type::Int),
-            "byte_at" => Some(Type::Optional(Box::new(Type::Int))),
-            "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
-            "md5" | "sha1" | "sha256" | "sha512" => Some(Type::Digest),
-            _ => None,
-        },
-        Type::Digest => match name.as_str().as_str() {
-            "hex" | "base64" => Some(Type::Str),
-            _ => None,
-        },
-        Type::Regex => match name.as_str().as_str() {
-            "matches" => Some(Type::Bool),
-            "find" => standard_record_type("RegexMatch").map(|ty| Type::List(Box::new(ty))),
-            "captures" => Some(Type::List(Box::new(Type::Str))),
-            "replace" => Some(Type::Str),
-            _ => None,
-        },
-        Type::Path => match name.as_str().as_str() {
-            "display" | "name" | "ext" => Some(Type::Str),
-            "normalize" | "parent" | "relative_to" | "with_ext" => Some(Type::Path),
-            "strip_prefix" | "readlink" | "resolve" => {
-                Some(Type::Result(Box::new(Type::Path), Box::new(Type::Error)))
-            }
-            "read_text" => Some(Type::Result(Box::new(Type::Str), Box::new(Type::Error))),
-            "read_bytes" => Some(Type::Result(Box::new(Type::Bytes), Box::new(Type::Error))),
-            "exists" | "executable" => {
-                Some(Type::Result(Box::new(Type::Bool), Box::new(Type::Error)))
-            }
-            "du" => Some(Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
-            "metadata" => standard_record_type("FsEntry")
-                .map(|ty| Type::Result(Box::new(ty), Box::new(Type::Error))),
-            "mkdir" | "remove" | "write" | "write_atomic" | "copy" | "rename" | "remove_dir"
-            | "touch" | "touch_from" | "truncate" | "chmod" | "hardlink" | "unlink" => {
-                Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
-            }
-            _ => None,
-        },
-        Type::List(item) => match name.as_str().as_str() {
-            "collect" => Some(Type::List(item.clone())),
-            "len" => Some(Type::Int),
-            "get" => Some(Type::Result(item.clone(), Box::new(Type::Error))),
-            "push" | "extend" => Some(Type::List(item.clone())),
-            "join" => Some(Type::Str),
-            "contains" => Some(Type::Bool),
-            _ => None,
-        },
-        Type::Map(key, item) => match name.as_str().as_str() {
-            "keys" => Some(Type::List(key.clone())),
-            "values" => Some(Type::List(item.clone())),
-            "len" => Some(Type::Int),
-            "get" => Some(Type::Result(item.clone(), Box::new(Type::Error))),
-            "set" | "remove" => Some(Type::Map(key.clone(), item.clone())),
-            "has" => Some(Type::Bool),
-            _ => None,
-        },
-        Type::Record(fields) => match name.as_str().as_str() {
-            "keys" => Some(Type::List(Box::new(Type::Str))),
-            "len" => Some(Type::Int),
-            "has" => Some(Type::Bool),
-            "get" => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
-            "values" => Some(Type::List(Box::new(
-                fields.values().next().cloned().unwrap_or(Type::Any),
-            ))),
-            _ => None,
-        },
-        Type::Module(_) | Type::DynamicModule => match name.as_str().as_str() {
-            "keys" => Some(Type::List(Box::new(Type::Str))),
-            "len" => Some(Type::Int),
-            "has" => Some(Type::Bool),
-            "get" => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
-            _ => None,
-        },
-        Type::ProcessHandle if name == "cancel" => {
-            Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
-        }
-        Type::FsRoot => api_spec().method_overloads(crate::modules::MethodReceiver::FsRoot, &name.as_str())
-            .and_then(|methods| methods.first()).map(|method| method.concrete_return_ty(receiver)),
-        Type::NetJob if name == "wait" => standard_record_type("NetResponse")
-            .map(|response| Type::Result(Box::new(response), Box::new(Type::Error))),
-        Type::NetJob if name == "cancel" => {
-            Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
-        }
-        _ => None,
-    }
+fn infer_checked_method_return_type(receiver: &Type, name: Name, arg_count: usize) -> Option<Type> {
+    let class = match receiver {
+        Type::Optional(inner) => return infer_checked_method_return_type(inner, name, arg_count),
+        Type::Result(inner, _) if name != "context" => return infer_checked_method_return_type(inner, name, arg_count),
+        Type::Result(_, _) => MethodReceiver::Result,
+        Type::Int | Type::UInt => MethodReceiver::Int, Type::Float => MethodReceiver::Float,
+        Type::Str => MethodReceiver::Str, Type::Bytes => MethodReceiver::Bytes,
+        Type::Path => MethodReceiver::Path, Type::FsRoot => MethodReceiver::FsRoot, Type::List(_) => MethodReceiver::List,
+        Type::Map(_, _) => MethodReceiver::Map, Type::Stream(_) => MethodReceiver::Stream,
+        Type::Record(_) | Type::Module(_) | Type::DynamicModule => MethodReceiver::Record,
+        Type::Status => MethodReceiver::Status, Type::EnvPathList => MethodReceiver::EnvPathList,
+        Type::ProcessHandle => MethodReceiver::ProcessHandle, Type::NetJob => MethodReceiver::NetJob,
+        Type::Digest => MethodReceiver::Digest, Type::Regex => MethodReceiver::Regex, _ => return None,
+    };
+    let method = api_spec().method_overloads(class, &name.as_str())?.iter().find(|method| {
+        method.sig.params.iter().filter(|parameter| !parameter.defaulted).count() <= arg_count
+            && arg_count <= method.sig.params.len()
+    })?;
+    crate::sema::builtin_templates::concrete_method_signature(method, receiver).map(|signature| signature.return_ty)
 }
 
 fn module_export_call_return_type(ty: Type, name: Name) -> Option<Type> {

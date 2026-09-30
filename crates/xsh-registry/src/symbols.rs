@@ -52,9 +52,6 @@ fn collect_api_symbols(output: &mut BTreeSet<String>) {
                     collect_type_symbols(&param.ty, output);
                 }
                 collect_type_symbols(&overload.sig.return_ty, output);
-                if let crate::signature::MethodReturn::Type(ty) = &overload.return_ty {
-                    collect_type_symbols(ty, output);
-                }
             }
         }
     }
@@ -215,9 +212,6 @@ mod tests {
                         assert_type_symbols_are_present(symbols, &param.ty);
                     }
                     assert_type_symbols_are_present(symbols, &overload.sig.return_ty);
-                    if let crate::signature::MethodReturn::Type(ty) = &overload.return_ty {
-                        assert_type_symbols_are_present(symbols, ty);
-                    }
                 }
             }
         }

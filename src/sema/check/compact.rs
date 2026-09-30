@@ -1374,7 +1374,7 @@ impl CompactBodyProbe<'_> {
                 match previous { Some(previous) => { self.pipeline_hole_types.insert(hole, previous); }, None => { self.pipeline_hole_types.remove(&hole); } }
                 ty
             }
-            ArenaExprKind::Call { callee, args } => self.check_compact_call(id, callee, args),
+            ArenaExprKind::Call { callee, args } => self.check_compact_call(id, callee, args, expected),
             ArenaExprKind::Field { base, name } => self.check_compact_field(base, name),
             ArenaExprKind::NullSafeField { base, name } => {
                 let receiver = self.check_compact_expr(base);
@@ -1817,6 +1817,7 @@ impl CompactBodyProbe<'_> {
         id: ExprId,
         callee: ExprId,
         args: crate::syntax::arena::ArenaRange,
+        expected: Option<&Type>,
     ) -> Type {
         let callee_expr = self.program.arena.expr(callee);
         let callee_ty = self.check_compact_expr(callee);
@@ -1845,12 +1846,6 @@ impl CompactBodyProbe<'_> {
         let erased_proc_call = matches!(callee_expr.kind, ArenaExprKind::Field { base, name } if name == "call"
             && self.output.expr_types.get(&base) == Some(&Type::Proc));
         if callee_ty == Type::Proc || erased_proc_call { self.invalidate_compact_mutable_proofs(); }
-        if let ArenaExprKind::Field { base, name } = callee_expr.kind {
-            let base_ty = self.output.expr_types.get(&base).cloned();
-            let item = match base_ty { Some(Type::Map(_, item)) if name == "set" => Some((1, *item)), Some(Type::List(item)) if name == "push" => Some((0, *item)), _ => None };
-            if let Some((index, item)) = item && let Some(arg) = self.program.arena.call_args(args).get(index)
-                && let crate::syntax::arena::ArenaCallArgKind::Positional(value) = arg.kind { self.apply_compact_expected(value, &item); }
-        }
         if let Some(_definition) = self.declarations.record_constructors.resolve_call(
             &self.program.arena, callee, self.current_namespace,
         ) {
@@ -1927,15 +1922,8 @@ impl CompactBodyProbe<'_> {
                 return compact_postfix_result(Type::Result(Box::new(Type::Any), Box::new(Type::Error)), lift);
             }
         }
-        if let Some(return_ty) = self.compact_module_call_type(callee_expr.kind.clone(), args) {
+        if let Some(return_ty) = self.compact_builtin_call_type(callee, args, expected) {
             return return_ty;
-        }
-        if let ArenaExprKind::Field { base, name } = callee_expr.kind {
-            if let Some(receiver @ Type::Map(_, _)) = self.output.expr_types.get(&base) {
-                if let Some(method) = api_spec().method_overloads(crate::modules::signature::MethodReceiver::Map, name.as_str().as_str()).and_then(|methods| methods.iter().find(|method| method.sig.params.len() == self.program.arena.call_args(args).len())) {
-                    return method.concrete_return_ty(receiver);
-                }
-            }
         }
         match callee_ty {
             Type::Pure | Type::Proc => Type::Unknown,
@@ -1962,82 +1950,56 @@ impl CompactBodyProbe<'_> {
         }
     }
 
-    fn compact_module_call_type(
-        &mut self,
-        callee: ArenaExprKind,
-        args: crate::syntax::arena::ArenaRange,
+    fn compact_builtin_call_type(
+        &mut self, callee: ExprId, args: crate::syntax::arena::ArenaRange,
+        expected: Option<&Type>,
     ) -> Option<Type> {
-        let (ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name }) =
-            callee
-        else {
-            return None;
+        use crate::sema::arguments::{bind_static_arguments, expand_named_arguments, ArgumentValueSource};
+        use crate::sema::builtin_templates::{BuiltinInstantiation, callable_parameters};
+        use crate::modules::signature::MethodReceiver;
+        let kind = self.program.arena.expr(callee).kind;
+        let (ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name }) = kind else { return None; };
+        let guarded = matches!(kind, ArenaExprKind::NullSafeField { .. });
+        let actual = self.output.expr_types.get(&base).cloned().unwrap_or(Type::Unknown);
+        let (receiver, lifted) = compact_postfix_receiver(actual, guarded);
+        let class = match &receiver {
+            Type::List(_) => Some(MethodReceiver::List), Type::Map(_, _) => Some(MethodReceiver::Map),
+            Type::Stream(_) => Some(MethodReceiver::Stream), Type::Result(_, _) => Some(MethodReceiver::Result),
+            Type::Record(_) => Some(MethodReceiver::Record), Type::Str => Some(MethodReceiver::Str),
+            Type::Bytes => Some(MethodReceiver::Bytes), Type::Int | Type::UInt => Some(MethodReceiver::Int),
+            Type::Float => Some(MethodReceiver::Float), Type::Path => Some(MethodReceiver::Path), Type::FsRoot => Some(MethodReceiver::FsRoot),
+            Type::Status => Some(MethodReceiver::Status), Type::EnvPathList => Some(MethodReceiver::EnvPathList),
+            Type::ProcessHandle => Some(MethodReceiver::ProcessHandle), Type::NetJob => Some(MethodReceiver::NetJob),
+            Type::Digest => Some(MethodReceiver::Digest), Type::Regex => Some(MethodReceiver::Regex), _ => None,
         };
-        let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
-            return None;
-        };
-        let range = args;
-        let args = self.program.arena.call_args(args).to_vec();
-        for sig in api_spec().module_overloads(&module.as_str(), &name.as_str())? {
-            let mut bindings = vec![false; sig.params.len()];
-            let mut next_positional = 0usize;
-            let mut matched = true;
-            for arg in &args {
-                match arg.kind {
-                    crate::syntax::arena::ArenaCallArgKind::Splice { .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { .. } => {
-                        matched = false;
-                        break;
-                    }
-                    crate::syntax::arena::ArenaCallArgKind::Positional(_) => {
-                        while next_positional < bindings.len() && bindings[next_positional] {
-                            next_positional += 1;
-                        }
-                        let Some(binding) = bindings.get_mut(next_positional) else {
-                            matched = false;
-                            break;
-                        };
-                        *binding = true;
-                    }
-                    crate::syntax::arena::ArenaCallArgKind::Named { name, .. } => {
-                        let Some(param_index) = sig
-                            .params
-                            .iter()
-                            .position(|param| param.name == name.as_str())
-                        else {
-                            matched = false;
-                            break;
-                        };
-                        if bindings[param_index] {
-                            matched = false;
-                            break;
-                        }
-                        bindings[param_index] = true;
-                    }
-                }
-            }
-            if matched
-                && sig
-                    .params
-                    .iter()
-                    .zip(&bindings)
-                    .all(|(param, binding)| param.defaulted || *binding)
-            {
-                let params = sig.params.iter().map(|param| CallableParamType {
-                    name: Name::intern(param.name), ty: param.ty.clone(), defaulted: param.defaulted, rest: false,
-                }).collect::<Vec<_>>();
-                self.apply_compact_call_expected(range, &params);
-                if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor
-                    && let Some(schema) = crate::modules::cli::descriptor_argument(&args)
-                    && let Some(plan) = self.declarations.prepared_constants.cli_descriptor_plan(&self.program.arena, schema, sig.op == xsh_registry::RuntimeOp::CliApplet)
-                {
-                    match plan {
-                        Ok(plan) => return Some(plan.return_type(sig.op == xsh_registry::RuntimeOp::CliParseFull)),
-                        Err(error) => self.error(error.span.unwrap_or(self.program.arena.expr(schema).span), &error.message, "check.cli-descriptor"),
-                    }
-                }
-                return Some(sig.return_ty.clone());
-            }
+        let candidates = if let Some(class) = class {
+            api_spec().method_overloads(class, &name.as_str())?.iter()
+                .map(|method| (method.sig.clone(), method.receiver_ty.clone(), Some(receiver.clone()))).collect::<Vec<_>>()
+        } else if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
+            api_spec().module_overloads(&module.as_str(), &name.as_str())?.iter()
+                .map(|signature| (signature.clone(), None, None)).collect()
+        } else { return None; };
+        let entries = self.program.arena.call_args(args).to_vec();
+        let expanded = expand_named_arguments(self.program, &entries, |id| self.output.expr_types.get(&id).cloned()).ok()?;
+        let (signature, template, receiver, binding) = candidates.into_iter().find_map(|(signature, template, receiver)| {
+            let params = callable_parameters(&signature);
+            bind_static_arguments(&params, &expanded).ok().map(|binding| (signature, template, receiver, binding))
+        })?;
+        let span = self.program.arena.expr(callee).span;
+        let mut instance = BuiltinInstantiation::new(&signature, template.as_ref(), receiver.as_ref(), &mut self.type_constraints, span).ok()?;
+        let expected = if lifted { expected.and_then(|ty| if let Type::Optional(inner) = ty { Some(inner.as_ref()) } else { None }) } else { expected };
+        if let Some(expected) = expected { instance.constrain_result(expected, &mut self.type_constraints, span).ok()?; }
+        for (entry, slot) in expanded.iter().zip(binding.argument_slots) {
+            let parameter = self.type_constraints.resolve(&instance.signature.params[slot].ty).ok()?;
+            let actual = match entry.value {
+                ArgumentValueSource::Expression(value) => self.check_compact_expr_expected(value, Some(&parameter)),
+                ArgumentValueSource::RecordField { .. } => entry.ty.clone(),
+                ArgumentValueSource::PositionalSplice(_) => return None,
+            };
+            if self.type_constraints.constrain(&parameter, &actual, entry.span).is_err() { return Some(Type::Invalid); }
         }
-        None
+        instance.resolve(&self.type_constraints);
+        Some(compact_postfix_result(instance.signature.return_ty, lifted))
     }
 
     fn check_compact_field(&mut self, base: ExprId, name: Name) -> Type {
@@ -2445,7 +2407,7 @@ impl CompactBodyProbe<'_> {
 
     fn lookup_name(&self, name: Name) -> Type {
         if let Some(binding) = self.lookup_binding(name) {
-            return binding.ty.clone();
+            return self.type_constraints.resolve(&binding.ty).unwrap_or_else(|_| binding.ty.clone());
         }
         if let Some(variant) = self.declarations.tag_variants_by_name.get(&name)
             && variant.field_count == 0

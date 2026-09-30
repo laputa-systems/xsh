@@ -873,6 +873,19 @@ structured pipelines consume it lazily. `.collect() -> List[T]` drains a stream
 and materializes its remaining items when random access, length, or list APIs
 are required.
 
+Builtin collection contracts preserve their checked receiver parameters through
+arguments and results, including nested containers and nominal Result errors.
+Each call instantiates its own internal signature parameters; this does not add
+generic functions or expression-level type arguments. Concrete operands must
+fit the established collection type. An erased Any element remains dynamic;
+inserting one known value cannot establish the type of older elements.
+Overloads are selected from receiver and argument contracts, never from a
+desired return type alone. Independently grounded expectations can constrain
+the selected signature under the same local inference rules as other calls.
+Named arguments and static record spreads use ordinary parameter binding and
+preserve written evaluation order. `List.join` requires `List[Str]`; it does
+not apply display conversion to non-string elements.
+
 `Str` is valid UTF-8 text. `Bytes` is arbitrary byte data. `Path` stores native
 Unix path bytes and cannot contain NUL; it can represent paths that are not
 valid UTF-8. Formatted Path literals and compound process words append Path
@@ -3338,7 +3351,7 @@ List values expose collection operations as methods:
 
 `map`:
 
-- `map.empty() -> Map[T]`; empty maps usually need an expected type from a
+- `map.empty() -> Map[K, V]`; empty maps need an expected type from a
   binding annotation or later typed API boundary. In those map-typed contexts,
   `{}` is equivalent to `map.empty()`.
 

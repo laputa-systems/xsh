@@ -495,10 +495,13 @@ Focused semantic rules live beside it:
   substitution keeps unresolved identities until the owning checker requires
   a concrete contract. Indexed type pools reject unresolved identities, and
   runtime type tests cannot satisfy them.
-- `src/modules/signature.rs` declares the standard API registry used by the
-  checker and runtime. The `RuntimeOp` enum here names every method and module
-  function dispatched at runtime. Deprecated APIs should be removed from both
-  this registry and `runtime/eval.rs` — no traversal files need touching.
+- `crates/xsh-registry/src/signature/` owns standard callable contracts and
+  runtime operation identities; `src/modules/signature.rs` adapts them to
+  semantic types and effects. `src/sema/builtin_templates.rs` instantiates
+  receiver and parameter relationships through the shared type constraints.
+  Registry semantic-rule metadata identifies schema validation, constant-key
+  projection, and CLI descriptor facts separately from structural substitution.
+
 - `src/modules` contains shared host helpers for standard modules.
 - `src/sema/records.rs` contains shared record schemas.
 - `src/sema/constants.rs::RecordConstructors` resolves user schema constructors

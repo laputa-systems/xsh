@@ -958,7 +958,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["linux", "shutdown", "privileged", "host-global"],
         )),
         ("map", "empty") => Some((
-            "Creates an empty string-keyed Map with `map.empty()`; grow it with Map methods.",
+            "Creates an empty Map with key and value domains determined by the checked context or subsequent Map operations.",
             "The new map owns its entries and has no inherited process or module state. `{}` is an empty Record unless a Map type is expected.",
             &["map", "collection", "constructor"],
         )),

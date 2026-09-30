@@ -21,7 +21,7 @@ impl BuiltinInstantiation {
     ) -> Result<Self, ConstraintConflict> {
         let mut parameters = BTreeMap::new();
         if let (Some(template), Some(actual)) = (receiver_template, receiver) {
-            seed_dynamic_parameters(template, actual, &mut parameters);
+            seed_receiver_domains(template, actual, &mut parameters);
         }
         if let Some(receiver) = receiver {
             parameters.insert(BuiltinTypeParameter::Receiver, receiver.clone());
@@ -43,7 +43,17 @@ impl BuiltinInstantiation {
     pub fn constrain_result(
         &mut self, expected: &Type, constraints: &mut TypeConstraints, span: Span,
     ) -> Result<(), ConstraintConflict> {
-        constraints.constrain(expected, &self.signature.return_ty, span)?;
+        if matches!(expected, Type::Unknown | Type::Invalid) { return Ok(()); }
+        // A Result-returning function supplies its success expectation to its
+        // tail. Preserve a builtin's Result envelope while solving that payload.
+        let result = if !expected.is_result() {
+            self.signature.return_ty.result_ok().unwrap_or(&self.signature.return_ty)
+        } else { &self.signature.return_ty };
+        if expected.contains_inference() {
+            constraints.constrain(expected, result, span)?;
+        } else {
+            constraints.constrain_annotation(result, expected, span)?;
+        }
         self.resolve(constraints);
         Ok(())
     }
@@ -102,37 +112,37 @@ fn instantiate_type(
     }
 }
 
-/// Dynamic receiver parameters are fixed Any domains. Leaving them as fresh
-/// holes would let a supplied concrete operand falsely certify older elements.
-fn seed_dynamic_parameters(
+/// Dynamic and recovery receiver domains are fixed leaves. Treating them as
+/// fresh holes would let a concrete operand falsely certify older elements.
+fn seed_receiver_domains(
     template: &Type, actual: &Type, parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
 ) {
     match (template, actual) {
-        (template, Type::Any) => seed_erased_parameters(template, parameters),
+        (template, actual @ (Type::Any | Type::Unknown | Type::Invalid)) => seed_fixed_parameters(template, actual, parameters),
         (Type::List(left), Type::List(right))
         | (Type::Stream(left), Type::Stream(right))
-        | (Type::Optional(left), Type::Optional(right)) => seed_dynamic_parameters(left, right, parameters),
+        | (Type::Optional(left), Type::Optional(right)) => seed_receiver_domains(left, right, parameters),
         (Type::Map(left_key, left_value), Type::Map(right_key, right_value)) => {
-            seed_dynamic_parameters(left_key, right_key, parameters);
-            seed_dynamic_parameters(left_value, right_value, parameters);
+            seed_receiver_domains(left_key, right_key, parameters);
+            seed_receiver_domains(left_value, right_value, parameters);
         }
         (Type::Result(left_ok, left_error), Type::Result(right_ok, right_error)) => {
-            seed_dynamic_parameters(left_ok, right_ok, parameters);
-            seed_dynamic_parameters(left_error, right_error, parameters);
+            seed_receiver_domains(left_ok, right_ok, parameters);
+            seed_receiver_domains(left_error, right_error, parameters);
         }
         _ => {}
     }
 }
 
-fn seed_erased_parameters(template: &Type, parameters: &mut BTreeMap<BuiltinTypeParameter, Type>) {
+fn seed_fixed_parameters(template: &Type, domain: &Type, parameters: &mut BTreeMap<BuiltinTypeParameter, Type>) {
     match template {
-        Type::BuiltinParameter(parameter) => { parameters.insert(*parameter, Type::Any); }
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => seed_erased_parameters(inner, parameters),
+        Type::BuiltinParameter(parameter) => { parameters.insert(*parameter, domain.clone()); }
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => seed_fixed_parameters(inner, domain, parameters),
         Type::Map(key, value) | Type::Result(key, value) => {
-            seed_erased_parameters(key, parameters);
-            seed_erased_parameters(value, parameters);
+            seed_fixed_parameters(key, domain, parameters);
+            seed_fixed_parameters(value, domain, parameters);
         }
-        Type::Record(fields) => for field in fields.values() { seed_erased_parameters(field, parameters); },
+        Type::Record(fields) => for field in fields.values() { seed_fixed_parameters(field, domain, parameters); },
         _ => {}
     }
 }
@@ -192,4 +202,73 @@ pub(crate) fn parameter_schema_contexts(
         if let Some(template) = receiver_template { collect(template, context, &mut parameters); }
     }
     signature.params.iter().map(|parameter| project(&parameter.ty, &parameters)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::signature::{MethodReceiver, api_spec};
+    use crate::source::SourceId;
+
+    fn span() -> Span { Span::at(SourceId::new(0), 0) }
+
+    #[test]
+    fn map_empty_occurrences_have_independent_key_and_value_parameters() {
+        let signature = &api_spec().module_overloads("map", "empty").unwrap()[0];
+        let mut constraints = TypeConstraints::default();
+        let mut first = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        let mut second = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        let ints = Type::Map(Box::new(Type::Str), Box::new(Type::Int));
+        let strings = Type::Map(Box::new(Type::Int), Box::new(Type::Str));
+        first.constrain_result(&ints, &mut constraints, span()).unwrap();
+        second.constrain_result(&strings, &mut constraints, span()).unwrap();
+        first.resolve(&constraints);
+        assert_eq!(first.signature.return_ty, ints);
+        assert_eq!(second.signature.return_ty, strings);
+    }
+
+    #[test]
+    fn explicit_dynamic_value_domain_anchors_an_empty_map() {
+        let signature = &api_spec().module_overloads("map", "empty").unwrap()[0];
+        let mut constraints = TypeConstraints::default();
+        let mut instance = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        let expected = Type::Map(Box::new(Type::Str), Box::new(Type::Any));
+        instance.constrain_result(&expected, &mut constraints, span()).unwrap();
+        assert_eq!(instance.signature.return_ty, expected);
+        assert!(!instance.signature.return_ty.contains_inference());
+    }
+
+    #[test]
+    fn dynamic_list_receiver_cannot_acquire_a_concrete_item_proof() {
+        let method = &api_spec().method_overloads(MethodReceiver::List, "get").unwrap()[0];
+        let receiver = Type::List(Box::new(Type::Any));
+        let mut constraints = TypeConstraints::default();
+        let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&receiver), &mut constraints, span()).unwrap();
+        let expected = Type::Result(Box::new(Type::Int), Box::new(Type::Error));
+        instance.constrain_result(&expected, &mut constraints, span()).unwrap();
+        assert_eq!(instance.signature.return_ty, Type::Result(Box::new(Type::Any), Box::new(Type::Error)));
+    }
+
+    #[test]
+    fn nested_result_and_nominal_error_domains_survive_receiver_instantiation() {
+        let error = Type::ErrorFamily(crate::symbol::Name::intern("Error"));
+        let item = Type::Result(Box::new(Type::List(Box::new(Type::Int))), Box::new(error));
+        let receiver = Type::List(Box::new(item.clone()));
+        let methods = api_spec().method_overloads(MethodReceiver::List, "get").unwrap();
+        assert_eq!(concrete_method_signature(&methods[0], &receiver).unwrap().return_ty,
+            Type::Result(Box::new(item.clone()), Box::new(Type::Error)));
+        let push = &api_spec().method_overloads(MethodReceiver::List, "push").unwrap()[0];
+        let push = concrete_method_signature(push, &receiver).unwrap();
+        assert_eq!(push.return_ty, receiver);
+        assert_eq!(push.params[0].ty, item);
+    }
+    #[test]
+    fn success_expectation_preserves_a_declared_result_envelope() {
+        let method = &api_spec().method_overloads(MethodReceiver::Str, "parse_int").unwrap()[0];
+        let mut constraints = TypeConstraints::default();
+        let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&Type::Str), &mut constraints, span()).unwrap();
+        instance.constrain_result(&Type::Int, &mut constraints, span()).unwrap();
+        assert_eq!(instance.signature.return_ty, Type::Result(Box::new(Type::Int), Box::new(Type::Error)));
+    }
+
 }

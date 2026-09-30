@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
 use xsh::api::api_spec;
-use xsh::api::{MethodReceiver, MethodReturn, ModuleFnSig};
+use xsh::api::{MethodReceiver, ModuleFnSig};
 use xsh::frontend::check::Type;
 use xsh::frontend::check::record_schemas;
 use xsh_registry::reference::language_references;
@@ -770,10 +770,7 @@ fn method_signature(
     method: &str,
     signature: &xsh::api::MethodSig,
 ) -> String {
-    let return_type = match &signature.return_ty {
-        MethodReturn::Type(ty) => render_type(ty),
-        MethodReturn::Receiver => "Self".to_string(),
-    };
+    let return_type = render_type(&signature.sig.return_ty);
     format!(
         "{}.{method}({}) -> {return_type}",
         signature.receiver_ty.as_ref().map(render_type).unwrap_or_else(|| receiver_name(receiver).to_string()),

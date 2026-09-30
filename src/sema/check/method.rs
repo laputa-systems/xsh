@@ -8,11 +8,8 @@ use super::{
 use crate::sema::check::{ApiArgCheck, MethodSig};
 use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 
-/// Arena-native mirror of every function above, operating on the arena's
-/// call-argument representation instead of the old recursive AST's.
-/// The signature metadata's required effect and the collection-item helpers
-/// (`collection_item_ty`/`map_item_ty`/`merge_collection_item_ty`) are pure
-/// `Type`-level and reused unchanged.
+/// Registered method calls instantiate receiver relationships before checking
+/// arguments. Effects and overload selection remain owned by the same registry.
 #[allow(dead_code)]
 impl Checker {
     pub(super) fn check_method_dispatch_arena(

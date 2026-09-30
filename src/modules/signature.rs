@@ -270,7 +270,6 @@ impl ModuleFnSig {
 #[derive(Clone, Debug)]
 pub struct MethodSig {
     pub sig: ModuleFnSig,
-    pub return_ty: MethodReturn,
     pub receiver_ty: Option<Type>,
 }
 
@@ -279,12 +278,6 @@ impl MethodSig {
         crate::sema::builtin_templates::concrete_method_signature(self, receiver_ty)
             .map(|signature| signature.return_ty).unwrap_or(Type::Unknown)
     }
-}
-
-#[derive(Clone, Debug)]
-pub enum MethodReturn {
-    Type(Type),
-    Receiver,
 }
 
 #[derive(Clone, Debug)]
@@ -400,10 +393,6 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             effect: method_required_effect(receiver, sig.sig.op),
         },
         receiver_ty: sig.receiver_ty.as_ref().map(convert_type),
-        return_ty: match &sig.return_ty {
-            registry::MethodReturn::Type(ty) => MethodReturn::Type(convert_type(ty)),
-            registry::MethodReturn::Receiver => MethodReturn::Receiver,
-        },
     }
 }
 
@@ -498,7 +487,7 @@ fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Eff
 
 #[cfg(test)]
 mod tests {
-    use super::{MethodReturn, api_spec, convert_type};
+    use super::{api_spec, convert_type};
     use xsh_registry::signature as registry;
 
     #[test]
@@ -566,14 +555,7 @@ mod tests {
                         main_overload.sig.effect,
                         super::method_required_effect(main_receiver.receiver, main_overload.sig.op,)
                     );
-                    match (&main_overload.return_ty, &registry_overload.return_ty) {
-                        (
-                            MethodReturn::Type(main_ty),
-                            registry::MethodReturn::Type(registry_ty),
-                        ) => assert_eq!(main_ty, &convert_type(registry_ty)),
-                        (MethodReturn::Receiver, registry::MethodReturn::Receiver) => {}
-                        _ => panic!("method return adapter drifted for {}", main_method.name),
-                    }
+                    assert_eq!(main_overload.receiver_ty, registry_overload.receiver_ty.as_ref().map(convert_type));
                 }
             }
         }
