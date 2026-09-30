@@ -52,9 +52,9 @@ pure token_spellings(result: Result[List[TokenRecord]]) -> Str {
 
 # A command result's rest list, joined, or the empty string when the call was
 # refused or the command declared no rest field.
-pure rest_field(result: Result[Record], name: Str) -> Str {
+pure rest_field(result: Result[Record], name: Str) -> Result[Str] {
   match result {
-    Ok(parsed) => return (parsed.get(name) ?? []).join(",")
+    Ok(parsed) => return (parsed.get(name) ?? []).require(List[Str])?.join(",")
     Err(_) => return ""
   }
 }
@@ -287,7 +287,7 @@ test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
   test.eq(named.get("command")?, "build")?
   test.eq(named.get("action")?, "build")?
   test.eq(f"${named.get("root") ?? null}", "target/demo")?
-  test.eq(rest_field(cli.commands(["build", "target/demo", "extra"], schema), "raw"), "extra")?
+  test.eq(rest_field(cli.commands(["build", "target/demo", "extra"], schema), "raw")?, "extra")?
   test.eq(named.keys().join(","), "action,command,raw,root")?
 
   # An alias dispatches to the same command, and `action` reports the spelling
@@ -334,7 +334,7 @@ test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
         {push: {form: "push ROOT ...RAW", rest: "ignored", types: {root: "Str"}}},
       ),
       "raw",
-    ),
+    )?,
     "a,b",
   )?
 
@@ -475,13 +475,13 @@ test test_cli_commands_convert_positionals_and_collect_the_rest [fs, error] {
     "unexpected positional argument for command `t`: y",
   )?
   test.eq(failure_message(cli.commands(["t"], basic)), "missing positional `n` for command `t`")?
-  test.eq(rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw"}}), "raw"), "one,two")?
+  test.eq(rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw"}}), "raw")?, "one,two")?
   test.eq(
     failure_message(cli.commands(["t", "one"], {t: {rest: "raw", min_rest: 2}})),
     "command `t` expects at least 2 rest arguments",
   )?
   test.eq(
-    rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw", min_rest: 2}}), "raw"),
+    rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw", min_rest: 2}}), "raw")?,
     "one,two",
   )?
 
@@ -617,7 +617,7 @@ test test_cli_command_options_split_values_and_defaults [fs, error] {
     failure_message(cli.commands(["go", "r", "--", "--tag", "x"], schema)),
     "unexpected positional argument for command `go`: --tag",
   )?
-  test.eq(rest_field(cli.commands(["build", "--", "-x"], {build: {rest: "raw"}}), "raw"), "--,-x")?
+  test.eq(rest_field(cli.commands(["build", "--", "-x"], {build: {rest: "raw"}}), "raw")?, "--,-x")?
 }
 
 test test_cli_command_options_validate_values_and_relationships [fs, error] {
