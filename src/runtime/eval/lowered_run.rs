@@ -3391,8 +3391,44 @@ fn bind_lowered_comp_target(
     Ok(())
 }
 
+fn checked_unsigned_value(value: &LoweredValue, check: &super::LoweredTypeCheck, span: Span) -> Result<(), RuntimeError> {
+    if !lowered_value_matches_static_type(value, &check.ty) {
+        return Err(RuntimeError::new("type-error", format!("value violates UInt constraint in {}", check.name)).with_span(span));
+    }
+    Ok(())
+}
+
+fn checked_lowered_return_value(header: &FunctionHeader, value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
+    let value = lowered_return_value(header.return_kind, value, span)?;
+    if let Some(check) = &header.return_check {
+        if !lowered_value_matches_static_type(&value, &check.ty) {
+            return Err(RuntimeError::new("type-error", format!("return violates UInt constraint in {}", check.name)).with_span(span));
+        }
+    }
+    Ok(value)
+}
+
 fn lowered_param_check(lowered: &FunctionHeader, index: usize) -> Option<&super::LoweredTypeCheck> {
     lowered.param_checks.get(index).and_then(Option::as_ref)
+}
+
+fn validate_unsigned_runtime_args(header: &FunctionHeader, args: &[Value], span: Span) -> Result<(), RuntimeError> {
+    for (index, check) in header.param_checks.iter().enumerate() {
+        let Some(check) = check.as_ref().filter(|check| check.ty.has_unsigned_constraint()) else { continue; };
+        let valid = if header.param_rest[index] {
+            let Type::List(item) = &check.ty else { continue; };
+            args.get(index..).unwrap_or(&[]).iter().all(|value| value_matches_static_type(value, item))
+        } else if let Some(value) = args.get(index) {
+            value_matches_static_type(value, &check.ty)
+        } else {
+            header.param_defaults.get(index).and_then(Option::as_ref)
+                .is_none_or(|value| lowered_value_matches_static_type(value, &check.ty))
+        };
+        if !valid {
+            return Err(RuntimeError::new("type-error", format!("call violates UInt constraint in {}", check.name)).with_span(span));
+        }
+    }
+    Ok(())
 }
 
 fn lowered_runtime_arg_matches_param(
@@ -9753,6 +9789,7 @@ impl Evaluator {
             }
             values
         };
+        if values.iter().enumerate().any(|(index, value)| lowered_param_check(lowered, index).is_some_and(|check| check.ty.has_unsigned_constraint()) && !lowered_value_matches_param(lowered, index, lowered.param_kinds[index], value)) { return None; }
         Some(self.lowered_call_slots(lowered, values))
     }
 
@@ -9857,6 +9894,11 @@ impl Evaluator {
             }
             values
         };
+        for (index, value) in values.iter().enumerate() {
+            if lowered_param_check(lowered, index).is_some_and(|check| check.ty.has_unsigned_constraint()) && !lowered_value_matches_param(lowered, index, lowered.param_kinds[index], value) {
+                return Err(RuntimeError::new("type-error", format!("lowered call expected {}, found {}", lowered_param_type_name(lowered, index, lowered.param_kinds[index]), value.type_name())).with_span(span));
+            }
+        }
         Ok(self.lowered_call_slots(lowered, values))
     }
 

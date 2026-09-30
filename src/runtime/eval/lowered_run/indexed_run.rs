@@ -28,7 +28,7 @@ use super::{
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_get,
     lowered_record_vec_or_stats, lowered_reduce_fields_owned,
     lowered_reduce_group_insert, lowered_reduce_key_value_owned, lowered_result_err_value,
-    lowered_result_ok, lowered_return_value, lowered_root_id, lowered_slice_value,
+    lowered_result_ok, lowered_root_id, lowered_slice_value,
     lowered_sort_key_orderable, lowered_splice_arg_items, lowered_stats_field_value,
     lowered_status_segment_record, lowered_stmt_flow_to_flow,
     lowered_str_arg_owned, lowered_str_byte_at_value, lowered_str_byte_len_value,
@@ -469,6 +469,7 @@ impl Evaluator {
             param_defaults: Default::default(),
             captures: Default::default(),
             return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
+            return_check: None,
             slot_count,
         }
     }
@@ -2089,6 +2090,7 @@ impl Evaluator {
             Ok(header) => header,
             Err(error) => return Some(Err(indexed_error(error, call_span))),
         };
+        if let Err(error) = super::validate_unsigned_runtime_args(&header, args, call_span) { return Some(Err(error)); }
         let slots = self.try_bind_lowered_runtime_args(&header, args)?;
         let frame_support = match self.indexed_frames_supported(view, call_span) {
             Ok(supported) => supported,
@@ -2111,7 +2113,7 @@ impl Evaluator {
         let mut slots = slots;
         let result = self
             .eval_indexed_call_frame(function, kind, view, &header, &mut slots, call_span)
-            .and_then(|value| lowered_return_value(header.return_kind, value, call_span))
+            .and_then(|value| super::checked_lowered_return_value(&header, value, call_span))
             .map(LoweredValue::into_value);
         self.recycle_lowered_slots(slots);
         Some(result)
@@ -2219,7 +2221,7 @@ impl Evaluator {
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
         let result = self
             .eval_indexed_call_frame(function, kind, view, &header, &mut next_slots, call_span)
-            .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
+            .and_then(|value| super::checked_lowered_return_value(&header, value, call_span));
         self.recycle_lowered_slots(next_slots);
         result
     }
@@ -2314,7 +2316,7 @@ impl Evaluator {
         });
         self.call_stack.pop();
         let result =
-            result.and_then(|value| lowered_return_value(header.return_kind, value, call_span));
+            result.and_then(|value| super::checked_lowered_return_value(&header, value, call_span));
         self.recycle_lowered_slots(next_slots);
         result
     }
@@ -2363,7 +2365,7 @@ impl Evaluator {
         let result = with_indexed_eval_depth(call_span, || {
             self.eval_indexed_function(view, &header, &mut next_slots, call_span)
         })
-        .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
+        .and_then(|value| super::checked_lowered_return_value(&header, value, call_span));
         self.recycle_lowered_slots(next_slots);
         result
     }
@@ -5661,6 +5663,19 @@ impl Evaluator {
                     Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error)))),
                 })
             }
+            FullTag::ExprCheckedValue => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let check = indexed_decode::<LoweredTypeCheck>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                match self.eval_indexed_expr(execution, value, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        super::checked_unsigned_value(&value, &check, span)?;
+                        ControlFlow::Continue(value)
+                    }
+                    ControlFlow::Break(value) => ControlFlow::Break(value),
+                }
+            }
             FullTag::ExprRequire => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let check = indexed_decode::<LoweredTypeCheck>(&mut payload, execution, call_span)?;
@@ -8038,6 +8053,7 @@ impl Evaluator {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 let op = indexed_decode::<AssignOp>(&mut payload, execution, call_span)?;
                 let value = indexed_raw(&mut payload, call_span)?;
+                let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let (value, singleton) = indexed_assignment_operand(execution, value, op, call_span)?;
@@ -8045,7 +8061,7 @@ impl Evaluator {
                 // an accumulating call like `m = m.set(k, v)` can update the map
                 // in place instead of copying it into a second map.
                 let saved = self.consuming_receiver;
-                self.consuming_receiver = (op == AssignOp::Set).then_some(slot);
+                self.consuming_receiver = (op == AssignOp::Set && check.is_none()).then_some(slot);
                 let evaluated = self.eval_indexed_expr(execution, value, slots, call_span);
                 self.consuming_receiver = saved;
                 let value = match evaluated? {
@@ -8053,10 +8069,13 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
                 self.check_recursive_context_assignment(slots, slot, &value, span)?;
-                slots[slot] = match op {
+                slots[slot] = if let Some(check) = check.as_ref() {
+                    checked_indexed_assignment(&slots[slot], op, value, singleton, check, span)?
+                } else { match op {
+
                     AssignOp::Set => value,
                     _ => apply_indexed_assignment(&mut slots[slot], op, value, singleton, span)?,
-                };
+                }};
                 Ok(StmtFlow::None)
             }
             FullTag::StmtAssignField | FullTag::StmtAssignFieldInt => {
@@ -8095,6 +8114,7 @@ impl Evaluator {
                 let path = decode_assign_path(execution, &mut payload, call_span)?;
                 let op = indexed_decode::<AssignOp>(&mut payload, execution, call_span)?;
                 let value = indexed_raw(&mut payload, call_span)?;
+                let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let mut selectors = Vec::with_capacity(path.len());
@@ -8116,7 +8136,8 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
                 self.check_recursive_context_assignment(slots, slot, &value, span)?;
-                apply_indexed_path_assignment(&mut slots[slot], &selectors, op, value, singleton, span)?;
+                apply_indexed_path_assignment(&mut slots[slot], &selectors, op, value, singleton, check.as_ref(), span)?;
+
                 Ok(StmtFlow::None)
             }
             FullTag::StmtAssignInt => {
@@ -9587,6 +9608,27 @@ fn resolve_assign_index(value: LoweredValue, span: Span) -> Result<ResolvedAssig
     })
 }
 
+fn validate_indexed_assignment(value: &LoweredValue, check: &LoweredTypeCheck, span: Span) -> Result<(), RuntimeError> {
+    if !lowered_value_matches_static_type(value, &check.ty) {
+        return Err(RuntimeError::new("type-error", format!("assignment violates UInt constraint in {}", check.name)).with_span(span));
+    }
+    Ok(())
+}
+
+fn checked_indexed_assignment(
+    current: &LoweredValue,
+    op: AssignOp,
+    value: LoweredValue,
+    singleton: bool,
+    check: &LoweredTypeCheck,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let rhs = if singleton { LoweredValue::List(vec![value]) } else { value };
+    let replacement = if op == AssignOp::Set { rhs } else { lowered_assign_value(op, current.clone(), rhs, span)? };
+    validate_indexed_assignment(&replacement, check, span)?;
+    Ok(replacement)
+}
+
 // Validate the complete path before copying or rebuilding an ancestor. The root
 // is observed after the RHS so unrelated changes made by either operand survive.
 fn apply_indexed_path_assignment(
@@ -9595,6 +9637,7 @@ fn apply_indexed_path_assignment(
     op: AssignOp,
     value: LoweredValue,
     singleton: bool,
+    check: Option<&LoweredTypeCheck>,
     span: Span,
 ) -> Result<(), RuntimeError> {
     let mut selected = &*root;
@@ -9631,7 +9674,7 @@ fn apply_indexed_path_assignment(
     let selected = inline_field.as_ref().unwrap_or(selected);
     // Fallible arithmetic finishes before mutable descent. List concatenation is
     // safe to consume in place once both operand types have been established.
-    let consume_list = op == AssignOp::Add && matches!(selected, LoweredValue::List(_) | LoweredValue::SharedList(_))
+    let consume_list = check.is_none() && op == AssignOp::Add && matches!(selected, LoweredValue::List(_) | LoweredValue::SharedList(_))
         && (singleton || matches!(value, LoweredValue::List(_) | LoweredValue::SharedList(_)));
     let mut operand = Some(value);
     let replacement = if consume_list { None } else {
@@ -9639,6 +9682,9 @@ fn apply_indexed_path_assignment(
         let rhs = if singleton { LoweredValue::List(vec![value]) } else { value };
         Some(if op == AssignOp::Set { rhs } else { lowered_assign_value(op, selected.clone(), rhs, span)? })
     };
+    if let (Some(check), Some(replacement)) = (check, replacement.as_ref()) {
+        validate_indexed_assignment(replacement, check, span)?;
+    }
     let mut selected = root;
     for (position, step) in path.iter().enumerate() {
         selected = match step {
@@ -9762,17 +9808,17 @@ print $marker.name
         };
         let path = [ResolvedAssignStep::Map("selected".into()), ResolvedAssignStep::List(1)];
         let original = backing(&root);
-        apply_indexed_path_assignment(&mut root, &path, AssignOp::Set, LoweredValue::Int(9), false, span).unwrap();
+        apply_indexed_path_assignment(&mut root, &path, AssignOp::Set, LoweredValue::Int(9), false, None, span).unwrap();
         assert_eq!(backing(&root), original);
         let alias = root.clone();
-        apply_indexed_path_assignment(&mut root, &path, AssignOp::Set, LoweredValue::Int(10), false, span).unwrap();
+        apply_indexed_path_assignment(&mut root, &path, AssignOp::Set, LoweredValue::Int(10), false, None, span).unwrap();
         let changed = backing(&root);
         assert_ne!(changed.0, original.0);
         assert_ne!(changed.1, original.1);
         assert_eq!(changed.2, original.2);
         assert_eq!(backing(&alias), original);
         let invalid = [ResolvedAssignStep::Map("selected".into()), ResolvedAssignStep::List(99)];
-        assert!(apply_indexed_path_assignment(&mut root, &invalid, AssignOp::Set, LoweredValue::Int(0), false, span).is_err());
+        assert!(apply_indexed_path_assignment(&mut root, &invalid, AssignOp::Set, LoweredValue::Int(0), false, None, span).is_err());
         assert_eq!(backing(&root), changed);
     }
 
@@ -9783,22 +9829,22 @@ print $marker.name
         let mut owned = LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(2)]);
         let LoweredValue::List(list) = &owned else { unreachable!() };
         let backing = list.as_ptr();
-        apply_indexed_path_assignment(&mut owned, &path, AssignOp::Set, LoweredValue::Int(9), false, span).unwrap();
+        apply_indexed_path_assignment(&mut owned, &path, AssignOp::Set, LoweredValue::Int(9), false, None, span).unwrap();
         let LoweredValue::List(list) = &owned else { unreachable!() };
         assert_eq!(list.as_ptr(), backing);
         let mut shared = LoweredValue::SharedList(Arc::new(vec![LoweredValue::Int(1), LoweredValue::Int(2)]));
         let LoweredValue::SharedList(list) = &shared else { unreachable!() };
         let backing = Arc::as_ptr(list);
-        apply_indexed_path_assignment(&mut shared, &path, AssignOp::Set, LoweredValue::Int(9), false, span).unwrap();
+        apply_indexed_path_assignment(&mut shared, &path, AssignOp::Set, LoweredValue::Int(9), false, None, span).unwrap();
         let LoweredValue::SharedList(list) = &shared else { unreachable!() };
         assert_eq!(Arc::as_ptr(list), backing);
         let alias = shared.clone();
-        apply_indexed_path_assignment(&mut shared, &path, AssignOp::Add, LoweredValue::Int(1), false, span).unwrap();
+        apply_indexed_path_assignment(&mut shared, &path, AssignOp::Add, LoweredValue::Int(1), false, None, span).unwrap();
         assert_eq!(alias, LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(9)]));
         assert_eq!(shared, LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(10)]));
         let LoweredValue::SharedList(list) = &shared else { unreachable!() };
         let backing = Arc::as_ptr(list);
-        assert!(apply_indexed_path_assignment(&mut shared, &path, AssignOp::Div, LoweredValue::Int(0), false, span).is_err());
+        assert!(apply_indexed_path_assignment(&mut shared, &path, AssignOp::Div, LoweredValue::Int(0), false, None, span).is_err());
         let LoweredValue::SharedList(list) = &shared else { unreachable!() };
         assert_eq!(Arc::as_ptr(list), backing);
         assert_eq!(list[1], LoweredValue::Int(10));

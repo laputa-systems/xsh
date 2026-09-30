@@ -1148,6 +1148,9 @@ pub(crate) trait ScriptStream: Send {
         span: Span,
     ) -> Result<ScriptStreamStep, RuntimeError>;
 
+    /// Validate one reached item before it crosses this producer's boundary.
+    fn validate_item(&self, value: &Value, span: Span) -> Result<(), RuntimeError>;
+
     /// Resume this frame after its delegated child has exhausted.
     fn delegated_finished(&mut self);
 

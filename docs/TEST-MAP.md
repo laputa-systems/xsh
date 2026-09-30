@@ -960,3 +960,10 @@ and rejected unanchored contexts. `cargo test -p xsht --test integration
 inferred_require` covers argument-only source fixes and convergence;
 `cargo test -p xsh --lib inferred_require` covers prepared schemas after
 frontend disposal on both indexed execution routes.
+
+UInt mutation boundaries: `tests/xsh/uint-mutation.xsh` pins scalar, record,
+List, Map, whole replacement, compound arithmetic, selector order, RHS effects,
+failure atomicity, call arguments/defaults/returns, constructor payloads, functional
+method operands, and reached producer items. Broaden with native list-assignment
+and stdlib Map gates,
+and indexed verifier execution on both routes.

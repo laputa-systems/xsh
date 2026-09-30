@@ -63,10 +63,23 @@ impl Evaluator {
                 Ok(ScriptStreamStep::Yielded(value)) => {
                     let escaped = parents.iter().any(|(_, _, _, context)| context.is_some())
                         && Self::context_scope_runtime_value_escapes(&value);
+                    // A delegated item crosses every retained producer boundary.
+                    // Validate only this item, then stop child and parent frames on failure.
+                    let validated = current.lock(current_span).and_then(|producer| producer.validate_item(&value, current_span))
+                        .and_then(|()| {
+                            for (parent, parent_span, _, _) in parents.iter().rev() {
+                                parent.lock(*parent_span)?.validate_item(&value, *parent_span)?;
+                            }
+                            Ok(())
+                        });
                     for (_, _, count, context) in parents.iter().rev() { self.detach_owned_host_scopes(*count); if let Some(context) = context { self.swap_producer_context(context.clone()); } }
                     if escaped {
                         let _ = self.cancel_script_state(root, span);
                         return Err(RuntimeError::new("context-scope-escape", "a delegated live producer or host handle cannot escape a context").with_span(current_span));
+                    }
+                    if let Err(error) = validated {
+                        let _ = self.cancel_script_state(root, span);
+                        return Err(error);
                     }
                     return Ok(Some(value));
                 }

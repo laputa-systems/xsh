@@ -7,7 +7,7 @@ use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
 };
 use super::{
-    IndexedAssignStep, ResolvedAssignStep, decode_assign_path, apply_indexed_path_assignment, resolve_assign_index, IndexedCompQualifier, decode_comp_qualifiers, decode_record_updates, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
+    checked_indexed_assignment, IndexedAssignStep, ResolvedAssignStep, decode_assign_path, apply_indexed_path_assignment, resolve_assign_index, IndexedCompQualifier, decode_comp_qualifiers, decode_record_updates, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
@@ -17,7 +17,8 @@ use super::{
     append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
-    lowered_return_value, lowered_splice_arg_items, lowered_result_ok, lowered_result_err_value,
+    lowered_splice_arg_items, lowered_result_ok, lowered_result_err_value,
+
     lowered_str_parts, lowered_value_from_runtime_any, 
     push_lowered_fmt_value, push_lowered_native_fmt_value, capture_checked_error,
 };
@@ -83,6 +84,7 @@ struct AssignPathState {
     op: AssignOp,
     value: u32,
     singleton: bool,
+    check: Option<LoweredTypeCheck>,
     span: Span,
 }
 
@@ -107,6 +109,7 @@ enum FrameContinuation {
         slot: usize,
         op: AssignOp,
         singleton: bool,
+        check: Option<LoweredTypeCheck>,
         span: Span,
     },
     AssignSelector(AssignPathState),
@@ -225,6 +228,11 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
+    CheckedValue {
+        check: LoweredTypeCheck,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
     Require {
         check: LoweredTypeCheck,
         span: Span,
@@ -327,6 +335,7 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
             | FrameContinuation::DynamicArguments { next, .. }
             | FrameContinuation::Try { next, .. }
             | FrameContinuation::Require { next, .. }
+            | FrameContinuation::CheckedValue { next, .. }
             | FrameContinuation::MethodReceiver { next, .. }
             | FrameContinuation::MethodArg { next, .. }
             | FrameContinuation::FmtValue { next, .. }
@@ -1418,6 +1427,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
+                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 let (value, singleton) = indexed_assignment_operand(&self.calls[index].execution, value, op, value_span)?;
@@ -1429,6 +1439,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         slot,
                         op,
                         singleton,
+                        check,
                         span: value_span,
                     },
                 );
@@ -1439,10 +1450,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let path = decode_assign_path(&self.calls[index].execution, &mut payload, span)?;
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
+                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 let (value, singleton) = indexed_assignment_operand(&self.calls[index].execution, value, op, span)?;
-                self.advance_assign_path(index, AssignPathState { slot, path, selectors: Vec::new(), position: 0, op, value, singleton, span });
+                self.advance_assign_path(index, AssignPathState { slot, path, selectors: Vec::new(), position: 0, op, value, singleton, check, span });
                 Ok(())
             }
             FullTag::StmtExpr => {
@@ -2085,6 +2097,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
+            FullTag::ExprCheckedValue => {
+                let value = indexed_raw(&mut payload, span)?;
+                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, value, span, FrameContinuation::CheckedValue { check, span, next: Box::new(next) });
+            }
             FullTag::ExprRequire => {
                 let value = indexed_raw(&mut payload, span)?;
                 let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
@@ -2121,8 +2140,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 // taken out of the slot rather than copied. Anything else — a
                 // nested call, a different destination — keeps the plain copy.
                 let consume = match &next {
-                    FrameContinuation::Assign { slot, op, .. }
-                        if *op == AssignOp::Set
+                    FrameContinuation::Assign { slot, op, check, .. }
+                        if *op == AssignOp::Set && check.is_none()
                             && indexed_slot_read(
                                 &self.calls[index].execution,
                                 receiver,
@@ -2290,10 +2309,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Assign { slot, op, singleton, span } => match value {
+            FrameContinuation::Assign { slot, op, singleton, check, span } => match value {
                 FrameValue::Value(value) => {
                     self.check_context_assignment(index, slot, &value, span)?;
-                    let value = apply_indexed_assignment(&mut self.calls[index].slots[slot], op, value, singleton, span)?;
+                    let value = if let Some(check) = check.as_ref() {
+                        checked_indexed_assignment(&self.calls[index].slots[slot], op, value, singleton, check, span)?
+                    } else {
+                        apply_indexed_assignment(&mut self.calls[index].slots[slot], op, value, singleton, span)?
+                    };
+
                     let owner_scope = self.calls[index].slot_scopes[slot];
                     let source_scope = self.evaluator.current_scope_id();
                     self.evaluator
@@ -2318,7 +2342,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::AssignPath(state) => match value {
                 FrameValue::Value(value) => {
                     self.check_context_assignment(index, state.slot, &value, state.span)?;
-                    apply_indexed_path_assignment(&mut self.calls[index].slots[state.slot], &state.selectors, state.op, value, state.singleton, state.span)?;
+                    apply_indexed_path_assignment(&mut self.calls[index].slots[state.slot], &state.selectors, state.op, value, state.singleton, state.check.as_ref(), state.span)?;
+
                     self.evaluator.transfer_owned_host_resources_in_lowered_value(
                         &self.calls[index].slots[state.slot], self.evaluator.current_scope_id(), self.calls[index].slot_scopes[state.slot],
                     );
@@ -2821,6 +2846,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         RuntimeError::new("type-error", "lowered `?` expected Result")
                             .with_span(span),
                     );
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::CheckedValue { check, span, next } => match value {
+                FrameValue::Value(value) => {
+                    super::super::checked_unsigned_value(&value, &check, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
@@ -3545,7 +3577,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let value = match flow {
             StmtFlow::Return(LoweredValue::Unit) if call.producer => Ok(LoweredValue::Unit),
             StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                lowered_return_value(header.return_kind, value, return_span)
+                super::super::checked_lowered_return_value(&header, value, return_span)
             }
             // A producer ends by running out of statements; that is the end of
             // the stream, not a function that failed to return.

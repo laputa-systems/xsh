@@ -1,6 +1,6 @@
 proc scalar_count() [] -> Int {
   var count = 0
-  for character in "é🙂" { count += character.count_bytes() }
+  for character in "é🙂" { count += character.byte_len() }
   for octet in b"\x00\xff" { count += octet }
   count
 }

@@ -321,14 +321,14 @@ impl Checker {
             }
             return Type::Float;
         }
-        if !matches!(left, Type::Int | Type::Unknown) {
+        if !matches!(left, Type::Int | Type::UInt | Type::Unknown) {
             self.error(
                 op_span,
                 "compound assignment requires Int or Float operands",
                 "check.operator-type",
             );
         }
-        if !matches!(right, Type::Int | Type::Unknown) {
+        if !matches!(right, Type::Int | Type::UInt | Type::Unknown) {
             self.error(
                 rhs_span,
                 "compound assignment requires Int operands",

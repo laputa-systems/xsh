@@ -155,6 +155,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprContains,
     ExprRegexCompile,
     ExprRequire,
+    ExprCheckedValue,
     ExprRunCapture,
     ExprRunPipeline,
     ExprSpawnRun,
@@ -1357,6 +1358,9 @@ impl<'a> FullFunctionView<'a> {
                 .semantic
                 .signature_return_type(function.signature)?,
         )?;
+        let return_check = return_type.has_unsigned_constraint().then(|| LoweredTypeCheck {
+            name: Arc::from(return_type.to_string()), ty: return_type.clone(), schema: None,
+        });
         let return_kind = match return_type {
             Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
             ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
@@ -1369,6 +1373,7 @@ impl<'a> FullFunctionView<'a> {
             param_defaults,
             captures: decoded_captures,
             return_kind,
+            return_check,
             slot_count: function.slot_count as usize,
         })
     }
@@ -1902,7 +1907,9 @@ impl FullBuilder {
                     slot_and_flags: slot | u32::from(capture.mutable) << 31,
                 });
             }
-            let return_type = self.intern_return_type(body.return_kind)?;
+            let return_type = if let Some(check) = &body.return_check {
+                self.semantic.intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
+            } else { self.intern_return_type(body.return_kind)? };
             let signature = self.semantic.intern_signature_parts(
                 &mut self.store.semantic,
                 &signature_params,
@@ -7354,6 +7361,11 @@ impl_node_codec! {
             pattern: BuildExprId,
             span: Span,
         } => BuildExprRow::RegexCompile { pattern, span },
+        BuildExprRow::CheckedValue { value, check, span } => ExprCheckedValue {
+            value: BuildExprId,
+            check: LoweredTypeCheck,
+            span: Span,
+        } => BuildExprRow::CheckedValue { value, check, span },
         BuildExprRow::Require { value, check, span } => ExprRequire {
             value: BuildExprId,
             check: LoweredTypeCheck,
@@ -7774,16 +7786,19 @@ impl_node_codec! {
             slot,
             op,
             value,
+            check,
             span,
         } => StmtAssign {
             slot: usize,
             op: AssignOp,
             value: BuildExprId,
+            check: Option<LoweredTypeCheck>,
             span: Span,
         } => BuildStmtRow::Assign {
             slot,
             op,
             value,
+            check,
             span,
         },
         BuildStmtRow::AssignField {
@@ -7824,13 +7839,14 @@ impl_node_codec! {
             value,
             span,
         },
-        BuildStmtRow::AssignPath { slot, path, op, value, span } => StmtAssignPath {
+        BuildStmtRow::AssignPath { slot, path, op, value, check, span } => StmtAssignPath {
             slot: usize,
             path: LoweredAssignPath,
             op: AssignOp,
             value: BuildExprId,
+            check: Option<LoweredTypeCheck>,
             span: Span,
-        } => BuildStmtRow::AssignPath { slot, path, op, value, span },
+        } => BuildStmtRow::AssignPath { slot, path, op, value, check, span },
         BuildStmtRow::AssignInt {
             slot,
             op,
@@ -9311,6 +9327,35 @@ proc main() [error] {
                 ).expect("known field function exists");
                 let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                 assert_eq!(result.unwrap(), Value::Int(8));
+            }
+        });
+    }
+
+    #[test]
+    fn uint_mutation_checks_execute_both_indexed_routes_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("uint-mutation.xsh", include_str!("../../../../tests/fixtures/frontend-indexed/uint-mutation.xsh")));
+            FullVerifier::verify(&program).unwrap();
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCheckedValue).expect("constructors and method operands retain checked values");
+            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut malformed = (*program).clone();
+            malformed.store.extra[words.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).is_err(), "checked value types must refer to the semantic pool");
+            for recursive in [false, true] {
+                for name in ["scalar_failure", "compound_failure", "record_failure", "list_failure", "map_failure", "append_failure", "valid_updates", "argument_failure", "return_failure", "tail_failure", "default_failure", "list_default_failure", "list_return_failure", "map_return_failure", "record_return_failure", "list_argument_failure", "map_argument_failure", "record_argument_failure", "map_default_failure", "record_default_failure", "result_return_failure", "producer_failure", "nested_producer_failure", "accept", "negative_return", "defaulted", "list_defaulted", "map_defaulted", "record_defaulted", "tag_failure", "error_failure", "method_list_failure", "method_map_failure", "method_fallback_failure", "method_map_push_failure", "inferred_if_failure", "inferred_match_failure", "builtin_creation_failure", "branch_creation_failure"] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let args = if matches!(name, "argument_failure" | "return_failure" | "list_return_failure" | "map_return_failure" | "record_return_failure" | "list_argument_failure" | "map_argument_failure" | "record_argument_failure" | "result_return_failure" | "producer_failure" | "nested_producer_failure" | "accept" | "negative_return" | "tag_failure" | "error_failure" | "method_list_failure" | "method_map_failure" | "method_fallback_failure" | "method_map_push_failure" | "inferred_if_failure" | "inferred_match_failure" | "builtin_creation_failure" | "branch_creation_failure") { vec![Value::Int(-1)] } else { Vec::new() };
+                    let kind = if matches!(name, "producer_failure" | "nested_producer_failure") { LoweredFunctionKind::Proc } else { LoweredFunctionKind::Pure };
+                    let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, name)), kind, &args, Span::new(program.store.source_id, 0, 0)).expect("UInt function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    if name == "valid_updates" { assert_eq!(result.unwrap(), Value::Int(8)); }
+                    else {
+                        let error = result.unwrap_err();
+                        assert_eq!(error.kind, "type-error", "{name}");
+                        assert!(error.message.contains("UInt") || error.message.contains("UnsignedRow"), "{name}: {}", error.message);
+                    }
+                }
             }
         });
     }

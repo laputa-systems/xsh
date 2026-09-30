@@ -124,6 +124,17 @@ impl CallableType {
 }
 
 impl Type {
+    /// Whether runtime storage must preserve a nonnegative integer constraint.
+    pub(crate) fn has_unsigned_constraint(&self) -> bool {
+        match self {
+            Self::UInt => true,
+            Self::List(item) | Self::Stream(item) | Self::Optional(item) => item.has_unsigned_constraint(),
+            Self::Map(key, value) | Self::Result(key, value) => key.has_unsigned_constraint() || value.has_unsigned_constraint(),
+            Self::Record(fields) => fields.values().any(Self::has_unsigned_constraint),
+            _ => false,
+        }
+    }
+
     pub fn is_map_key(&self) -> bool {
         matches!(self, Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Bytes | Self::Path | Self::Duration)
     }

@@ -545,6 +545,7 @@ struct FunctionBuild {
     param_defaults: LoweredParamDefaults,
     captures: LoweredTopLevelSlots,
     return_kind: LoweredReturnKind,
+    return_check: Option<LoweredTypeCheck>,
     slot_count: usize,
     body: Vec<BuildStmtId>,
     has_defers: bool,
@@ -560,6 +561,7 @@ struct FunctionHeader {
     param_defaults: LoweredParamDefaults,
     captures: LoweredTopLevelSlots,
     return_kind: LoweredReturnKind,
+    return_check: Option<LoweredTypeCheck>,
     slot_count: usize,
 }
 
@@ -1106,6 +1108,8 @@ enum BuildStmtRow {
         slot: usize,
         op: AssignOp,
         value: BuildExprId,
+        // Validate the final replacement before offering storage to consuming operations.
+        check: Option<LoweredTypeCheck>,
         span: Span,
     },
     AssignField {
@@ -1127,6 +1131,7 @@ enum BuildStmtRow {
         path: LoweredAssignPath,
         op: AssignOp,
         value: BuildExprId,
+        check: Option<LoweredTypeCheck>,
         span: Span,
     },
     AssignInt {
@@ -1507,6 +1512,12 @@ enum BuildExprRow {
     },
     RegexCompile {
         pattern: BuildExprId,
+        span: Span,
+    },
+    // Preserve a checked domain while retaining ordinary runtime failure semantics.
+    CheckedValue {
+        value: BuildExprId,
+        check: LoweredTypeCheck,
         span: Span,
     },
     Require {

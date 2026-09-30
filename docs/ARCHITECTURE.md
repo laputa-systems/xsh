@@ -929,3 +929,18 @@ type and named application identities; compact body facts carry that target
 into `runtime/eval/lower.rs`. Both explicit and inferred forms intern the same
 `PreparedSchema` and emit the existing validation row. Indexed execution needs
 neither annotations nor frontend arenas to validate the receiver.
+`Type::has_unsigned_constraint` identifies typed storage and callable boundaries
+whose Int representation must remain nonnegative. `lower.rs` retains checks on
+assignment rows and primitive parameters. `BuildExprRow::CheckedValue` guards
+collection and branch creation, concrete builtin results, nominal constructor
+payloads, and receiver arguments using the instantiated
+canonical method signature. Receiver and operand bindings retain source order
+before these guards run; precise checked return types remain
+in the indexed semantic signature. `checked_indexed_assignment` and
+`checked_lowered_return_value` validate before storage or outward return.
+Checked assignments disable consuming receiver shortcuts until validation
+succeeds, so failure preserves the current root and shared aliases.
+`ScriptProducer` retains the checked item type; `stream.rs::pull_script_state`
+validates each reached item against its producer and retained delegation ancestors.
+It uses the existing iterative cancellation path after failure, preserving child
+before parent cleanup without buffering or materializing future output.

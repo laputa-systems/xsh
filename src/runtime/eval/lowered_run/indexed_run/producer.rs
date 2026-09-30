@@ -29,6 +29,7 @@ pub(super) struct ScriptProducer {
     kind: LoweredFunctionKind,
     call_span: Span,
     definition_span: Span,
+    item_check: Option<super::LoweredTypeCheck>,
     /// The body's remaining work, its slots, its registered defers, and the
     /// lexical scopes it opened. `None` only while a step owns it.
     frame: Option<ProducerFrameState>,
@@ -107,6 +108,19 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
         evaluator.pull_script_producer(self, span)
     }
 
+    fn validate_item(&self, value: &super::Value, span: Span) -> Result<(), RuntimeError> {
+        if let Some(check) = &self.item_check {
+            if !super::super::super::value_matches_static_type(value, &check.ty) {
+                let span = match &self.delegated {
+                    Some(DelegatedSource::Stream { span, .. }) => *span,
+                    _ => span,
+                };
+                return Err(RuntimeError::new("type-error", format!("yield violates UInt constraint in {}", check.name)).with_span(span));
+            }
+        }
+        Ok(())
+    }
+
     fn delegated_finished(&mut self) {
         self.delegated = None;
     }
@@ -159,12 +173,25 @@ impl Evaluator {
         // The call scope is entered on the first pull, so a producer whose body
         // never starts never owns one.
         let frame = ProducerFrameState::begin_body(statements, slots);
+        let header = view.header().map_err(|error| super::indexed_error(error, call_span))?;
+        let item_check = header.return_check.clone().and_then(|check| {
+            let ty = match check.ty {
+                crate::sema::types::Type::Stream(item) => *item,
+                crate::sema::types::Type::Result(ok, _) => match *ok {
+                    crate::sema::types::Type::Stream(item) => *item,
+                    _ => return None,
+                },
+                _ => return None,
+            };
+            ty.has_unsigned_constraint().then(|| super::LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None })
+        });
         let state = ScriptStreamState::new(ScriptProducer {
             program,
             function,
             kind,
             call_span,
             definition_span,
+            item_check,
             frame: Some(frame),
             started: false,
             finished: false,
@@ -509,6 +536,7 @@ impl ProcessProducer {
 }
 
 impl crate::runtime::value::ScriptStream for ProcessProducer {
+    fn validate_item(&self, _value: &super::Value, _span: Span) -> Result<(), RuntimeError> { Ok(()) }
     fn finished(&self) -> bool { self.finished }
     fn delegated_finished(&mut self) {}
     fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>) { (None, Vec::new(), None) }

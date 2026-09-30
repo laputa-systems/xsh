@@ -394,7 +394,27 @@ Integer literals are decimal or octal. Octal literals use `0o` followed by
 octal digits, such as `0o755`. A leading `-` is parsed as unary minus rather
 than as part of the literal.
 
-`UInt` is the non-negative integer type.
+`UInt` is the non-negative integer type. Typed mutable storage preserves this
+constraint through aliases, record fields, List elements, and Map values.
+Assignment evaluates selectors and the RHS in the ordinary order, then validates
+the replacement (including the result of compound arithmetic) before storing it.
+A negative replacement fails with `type-error`; the selected storage and aliases
+remain unchanged, while effects already performed by selectors or the RHS remain.
+Replacing a container or appending elements validates its nested UInt constraints.
+Checked collection creation, branch/fallback results, builtin results, and inferred
+bindings retain this domain too. Direct collection inputs to loops and native
+stages cannot carry negative elements under a UInt item type.
+Nominal tag/error payloads and functional List/Map method operands also preserve
+their declared constraints before a new value is published. All authored call
+operands evaluate once in source order before call-level domain validation.
+Ordinary call arguments, prepared defaults, and returned values preserve the same
+constraint, including nested containers and implicit tails. These domain failures
+are runtime type failures and run ordinary cleanup; `try` does not convert them
+into Result data. Use `value.require(UInt)?` for recoverable validation.
+Declared Stream item constraints are checked as each item is produced, including
+items crossing retained delegation boundaries. No later item is pulled to validate
+the current one; rejection stops delegated children before their parents and runs
+registered cleanup once. Cancellation skips unreached invalid items.
 
 Float literals require a decimal point followed by at least one digit or an
 exponent: `1.0`, `0.25`, `10e-3`, and `1.5e6`. They produce `Float` values.
