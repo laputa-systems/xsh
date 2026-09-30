@@ -591,8 +591,36 @@ fn native_xsh_net_http_contracts() {
 
 #[cfg(feature = "net")]
 #[test]
-fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
+fn net_job_progresses_while_synchronous_request_waits() {
     let server = ConcurrentProgressServer::spawn();
+    let _idle = std::net::TcpStream::connect(server.url.strip_prefix("http://").unwrap())
+        .expect("open idle concurrent-progress connection");
+    let source = format!(
+        r#"
+let job = net.start({{method: "GET", url: "{url}/job", headers: [{{name: "Connection", value: "close"}}]}})?
+let foreground = net.request({{method: "GET", url: "{url}/sync", headers: [{{name: "Connection", value: "close"}}]}})?
+print ${{foreground.body.utf8()?}} ${{job.wait()?.body.utf8()?}}
+"#,
+        url = server.url,
+    );
+    let output = run_temp_script("net-concurrent-progress", &source);
+    let completion = server.join();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    completion.expect("concurrent-progress server");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "sync job\n");
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
+    crate::runtime::common::workspace_binary("xsht");
+    // Native test discovery precedes transport; parsed requests start the
+    // ordinary request deadline, while idle connections leave startup intact.
+    let server = ConcurrentProgressServer::spawn_with_startup_timeout(Duration::from_secs(60));
     // The fixture waits for two parsed requests, even if another socket is idle.
     let _idle = std::net::TcpStream::connect(server.url.strip_prefix("http://").unwrap())
         .expect("open idle concurrent-progress connection");
@@ -601,12 +629,13 @@ fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
         &[("XSH_NET_TEST_CONCURRENT_URL", &server.url)],
         false,
     );
-    server.join();
+    let completion = server.join();
 
     assert_native_xsh_test(
         "test_net_job_progresses_while_synchronous_request_waits",
         output,
     );
+    completion.expect("concurrent-progress server");
 }
 
 #[cfg(feature = "net")]
@@ -1826,6 +1855,10 @@ struct ConcurrentProgressServer {
 #[cfg(feature = "net")]
 impl ConcurrentProgressServer {
     fn spawn() -> Self {
+        Self::spawn_with_startup_timeout(Duration::from_secs(30))
+    }
+
+    fn spawn_with_startup_timeout(startup_timeout: Duration) -> Self {
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").expect("bind concurrent-progress listener");
         listener
@@ -1840,13 +1873,22 @@ impl ConcurrentProgressServer {
         let handle = std::thread::spawn(move || {
             let completed = Arc::new(AtomicUsize::new(0));
             let done = Arc::new(AtomicBool::new(false));
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let request_started = Arc::new(AtomicBool::new(false));
+            let startup_deadline = Instant::now() + startup_timeout;
+            let mut request_deadline = None;
             let mut workers = Vec::new();
-            while completed.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+            while completed.load(Ordering::SeqCst) < 2 {
+                if request_deadline.is_none() && request_started.load(Ordering::SeqCst) {
+                    request_deadline = Some(Instant::now() + Duration::from_secs(30));
+                }
+                if Instant::now() >= request_deadline.unwrap_or(startup_deadline) {
+                    break;
+                }
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let completed = Arc::clone(&completed);
                         let done = Arc::clone(&done);
+                        let request_started = Arc::clone(&request_started);
                         let job_started_tx = job_started_tx.clone();
                         let job_started_rx = job_started_rx.clone();
                         let sync_started_tx = sync_started_tx.clone();
@@ -1864,6 +1906,7 @@ impl ConcurrentProgressServer {
                                 job_response_sent_rx,
                                 completed,
                                 done,
+                                request_started,
                             );
                         }));
                     }
@@ -1889,8 +1932,8 @@ impl ConcurrentProgressServer {
         }
     }
 
-    fn join(self) {
-        self.handle.join().expect("concurrent-progress server");
+    fn join(self) -> std::thread::Result<()> {
+        self.handle.join()
     }
 }
 
@@ -1905,6 +1948,7 @@ fn handle_concurrent_progress_connection(
     job_response_sent_rx: crossbeam_channel::Receiver<()>,
     completed: Arc<AtomicUsize>,
     done: Arc<AtomicBool>,
+    request_started: Arc<AtomicBool>,
 ) {
     stream
         .set_read_timeout(Some(Duration::from_secs(1)))
@@ -1930,6 +1974,7 @@ fn handle_concurrent_progress_connection(
         }
     }
 
+    request_started.store(true, Ordering::SeqCst);
     match path {
         "/job" => {
             job_started_tx
