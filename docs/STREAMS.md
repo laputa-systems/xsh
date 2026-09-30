@@ -153,6 +153,12 @@ aggregate is one pass:
 |> reduce-by(sum: true) { |e| {key: e.ext.lower(), value: {count: 1, size: e.size}} }
 ```
 
+The projection must return the `{key, value}` record directly; a Result-valued
+projection requires an explicit `?`. Fold and reduce callbacks likewise return
+the initial accumulator's complete type. A Result-valued accumulator retains
+Result data, while `?` inside a callback propagates failure and closes the live
+source before the next pull.
+
 The indexed `reduce-by` handler folds serially. For a live source, it reduces
 each row before pulling the next one, uses O(distinct) group storage, and closes
 the producer when reduction fails. The accepted `jobs: N` option is currently

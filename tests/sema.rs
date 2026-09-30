@@ -4405,3 +4405,30 @@ fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
         assert_eq!(compact.expr_types.get(&expression), Some(&expected));
     }
 }
+
+#[test]
+fn fold_complete_accumulator_contracts_match_full_and_compact_facts() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::syntax::arena::ArenaExprKind;
+    for stage in ["fold", "reduce"] {
+        let source = format!("let initial: Result[Int] = Ok(0)\nlet total = [1, 2] |> {stage}(initial) {{ |acc, item| match acc {{ Ok(value) => Ok(value + item), Err(error) => Err(error) }} }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+        let expected = Type::Result(Box::new(Type::Int), Box::new(Type::Error));
+        let mut pipelines = 0;
+        for (id, actual) in &compact.expr_types {
+            let expression = parsed.arena.arena.expr(*id);
+            if matches!(expression.kind, ArenaExprKind::StructuredPipeline { .. }) {
+                assert_eq!(actual, &expected);
+                assert_eq!(checked.expr_types.get(&expression.span), Some(actual));
+                pipelines += 1;
+            }
+        }
+        assert_eq!(pipelines, 1);
+    }
+}

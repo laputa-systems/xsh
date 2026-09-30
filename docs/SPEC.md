@@ -4125,6 +4125,12 @@ their tail must produce the accumulator's type, and the stage returns that
 accumulated value. Fold and reduce blocks run serially, including their effects:
 the block for one item finishes before the next live item is pulled. A block
 may print or run a process directly; its defers run at that item's block exit.
+The accumulator's complete type is invariant: a `Result[T]` callback cannot
+replace a `T` accumulator without explicit `?`. A `Result[T]` initial
+accumulator keeps callback Result values as data, including `Err` values.
+Explicit propagation closes the callback scope and live source before another
+item is pulled. `reduce-by` likewise requires its callback's direct `{key,
+value}` record; a fallible projection must use `?` explicitly.
 Use `each` when no accumulated value is needed.
 
 `map`, `where`, `flat-map`, `each`, `tee`, `sort-by`, `group-by`,

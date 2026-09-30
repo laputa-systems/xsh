@@ -297,7 +297,6 @@ impl Checker {
                 // accumulator type.
                 let actual =
                     self.check_fold_stream_block_arena(arena, source, stage, &acc_ty, &item_ty);
-                let actual = result_ok_or_self(&actual);
                 self.expect_type(&acc_ty, &actual, stage_span);
                 acc_ty
             }
@@ -371,9 +370,12 @@ impl Checker {
             }
             StreamStageKind::ReduceBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                let block_ty = result_ok_or_self(
-                    &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
-                );
+                let block_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
+                let expected = Type::Record(btree_map(vec![
+                    ("key".to_string(), Type::Any),
+                    ("value".to_string(), Type::Any),
+                ]));
+                self.expect_type(&expected, &block_ty, stage_span);
                 let value_ty = match &block_ty {
                     Type::Record(fields) => fields
                         .get(&Name::intern("value"))
