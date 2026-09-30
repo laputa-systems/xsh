@@ -440,7 +440,10 @@ prepared constant defaults are named options, and a final rest `List[Str]` or
 `List[Path]` receives remaining operands. Required positionals precede options.
 The supported scalar parsers are `Str`, `Int`, `UInt`, `Bool`, `Path`, and
 `Duration`; aliases retain their resolved parser, including unsigned validation.
-Snake case option names map to kebab case.
+Omitted defaulted annotations use the checked semantic parameter type for parser
+selection. Inferring that type never permits execution of an ordinary runtime
+default: CLI defaults must still be prepared constants. Snake case option names
+map to kebab case.
 
 The entry derives the existing strict CLI schema and parser. Boolean options
 accept bare switches and explicit Boolean values; other options accept attached

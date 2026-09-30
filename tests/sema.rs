@@ -3863,6 +3863,28 @@ fn signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries() 
 }
 
 #[test]
+fn signature_cli_inferred_defaults_reuse_checked_parameter_facts() {
+    let source = "const defaults = {jobs: 4, timeout: 20ms}\ncli main(jobs = defaults.jobs + 1, timeout = defaults.timeout) [] { let count: Int = jobs; let delay: Duration = timeout }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    for parameter in &parsed.arena.arena.params {
+        let span = parsed.arena.arena.span(parameter.span);
+        assert!(parameter.ty_defaulted);
+        assert_eq!(checked.parameter_types.get(&span), declarations.parameter_types.get(&span));
+        assert!(checked.parameter_types.contains_key(&span));
+    }
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    for (expression, ty) in compact.expr_types {
+        assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(expression).span), Some(&ty));
+    }
+}
+
+#[test]
 fn typed_cause_full_and_compact_inference_retains_only_outer_error() {
     use xsh::frontend::check::Type;
     let source = "error Outer = Failed(message: Str)\nerror Inner = Failed(message: Str)\nlet value = Err(cause: Inner.Failed(message: \"inner\"), Outer.Failed(message: \"outer\"))\n";

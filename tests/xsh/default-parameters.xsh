@@ -19,6 +19,84 @@ print ${explicit()} ${inferred()} ${inferred(9)}
   test.eq(output.stdout, "4 4 9\n")?
 }
 
+test test_default_parameters_cli_uses_checked_inferred_prepared_types [error] { |ctx|
+  let source = r"""const defaults = {jobs: 4, delay: 20ms, verbose: false, tags: [1, 2]}
+cli main(jobs = defaults.jobs + 1, delay = defaults.delay, verbose = defaults.verbose, tags = defaults.tags) [] {
+  let checked_jobs: Int = jobs
+  let checked_delay: Duration = delay
+  let checked_verbose: Bool = verbose
+  let checked_tags: List[Int] = tags
+  print $checked_jobs $checked_delay $checked_verbose ${[f"$tag" for tag in checked_tags].join(",")}
+}
+"""
+  let omitted = test.run_script(ctx, source)?
+  test.ok(omitted.success, omitted.stderr)?
+  test.eq(omitted.stdout, "5 20ms false 1,2\n")?
+  let supplied = test.run_script(ctx, source, ["--jobs=9", "--delay=30ms", "--verbose", "--tags=3"])?
+  test.ok(supplied.success, supplied.stderr)?
+  test.eq(supplied.stdout, "9 30ms true 1,2,3\n")?
+  let help = test.run_script(ctx, source, ["--help"])?
+  test.ok(help.success, help.stderr)?
+  test.ok(help.stdout.contains("Int, default: 5"), help.stdout)?
+  test.ok(help.stdout.contains("Duration, default: 20ms"), help.stdout)?
+}
+
+test test_default_parameters_cli_rejects_runtime_defaults_without_execution [error] { |ctx|
+  let source = r"""proc runtime_default() [io] -> Int { print DEFAULT_EXECUTED; 4 }
+cli main(jobs = runtime_default()) [io] { print BODY_EXECUTED }
+"""
+  for arguments in [[], ["--help"], ["--jobs=9"]] {
+    let rejected = test.run_script(ctx, source, arguments)?
+    test.ok(!rejected.success, rejected.stderr)?
+    test.eq(rejected.stdout, "")?
+    test.ok(!rejected.stderr.contains("check.infer-param"), rejected.stderr)?
+  }
+}
+
+test test_default_parameters_static_alias_keeps_effectful_defaults_once_and_named_slots [error] { |ctx|
+  let output = test.run_script(ctx, r"""proc default_value(label: Str, value: Int) [io] -> Int { print $label; value }
+proc combine(left = default_value("left default", 1), right = default_value("right default", 2)) [io] -> Int { left + right }
+let shared = combine
+let named = shared
+let omitted: Int = named()
+print $omitted
+print ${named(right: default_value("supplied", 8))}
+print ${shared(left: 9, right: 10)}
+print ${named.call(left: 9)}
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "left default\nright default\n3\nsupplied\nleft default\n9\n19\nright default\n11\n")?
+}
+
+test test_default_parameters_keep_generic_constructor_grounding_in_the_default [error] { |ctx|
+  let output = test.run_script(ctx, r"""type Envelope[T] = {value: T}
+type IntEnvelope = Envelope[Int]
+pure explicit(box = IntEnvelope(value: 4)) -> Int { box.value }
+pure inferred(box = Envelope(value: 5)) -> Int { box.value }
+print ${explicit()} ${inferred()}
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "4 5\n")?
+  let rejected = test.run_script(ctx, r"""type Phantom[T] = {label: Str}
+pure unresolved(box = Phantom(label: "empty")) -> Str { box.label }
+print ${unresolved()}
+""")?
+  test.ok(!rejected.success, rejected.stdout)?
+}
+
+test test_default_parameters_nested_local_alias_calls_keep_heap_frames [error] { |ctx|
+  let output = test.run_script(ctx, r"""pure depth(value = 0) -> Int {
+  if value < 1200 {
+    let next = depth
+    next(value: value + 1)
+  } else { value }
+}
+print ${depth()}
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "1200\n")?
+}
+
 test test_default_parameters_keep_stream_defaults_lazy_and_supplied_arguments_eager [error] { |ctx|
   let output = test.run_script(ctx, r"""proc value(label: Str) [io] -> Int {
   print $label

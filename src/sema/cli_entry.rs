@@ -2,7 +2,7 @@ use crate::diagnostic::{Diagnostic, Label, Severity};
 use crate::sema::constants::LiteralConstant;
 use crate::sema::types::Type;
 use crate::symbol::Name;
-use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ExprId, FunctionDefId, StmtId, TypeExprId};
+use crate::syntax::arena::{ArenaParam, ArenaProgram, ArenaStmtKind, ExprId, FunctionDefId, StmtId, TypeExprId};
 
 #[derive(Clone, Debug)]
 pub(crate) struct CliEntryParameter {
@@ -24,7 +24,7 @@ pub(crate) struct CliEntryPlan {
 
 pub(crate) fn validate_cli_entry(
     program: &ArenaProgram,
-    mut type_of: impl FnMut(TypeExprId) -> Type,
+    mut type_of: impl FnMut(&ArenaParam) -> Type,
     mut parser_type: impl FnMut(TypeExprId) -> Option<String>,
     mut default_value: impl FnMut(ExprId) -> Option<LiteralConstant>,
 ) -> (Option<CliEntryPlan>, Vec<Diagnostic>) {
@@ -58,14 +58,14 @@ pub(crate) fn validate_cli_entry(
         let parameter_count = program.arena.params(function.params).len();
         for (index, parameter) in program.arena.params(function.params).iter().enumerate() {
             let span = program.arena.span(parameter.span);
-            let ty = type_of(parameter.ty);
+            let ty = type_of(parameter);
             if !names.insert(parameter.name.to_string().replace('_', "-")) { error(span, "CLI parameter spellings must be unique after snake_case maps to kebab-case"); }
             if parameter.rest && index + 1 != parameter_count { error(span, "a CLI rest parameter must be last"); }
             if parameter.rest && parameter.default.is_some() { error(span, "a CLI rest parameter cannot have a default"); }
             if !parameter.rest && parameter.default.is_none() && default_seen { error(span, "required CLI positionals must precede defaulted options"); }
             default_seen |= parameter.default.is_some();
-            let parser_type = parser_type(parameter.ty).unwrap_or_default();
-            let scalar = |ty: &Type| matches!(ty, Type::Str | Type::Int | Type::Bool | Type::Path | Type::Duration);
+            let parser_type = if parameter.ty_defaulted { inferred_parser_type(&ty) } else { parser_type(parameter.ty) }.unwrap_or_default();
+            let scalar = |ty: &Type| matches!(ty, Type::Str | Type::Int | Type::UInt | Type::Bool | Type::Path | Type::Duration);
             let supported = if parameter.rest {
                 matches!(&ty, Type::List(item) if matches!(item.as_ref(), Type::Str | Type::Path))
             } else if parameter.default.is_some() {
@@ -87,4 +87,14 @@ pub(crate) fn validate_cli_entry(
         entry = Some(CliEntryPlan { statement: id, definition, parameters });
     }
     if diagnostics.is_empty() { (entry, diagnostics) } else { (None, diagnostics) }
+}
+
+// Inferred annotations carry no parser spelling. Only concrete supported CLI
+// domains can supply one; explicit aliases retain their declared parser.
+fn inferred_parser_type(ty: &Type) -> Option<String> {
+    match ty {
+        Type::Str | Type::Int | Type::UInt | Type::Bool | Type::Path | Type::Duration => Some(ty.to_string()),
+        Type::List(item) => Some(format!("List[{}]", inferred_parser_type(item)?)),
+        _ => None,
+    }
 }

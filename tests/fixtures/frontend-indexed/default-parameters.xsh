@@ -8,3 +8,6 @@ pure missing() -> Result[Int, DefaultError] { Err(DefaultError.invalid(message: 
 pure guarded(value = missing()?) -> Result[Int, DefaultError] { Ok(value) }
 pure caught() -> Result[Int, DefaultError] { guarded() }
 pure skipped() -> Result[Int, DefaultError] { guarded(8) }
+
+pure alias_default() -> Int { let selected = choose; selected() }
+pure alias_named() -> Int { let selected = choose; selected(value: 11) }

@@ -144,7 +144,7 @@ impl Checker {
             output.wire_enums = wire_enums;
             collector.diagnostics.extend(wire_diagnostics);
             let (entry, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
-                |ty| output.record_constructors.resolve_type(&program.arena, ty, None),
+                |parameter| output.parameter_types.get(&program.arena.span(parameter.span)).cloned().unwrap_or_else(|| output.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
                 |ty| output.record_constructors.cli_parser_type(&program.arena, ty),
                 |expr| output.prepared_constants.analyze_expression(&program.arena, expr));
             output.cli_entry = entry;

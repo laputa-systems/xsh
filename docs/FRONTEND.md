@@ -393,6 +393,9 @@ The ordinary byte instruction produces `Int` or null. Integer byte slots are
 selected only when an explicit `??` supplies a proven inert Int literal; a
 direct nullable lookup cannot initialize an Int slot. Collection lookup
 instructions retain Result tags, including successful null payloads.
+
+## Checked default parameters
+
 Omitted defaulted parameter annotations are retained by `ArenaParam::ty_defaulted`.
 The placeholder `ty` is parser storage; semantic consumers read
 `CheckOutput::parameter_types` and `CompactDeclOutput::parameter_types`, keyed by
@@ -410,3 +413,11 @@ arguments are still bound during the call, and a producer stopped before its
 first pull executes no defaults. `FullParam` records expression-default presence separately from the
 semantic signature's defaulted flag; omission markers cannot be encoded as
 literal values.
+
+CLI entry validation consumes these checked parameter types after declaration
+analysis; an omitted annotation supplies its parser spelling from the concrete
+supported type. Explicit alias annotations preserve their parser constraints,
+including UInt. CLI default values still come exclusively from preparation.
+Static callable alias dispatch retains lowered arguments through callee binding,
+including private omission markers; nested local alias calls use the same heap
+frame engine as direct calls.

@@ -13,7 +13,7 @@ use super::{
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
-    comparison_chain_assertion_failure, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
+    comparison_chain_assertion_failure, indexed_callable_identity, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
     append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
@@ -207,6 +207,8 @@ enum FrameContinuation {
     YieldDelegate {
         span: Span,
     },
+    DynamicCallee { args: Vec<(u32, u32)>, span: Span, next: Box<FrameContinuation> },
+    DynamicArguments { callee: LoweredValue, args: Vec<(u32, u32)>, argument: usize, values: Vec<LoweredValue>, span: Span, next: Box<FrameContinuation> },
     CallArguments {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
@@ -321,6 +323,8 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
             | FrameContinuation::MatchExprValue { next, .. }
             | FrameContinuation::MatchExprGuard { next, .. }
             | FrameContinuation::CallArguments { next, .. }
+            | FrameContinuation::DynamicCallee { next, .. }
+            | FrameContinuation::DynamicArguments { next, .. }
             | FrameContinuation::Try { next, .. }
             | FrameContinuation::Require { next, .. }
             | FrameContinuation::MethodReceiver { next, .. }
@@ -980,6 +984,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         self.push_call(function, kind, values, span, Some(next))
+    }
+
+    fn push_dynamic_arguments(&mut self, index: usize, callee: LoweredValue, args: Vec<(u32, u32)>, mut argument: usize, mut values: Vec<LoweredValue>, span: Span, next: FrameContinuation) -> Result<(), RuntimeError> {
+        while let Some((kind, instruction)) = args.get(argument).copied() {
+            if kind == 2 {
+                values.push(self.evaluator.indexed_argument_default(&callee, instruction as usize, span)?);
+                argument += 1;
+            } else {
+                self.push_expr(index, instruction, span, FrameContinuation::DynamicArguments { callee, args, argument, values, span, next: Box::new(next) });
+                return Ok(());
+            }
+        }
+        self.evaluator.frame_scratch.recycle_call_args(args);
+        let (function, kind) = indexed_callable_identity(&callee, span)?;
+        if self.program.function_view(function, kind).map_err(|error| indexed_error(error, span))?.is_some() {
+            self.push_resolved_call(index, function, kind, values, span, next)
+        } else if let LoweredFunctionKey::Qualified(qualified) = function {
+            let value = self.evaluator.eval_indexed_external_call(qualified, &values, span)?;
+            self.push_value(index, FrameValue::Value(value), next);
+            Ok(())
+        } else {
+            Err(RuntimeError::new("unresolved-lowered-call", function.display_name()).with_span(span))
+        }
     }
 
     fn push_call(
@@ -2078,6 +2105,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
+            FullTag::ExprDynamicCall => {
+                let callee = indexed_raw(&mut payload, span)?;
+                let mut args = self.evaluator.frame_scratch.take_call_args();
+                decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, callee, value_span, FrameContinuation::DynamicCallee { args, span: value_span, next: Box::new(next) });
+            }
             FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
                 let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
                     indexed_decode(&mut payload, &self.calls[index].execution, span)?
@@ -2635,6 +2670,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
+            },
+            FrameContinuation::DynamicCallee { args, span, next } => match value {
+                FrameValue::Value(callee) => self.push_dynamic_arguments(index, callee, args, 0, Vec::new(), span, *next)?,
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::DynamicArguments { callee, args, argument, mut values, span, next } => match value {
+                FrameValue::Value(value) => {
+                    match args[argument].0 {
+                        0 => values.push(value),
+                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        _ => return Err(RuntimeError::new("indexed-ir", "invalid dynamic call argument kind").with_span(span)),
+                    }
+                    self.push_dynamic_arguments(index, callee, args, argument + 1, values, span, *next)?;
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::CallArguments {
                 function,

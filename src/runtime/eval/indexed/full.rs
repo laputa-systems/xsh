@@ -10040,7 +10040,7 @@ proc scoped() [io, error] -> Int {
             let program = Arc::new(fixture("default-parameters.xsh", source));
             FullVerifier::verify(&program).unwrap();
             for recursive in [false, true] {
-                for (name, expected) in [("choose", 4), ("nested", 5), ("supplied", 9)] {
+                for (name, expected) in [("choose", 4), ("nested", 5), ("supplied", 9), ("alias_default", 4), ("alias_named", 11)] {
                     let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                     evaluator.indexed_program = Some(Arc::clone(&program));
                     let mut call = || evaluator.call_indexed_direct(

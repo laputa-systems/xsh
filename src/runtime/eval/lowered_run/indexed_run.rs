@@ -7327,7 +7327,7 @@ impl Evaluator {
                     let argument_kind = indexed_raw(&mut args, span)?;
                     if argument_kind == 2 {
                         let slot = indexed_raw(&mut args, span)? as usize;
-                        values.push(self.indexed_argument_default(&callee, slot, span)?.into_value());
+                        values.push(self.indexed_argument_default(&callee, slot, span)?);
                         continue;
                     }
                     let splice = match argument_kind {
@@ -7349,81 +7349,18 @@ impl Evaluator {
                         }
                     };
                     if splice {
-                        values.extend(
-                            lowered_splice_arg_items(value, span)?
-                                .into_iter()
-                                .map(LoweredValue::into_value),
-                        );
+                        values.extend(lowered_splice_arg_items(value, span)?);
                     } else {
-                        values.push(value.into_value());
+                        values.push(value);
                     }
                 }
                 indexed_finish(args, span)?;
-                let result = match callee {
-                    LoweredValue::Pure(function) => self
-                        .call_indexed_direct(
-                            function
-                                .as_name()
-                                .map(LoweredFunctionKey::Name)
-                                .or_else(|| {
-                                    function.as_qualified().map(LoweredFunctionKey::Qualified)
-                                })
-                                .expect("function identity is interned"),
-                            LoweredFunctionKind::Pure,
-                            &values,
-                            span,
-                        )
-                        .ok_or_else(|| {
-                            RuntimeError::new(
-                                "unresolved-call",
-                                format!(
-                                    "dynamic call to {} could not be lowered",
-                                    function.display_name()
-                                ),
-                            )
-                            .with_span(span)
-                        })??,
-                    LoweredValue::Proc(function) => self
-                        .call_indexed_direct(
-                            function
-                                .as_name()
-                                .map(LoweredFunctionKey::Name)
-                                .or_else(|| {
-                                    function.as_qualified().map(LoweredFunctionKey::Qualified)
-                                })
-                                .expect("function identity is interned"),
-                            LoweredFunctionKind::Proc,
-                            &values,
-                            span,
-                        )
-                        .ok_or_else(|| {
-                            RuntimeError::new(
-                                "unresolved-call",
-                                format!(
-                                    "dynamic call to {} could not be lowered",
-                                    function.display_name()
-                                ),
-                            )
-                            .with_span(span)
-                        })??,
-                    other => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!(
-                                "dynamic call expected Pure or Proc, found {}",
-                                other.type_name()
-                            ),
-                        )
-                        .with_span(span));
-                    }
+                let (function, _) = indexed_callable_identity(&callee, span)?;
+                let result = match function {
+                    LoweredFunctionKey::Name(_) => self.eval_indexed_named_call(function, &values, span)?,
+                    LoweredFunctionKey::Qualified(qualified) => self.eval_indexed_external_call(qualified, &values, span)?,
                 };
-                ControlFlow::Continue(lowered_value_from_runtime_any(&result).ok_or_else(|| {
-                    RuntimeError::new(
-                        "type-error",
-                        format!("dynamic call returned unsupported {}", result.type_name()),
-                    )
-                    .with_span(span)
-                })?)
+                ControlFlow::Continue(result)
             }
             FullTag::ExprSelfCall => {
                 let (_, mut args) = execution
@@ -10051,4 +9988,17 @@ pure pipeline(values: List[Int]) -> List[Int] {
         };
         (output.status, output.stdout, output.stderr)
     }
+}
+
+// Defaults retain their private omission marker until the actual callee binds
+// its slots. Callable aliases therefore keep lowered values across dispatch.
+fn indexed_callable_identity(callee: &LoweredValue, span: Span) -> Result<(LoweredFunctionKey, LoweredFunctionKind), RuntimeError> {
+    let (function, kind) = match callee {
+        LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
+        LoweredValue::Proc(function) => (function, LoweredFunctionKind::Proc),
+        other => return Err(RuntimeError::new("type-error", format!("dynamic call expected Pure or Proc, found {}", other.type_name())).with_span(span)),
+    };
+    let key = function.as_name().map(LoweredFunctionKey::Name)
+        .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified)).expect("callable identity is interned");
+    Ok((key, kind))
 }

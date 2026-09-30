@@ -704,11 +704,6 @@ impl Checker {
             self.prepared_constants.analyze_expression(&program.arena, expr));
         self.wire_enums = wire_enums;
         self.diagnostics.extend(wire_diagnostics);
-        let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
-            |ty| self.record_constructors.resolve_type(&program.arena, ty, None),
-            |ty| self.record_constructors.cli_parser_type(&program.arena, ty),
-            |expr| self.prepared_constants.analyze_expression(&program.arena, expr));
-        self.diagnostics.extend(diagnostics);
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());
@@ -719,6 +714,11 @@ impl Checker {
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }
+        let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
+            |parameter| self.checked_parameter_type(program, parameter).unwrap_or_else(|| self.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
+            |ty| self.record_constructors.cli_parser_type(&program.arena, ty),
+            |expr| self.prepared_constants.analyze_expression(&program.arena, expr));
+        self.diagnostics.extend(diagnostics);
     }
 
     pub(crate) fn check_public_module_docs(
