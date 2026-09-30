@@ -1156,7 +1156,7 @@ proc main() [io] {
         let module_path = root.join("helper.xsh");
         fs::write(
             &module_path,
-            "error HelperError = Bad(message: Str)\nexport pure value() -> Int {\n  return 1\n}\n",
+            "##! Helper values.\nerror HelperError = Bad(message: Str)\n## Returns one.\nexport pure value() -> Int {\n  return 1\n}\n",
         )
         .expect("write helper module");
 
@@ -1164,7 +1164,7 @@ proc main() [io] {
             entry_path.to_str().expect("utf-8 temp path"),
             entry_source_from_text(
                 entry_path.to_str().expect("utf-8 temp path"),
-                "use helper as h\nexport let answer = 1\n".to_string(),
+                "##! Entry values.\nuse helper as h\n## The answer.\nexport let answer = 1\n".to_string(),
             ),
             Vec::new(),
         );

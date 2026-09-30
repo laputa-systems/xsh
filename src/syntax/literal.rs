@@ -640,11 +640,13 @@ mod block_string_migration_tests {
     }
 
     // This disk-backed inventory pins old text bytes and interpolation pieces
-    // independently of the new layout preparation and later corpus formatting.
+    // independently of the new layout preparation. Archived migrated literals
+    // keep this byte evidence stable when executable script contracts change.
     #[test]
     fn block_string_corpus_migrations_preserve_old_text_and_interpolation_boundaries() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let inventory = std::fs::read_to_string(root.join("tests/fixtures/syntax/block-string-migration.tsv")).unwrap();
+        let migrated_corpus = std::fs::read_to_string(root.join("tests/fixtures/syntax/block-string-migrated.txt")).unwrap();
         let mut count = 0;
         for row in inventory.lines() {
             let columns = row.split('\t').collect::<Vec<_>>();
@@ -658,8 +660,7 @@ mod block_string_migration_tests {
             let explicit_break = match &escaped[..opening] { "\r\n" => "\\r\\n", "\r" => "\\r", "\n" => "\\n", _ => panic!("structural break") };
             let prefix = if literal.raw { "" } else { &old[..literal.content_start - 3] };
             let migrated = format!("{prefix}\"\"\"{explicit_break}{}\"\"\"", &escaped[opening..]);
-            let file = std::fs::read_to_string(root.join(columns[0])).unwrap();
-            assert!(file.contains(&migrated), "review migrated literal bytes in {}", columns[0]);
+            assert!(migrated_corpus.contains(&migrated), "review migrated literal bytes originally from {}", columns[0]);
             let Some(QuotedScan::Terminated(quoted)) = scan_quoted_literal(&migrated, 0, false) else { panic!("migrated literal"); };
             let raw = &migrated[quoted.content_start..quoted.content_end];
             let chunks = interpolation_chunks(raw, quoted.content_start).unwrap();

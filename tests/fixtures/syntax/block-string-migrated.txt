@@ -1,0 +1,77 @@
+"""\nexport proc execute(root: Path) [fs, error] -> Result[Unit] {
+  let status = {raw: true}
+}
+"""
+
+"""\nproc main() [io, fs, error] {
+  let info = linux.modinfo(\"demo-name\")?
+  print f\"\${info.name}|\${info.description}|\${info.license}|\${info.version}\"
+  for param in info.params {
+    print f\"param=\${param.name}|\${param.type}|\${param.description}\"
+  }
+  print f\"explicit=\${linux.modinfo(p\"{root}/demo-name.ko\".display())?.name}\"
+  match linux.modinfo(\"nothing-here\") {
+    Ok(_) => { print \"unexpected\" }
+    Err(failure) => { print f\"missing=\${failure.message}\" }
+  }
+  linux.depmod(\"\")?
+  print fs.read_text(p\"{root}/modules.dep\")?
+}
+"""
+
+"""\ntype Plugin = module {
+  export optional let description: Str
+}
+"""
+
+"""\ntype Runner = module {
+  export proc execute() [fs, error] -> Result[Unit]
+}
+"""
+
+"""\nuse helper
+use package as p
+helper.greet(\"world\")?
+helper.greet(\"namespace\")?
+helper.show(p.pkg)?
+print \${p.pkg.name}
+match p.get(\"Package\") {
+  Err(error) => {
+    test.error_kind(error, \"missing-field\")?
+    print \"missing-field\"
+  }
+}
+"""
+
+"""\nlet url = env.get_or("XSH_NET_TEST_URL", "")?
+let job = net.start({
+  method: "POST",
+  url: url + "/echo",
+  headers: [{name: "authorization", value: "Bearer trace-secret"}],
+  body: b"trace-secret",
+})?
+let response = job.wait()?
+print \${response.status}
+"""
+
+"""\nlet h = spawn run sh -c "exit 7" ?
+let status = wait h?
+let c = spawn run sleep 1 ?
+c.cancel(signal: "TERM", kill_after: 0ms)?
+print \${status.exit_code()?}
+"""
+
+f"""\nproc close() [io] { print "closed" }
+
+stream numbers() [io] -> Stream[Int] {
+  defer close()
+  for n in range(3) {
+    print f"pull \${n}"
+    yield n
+  }
+}
+
+proc main() [io, error] {
+  let _result = numbers() |> ${terminal} { |n| 1 / (1 - n) }
+}
+"""

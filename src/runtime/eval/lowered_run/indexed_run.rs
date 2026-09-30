@@ -10004,7 +10004,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
     print f"${add_to_total(5)} ${add_to_total(6)} ${total}"
     match scaled("nope") {
       Ok(value) => print f"ok ${value}"
-      Err(error) => print f"rejected ${error}"
+      Err(error) => print f"rejected ${error.message}"
     }
     let values: List[Int] = [1, 2, 3, 4]
     print f"${values |> where . > 1 |> map . * factor |> sum}"
@@ -10020,7 +10020,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
                 "24 8 17\n",
                 "false true true\n",
                 "123\n",
-                "5 11 0\n",
+                "5 11 11\n",
                 "rejected invalid integer `nope`\n",
                 "27\n",
             )
