@@ -208,7 +208,11 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions [fs, erro
   let root = test.temp_dir(ctx, name: "lexical-module")?
   let module_path = fp"${root}/invalid.xsh"
   module_path.write("##! Invalid executable module.\n{ print forbidden }\n## Exported name.\nexport let name = \"invalid\"\n")?
-  let loaded = test.run_script(ctx, f"let _ = module.load(p\"${module_path.display()}\")?\n")?
+  let source = f"""
+    let _ = module.load(p\"${module_path.display()}\")?
+
+    """
+  let loaded = test.run_script(ctx, source)?
   let load_rejected = ! loaded.success
   let load_details = f"loaded status=${loaded.status}: ${loaded.stderr}"
   assert load_rejected, load_details

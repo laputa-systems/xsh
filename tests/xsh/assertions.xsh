@@ -219,7 +219,12 @@ test test_assertion_diagnostics_include_values_and_only_evaluated_operands [erro
 test test_assertion_diagnostics_bound_record_field_names [error] { |ctx|
   var field = ""
   for _ in range(1000) { field = field + "abcdefghij" }
-  let output = test.run_script(ctx, f"let actual = {${field}: null}\n\"missing\" in actual\n")?
+  let source = f"""
+    let actual = {${field}: null}
+    \"missing\" in actual
+
+    """
+  let output = test.run_script(ctx, source)?
   output.status == 3
   assert "abcdefghij" in output.stderr, output.stderr
   output.stderr.byte_len() < 4096
@@ -268,6 +273,9 @@ pure field_predicate(value: Str) -> Bool { value == "present" }
 let fields = {contains: field_predicate, has: field_predicate}
 fields.contains.call("present") == true
 fields.has.call("present") == true
+let erased: Any = fields
+erased.contains("present").require(Bool)? == true
+erased.has("present").require(Bool)? == true
 custom.contains("present")
 custom.has("present")
 print "done"

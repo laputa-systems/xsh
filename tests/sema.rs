@@ -5,6 +5,47 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
 #[test]
+fn context_scope_capture_tail_types_agree_in_full_and_compact_facts() {
+    use xsh::frontend::check::{StatementPosition, Type};
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ArenaStmtKind};
+
+    let source = r#"let text = cd (p".") { run.text sh -c "printf text" ? }?
+let payload = env ({X: "value"}) { run.bytes sh -c "printf bytes" ? }?
+let record = cd (p".") { run.capture --text sh -c "printf record" ? }?
+let nested = cd (p".") { run.text sh -c "printf nested" }?
+let discarded: Unit = cd (p".") { run.text sh -c "printf discarded" ? }?
+let predicate = cd (p".") { false }?
+proc nested_tail() [env, process, error] -> Result[Result[Str, ProcessError]] {
+  cd (p".") { run.text sh -c "printf nested" }
+}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut scopes = 0;
+    for (expr, ty) in &compact.expr_types {
+        let ArenaExprKind::ContextScope { block, .. } = parsed.arena.arena.expr(*expr).kind else { continue; };
+        scopes += 1;
+        let span = parsed.arena.arena.expr(*expr).span;
+        assert_eq!(checked.expr_types.get(&span), Some(ty), "{}", &source[span.range()]);
+        let tail = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(block).statements).last().unwrap();
+        let statement = parsed.arena.arena.stmt(tail);
+        assert_eq!(checked.statement_positions.get(&statement.span), compact.statement_positions.get(&tail));
+        if matches!(statement.kind, ArenaStmtKind::Command(_)) {
+            let body_type = compact.block_types.get(&block).unwrap();
+            assert_eq!(body_type, ty.result_ok().unwrap());
+            let expected = if body_type == &Type::Unit { StatementPosition::Statement } else { StatementPosition::Value };
+            assert_eq!(compact.statement_positions.get(&tail), Some(&expected));
+        }
+    }
+    assert_eq!(scopes, 7);
+}
+
+#[test]
 fn callable_alias_signatures_agree_in_full_and_compact_facts() {
     let source = "pure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\nlet format = render\nlet again = format\nlet result = again(prefix: \"item:\", value: \"one\")\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

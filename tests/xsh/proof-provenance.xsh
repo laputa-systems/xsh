@@ -85,10 +85,19 @@ test test_record_projection_alias_dag_is_bounded_without_expansion [error] { |ct
   var previous = "available"
   for index in range(256) {
     let name = f"available_${index}"
-    source = source + f"let ${name} = ${previous} and ${previous}\n"
+    let alias = f"""
+      let ${name} = ${previous} and ${previous}
+
+      """
+    source = source + alias
     previous = name
   }
-  source = source + f"guard ${previous} else { abort(1) }\nlet checked: Str = value\n" + r"print $checked" + "\n"
+  let guard_source = f"""
+    guard ${previous} else { abort(1) }
+    let checked: Str = value
+
+    """
+  source = source + guard_source + r"print $checked" + "\n"
   let executed = test.run_script(ctx, source)?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed

@@ -5,6 +5,19 @@ mod lint_callable_alias;
 #[path = "lint_cli_entry.rs"]
 mod cli_entry;
 
+#[path = "lint_try_capture.rs"]
+mod lint_try_capture;
+
+#[path = "lint_context_scope.rs"]
+mod context_scope;
+
+#[path = "lint_block_strings.rs"]
+mod block_strings;
+
+#[cfg(test)]
+#[path = "lint_literal_migration_tests.rs"]
+mod literal_migration_tests;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
 use xsh::diagnostic::{Diagnostic, FixHint, Label, Severity};
@@ -47,7 +60,7 @@ fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
     match arena.expr(expr).kind {
         ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_)
         | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::PathStr(_)
-        | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
+        | ArenaExprKind::Duration(_) | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
         ArenaExprKind::List(items) => arena.list_element_exprs(items).all(|item| list_update_argument_stable(arena, item)),
         _ => false,
     }
@@ -137,6 +150,7 @@ struct Binding {
     comparison_stable: bool,
     absence_lookup: bool,
     materialized_record: bool,
+    immutable_byte_length: Option<usize>,
 }
 
 pub struct Linter<'a> {
@@ -337,6 +351,7 @@ impl<'a> Linter<'a> {
         linter.lint_program(&statements);
         linter.lint_defer_block_helpers(&statements);
         if include_reachability { linter.diagnostics.extend(cli_entry::signature_cli_migration(program, source)); }
+        if include_reachability { linter.diagnostics.extend(lint_try_capture::lint_try_capture_helpers(program, source)); }
         if include_reachability {
             linter.lint_declaration_reachability(program);
             linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
@@ -657,8 +672,8 @@ impl<'a> Linter<'a> {
 
     fn lint_prepared_constants(&mut self, statements: &[StmtId]) {
         for &statement in statements {
-            let statement = match self.arena.stmt(statement).kind {
-                ArenaStmtKind::Export(inner) => inner, _ => statement,
+            let (statement, exported) = match self.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => (inner, true), _ => (statement, false),
             };
             let stmt = self.arena.stmt(statement);
             let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } = stmt.kind else { continue; };
@@ -667,7 +682,18 @@ impl<'a> Linter<'a> {
             let Some(expected) = self.expr_types.get(&self.arena.expr(value).span) else { continue; };
             let Some(constant) = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default()) else { continue; };
             if !constant.in_type(expected).matches_data_type(expected) { continue; }
-            let span = Span::new(stmt.span.source_id, stmt.span.start(), stmt.span.start() + 3);
+            let start = if exported {
+                // Exported bindings include the export prefix in their span.
+                // Select the keyword token so spacing and comments stay intact.
+                let text = &self.source[stmt.span.range()];
+                let lexed = xsh::frontend::syntax::lexer::Lexer::new(stmt.span.source_id, text).lex_compact();
+                let Some(index) = (0..lexed.token_table.len()).find(|&index|
+                    lexed.token_table.keyword_at(index) == Some(xsh::frontend::syntax::token::Keyword::Let)
+                ) else { continue; };
+                let Some(keyword) = lexed.token_table.span_at(index, stmt.span.source_id, text) else { continue; };
+                stmt.span.start() + keyword.start()
+            } else { stmt.span.start() };
+            let span = Span::new(stmt.span.source_id, start, start + 3);
             if self.source.get(span.range()) != Some("let") { continue; }
             self.diagnostics.push(Diagnostic::new(Severity::Warning, "module data can be declared as const")
                 .with_code("lint.prefer-const")
@@ -878,12 +904,14 @@ impl<'a> Linter<'a> {
                 self.lint_expr_or_run(&initializer);
                 let absence_lookup = match initializer { ArenaExprOrRun::Expr(value) => self.proven_absence_lookup(value), _ => false };
                 let materialized_record = match initializer { ArenaExprOrRun::Expr(value) => self.proven_materialized_record(value), _ => false };
+                let immutable_byte_length = match initializer { ArenaExprOrRun::Expr(value) => self.proven_immutable_byte_length(value), _ => None };
                 self.define_binding_target(target, stmt.span, true);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind {
                     if let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str())) {
                         binding.comparison_stable = true;
                         binding.absence_lookup = absence_lookup;
                         binding.materialized_record = materialized_record;
+                        binding.immutable_byte_length = immutable_byte_length;
                     }
                 }
             }
@@ -3298,6 +3326,7 @@ impl<'a> Linter<'a> {
     /// A fresh placeholder can disappear only when no cleanup or body work
     /// observes its earlier initialization. Keep mutation semantics for later use.
     fn lint_context_scope_scaffolds(&mut self, stmts: &[StmtId]) {
+        context_scope::lint_command_scope_scaffolds(self, stmts);
         for pair in stmts.windows(2) {
             let declaration = self.arena.stmt(pair[0]);
             let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initial), .. } = declaration.kind else { continue; };
@@ -4994,6 +5023,40 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    fn proven_immutable_byte_length(&self, expr: ExprId) -> Option<usize> {
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::Bytes(bytes) => Some(self.arena.bytes_literal(bytes).len()),
+            ArenaExprKind::Ident(name) if !self.assigned_names.contains(&name) => {
+                let binding = self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str()))?;
+                (!binding.mutable).then_some(binding.immutable_byte_length).flatten()
+            }
+            _ => None,
+        }
+    }
+
+    fn literal_byte_slice_bounds(&self, base: ExprId, offset: i64, length: Option<ExprId>) -> Option<String> {
+        let size = i64::try_from(self.proven_immutable_byte_length(base)?).ok()?;
+        if offset < 0 || offset > size { return None; }
+        let Some(length) = length else { return Some(format!("{offset}..")); };
+        match self.arena.expr(length).kind {
+            ArenaExprKind::Int(value) => self.arena.int_literal(value).value()
+                .filter(|count| *count >= 0)
+                .map(|count| format!("{offset}..{}", offset.saturating_add(count).min(size))),
+            ArenaExprKind::Binary { op: BinaryOp::Sub, left, right }
+                if matches!(self.arena.expr(right).kind, ArenaExprKind::Int(value) if self.arena.int_literal(value).value() == Some(offset)) => {
+                let ArenaExprKind::Call { callee, args } = self.arena.expr(left).kind else { return None; };
+                let ArenaExprKind::Field { base: length_base, name } = self.arena.expr(callee).kind else { return None; };
+                // The length read is removable only for the same immutable
+                // Bytes value, with both offset and subtraction in range.
+                (args.is_empty() && name == "len"
+                    && matches!((self.arena.expr(base).kind, self.arena.expr(length_base).kind),
+                        (ArenaExprKind::Ident(source), ArenaExprKind::Ident(length_source)) if source == length_source))
+                    .then(|| format!("{offset}.."))
+            }
+            _ => None,
+        }
+    }
+
     fn byte_slice_replacement(&self, callee: ExprId, args: ArenaRange, span: Span) -> Option<String> {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
             return None;
@@ -5056,15 +5119,10 @@ impl<'a> Linter<'a> {
                         _ => None,
                     }
                 }
-                _ => None,
+                _ => self.literal_byte_slice_bounds(base, 0, Some(length)),
             },
             (Some(0), None) => Some("..".to_string()),
-            (Some(offset), None) => match receiver.kind {
-                ArenaExprKind::Bytes(bytes) if offset as u64 <= self.arena.bytes_literal(bytes).len() as u64 => {
-                    Some(format!("{offset}.."))
-                }
-                _ => None,
-            },
+            (Some(offset), length) => self.literal_byte_slice_bounds(base, offset, length),
             _ => None,
         };
         let has_comments = self.source[receiver.span.range()].contains('#')
@@ -5607,7 +5665,7 @@ impl<'a> Linter<'a> {
                     if let Some(statement) = self.whole_statement_call_spans.get(&span).copied() {
                         let container_name = self.migration_temporary_name("container", span.start());
                         let item_name = self.migration_temporary_name("item", span.start());
-                        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve operand order with local bindings", format!("let {container_name} = ({container_text}); let {item_name} = ({item_text}); {item_name} {operator} {container_name}")));
+                        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve operand order with local bindings", format!("{{ let {container_name} = ({container_text}); let {item_name} = ({item_text}); {item_name} {operator} {container_name} }}")));
                     }
                 }
             }
@@ -5697,7 +5755,9 @@ impl<'a> Linter<'a> {
                     format!("test.ok({predicate}, message: {}){suffix}", names[&message])
                 } else { predicate };
                 bindings.push_str(&assertion);
-                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve argument order with local bindings", bindings));
+                // Inline match arms accept one expression. A lexical block also
+                // keeps operand snapshots local to the original assertion.
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve argument order with local bindings", format!("{{ {bindings} }}")));
             }
         }
         self.diagnostics.push(diagnostic);
@@ -6022,6 +6082,7 @@ impl<'a> Linter<'a> {
                     comparison_stable: false,
                     absence_lookup: false,
                     materialized_record: false,
+                    immutable_byte_length: None,
                     report_unused: report_unused && name != "_",
                 },
             );
@@ -7548,6 +7609,9 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_nested_value_pipeline(expr);
 
             self.linter.lint_block_string_concatenation(expr);
+            if let Some(diagnostic) = block_strings::lint_formatted_block_string(self.linter.arena, self.linter.source, expr) {
+                self.linter.diagnostics.push(diagnostic);
+            }
             self.linter.lint_list_splicing(expr);
             self.linter.lint_map_literal_chain(expr);
             self.linter.lint_prepared_regex(expr);
@@ -10265,7 +10329,8 @@ fn checked_return_type_shape(ty: &Type) -> String {
 fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
     match arena.expr(value).kind {
         ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_)
-        | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
+        | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_) | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
         ArenaExprKind::List(items) => arena.list_elements(items).all(|item| item.splice_span.is_none() && inert_constant_initializer(arena, item.value)),
         ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().all(|field| match field.kind {
             ArenaRecordFieldKind::Named { value, .. } => inert_constant_initializer(arena, value),

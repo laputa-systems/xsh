@@ -174,8 +174,6 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprFsWrite,
     ExprFsMkdir,
     ExprFsRemove,
-    ExprFsCloseRoot,
-    ExprFsRootPath,
     ExprPathReadText,
     ExprPathReadBytes,
     ExprPathExists,
@@ -2775,8 +2773,6 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 | FullTag::ExprFsWrite
                 | FullTag::ExprFsMkdir
                 | FullTag::ExprFsRemove
-                | FullTag::ExprFsCloseRoot
-                | FullTag::ExprFsRootPath
                 | FullTag::ExprPathReadText
                 | FullTag::ExprPathReadBytes
                 | FullTag::ExprPathExists
@@ -7518,14 +7514,6 @@ impl_node_codec! {
             missing_ok,
             span,
         },
-        BuildExprRow::FsCloseRoot { root, span } => ExprFsCloseRoot {
-            root: BuildExprId,
-            span: Span,
-        } => BuildExprRow::FsCloseRoot { root, span },
-        BuildExprRow::FsRootPath { root, span } => ExprFsRootPath {
-            root: BuildExprId,
-            span: Span,
-        } => BuildExprRow::FsRootPath { root, span },
         BuildExprRow::PathReadText { path, span } => ExprPathReadText {
             path: BuildExprId,
             span: Span,
@@ -10093,6 +10081,41 @@ proc checked() [process, error] {
         let shared = Value::List(vec![process.clone(), process]);
         assert!(Evaluator::context_scope_runtime_value_escapes(&shared));
         assert!(Evaluator::context_scope_value_escapes(&LoweredValue::ResultErr(Box::new(shared))));
+    }
+
+    #[test]
+    fn context_scope_command_capture_tails_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/context-scope-capture-tails.xsh");
+            let program = Arc::new(fixture("context-scope-capture-tails.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                for (name, expected, stdout) in [
+                    ("text_tail", Some(Value::ok(Value::Str(Arc::from("text")))), b"".as_slice()),
+                    ("bytes_tail", Some(Value::ok(Value::Bytes(b"bytes".to_vec()))), b"bytes\n".as_slice()),
+                    ("record_tail", Some(Value::ok(Value::Str(Arc::from("record")))), b"".as_slice()),
+                    ("nested_tail", Some(Value::ok(Value::ok(Value::Str(Arc::from("nested"))))), b"".as_slice()),
+                    ("discarded_tail", Some(Value::ok(Value::Unit)), b"".as_slice()),
+                    ("failed_tail", None, b"".as_slice()),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                        .with_env_var(b"XSH_CAPTURE_TAIL".to_vec(), b"outer".to_vec());
+                    let original_cwd = evaluator.cwd.clone();
+                    let original_env = evaluator.env.snapshot_clone();
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Proc, &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    ).expect("capture tail fixture function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() }.unwrap();
+                    if let Some(expected) = expected { assert_eq!(result, expected, "{name}"); }
+                    else { assert!(matches!(result, Value::Result(crate::runtime::value::ResultValue::Err(_))), "{name}: {result:?}"); }
+                    assert_eq!(evaluator.stdout, stdout, "{name}");
+                    assert_eq!(evaluator.cwd, original_cwd, "{name}");
+                    assert_eq!(evaluator.env.snapshot_clone(), original_env, "{name}");
+                }
+            }
+        });
     }
 
     #[test]

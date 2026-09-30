@@ -1,10 +1,10 @@
 ##! Closed target policy for XSH's development lifecycle.
 ## Keep architecture, toolchain, Docker, and verification properties here.
 ## Product binaries that belong in every distribution.
-export let products = ["xsh", "xsht", "xshi"]
+export const products = ["xsh", "xsht", "xshi"]
 
 ## Cargo features used by release-like distribution builds.
-export let distribution_features = "xsh/net xsh/tools xsht/native-tests"
+export const distribution_features = "xsh/net xsh/tools xsht/native-tests"
 
 ## All properties used by build, container, and verification policy.
 export type Target = {
@@ -37,7 +37,7 @@ enum TargetId {
 export error TargetError = Unsupported(target: Str)
 
 ## The ordinary local distribution target.
-export let default_triple = "x86_64-unknown-linux-musl"
+export const default_triple = "x86_64-unknown-linux-musl"
 
 ## Returns the host-native target triple used when TARGET is unset.
 export pure host_default_triple(os: HostOs, arch: HostArch) -> Result[Str] {

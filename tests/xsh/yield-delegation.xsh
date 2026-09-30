@@ -138,7 +138,11 @@ proc main() [io, error] {
 
 test test_yield_delegation_requires_explicit_list_or_stream [error] { |ctx|
   for value in ["1", "\"text\"", "b\"bytes\"", "{name: 1}", "Ok([1])"] {
-    let output = test.run_script(ctx, f"stream bad() -> Stream[Int] { yield @${value} }\n")?
+    let source = f"""
+      stream bad() -> Stream[Int] { yield @${value} }
+
+      """
+    let output = test.run_script(ctx, source)?
     (output.success) == (false)
     ("check.yield-delegation" in output.stderr)
   }

@@ -10,10 +10,10 @@ safe migration:
 - [Proposals 4–7](ERGONOMICS-AUDIT-4-7.md)
 
 Language feature support does not imply complete autofix support. Remaining
-bounded gaps include helper-to-try elimination, the illustrated command scope
-initializer, formatted block-string migration, forwarding aliases with imported
-defaulted return contracts, and importing workspace context into standalone
-annotation/pipeline proof checks. Suffix slicing and indexed reconstruction
+bounded gaps include forwarding aliases with imported/defaulted return
+contracts and importing workspace context into standalone annotation/pipeline
+proof checks. The reopened pass added bounded helper-to-try elimination, the
+illustrated command scope initializer, and formatted block-string migration. Suffix slicing and indexed reconstruction
 need stronger bounds evidence. Moving defaults, cleanup lifetimes, retry
 selection, accepted exits, and serialization policy remains authored work.
 
@@ -144,3 +144,48 @@ frontend stack regression covers the valid m4 checker-worker crash; frontend
 workers now reserve enough stack for that constructor depth.
 These limits are separate from the clean repository lint gate and the 69 checked
 recipe entrypoints.
+
+## Reopened removal and migration pass
+
+The September 30 pass found maintained package call sites that the earlier
+production-entry check did not cover. It migrated 87 standard membership calls,
+95 removed lookup-default overloads, 119 harness-only test declarations, five
+explicit find-sentinel policies, one filesystem alias, four stream option forms,
+and six environment scopes. Two old lookup defaults in the producer-memory
+benchmark also now use the Result fallback operator. Arbitrary caller-owned
+`contains`/`has` fields and Rust membership primitives remain supported.
+
+The public membership registry removal was already correct. Isolated failures
+exposed two additional implementation bugs: snapshot-based fixes broke inline
+match-arm syntax, and obsolete runtime method-name dispatch intercepted dynamic
+caller-owned `contains`/`has` fields. Lexical snapshot blocks preserve source
+order and scope, while removing stale dispatch restores those user fields.
+Obsolete FsRoot alias lowering, expression tags, codecs and executor branches
+were removed; the receiver operations and host operation identities remain.
+
+The exact command scope example also exposed a missing value-tail behavior.
+Captured text, bytes and records now retain their values in checked value tails
+through full/compact checking and both indexed execution routes. Nested Results,
+Unit discards, scoped defers, failures and context restoration are covered after
+frontend disposal. Four additional literal migration classes now work: module
+Path constants, exported literal keyword spans, Duration appends, and proven
+literal-origin Bytes suffix/count bounds.
+
+Package tests now validate producer-owned build-plan, generation-plan and
+package-metadata DTOs instead of treating erased Records as typed JSON. Of the
+119 original tests, 89 register with their original identities and effects;
+30 remain blocked by errors in imported Kbuild/recipe code. Their test-owned
+diagnostics are resolved. No Any annotation was added to bypass checking.
+The package corpus is not claimed lint-clean or fully executable. Linux package
+builds and proofs were not run. Laputa's stale `xsht check --strict` instruction
+now names the sole ordinary checking contract.
+
+Final verification for this reopened pass: 90 tooling library tests, 222 lint
+integration tests, 65 API tests, 174 semantic tests, and 74 indexed tests pass.
+The four requested read-only performance integration cases pass; configured
+whole-repository lint is clean in 43.049 seconds against the unchanged
+60-second wall budget. A first run exposed eleven diagnostics from newly
+enabled safe literal/fallback eligibility, repaired through scoped source edits.
+Eight changed native payload witnesses and the focused system-report controller
+observation pass. The known package formatter-idempotence failure is retained;
+no formatter CLI, repository autofix command, Linux package build, or proof ran.

@@ -1417,9 +1417,12 @@ the byte units of `.byte_slice()`. For example, `"aé🦀"[1..3]` is `"é🦀"` 
 The offset/count `.slice()` API remains distinct: a negative offset or an offset
 past the end is an error, whereas bracket slicing normalizes those bounds.
 `lint.prefer-slice` fixes nonnegative constant prefixes and proven in-range
-constant suffixes; uncertain offsets, count arithmetic, effectful counts, and
+constant suffixes. Immutable literal-origin Bytes bindings and their aliases
+also prove bounded literal offset/count pairs and the same receiver's
+`len() - offset` suffix; the generated constant end respects count clamping.
+Unknown or mutable bounds, unproved count arithmetic, effectful counts, and
 comments inside a call retain the method with an explanation. No fix introduces
-an addition that could overflow or changes a count into an end bound.
+a runtime addition that could overflow or confuses a count with an end bound.
 
 ### Local Result Capture
 
@@ -1452,6 +1455,18 @@ types use annotation context and compatible nominal error families, with Error
 as the default when no narrower family is established. Error-only blocks with
 an unconstrained success type need a Result annotation. Capture emits no retry
 attempt metadata and performs no sleep.
+
+`lint.prefer-try-capture` eliminates only a private top-level zero-argument helper
+whose sole use is the immediately following eager scalar `??` initializer. Its
+closed straight-line body admits immutable locals, literal Path `read_text`, and
+Str `trim`/`parse_int`; its scalar success/Error boundary and required effect set
+must agree with the written contract. Complete rechecking preserves copied body
+and surrounding expression types, statement purposes, assertions, and remaining
+callable effects. Captures, defaults, meaningful wider effect clauses, helper
+comments, Unit or nested Result boundaries, lexical transfers, cleanup, and nested
+try/retry remain explicit. The diagnostic identifies removal of the helper trace
+and traceback frame; this migration does not claim trace equivalence or convert
+empty retries.
 
 ### Retry Blocks
 
@@ -2381,6 +2396,12 @@ runs and returns `Result[Unit, Error]`. Parenthesized `cd (path) { ... }` and
 return `Result[T, Error]`. A Result-valued tail remains nested; a false predicate
 tail is data in a value body. Statement scopes retain command and assertion
 classification, including plain statement-position runs.
+Captured command tails retain their ordinary value contract: `run.text ... ?`
+produces `Str`, `run.bytes ... ?` produces `Bytes`, and `run.capture ... ?`
+produces its capture record. Omitting the command's `?` retains the nested
+`Result[..., ProcessError]`; checking the body against Unit discards the capture
+after its normal propagation. A captured live stream still cannot escape the
+restored scope.
 
 These scopes restore the evaluator's previous context on normal completion,
 propagation, lexical return, loop transfer, cancellation, and runtime failure.
@@ -4675,11 +4696,17 @@ operand types are required. Direct membership fixes require inert operands or
 a state-independent literal: purity alone does not prove reorder safety.
 Custom messages and consumed Results retain an explicit `test.ok(...)` call.
 Whole statements can use hygienic local bindings to preserve operand and
-source argument evaluation order, including reordered named arguments.
+source argument evaluation order, including reordered named arguments. These
+bindings stay inside a lexical block so inline match arms retain one expression
+and snapshots do not escape the original assertion's scope. Null-safe removed
+method calls require explicit handling of the Optional or Result before migration.
 Other unsafe or dynamic migrations receive a
 diagnostic without a fix. Removed-API
 metadata is available only to checking and migration, never API discovery or
 runtime dispatch. Membership operators are the exception to method preference.
+Caller-owned functions and fields named `contains` or `has` remain usable,
+including callable fields reached through `Any`; their spelling does not select
+a removed standard method.
 
 `lint.prefer-value-pipeline` offers explicit argument placement for a checked
 nested call at a whole statement value or a single-use linear temporary chain.

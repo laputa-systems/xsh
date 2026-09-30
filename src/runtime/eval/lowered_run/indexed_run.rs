@@ -19,7 +19,7 @@ use super::{
     lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
     lowered_count_key, lowered_duration_arg, lowered_encode_json, lowered_env_record_arg,
-    lowered_error_message, lowered_freeze_large_slot_list, lowered_fs_root_dir,
+    lowered_error_message, lowered_freeze_large_slot_list,
     lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
     lowered_int_arg, lowered_match_no_arm, lowered_nonnegative_count, lowered_parse_command_values,
     lowered_path_arg, lowered_path_from_value, lowered_path_like_arg, lowered_path_list_arg,
@@ -28,7 +28,7 @@ use super::{
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_get,
     lowered_record_vec_or_stats, lowered_reduce_fields_owned,
     lowered_reduce_group_insert, lowered_reduce_key_value_owned, lowered_result_err_value,
-    lowered_result_ok, lowered_root_id, lowered_slice_value,
+    lowered_result_ok, lowered_slice_value,
     lowered_sort_key_orderable, lowered_splice_arg_items, lowered_stats_field_value,
     lowered_status_segment_record, lowered_stmt_flow_to_flow,
     lowered_str_arg_owned, lowered_str_byte_at_value, lowered_str_byte_len_value,
@@ -39,7 +39,7 @@ use super::{
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type,
     new_temp_fs_root, path_bytes, push_lowered_display,
-    push_lowered_fmt_value, push_lowered_native_fmt_value, read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
+    push_lowered_fmt_value, push_lowered_native_fmt_value, read_host_path_bytes, read_host_path_bytes_vec,
     run_pipeline_inherit_with_policy, runtime_error_from_value, splice_to_argv,
     structured_error_constructor, value_matches_static_type, value_to_argv_bytes,
     with_indexed_eval_depth,
@@ -6243,48 +6243,6 @@ impl Evaluator {
                     missing_ok,
                     span,
                 )))
-            }
-            FullTag::ExprFsCloseRoot | FullTag::ExprFsRootPath => {
-                let root = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let root = match self.eval_indexed_expr(execution, root, slots, span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let value = if tag == FullTag::ExprFsCloseRoot {
-                    match lowered_root_id(&root, &self.fs_root_owner, span)
-                        .ok()
-                        .and_then(|id| {
-                            id.checked_sub(1)
-                                .and_then(|index| usize::try_from(index).ok())
-                        })
-                        .and_then(|index| self.fs_roots.get_mut(index))
-                    {
-                        Some(slot) => {
-                            if slot.take().is_some() {
-                                lowered_result_ok(LoweredValue::Unit)
-                            } else {
-                                lowered_result_err_value(
-                                    RuntimeError::new("fs-root", "root handle is not active")
-                                        .with_span(span),
-                                )
-                            }
-                        }
-                        None => lowered_result_err_value(
-                            RuntimeError::new("fs-root", "root handle is not active")
-                                .with_span(span),
-                        ),
-                    }
-                } else {
-                    match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
-                        .and_then(|dir| root_path_from_dir(dir, span))
-                    {
-                        Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
-                        Err(error) => lowered_result_err_value(error),
-                    }
-                };
-                ControlFlow::Continue(value)
             }
             FullTag::ExprPathReadText | FullTag::ExprPathReadBytes => {
                 let path = indexed_raw(&mut payload, call_span)?;

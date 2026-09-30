@@ -688,9 +688,15 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 ```
 
 Membership and boolean statement contracts are covered by
-`tests/xsh/assertions.xsh`; the independent CLI failure witness is
+`tests/xsh/assertions.xsh`, including caller-owned membership-named callable
+fields accessed through `Any`; the independent CLI failure witness is
 `runtime::run::bare_boolean_assertion_is_an_unsuccessful_cli_exit`. Migration
-coverage belongs in `crates/xsht/tests/lint.rs`. On Linux x86-64, run these
+coverage belongs in `crates/xsht/tests/lint.rs`;
+`linter_migrates_package_nested_assertions_and_multiline_match_membership`
+covers nested fixes and inline match syntax, while
+`linter_match_membership_snapshots_preserve_effects_and_failure` checks snapshot
+order, skipped arms, custom messages, and assertion failure through `xsht trace`.
+On Linux x86-64, run these
 in the amd64 `Dockerfile.test` image with the
 `x86_64-unknown-linux-musl` flags from `dev/targets.xsh::docker_test_env`.
 `runtime::eval::lowered_ops::assertion_detail_tests` covers bounded rendering
@@ -876,6 +882,9 @@ interpolation source slices; `tests/syntax.rs` covers original diagnostic spans
 and formatter round trips. Run the native module with `xsht test --jobs 1`,
 `cargo test -p xsh --lib block_string`, and the focused xsht `block_string` tests
 before the ordinary syntax/tooling gates.
+`cargo test -p xsht --lib block_strings` covers the formatted escaped-newline
+migration with independent runtime byte observations, unchanged interpolation
+order, exact margins/line endings, comments, refusal cases, and convergence.
 
 ## Prepared constants
 
@@ -989,6 +998,11 @@ The migrated syntax and checker fixtures remain under `tests/syntax.rs` and
 `target/debug/xsht test --jobs 1 tests/xsh/context-scopes.xsh` covers tail values,
 nested Results, entry failure, source order, lexical transfers, transparent
 propagation, nested restoration, defer timing, and producer escape rejection.
+`test_scope_command_capture_tails_keep_values_and_restore_context` covers text,
+bytes, capture records, nested command Results, discarded captures, and failed
+commands. `context_scope_command_capture_tails_execute_after_frontend_drop_on_both_routes`
+checks their ordinary indexed execution, scoped cleanup, and restoration after
+frontend disposal without requiring the native test harness.
 It also checks suspended and delegated producer isolation and cancellation cleanup.
 Error payloads and shared nominal or process error causes are covered by
 `test_scope_rejects_producers_hidden_in_error_causes`,
@@ -1026,3 +1040,12 @@ failure atomicity, call arguments/defaults/returns, constructor payloads, functi
 method operands, and reached producer items. Broaden with native list-assignment
 and stdlib Map gates,
 and indexed verifier execution on both routes.
+
+Closed helper capture and command scope migration are covered by
+`cargo test -p xsht --lib lint_try_capture` and
+`cargo test -p xsht --lib context_scope`. The helper suite checks unchanged
+Result/statement/effect facts and success/failure observations; the scope suite
+checks placeholder visibility, process results, nested restoration, and cleanup
+refusals. `cargo test -p xsht --lib literal_migration_tests` pins inert Path and
+Duration eligibility, literal-origin byte bounds, exported keyword spans, and
+one preparation per changed source during convergence.

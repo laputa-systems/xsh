@@ -94,6 +94,24 @@ test fs_root_methods_reject_structural_forgery_aliases_and_missing_effect [error
   }
 }
 
+test fs_root_removed_spellings_remain_usable_as_user_module_functions [fs, error] { |ctx|
+  let root = test.temp_dir(ctx, name: "root-user-module")?
+  fp"${root}/helper.xsh".write_atomic("""
+##! Caller-owned functions.
+## Returns its argument unchanged.
+export pure root_path(value: Str) -> Str { value }
+## Returns its argument unchanged.
+export pure close_root(value: Str) -> Str { value }
+""")?
+  let output = test.run_script(ctx, """
+use helper
+print helper.root_path("path")
+print helper.close_root("closed")
+""", [], {XSH_MODULE_PATH: root.display()})?
+  assert output.success, output.stderr
+  output.stdout == "path\nclosed\n"
+}
+
 
 test fs_root_methods_optional_receiver_keeps_arguments_lazy [fs, error] {
   let absent: FsRoot? = null

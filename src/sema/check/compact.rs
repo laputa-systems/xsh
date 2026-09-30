@@ -1389,6 +1389,12 @@ impl CompactBodyProbe<'_> {
                 .get(&self.program.arena.stmt(tail.unwrap()).span)
                 .and_then(|expr| self.declarations.prepared_constants.types.get(expr)).cloned()
                 .unwrap_or_else(|| self.lookup_name(name)),
+            Some(ArenaStmtKind::Command(command)) if self.output.statement_positions.get(&tail.unwrap()) == Some(&super::StatementPosition::Value) => {
+                let command = self.program.arena.command_stmt(command);
+                let ArenaCommand::Run(run) = command.command else { return Type::Unit; };
+                let Some(result) = super::command::run_capture_result_type_arena(self.program, run) else { return Type::Unit; };
+                if self.program.arena.run_form(run).propagate { result.result_ok().unwrap().clone() } else { result }
+            }
             Some(ArenaStmtKind::If { branches, else_block: Some(block) }) => {
                 let mut ty = Some(self.compact_block_tail_type(block));
                 for branch in self.program.arena.if_branches(branches) { ty = Some(merge_types(ty, self.compact_block_tail_type(branch.block))); }
@@ -1758,6 +1764,9 @@ impl CompactBodyProbe<'_> {
                     if let Some(block) = else_block { self.apply_compact_block_expected(block, expected); }
                 }
                 ArenaStmtKind::Match { arms, .. } => { for arm in self.program.arena.match_arms(arms).to_vec() { self.apply_compact_block_expected(arm.block, expected); } }
+                ArenaStmtKind::Command(_) if expected == &Type::Unit || expected.is_result_unit() => {
+                    self.output.statement_positions.insert(tail, super::StatementPosition::Statement);
+                }
                 _ => {}
             }
         }

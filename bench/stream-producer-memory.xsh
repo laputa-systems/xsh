@@ -27,12 +27,12 @@ proc main(...argv: List[Str]) [io, error] {
     let totals = numbers(size)
       |> par-map(jobs: 8) { |n| n }
       |> reduce-by(sum: true) { |n| {key: "all", value: 1} }
-    print f"value=${totals.get("all", 0)}"
+    print f"value=${totals.get("all") ?? 0}"
   } else if mode == "unfused" {
     let totals = numbers(size)
       |> par-map(jobs: 8) { |n| n }
       |> reduce-by(sum: true, jobs: 8) { |n| {key: "all", value: 1} }
-    print f"value=${totals.get("all", 0)}"
+    print f"value=${totals.get("all") ?? 0}"
   } else {
     abort(2)
   }

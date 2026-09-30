@@ -1,7 +1,8 @@
 # Ergonomics audit: proposals 0–3
 
 This audit records the checked implementation and migration coverage for
-`ergonomics-0.md` through `ergonomics-3.md`, inspected on 2026-09-29. It is an
+`ergonomics-0.md` through `ergonomics-3.md`, inspected on 2026-09-29 and rechecked
+for literal migration coverage on 2026-09-30. It is an
 implementation audit, not a language specification. The contracts remain in
 `SPEC.md`, `SPEC-TYPING.md`, and `STREAMS.md`; `TEST-MAP.md` owns verification
 routing.
@@ -67,8 +68,8 @@ can be fixed.
 |---|---|---|
 | 1. Value-producing if/match tails | **Supported.** The illustrated `label` match loses its branch-tail returns. Checked value position and exact compatible tail type are required; lexical returns in callbacks and conditional non-tail returns stay. | `lint.redundant-tail-return`, `lint_redundant_tail_return`; `linter_removes_checked_tail_returns_in_value_branches`, `linter_tail_return_preserves_grouping_and_unicode_comments`, `linter_keeps_conditional_and_callback_lexical_returns`. |
 | 2. Named argument punning | **Supported.** `compile(root: root, target: target, jobs: jobs)` becomes punned arguments with the same checked lexical identifiers. Comments inside the replaced argument prevent its fix. | `lint.prefer-named-argument-pun`, `lint_named_argument_pun`; `linter_named_argument_pun_fix_preserves_resolution_comments_and_converges`, `linter_named_argument_pun_requires_checked_identifier_resolution`. |
-| 3. List concatenation and compound assignment | **Supported/subset.** Simple mutable `files = files.push(file)` and `.extend(more_files)` fix for stable arguments. Nested/effectful targets and arguments refuse; multiline/commented shapes receive guidance. Useful expression methods remain. | `lint.prefer-list-compound-assignment`, `lint_list_compound_assignment`; `linter_list_compound_assignment_is_checked_and_converges`, `linter_list_compound_assignment_refuses_unchecked_effectful_and_nested_updates`, `linter_list_compound_assignment_retains_multiline_comments`. |
-| 4. Half-open slicing | **Subset.** `data.slice(0, 16)` fixes to `data[..16]`. The exact `data.slice(16, data.len() - 16)` suffix does not fix. Current proof accepts zero-offset prefixes/whole slices and a known in-bounds Bytes literal with omitted count. Unknown bounds, arithmetic, overflow, and effects stay explicit. | `lint.prefer-slice`, `byte_slice_replacement`; `linter_prefer_slice_fixes_proven_byte_bounds_and_converges`, `linter_prefer_slice_retains_uncertain_offsets_counts_and_overflow`; `tests/xsh/slicing.xsh`. |
+| 3. List concatenation and compound assignment | **Supported/subset.** Simple mutable `files = files.push(file)` and `.extend(more_files)` fix for stable arguments, including Duration literals. Nested/effectful targets and arguments refuse; multiline/commented shapes receive guidance. Useful expression methods remain. | `lint.prefer-list-compound-assignment`, `lint_list_compound_assignment`; `linter_list_compound_assignment_is_checked_and_converges`, `linter_list_compound_assignment_refuses_unchecked_effectful_and_nested_updates`, `linter_list_compound_assignment_retains_multiline_comments`; library `literal_migration_tests::list_duration_literal_updates_preserve_the_checked_element_domain`. |
+| 4. Half-open slicing | **Subset.** `data.slice(0, 16)` fixes to `data[..16]`. The exact suffix fixes when an immutable literal-origin Bytes value or alias proves length at least 16; a merely typed Bytes parameter still refuses. Proven suffixes accept omitted count or the same receiver's `len() - offset`; bounded literal counts become clamped constant end bounds without runtime arithmetic. Unknown/mutable bounds, changed receivers, effects and internal comments stay explicit. | `lint.prefer-slice`, `byte_slice_replacement`, `literal_byte_slice_bounds`, `proven_immutable_byte_length`; `linter_prefer_slice_fixes_proven_byte_bounds_and_converges`, `linter_prefer_slice_retains_uncertain_offsets_counts_and_overflow`; library `literal_origin_byte_suffixes_preserve_bounds_and_converge`, `byte_suffix_migration_retains_unknown_mutable_and_distinct_receivers`; `tests/xsh/slicing.xsh`. |
 | 5. Chained ordering comparisons | **Supported/subset.** `0 <= offset and offset < limit` fixes when the shared operand is a stable immutable binding. Repeated calls are not coalesced merely because they are pure; changed mutable reads and comments refuse. | `lint.prefer-comparison-chain`, `lint_comparison_chain`; `linter_comparison_chain_coalesces_stable_operands_and_converges`, `linter_comparison_chain_preserves_calls_mutable_reads_and_comments`. |
 | 6. Nested/renamed record destructuring | **Supported.** Adjacent unannotated extractions from `config` combine into nested destructuring, including `target: target_name`. Required checked fields must exist. Meaningful annotations, intermediate bindings, comments, dynamic schemas, and effectful root evaluations remain. | `lint.prefer-record-destructuring`, `lint_record_destructuring`; `linter_record_destructuring_fix_roundtrips_and_converges`, `linter_record_destructuring_retains_annotations_comments_and_effectful_roots`; `tests/xsh/record_binding.xsh`. |
 | 7. Multi-clause comprehensions | **Supported/subset.** The fresh `sources` accumulator and transparent nested for/if shape convert. The fix retains `var` and its annotation rather than assuming a later immutable binding contract. Each body must contain only the next qualifier or final accumulation; effects/control transfers outside that shape refuse. | `lint.prefer-list-comp`, `lint.prefer-map-comp`, `accumulator_qualifiers`; `linter_multi_clause_accumulators_have_safe_idempotent_fixes`, `linter_multi_clause_map_accumulator_retains_annotation_and_filters`, `linter_multi_clause_accumulators_keep_uncertain_loops`. |
@@ -143,17 +144,42 @@ requires one original preparation across two valid candidates. Candidate
 rewrites still receive their own checks, and existing signature/comment/order
 acceptance tests remain unchanged.
 
+## Reopened literal migration regressions
+
+The library-only regressions in
+`crates/xsht/src/lint_literal_migration_tests.rs` first failed because the rules
+offered no fixes for checked Path literal module data, a Duration literal push,
+and four immutable literal-origin Bytes slice forms. The fixes widen only inert
+literal eligibility and carry immutable byte-length provenance through lexical
+bindings and aliases. Exported literal bindings also needed token-based keyword
+selection: their statement span starts at `export`, not `let`.
+
+The tests compare prepared literal data, preserve comments and Unicode source,
+recheck candidate types, and require convergence. Refusal cases retain runtime
+Path construction/interpolation and local initialization, computed append
+arguments, unknown or mutable Bytes receivers, out-of-bounds offsets, distinct
+length receivers, negative counts, internal comments, and repeated calls. The
+slice acceptance test additionally covers an empty suffix, zero offset, and a
+maximal literal count that clamps to the proven length without overflow.
+
+Verification for this reopened pass was
+`cargo test -p xsht --lib literal_migration_tests -- --nocapture` (five passed)
+and
+`cargo test -p xsht --test integration linter_prefer_slice_retains_uncertain_offsets_counts_and_overflow -- --nocapture`
+(one passed). These checks use the lint library directly; no lint CLI,
+formatter, release build, or corpus rewrite was run. The all-proposal matrix
+remains a coverage audit, not a claim that every safe migration class is complete.
+
 ## Unfinished improvements
 
 These are narrower coverage opportunities, not permission to weaken equivalence
 checks:
 
-- **Proved suffix bounds.** `let data = b"abcdef"; data.slice(1, data.len() - 1)`
-  is still declined by `byte_slice_replacement`, despite its locally provable
-  length. `linter_prefer_slice_retains_uncertain_offsets_counts_and_overflow`
-  currently pins that conservative refusal. A literal-origin or checked
-  minimum-length proof could support this case while retaining negative,
-  out-of-bounds, overflow and changing-receiver behavior.
+- **Checked runtime suffix bounds.** Literal-origin suffixes now migrate, but
+  the rule does not consume a checked minimum-length guard on an otherwise
+  unknown Bytes parameter. Such a proof must retain negative, out-of-bounds,
+  overflow and changing-receiver behavior. The nearest uncertain-bound test
+  now uses a Bytes parameter, keeping that refusal independently covered.
 - **Refined List lengths.** A checked `values.len() > 1` branch followed by the
   exact reconstruction can establish the index without an immediately preceding
   literal declaration. The current rule does not consume that proof. Tests must

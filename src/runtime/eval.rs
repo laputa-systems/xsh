@@ -1598,14 +1598,6 @@ enum BuildExprRow {
         missing_ok: Option<BuildExprId>,
         span: Span,
     },
-    FsCloseRoot {
-        root: BuildExprId,
-        span: Span,
-    },
-    FsRootPath {
-        root: BuildExprId,
-        span: Span,
-    },
     PathReadText {
         path: BuildExprId,
         span: Span,
@@ -2760,12 +2752,10 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "base32_decode",
     "starts_with",
     "ends_with",
-    "contains",
     "wait",
     "cancel",
     "context",
     "collect",
-    "has",
     "get",
     "keys",
     "values",

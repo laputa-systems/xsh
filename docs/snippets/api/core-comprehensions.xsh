@@ -1,6 +1,6 @@
 type Package = {name: Str, sources: List[Path]}
 
-let packages: List[Package] = [
+const packages: List[Package] = [
   {name: "core", sources: [p"main.xsh", p"README.md"]},
   {name: "tools", sources: [p"check.xsh"]},
 ]

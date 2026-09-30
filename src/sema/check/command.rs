@@ -23,6 +23,23 @@ pub(super) fn command_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
 
+pub(super) fn run_capture_result_type_arena(arena: &ArenaProgram, run: RunFormId) -> Option<Type> {
+    let run = arena.arena.run_form(run);
+    let segment = arena.arena.run_segments(run.segments).first()?;
+    let ok = match segment.kind {
+        RunKind::CaptureText => Type::Str,
+        RunKind::CaptureBytes => Type::Bytes,
+        RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => {
+            let output = if segment.kind == RunKind::CaptureTextRecord { Type::Str } else { Type::Bytes };
+            Type::Record(btree_map(vec![("status", Type::Status), ("stdout", output.clone()), ("stderr", output)]))
+        }
+        RunKind::StreamText => Type::Stream(Box::new(Type::Str)),
+        RunKind::StreamBytes => Type::Stream(Box::new(Type::Bytes)),
+        RunKind::Plain | RunKind::Status => return None,
+    };
+    Some(Type::Result(Box::new(ok), Box::new(Type::ProcessError)))
+}
+
 pub(super) fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
     let (module, api) = name.split_once('.')?;
     api_spec()
@@ -579,58 +596,9 @@ impl Checker {
                     Type::Status
                 }
             }
-            RunKind::CaptureText => {
-                let result = Type::Result(Box::new(Type::Str), Box::new(Type::ProcessError));
-                if run.propagate {
-                    self.check_propagation(&result, run_span)
-                } else {
-                    result
-                }
-            }
-            RunKind::CaptureBytes => {
-                let result = Type::Result(Box::new(Type::Bytes), Box::new(Type::ProcessError));
-                if run.propagate {
-                    self.check_propagation(&result, run_span)
-                } else {
-                    result
-                }
-            }
-            RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => {
-                let output_ty = if matches!(segments[0].kind, RunKind::CaptureTextRecord) {
-                    Type::Str
-                } else {
-                    Type::Bytes
-                };
-                let result = Type::Result(
-                    Box::new(Type::Record(btree_map(vec![
-                        ("status", Type::Status),
-                        ("stdout", output_ty.clone()),
-                        ("stderr", output_ty),
-                    ]))),
-                    Box::new(Type::ProcessError),
-                );
-                if run.propagate {
-                    self.check_propagation(&result, run_span)
-                } else {
-                    result
-                }
-            }
-            RunKind::StreamText => {
-                let result = Type::Result(
-                    Box::new(Type::Stream(Box::new(Type::Str))),
-                    Box::new(Type::ProcessError),
-                );
-                if run.propagate {
-                    self.check_propagation(&result, run_span)
-                } else {
-                    result
-                }
-            }
-            RunKind::StreamBytes => {
-                let result = Type::Result(
-                    Box::new(Type::Stream(Box::new(Type::Bytes))),
-                    Box::new(Type::ProcessError),
-                );
+            RunKind::CaptureText | RunKind::CaptureBytes | RunKind::CaptureTextRecord
+            | RunKind::CaptureBytesRecord | RunKind::StreamText | RunKind::StreamBytes => {
+                let result = run_capture_result_type_arena(arena, run_id).expect("capture run kind");
                 if run.propagate {
                     self.check_propagation(&result, run_span)
                 } else {

@@ -79,7 +79,11 @@ test test_accept_status_plain_pipeline_and_external_argv [error] { |ctx|
 
 test test_accept_invalid_policy_is_rejected_before_spawn [error] { |ctx|
   for policy in ["[]", "[0,0]", "[-1]", "[256]", "[true]", "0"] {
-    let output = test.run_script(ctx, f"run --accept=${policy} sh -c \"printf spawned\"\n")?
+    let source = f"""
+      run --accept=${policy} sh -c \"printf spawned\"
+
+      """
+    let output = test.run_script(ctx, source)?
     (! output.success)
     (output.stdout) == ("")
   }

@@ -12,6 +12,39 @@ test test_cd_value_scope_consumes_tail_and_restores_context [fs, env, error] { |
   ! predicate
 }
 
+test test_scope_command_capture_tails_keep_values_and_restore_context [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+let original = fs.cwd()?
+let revision: Str = cd (p".") { run.text sh -c "printf revision" ? }?
+revision == "revision"
+let inferred = cd (p".") { run.text sh -c "printf inferred" ? }?
+inferred == "inferred"
+let payload: Bytes = env ({XSH_CAPTURE_TAIL: "bytes"}) { run.bytes sh -c "printf bytes" ? }?
+payload == b"bytes"
+fs.cwd()? == original
+let nested: Result[Str, ProcessError] = cd (p".") { run.text sh -c "printf nested" }?
+nested? == "nested"
+let capture = env ({XSH_CAPTURE_TAIL: "record"}) {
+  run.capture --text sh -c "printf out; printf err >&2" ?
+}?
+capture.stdout == "out"
+capture.stderr == "err"
+let plain: Unit = cd (p".") { run sh -c "exit 0" }?
+let best_effort: Unit = cd (p".") { run.status sh -c "exit 7" }?
+let discarded: Unit = cd (p".") { run.text sh -c "printf discarded" ? }?
+let observed: Any = discarded
+observed is Unit
+let _ = plain
+let _ = best_effort
+let failed = try { cd (p".") { run.text sh -c "exit 7" ? }? }
+failed is Err(_)
+fs.cwd()? == original
+print "done"
+""")?
+  assert output.success, output.stderr
+  output.stdout == "done\n"
+}
+
 test test_env_value_scope_accepts_typed_overlays_and_restores [env, error] {
   let original = env.get_or("XSH_VALUE_SCOPE", "absent")?
   let selected = env ({XSH_VALUE_SCOPE: "inner", XSH_SCOPE_NUMBER: 7}) {
@@ -128,6 +161,9 @@ test test_scope_rejects_null_overlay_values_and_escaping_producers [error] { |ct
   let escaping = test.run_script(ctx, "stream rows() [] -> Stream[Int] { yield 1 }\nlet value = env ({X: \"inner\"}) { rows() }\n")?
   ! escaping.success
   "check.context-scope-escape" in escaping.stderr
+  let captured = test.run_script(ctx, "let value = cd (p\".\") { run.stream --text sh -c \"printf live\" ? }\n")?
+  ! captured.success
+  "check.context-scope-escape" in captured.stderr
   let assigned = test.run_script(ctx, "stream rows() [] -> Stream[Int] { yield 1 }\nvar output: Any = null\nlet ignored = env ({X: \"inner\"}) { output = rows(); 7 }\n")?
   ! assigned.success
   "check.context-scope-escape" in assigned.stderr

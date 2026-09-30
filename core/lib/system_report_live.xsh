@@ -1650,7 +1650,7 @@ proc collect_sensors(
     var parent_pci_address: Str? = null
     var parent_usb_index: Int? = null
     if parent.target != null {
-      let target = parent.target ?? p""
+      let target = parent.target
       parent_pci_address = usb_parent_address(target)
       parent_usb_index = usb_device_index_from_target(usb_indices, target)
     }
@@ -2595,7 +2595,7 @@ proc collect_device_classes(
       var parent_pci_address: Str? = null
       var parent_usb_device_index: Int? = null
       if parent.target != null {
-        let parent_target = parent.target ?? p""
+        let parent_target = parent.target
         parent_pci_address = usb_parent_address(parent_target)
         parent_usb_device_index = usb_device_index_from_target(usb_indices, parent_target)
       }
@@ -3312,7 +3312,7 @@ export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] 
       }
 
       return {
-        address: usb_parent_address(observed.target ?? p""),
+        address: usb_parent_address(observed.target),
         state: report.Observed,
         errno: null,
         error_kind: null,
@@ -3344,7 +3344,7 @@ export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] ->
     let state = live_source_observation_state(observed.state, false)
     var value: Str? = null
     if observed.target != null {
-      value = (observed.target ?? p"").name()
+      value = (observed.target).name()
     }
 
     if state == report.Observed and value == null {
@@ -6379,13 +6379,13 @@ export proc link_network_device_sources(
       )
       issues = issues.extend(driver_link.issues)
       if driver_link.target != null {
-        driver = (driver_link.target ?? p"").name()
+        driver = (driver_link.target).name()
       }
 
       let device_link = network_link_target(root, fp"sys/class/net/${name}/device", f"links.${link.ifindex}.parent")
       issues = issues.extend(device_link.issues)
       if device_link.target != null {
-        let target = device_link.target ?? p""
+        let target = device_link.target
         parent_pci_function_index = pci_function_index(pci_indices, usb_parent_address(target))
         parent_usb_device_index = usb_device_index_from_target(usb_indices, target)
       }

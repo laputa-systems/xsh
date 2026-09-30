@@ -244,7 +244,14 @@ test test_dynamic_boundary_rejects_known_non_json_value [error] { |ctx|
 
 test test_dynamic_boundary_rejects_unchecked_result_return_payloads [error] { |ctx|
   for body in ["values.get(0)", "return values.get(0)"] {
-    let output = test.run_xsh(ctx, f"pure selected(values: List[Any]) -> Result[Int] { ${body} }\nlet input: List[Any] = [7]\nlet count = selected(input)?\nprint reached\n")?
+    let source = f"""
+      pure selected(values: List[Any]) -> Result[Int] { ${body} }
+      let input: List[Any] = [7]
+      let count = selected(input)?
+      print reached
+
+      """
+    let output = test.run_xsh(ctx, source)?
     output.status == 2
     output.stdout == ""
     ("check.dynamic-boundary" in output.stderr) == true

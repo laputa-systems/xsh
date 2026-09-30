@@ -2191,6 +2191,77 @@ fn linter_composes_nested_unicode_membership_and_grouped_receivers() {
 }
 
 #[test]
+fn linter_migrates_package_nested_assertions_and_multiline_match_membership() {
+    let fixed = membership_fixed(r#"proc main(configured: Str, result: Result[Str], expected: Str) {
+  test.eq(configured.contains("menucmd"), false)?
+  test.ok(configured.contains("termcmd"))?
+  match result {
+    Ok(_) => test.fail("unexpected success")?
+    Err(problem) => test.contains(
+      problem.message,
+      f"repeats ${expected}",
+    )?
+  }
+  match result {
+    Ok(_) => true
+    Err(problem) => problem.message.contains(f"repeats ${expected}")
+  }
+}
+"#);
+    assert!(!fixed.contains(".contains("), "{fixed}");
+    assert!(fixed.contains("\"menucmd\" in configured"), "{fixed}");
+    assert!(fixed.contains("\"termcmd\" in configured"), "{fixed}");
+    assert!(fixed.contains("problem.message"), "{fixed}");
+    assert!(fixed.contains("repeats ${expected}"), "{fixed}");
+}
+
+#[test]
+fn linter_migrates_explicitly_propagated_read_membership_without_null_safe_guessing() {
+    let fixed = membership_fixed(r#"proc main(source_path: Path) [fs, error] {
+  test.contains(fs.read_text(source_path)?, "needle")?
+  if (fs.read_text(source_path)?).contains("needle") {}
+}
+"#);
+    assert!(!fixed.contains(".contains("), "{fixed}");
+    assert_eq!(fixed.matches("fs.read_text(source_path)?").count(), 2, "{fixed}");
+    let diagnostics = membership_lints(r#"proc main(source_path: Path) [fs, error] {
+  if fs.read_text(source_path)?.contains("needle") {}
+}
+"#);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].fix_hints.is_empty(), "null-safe consumption must remain explicit");
+}
+
+#[test]
+fn linter_match_membership_snapshots_preserve_effects_and_failure() {
+    let temp = TempDir::new().unwrap();
+    for (needle, succeeds) in [("b", true), ("missing", false)] {
+        let source = format!(r#"proc haystack() [io] -> Str {{ print 1; "abc" }}
+proc needle() [io] -> Str {{ print 2; "{needle}" }}
+proc message() [io] -> Str {{ print 3; "custom membership failure" }}
+proc skipped() [io] -> Str {{ print 9; "abc" }}
+proc main() {{
+  match true {{
+    true => test.contains(haystack(), needle(), message: message())?
+    false => test.contains(skipped(), needle())?
+  }}
+  print 4
+}}
+"#);
+        let fixed = membership_fixed(&source);
+        let path = temp.path().join(format!("membership-{needle}.xsh"));
+        fs::write(&path, &fixed).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .arg("trace").arg(&path).output().unwrap();
+        assert_eq!(output.status.success(), succeeds, "{fixed}\n{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.stdout, if succeeds { b"1\n2\n3\n4\n".as_slice() } else { b"1\n2\n3\n".as_slice() }, "{fixed}");
+        if !succeeds {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("custom membership failure"), "{}", String::from_utf8_lossy(&output.stderr));
+        }
+    }
+}
+
+#[test]
 fn linter_preserves_named_argument_order_and_hygiene() {
     let fixed = membership_fixed(r#"proc left() -> Result[Int] { 1 }
 proc right() -> Result[Int] { 2 }
@@ -2985,13 +3056,14 @@ fn linter_prefer_slice_retains_uncertain_offsets_counts_and_overflow() {
 pure count() -> Int {
   return 3
 }
-let data = b\"abc\"
-let negative = data.slice(-1)
-let uncertain = data.slice(2)
-let arithmetic = data.slice(1, data.len() - 1)
-let effect_count = data.slice(0, count())
-let overflow = data.slice(1, 9223372036854775807)
-print ${negative.base64()} ${uncertain.base64()} ${arithmetic.base64()} ${effect_count.base64()} ${overflow.base64()}
+pure selected(data: Bytes) -> List[Bytes] {
+  let negative = data.slice(-1)
+  let uncertain = data.slice(2)
+  let arithmetic = data.slice(1, data.len() - 1)
+  let effect_count = data.slice(0, count())
+  let overflow = data.slice(1, 9223372036854775807)
+  [negative, uncertain, arithmetic, effect_count, overflow]
+}
 ";
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);

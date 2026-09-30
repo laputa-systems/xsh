@@ -1971,10 +1971,11 @@ print ${name}
             diagnostics.iter().map(|diagnostic| diagnostic.text.as_str()).collect::<String>()
         );
         assert!(!text.contains("Path("), "{text}");
+        assert!(text.contains("const target_path = /srv/xsh"), "{text}");
         assert_eq!(
             xsh::frontend::stdlib_preparation::parsed_modules(),
-            2,
-            "prepare once for the original and once for the converged source"
+            3,
+            "prepare each changed source once: constructor, Path literal, then prepared constant"
         );
     }
 

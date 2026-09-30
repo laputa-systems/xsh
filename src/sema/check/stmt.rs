@@ -2277,6 +2277,13 @@ impl Checker {
                     );
                 }
                 let ty = self.check_command_arena(arena, source, &command_stmt.command, stmt.span);
+                // A consumed capture tail keeps its output. Unit tails have
+                // already taken the statement path, which discards that output.
+                if let crate::syntax::arena::ArenaCommand::Run(run) = command_stmt.command
+                    && super::command::run_capture_result_type_arena(arena, run).is_some()
+                {
+                    return ty;
+                }
                 if command_stmt_asserts_success_arena(arena, &command_stmt.command) {
                     self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), stmt.span);
                     return Type::Unit;
@@ -2460,7 +2467,7 @@ fn should_record_binding_annotation_arena(
 // block boundaries. Their Unit success payload still leaves the Result as data.
 pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {
     match arena.arena.expr(expr).kind {
-        ArenaExprKind::Capture(_) => true,
+        ArenaExprKind::Capture(_) | ArenaExprKind::ContextScope { .. } => true,
         ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind,
             ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"),
         ArenaExprKind::ValueBlock(block) | ArenaExprKind::ErrorContext { block, .. } =>

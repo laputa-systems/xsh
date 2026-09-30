@@ -223,7 +223,11 @@ print ${explicit()} ${inferred()} ${inferred(9)}
 test test_default_parameters_nested_calls_use_heap_frames [error] { |ctx|
   var source = "pure step_0() -> Int { 7 }\n"
   for index in range(1, 1201) {
-    source = source + f"pure step_${index}(value = step_${index - 1}()) -> Int { value }\n"
+    let step = f"""
+      pure step_${index}(value = step_${index - 1}()) -> Int { value }
+
+      """
+    source = source + step
   }
   source = source + r"print ${step_1200()}" + "\n"
   let output = test.run_script(ctx, source)?

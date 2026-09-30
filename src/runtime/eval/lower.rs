@@ -5931,9 +5931,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         if module == "fs" && name == "tempdir" {
             return Some(LoweredType::Record);
         }
-        if module == "fs" && name == "root_path" {
-            return Some(LoweredType::Path);
-        }
         if module == "fs" && (name == "write" || name == "mkdir" || name == "remove") {
             return Some(LoweredType::Unit);
         }
@@ -10334,36 +10331,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                             }
                         ));
                     }
-                    if module == "fs" && name == "close_root" && positional.len() == 1 {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::FsCloseRoot {
-                                root: self.lower_expr(
-                                    positional[0],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
-                    }
-                    if module == "fs" && name == "root_path" && positional.len() == 1 {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::FsRootPath {
-                                root: self.lower_expr(
-                                    positional[0],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
-                    }
                     if module == "regex" && name == "compile" && positional.len() == 1 {
                         return Some(push_build_row!(
                             self,
@@ -12685,7 +12652,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     /// Lower a single value-producing tail statement to an expression: a bare
-    /// expression, a tail-bare-ident, or a value-producing `if`/`match` whose
+    /// expression, a captured run, a tail-bare-ident, or a value-producing `if`/`match` whose
     /// branch blocks retain ordinary lexical statements and a checked tail.
     fn lower_tail_stmt_as_expr(
         &mut self,
@@ -12698,6 +12665,12 @@ impl CompactLowerConstructProbe<'_, '_> {
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
+            ArenaStmtKind::Command(command) if self.bodies.statement_positions.get(&stmt) == Some(&crate::sema::check::StatementPosition::Value) => {
+                let command = self.program.arena.command_stmt(command);
+                let ArenaCommand::Run(run) = command.command else { return None; };
+                lowered_arena_run_capture_type(&self.program.arena, run)?;
+                self.lower_run_binding_value(run, slots, current_function, item_slot)
+            }
             ArenaStmtKind::If {
                 branches,
                 else_block,
@@ -14050,9 +14023,6 @@ fn lowered_builtin_call_ok_type(module: Name, name: Name) -> Option<LoweredType>
     }
     if module == "fs" && name == "tempdir" {
         return Some(LoweredType::Record);
-    }
-    if module == "fs" && name == "root_path" {
-        return Some(LoweredType::Path);
     }
     if module == "fs" && (name == "write" || name == "mkdir" || name == "remove") {
         return Some(LoweredType::Unit);
