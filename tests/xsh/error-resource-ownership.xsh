@@ -187,3 +187,127 @@ test test_retry_exhaustion_retains_resource_in_original_failure [process, time, 
     Ok(_) => test.fail("retry unexpectedly succeeded")?
   }
 }
+
+
+proc cleanup_error_child() [process, error] -> Result[Unit] {
+  let child = spawn run sh -c "sleep 10" ?
+  Err(ChildError.Owned(child: child))
+}
+
+proc cleanup_cause_child() [process, error] -> Result[Unit] {
+  let child = spawn run sh -c "sleep 10" ?
+  Err(CauseOwnerError.Failed(pid: child.pid), cause: ChildError.Owned(child: child))
+}
+
+test test_primary_defer_error_retains_child_after_exhausted_block [process, error] {
+  let captured: Result[Unit] = try { defer cleanup_error_child()? }
+  match captured {
+    Err(ChildError.Owned {child}) => {
+      defer child.cancel(signal: "TERM", kill_after: 0ms)
+      test.ok(process.list()? |> any .pid == child.pid, "primary defer failure must retain its child")?
+    }
+    Err(error) => test.fail(error.message)?
+    Ok(_) => test.fail("missing defer failure")?
+  }
+}
+
+test test_primary_defer_cause_retains_child [process, error] {
+  let captured: Result[Unit] = try { if true { defer cleanup_cause_child()? } }
+  match captured {
+    Err(CauseOwnerError.Failed {pid}) => {
+      defer process.kill(pid, signal: "TERM")
+      test.ok(process.list()? |> any .pid == pid, "primary defer cause must retain its child across nested scope exits")?
+    }
+    Err(error) => test.fail(error.message)?
+    Ok(_) => test.fail("missing defer cause")?
+  }
+}
+
+proc cleanup_marked_error_child(marker: Path) [process, fs, error] -> Result[Unit] {
+  let child = spawn run sh -c "sleep 10" ?
+  marker.write(f"${child.pid}")?
+  Err(ChildError.Owned(child: child))
+}
+
+test test_secondary_defer_failure_releases_its_child [process, fs, error] { |ctx|
+  let marker = test.temp_path(ctx, name: "secondary-child-pid")
+  let captured: Result[Unit] = try {
+    defer cleanup_marked_error_child(marker)?
+    Err(WrapperError.Failed(message: "primary"))?
+  }
+  match captured {
+    Err(WrapperError.Failed {message}) => test.eq(message, "primary")?
+    Err(error) => test.fail(error.message)?
+    Ok(_) => test.fail("missing primary failure")?
+  }
+  let pid = (marker.read_text()?).parse_int()?
+  test.ok(!(process.list()? |> any .pid == pid), "secondary cleanup resource must close locally")?
+}
+
+test test_scoped_primary_defer_resources_are_rejected_before_restore [error] { |ctx|
+  let normal = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
+error OuterError = Failed(message: Str)
+proc cleanup_cause() [process, error] -> Result[Unit] {
+  let child = spawn run sh -c "sleep 10" ?
+  Err(OuterError.Failed(message: "cleanup"), cause: ChildError.Owned(child: child))
+}
+proc scoped_cleanup() [process, env, error] -> Result[Unit] {
+  try { let ignored = env ({X: "inner"}) { defer cleanup_cause()?; 7 }? }
+}
+scoped_cleanup()?
+""")?
+  test.ok(!normal.success, "primary scoped cleanup resources must be rejected")?
+  test.contains(normal.stderr, "cannot escape a restored context")?
+  let returning = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
+proc cleanup_child() [process, error] -> Result[Unit] {
+  let child = spawn run sh -c "sleep 10" ?
+  Err(ChildError.Owned(child: child))
+}
+proc returning_scope() [process, env, error] -> Int {
+  env ({X: "inner"}) { defer cleanup_child()?; return 7 }?
+}
+let captured: Result[Int] = try { returning_scope() }
+print "unreachable"
+""")?
+  test.ok(!returning.success, "return cleanup resources must not cross restoration")?
+  test.contains(returning.stderr, "cannot escape a restored context")?
+}
+
+test test_inner_try_primary_defer_can_retain_resource_inside_context [process, env, error] {
+  let ignored = env ({X: "inner"}) {
+    let captured: Result[Unit] = try { defer cleanup_error_child()? }
+    match captured {
+      Err(ChildError.Owned {child}) => {
+        defer child.cancel(signal: "TERM", kill_after: 0ms)
+        test.ok(process.list()? |> any .pid == child.pid, "inner primary defer failure may retain its resource")?
+      }
+      Err(error) => test.fail(error.message)?
+      Ok(_) => test.fail("missing inner defer failure")?
+    }
+    7
+  }?
+}
+
+test test_scoped_stream_cancel_failure_rejects_resource_before_restore [error] { |ctx|
+  let output = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
+proc cleanup_child() [process, error] -> Result[Unit] {
+  let child = spawn run sh -c "sleep 10" ?
+  Err(ChildError.Owned(child: child))
+}
+stream rows() [process, error] -> Stream[Int] {
+  defer cleanup_child()?
+  yield 1
+  yield 2
+}
+proc returning_scope() [process, env, error] -> Int {
+  env ({X: "inner"}) {
+    for row in rows() { return 7 }
+    0
+  }?
+}
+let captured: Result[Int] = try { returning_scope() }
+print "unreachable"
+""")?
+  test.ok(!output.success, "stream cancellation failure must not carry scoped child across restoration")?
+  test.contains(output.stderr, "cannot escape a restored context")?
+}

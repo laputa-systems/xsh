@@ -1827,7 +1827,9 @@ error only. A declared payload field named `cause` remains an ordinary field;
 metadata has no script introspection API. Owned host resources reachable through
 error payloads or causes transfer with the escaping value, just as resources in
 ordinary containers do. Checked propagation retains them before lexical cleanup
-and across local try/retry capture or callee error transport. A propagated payload
+and across local try/retry capture or callee error transport. A primary cleanup
+failure retains its resources before exhausted blocks close; a secondary cleanup
+failure releases its resources locally while the original failure wins. A propagated payload
 or cause cannot carry live resources across a restored cd/env context; an inner
 try may consume the failure while that context is still active. Diagnostic rendering
 limits do not limit ownership checks.
