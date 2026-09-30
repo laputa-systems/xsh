@@ -523,6 +523,7 @@ impl Checker {
             ArenaStmtKind::Expr(expr_id) => {
                 let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
                 let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
+                self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 self.record_statement_error(&ty, stmt.span);
                 if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
                 if !expr_ty_auto_propagates(&ty) {
@@ -1182,6 +1183,7 @@ impl Checker {
             return;
         }
         let saved_capture_scopes = self.scopes.clone();
+        self.collect_function_local_constraints(arena, source, def, pure);
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
@@ -1315,6 +1317,7 @@ impl Checker {
         def: &ArenaFunctionDef,
     ) {
         let saved_capture_scopes = self.scopes.clone();
+        self.collect_stream_local_constraints(arena, source, def);
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
@@ -1536,13 +1539,15 @@ impl Checker {
     ) {
         let expected = ty.map(|ty_id| self.type_from_arena(arena, ty_id));
         let schema = ty.and_then(|ty| self.record_constructors.annotation_expectation(&arena.arena, ty, self.current_namespace).ok());
-        let actual = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref(), schema.clone());
+        let local_expected = if ty.is_none() { self.local_binding_expectation(span) } else { None };
+        let actual = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref().or(local_expected.as_ref()), schema.clone());
         let callable_alias = if !mutable && ty.is_none() {
             match initializer {
                 ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(arena, expression),
                 _ => None,
             }
         } else { None };
+        if ty.is_none() { self.record_inert_local_discard(arena, target, initializer); }
         if let Some(expected) = &expected
             && !contextual_empty_map_initializer_arena(arena, initializer, expected, &actual)
         {
@@ -1552,7 +1557,7 @@ impl Checker {
         if record_target_requires_schema_check(arena, target, &actual) {
             self.error(span, "record destructuring of Any requires an explicit schema check", "check.destructure-type");
         }
-        let final_ty = expected.unwrap_or(actual);
+        let final_ty = if ty.is_none() { self.infer_local_binding(arena, target, initializer, mutable, span, actual) } else { expected.unwrap_or(actual) };
         if ty.is_none()
             && callable_alias.is_none()
             && should_record_binding_annotation_arena(
@@ -1584,6 +1589,7 @@ impl Checker {
             ArenaExprOrRun::Run(_) => None,
         });
         self.define_binding_target_arena(arena, target, &final_ty, mutable, span);
+        self.record_checked_local_binding(arena, target, span, &final_ty);
         if let Some(alias) = callable_alias
             && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
             if self.current_exported && (alias.signature.definition.is_none() || !alias.signature.explicit_return || (!alias.pure && (alias.signature.inferred_effects || alias.signature.effects.is_none()))) {
@@ -2147,6 +2153,7 @@ impl Checker {
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
             let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
+            self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
             self.record_statement_error(&ty, stmt.span);
             if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
             if expr_ty_auto_propagates(&ty) {
@@ -2179,6 +2186,7 @@ impl Checker {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 let actual = self.check_expr_arena(arena, source, expr_id, expected);
                 self.context_scope_tail_value = previous_tail;
+                self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if actual.is_result() {
                     if expected.is_some_and(Type::is_result_unit) { return actual; }
                     if expr_ty_auto_propagates(&actual) { return Type::Unit; }

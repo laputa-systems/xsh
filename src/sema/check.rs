@@ -40,6 +40,8 @@ mod infer_effects;
 mod infer_return;
 #[path = "check/infer_param.rs"]
 mod infer_param;
+#[path = "check/local_inference.rs"]
+mod local_inference;
 #[path = "check/method.rs"]
 mod method;
 #[path = "check/pattern.rs"]
@@ -88,6 +90,7 @@ pub enum StatementPosition {
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
+    pub local_binding_types: BTreeMap<Span, Type>,
     pub prepared_constants: super::constants::PreparedConstants,
     /// Optional receivers whose checked presence proof makes their fallback unreachable.
     pub proven_nonnull_fallback_receivers: BTreeSet<Span>,
@@ -309,6 +312,7 @@ pub(super) struct UserModuleSig {
 
 #[derive(Clone)]
 pub struct Checker {
+    local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
@@ -432,6 +436,7 @@ impl Checker {
             let callable_effects = checker.callable_effects();
             CheckOutput {
                 static_callable_aliases: checker.static_callable_aliases,
+                local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
@@ -524,6 +529,7 @@ impl Checker {
             let callable_effects = checker.callable_effects();
             CheckOutput {
                 static_callable_aliases: checker.static_callable_aliases,
+                local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
@@ -557,6 +563,7 @@ impl Checker {
             qualified_pures: FxHashMap::default(),
             qualified_streams: FxHashMap::default(),
             type_defs: FxHashMap::default(),
+            local_inference: local_inference::LocalInference::default(),
             type_constraints: super::constraints::TypeConstraints::default(),
             argument_projection_types: FxHashMap::default(),
             argument_projection_sources: FxHashMap::default(),
@@ -692,6 +699,7 @@ impl Checker {
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) {
         self.prepare_effect_declarations(program, None);
+        self.prepare_local_inference(program);
         self.diagnostics.extend(Self::prepare_regex_literals(program));
         self.record_constructors = RecordConstructors::collect(program);
         self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
@@ -714,6 +722,7 @@ impl Checker {
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }
+        self.resolve_checked_types();
         let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
             |parameter| self.checked_parameter_type(program, parameter).unwrap_or_else(|| self.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
             |ty| self.record_constructors.cli_parser_type(&program.arena, ty),

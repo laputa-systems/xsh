@@ -261,6 +261,7 @@ impl Checker {
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
+        self.prepare_local_inference(program);
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();

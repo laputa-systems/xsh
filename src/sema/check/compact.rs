@@ -20,6 +20,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
     pub static_callable_aliases: BTreeMap<crate::source::Span, super::StaticCallableAlias>,
+    pub local_binding_types: BTreeMap<crate::source::Span, Type>,
     pub record_constructors: super::RecordConstructors,
     pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
@@ -114,7 +115,8 @@ impl Checker {
             let has_generic_schemas = program.arena.type_defs.iter().any(|definition| !definition.type_parameters.is_empty());
             let needs_checked_facts = has_generic_schemas || program.arena.params.iter().any(|param| param.ty_defaulted) || program.arena.function_defs.iter().any(|def| !def.params.is_empty()) || program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
                 && program.arena.type_expr_tags[def.return_ty.index()] == ArenaTypeExprTag::Named)
-                || program.arena.stmt_tags.iter().any(|tag| matches!(tag, crate::syntax::arena::ArenaStmtTag::ProcDef | crate::syntax::arena::ArenaStmtTag::Let | crate::syntax::arena::ArenaStmtTag::LetExprNoTy));
+                || program.arena.stmt_tags.iter().any(|tag| matches!(tag, crate::syntax::arena::ArenaStmtTag::ProcDef | crate::syntax::arena::ArenaStmtTag::Let | crate::syntax::arena::ArenaStmtTag::LetExprNoTy))
+                || super::local_inference::program_has_local_inference(program);
             let inferred = needs_checked_facts.then(|| Checker::check_arena(program, ""));
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),
@@ -128,6 +130,7 @@ impl Checker {
                     }).collect(),
                     static_callable_aliases: inferred.as_ref().map(|checked| checked.static_callable_aliases.clone()).unwrap_or_default(),
                     parameter_types: inferred.as_ref().map(|checked| checked.parameter_types.clone()).unwrap_or_default(),
+                    local_binding_types: inferred.as_ref().map(|checked| checked.local_binding_types.clone()).unwrap_or_default(),
                     function_return_types: inferred.as_ref().map(|checked| checked.function_return_types.clone()).unwrap_or_default(),
                     ..CompactDeclOutput::default()
                 },
@@ -153,7 +156,7 @@ impl Checker {
             if let Some(checked) = inferred {
                 output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
                     has_generic_schemas && matches!(diagnostic.code.as_deref(), Some("check.constructor-inference" | "check.record-constructor" | "check.type-mismatch"))
-                        || matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return" | "check.infer-param"))));
+                        || matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return" | "check.infer-param" | "check.local-inference"))));
             }
             output
         })
@@ -172,6 +175,7 @@ impl Checker {
             output.expr_types.reserve(program.stats().expressions);
             let mut probe = CompactBodyProbe {
                 type_constraints: super::super::constraints::TypeConstraints::default(),
+                nonmaterial_expressions: FxHashSet::default(),
                 program,
                 declarations,
                 output,
@@ -185,6 +189,7 @@ impl Checker {
             };
             probe.seed_declarations();
             probe.check_compact_program();
+            probe.resolve_checked_types();
             probe.output
         })
     }
@@ -599,6 +604,7 @@ enum CompactFunctionKind {
 /// method family distinguishes this probe from the general `Checker` paths.
 struct CompactBodyProbe<'a> {
     type_constraints: super::super::constraints::TypeConstraints,
+    nonmaterial_expressions: FxHashSet<ExprId>,
     with_initializer_errors: Option<Vec<Type>>,
     current_namespace: Option<Name>,
     program: &'a ArenaProgram,
@@ -627,6 +633,49 @@ impl CompactBinding {
 }
 
 impl CompactBodyProbe<'_> {
+    fn record_inert_discard(&mut self, expression: ArenaExprOrRun) {
+        if self.lookup_binding(Name::intern("map")).is_none() && super::local_inference::empty_map_call(self.program, expression)
+            && let ArenaExprOrRun::Expr(expression) = expression {
+            self.nonmaterial_expressions.insert(expression);
+        }
+    }
+
+    fn resolve_checked_types(&mut self) {
+        let mut reported = std::collections::BTreeSet::new();
+        self.output.expr_types.retain(|expression, ty| {
+            !self.nonmaterial_expressions.contains(expression)
+                || !matches!(self.type_constraints.resolve(ty), Ok(resolved) if resolved.contains_inference())
+        });
+        for (expression, projection) in &mut self.output.projections {
+            super::local_inference::finalize_projection(&self.type_constraints, projection, self.program.arena.expr(*expression).span, &mut reported, &mut self.output.diagnostics);
+        }
+        for (expression, ty) in &mut self.output.stage_callable_types {
+            super::local_inference::finalize_type(&self.type_constraints, ty, self.program.arena.expr(*expression).span, &mut reported, &mut self.output.diagnostics);
+        }
+        for (expression, ty) in &mut self.output.expr_types {
+            super::local_inference::finalize_type(&self.type_constraints, ty, self.program.arena.expr(*expression).span, &mut reported, &mut self.output.diagnostics);
+        }
+        for (block, ty) in &mut self.output.block_types {
+            super::local_inference::finalize_type(&self.type_constraints, ty, self.program.arena.span(self.program.arena.block(*block).span), &mut reported, &mut self.output.diagnostics);
+        }
+        for (expression, ty) in &mut self.output.value_block_types {
+            super::local_inference::finalize_type(&self.type_constraints, ty, self.program.arena.expr(*expression).span, &mut reported, &mut self.output.diagnostics);
+        }
+        for (block, ty) in &mut self.output.handler_input_types {
+            super::local_inference::finalize_type(&self.type_constraints, ty, self.program.arena.span(self.program.arena.block(*block).span), &mut reported, &mut self.output.diagnostics);
+        }
+        for scope in &mut self.scopes {
+            for binding in scope.values_mut() {
+                binding.ty = self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
+                if binding.ty.contains_inference() { binding.ty = Type::Invalid; }
+                if let Some(ty) = &mut binding.unrefined_ty {
+                    *ty = self.type_constraints.resolve(ty).unwrap_or(Type::Invalid);
+                    if ty.contains_inference() { *ty = Type::Invalid; }
+                }
+            }
+        }
+    }
+
     fn compact_subject(&self, mut expr: ExprId) -> Option<(Name, Vec<Name>, Type)> {
         let mut path = Vec::new();
         loop {
@@ -874,11 +923,14 @@ impl CompactBodyProbe<'_> {
             } => {
                 self.output.supported_statements += 1;
                 self.output.bindings += 1;
-                let expected = ty.map(|ty| self.type_from_arena(ty));
+                let expected = ty.map(|ty| self.type_from_arena(ty)).or_else(|| self.declarations.local_binding_types.get(&stmt.span).cloned());
                 let actual = match initializer {
                     ArenaExprOrRun::Expr(expr) => self.check_compact_expr_expected(expr, expected.as_ref()),
                     ArenaExprOrRun::Run(run) => self.check_compact_expr_or_run(ArenaExprOrRun::Run(run)),
                 };
+                if matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name == "_") {
+                    self.record_inert_discard(initializer);
+                }
                 let binding_ty = expected.unwrap_or(actual);
                 let mutable = matches!(self.program.arena.stmt(id).kind, ArenaStmtKind::Var { .. });
                 let boolean_proof = if !mutable && binding_ty == Type::Bool {
@@ -1071,6 +1123,7 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::Expr(expr) => {
                 self.output.supported_statements += 1;
                 let ty = self.check_compact_expr(expr);
+                self.record_inert_discard(ArenaExprOrRun::Expr(expr));
                 if ty == Type::Bool { let facts = self.compact_guard_narrowings(expr, true); self.apply_compact_guard_narrowings(facts); }
                 if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) {
                     self.apply_compact_expected(expr, &Type::Unit);
@@ -1237,7 +1290,7 @@ impl CompactBodyProbe<'_> {
     fn mark_tail_position(&mut self, block: BlockId, consumes_value: bool) {
         let ids = self.program.arena.stmt_ids(self.program.arena.block(block).statements).collect::<Vec<_>>();
         if let Some(&tail) = ids.last() {
-            if consumes_value && let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(tail).kind { self.mark_context_scope_value(expr); }
+            if consumes_value && let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(tail).kind { self.nonmaterial_expressions.remove(&expr); self.mark_context_scope_value(expr); }
             let returns_result = match self.program.arena.stmt(tail).kind {
                 ArenaStmtKind::Expr(expr) => self.output.expr_types.get(&expr).is_some_and(Type::is_result),
                 _ => false,
@@ -2199,7 +2252,8 @@ impl CompactBodyProbe<'_> {
                 let (_, item_expr, call, _) = temporary.arena.append_stage_callable_block(callee, self.program.arena.expr(callee).span);
                 let mut child = CompactBodyProbe {
                     condition_proofs: self.condition_proofs.clone(),
-                    type_constraints: super::super::constraints::TypeConstraints::default(),
+                    type_constraints: self.type_constraints.clone(),
+                    nonmaterial_expressions: self.nonmaterial_expressions.clone(),
                     program: &temporary, declarations: self.declarations, output: std::mem::take(&mut self.output),
                     scopes: self.scopes.clone(), stream_items: vec![item.clone()], return_types: self.return_types.clone(),
                     pipeline_hole_types: self.pipeline_hole_types.clone(), current_namespace: self.current_namespace,
@@ -2234,6 +2288,8 @@ impl CompactBodyProbe<'_> {
                 }
                 child.output.expr_types.remove(&item_expr);
                 child.output.expr_types.remove(&call);
+                self.type_constraints = child.type_constraints;
+                self.nonmaterial_expressions = child.nonmaterial_expressions;
                 self.output = child.output;
                 self.output.stage_callable_types.insert(callee, ty);
                 return;

@@ -573,6 +573,21 @@ follows the corresponding binary operator type rules for the target value.
 list to a mutable target. A scalar append is written `items += [item]`.
 Both operands use ordinary element compatibility, including expected types
 for empty lists; concatenation does not implicitly widen heterogeneous lists.
+Within a function, an unannotated empty List has one unresolved element type.
+An explicit empty Map constructor has unresolved key and value types. Checked
+writes and independently determined parameter or return expectations solve
+these types across all branches and loop bodies, including loops that may run
+zero times. A mutable binding initialized with `null` similarly has one fixed
+optional type once non-null contributions determine its inner type. Immutable
+`let value = null` remains Null. An unannotated `{}` remains a record.
+
+Local aliases share the same unresolved type; each use cannot choose a new
+instantiation. Incompatible concrete contributions are errors and never widen
+to Any or a union. Material unresolved types require an annotation before a
+concrete operation, checked signature, or indexed execution contract is
+published. A wholly discarded inert literal needs no artificial annotation.
+Checking uses source constraints without evaluating code or inspecting runtime
+values. Diagnostics identify the initializer and incompatible contributions.
 Assignment evaluates target selectors once in path order, then its right side
 once, then reads the current root and selected old value and commits the update.
 Changes selectors or RHS make to the same root remain visible; unrelated updates

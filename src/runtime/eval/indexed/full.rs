@@ -8238,6 +8238,26 @@ run true
         }
     }
 
+    #[test]
+    fn local_collection_inference_publishes_concrete_indexed_call_and_slot_types() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/local-inference.xsh");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        parsed.arena.symbol_owner().with_current(|| {
+            let function = parsed.arena.arena.function_defs.iter().find(|function| function.name == "gather").unwrap();
+            let body_span = parsed.arena.arena.span(parsed.arena.arena.block(function.body).span);
+            assert_eq!(declarations.function_return_types[&body_span], Type::List(Box::new(Type::Path)));
+            assert!(declarations.local_binding_types.values().all(|ty| !ty.contains_inference()));
+            assert!(declarations.local_binding_types.values().any(|ty| *ty == Type::List(Box::new(Type::Path))));
+        });
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(bodies.expr_types.values().all(|ty| !ty.contains_inference()));
+        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(&parsed.arena, &declarations, &bodies, source);
+        assert_eq!(constructed.blocker_events, 0, "{constructed:?}");
+        let _ = fixture("local-inference.xsh", source);
+    }
+
     /// A loop reuses its statement list rather than allocating per iteration.
     #[test]
     fn loop_iterations_reuse_their_statement_list() {

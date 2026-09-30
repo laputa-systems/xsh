@@ -98,7 +98,7 @@ impl Checker {
         }
         if let Some(binding) = self.lookup(name).cloned() {
             if let Some(alias) = binding.callable_alias { self.record_callable_alias(span, &alias); }
-            return binding.ty;
+            return self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
         }
         if let Some(info) = self.tag_variants.get(&name).cloned()
             && info.field_count == 0

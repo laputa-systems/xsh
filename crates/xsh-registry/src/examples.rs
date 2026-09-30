@@ -102,6 +102,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.error-context" => include_str!("../../../docs/snippets/api/error-context.xsh"),
         "language.core.constants" => include_str!("../../../docs/snippets/api/core-constants.xsh"),
         "language.core.value-pipelines" => include_str!("../../../docs/snippets/api/value-pipelines.xsh"),
+        "language.core.local-inference" => include_str!("../../../docs/snippets/api/local-inference.xsh"),
         "language.core.results" => include_str!("../../../docs/snippets/api/core-results.xsh"),
         "language.core.postfix-question" => {
             include_str!("../../../docs/snippets/api/core-postfix-question.xsh")

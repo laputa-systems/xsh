@@ -244,6 +244,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "captures",
     "streams",
     "value-pipelines",
+    "local-inference",
     "comprehensions",
     "scalar-iteration",
     "native-tests",
@@ -839,6 +840,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "context-scopes" => (
             "Produces values while temporarily selecting cwd or environment.",
             "`cd (path) { tail }` and `env (overlay) { tail }` return Result[T, Error] after restoration. Result tails remain nested; body ? propagates to its enclosing boundary. Defers run inside the selected context, and lexical transfers and cancellation restore it. Environment overlays accept finite Records or string-keyed Maps with scalar argv-convertible values; null does not unset a name. Live producers and host handles cannot escape. Command-word statement scopes remain supported.",
+        ),
+        "local-inference" => (
+            "Solves one fixed local collection or optional type from checked source constraints.",
+            "Unannotated empty Lists and explicit empty Maps retain monomorphic type holes until writes and independently determined parameter or return expectations establish their concrete types. Mutable null-seeded locals similarly acquire one fixed Optional type; immutable null remains Null and an unannotated empty record remains a record. All branches and loop bodies contribute static constraints, including zero-iteration loops. Aliases share the same type identity. Incompatible contributions are errors without Any or union widening; material unresolved types require an annotation before checked contracts or indexed execution are published. Wholly discarded inert literals need no artificial annotation. Runtime values are never inspected to infer types.",
         ),
         "procs" => (
             "Defines procedure declarations and calls.",
