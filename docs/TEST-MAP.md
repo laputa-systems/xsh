@@ -698,6 +698,7 @@ stack boundaries.
 | retry blocks, selective nominal/facet patterns, error identity, cleanup and selection trace | `tests/xsh/retry.xsh` |
 | stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` (including Result projections inside native arguments, operand order, and error cleanup); `tests/xsh/expression-continuations.xsh` pins ordinary and traced native argument order and dispatch boundaries |
 | structured stream behavior | `tests/xsh/stdlib/streams.xsh` |
+| Owned and sliced Str field equality in where predicates | `tests/xsh/stdlib/streams.xsh::test_stream_where_string_views_match_ordinary_record_comparison` |
 | Structured stage named configuration, spreads, modes, entry timing, and migration | `tests/xsh/stream-options.xsh`, `tests/syntax.rs::stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes`, and xsht CLI migration tests |
 | stream argv and signal process boundaries | `tests/runtime/streams.rs` |
 

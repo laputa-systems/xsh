@@ -2732,3 +2732,27 @@ summarize()
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "3:2:2\n")?
 }
+
+type StreamLabelRow = {name: Str, unit: Str}
+
+test test_stream_where_string_views_match_ordinary_record_comparison [error] {
+  let source = " MemFree :bytes\nVendorCounter:widgets\n"
+  var viewed: List[StreamLabelRow] = []
+  for line in source.lines() {
+    let fields = line.split(":")
+    viewed = viewed.push({name: fields[0].trim(), unit: fields[1]})
+  }
+
+  let owned: List[StreamLabelRow] = [{name: "MemFree", unit: "bytes"}, {name: "VendorCounter", unit: "widgets"}]
+  test.ok(viewed[0].name == "MemFree")?
+  test.ok(viewed[1].name != "MemFree")?
+  test.eq((viewed |> where .name == "MemFree").len(), 1)?
+  test.eq((viewed |> where "MemFree" == .name).len(), 1)?
+  test.eq((viewed |> where .name != "MemFree").len(), 1)?
+  test.eq((viewed |> where "MemFree" != .name).len(), 1)?
+  test.eq((viewed |> where .name == "MemFree" and .unit == "bytes").len(), 1)?
+  test.eq((viewed |> where .name == "MemFree" or .unit == "widgets").len(), 2)?
+  test.eq(viewed |> where .name == "MemFree", owned |> where .name == "MemFree")?
+  test.eq(viewed |> where .name != "MemFree", owned |> where .name != "MemFree")?
+  test.eq(viewed |> where .name == "MemFree", viewed |> where { |row| row.name == "MemFree" })?
+}
