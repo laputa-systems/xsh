@@ -62,6 +62,23 @@ fn removed_record_require_refuses_unproved_or_different_contracts() {
         let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
         let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}: {diagnostic:?}");
+}
+
+#[test]
+fn callable_alias_module_projection_contracts_preserve_full_compact_facts() {
+    let source = "type Plugin = module { export pure render(value: Str, suffix: Str = \"!\") -> Str; export proc clock() [time] -> Int }\nproc invoke(plugin: Plugin) [time, error] -> Str { let format = plugin.get(\"render\")?; let clock = plugin[\"clock\"]; let _ = clock(); format(value: \"one\") }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert_eq!(checked.static_callable_aliases, declarations.static_callable_aliases);
+    assert!(!checked.static_callable_aliases.is_empty());
+    assert!(checked.static_callable_aliases.values().all(|alias| alias.definition.is_none()));
+    for invalid in [source.replace("value: \"one\"", "value: 1"), source.replace("[time, error]", "[error]")] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &invalid);
+        let checked = Checker::check_arena(&parsed.arena, &invalid);
+        assert!(!checked.diagnostics.is_empty(), "{invalid}");
     }
 }
 

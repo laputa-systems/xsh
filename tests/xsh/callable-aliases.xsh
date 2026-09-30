@@ -99,3 +99,60 @@ print (parsed(value: "4")?)
   test.ok(result.success, result.stderr)?
   test.eq(result.stdout, "2\n1\n3 13\nconfig\n4\n")?
 }
+
+test test_callable_alias_retains_checked_module_projection_signature [fs, error] { |ctx|
+  let root = test.temp_dir(ctx, name: "callable-alias-projection")?
+  fp"${root}/plugin.xsh".write("""
+##! Callable plugin.
+let prefix = "captured:"
+## Formats an exported value.
+export pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }
+""")?
+  let script = f"""
+type Plugin = module { export pure render(value: Str, suffix: Str = "!") -> Str }
+let plugin = module.load(p"${root}/plugin.xsh")?.require(Plugin)?
+let format = plugin.get("render")?
+let again = format
+print format(value: "one") again.call(suffix: "?", value: "two")
+let projected = ["three"] |> map(format)
+print projected[0]
+"""
+  let result = test.run_script(ctx, script, [], {}, b"", "callable-alias-projection.xsh")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "captured:one! captured:two?\ncaptured:three!\n")?
+}
+
+test test_callable_alias_retains_inferred_proc_effect_identity [fs, error] { |ctx|
+  let result = test.run_script(ctx, """
+proc increment(value: Int) -> Int { value + 1 }
+let invoke = increment
+proc forward(value: Int) -> Int { invoke(value: value) }
+proc bounded(value: Int) [] -> Int { forward(value) }
+print bounded(4)
+""", [], {}, b"", "callable-alias-inferred-effects.xsh")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "5\n")?
+  for source in [
+    "proc effect() -> Int { let _ = time.now(); 1 }; let invoke = effect; proc bounded() [] -> Int { invoke() }; print bounded()\n",
+    "proc inferred(value: Int) -> Int { value }; export let public = inferred\n",
+  ] {
+    let rejected = test.run_script(ctx, source, [], {}, b"", "callable-alias-inferred-effects-rejected.xsh")?
+    test.ok(!rejected.success, source)?
+  }
+}
+
+test test_callable_alias_retains_stream_stage_signature [fs, error] { |ctx|
+  let result = test.run_script(ctx, r"""
+let prefix = "item:"
+pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }
+let format = render
+let values = ["one", "two"] |> map(format)
+print values[0] values[1]
+proc increment(value: Int) -> Int { value + 1 }
+let next = increment
+proc bounded() [] -> List[Int] { [1, 2] |> map(next) }
+print ${bounded()[0]}
+""", [], {}, b"", "callable-alias-stage.xsh")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "item:one! item:two!\n2\n")?
+}

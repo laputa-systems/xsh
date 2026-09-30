@@ -553,7 +553,7 @@ impl Checker {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
         FunctionSig {
-            effect_declaration,
+            effect_declaration: Some(effect_declaration),
             inferred_effects: self.effect_graph.is_inferred(effect_declaration),
             explicit_return: !def.return_ty_defaulted,
             is_alias: false,

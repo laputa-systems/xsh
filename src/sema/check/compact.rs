@@ -2156,7 +2156,7 @@ impl CompactBodyProbe<'_> {
         }
         match crate::sema::stage_arguments::stage_callable_argument(self.program, stream, |expr| self.output.expr_types.get(&expr).cloned()) {
             Ok(Some((callee, _))) => {
-                let static_name = match self.program.arena.expr(callee).kind {
+                let static_name = self.declarations.static_callable_aliases.contains_key(&self.program.arena.expr(callee).span) || match self.program.arena.expr(callee).kind {
                     ArenaExprKind::Ident(name) => !self.scopes.iter().skip(1).any(|scope| scope.contains_key(&name))
                         && (self.declarations.pures.contains_key(&name) || self.declarations.procs.contains_key(&name)
                             || self.current_namespace.is_some_and(|namespace| {

@@ -1,4 +1,4 @@
-use super::{CallableType, Checker, FunctionSig, Name, QualifiedName, Span};
+use super::{CallableType, Checker, FunctionParamSig, FunctionSig, ModuleExportType, Name, QualifiedName, Span, Type};
 use crate::syntax::arena::{ArenaExprKind, ArenaProgram, ExprId};
 
 /// Checked alias calls retain their signature while executing the original
@@ -33,6 +33,20 @@ impl CallableAlias {
 
 impl Checker {
     pub(super) fn resolve_callable_alias_target(&self, program: &ArenaProgram, expression: ExprId) -> Option<CallableAlias> {
+        let span = program.arena.expr(expression).span;
+        if matches!(self.expr_types.get(&span), Some(Type::Pure | Type::Proc)) {
+            let projected = match program.arena.expr(expression).kind {
+                ArenaExprKind::Try(inner) => self.projections.get(&program.arena.expr(inner).span),
+                _ => self.projections.get(&span),
+            };
+            if let Some(projection) = projected {
+                if let Some(target) = self.resolve_module_callable_alias(program, projection.receiver, projection.field, projection.callable.as_ref()?) { return Some(target); }
+            }
+            if let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind
+                && let Some(Type::Module(exports)) = self.expr_types.get(&program.arena.expr(base).span)
+                && let Some(export) = exports.get(&name)
+                && let Some(target) = self.resolve_module_callable_alias(program, base, name, export) { return Some(target); }
+        }
         let (name, signature, pure) = match program.arena.expr(expression).kind {
             ArenaExprKind::Ident(name) => {
                 if let Some(binding) = self.lookup(name) { return binding.callable_alias.clone(); }
@@ -49,6 +63,25 @@ impl Checker {
             _ => return None,
         };
         Some(CallableAlias { name, signature: signature.clone(), pure })
+    }
+
+    fn resolve_module_callable_alias(&self, program: &ArenaProgram, receiver: ExprId, name: Name, export: &ModuleExportType) -> Option<CallableAlias> {
+        if let ArenaExprKind::Ident(namespace) = program.arena.expr(receiver).kind
+            && self.lookup(namespace).is_none_or(|binding| binding.static_namespace) {
+            let qualified = QualifiedName::new(namespace, name);
+            if let Some(signature) = self.qualified_pures.get(&qualified) { return Some(CallableAlias { name, signature: signature.clone(), pure: true }); }
+            if let Some(signature) = self.qualified_procs.get(&qualified) { return Some(CallableAlias { name, signature: signature.clone(), pure: false }); }
+        }
+        let (sig, pure) = match export {
+            ModuleExportType::Pure { sig, optional: false } => (sig, true),
+            ModuleExportType::Proc { sig, optional: false } => (sig, false),
+            _ => return None,
+        };
+        Some(CallableAlias { name, pure, signature: FunctionSig {
+            effect_declaration: None, inferred_effects: false, explicit_return: true, is_alias: false, definition: None,
+            params: sig.params.iter().map(|param| FunctionParamSig { name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest }).collect(),
+            return_ty: (*sig.return_ty).clone(), effects: sig.effects.clone(),
+        } })
     }
 
     pub(super) fn resolve_callable_alias_call(&self, program: &ArenaProgram, expression: ExprId) -> Option<CallableAlias> {

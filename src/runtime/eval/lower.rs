@@ -11547,9 +11547,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         if let Some((callee, arguments)) = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |expr| {
             self.bodies.expr_types.get(&expr).cloned().or_else(|| self.infer_checked_expr_type_with_slots(expr, slots))
         }).ok()? {
-            // Only named declarations can reach this path. Runtime callable
-            // values would erase overload, default, and effect information.
-            let stable = match self.program.arena.expr(callee).kind {
+            // Checked aliases carry the same argument and effect contract as
+            // named declarations while retaining their captured callable handle.
+            let stable = self.declarations.static_callable_aliases.contains_key(&self.program.arena.expr(callee).span) || match self.program.arena.expr(callee).kind {
                 ArenaExprKind::Ident(name) => slots.resolve(name).is_none() && self.compact_unqualified_function_key(name).is_some(),
                 ArenaExprKind::Field { base, name } => matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
                     if (crate::sema::stage_arguments::stage_namespace_owner(self.program, namespace, self.current_namespace).is_some()

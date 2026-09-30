@@ -224,8 +224,8 @@ impl Checker {
 
     pub(super) fn check_resolved_callable_effects(&mut self, sig: &FunctionSig, name: &str, span: Span) {
         if self.collecting_effects {
-            if sig.inferred_effects {
-                self.effect_graph.call(self.effect_owner, sig.effect_declaration, self.retry_attempt_depth > 0);
+            if sig.inferred_effects && let Some(declaration) = sig.effect_declaration {
+                self.effect_graph.call(self.effect_owner, declaration, self.retry_attempt_depth > 0);
             } else {
                 self.record_effect_contract(&sig.effects, name);
             }
@@ -233,7 +233,7 @@ impl Checker {
         if let Some(caller) = self.current_effects.clone() {
             if sig.effects.is_none() && sig.inferred_effects {
                 let mut chain = vec![name.to_string()];
-                if let Some(summary) = self.effect_summaries.get(&sig.effect_declaration) { chain.extend(summary.unknown_chain.clone()); }
+                if let Some(summary) = sig.effect_declaration.and_then(|declaration| self.effect_summaries.get(&declaration)) { chain.extend(summary.unknown_chain.clone()); }
                 self.error(span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), "check.effect-violation");
             } else {
                 self.check_callee_effects(&caller, &sig.effects, name, span);

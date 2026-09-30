@@ -64,7 +64,7 @@ proc main() [] {
 test test_stage_functions_short_circuit_and_cancel_child_cleanup [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc cleanup() [] { print "cleanup" }
-stream numbers() [] -> Stream[Int] {
+stream numbers() [error] -> Stream[Int] {
   defer cleanup()
   print "pull:1"
   yield 1
@@ -74,7 +74,7 @@ stream numbers() [] -> Stream[Int] {
   yield 3
 }
 proc predicate(item: Int) [] -> Bool { print f"test:${item}"; return item == 2 }
-proc main() [] {
+proc main() [error] {
   print ${numbers() |> any(predicate)}
   print ${numbers() |> all(predicate)}
 }
@@ -87,9 +87,9 @@ test test_stage_functions_for_break_matches_explicit_wrapper_pull_order [error] 
   for body in ["map(add)", "map { |item| add(item) }"] {
     let output = test.run_script(ctx, r"""
 proc cleanup() [] { print "cleanup" }
-stream numbers() [] -> Stream[Int] { defer cleanup(); print "pull:1"; yield 1; print "pull:2"; yield 2 }
+stream numbers() [error] -> Stream[Int] { defer cleanup(); print "pull:1"; yield 1; print "pull:2"; yield 2 }
 proc add(item: Int, amount: Int = 10) [] -> Int { print "call"; return item + amount }
-proc main() [] {
+proc main() [error] {
   for value in (numbers() |> """ + body + r""") {
     print $value
     break
@@ -105,7 +105,7 @@ test test_stage_functions_side_effect_failure_and_late_source_failure [error] { 
   for stage in ["each", "tee"] {
     let output = test.run_script(ctx, r"""
 proc cleanup() [] { print "cleanup" }
-stream numbers() [] -> Stream[Int] { defer cleanup(); yield 1; yield 2; print "unreached"; yield 3 }
+stream numbers() [error] -> Stream[Int] { defer cleanup(); yield 1; yield 2; print "unreached"; yield 3 }
 proc observe(item: Int) [] -> Result[Unit] {
   print f"seen:${item}"
   if item == 2 { return error.fail("sink failed") }

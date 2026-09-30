@@ -1570,7 +1570,7 @@ impl Checker {
         self.define_binding_target_arena(arena, target, &final_ty, mutable, span);
         if let Some(alias) = callable_alias
             && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
-            if self.current_exported && (!alias.signature.explicit_return || (!alias.pure && (alias.signature.inferred_effects || alias.signature.effects.is_none()))) {
+            if self.current_exported && (alias.signature.definition.is_none() || !alias.signature.explicit_return || (!alias.pure && (alias.signature.inferred_effects || alias.signature.effects.is_none()))) {
                 self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", "check.callable-alias-export");
             }
             self.attach_callable_alias(name, alias, expr_or_run_span_arena(arena, initializer));

@@ -1442,7 +1442,11 @@ qualified user module export retains that callable's parameter labels,
 defaults, return type, callable kind, and effect contract. Another such alias
 retains the same signature. Calls use ordinary syntax, including named and
 spread arguments; alias creation executes no body or default expression.
-The alias retains the original callable handle and capture lifetime.
+The alias retains the original callable handle and capture lifetime. A checked
+constant-key module field/index or explicitly propagated getter also retains
+the visible callable contract. A validated runtime module contract supplies
+argument and effect checks while executing the captured handle; it supplies
+no declaration identity and cannot establish an exported alias contract.
 
 `var`, conditional/computed callable selection, and explicitly erased
 `Pure`/`Proc` annotations retain the existing dynamic callable boundary.

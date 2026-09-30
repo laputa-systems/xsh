@@ -1,6 +1,8 @@
 # Architecture
 
-Checked callable aliases are binding metadata, independent of erased
+Checked callable aliases retain optional original declaration identities; validated
+module contracts supply signatures without inventing effect graph edges or
+navigation targets. They are binding metadata, independent of erased
 `Type::Pure`/`Type::Proc` values. `Checker::resolve_callable_alias_target`
 resolves lexical and module signatures once; `StaticCallableAlias` facts
 retain the original definition span and complete `CallableType`.

@@ -180,7 +180,7 @@ impl Binding {
 
 #[derive(Clone, Debug)]
 pub(super) struct FunctionSig {
-    effect_declaration: EffectDeclarationId,
+    effect_declaration: Option<EffectDeclarationId>,
     inferred_effects: bool,
     explicit_return: bool,
     is_alias: bool,

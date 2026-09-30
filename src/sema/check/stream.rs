@@ -401,9 +401,10 @@ impl Checker {
         )
     }
 
-    /// A descriptor must name a declaration, rather than a value whose callable
-    /// type has erased the signature. Lexical value bindings take precedence.
+    /// A descriptor retains a checked declaration or immutable alias signature.
+    /// Lexical values with erased callable types cannot supply that contract.
     pub(super) fn stage_callable_is_static(&self, arena: &ArenaProgram, callee: ExprId) -> bool {
+        if self.resolve_callable_alias_call(arena, callee).is_some() { return true; }
         match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) => self.lookup(name).is_none()
                 && (self.pures.contains_key(&name) || self.procs.contains_key(&name)),
