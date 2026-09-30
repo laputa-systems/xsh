@@ -1663,6 +1663,11 @@ impl<'a> Linter<'a> {
         let ArenaExprOrRun::Expr(init_expr_id) = initializer else {
             return;
         };
+        // Empty Map factories acquire their key and value types from this
+        // annotation. Removing it can also turn a later `{}` fix into a Record.
+        if matches!(annotation_ty, Type::Map(_, _)) && is_map_empty_call(self.arena, *init_expr_id) {
+            return;
+        }
         let init = self.arena.expr(*init_expr_id);
         if !self.annotation_is_needless(&annotation_ty, &init, exported) {
             return;

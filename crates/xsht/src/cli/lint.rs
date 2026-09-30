@@ -1767,19 +1767,20 @@ print ${value}
 
     #[test]
     fn lint_fix_rewrites_empty_map_initializer_through_ast() {
-        let source = r#"
-let counts: Map[Int] = map.empty()
-print ${counts.has("x")}
-"#;
-        let config = config();
-        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
-        let LintResultKind::Write { text, .. } = result.kind else {
-            panic!("expected fixed source to be written");
-        };
+        for (map_type, key) in [("Map[Int]", "\"x\""), ("Map[Int, Str]", "1")] {
+            let source = format!("let counts: {map_type} = map.empty()\nprint ${{counts.has({key})}}\n");
+            let config = config();
+            let result = lint_one_file_with_fixes(0, "fixture.xsh", source, &config);
+            let LintResultKind::Write { text, .. } = result.kind else {
+                panic!("expected fixed source to be written");
+            };
 
-        assert!(text.contains("let counts = {}"));
-        assert!(text.contains("print counts.has(\"x\")"));
-        assert!(!text.contains("map.empty()"));
+            assert!(text.contains(&format!("counts: {map_type} = {{}}")), "{text}");
+            assert!(text.contains(&format!("print counts.has({key})")), "{text}");
+            assert!(!text.contains("map.empty()"));
+            let second = lint_one_file_with_fixes(0, "fixture.xsh", text, &config);
+            assert!(matches!(second.kind, LintResultKind::Clean));
+        }
     }
 
     #[test]
