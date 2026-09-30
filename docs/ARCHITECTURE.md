@@ -876,7 +876,8 @@ only admitted constant data, retains declaration spans, and caches plans by
 origin and policy. Full and compact checking derive their result shapes from
 that plan. `ModuleFnSig.semantic_rule` identifies this descriptor relation.
 `BuildExprRow::ModuleCall::cli_plan` retains the same Arc in a verified indexed
-plan pool, so execution does not normalize static descriptors again. Ordinary
+plan pool, so execution does not normalize static descriptors again. Builder
+checkpoints rewind this pool together with speculative instructions. Ordinary
 argument entries still evaluate once in source order; missing slots remain
 separate from supplied null values. Dynamic descriptors use the same normalizer
 at the runtime boundary.

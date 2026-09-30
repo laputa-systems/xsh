@@ -892,7 +892,8 @@ Broaden with `target/debug/xsht test --jobs 1 tests/xsh/stdlib/cli.xsh`.
 and compact type parity and declaration spans. The indexed plan pool, verifier
 boundaries, and both execution routes use
 `cargo test -p xsh --lib cli_descriptor_plans --features native-tests`; broaden
-with the filtered indexed runtime gate.
+with the filtered indexed runtime gate. `prepared_cli_plan_pool_rewinds_with_builder_checkpoint`
+covers speculative plan pool cleanup.
 Record projection and Boolean alias provenance is owned by
 `src/sema/check/proof.rs::BindingProof` and `ConditionNarrowings`. Full and compact
 checkers share subject identities, bounded mutation stamps, path overlap rules,

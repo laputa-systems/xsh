@@ -741,6 +741,7 @@ impl FullStore {
         self.prepared_constants.shrink_to_fit();
         self.wire_enums.shrink_to_fit();
         self.prepared_schemas.shrink_to_fit();
+        self.prepared_cli_plans.shrink_to_fit();
         self.locations.shrink_to_fit();
         self.location_sources.shrink_to_fit();
         self.runtime_ops.shrink_to_fit();
@@ -1514,6 +1515,7 @@ struct FullCheckpoint {
     prepared_constants: usize,
     wire_enums: usize,
     prepared_schemas: usize,
+    prepared_cli_plans: usize,
     locations: usize,
     runtime_ops: usize,
     assign_ops: usize,
@@ -2639,6 +2641,7 @@ impl FullBuilder {
             prepared_constants: self.store.prepared_constants.len(),
             wire_enums: self.store.wire_enums.len(),
             prepared_schemas: self.store.prepared_schemas.len(),
+            prepared_cli_plans: self.store.prepared_cli_plans.len(),
             locations: self.store.locations.len(),
             runtime_ops: self.store.runtime_ops.len(),
             assign_ops: self.store.assign_ops.len(),
@@ -2681,6 +2684,7 @@ impl FullBuilder {
         self.store.prepared_constants.truncate(checkpoint.prepared_constants);
         self.store.wire_enums.truncate(checkpoint.wire_enums);
         self.store.prepared_schemas.truncate(checkpoint.prepared_schemas);
+        self.store.prepared_cli_plans.truncate(checkpoint.prepared_cli_plans);
         self.store.locations.truncate(checkpoint.locations);
         self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
@@ -8500,6 +8504,20 @@ proc main() [error] {
             PreparedConstantValue(LoweredValue::Int(1)).encode(&mut builder, &mut words).unwrap();
             builder.rewind(checkpoint);
             assert!(builder.store.prepared_constants.is_empty());
+        });
+    }
+
+    #[test]
+    fn prepared_cli_plan_pool_rewinds_with_builder_checkpoint() {
+        run_with_large_stack(|| {
+            let program = fixture("cli-constant-descriptors.xsh", include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"));
+            let plan = Arc::clone(&program.store.prepared_cli_plans[0]);
+            let mut builder = FullBuilder::new(SourceId::new(0));
+            let checkpoint = builder.checkpoint();
+            plan.encode(&mut builder, &mut Vec::new()).unwrap();
+            assert_eq!(builder.store.prepared_cli_plans.len(), 1);
+            builder.rewind(checkpoint);
+            assert!(builder.store.prepared_cli_plans.is_empty());
         });
     }
 
