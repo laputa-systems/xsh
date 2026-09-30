@@ -263,3 +263,9 @@ test test_dynamic_boundary_keeps_nominal_error_in_contextual_success [error] { |
   output.status == 0
   output.stdout == "4\n"
 }
+
+test test_dynamic_boundary_serializes_concrete_record_lists_without_erasing_them [error] { |ctx|
+  let output = test.run_xsh(ctx, "type Row = {name: Str}\nlet root = fs.tempdir()?\ndefer root.close()?\nlet row_path = fp\"\${root.host_path()?}/rows.jsonl\"\nlet rows: List[Row] = [{name: \"demo\"}]\njson.write_lines(row_path, rows)?\nprint row_path.read_text()?\n")?
+  output.status == 0
+  output.stdout == "{\"name\":\"demo\"}\n\n"
+}

@@ -1398,11 +1398,15 @@ impl Checker {
                 let expected = Type::List(Box::new(Type::Any));
                 let value_ty =
                     self.check_call_arg_arena(arena, source, &args[1].kind, Some(&expected));
-                self.expect_type(
-                    &expected,
-                    &value_ty,
-                    call_arg_span_arena(arena, &args[1].kind),
-                );
+                // Serialization consumes a concrete list without changing its
+                // element domain. Dynamic inputs must still establish a list.
+                if !matches!(value_ty, Type::List(_)) {
+                    self.expect_type(
+                        &expected,
+                        &value_ty,
+                        call_arg_span_arena(arena, &args[1].kind),
+                    );
+                }
                 self.expect_json_compatible(&value_ty, call_arg_span_arena(arena, &args[1].kind));
             }
             "set" => {

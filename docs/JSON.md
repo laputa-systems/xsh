@@ -72,6 +72,10 @@ let event = {
 json.write(log_path, event)?
 ```
 
+`json.write_lines` also accepts an existing concrete list of JSON-compatible
+records. Serialization reads its values without converting the list to
+`List[Any]`; container assignments retain their invariant element domains.
+
 The record is already typed in XSH. A separate `Event` type is useful only if
 the script will read the value back, accept it from another process, or pass it
 through an API that depends on that shape.
