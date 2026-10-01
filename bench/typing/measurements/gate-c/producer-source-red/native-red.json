@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+    "test",
+    "--jobs",
+    "1",
+    "--keep-temp",
+    "typing-inference-producers"
+  ],
+  "cwd": "/tmp/xsh-c-producer-native/native",
+  "status": 1,
+  "elapsed_seconds": 0.5305085410072934,
+  "stdout_log": "/tmp/xsh-c-producer-native/native/native-red.stdout",
+  "stderr_log": "/tmp/xsh-c-producer-native/native/native-red.stderr",
+  "source_sha256": "360cebfb8627b65807e71176625af012fd30b120f90219fc43f977eafa3c87b4"
+}

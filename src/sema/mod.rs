@@ -5,7 +5,10 @@ pub(crate) mod cli_entry;
 pub mod constants;
 pub mod constraints;
 pub mod inference;
+pub(crate) mod operation_graph;
+mod stage_graph;
 pub mod records;
+pub(crate) mod registry_graph;
 pub mod projection;
 pub mod types;
 

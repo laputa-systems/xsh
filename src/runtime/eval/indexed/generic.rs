@@ -528,6 +528,43 @@ mod tests {
     }
 
     #[test]
+    fn prepared_component_templates_remap_sparse_member_binders_and_reject_siblings() {
+        use crate::sema::inference::{Arrow, Atom, CallableKind, ComponentMember, EffectSet, EffectSummary, Generalization, InferenceContext, Parameter, RowField};
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let span = crate::source::Span::new(crate::source::SourceId::new(0), 0, 1);
+        for row_member in [false, true] {
+            let mut graph = InferenceContext::default();
+            let first = graph.fresh(1, span).unwrap();
+            let second = if row_member {
+                let tail = graph.fresh_row(1, span).unwrap();
+                let int = graph.atom(Atom::Int).unwrap();
+                let row = graph.row(vec![RowField { label: Name::intern("tag"), ty: int }], Some(tail)).unwrap();
+                graph.record(row).unwrap()
+            } else { graph.fresh(1, span).unwrap() };
+            let roots = [first, second].map(|ty| graph.arrow(Arrow {
+                kind: CallableKind::Pure,
+                params: vec![Parameter { label: Name::intern("value"), ty, defaulted: false, rest: false }],
+                result: ty, effects: EffectSummary::Closed(EffectSet::EMPTY),
+            }).unwrap());
+            let members = roots.map(|root| ComponentMember { root, requirements: Vec::new(), policy: Generalization::Allowed });
+            let schemes = graph.generalize_component(&members, 0, None).unwrap();
+            let second = graph.resolved(second).unwrap();
+            let mut pools = SemanticPools::default();
+            let mut semantic = SemanticPoolBuilder::default();
+            let mut builder = GenericEvidenceBuilder::default();
+            let prepared = builder.prepare_reference(&graph, schemes[1], second, &mut pools, &mut semantic).unwrap();
+            if row_member {
+                let TypeRef::Template(template) = prepared else { panic!("row member must retain a template"); };
+                let TypeTemplate::Record { row_tail, .. } = builder.template(template).unwrap() else { panic!("row member must retain a record"); };
+                assert_eq!(*row_tail, Some(0));
+            } else { assert_eq!(prepared, TypeRef::Rigid(0)); }
+            let sibling = graph.scheme_type_binders(schemes[0]).unwrap()[0];
+            assert!(builder.prepare_reference(&graph, schemes[1], sibling, &mut pools, &mut semantic).is_err());
+        }
+    }
+
+    #[test]
     fn prepared_record_template_flattens_solved_field_extensions() {
         let source = "pure both(entry) { let _: Int = entry.age; entry.name }";
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
@@ -840,7 +877,11 @@ impl GenericEvidenceBuilder {
             if let Ok(ty) = graph_ground_type(graph, id) { return semantic.intern_type(pools, &ty).map(TypeRef::Ground).map_err(|_| failure("ground graph data cannot enter the semantic pool")); }
             active.push(id);
             let reference = match graph.node(id).map_err(|_| failure("generic template graph handle is foreign"))? {
-                TypeNode::Rigid { scope, index, kind: VariableKind::Type } if *scope == scheme => TypeRef::Rigid(*index),
+                TypeNode::Rigid { kind: VariableKind::Type, .. } => {
+                    let index = graph.scheme_binder_index(scheme, id).map_err(|_| failure("generic template scheme is foreign"))?
+                        .ok_or_else(|| failure("generic template variable is outside the member scheme"))?;
+                    TypeRef::Rigid(u32::try_from(index).map_err(|_| failure("generic template quantifier index exceeds its representation"))?)
+                },
                 TypeNode::Optional(inner) => { let inner = prepare(builder, graph, scheme, *inner, pools, semantic, active)?; TypeRef::Template(builder.add_template(TypeTemplate::Optional(inner))?) },
                 TypeNode::List(inner) => { let inner = prepare(builder, graph, scheme, *inner, pools, semantic, active)?; TypeRef::Template(builder.add_template(TypeTemplate::List(inner))?) },
                 TypeNode::Stream(inner) => { let inner = prepare(builder, graph, scheme, *inner, pools, semantic, active)?; TypeRef::Template(builder.add_template(TypeTemplate::Stream(inner))?) },
@@ -860,7 +901,11 @@ impl GenericEvidenceBuilder {
                         let tail = graph.resolved(tail).map_err(|_| failure("generic row tail is unresolved"))?;
                         if active.len() + tails.len() >= 256 || active.contains(&tail) || tails.contains(&tail) { return Err(failure("generic row tail is cyclic or exceeds depth limit")); }
                         match graph.node(tail).map_err(|_| failure("generic row tail is foreign"))? {
-                            TypeNode::Rigid { scope, index, kind: VariableKind::Row } if *scope == scheme => break Some(*index),
+                            TypeNode::Rigid { kind: VariableKind::Row, .. } => {
+                                let index = graph.scheme_binder_index(scheme, tail).map_err(|_| failure("generic template scheme is foreign"))?
+                                    .ok_or_else(|| failure("generic row variable is outside the member scheme"))?;
+                                break Some(u32::try_from(index).map_err(|_| failure("generic row quantifier index exceeds its representation"))?);
+                            },
                             TypeNode::Record(next) | TypeNode::Row(next) => { tails.push(tail); row = *next; },
                             _ => return Err(failure("generic row tail is not a scoped row variable or row extension")),
                         }

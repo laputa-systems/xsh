@@ -14,6 +14,10 @@ fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
 // These tests mutate executable proofs after ordinary source preparation. Native
 // source tests cannot express foreign handles or inconsistent encoded operands.
 fn fixture(name: &str, source: &str) -> FullProgram {
+    fixture_with_solved(name, source, |_, _| {})
+}
+
+fn fixture_with_solved(name: &str, source: &str, inspect: impl FnOnce(&ArenaProgram, &crate::sema::check::SolvedTypes)) -> FullProgram {
     let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
         name,
         crate::loader::entry_source_from_text(name, source.to_string()),
@@ -23,6 +27,7 @@ fn fixture(name: &str, source: &str) -> FullProgram {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
     assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    parsed.arena.symbol_owner().with_current(|| inspect(&parsed.arena, &declarations.solved));
     let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
     assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
     let program = FullBuilder::build_compact(
@@ -53,17 +58,37 @@ fn unused_forwarding(program: &FullProgram) -> ForwardingId {
 }
 
 fn unused_forwarding_fixture() -> (FullProgram, ForwardingId) {
-    let program = fixture("unused-operation-forwarding.xsh", r#"
+    let program = fixture_with_solved("unused-operation-forwarding.xsh", r#"
 pure add(left, right) { left + right }
-pure unused(left, right, extra) {
+pure unused(left, right, extra, first, second, third) {
+    let pending = add(first, second)
+    let other = third + second
     let inner: Int = add(left, right)
     inner + extra
 }
 let sum: Int = add(2, 3)
-"#);
+"#, |program, solved| {
+        let (owner, declaration) = solved.declarations.iter().find(|(identity, _)|
+            program.arena.function_def(identity.declaration).name == "unused").unwrap();
+        let scheme = solved.graph.scheme(declaration.scheme).unwrap();
+        assert_eq!(scheme.requirement_origins.len(), 3, "forwarded and body operations retain independent pending Add guards");
+        assert_eq!(scheme.requirement_origins.iter().copied().collect::<std::collections::BTreeSet<_>>().len(), 3);
+        assert!(scheme.requirements.iter().all(|requirement| matches!(requirement, crate::sema::inference::RequirementTemplate::Add { .. })));
+        assert!(scheme.requirement_origins.iter().all(|requirement| solved.graph.discharge(*requirement).unwrap().is_none()));
+        let fixed = solved.additions.iter().filter(|(expression, _)| solved.expression_owners.get(expression) == Some(owner))
+            .filter_map(|(_, requirement)| solved.graph.discharge(*requirement).unwrap()).collect::<Vec<_>>();
+        assert_eq!(fixed.len(), 1, "the final Add keeps its source-owned fixed discharge");
+        assert_eq!(fixed[0].operation, crate::sema::inference::SealedOperation::AddInt);
+        assert!(!scheme.requirement_origins.contains(&fixed[0].requirement));
+        for ty in [fixed[0].left, fixed[0].right, fixed[0].result] {
+            assert_eq!(solved.graph.export_type(ty).unwrap(), Type::Int);
+        }
+    });
     let evidence = program.store.generic.as_deref().unwrap();
     let forwarding = unused_forwarding(&program);
     let plan = evidence.forwarding(forwarding).unwrap();
+    assert_eq!(evidence.scope(plan.caller).unwrap().requirements.len(), 3);
+    assert_ne!(evidence.scope(plan.caller).unwrap().requirements[0], evidence.scope(plan.caller).unwrap().requirements[1]);
     assert!(plan.instances.is_empty());
     assert_eq!(plan.requirements.len(), 1);
     assert!(matches!(plan.requirements[0], ForwardedRequirement::Caller(_)));

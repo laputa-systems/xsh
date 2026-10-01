@@ -1,0 +1,327 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on shared package cache
+warning: unused imports: `SolvedConstructorArgument` and `SolvedConstructorParameter`
+  --> src/sema/check.rs:30:139
+   |
+30 | ...dConstructorApplication, SolvedConstructorArgument, SolvedConstructorDefault, SolvedConstructorParameter};
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+
+warning: unused import: `ModuleProjectionKind`
+  --> src/sema/check.rs:82:29
+   |
+82 | pub use module_projection::{ModuleProjectionKind, SolvedModuleProjection};
+   |                             ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:88:157
+   |
+88 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:175:21
+    |
+175 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:183:84
+    |
+183 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `Contextual` is never constructed
+ --> src/sema/check/registry_boundaries.rs:9:52
+  |
+9 | pub(crate) enum RegistryValidationMode { Explicit, Contextual }
+  |                 ----------------------             ^^^^^^^^^^
+  |                 |
+  |                 variant in this enum
+  |
+  = note: `RegistryValidationMode` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `operation` is never read
+  --> src/sema/check/registry_boundaries.rs:25:21
+   |
+25 |     CliDescriptor { operation: RuntimeOp, plan: Arc<crate::modules::cli::CliDescriptorPlan> },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `algorithm` is never read
+  --> src/sema/check/registry_boundaries.rs:26:21
+   |
+26 |     HashAlgorithm { algorithm: Name },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `mode` is never read
+  --> src/sema/check/registry_boundaries.rs:27:48
+   |
+27 |     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
+   |     ---------------- field in this variant     ^^^^
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `error` is never used
+  --> src/sema/check/operation_catalog.rs:90:19
+   |
+43 | impl SolvedOperationCatalog {
+   | --------------------------- method in this implementation
+...
+90 |     pub(crate) fn error(&self, graph: &InferenceContext, authority: Name) -> Result<&RegistryErrorVariant, InferenceError> {
+   |                   ^^^^^
+
+warning: function `evaluate_producer_flow` is never used
+   --> src/sema/check/producer_eval.rs:207:15
+    |
+207 | pub(crate) fn evaluate_producer_flow(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `evaluate_producer_flows` is never used
+   --> src/sema/check/producer_eval.rs:228:15
+    |
+228 | pub(crate) fn evaluate_producer_flows(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `family` is never read
+  --> src/sema/operation_graph.rs:12:65
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ----------------- field in this struct        ^^^^^^
+   |
+   = note: `LanguageAuthority` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `statement_result_is_unit` is never read
+   --> src/sema/operation_graph.rs:185:9
+    |
+179 | pub(crate) struct OperationCandidate {
+    |                   ------------------ field in this struct
+...
+185 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: associated constants `MIN`, `MAX`, and `ALL` are never used
+  --> src/sema/stage_graph.rs:18:43
+   |
+17 | impl ReductionModes {
+   | ------------------- associated constants in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |                                           ^^^                         ^^^                         ^^^
+
+warning: fields `input_numeric`, `form`, `parameters`, `callback_slot`, and `additional_producer` are never read
+  --> src/sema/stage_graph.rs:54:9
+   |
+49 | pub(crate) struct StageCandidate {
+   |                   -------------- fields in this struct
+...
+54 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+55 |     pub form: StageForm,
+   |         ^^^^
+56 |     pub variant: StageVariant,
+57 |     pub parameters: &'static [StageParameter],
+   |         ^^^^^^^^^^
+58 |     pub callback_slot: Option<usize>,
+   |         ^^^^^^^^^^^^^
+59 |     pub additional_producer: Option<AdditionalProducer>,
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `intrinsic_pull` is never read
+  --> src/sema/stage_graph.rs:74:9
+   |
+71 | pub(crate) struct StageEffectRelation {
+   |                   ------------------- field in this struct
+...
+74 |     pub intrinsic_pull: EffectSet,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `StageEffectRelation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MapKey`, `OptionalPayload`, `ResultError`, and `RecordField` are never constructed
+  --> src/sema/registry_graph.rs:36:55
+   |
+36 | pub(crate) enum RegistryProducerComponent { ListItem, MapKey, MapValue, OptionalPayload, ResultSuccess, ResultError, RecordField(Nam...
+   |                 -------------------------             ^^^^^^            ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^  ^^^^^^^^^^^
+   |                 |
+   |                 variants in this enum
+   |
+   = note: `RegistryProducerComponent` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry`, `binding`, and `command` are never read
+  --> src/sema/registry_graph.rs:76:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+76 |     pub entry: &'static str,
+   |         ^^^^^
+77 |     pub operation: RuntimeOp,
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `RegistryProducerPath` is never used
+   --> src/sema/registry_graph.rs:128:17
+    |
+128 | pub(crate) enum RegistryProducerPath { ResultSuccess }
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerAlternative` is never constructed
+   --> src/sema/registry_graph.rs:131:19
+    |
+131 | pub(crate) struct RegistryProducerAlternative {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerRelation` is never constructed
+   --> src/sema/registry_graph.rs:137:19
+    |
+137 | pub(crate) struct RegistryProducerRelation {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `family` and `variant` are never read
+   --> src/sema/registry_graph.rs:155:9
+    |
+153 | pub(crate) struct RegistryErrorVariant {
+    |                   -------------------- fields in this struct
+154 |     pub authority_id:Name,
+155 |     pub family:Name,
+    |         ^^^^^^
+156 |     pub variant:Name,
+    |         ^^^^^^^
+    |
+    = note: `RegistryErrorVariant` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `producer_result_relation` is never used
+   --> src/sema/registry_graph.rs:319:19
+    |
+173 | impl RegistryGraph {
+    | ------------------ method in this implementation
+...
+319 |     pub(crate) fn producer_result_relation(&self,graph:&InferenceContext,family:OperationFamilyId)->Result<Option<RegistryProducerR...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `xsh` (lib) generated 25 warnings (run `cargo fix --lib -p xsh` to apply 6 suggestions)
+   Compiling xsht v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/crates/xsht)
+warning: associated functions `lint`, `lint_module`, `lint_internal`, and `lint_internal_with_effect_check` are never used
+   --> crates/xsht/src/lint.rs:286:12
+    |
+285 | impl<'a> Linter<'a> {
+    | ------------------- associated functions in this implementation
+286 |     pub fn lint(program: &'a ArenaProgram, source: &'a str, options: LintOptions) -> LintOutput {
+    |            ^^^^
+...
+295 |     pub fn lint_module(
+    |            ^^^^^^^^^^^
+...
+314 |     fn lint_internal(
+    |        ^^^^^^^^^^^^^
+...
+324 |     fn lint_internal_with_effect_check(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `xsht` (bin "xsht") generated 1 warning
+    Finished `test` profile [unoptimized] target(s) in 8.00s
+     Running tests/api.rs (target/debug/build/xsht/84e3588a999ac11c/out/api-84e3588a999ac11c)
+
+running 65 tests
+test api_core_assert_documents_lazy_context_and_core_error_identity ... ok
+test api_causes_exposes_typed_translation_and_source_example ... ok
+test api_block_strings_explains_exact_margin_source_boundaries_and_literal_domains ... ok
+test api_comprehensions_reference_exposes_order_cleanup_and_example ... ok
+test api_combines_query_file_and_argv_queries ... ok
+test api_boolean_guards_explains_exits_refinements_and_no_error_input ... ok
+test api_context_scopes_describes_restoration_and_demonstrates_value_forms ... ok
+test api_absence_lookups_preserves_byte_and_result_boundaries ... ok
+test api_constants_retains_preparation_contract_and_executable_example ... ok
+test api_builtin_templates_render_receiver_argument_and_result_relationships ... ok
+test api_core_bindings_names_var_and_let_immutability ... ok
+test api_core_procs_demonstrates_lexical_named_argument_puns ... ok
+test api_core_fallback_explains_error_parameter_and_lexical_targets ... ok
+test api_core_records_demonstrates_schema_owned_defaults_and_constructor_puns ... ok
+test api_core_procs_demonstrates_static_named_argument_spreading ... ok
+test api_inventory_is_standalone_and_documented ... ok
+test api_exact_item_explains_effects_and_contract ... ok
+test api_core_enums_documents_nominal_constructors_aliases_and_singletons ... ok
+test api_defaulted_parameters_explain_positional_only_calls ... ok
+test api_field_labels_distinguishes_wire_names_from_lexical_bindings ... ok
+test api_filesystem_walk_contract_documents_hidden_default ... ok
+test api_fs_root_inventory_exposes_native_receiver_operations_and_retains_factories ... ok
+test api_duration_arithmetic_explains_dimensions_and_adapter_boundaries ... ok
+test api_jsonl_has_one_response_per_selector ... ok
+test api_language_group_includes_the_language_contract ... ok
+test api_lexical_error_context_retains_contract_and_executable_example ... ok
+test api_local_inference_describes_one_fixed_type_and_static_contributions ... ok
+test api_list_splicing_documents_nesting_order_and_explicit_domains ... ok
+test api_error_fail_is_exactly_registered_and_searchable ... ok
+test api_map_literals_exposes_classification_order_and_boundaries ... ok
+test api_method_receiver_query_keeps_exact_member_lookup ... ok
+test api_map_receiver_query_discloses_its_constructor ... ok
+test api_method_receiver_query_lists_every_method_of_a_type ... ok
+test api_map_summary_discloses_its_constructor ... ok
+test api_method_receiver_works_for_path_constructor_receiver ... ok
+test api_mixed_batch_preserves_query_order ... ok
+test api_module_query_lists_the_module_and_its_members ... ok
+test api_module_member_text_shows_the_signature ... ok
+test api_module_member_jsonl_matches_text_signature ... ok
+test api_module_overview_stays_concise ... ok
+test api_print_builtin_is_discoverable_by_search ... ok
+test api_print_builtin_is_indexed_with_signature_effects_and_example ... ok
+test api_private_pure_returns_explain_definition_inference_and_explicit_boundaries ... ok
+test api_scalar_iteration_keeps_direct_source_and_snapshot_contract ... ok
+test api_process_commands_document_exact_bytes_stdin_ownership ... ok
+test api_regex_literals_exposes_preparation_raw_syntax_and_dynamic_compile ... ok
+test api_onboarding_script_passes_xsht_check ... ok
+test api_slicing_documents_bounds_units_and_retained_count_method ... ok
+test api_path_interpolation_distinguishes_native_bytes_and_human_text ... ok
+test api_print_builtin_is_found_by_output_and_builtin_terms ... ok
+test api_search_is_local_and_deterministic ... ok
+test api_stdin_queries_join_argv_batch_in_request_order ... ok
+test api_process_accept_policy_documents_actual_status_and_completion_boundary ... ok
+test api_stream_sort_by_shows_options_before_block ... ok
+test api_stream_stage_group_by_shows_signature_and_record_shape ... ok
+test api_summary_rejects_selectors ... ok
+test api_stream_stages_carry_a_signature_in_jsonl ... ok
+test api_streams_explains_yield_delegation_and_cleanup_order ... ok
+test api_strict_renders_all_queries_before_failing ... ok
+test api_without_query_jsonl_is_a_valid_guide_object ... ok
+test api_without_query_is_a_standalone_onboarding_guide ... ok
+test api_summary_jsonl_is_one_structured_response ... ok
+test api_surface_matches_the_recorded_reference ... ok
+test api_summary_reports_the_complete_queryable_surface ... ok
+test api_value_pipeline_retains_argument_placement_and_evaluation_contract ... ok
+
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+

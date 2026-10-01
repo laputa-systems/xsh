@@ -1,0 +1,69 @@
+   Compiling xsh v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2)
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:80:157
+   |
+80 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: unused variable: `arrow`
+  --> src/sema/check/infer_effects.rs:95:61
+   |
+95 | ...   let crate::sema::inference::TypeNode::Arrow(arrow) = state.facts.graph.node(state.facts.graph.resolved(signature)?)? else {
+   |                                                   ^^^^^ help: if this is intentional, prefix it with an underscore: `_arrow`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:146:21
+    |
+146 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:154:84
+    |
+154 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+
+warning: unused variable: `span`
+   --> src/sema/check/producer.rs:269:124
+    |
+269 | ..., call: ExpressionIdentity, span: crate::source::Span) -> Result<Vec<ProducerFlowId>, InferenceError> {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_span`
+
+error[E0004]: non-exhaustive patterns: `ProducerFlowKind::RecordUpdate { .. }` not covered
+   --> src/sema/check/producer_eval.rs:585:15
+    |
+585 |         match kind {
+    |               ^^^^ pattern `ProducerFlowKind::RecordUpdate { .. }` not covered
+    |
+note: `ProducerFlowKind` defined here
+   --> src/sema/check/producer.rs:50:10
+    |
+ 50 | pub enum ProducerFlowKind {
+    |          ^^^^^^^^^^^^^^^^
+...
+ 60 |     RecordUpdate { base: ProducerFlowId, replacements: Vec<ProducerFlowField> },
+    |     ------------ not covered
+    = note: the matched value is of type `ProducerFlowKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+    |
+669 ~             },
+670 +             ProducerFlowKind::RecordUpdate { .. } => todo!()
+    |
+
+For more information about this error, try `rustc --explain E0004`.
+warning: `xsh` (lib) generated 6 warnings
+error: could not compile `xsh` (lib) due to 1 previous error; 6 warnings emitted

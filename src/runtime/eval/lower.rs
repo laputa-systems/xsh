@@ -11123,8 +11123,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ));
                 }
                 if slots.resolve(name).is_some() && current_function != Some(name) {
-                    let args =
-                        self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
+                    // A captured callable retains its exact checked arrow while
+                    // the value in the local slot remains the call target.
+                    let params = self.solved().calls.get(&self.expression_identity(id)).and_then(|call| {
+                        let graph = &self.solved().graph;
+                        let crate::sema::inference::TypeNode::Arrow(arrow) = graph.node(graph.resolved(call.signature).ok()?).ok()? else { return None; };
+                        arrow.params.iter().map(|parameter| Some(CallableParamType {
+                            name: parameter.label, ty: self.solved_type(parameter.ty)?,
+                            defaulted: parameter.defaulted, rest: parameter.rest,
+                        })).collect::<Option<Vec<_>>>()
+                    });
+                    let args = self.lower_function_call_args(&args_vec, params.as_deref(), None, slots, current_function, item_slot)?;
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11705,6 +11714,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                             graph.export_type(*right).ok()?;
                             graph.export_type(*result).ok()?;
                         }
+                        crate::sema::inference::RequirementTemplate::Eligibility { .. }
+                        | crate::sema::inference::RequirementTemplate::Operation { .. }
+                        | crate::sema::inference::RequirementTemplate::EffectInclusion { .. }
+                        | crate::sema::inference::RequirementTemplate::CallableInvocation { .. }
+                        | crate::sema::inference::RequirementTemplate::ErrorJoin { .. }
+                        | crate::sema::inference::RequirementTemplate::EqualityCompatible { .. } => return None,
                     }
                 }
                 let signature = graph.resolved(callable.signature).ok()?;

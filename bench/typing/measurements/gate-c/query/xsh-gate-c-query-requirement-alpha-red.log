@@ -1,0 +1,155 @@
+   Compiling xsh v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2)
+warning: enum `RegistryOwner` is never used
+  --> src/sema/registry_graph.rs:13:17
+   |
+13 | pub(crate) enum RegistryOwner {
+   |                 ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `RegistryParameter` is never constructed
+  --> src/sema/registry_graph.rs:20:19
+   |
+20 | pub(crate) struct RegistryParameter {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryCandidate` is never constructed
+  --> src/sema/registry_graph.rs:28:19
+   |
+28 | pub(crate) struct RegistryCandidate {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryGraph` is never constructed
+  --> src/sema/registry_graph.rs:46:19
+   |
+46 | pub(crate) struct RegistryGraph {
+   |                   ^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> src/sema/registry_graph.rs:53:8
+    |
+ 52 | impl RegistryGraph {
+    | ------------------ methods in this implementation
+ 53 |     fn bind_owner(&mut self, graph: &InferenceContext) -> Result<(), InferenceError> {
+    |        ^^^^^^^^^^
+...
+ 59 |     fn cached_family(&mut self, graph: &InferenceContext, key: &str) -> Option<OperationFamilyId> {
+    |        ^^^^^^^^^^^^^
+...
+ 67 |     pub(crate) fn module_family(&mut self, graph: &mut InferenceContext, module: &str, entry: &str, origin: Span) -> Result<Operati...
+    |                   ^^^^^^^^^^^^^
+...
+ 76 |     pub(crate) fn method_family(&mut self, graph: &mut InferenceContext, entry: &str, origin: Span) -> Result<OperationFamilyId, In...
+    |                   ^^^^^^^^^^^^^
+...
+ 96 |     pub(crate) fn type_constructor_family(&mut self, graph: &mut InferenceContext, owner: &str, entry: &str, origin: Span) -> Resul...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+106 |     fn build_family(&mut self, graph: &mut InferenceContext, key: String, import: impl FnOnce(&mut Self, &mut InferenceContext) -> ...
+    |        ^^^^^^^^^^^^
+...
+118 |     fn finish_family(&mut self, graph: &mut InferenceContext, key: String, candidates: &[CandidateId]) -> Result<OperationFamilyId,...
+    |        ^^^^^^^^^^^^^
+...
+124 |     pub(crate) fn metadata(&self, graph: &InferenceContext, id: CandidateId) -> Result<&RegistryCandidate, InferenceError> {
+    |                   ^^^^^^^^
+...
+132 |     fn import_candidate(&mut self, graph: &mut InferenceContext, owner: RegistryOwner, entry: &'static str, signature: &ModuleFnSig...
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `declared_erasure` is never used
+   --> src/sema/registry_graph.rs:164:4
+    |
+164 | fn declared_erasure(ty: &Type) -> bool {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `receiver_type` is never used
+   --> src/sema/registry_graph.rs:175:4
+    |
+175 | fn receiver_type(receiver: MethodReceiver, template: Option<&Type>) -> Result<Type, InferenceError> {
+    |    ^^^^^^^^^^^^^
+
+warning: function `actual_eligibility` is never used
+   --> src/sema/registry_graph.rs:191:4
+    |
+191 | fn actual_eligibility(signature: &ModuleFnSig) -> Result<Vec<(usize, Eligibility)>, InferenceError> {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `effect_bits` is never used
+   --> src/sema/registry_graph.rs:203:4
+    |
+203 | fn effect_bits(effect: Option<&Effect>) -> EffectSet {
+    |    ^^^^^^^^^^^
+
+warning: function `import_type` is never used
+   --> src/sema/registry_graph.rs:211:4
+    |
+211 | fn import_type(graph: &mut InferenceContext, ty: &Type, variables: &mut BTreeMap<BuiltinTypeParameter, TypeId>, requirements: &mut ...
+    |    ^^^^^^^^^^^
+
+warning: function `quote` is never used
+   --> src/sema/registry_graph.rs:246:4
+    |
+246 | fn quote(value: &str) -> String {
+    |    ^^^^^
+
+warning: function `object` is never used
+   --> src/sema/registry_graph.rs:260:4
+    |
+260 | fn object(mut fields: Vec<(&str, String)>) -> String {
+    |    ^^^^^^
+
+warning: function `canonical_type` is never used
+   --> src/sema/registry_graph.rs:265:4
+    |
+265 | fn canonical_type(ty: &Type) -> Result<String, InferenceError> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `canonical_signature` is never used
+   --> src/sema/registry_graph.rs:289:4
+    |
+289 | fn canonical_signature(owner: RegistryOwner, entry: &str, signature: &ModuleFnSig, receiver: Option<&Type>) -> Result<String, Infer...
+    |    ^^^^^^^^^^^^^^^^^^^
+
+   Compiling xsht v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/crates/xsht)
+warning: `xsh` (lib) generated 14 warnings
+warning: fields `binding`, `command`, and `semantic_rule` are never read
+  --> src/sema/registry_graph.rs:34:9
+   |
+28 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+34 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+35 |     pub kind: CallableKind,
+36 |     pub command: bool,
+   |         ^^^^^^^
+37 |     pub argument_check: ApiArgCheck,
+38 |     pub semantic_rule: SemanticRule,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `xsh` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized] target(s) in 9.42s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 1 test
+test frontend::query::tests::solved_query_requirement_only_binders_ignore_allocation_order ... FAILED
+
+failures:
+
+---- frontend::query::tests::solved_query_requirement_only_binders_ignore_allocation_order stdout ----
+
+thread 'frontend::query::tests::solved_query_requirement_only_binders_ignore_allocation_order' (4451639) panicked at src/frontend/query.rs:1215:97:
+called `Result::unwrap()` on an `Err` value: DisconnectedRequirement(RequirementId { index: 0, generation: 14 })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    frontend::query::tests::solved_query_requirement_only_binders_ignore_allocation_order
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 454 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p xsh --lib`

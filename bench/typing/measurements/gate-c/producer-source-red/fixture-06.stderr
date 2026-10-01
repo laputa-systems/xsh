@@ -1,0 +1,19 @@
+err[check.effect-violation]: callable effect contract cannot be established: EffectViolation
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-11-producer_supplied_argument_retains_eager_creation_effects/producer-contract.xsh-2:3:26
+  proc create() [] -> Unit { let _ = inert(argument()) }
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ callable effect contract cannot be established: EffectViolation
+
+err[check.effect-violation]: effect `time` required by `argument` is not in caller's declared effects
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-11-producer_supplied_argument_retains_eager_creation_effects/producer-contract.xsh-2:3:42
+  proc create() [] -> Unit { let _ = inert(argument()) }
+                                           ^^^^^^^^^^ effect `time` required by `argument` is not in caller's declared effects
+
+err[check.effect-violation]: callable effect contract cannot be established: EffectViolation
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-11-producer_supplied_argument_retains_eager_creation_effects/producer-contract.xsh-2:3:42
+  proc create() [] -> Unit { let _ = inert(argument()) }
+                                           ^^^^^^^^^^ callable effect contract cannot be established: EffectViolation
+
+err[check.effect-violation]: callable body exceeds its declared effect boundary
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-11-producer_supplied_argument_retains_eager_creation_effects/producer-contract.xsh-2:3:26
+  proc create() [] -> Unit { let _ = inert(argument()) }
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ callable body exceeds its declared effect boundary

@@ -1,0 +1,15 @@
+running 13 tests
+tests/xsh/generic-constructors.xsh::test_generic_constructor_constants_use_the_same_field_and_context_constraints ... ok 214ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_context_anchors_null_empty_and_unused_parameters ... ok 19ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_context_reaches_nested_container_instances ... ok 21ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_explicit_any_and_null_are_authoritative ... ok 33ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_fields_establish_concrete_instances ... ok 19ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_nested_fields_share_only_occurrence_constraints ... ok 18ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_phantom_arguments_preserve_structural_assignability ... ok 31ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_preserves_named_spreads_puns_and_field_order ... ok 33ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_qualified_aliases_keep_private_schema_owners ... ok 24ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_receiver_slots_retain_declared_application_context ... ok 35ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_retains_both_typed_map_parameters ... ok 19ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_unresolved_and_conflicting_fields_are_rejected ... ok 69ms
+tests/xsh/generic-constructors.xsh::test_generic_constructor_uses_annotated_function_slots_and_returns ... ok 19ms
+test result: ok. 13 passed; 0 failed; 0 skipped

@@ -1,0 +1,440 @@
+{
+  "boundary_suite_log": "source-registry-boundaries-green.log",
+  "captured_at_utc": "2026-10-01T14:15:14.071514+00:00",
+  "counts_overlap": "Special11 and command factory8 are subsets of module323; method157 + module323 = callable480. Schema73/error17 are separate authority rows. Language125/stage35 source acceptance remains separately owned.",
+  "denominator": 730,
+  "diagnostic_compatibility": {
+    "json_log": "source-json-diagnostic-green.log",
+    "qualification": "Canonical JSON predicate rejection maps to check.json-compatible without changing acceptance; diagnostic-only eligibility inspection is charged and rolled back."
+  },
+  "method_authorities": [
+    "registry.method.Bytes.base32.BytesBase32.59bf517ae866243c",
+    "registry.method.Bytes.base64.BytesBase64.0bb86315fb86efb8",
+    "registry.method.Bytes.byte_at.BytesByteAt.39c598ee8cfabb83",
+    "registry.method.Bytes.chunks.BytesChunks.87763089ad253fb2",
+    "registry.method.Bytes.compare.BytesCompare.f334e640c5e6ed1a",
+    "registry.method.Bytes.count_lines.BytesCountLines.42b21697985b0161",
+    "registry.method.Bytes.dump.BytesDump.7c82d672f983441f",
+    "registry.method.Bytes.ends_with.BytesEndsWith.256775477d0511ae",
+    "registry.method.Bytes.len.BytesLen.ccdd60e716767e1c",
+    "registry.method.Bytes.lines.BytesStreamLines.580eb3503a84d3cb",
+    "registry.method.Bytes.lower.BytesLower.17b6fefdc7e2decb",
+    "registry.method.Bytes.md5.HashMd5.71106574db4ddcef",
+    "registry.method.Bytes.sha1.HashSha1.d4a75b25e9b86615",
+    "registry.method.Bytes.sha256.HashSha256.4f79b864a3ef0d7f",
+    "registry.method.Bytes.sha512.HashSha512.f619724c250bb6bd",
+    "registry.method.Bytes.slice.BytesSlice.b0630abe5b884f42",
+    "registry.method.Bytes.starts_with.BytesStartsWith.968eaf027eb187b1",
+    "registry.method.Bytes.strings.BytesStrings.8560d455089323e2",
+    "registry.method.Bytes.trim.BytesTrim.f4cdd9f3063f4577",
+    "registry.method.Bytes.utf8.BytesUtf8.5beda32fe63fb724",
+    "registry.method.Digest.base64.DigestBase64.ba96d40ee462cff5",
+    "registry.method.Digest.hex.DigestHex.929f0f814c2dd930",
+    "registry.method.EnvPathList.append.EnvPathAppend.5903a3b590a54b9d",
+    "registry.method.EnvPathList.pop.EnvPathPop.dd3261f9c67cc1e3",
+    "registry.method.EnvPathList.prepend.EnvPathPrepend.8e0e4c261930b41b",
+    "registry.method.Float.abs.FloatAbs.5c2fe0973fd04a88",
+    "registry.method.Float.ceil.FloatCeil.cb3a3e1cf398e4c6",
+    "registry.method.Float.cos.FloatCos.9e72ba8508469d12",
+    "registry.method.Float.exp.FloatExp.23d53195d0e27b16",
+    "registry.method.Float.floor.FloatFloor.33e692cf70bfd7a7",
+    "registry.method.Float.format.FloatFormat.4a5c946858977f93",
+    "registry.method.Float.ln.FloatLn.2c6716b0d9193a38",
+    "registry.method.Float.log.FloatLog.c9a74fae94482e3f",
+    "registry.method.Float.pow.FloatPow.249f7da7777cf7fb",
+    "registry.method.Float.round.FloatRound.d4d64a29731e99ec",
+    "registry.method.Float.sin.FloatSin.38a8db7c85a19be3",
+    "registry.method.Float.sqrt.FloatSqrt.e418f45bcf967c01",
+    "registry.method.Float.tan.FloatTan.84002ae9adab527f",
+    "registry.method.FsRoot.children.FsRootChildren.082f16f6daed747c",
+    "registry.method.FsRoot.chmod.FsRootChmod.69c40f70e5f98322",
+    "registry.method.FsRoot.close.FsCloseRoot.99a40c2703c9d1ff",
+    "registry.method.FsRoot.exists.FsRootExists.29975ed2ab2c5d6b",
+    "registry.method.FsRoot.filesystem_stats.FsRootFilesystemStats.1fcc28f65c85d5cc",
+    "registry.method.FsRoot.host_path.FsRootPath.773c6f27c3211ac7",
+    "registry.method.FsRoot.metadata.FsRootMetadata.613e6103ea95e9cd",
+    "registry.method.FsRoot.mkdir.FsRootMkdir.5ea21614bf68c8a8",
+    "registry.method.FsRoot.open_root.FsRootOpenRoot.1ec5797b174f179d",
+    "registry.method.FsRoot.read_bytes.FsRootRead.9c0812a785ceb28e",
+    "registry.method.FsRoot.read_result.FsRootReadResult.84d2652311dfd9cb",
+    "registry.method.FsRoot.read_text.FsRootReadText.c6652feea1d371b8",
+    "registry.method.FsRoot.readlink.FsRootReadlink.6d3edb288145d590",
+    "registry.method.FsRoot.readlink_result.FsRootReadlinkResult.ec9e0240ca8fbef0",
+    "registry.method.FsRoot.remove.FsRootRemove.372bf4c925f81a82",
+    "registry.method.FsRoot.symlink.FsRootSymlink.03cd2e4a1e2443ab",
+    "registry.method.FsRoot.write.FsRootWrite.46ebf0f745f6071c",
+    "registry.method.FsRoot.write.FsRootWrite.75ddb1d321e503bd",
+    "registry.method.FsRoot.write_atomic.FsRootWriteAtomic.314a5a12d1ce4efa",
+    "registry.method.FsRoot.write_atomic.FsRootWriteAtomic.369767a08e223ae6",
+    "registry.method.Int.bit_and.IntBitAnd.bc6819dacc1fc663",
+    "registry.method.Int.bit_or.IntBitOr.15140e60b2a5e6dc",
+    "registry.method.Int.clear_bits.IntClearBits.add5b495ca8a07bd",
+    "registry.method.Int.float.IntFloat.e8765b408e5ddd19",
+    "registry.method.List.collect.StreamCollect.c89013c47053d2ea",
+    "registry.method.List.extend.ListExtend.960a02ff755ff756",
+    "registry.method.List.get.ListGet.6c04a0a648d23795",
+    "registry.method.List.join.TextJoin.5d1074454df1ffc8",
+    "registry.method.List.len.ListLen.462a3caea054d50d",
+    "registry.method.List.push.ListPush.b13cc2a8053cb7b3",
+    "registry.method.Map.get.MapGet.f28c4eb6c687b9c8",
+    "registry.method.Map.keys.MapKeys.ec04e1bc362e3e61",
+    "registry.method.Map.len.MapLen.03fa3ee00fba3c2f",
+    "registry.method.Map.push.MapPush.b1bd6c59c42a876e",
+    "registry.method.Map.remove.MapRemove.a67f276f46db5de6",
+    "registry.method.Map.set.MapSet.bd3250743597dfb9",
+    "registry.method.Map.values.MapValues.2e14f49b2d3a8bc0",
+    "registry.method.NetJob.cancel.NetJobCancel.b80238ad7629c0c7",
+    "registry.method.NetJob.wait.NetJobWait.073b2a4863c56a96",
+    "registry.method.Path.basename.PathName.2817f2c779ff92e0",
+    "registry.method.Path.bytes_lines.FsBytesLines.0306e9782a042728",
+    "registry.method.Path.chmod.FsChmod.b47f6a2ee0f7c779",
+    "registry.method.Path.copy.FsCopy.4f6d38b01fe21497",
+    "registry.method.Path.dirname.PathParent.069434a5032fbf58",
+    "registry.method.Path.display.PathDisplay.d662f8cbf6e06b11",
+    "registry.method.Path.du.FsDu.a0850bec933e13c8",
+    "registry.method.Path.executable.FsExecutable.201de7b8abeaf691",
+    "registry.method.Path.exists.FsExists.ac2035e1a394e663",
+    "registry.method.Path.ext.PathExt.d701bb9be2fc7f4c",
+    "registry.method.Path.ext_or.PathExt.d01cd3d9de586954",
+    "registry.method.Path.hardlink.FsHardlink.fbc8317e8121c37a",
+    "registry.method.Path.lines.FsStreamLines.0bd54204c936f1de",
+    "registry.method.Path.metadata.FsMetadata.69108703f50a96ed",
+    "registry.method.Path.mkdir.FsMkdir.7cb6fcb21a4666ed",
+    "registry.method.Path.name.PathName.2f3f7d229bc04f1a",
+    "registry.method.Path.normalize.PathNormalize.b9875a7605834536",
+    "registry.method.Path.parent.PathParent.772c7841ab372705",
+    "registry.method.Path.parse_bytes.PathParseBytes.36eafc5631bab658",
+    "registry.method.Path.read_bytes.FsRead.db335329880f1d32",
+    "registry.method.Path.read_text.FsReadText.1fd45ebe487568cc",
+    "registry.method.Path.readlink.FsReadlink.b1bc0217d286675d",
+    "registry.method.Path.relative_to.PathRelativeTo.291a9794b1742ae8",
+    "registry.method.Path.remove.FsRemove.45b700b62f69dc40",
+    "registry.method.Path.remove_dir.FsRemoveDir.a301340ed0877aaf",
+    "registry.method.Path.rename.FsRename.4ef188d4ecbf2e03",
+    "registry.method.Path.resolve.PathResolve.11fe7963167d61fc",
+    "registry.method.Path.strip_prefix.PathStripPrefix.6459a6e6498dc30a",
+    "registry.method.Path.touch.FsTouch.2c76d47d1098a033",
+    "registry.method.Path.touch_from.FsTouchFrom.e10ba9200dd2eccc",
+    "registry.method.Path.truncate.FsTruncate.adaf405c5b7e28ae",
+    "registry.method.Path.unlink.FsUnlink.3727fb799926b7f4",
+    "registry.method.Path.with_ext.PathWithExt.531c852c9652d854",
+    "registry.method.Path.write.FsWrite.5b59dd13c863ba99",
+    "registry.method.Path.write.FsWrite.81c24a97390dcd17",
+    "registry.method.Path.write_atomic.FsWriteAtomic.65eb1c8dc86f6ecf",
+    "registry.method.Path.write_atomic.FsWriteAtomic.d1ecd9b2de9b6f2b",
+    "registry.method.ProcessHandle.cancel.ProcessHandleCancel.22c393226df70840",
+    "registry.method.Record.get.RecordGet.fe48b7d66bb2ab50",
+    "registry.method.Record.keys.RecordKeys.f6024fec477da15c",
+    "registry.method.Regex.captures.RegexCaptures.e215ea970b977445",
+    "registry.method.Regex.find.RegexFind.3f8b67f4192e2eb5",
+    "registry.method.Regex.matches.RegexMatches.9bbf89feac502884",
+    "registry.method.Regex.replace.RegexReplace.4778ed4b0792b324",
+    "registry.method.Result.context.ResultContext.cae29ad75ab32a8e",
+    "registry.method.Status.exit_code.StatusExitCode.e4aba8eb2d373bcd",
+    "registry.method.Status.exited.StatusExited.dccdbf4362e5ff49",
+    "registry.method.Status.exited_with.StatusExitedWith.cfff97e81a737358",
+    "registry.method.Status.signal_number.StatusSignalNumber.8a953272478e25c9",
+    "registry.method.Status.signaled.StatusSignaled.cb382bc2054e3455",
+    "registry.method.Str.base32_decode.BytesBase32Decode.ab78d39c74cae511",
+    "registry.method.Str.base64_decode.BytesBase64Decode.d36c659d091b3129",
+    "registry.method.Str.byte_at.TextByteAt.a174f8d2115f1531",
+    "registry.method.Str.byte_len.TextByteLen.7db0ec189cb5170d",
+    "registry.method.Str.byte_slice.TextByteSlice.8b4e477a8b052a83",
+    "registry.method.Str.count_chars.TextCountChars.69d8554f02e59383",
+    "registry.method.Str.count_lines.TextCountLines.edd3896972edc903",
+    "registry.method.Str.count_words.TextCountWords.3fcdb01f44958101",
+    "registry.method.Str.delete.TextDelete.0f55c2c3c15bdeac",
+    "registry.method.Str.ends_with.TextEndsWith.3a27d634ad2a50be",
+    "registry.method.Str.fields.TextFields.925d6220b01bd946",
+    "registry.method.Str.find.TextFind.5f17c43d46da4bf8",
+    "registry.method.Str.lines.TextStreamLines.879bc3e7d003f698",
+    "registry.method.Str.lower.TextLower.728a3979f13daf1f",
+    "registry.method.Str.parse_float.TextParseFloat.499e5bdcd83e1d36",
+    "registry.method.Str.parse_int.TextParseInt.cb4ea280e2a04c9f",
+    "registry.method.Str.parse_int_decimal.TextParseIntDecimal.eaede104b6e3593b",
+    "registry.method.Str.parse_uint.TextParseUint.f7bd6b2b4c7c2f51",
+    "registry.method.Str.parse_uint_positive.TextParseUintPositive.636d326f20837673",
+    "registry.method.Str.replace.TextReplace.530cd15711fbe5ad",
+    "registry.method.Str.reverse.TextReverse.30a6f90d7baf894c",
+    "registry.method.Str.split.TextSplit.e1ceed3e08b79e83",
+    "registry.method.Str.squeeze.TextSqueeze.43c470b6dd348b7d",
+    "registry.method.Str.starts_with.TextStartsWith.4def0af53149c219",
+    "registry.method.Str.translate.TextTranslate.0810e4478bfb769f",
+    "registry.method.Str.trim.TextTrim.a6e5f8f335dfab10",
+    "registry.method.Str.upper.TextUpper.3f4d9e0d2b1e6aa7",
+    "registry.method.Str.words.TextWords.932b5cd129ed74d1",
+    "registry.method.Str.wrap.TextWrap.0c974d43454a6f56",
+    "registry.method.Stream.collect.StreamCollect.3fb9d49b72c71073"
+  ],
+  "method_schema_context": {
+    "contract": "Registered method arguments preserve the exact receiver schema through an explicit expression entry. A phantom constructor may use the authored receiver application; an unannotated structural receiver cannot invent a phantom argument.",
+    "native_control": "test_generic_constructor_receiver_slots_retain_declared_application_context",
+    "native_green_log": "source-method-receiver-schema-native-green.log",
+    "native_red_log": "source-method-receiver-schema-native-red.log",
+    "regression": "source_method_argument_retains_the_receiver_schema_application",
+    "source_green_log": "source-method-receiver-schema-green.log",
+    "verification": "Nearest AST-drop source proof passes; constructor owner rebuilt exact debug product and reported the native generic-constructor suite 13/13 green."
+  },
+  "methods_log": "source-methods-all-current-green.log",
+  "methods_test": "source_every_registered_method_retains_its_canonical_operation_authority",
+  "module_log": "source-modules-323-green.log",
+  "module_test": "source_every_registered_module_retains_its_canonical_operation_authority",
+  "native_current_run": {
+    "classification": {
+      "missing_finite_effect_name_diagnostic": 1,
+      "missing_finite_effect_name_diagnostic_status": "resolved by exact targeted native recheck",
+      "runtime_preparation_refusals": 9
+    },
+    "failed": 10,
+    "log": "native-operation-source-18-current.log",
+    "passed": 8,
+    "qualification": "All failing positive sources remain strict; no expected outcome relaxed. The diagnostic negative rejects the omitted permission but lacks its exact env label. The last native observation covers the prior18 cases only; two new Run/Spawn cases are pending a coherent rebuilt debug runner."
+  },
+  "native_effect_authority_corrections": "native-effect-authority-corrections.json",
+  "native_effect_controls": {
+    "existing_fs_module": {
+      "failed": 1,
+      "log": "source-native-fs-existing-module-blocker.log",
+      "passed": 0,
+      "qualification": "Whole module fails source checking at unrelated FsRoot traversal test, before requested mode test execution."
+    },
+    "hash_tempfile": {
+      "failed": 0,
+      "log": "source-native-hash-tempfile-green.log",
+      "passed": 1
+    },
+    "mode_no_host": {
+      "failed": 0,
+      "green": "source-native-mode-no-host-green.log",
+      "passed": 1,
+      "red": "source-native-mode-no-host-red.log"
+    }
+  },
+  "native_family_choice_source": {
+    "contracts": "ports/threads zero/one members; hash Bytes Pure[] vs Path Proc[fs]; json.get fallback result; fs.executable mode Pure[] vs Path Proc[fs]. Selected original argument binding and TypeIds retained.",
+    "failed": 0,
+    "log": "source-native-family-original-ledger-green.log",
+    "passed": 4,
+    "tests": 4
+  },
+  "native_family_command_source": {
+    "contracts": "Original domains, masks/defaults, mixed literal guards, generic captured factory/forwarding and rejected domains; no per-call native scheme freshening.",
+    "failed": 0,
+    "log": "source-native-command-six-green.log",
+    "passed": 6,
+    "tests": 6
+  },
+  "native_family_source_qualification": "Focused source tests certify scoped immutable canonical facts after frontend disposal. They do not certify native callable prepared runtime execution; the frozen denominator remains730.",
+  "native_fixture": "tests/xsh/typing-inference-operations.xsh",
+  "native_fixture_test_count": 20,
+  "native_reference_protocol_in_progress": {
+    "checksum_selector_boundary": {
+      "green_log": "source-native-hash-reference-green.log",
+      "green_test_count": 2,
+      "qualification": "Explicit reference refusal; direct static four-algorithm binding remains supported.",
+      "red_log": "source-native-hash-reference-red.log",
+      "result": "green"
+    },
+    "command_family": {
+      "child_boundary_red_log": "source-native-command-child-boundary-red.log",
+      "green_log": "source-native-command-five-green.log",
+      "log": "source-native-command-first-red.log",
+      "qualification": "Original target/argv domains, omission+Path+Bytes stdin, mixed literal child guards, explicit Path optional slots, invalid domains/bindings. No native execution.",
+      "result": "green",
+      "source_test_count": 5
+    },
+    "controls": {
+      "boundary_suite": {
+        "log": "source-registry-boundaries-24-green.log",
+        "tests": 24
+      },
+      "method_signatures": {
+        "candidates": 157,
+        "log": "source-native-singleton-method-controls.log"
+      },
+      "module_signatures": {
+        "candidates": 323,
+        "log": "source-native-singleton-module-controls.log"
+      }
+    },
+    "ground_family_completion": {
+      "families": [
+        "fs.write",
+        "fs.write_atomic"
+      ],
+      "green_log": "source-native-ground-family-green.log",
+      "qualification": "Bytes/Str forwarding and creation-permission negatives; core independently validates common envelope.",
+      "red_log": "source-native-ground-family-red.log",
+      "source_test_count": 1
+    },
+    "single_wrapper": {
+      "log": "source-native-wrapper-thirteen-green.log",
+      "qualification": "Actual source checking and frozen facts, not runtime execution.",
+      "result": "green",
+      "source_test_count": 13
+    },
+    "singleton_completion": {
+      "forwarding_green_log": "source-native-singleton-forwarding-green.log",
+      "forwarding_red_log": "source-native-singleton-forwarding-first-red.log",
+      "green_log": "source-native-singleton-protocols-green.log",
+      "intended_candidate_count": 36,
+      "log": "source-native-singleton-protocols-red.log",
+      "qualification": "36 canonical selected source receipts; four forwarded JSON positive/negative families plus permission negative. No native execution.",
+      "result": "green_all36_exact_typed_invocations_and_forwarded_json_controls",
+      "source_test_count": 1
+    }
+  },
+  "native_reference_slice": {
+    "coverage": "Singleton native families without operation-only eligibility or producer protocols. Canonical scheme guards such as MapKey survive aliases and fresh independent calls.",
+    "log": "source-native-reference-suite-green.log",
+    "publication_proof": "Exact immutable instance receipt includes canonical scheme, signature, ordered type/effect substitutions, effect roots, and requirement origins; swapped substitutions and removed guards reject.",
+    "remaining": "At the recorded three-test checkpoint, overloaded native families and producer/operation-eligibility protocols were explicit typed refusals. The new singleton native protocol remains under implementation and has no green acceptance result yet.",
+    "tests_passed": 3
+  },
+  "native_targeted_recheck": {
+    "binary_sha256": "b6b3053a8f0d4769063773220ff5252fcf4265e1b49723121172c0b96b860711",
+    "build_log": "source-run-xsht-debug-build.log",
+    "built_package": "xsht",
+    "failed": 0,
+    "logs": [
+      "native-operation-source-run_observations_keep_all_result_envelopes-green.log",
+      "native-operation-source-spawn_preserves_permissions_and_single_child_shape-green.log",
+      "native-operation-source-stream_collect_retains_pull_and_close_permissions-green.log"
+    ],
+    "passed": 3,
+    "profile": "debug",
+    "qualification": "Only these three exact native names were rechecked. This is not an inferred aggregate result for the whole20-case module; previous whole18 observations remain historical."
+  },
+  "provenance": {
+    "head": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "qualification": "Live shared-worktree capture; hashes identify capture-time sources, not an immutable gate or compiled snapshot.",
+    "source_hashes": {
+      "src/sema/check/native_command_tests.rs": "f16d6261b9ab571de00f4066c41a7e4044c83f974228a7de873a401df2f7c2f7",
+      "src/sema/check/registry_boundaries.rs": "f2ac5efdad5f427e674b3c76a1723472deb726086ee9882e45c77c056b9c1057",
+      "src/sema/check/solved.rs": "6cbaf38ec480d845f2b80ba6cd623b95e2b9f5809431e2d6e91eb2d523ea92ab",
+      "src/sema/registry_graph.rs": "abdadb4a1d7a1a06eda2797bb5465a0e4f407f31d29335b3c3e171ba3bb55516"
+    },
+    "source_sha256_at_capture": {
+      "crates/xsh-registry/src/signature/modules.rs": "715a9333aea805cd89ac912d7eac8524a85abcc541dd1ca34930a7e28c6adfb8",
+      "docs/SPEC.md": "5303228c76b3e7239ae6869daf09f4ebeacd61a8737b9baa6bda7cc76b54c263",
+      "docs/STREAMS.md": "e5a8e1e566b2f3e06d56187c196a38b71c661fa464d15a3618613160419158c1",
+      "docs/TEST-MAP.md": "f0d0ed4538a216608f2fbbb9a2e81b37e8438c4cc4bb98a05574690f0557fcc4",
+      "src/sema/check/call.rs": "f2ee3bf16820b522e8fe0800a9146d495d7e08c571fffb40c7512768ac7e1f25",
+      "src/sema/check/command.rs": "a4a0fcc2e3d118cc0697d07fecd3516ce1bad4ec56ffa9c8fd306b6a172567b0",
+      "src/sema/check/expr.rs": "d2eaaf9c2efa08d62bc732f985f8bc5ebe2a315999eccf6fe27fc2c64a0560e0",
+      "src/sema/check/local_inference.rs": "b33d1b5cfb02ed90646adc9de16020896cfe8114a1072bb52b2ec3b61264c6a9",
+      "src/sema/check/method.rs": "f0531a97d9bef3ee9b26115e150ba95d5141c48c722cca435c2520edff86d52b",
+      "src/sema/check/native_callable_tests.rs": "54912c4d7370720438eb6364563e380f816d989e0aaac5b42bc48235fde6e367",
+      "src/sema/check/producer.rs": "19a16cb79f4ab70dbeb655aeaa02bebcaeb4eec232a0b90160edf4d4ba7d77f4",
+      "src/sema/check/producer_eval.rs": "4a2ac023fc7406c329200fb7a6792957ded2e667af957ba65d5de8198287432c",
+      "src/sema/check/registry_boundaries.rs": "41656e1435438bf687321f0493a0f3639bf662f08487d013ab7821ab9655eca0",
+      "src/sema/check/run_operation.rs": "b72c38822b48b2b19a0515ab1565689ba61fe09347b33286b9b1100510c38ff2",
+      "src/sema/check/solved.rs": "90334dd3116152e16e017c481bc249cf54d5dfafae3645639b84f8ded81c6244",
+      "src/sema/check/standard_operation.rs": "59a348faa2148d1e6c49b495e6b501963b1496dc99130723feb915ce000ed60b",
+      "src/sema/inference.rs": "fa239f3a7f1cafaf305e6b6abe2305129894428d24f8301e0a1a9815321b8526",
+      "src/sema/inference/finalized.rs": "c7982a051d23a1d39cacab88b339778640a004fd33f872f00953894e3bd569fc",
+      "src/sema/inference/native.rs": "ab86dda0c4820b03db72e0c0c66ad2be0b4af507ed7dae19f36f5785beba32d9",
+      "src/sema/inference/operations.rs": "160c75498a8177ac01ebbda6ce779a8d4aba3083351b6fab61e0dac3e47ec7ca",
+      "src/sema/operation_graph.rs": "276fadb30ed5d7b7d9d76caa016cb9aa9d4c624564a5604e59d9eab30e8dadc0",
+      "src/sema/registry_graph.rs": "52117e5ccc84d380d6e1f46d999d79893742fb46c89e7448f1bba893161be73a",
+      "src/sema/stage_graph.rs": "54df30f498e84ff1e00d94b47b6dc019a304eef7e57559c415e74c56e6303b21",
+      "tests/xsh/typing-inference-operations.xsh": "c5eec9e40c43097817b2c89ab6b478b284f63b6e2dba7c3d5e57424afe3ea7d8"
+    }
+  },
+  "resolved_captured_native_reference": {
+    "log": "source-error-fail-captured-reference-green.log",
+    "observed": "Pure direct and captured native data construction retains canonical kind and guard-bearing signature; missing propagation ERROR and wrong arguments reject.",
+    "test": "source_error_fail_keeps_pure_construction_and_captured_callable_kind"
+  },
+  "schema_version": 1,
+  "source_checked_builtin_error_variants": 17,
+  "source_checked_builtin_schemas": 73,
+  "source_checked_callable_total": 480,
+  "source_checked_command_factory_signatures": 8,
+  "source_checked_registry_methods": 157,
+  "source_checked_registry_module_signatures": 323,
+  "source_checked_special_module_signatures": 11,
+  "source_contracts": "Methods cover each fixed imported signature with exact annotated receiver/arguments and extra-argument rejection. Independent generic forwarding, defaults, effects, dynamic boundaries, and lifecycle proofs are separate named regressions. Source checking retains scoped canonical authority after checker/frontend disposal; it does not certify prepared runtime execution.",
+  "source_module_completion_regression": {
+    "denominator": 323,
+    "log": "source-modules-result-carrier-red.log",
+    "observed": "All323 imported module signatures now retain canonical operation evidence; contextual native Result admission preserves the canonical whole carrier.",
+    "status": "resolved",
+    "test": "source_every_registered_module_retains_its_canonical_operation_authority"
+  },
+  "source_run_spawn": {
+    "authority_rows": 9,
+    "conversion_guards": "Original checked ExprIdentity or named-splice Span/Name and actual TypeId retain scalar/environment ArgvItem, scalar-or-single-List ArgvExpansion, embedded Display, or List-element splice eligibility. Guards are scoped, counted, and cold-validated; Explicit Any keeps native validation rather than certifying a concrete representation.",
+    "log": "source-run-and-spawn-nine-green.log",
+    "permissions": "PROCESS creation; trailing propagation ERROR; policy-bearing Stream Pull PROCESS|ERROR and Close PROCESS; captured Stream Pull/Close EMPTY.",
+    "remaining_regression": {
+      "green_log": "source-run-and-spawn-nine-green.log",
+      "log": "source-run-generic-argv-red.log",
+      "observed": "Legacy argv interpolation validator rejects unresolved Graph input before valid forwarded Str/Path/Int calls can discharge native conversion guards.",
+      "status": "resolved",
+      "test": "source_run_forwarded_arguments_retain_native_argv_guards"
+    },
+    "retention": "RunIdentity retains actual RunFormId and Expr/Stmt parent. Spawn retains actual RunIdentity or original command ExpressionIdentity and selected operation. Source checks survive parser disposal.",
+    "run_forms": 8,
+    "source_purpose": "Value and Command use are retained from actual source syntax; ordinary statement position facts remain authoritative for consumption.",
+    "spawn_forms": 1,
+    "tests_passed": 9
+  },
+  "special_authorities": [
+    {
+      "id": "registry.module.cli.applet.CliApplet.2af7d38659c0a23b",
+      "runtime_operation": "CliApplet",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.cli.commands.CliCommands.4cb9c265214bafef",
+      "runtime_operation": "CliCommands",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.cli.commands.CliCommands.6042195e88d22884",
+      "runtime_operation": "CliCommands",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.cli.parse.CliParse.03367e3cc5fe7384",
+      "runtime_operation": "CliParse",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.cli.parse_full.CliParseFull.8fbff8f7aab1747a",
+      "runtime_operation": "CliParseFull",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.hash.verify_file.HashVerifyFile.dd52a048879cf228",
+      "runtime_operation": "HashVerifyFile",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.json.encode.JsonEncode.cdabb1cda0c8d90a",
+      "runtime_operation": "JsonEncode",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.json.encode_lines.JsonEncodeLines.05287f15bcea07ca",
+      "runtime_operation": "JsonEncodeLines",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.json.set.JsonSet.246c947ad0deb94d",
+      "runtime_operation": "JsonSet",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.json.write.JsonWrite.97af8449289c9fd4",
+      "runtime_operation": "JsonWrite",
+      "source_suite": "registry_boundaries::tests"
+    },
+    {
+      "id": "registry.module.json.write_lines.JsonWriteLines.2bf0daa77fb234b1",
+      "runtime_operation": "JsonWriteLines",
+      "source_suite": "registry_boundaries::tests"
+    }
+  ]
+}

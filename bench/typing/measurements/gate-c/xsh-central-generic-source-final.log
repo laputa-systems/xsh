@@ -1,0 +1,335 @@
+warning: unused imports: `SolvedConstructorArgument` and `SolvedConstructorParameter`
+  --> src/sema/check.rs:30:139
+   |
+30 | ...dConstructorApplication, SolvedConstructorArgument, SolvedConstructorDefault, SolvedConstructorParameter};
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+
+warning: unused import: `ModuleProjectionKind`
+  --> src/sema/check.rs:82:29
+   |
+82 | pub use module_projection::{ModuleProjectionKind, SolvedModuleProjection};
+   |                             ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:88:157
+   |
+88 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:175:21
+    |
+175 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:183:84
+    |
+183 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `Contextual` is never constructed
+ --> src/sema/check/registry_boundaries.rs:9:52
+  |
+9 | pub(crate) enum RegistryValidationMode { Explicit, Contextual }
+  |                 ----------------------             ^^^^^^^^^^
+  |                 |
+  |                 variant in this enum
+  |
+  = note: `RegistryValidationMode` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `operation` is never read
+  --> src/sema/check/registry_boundaries.rs:25:21
+   |
+25 |     CliDescriptor { operation: RuntimeOp, plan: Arc<crate::modules::cli::CliDescriptorPlan> },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `algorithm` is never read
+  --> src/sema/check/registry_boundaries.rs:26:21
+   |
+26 |     HashAlgorithm { algorithm: Name },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `mode` is never read
+  --> src/sema/check/registry_boundaries.rs:27:48
+   |
+27 |     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
+   |     ---------------- field in this variant     ^^^^
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `error` is never used
+  --> src/sema/check/operation_catalog.rs:90:19
+   |
+43 | impl SolvedOperationCatalog {
+   | --------------------------- method in this implementation
+...
+90 |     pub(crate) fn error(&self, graph: &InferenceContext, authority: Name) -> Result<&RegistryErrorVariant, InferenceError> {
+   |                   ^^^^^
+
+warning: function `evaluate_producer_flow` is never used
+   --> src/sema/check/producer_eval.rs:207:15
+    |
+207 | pub(crate) fn evaluate_producer_flow(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `evaluate_producer_flows` is never used
+   --> src/sema/check/producer_eval.rs:228:15
+    |
+228 | pub(crate) fn evaluate_producer_flows(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `family` is never read
+  --> src/sema/operation_graph.rs:12:65
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ----------------- field in this struct        ^^^^^^
+   |
+   = note: `LanguageAuthority` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `statement_result_is_unit` is never read
+   --> src/sema/operation_graph.rs:185:9
+    |
+179 | pub(crate) struct OperationCandidate {
+    |                   ------------------ field in this struct
+...
+185 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: associated constants `MIN`, `MAX`, and `ALL` are never used
+  --> src/sema/stage_graph.rs:18:43
+   |
+17 | impl ReductionModes {
+   | ------------------- associated constants in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |                                           ^^^                         ^^^                         ^^^
+
+warning: fields `input_numeric`, `form`, `parameters`, `callback_slot`, and `additional_producer` are never read
+  --> src/sema/stage_graph.rs:54:9
+   |
+49 | pub(crate) struct StageCandidate {
+   |                   -------------- fields in this struct
+...
+54 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+55 |     pub form: StageForm,
+   |         ^^^^
+56 |     pub variant: StageVariant,
+57 |     pub parameters: &'static [StageParameter],
+   |         ^^^^^^^^^^
+58 |     pub callback_slot: Option<usize>,
+   |         ^^^^^^^^^^^^^
+59 |     pub additional_producer: Option<AdditionalProducer>,
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `intrinsic_pull` is never read
+  --> src/sema/stage_graph.rs:74:9
+   |
+71 | pub(crate) struct StageEffectRelation {
+   |                   ------------------- field in this struct
+...
+74 |     pub intrinsic_pull: EffectSet,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `StageEffectRelation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MapKey`, `OptionalPayload`, `ResultError`, and `RecordField` are never constructed
+  --> src/sema/registry_graph.rs:36:55
+   |
+36 | pub(crate) enum RegistryProducerComponent { ListItem, MapKey, MapValue, OptionalPayload, ResultSuccess, ResultError, RecordField(Nam...
+   |                 -------------------------             ^^^^^^            ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^  ^^^^^^^^^^^
+   |                 |
+   |                 variants in this enum
+   |
+   = note: `RegistryProducerComponent` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry`, `binding`, and `command` are never read
+  --> src/sema/registry_graph.rs:76:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+76 |     pub entry: &'static str,
+   |         ^^^^^
+77 |     pub operation: RuntimeOp,
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `RegistryProducerPath` is never used
+   --> src/sema/registry_graph.rs:128:17
+    |
+128 | pub(crate) enum RegistryProducerPath { ResultSuccess }
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerAlternative` is never constructed
+   --> src/sema/registry_graph.rs:131:19
+    |
+131 | pub(crate) struct RegistryProducerAlternative {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerRelation` is never constructed
+   --> src/sema/registry_graph.rs:137:19
+    |
+137 | pub(crate) struct RegistryProducerRelation {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `family` and `variant` are never read
+   --> src/sema/registry_graph.rs:155:9
+    |
+153 | pub(crate) struct RegistryErrorVariant {
+    |                   -------------------- fields in this struct
+154 |     pub authority_id:Name,
+155 |     pub family:Name,
+    |         ^^^^^^
+156 |     pub variant:Name,
+    |         ^^^^^^^
+    |
+    = note: `RegistryErrorVariant` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `producer_result_relation` is never used
+   --> src/sema/registry_graph.rs:319:19
+    |
+173 | impl RegistryGraph {
+    | ------------------ method in this implementation
+...
+319 |     pub(crate) fn producer_result_relation(&self,graph:&InferenceContext,family:OperationFamilyId)->Result<Option<RegistryProducerR...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `xsh` (lib) generated 25 warnings (run `cargo fix --lib -p xsh` to apply 6 suggestions)
+warning: fields `binding` and `command` are never read
+  --> src/sema/registry_graph.rs:78:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `xsh` (lib test) generated 12 warnings (11 duplicates)
+    Finished `test` profile [unoptimized] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 83 tests
+test sema::check::generic_tests::annotated_equivalents_publish_the_same_graph_operations ... ok
+test sema::check::generic_tests::callable_storage_preserves_monomorphic_slots_and_returned_signatures ... ok
+test sema::check::generic_tests::callable_value_generation_uses_the_declaring_scope_before_source_order ... ok
+test sema::check::generic_tests::callers_cannot_train_missing_fields_or_add_domains ... ok
+test sema::check::generic_tests::captured_producer_effect_diagnostic_retains_known_cleanup_bits ... ok
+test sema::check::generic_tests::captured_producer_iteration_requires_both_pull_and_cleanup_permissions ... ok
+test sema::check::generic_tests::captured_producers_retain_permissions_inside_immutable_aggregates ... ok
+test sema::check::generic_tests::cli_entry_declaration_retains_the_same_solved_header_and_body_owner ... ok
+test sema::check::generic_tests::computed_callable_signatures_keep_finite_effect_unions ... ok
+test sema::check::generic_tests::computed_callable_values_keep_definition_inferred_effect_unions ... ok
+test sema::check::generic_tests::computed_callable_values_preserve_the_checked_parameter_contract ... ok
+test sema::check::generic_tests::computed_map_literals_retain_definition_owned_key_eligibility ... ok
+test sema::check::generic_tests::conditional_user_callables_keep_each_original_binding_and_default_plan ... ok
+test sema::check::generic_tests::conditional_user_dynamic_splices_keep_each_callable_kind_and_creation_budget ... ok
+test sema::check::generic_tests::conditional_user_dynamic_splices_keep_original_sources_and_branch_rest_defaults ... ok
+test sema::check::generic_tests::declaration_effects_and_prepared_facts_come_from_one_source_check_pass ... ok
+test sema::check::generic_tests::default_only_headers_publish_definition_owned_schemes ... ok
+test sema::check::generic_tests::dynamic_producer_arguments_join_possible_items_and_conditional_defaults ... ok
+test sema::check::generic_tests::empty_map_record_fields_share_registry_and_declaration_constraints ... ok
+test sema::check::generic_tests::erased_container_literal_scope_keeps_mutable_capture_monomorphic ... ok
+test sema::check::generic_tests::erased_map_assignment_retains_inert_empty_container_source_scope ... ok
+test sema::check::generic_tests::explicit_producer_validation_preserves_known_source_handle_permissions ... ok
+test sema::check::generic_tests::explicit_registry_schema_validation_retains_its_original_dynamic_input ... ok
+test sema::check::generic_tests::formal_producer_consumption_retains_fresh_per_call_permission_ports ... ok
+test sema::check::generic_tests::forwarding_preserves_row_and_operation_requirements ... ok
+test sema::check::generic_tests::generalized_direct_yield_retains_the_non_stream_item_guard ... ok
+test sema::check::generic_tests::generic_display_strings_retain_child_display_eligibility ... ok
+test sema::check::generic_tests::generic_non_tail_value_requires_explicit_discard ... ok
+test sema::check::generic_tests::graph_callable_arguments_keep_dynamic_data_validation_boundaries ... ok
+test sema::check::generic_tests::ground_addition_settles_before_ordinary_method_consumption ... ok
+test sema::check::generic_tests::identity_definition_is_independent_of_callers ... ok
+test sema::check::generic_tests::immutable_callable_aggregates_retain_principal_value_schemes ... ok
+test sema::check::generic_tests::immutable_empty_binding_schemes_instantiate_independently_of_alias_use_order ... ok
+test sema::check::generic_tests::indexed_producer_value_retains_the_selected_collection_payload_profile ... ok
+test sema::check::generic_tests::inert_error_constructor_preserves_the_err_success_value_scheme ... ok
+test sema::check::generic_tests::inert_error_propagation_does_not_invent_a_success_value ... ok
+test sema::check::generic_tests::local_empty_collection_constraints_publish_one_declaration_graph ... ok
+test sema::check::generic_tests::native_test_declarations_publish_the_fixed_statement_consumer_contract ... ok
+test sema::check::generic_tests::nested_graph_boundary_uses_resolved_field_types_before_rejecting_dynamic_data ... ok
+test sema::check::generic_tests::nominal_graph_facts_retain_the_registered_declaration_identity ... ok
+test sema::check::generic_tests::omitted_bool_and_quantified_tails_have_fixed_value_elaboration ... ok
+test sema::check::generic_tests::omitted_callback_invocation_keeps_a_definition_owned_residual_contract ... ok
+test sema::check::generic_tests::omitted_callback_invocation_preserves_each_callers_effect_instance ... ok
+test sema::check::generic_tests::omitted_callback_invocation_rejects_payload_kind_and_effect_mismatches ... ok
+test sema::check::generic_tests::omitted_callback_scheme_is_unchanged_by_caller_order_and_domains ... ok
+test sema::check::generic_tests::omitted_unit_completions_publish_statement_consumption_after_solving ... ok
+test sema::check::generic_tests::open_projection_retains_actual_record_layout_per_call ... ok
+test sema::check::generic_tests::ordinary_callable_producer_origins_keep_the_checked_reference_instance ... ok
+test sema::check::generic_tests::polymorphic_identity_preserves_an_explicit_dynamic_argument_without_validation ... ok
+test sema::check::generic_tests::producer_authored_item_contract_owns_omitted_parameters ... ok
+test sema::check::generic_tests::producer_flow_generation_retains_distinct_formal_values_after_type_unification ... ok
+test sema::check::generic_tests::producer_item_contract_is_solved_from_yields_before_caller_instantiation ... ok
+test sema::check::generic_tests::propagated_result_success_retains_its_producer_profile ... ok
+test sema::check::generic_tests::record_arguments_keep_literal_constructor_facts_before_binding ... ok
+test sema::check::generic_tests::record_constructor_arguments_retain_nested_producer_permissions ... ok
+test sema::check::generic_tests::record_constructor_named_spread_checks_the_original_value_once ... ok
+test sema::check::generic_tests::recursive_branch_tails_share_the_definition_relationship ... ok
+test sema::check::generic_tests::recursive_callable_selection_keeps_symbolic_effect_dependencies ... ok
+test sema::check::generic_tests::recursive_component_forwards_each_called_operation_requirement ... ok
+test sema::check::generic_tests::recursive_component_generalizes_after_all_definition_constraints ... ok
+test sema::check::generic_tests::registry_collection_transfers_preserve_nested_producer_permissions ... ok
+test sema::check::generic_tests::registry_result_context_cannot_validate_dynamic_json_data ... ok
+test sema::check::generic_tests::result_constructors_retain_original_payloads_and_canonical_arity ... ok
+test sema::check::generic_tests::result_wrapper_is_chosen_before_payload_instantiation ... ok
+test sema::check::generic_tests::retained_source_facts_count_declaration_requirement_capacity ... ok
+test sema::check::generic_tests::retry_capture_retains_a_masked_source_effect_relationship ... ok
+test sema::check::generic_tests::retry_completion_keeps_producer_wrapping_fixed_before_instantiation ... ok
+test sema::check::generic_tests::sealed_add_is_instantiated_without_rechecking_body ... ok
+test sema::check::generic_tests::self_recursion_forwards_its_declaration_binders ... ok
+test sema::check::generic_tests::source_call_producer_arguments_follow_expanded_named_binding ... ok
+test sema::check::generic_tests::source_call_producer_rest_splice_retains_the_original_list_before_packing ... ok
+test sema::check::generic_tests::source_list_and_rest_splices_preserve_one_item_producer_path ... ok
+test sema::check::generic_tests::source_mutable_producer_versions_preserve_immutable_alias_snapshots ... ok
+test sema::check::generic_tests::source_producer_creation_and_latent_permissions_publish_separate_roots ... ok
+test sema::check::generic_tests::source_producer_identity_preserves_nested_profiles_through_a_projected_alias ... ok
+test sema::check::generic_tests::source_range_constructor_checks_bounds_and_argument_effects ... ok
+test sema::check::generic_tests::source_splice_bindings_retain_original_list_and_runtime_guards ... ok
+test sema::check::generic_tests::symbolic_callable_join_generalizes_at_its_initializer_level ... ok
+test sema::check::generic_tests::transparent_aliases_retain_the_original_definition_scheme ... ok
+test sema::check::generic_tests::unique_builtin_method_constrains_the_definition_receiver ... ok
+test sema::check::generic_tests::written_result_normalizes_each_completion_before_generalization ... ok
+test sema::check::generic_tests::written_result_payload_selects_wrapping_at_the_declaration ... ok
+test sema::check::generic_tests::yielded_records_retain_nested_producer_permissions_as_item_data ... ok
+
+test result: ok. 83 passed; 0 failed; 0 ignored; 0 measured; 846 filtered out; finished in 0.19s
+

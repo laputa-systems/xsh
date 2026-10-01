@@ -1,0 +1,355 @@
+   Compiling xsh v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2)
+warning: unused imports: `SolvedConstructorArgument` and `SolvedConstructorParameter`
+  --> src/sema/check.rs:30:139
+   |
+30 | ...dConstructorApplication, SolvedConstructorArgument, SolvedConstructorDefault, SolvedConstructorParameter};
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+
+warning: unused import: `ModuleProjectionKind`
+  --> src/sema/check.rs:82:29
+   |
+82 | pub use module_projection::{ModuleProjectionKind, SolvedModuleProjection};
+   |                             ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:88:157
+   |
+88 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:175:21
+    |
+175 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:183:84
+    |
+183 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `span`
+   --> src/sema/check/producer.rs:285:124
+    |
+285 | ..., call: ExpressionIdentity, span: crate::source::Span) -> Result<Vec<ProducerFlowId>, InferenceError> {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_span`
+
+warning: variant `Contextual` is never constructed
+ --> src/sema/check/registry_boundaries.rs:9:52
+  |
+9 | pub(crate) enum RegistryValidationMode { Explicit, Contextual }
+  |                 ----------------------             ^^^^^^^^^^
+  |                 |
+  |                 variant in this enum
+  |
+  = note: `RegistryValidationMode` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `operation` is never read
+  --> src/sema/check/registry_boundaries.rs:25:21
+   |
+25 |     CliDescriptor { operation: RuntimeOp, plan: Arc<crate::modules::cli::CliDescriptorPlan> },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `algorithm` is never read
+  --> src/sema/check/registry_boundaries.rs:26:21
+   |
+26 |     HashAlgorithm { algorithm: Name },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `mode` is never read
+  --> src/sema/check/registry_boundaries.rs:27:48
+   |
+27 |     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
+   |     ---------------- field in this variant     ^^^^
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `error` is never used
+  --> src/sema/check/operation_catalog.rs:90:19
+   |
+43 | impl SolvedOperationCatalog {
+   | --------------------------- method in this implementation
+...
+90 |     pub(crate) fn error(&self, graph: &InferenceContext, authority: Name) -> Result<&RegistryErrorVariant, InferenceError> {
+   |                   ^^^^^
+
+warning: function `evaluate_producer_flow` is never used
+   --> src/sema/check/producer_eval.rs:202:15
+    |
+202 | pub(crate) fn evaluate_producer_flow(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `evaluate_producer_flows` is never used
+   --> src/sema/check/producer_eval.rs:223:15
+    |
+223 | pub(crate) fn evaluate_producer_flows(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `error_join_assignability` is never read
+   --> src/sema/inference.rs:403:220
+    |
+399 | ...ct Requirement {
+    |       ----------- field in this struct
+...
+403 | ...template: RequirementTemplate, reason: ReasonId, evidence: Option<OperationEvidence>, candidate: Option<CandidateEvidence>, invocation: Option<InvocationEvidence>, native_children: Vec<NativeInvocationAlternative>, error_join_assignability: O...
+    |                                                                                                                                                                                                                           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `Requirement` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `family` is never read
+  --> src/sema/operation_graph.rs:12:65
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ----------------- field in this struct        ^^^^^^
+   |
+   = note: `LanguageAuthority` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `statement_result_is_unit` is never read
+   --> src/sema/operation_graph.rs:185:9
+    |
+179 | pub(crate) struct OperationCandidate {
+    |                   ------------------ field in this struct
+...
+185 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: associated constants `MIN`, `MAX`, and `ALL` are never used
+  --> src/sema/stage_graph.rs:18:43
+   |
+17 | impl ReductionModes {
+   | ------------------- associated constants in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |                                           ^^^                         ^^^                         ^^^
+
+warning: fields `input_numeric`, `form`, `parameters`, `callback_slot`, and `additional_producer` are never read
+  --> src/sema/stage_graph.rs:54:9
+   |
+49 | pub(crate) struct StageCandidate {
+   |                   -------------- fields in this struct
+...
+54 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+55 |     pub form: StageForm,
+   |         ^^^^
+56 |     pub variant: StageVariant,
+57 |     pub parameters: &'static [StageParameter],
+   |         ^^^^^^^^^^
+58 |     pub callback_slot: Option<usize>,
+   |         ^^^^^^^^^^^^^
+59 |     pub additional_producer: Option<AdditionalProducer>,
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `intrinsic_pull` is never read
+  --> src/sema/stage_graph.rs:74:9
+   |
+71 | pub(crate) struct StageEffectRelation {
+   |                   ------------------- field in this struct
+...
+74 |     pub intrinsic_pull: EffectSet,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `StageEffectRelation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MapKey`, `OptionalPayload`, `ResultError`, and `RecordField` are never constructed
+  --> src/sema/registry_graph.rs:36:55
+   |
+36 | pub(crate) enum RegistryProducerComponent { ListItem, MapKey, MapValue, OptionalPayload, ResultSuccess, ResultError, RecordField(Nam...
+   |                 -------------------------             ^^^^^^            ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^  ^^^^^^^^^^^
+   |                 |
+   |                 variants in this enum
+   |
+   = note: `RegistryProducerComponent` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry`, `binding`, and `command` are never read
+  --> src/sema/registry_graph.rs:76:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+76 |     pub entry: &'static str,
+   |         ^^^^^
+77 |     pub operation: RuntimeOp,
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `RegistryProducerPath` is never used
+   --> src/sema/registry_graph.rs:128:17
+    |
+128 | pub(crate) enum RegistryProducerPath { ResultSuccess }
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerAlternative` is never constructed
+   --> src/sema/registry_graph.rs:131:19
+    |
+131 | pub(crate) struct RegistryProducerAlternative {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerRelation` is never constructed
+   --> src/sema/registry_graph.rs:137:19
+    |
+137 | pub(crate) struct RegistryProducerRelation {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `family` and `variant` are never read
+   --> src/sema/registry_graph.rs:155:9
+    |
+153 | pub(crate) struct RegistryErrorVariant {
+    |                   -------------------- fields in this struct
+154 |     pub authority_id:Name,
+155 |     pub family:Name,
+    |         ^^^^^^
+156 |     pub variant:Name,
+    |         ^^^^^^^
+    |
+    = note: `RegistryErrorVariant` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `producer_result_relation` is never used
+   --> src/sema/registry_graph.rs:319:19
+    |
+173 | impl RegistryGraph {
+    | ------------------ method in this implementation
+...
+319 |     pub(crate) fn producer_result_relation(&self,graph:&InferenceContext,family:OperationFamilyId)->Result<Option<RegistryProducerR...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `xsh` (lib) generated 27 warnings (run `cargo fix --lib -p xsh` to apply 7 suggestions)
+   Compiling xsht v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/crates/xsht)
+    Finished `test` profile [unoptimized] target(s) in 26.45s
+     Running unittests src/lib.rs (target/debug/build/xsht/d6144a2960cf09e3/out/xsht-d6144a2960cf09e3)
+
+running 99 tests
+test xsht::api::signature_query_tests::api_registry_graph_handle_needs_its_checked_owner ... ok
+test xsht::cli::check::tests::annotation_edits_accept_closed_nested_graph_leaves_and_refuse_generic_graphs ... ok
+test xsht::cli::check::tests::annotation_write_rejects_semantically_invalid_source_without_changing_bytes ... ok
+test xsht::cli::check::tests::annotation_write_retains_entry_source_identity_and_configured_module_roots ... ok
+test xsht::cli::coverage::tests::coverage_excludes_source_families_without_affecting_source_loading ... ok
+test xsht::cli::coverage::tests::proc_entries_use_definition_span_when_call_site_is_a_test ... ok
+test xsht::cli::coverage::tests::registered_sources_use_ast_lines_and_include_unobserved_files ... ok
+test xsht::cli::coverage::tests::source_coverage_reports_line_and_proc_percentages ... ok
+test xsht::cli::coverage::tests::source_file_events_count_loaded_unhit_files ... ok
+test xsht::cli::files::tests::config_parses_coverage_excludes_separately ... ok
+test xsht::cli::files::tests::config_parses_dead_code_excludes_separately ... ok
+test xsht::cli::files::tests::configured_includes_add_extra_script_roots ... ok
+test xsht::cli::files::tests::discovery_applies_config_excludes_after_gitignore ... ok
+test xsht::cli::files::tests::discovery_output_is_sorted_and_deduplicated ... ok
+test xsht::cli::files::tests::discovery_respects_gitignore_by_default ... ok
+test xsht::cli::files::tests::explicit_file_is_accepted_even_when_ignored_by_discovery ... ok
+test xsht::cli::files::tests::private_proc_effects_config_is_explicit_opt_in ... ok
+test xsht::cli::fmt::tests::explicit_directory_discovery_does_not_expand_parent_includes ... ok
+test xsht::cli::lint::tests::collect_fix_spans_drops_nested_replacements ... ok
+test xsht::cli::lint::tests::explicit_directory_discovery_does_not_expand_parent_includes ... ok
+test xsht::cli::lint::tests::lint_config_disables_only_dead_code_for_matching_paths ... ok
+test xsht::cli::lint::tests::lint_fix_applies_safe_lints_with_unrelated_check_errors ... ok
+test xsht::cli::lint::tests::lint_fix_checks_the_converged_source_once ... ok
+test xsht::cli::lint::tests::lint_fix_declines_comment_bearing_spans ... ok
+test xsht::cli::lint::tests::lint_fix_does_not_create_orphan_docs_from_multiline_strings ... ok
+test xsht::cli::lint::tests::lint_fix_half_open_slices_converges_for_nested_calls ... ok
+test xsht::cli::lint::tests::lint_fix_handles_nested_map_fixes_without_corrupting_source ... ok
+test xsht::cli::lint::tests::lint_fix_keeps_var_annotation_when_reassigned ... ok
+test xsht::cli::lint::tests::lint_fix_preserves_conditional_membership_receiver ... ok
+test xsht::cli::lint::tests::lint_fix_preserves_context_for_optional_conditional ... ok
+test xsht::cli::lint::tests::lint_fix_preserves_fallback_return ... ok
+test xsht::cli::lint::tests::lint_fix_preserves_grouped_pipeline_condition ... ok
+test xsht::cli::lint::tests::lint_fix_refuses_missing_effect_repair_for_an_unknown_callable_contract ... ok
+test xsht::cli::lint::tests::lint_fix_removes_run_status_propagation_through_ast ... ok
+test xsht::cli::lint::tests::lint_fix_repairs_entry_effects_with_unrelated_module_check_error ... ok
+test xsht::cli::lint::tests::lint_fix_repairs_missing_effect_annotations_after_check_error ... ok
+test xsht::cli::lint::tests::lint_fix_repairs_missing_effects_from_called_restricted_proc ... ok
+test xsht::cli::lint::tests::lint_fix_repairs_missing_effects_from_imported_module_proc ... ok
+test xsht::cli::lint::tests::lint_fix_retains_record_collection_element_type ... ok
+test xsht::cli::lint::tests::lint_fix_retains_record_schema_validation ... ok
+test xsht::cli::lint::tests::lint_fix_rewrites_empty_map_initializer_through_ast ... ok
+test xsht::cli::lint::tests::lint_fix_rewrites_needless_annotation_through_ast ... ok
+test xsht::cli::lint::tests::lint_fix_rewrites_tail_ok_return_through_ast ... ok
+test xsht::cli::lint::tests::lint_fix_rewrites_tail_return_binding_through_ast ... ok
+test xsht::cli::lint::tests::lint_fix_rewrites_typed_empty_list_return_binding_through_ast ... ok
+test xsht::cli::lint::tests::lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes ... ok
+test xsht::cli::lint::tests::lint_worker_count_respects_available_cpus_roots_and_four_worker_bound ... ok
+test xsht::cli::lint::tests::lint_workspace_copies_only_current_source_checked_facts ... ok
+test xsht::cli::lint::tests::lint_workspace_legacy_root_enum_helper_migration_rechecks ... ok
+test xsht::cli::lint::tests::lint_workspace_migrates_imported_enums_and_refuses_unrelated_import_errors ... ok
+test xsht::cli::lint::tests::lint_workspace_preserves_distinct_imported_enum_identities_with_same_file_name ... ok
+test xsht::cli::lint::tests::lint_workspace_root_configuration_keeps_shared_module_identity_and_docs ... ok
+test xsht::cli::lint::tests::lint_workspace_root_enum_contract_matches_entry_checker ... ok
+test xsht::cli::lint::tests::lint_workspace_source_facts_preserve_bundle_diagnostics ... ok
+test xsht::lint::annotation_probe_tests::annotation_probes_stop_after_original_signature_cannot_be_checked ... ok
+test xsht::lint::block_strings::tests::formatted_block_string_library_formatting_preserves_runtime_bytes_and_converges ... ok
+test xsht::lint::block_strings::tests::formatted_block_string_refusal_preserves_comments_consumers_and_concat_effect_boundaries ... ok
+test xsht::lint::block_strings::tests::formatted_block_strings_preserve_blank_lines_escapes_and_final_newline ... ok
+test xsht::lint::block_strings::tests::formatted_block_strings_preserve_crlf_source_and_tab_margins ... ok
+test xsht::lint::block_strings::tests::formatted_block_strings_preserve_effect_order_and_multiline_interpolation_source ... ok
+test xsht::lint::block_strings::tests::formatted_service_block_string_preserves_exact_runtime_bytes ... ok
+test xsht::lint::context_scope::tests::command_scope_run_text_initializer_preserves_mutability_and_converges ... ok
+test xsht::lint::context_scope::tests::command_scope_run_text_initializer_preserves_process_results_and_restoration ... ok
+test xsht::lint::context_scope::tests::command_scope_run_text_initializer_refuses_observed_placeholders_and_cleanup ... ok
+test xsht::lint::context_scope::tests::command_scope_run_text_initializer_retains_written_local_type ... ok
+test xsht::lint::effect_fact_tests::checked_empty_effect_facts_avoid_duplicate_frontend_checking ... ok
+test xsht::lint::effect_fact_tests::checked_migration_helpers_share_original_facts_without_rechecking ... ok
+test xsht::lint::effect_fact_tests::standalone_migration_helpers_share_one_original_check_and_keep_candidate_checks ... ok
+test xsht::lint::lint_callable_alias::tests::callable_aliases_cache_original_preparation_across_forwarding_candidates ... ok
+test xsht::lint::lint_callable_alias::tests::callable_aliases_skip_original_preparation_without_exact_local_forwarding ... ok
+test xsht::lint::lint_try_capture::tests::checked_local_capture_rule_is_exposed_by_the_linter_library ... ok
+test xsht::lint::lint_try_capture::tests::local_capture_helper_fix_preserves_success_parse_failure_and_missing_file ... ok
+test xsht::lint::lint_try_capture::tests::local_capture_helper_migration_keeps_unrelated_comments_and_byte_offsets ... ok
+test xsht::lint::lint_try_capture::tests::local_capture_helpers_decline_bodies_beyond_the_bounded_expression_walk ... ok
+test xsht::lint::lint_try_capture::tests::local_capture_helpers_decline_references_captures_control_and_promises ... ok
+test xsht::lint::lint_try_capture::tests::local_capture_helpers_leave_native_tests_and_statement_boundaries_unchanged ... ok
+test xsht::lint::lint_try_capture::tests::single_use_read_port_helper_becomes_a_checked_local_capture ... ok
+test xsht::lint::literal_migration_tests::byte_suffix_migration_retains_unknown_mutable_and_distinct_receivers ... ok
+test xsht::lint::literal_migration_tests::list_duration_literal_updates_preserve_the_checked_element_domain ... ok
+test xsht::lint::literal_migration_tests::literal_migrations_retain_runtime_initialization_and_computed_arguments ... ok
+test xsht::lint::literal_migration_tests::literal_origin_byte_suffixes_preserve_bounds_and_converge ... ok
+test xsht::lint::literal_migration_tests::path_literal_promotion_prepares_each_changed_source_without_extra_lint_checks ... ok
+test xsht::lint::literal_migration_tests::prepared_path_literals_and_exported_data_preserve_comments_and_converge ... ok
+test xsht::lint::local_annotation_probe_tests::checked_local_annotation_baseline_reuses_graph_without_original_check ... ok
+test xsht::lint::local_annotation_probe_tests::checked_parameter_and_return_baselines_share_graph_and_keep_both_candidate_probes ... ok
+test xsht::lint::local_annotation_probe_tests::exported_nominal_local_annotations_keep_their_declared_domain_without_probes ... ok
+test xsht::lint::local_annotation_probe_tests::local_annotation_probes_cache_original_facts_and_failure ... ok
+test xsht::lint::local_annotation_probe_tests::standalone_annotation_import_availability_matches_checker_use_errors ... ok
+test xsht::lint::nested_pipeline_index_tests::nested_pipeline_statement_membership_is_indexed_once ... ok
+test xsht::lint::user_type_reference_tests::applied_user_type_references_keep_the_generic_head_and_nominal_arguments ... ok
+test xsht::test::tests::formats_test_durations_for_humans ... ok
+test xsht::trace::tests::aggregates_and_renders_syscall_summary_text ... ok
+test xsht::trace::tests::normalizes_unstable_trace_values ... ok
+test xsht::trace::tests::renders_coverage_trace_with_source_metadata_and_spans ... ok
+test xsht::trace::tests::renders_nested_trace_as_json_lines ... ok
+test xsht::trace::tests::renders_nested_trace_as_stable_text ... ok
+test xsht::trace::tests::renders_syscall_summary_jsonl ... ok
+test xsht::trace::tests::renders_traceback_with_failing_span_and_call_path ... ok
+test xsht::trace::tests::wraps_trace_summary_cells_without_ellipsis ... ok
+
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+

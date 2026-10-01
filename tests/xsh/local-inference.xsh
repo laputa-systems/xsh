@@ -96,11 +96,11 @@ print ${entries.get(p"first")?}
     output.stdout == "12\n"
 }
 
-test immutable_aliases_share_one_collection_type [error] { |ctx|
+test authored_immutable_collection_contract_is_shared_by_aliases [error] { |ctx|
     let output = test.run_script(ctx, r"""proc paths(values: List[Path]) -> Unit {}
 proc integers(values: List[Int]) -> Unit {}
 proc inspect() -> Unit {
-  let entries = []
+  let entries: List[Path] = []
   let alias = entries
   paths(entries)
   integers(alias)

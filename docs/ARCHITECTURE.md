@@ -35,6 +35,58 @@ expression, call-binding, projection, and return-elaboration facts to source
 arena identities. `Type::Graph` preserves unresolved generic relationships
 inside checking instead of replacing them with `Any`. Ground tree views remain
 bounded adapters for consumers that do not yet consume graph identities.
+Graph publication validates each resolved node in its exact member scope and
+shares the validation cache across retained roots. Cached subtree heights preserve
+the structural-depth guard when the same graph is reached through a longer path.
+Scope authorization and publication walks charge the solver work budget. The
+finite effect inclusion graph is closed before publication; retained arrows,
+scheme endpoints, operation evidence, and external callable/substitution facts
+preserve quantified effect identities or their solved closed sets.
+Source operation requirements retain their exact declaration or value scheme.
+Publication checks their templates, selected certificates, substitutions,
+producer outputs, and dependency certificates in that source scope. A catalog
+candidate does not authorize foreign binders. Shared proof walks charge the work
+budget once per requirement and scope; immutable consumers validate membership
+with `SolvedGraph::validate_requirement_scoped`.
+
+`RequirementTemplate::CallableInvocation` retains an `InvocationCall` with the
+callable type, ordered positional/named/splice arguments, result, computed output
+effects, and exact Pure or Pure/Proc/Stream domain. `inference/invocations.rs`
+keeps Meta and Rigid callables residual instead of manufacturing Arrow labels,
+defaults, rest slots, or kind. A concrete Arrow supplies `InvocationEvidence`
+through the shared argument binder, including default timing derived from its
+actual kind. `SolvedTypes::invocations` attaches the source requirement and caller
+to the actual expression identity through `SolvedInvocation`; publication checks
+that requirement in its source scheme. `frontend/query.rs` normalizes the retained
+relationship and its actual argument modes without rechecking or guessing a
+signature. Computed invocation effects remain distinct from the caller's
+permission budget.
+`SolvedQuery::schema_validation` and `constructor_application` project frozen
+source application facts. Applied phantom arguments and qualified declaration,
+default and member owners remain distinct from structural record layouts.
+Caller scopes supply alpha normalization; original expression and record-spread
+identities supply argument provenance. Exact per-source application certificates
+and recorded counts reject substitutions and omissions before projection, without
+replaying syntax or validating unrelated sources. Shared type, scope and default
+roots use one bounded normalization budget. Assignment and projection indexes
+locate local certificates and do not define application equivalence. Conditional
+invocation views retain every branch plan; error joins retain independent ordered
+input roots, their result and any written completion bound.
+`Checker::compact_declarations_from_checked` borrows the existing `CheckOutput`,
+retains the same `Arc<SolvedTypes>`, and adapts its prepared constants, constructors,
+wire enums, CLI entry plan, and checked callable facts. The tool's single-file and
+workspace check paths use this adapter instead of checking the original arena
+again. The structural declaration collector remains a ground-view adapter until
+compact lowering consumes solved declarations directly; it neither validates
+source nor generates constraints.
+`Linter::lint_with_checked` and `lint_module_with_checked` borrow that same checked
+bundle for effect facts and source-migration baselines. Standalone lint checks
+share one lazy original-source check. Different checker options and rewritten
+candidate text retain their own checks. Annotation rendering uses `SolvedQuery`
+for ground graph types and preserves the conservative source-syntax exclusions.
+Annotation writes are a new source revision: the tooling checks the rewritten
+text and its compact lowerability with the entry's source identity, module roots,
+and checker options before writing. A rejected rewrite leaves the file unchanged.
 
 `indexed/generic.rs::GenericEvidenceStore` owns declaration scopes, canonical
 type templates, concrete instantiations, physical record layouts, and sealed
@@ -48,28 +100,39 @@ suspended frames. Their return and cleanup behavior uses the declaration's
 fixed return plan, so a returned `Err` payload is distinguished from a declared
 Result failure channel.
 
-The graph path currently covers ordinary pure/proc definitions and direct
-declaration calls. Remaining adapters are explicit integration work:
+Recursive declaration groups share a canonical binder owner while each member
+retains only its reachable type and effect binders. `inference/components.rs`
+generalizes after all member constraints and restrictions are solved.
+`generic::register_graph_declaration` includes default-only headers with written
+returns. Mutable local collection seeds use the graph directly and retain the
+same variable in early alias expression facts. Indexed template preparation uses
+`scheme_binder_index` to map a member's actual binder identities to local evidence
+slots; the canonical owner's ordinal is not a member's ordinal.
 
-- `generic::register_graph_declaration` still excludes native test headers,
-  streams, and default-only omitted parameter headers with a written return.
-  `infer_param` retains default anchoring for those headers.
-- `local_inference` retains cloned constraint collection and probes outside
-  graph-owned bodies; `infer_return::infer_local_pure_returns` retains dependency
-  inference for declarations outside the graph path.
-  `generic::body_uses_legacy_collection_inference` selects definitions containing
-  legacy empty List or `map.empty()` inference before graph generation. Authored
-  and omitted signatures use the same eligibility rule; this adapter must be
-  replaced by shared collection variable ownership.
-  `Checker::legacy_collection_body` confines second-pass ground argument
-  anchoring to those definitions; it does not train generic declarations.
-- The two checker effect passes and `infer_effects::effective_function_effects`
-  still solve finite proc effects; `generic::close_graph_effects` imports those
-  summaries into graph arrows. Export/main/stream latent effects require the
-  shared effect solver to replace this adapter.
-- Compact declaration/body collectors retain tree facts for native, stream,
-  CLI, and registry paths. Aliases, computed callable flows, splices, and the
-  complete registry operation families still require shared solved plans.
+The graph path registers pure, proc, native-test, and stream definitions,
+including omitted parameters, defaults, and returns. Callable expression facts
+preserve complete signatures through aliases, aggregates, conditionals, and
+returned values. Mutable bindings keep one shared instantiation. Remaining
+adapters are explicit integration work:
+
+- Declaration, local collection, default, and return inference use the shared
+  source graph. `return_join::unify_inferred_returns` joins ordinary body
+  completions without another declaration walker. Constructor named spreads
+  expand original argument sources and check each supplied value once; checker
+  cloning and fabricated projection expressions are removed. A bounded legacy
+  constructor-variable group still bridges null/empty fields to independently
+  checked anchors before graph publication. Its deferred type imports remain
+  temporary work for replacing constructor groups with graph variables.
+- One checker traversal generates type constraints, finite effect inclusions,
+  callable obligations, and producer flows. Declaration generalization retains
+  latent effect relationships; graph solving and publication establish the
+  summaries. Whole-program effect scans and a second source checker are removed.
+- Full and compact consumers project the same immutable solved facts. Source
+  registry, operator, and stage requirements retain canonical candidate authority,
+  original binding plans, and exact producer paths. Schema validation records
+  independently established targets and qualified applications. Constructor and
+  process source plans and complete native callable families remain integration
+  work; unsupported new execution evidence still fails preparation.
 - `lower.rs::CompactLowerConstructProbe::solved_type` projects immutable graph
   container shells into old storage views. Expression and call type helpers
   retain tree/slot/shape reconstruction outside solved expression coverage;
@@ -583,8 +646,29 @@ and identity migration metadata. Its finite scalar migration table never enters
 runtime dispatch. The record module and its private string-contract parser are
 absent; `.require(Type)` uses the ordinary schema checker and indexed schema
 validation. Record receiver methods and typed module contracts retain their
-existing owners. Prepared constants provide contract values; a known plain
+existing owners. `SolvedModuleProjection` retains the original receiver, access
+carrier, and exact export type against a core `ModuleProjection` constraint
+contribution. Cold validation checks that promise without recovering a record
+row or an implementation declaration. Prepared constants provide contract values; a known plain
 receiver and exact existing schema are required before offering an edit.
+
+`InvocationPlan` retains either a unique selected signature and binding or every
+possible callable branch with its own binding, default timing, and effects.
+Source callable joins use `InferenceContext::join_callable_values` while each
+branch is checked independently. Computed invocation arguments reuse the original
+checked expression endpoints and prove compatibility with their checked views;
+list splices keep the original list endpoint and source flow before branch binding. Ordinary callable producer references retain
+the checked expression instance as their immutable origin; their principal
+declaration signature remains separate navigation and scope metadata. Frozen
+source validation rejects replacing that instance with the principal signature.
+
+`ProducerFlowKind::OptionalLift` retains nullable completion independently of
+type equality. It transfers original producer and callable locations into one
+`OptionalPayload` layer, preserving inputs that already carry that layer.
+Declaration completion creates this flow after its return relationship is solved.
+Local error captures separately retain reached failure projections from their
+original operands; nested captures own separate lists, and consuming a failure
+payload retains its pull and cleanup permissions.
 
 `Checker` in `src/sema/check.rs` owns the main checker state: lexical scopes, function
 signatures, imported modules, current return type, purity context, `$?`
@@ -600,20 +684,19 @@ Focused semantic rules live beside it:
   substitution keeps unresolved identities until the owning checker requires
   a concrete contract. Indexed type pools reject unresolved identities, and
   runtime type tests cannot satisfy them.
-- `src/sema/check/local_inference.rs` gathers constraints for local empty
-  collections and mutable nullable accumulators before checking operations in
-  their enclosing callable. A cloned ordinary checker retains substitutions
-  and seed identities while discarding speculative diagnostics and facts.
-  `Checker::constraint_probe` retains declaration, lexical, parameter, return,
-  and substitution contracts while excluding completed expression and block
-  facts. Speculative local constraints, default parameters, and argument spreads
-  recompute those facts before consuming them; cloning prior output repeatedly
-  copies captured module contracts as the program grows.
-  Normal checking then uses the same monomorphic identities. Checked binding
-  types supply indexed slot metadata, so a null initializer cannot erase a
-  solved Optional contract. Full and compact publication canonicalize every
-  retained expression and callable fact through their owning constraint store;
-  unresolved material facts diagnose rather than become dynamic types.
+- `src/sema/check/local_inference.rs` connects local empty collections and
+  mutable nullable accumulators to the enclosing declaration's shared graph.
+  Initializers, aliases, and later contributions retain the same monomorphic
+  identities; immutable value schemes obey the graph's level and capture
+  restrictions. Defaults and original argument sources are checked once.
+  Checker cloning, speculative body probes, and spread-generated projection
+  expressions are removed. A bounded constructor-variable adapter temporarily
+  retains checked original-expression types and callers while null/empty fields
+  await independently checked anchors, then publishes each source fact once.
+  Checked binding types supply indexed slot metadata, so a null initializer
+  cannot erase a solved Optional contract. Full and compact publication use
+  the same solved expression and callable facts; unresolved material facts
+  diagnose rather than become dynamic types.
 - `crates/xsh-registry/src/signature/` owns standard callable contracts and
   runtime operation identities; `src/modules/signature.rs` adapts them to
   semantic types and effects. `src/sema/builtin_templates.rs` instantiates
@@ -636,12 +719,47 @@ Focused semantic rules live beside it:
   structural receiver fields never invent unused application arguments.
   Concrete `record_constructor_instances` facts feed compact checking and
   lowering after inference completes. Defaults supply no inference evidence.
+  `src/sema/check/constructor_application.rs` publishes original expression and
+  spread-record field identities, qualified applied aliases and underlying
+  default owners, phantom arguments, fixed supplied/default slots, and exact
+  graph assignment and projection origins. `constructor_defaults` shares
+  declaration-owned prepared constants; `constructor_nominals` retains exact
+  member payload slots. Tag and error-variant plans retain an operation
+  requirement whose canonical declaration candidate includes the qualified
+  source, namespace, declaration, and member identity. Equal payload signatures
+  cannot substitute a different member after syntax disposal. Frozen validation
+  compares those authorities and source
+  endpoints without syntax or name-based member discovery. Scoped roots include
+  application arguments, formals, actual values, and results; retained storage
+  accounts nested contexts, vector capacities, and shared literal allocations.
+  The remaining constructor-group `TypeConstraints` adapter contributes
+  independently checked operands before graph import, and defers original
+  null/empty/nested expression facts until the group resolves. It never rechecks
+  a source expression or chooses a type from observed callers.
   Fully substituted instances reuse `Type::Record`; no runtime generic dispatch
   is introduced. `LiteralConstant` admits bounded
   literal trees and earlier immutable literal bindings; checker, parameter-default
   lowering, constructor lowering, and conservative constructor fixes share this
   analysis. Constructor lowering emits existing record and schema-check rows,
   preserving supplied field order and independent aggregate values.
+  `RecordConstructors::source_id` indexes each declaration's source while its
+  lexical namespace is collected. `check/schema_validation.rs` publishes
+  explicit and contextual `require` decisions in `SolvedTypes::schema_validations`.
+  Each expression identity retains its original input expression and type,
+  independently selected target and Result type, lexical caller, and recursive
+  qualified application identities with concrete argument handles. Phantom
+  arguments remain present when record layouts are equal. Collection charges
+  bounded node and edge work; publication roots and validation preserve the
+  handles and private declaration owners after AST disposal.
+  `SolvedGraph` retains a complete immutable `ScopedApplicationRoot` ledger.
+  Each certificate binds an original source expression, typed nested schema
+  path, alias ordinal, qualified type declaration, and original argument
+  handles. `SolvedTypes::source_application_roots` projects current schema and
+  record-constructor facts for comparison with that ledger, rejecting changed
+  phantom arguments and missing applications even when record layouts agree.
+  Publication validates constructor arguments in their exact source scheme;
+  validation targets still require concrete reifiable arguments. Ledger path
+  and argument storage is included in retained graph accounting.
 - `src/sema/check/stream.rs` checks structured stream pipelines.
   `CheckedStreamStage` retains canonical input and output types per stage;
   namespace and source spans distinguish equal offsets in separate modules.
@@ -848,22 +966,28 @@ precedence over syntactic recovery. Resolving a named record return before
 field aliases are stored keeps Optional receivers distinguishable from Result
 receivers when guarded postfix operations are lowered.
 
-Private pure return inference is owned by
-`src/sema/check/infer_return.rs::infer_local_pure_returns`. Declaration dependency
-components are computed with iterative graph traversals; recursive unannotated
-members require explicit signatures. `CheckOutput::function_return_types` and
+Callable return inference is owned by `src/sema/check/generic.rs` and
+`src/sema/inference/components.rs`. Structural declaration dependencies establish
+recursive groups; each group is constrained before its member schemes are
+published. An omitted return keeps its principal relationship, including in
+exports and recursive declarations. `CheckOutput::function_return_types` and
 `CompactDeclOutput::function_return_types` retain checked body return facts for
 qualified calls, indexed return kinds, lint rechecks, and annotation rendering.
 No caller supplies the inferred definition's return context.
 
 Private proc effects are owned by `src/sema/check/infer_effects.rs`. A checker
-collection pass records direct requirements and edges from resolved calls;
-`EffectGraph::solve` computes finite transitive summaries before final bound
-checking. `EffectDeclarationId` combines declaring namespace and body span so
+records raw execution requirements in the shared graph independently of its
+checked permission budget. Declared clauses remain caller-visible bounds;
+missing permissions still reject the body without truncating its required
+summary. `EffectDeclarationId` combines declaring namespace and body span so
 separately parsed module arenas may reuse local spans safely.
 `CheckOutput::function_effect_facts` and
 `CompactDeclOutput::function_effect_facts` publish effective requirements and
-inference provenance. Linting consumes these checked facts and uses equivalent
+inference provenance. Calculated finite diagnostic summaries remain available
+when a permission failure or unrelated type error prevents publishing
+`SolvedTypes`; unresolved and unrestricted summaries remain unknown. This
+projection permits a safe permission edit while preserving the rejected program
+and its other diagnostics. Linting consumes these checked facts and uses equivalent
 rechecks for opt-in private-clause removal; it has no syntax-based effect solver.
 
 Explicit field labels share `TokenTable::label_text_at` and the parser's
@@ -877,7 +1001,11 @@ and key contracts. Tooling reads the same label vocabulary for safe unquoting.
 
 Nested functional record updates retain `ArenaRecordFieldKind::Path` selectors
 separately from their replacement expressions. Checked updates preserve the
-base schema and lower to `BuildExprRow::RecordUpdate`; its indexed payload
+complete base row in `SolvedTypes::record_updates`, including fields in open
+row tails. Each leaf retains its exact projection chain, replacement source
+identity and mutable version, producer flow, and original assignability
+constraint index. Frozen validation checks those endpoints without re-solving
+or reconstructing names. Updates lower to `BuildExprRow::RecordUpdate`; its indexed payload
 verifies nonempty, disjoint static paths. Both execution routes evaluate the
 base and replacements before `lowered_record_update_batch` rebuilds a private
 snapshot. A path trie groups shared ancestors and uses

@@ -19,7 +19,7 @@ use crate::runtime::value::{
     NetJobValue, FsRootValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue, RuntimeError,
     StreamValue, Value,
 };
-use crate::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput};
+use crate::sema::check::{CheckOutput, Checker, CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, NameText, QualifiedName};
@@ -3686,13 +3686,25 @@ impl Evaluator {
 
     /// Build, verify, and execute the indexed program. The arena is used only
     /// during construction and is never consulted by the installed evaluator.
-    pub fn eval(mut self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
+    pub fn eval(self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
+        self.eval_with_checked(program, source_id, None)
+    }
+
+    /// Prepare and execute the same arena from its existing checked result.
+    /// Checking failures remain failures and never trigger another checker.
+    pub fn eval_checked(self, program: &ArenaProgram, source_id: SourceId, checked: &CheckOutput) -> EvalOutput {
+        self.eval_with_checked(program, source_id, Some(checked))
+    }
+
+    fn eval_with_checked(mut self, program: &ArenaProgram, source_id: SourceId, checked: Option<&CheckOutput>) -> EvalOutput {
         let symbols = program.symbol_owner().clone();
         run_eval(move || {
             symbols.with_current(|| {
-                let plan = match self
-                    .prepare_compact_indexed_only_or_diagnostic(program, source_id, false)
-                {
+                let prepared = match checked {
+                    Some(checked) => self.prepare_compact_indexed_only_from_checked(program, source_id, checked),
+                    None => self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false),
+                };
+                let plan = match prepared {
                     Ok(plan) => plan,
                     Err(diagnostic) => {
                         let status = if diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check.")) { 2 } else { 1 };
@@ -3936,6 +3948,24 @@ impl Evaluator {
             declarations,
             bodies,
         )
+    }
+
+    pub(crate) fn prepare_compact_indexed_only_from_checked(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+        checked: &CheckOutput,
+    ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        program.symbol_owner().with_current(|| {
+            if let Some(diagnostic) = checked.diagnostics.iter().find(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                return Err(diagnostic.clone());
+            }
+            let mut declarations = Checker::compact_declarations_from_checked(program, checked);
+            if !declarations.diagnostics.is_empty() { return Err(declarations.diagnostics.remove(0)); }
+            let mut bodies = Checker::probe_compact_bodies(program, &declarations);
+            if !bodies.diagnostics.is_empty() { return Err(bodies.diagnostics.remove(0)); }
+            self.prepare_compact_indexed_only_or_diagnostic_with_parts(program, source_id, false, declarations, bodies)
+        })
     }
 
     fn prepare_compact_indexed_only_or_diagnostic_with_parts(
@@ -4742,13 +4772,34 @@ impl Evaluator {
 
     #[cfg(feature = "native-tests")]
     pub fn prepare_test_program(
-        mut self,
+        self,
         program: Arc<ArenaProgram>,
         source_id: SourceId,
     ) -> Result<PreparedTestProgram, Diagnostic> {
+        self.prepare_test_program_with_checked(program, source_id, None)
+    }
+
+    #[cfg(feature = "native-tests")]
+    pub fn prepare_test_program_checked(
+        self,
+        program: Arc<ArenaProgram>,
+        source_id: SourceId,
+        checked: &CheckOutput,
+    ) -> Result<PreparedTestProgram, Diagnostic> {
+        self.prepare_test_program_with_checked(program, source_id, Some(checked))
+    }
+
+    #[cfg(feature = "native-tests")]
+    fn prepare_test_program_with_checked(
+        mut self,
+        program: Arc<ArenaProgram>,
+        source_id: SourceId,
+        checked: Option<&CheckOutput>,
+    ) -> Result<PreparedTestProgram, Diagnostic> {
         self.capture_process_output = true;
-        let plan = program.symbol_owner().with_current(|| {
-            self.prepare_compact_indexed_only_or_diagnostic(&program, source_id, false)
+        let plan = program.symbol_owner().with_current(|| match checked {
+            Some(checked) => self.prepare_compact_indexed_only_from_checked(&program, source_id, checked),
+            None => self.prepare_compact_indexed_only_or_diagnostic(&program, source_id, false),
         })?;
         let script_span = plan.script_span;
         let shared = self.lowered_shared_state();

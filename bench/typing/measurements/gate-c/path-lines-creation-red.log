@@ -1,0 +1,516 @@
+    Blocking waiting for file lock on build directory
+   Compiling xsh v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2)
+warning: unused imports: `ProducerFlowField` and `ProducerFlowNode`
+  --> src/sema/check.rs:68:20
+   |
+68 | pub use producer::{ProducerFlowField, ProducerFlowGraph, ProducerFlowId, ProducerFlowKind, ProducerFlowNode, ProducerFlowSource};
+   |                    ^^^^^^^^^^^^^^^^^                                                       ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `inputs` is never used
+  --> src/sema/check/producer.rs:45:8
+   |
+44 | impl ProducerFlowKind {
+   | --------------------- method in this implementation
+45 |     fn inputs(&self) -> Vec<ProducerFlowId> {
+   |        ^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `push` is never used
+  --> src/sema/check/producer.rs:79:19
+   |
+70 | impl ProducerFlowGraph {
+   | ---------------------- method in this implementation
+...
+79 |     pub(super) fn push(&mut self, graph: &mut InferenceContext, source: ProducerFlowSource, kind: ProducerFlowKind) -> Result<Produc...
+   |                   ^^^^
+
+warning: methods `charge_source_fact_nodes` and `charge_source_fact_edges` are never used
+   --> src/sema/inference.rs:287:19
+    |
+276 | impl InferenceContext {
+    | --------------------- methods in this implementation
+...
+287 |     pub(crate) fn charge_source_fact_nodes(&mut self, nodes: u64) -> Result<(), InferenceError> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+292 |     pub(crate) fn charge_source_fact_edges(&mut self, edges: u64) -> Result<(), InferenceError> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `LanguageDisposition` is never used
+ --> src/sema/operation_graph.rs:9:17
+  |
+9 | pub(crate) enum LanguageDisposition { SealedRequirement, ParametricTemplate, FixedBoundary, DynamicBoundary, StaticIdentity }
+  |                 ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `LanguageAuthority` is never constructed
+  --> src/sema/operation_graph.rs:12:19
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: constant `LANGUAGE_AUTHORITIES` is never used
+  --> src/sema/operation_graph.rs:14:18
+   |
+14 | pub(crate) const LANGUAGE_AUTHORITIES: &[LanguageAuthority] = &[
+   |                  ^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `ArithmeticDomain` is never used
+   --> src/sema/operation_graph.rs:143:17
+    |
+143 | pub(crate) enum ArithmeticDomain { Integer { left: Atom, right: Atom }, Float, Text, List, DurationPair, DurationScale { duration_l...
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: enum `MembershipDomain` is never used
+   --> src/sema/operation_graph.rs:145:17
+    |
+145 | pub(crate) enum MembershipDomain { List, Map, Str, Bytes, Record, Path { needle: Atom }, EnvPathList }
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: enum `IterableDomain` is never used
+   --> src/sema/operation_graph.rs:147:17
+    |
+147 | pub(crate) enum IterableDomain { List, Stream, Map, Str, Bytes }
+    |                 ^^^^^^^^^^^^^^
+
+warning: enum `SliceDomain` is never used
+   --> src/sema/operation_graph.rs:149:17
+    |
+149 | pub(crate) enum SliceDomain { List, Str, Bytes }
+    |                 ^^^^^^^^^^^
+
+warning: enum `ValueConstructor` is never used
+   --> src/sema/operation_graph.rs:151:17
+    |
+151 | pub(crate) enum ValueConstructor { Ok, Err, Path, Range }
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: enum `PreparedLanguageOperation` is never used
+   --> src/sema/operation_graph.rs:153:17
+    |
+153 | pub(crate) enum PreparedLanguageOperation {
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `OperationArgumentOrder` is never used
+   --> src/sema/operation_graph.rs:171:17
+    |
+171 | pub(crate) enum OperationArgumentOrder { SourceOrder, ReceiverThenNeedle }
+    |                 ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `OperationCandidate` is never constructed
+   --> src/sema/operation_graph.rs:174:19
+    |
+174 | pub(crate) struct OperationCandidate {
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: struct `OperationGraph` is never constructed
+   --> src/sema/operation_graph.rs:184:19
+    |
+184 | pub(crate) struct OperationGraph {
+    |                   ^^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> src/sema/operation_graph.rs:191:8
+    |
+190 | impl OperationGraph {
+    | ------------------- methods in this implementation
+191 |     fn bind_owner(&mut self, graph: &InferenceContext) -> Result<(), InferenceError> {
+    |        ^^^^^^^^^^
+...
+195 |     fn family(&mut self, graph: &mut InferenceContext, key: String, build: impl FnOnce(&mut Self, &mut InferenceContext) -> Result<...
+    |        ^^^^^^
+...
+204 |     pub(crate) fn metadata(&self, graph: &InferenceContext, id: CandidateId) -> Result<&OperationCandidate, InferenceError> {
+    |                   ^^^^^^^^
+...
+211 |     fn candidate(&mut self, graph: &mut InferenceContext, contract: LanguageContract) -> Result<CandidateId, InferenceError> {
+    |        ^^^^^^^^^
+...
+221 |     pub(crate) fn binary_family(&mut self, graph: &mut InferenceContext, op: BinaryOp, origin: Span) -> Result<OperationFamilyId, I...
+    |                   ^^^^^^^^^^^^^
+...
+273 |     pub(crate) fn compound_family(&mut self, graph: &mut InferenceContext, op: AssignOp, origin: Span) -> Result<OperationFamilyId,...
+    |                   ^^^^^^^^^^^^^^^
+...
+291 |     pub(crate) fn unary_family(&mut self, graph: &mut InferenceContext, op: UnaryOp, _origin: Span) -> Result<OperationFamilyId, In...
+    |                   ^^^^^^^^^^^^
+...
+299 |     pub(crate) fn iteration_family(&mut self, graph: &mut InferenceContext, origin: Span) -> Result<OperationFamilyId, InferenceErr...
+    |                   ^^^^^^^^^^^^^^^^
+...
+317 |     pub(crate) fn index_family(&mut self, graph: &mut InferenceContext, origin: Span) -> Result<OperationFamilyId, InferenceError> {
+    |                   ^^^^^^^^^^^^
+...
+330 |     pub(crate) fn slice_family(&mut self, graph: &mut InferenceContext, domain: SliceDomain, origin: Span) -> Result<OperationFamil...
+    |                   ^^^^^^^^^^^^
+...
+341 |     pub(crate) fn constructor_family(&mut self, graph: &mut InferenceContext, kind: ValueConstructor, origin: Span) -> Result<Opera...
+    |                   ^^^^^^^^^^^^^^^^^^
+...
+354 |     pub(crate) fn declaration_family(&mut self, graph: &mut InferenceContext, authority_id: &'static str, identity: Name, scheme: S...
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: struct `LanguageContract` is never constructed
+   --> src/sema/operation_graph.rs:367:8
+    |
+367 | struct LanguageContract {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> src/sema/operation_graph.rs:372:8
+    |
+371 | impl LanguageContract {
+    | --------------------- associated function in this implementation
+372 |     fn new(authority:String,operation:PreparedLanguageOperation,parameters:Vec<TypeId>,result:TypeId)->Self {
+    |        ^^^
+
+warning: function `authority` is never used
+   --> src/sema/operation_graph.rs:378:4
+    |
+378 | fn authority(id:&str)->Result<&'static LanguageAuthority,InferenceError> { LANGUAGE_AUTHORITIES.iter().find(|authority|authority.id...
+    |    ^^^^^^^^^
+
+warning: function `arithmetic_domains` is never used
+   --> src/sema/operation_graph.rs:380:4
+    |
+380 | fn arithmetic_domains(op:BinaryOp,compound:bool)->Vec<ArithmeticDomain> {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `arithmetic_authority` is never used
+   --> src/sema/operation_graph.rs:392:4
+    |
+392 | fn arithmetic_authority(op:BinaryOp,domain:ArithmeticDomain)->String {
+    |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `arithmetic_types` is never used
+   --> src/sema/operation_graph.rs:396:4
+    |
+396 | fn arithmetic_types(graph:&mut InferenceContext,domain:ArithmeticDomain,origin:Span)->Result<(TypeId,TypeId,TypeId),InferenceError> {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `membership_name` is never used
+   --> src/sema/operation_graph.rs:403:4
+    |
+403 | fn membership_name(domain:MembershipDomain)->&'static str { match domain { MembershipDomain::List => "List",MembershipDomain::Map =...
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `membership_types` is never used
+   --> src/sema/operation_graph.rs:404:4
+    |
+404 | fn membership_types(graph:&mut InferenceContext,domain:MembershipDomain,origin:Span)->Result<(TypeId,TypeId,Vec<RequirementId>),Inf...
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `iterable_types` is never used
+   --> src/sema/operation_graph.rs:413:4
+    |
+413 | fn iterable_types(graph:&mut InferenceContext,domain:IterableDomain,origin:Span)->Result<(TypeId,TypeId,Vec<RequirementId>),Inferen...
+    |    ^^^^^^^^^^^^^^
+
+warning: enum `SequenceDomain` is never used
+  --> src/sema/stage_graph.rs:10:17
+   |
+10 | pub(crate) enum SequenceDomain { List, Stream }
+   |                 ^^^^^^^^^^^^^^
+
+warning: enum `StageSource` is never used
+  --> src/sema/stage_graph.rs:12:17
+   |
+12 | pub(crate) enum StageSource { Sequence { domain: SequenceDomain, outer_result: bool }, Str, Bytes }
+   |                 ^^^^^^^^^^^
+
+warning: enum `CallbackShape` is never used
+  --> src/sema/stage_graph.rs:14:17
+   |
+14 | pub(crate) enum CallbackShape { Absent, Value, Unit, ResultUnit, List, Stream, ResultList, ResultStream }
+   |                 ^^^^^^^^^^^^^
+
+warning: struct `ReductionModes` is never constructed
+  --> src/sema/stage_graph.rs:16:19
+   |
+16 | pub(crate) struct ReductionModes(u8);
+   |                   ^^^^^^^^^^^^^^
+
+warning: associated items `SUM`, `MIN`, `MAX`, `ALL`, `from_static_configuration`, and `contains_sum` are never used
+  --> src/sema/stage_graph.rs:18:15
+   |
+17 | impl ReductionModes {
+   | ------------------- associated items in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |               ^^^                         ^^^                         ^^^                         ^^^
+19 |     pub fn from_static_configuration(sum:Option<bool>,min:Option<bool>,max:Option<bool>)->Result<Self,InferenceError> {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+26 |     fn contains_sum(self)->bool { self.0&Self::SUM.0!=0 }
+   |        ^^^^^^^^^^^^
+
+warning: enum `ReductionShape` is never used
+  --> src/sema/stage_graph.rs:29:17
+   |
+29 | pub(crate) enum ReductionShape { Value, Int, UInt, Float, Record }
+   |                 ^^^^^^^^^^^^^^
+
+warning: struct `StageForm` is never constructed
+  --> src/sema/stage_graph.rs:31:19
+   |
+31 | pub(crate) struct StageForm {
+   |                   ^^^^^^^^^
+
+warning: struct `StageVariant` is never constructed
+  --> src/sema/stage_graph.rs:41:19
+   |
+41 | pub(crate) struct StageVariant { pub callback_shape:CallbackShape, pub other_sequence:Option<SequenceDomain>, pub reduction_shape:Re...
+   |                   ^^^^^^^^^^^^
+
+warning: enum `AdditionalProducer` is never used
+  --> src/sema/stage_graph.rs:44:17
+   |
+44 | pub(crate) enum AdditionalProducer { ZipArgument, CallbackResult }
+   |                 ^^^^^^^^^^^^^^^^^^
+
+warning: struct `StageCandidate` is never constructed
+  --> src/sema/stage_graph.rs:46:19
+   |
+46 | pub(crate) struct StageCandidate {
+   |                   ^^^^^^^^^^^^^^
+
+warning: struct `StageGraph` is never constructed
+  --> src/sema/stage_graph.rs:61:19
+   |
+61 | pub(crate) struct StageGraph {
+   |                   ^^^^^^^^^^
+
+warning: struct `StageEffectRelation` is never constructed
+  --> src/sema/stage_graph.rs:68:19
+   |
+68 | pub(crate) struct StageEffectRelation {
+   |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: methods `family`, `metadata`, `output_producer_effects`, and `import` are never used
+   --> src/sema/stage_graph.rs:75:19
+    |
+ 74 | impl StageGraph {
+    | --------------- methods in this implementation
+ 75 |     pub(crate) fn family(&mut self, graph: &mut InferenceContext, stage: StreamStageKind, form: StageForm, origin: Span) -> Result<...
+    |                   ^^^^^^
+...
+ 93 |     pub(crate) fn metadata(&self,graph:&InferenceContext,id:CandidateId)->Result<&StageCandidate,InferenceError> {
+    |                   ^^^^^^^^
+...
+101 |     pub(crate) fn output_producer_effects(&self,graph:&mut InferenceContext,requirement:RequirementId,level:u32,origin:Span)->Resul...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+116 |     fn import(&mut self,graph:&mut InferenceContext,stage:StreamStageKind,source:StageSource,input_numeric:Option<Atom>,form:StageF...
+    |        ^^^^^^
+
+warning: function `sequence` is never used
+   --> src/sema/stage_graph.rs:218:4
+    |
+218 | fn sequence(graph:&mut InferenceContext,domain:SequenceDomain,item:TypeId)->Result<TypeId,InferenceError> { match domain { Sequence...
+    |    ^^^^^^^^
+
+warning: function `record` is never used
+   --> src/sema/stage_graph.rs:219:4
+    |
+219 | fn record(graph:&mut InferenceContext,fields:&[(&str,TypeId)])->Result<TypeId,InferenceError> { let row=graph.row(fields.iter().map...
+    |    ^^^^^^
+
+warning: function `require` is never used
+   --> src/sema/stage_graph.rs:220:4
+    |
+220 | fn require(graph:&mut InferenceContext,requirements:&mut Vec<RequirementId>,predicate:Eligibility,ty:TypeId,reason:crate::sema::inf...
+    |    ^^^^^^^
+
+warning: function `add_secondary_producer` is never used
+   --> src/sema/stage_graph.rs:221:4
+    |
+221 | fn add_secondary_producer(graph:&mut InferenceContext,domain:SequenceDomain,roles:&mut Vec<(EffectRole,EffectSummary)>,pull:&mut Ve...
+    |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `is_terminal` is never used
+   --> src/sema/stage_graph.rs:225:4
+    |
+225 | fn is_terminal(stage:&StreamStageKind)->bool { matches!(stage,StreamStageKind::Each|StreamStageKind::First|StreamStageKind::Last|St...
+    |    ^^^^^^^^^^^
+
+warning: function `validate_form` is never used
+   --> src/sema/stage_graph.rs:226:4
+    |
+226 | fn validate_form(stage:&StreamStageKind,form:StageForm)->Result<(),InferenceError> {
+    |    ^^^^^^^^^^^^^
+
+warning: function `variants` is never used
+   --> src/sema/stage_graph.rs:238:4
+    |
+238 | fn variants(stage:&StreamStageKind,form:StageForm)->Vec<StageVariant> {
+    |    ^^^^^^^^
+
+warning: variants `Method` and `TypeConstructor` are never constructed
+  --> src/sema/registry_graph.rs:15:5
+   |
+13 | pub(crate) enum RegistryOwner {
+   |                 ------------- variants in this enum
+14 |     Module(&'static str),
+15 |     Method(MethodReceiver),
+   |     ^^^^^^
+16 |     TypeConstructor(&'static str),
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `RegistryOwner` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: multiple fields are never read
+  --> src/sema/registry_graph.rs:33:9
+   |
+28 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+33 |     pub entry: &'static str,
+   |         ^^^^^
+34 |     pub operation: RuntimeOp,
+   |         ^^^^^^^^^
+35 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+36 |     pub kind: CallableKind,
+37 |     pub command: bool,
+   |         ^^^^^^^
+38 |     pub argument_check: ApiArgCheck,
+   |         ^^^^^^^^^^^^^^
+39 |     pub semantic_rule: SemanticRule,
+   |         ^^^^^^^^^^^^^
+40 |     pub parameters: Box<[RegistryParameter]>,
+41 |     pub required_effect: Option<Effect>,
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: methods `method_family` and `type_constructor_family` are never used
+  --> src/sema/registry_graph.rs:77:19
+   |
+53 | impl RegistryGraph {
+   | ------------------ methods in this implementation
+...
+77 |     pub(crate) fn method_family(&mut self, graph: &mut InferenceContext, entry: &str, origin: Span) -> Result<OperationFamilyId, Inf...
+   |                   ^^^^^^^^^^^^^
+...
+97 |     pub(crate) fn type_constructor_family(&mut self, graph: &mut InferenceContext, owner: &str, entry: &str, origin: Span) -> Result...
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `receiver_type` is never used
+   --> src/sema/registry_graph.rs:178:4
+    |
+178 | fn receiver_type(receiver: MethodReceiver, template: Option<&Type>) -> Result<Type, InferenceError> {
+    |    ^^^^^^^^^^^^^
+
+   Compiling xsht v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/crates/xsht)
+warning: `xsh` (lib) generated 50 warnings (run `cargo fix --lib -p xsh` to apply 1 suggestion)
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:68:92
+   |
+68 | pub use producer::{ProducerFlowField, ProducerFlowGraph, ProducerFlowId, ProducerFlowKind, ProducerFlowNode, ProducerFlowSource};
+   |                                                                                            ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `Declaration` is never constructed
+   --> src/sema/operation_graph.rs:167:5
+    |
+153 | pub(crate) enum PreparedLanguageOperation {
+    |                 ------------------------- variant in this enum
+...
+167 |     Declaration { authority: &'static str, identity: Name },
+    |     ^^^^^^^^^^^
+    |
+    = note: `PreparedLanguageOperation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `authority` and `statement_result_is_unit` are never read
+   --> src/sema/operation_graph.rs:177:9
+    |
+174 | pub(crate) struct OperationCandidate {
+    |                   ------------------ fields in this struct
+...
+177 |     pub authority: &'static str,
+    |         ^^^^^^^^^
+...
+180 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `declaration_family` is never used
+   --> src/sema/operation_graph.rs:354:19
+    |
+190 | impl OperationGraph {
+    | ------------------- method in this implementation
+...
+354 |     pub(crate) fn declaration_family(&mut self, graph: &mut InferenceContext, authority_id: &'static str, identity: Name, scheme: S...
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_static_configuration` is never used
+  --> src/sema/stage_graph.rs:19:12
+   |
+17 | impl ReductionModes {
+   | ------------------- associated function in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+19 |     pub fn from_static_configuration(sum:Option<bool>,min:Option<bool>,max:Option<bool>)->Result<Self,InferenceError> {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `source`, `input_numeric`, `form`, and `variant` are never read
+  --> src/sema/stage_graph.rs:50:9
+   |
+46 | pub(crate) struct StageCandidate {
+   |                   -------------- fields in this struct
+...
+50 |     pub source: StageSource,
+   |         ^^^^^^
+51 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+52 |     pub form: StageForm,
+   |         ^^^^
+53 |     pub variant: StageVariant,
+   |         ^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `binding`, `command`, and `semantic_rule` are never read
+  --> src/sema/registry_graph.rs:35:9
+   |
+28 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+35 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+36 |     pub kind: CallableKind,
+37 |     pub command: bool,
+   |         ^^^^^^^
+38 |     pub argument_check: ApiArgCheck,
+39 |     pub semantic_rule: SemanticRule,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `xsh` (lib test) generated 7 warnings (run `cargo fix --lib -p xsh --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized] target(s) in 11.46s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 1 test
+test sema::registry_graph::tests::path_line_producer_creation_requires_filesystem_permission ... FAILED
+
+failures:
+
+---- sema::registry_graph::tests::path_line_producer_creation_requires_filesystem_permission stdout ----
+
+thread 'sema::registry_graph::tests::path_line_producer_creation_requires_filesystem_permission' (4605468) panicked at src/sema/registry_graph.rs:594:13:
+assertion `left == right` failed: FsStreamLines opens a file during creation
+  left: Closed(EffectSet(0))
+ right: Closed(EffectSet(1))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::registry_graph::tests::path_line_producer_creation_requires_filesystem_permission
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 500 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p xsh --lib`

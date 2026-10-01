@@ -737,9 +737,9 @@ fn lint_workspace_root(
         let mut options = module.config.lint_options.clone();
         set_checked_lint_facts_for_source(&mut options, &checked, module.source_id);
         let mut linted = if key == root {
-            Linter::lint(bundle, &module.text, options)
+            Linter::lint_with_checked(bundle, &module.text, options, &checked)
         } else {
-            Linter::lint_module(bundle, &module.text, options)
+            Linter::lint_module_with_checked(bundle, &module.text, options, &checked)
         };
         if !module.diagnostics.is_empty() {
             linted.diagnostics.clear();
@@ -1310,7 +1310,7 @@ fn lint_one_file_with_fixes(
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
     lint_options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
-    let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
+    let linted = Linter::lint_with_checked(&checked_program.parsed.arena, &text, lint_options, checked);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
     ast_fixes.extend(collect_fix_spans(&checked.diagnostics));
@@ -1537,9 +1537,9 @@ fn apply_cst_fixes(
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
         options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
         let linted = if is_module {
-            Linter::lint_module(&program.parsed.arena, &candidate, options)
+            Linter::lint_module_with_checked(&program.parsed.arena, &candidate, options, checked)
         } else {
-            Linter::lint(&program.parsed.arena, &candidate, options)
+            Linter::lint_with_checked(&program.parsed.arena, &candidate, options, checked)
         };
         fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
         fixes.extend(collect_fix_spans_for_source(&checked.diagnostics, SourceId::new(0)));
@@ -2355,7 +2355,27 @@ proc main() [fs] {
             panic!("expected fixed source to be written");
         };
 
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.effect-violation")));
+        let fact = checked.function_effect_facts.values().next().expect("effect facts remain available for a rejected permission boundary");
+        use xsh::frontend::syntax::node::Effect;
+        assert_eq!(fact.required, Some(vec![Effect::Error, Effect::Fs]));
+        assert_eq!(fact.effective, Some(vec![Effect::Fs]));
         assert!(text.contains("proc main() [fs, error]"));
+    }
+
+    #[test]
+    fn lint_fix_refuses_missing_effect_repair_for_an_unknown_callable_contract() {
+        let source = "proc main(callback: Proc) [io] -> Int { let _ = callback.call(); 42 }\n";
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.is_empty());
+        let fact = checked.function_effect_facts.values().next().expect("unknown effect dependencies retain a diagnostic fact");
+        assert!(fact.required.is_none(), "a partial lower bound cannot justify permission repair: {fact:?}");
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        assert!(matches!(result.kind, LintResultKind::FixDiagnostics { status: 2, .. }), "an unknown contract must remain rejected without a fabricated effect edit");
     }
 
     #[test]
@@ -2503,11 +2523,13 @@ proc main() [] -> Int {
                 source.to_string(),
                 &config,
             );
-            let LintResultKind::Write { text, .. } = result.kind else {
+            let LintResultKind::Write { text, status, diagnostics, .. } = result.kind else {
                 panic!("expected fixed source to be written");
             };
 
             assert!(text.contains("proc main() [env] -> Int"));
+            assert_eq!(status, 2);
+            assert!(diagnostics.iter().any(|diagnostic| diagnostic.text.contains("ARGV.xsh")), "the unrelated imported-module failure must remain reported");
         });
     }
 }

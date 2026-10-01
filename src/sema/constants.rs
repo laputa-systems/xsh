@@ -233,6 +233,7 @@ pub struct RecordConstructors {
     exports: FxHashSet<(Option<Name>, Name)>,
     error_types: FxHashMap<(Option<Name>, Name), Type>,
     namespaces: FxHashMap<TypeDefId, Option<Name>>,
+    source_ids: FxHashMap<TypeDefId, crate::source::SourceId>,
     nominal_names: FxHashMap<TypeDefId, Name>,
     defaults: FxHashMap<TypeDefId, BTreeMap<Name, LiteralConstant>>,
 }
@@ -262,6 +263,7 @@ impl RecordConstructors {
                     let name = program.arena.type_def(id).name;
                     self.definitions.insert((namespace, name), id);
                     self.namespaces.insert(id, namespace);
+                    self.source_ids.insert(id, program.arena.stmt(statement).span.source_id);
                     self.nominal_names.insert(id, crate::sema::wire_enums::declaring_enum_name(program, id));
                     if exported { self.exports.insert((namespace, name)); }
                 }
@@ -350,6 +352,10 @@ impl RecordConstructors {
 
     pub fn namespace(&self, id: TypeDefId) -> Option<Name> {
         self.namespaces.get(&id).copied().flatten()
+    }
+
+    pub fn source_id(&self, id: TypeDefId) -> Option<crate::source::SourceId> {
+        self.source_ids.get(&id).copied()
     }
 
     pub fn defaults(&self, id: TypeDefId) -> Option<&BTreeMap<Name, LiteralConstant>> {

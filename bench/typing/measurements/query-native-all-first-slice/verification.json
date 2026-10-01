@@ -1,0 +1,91 @@
+{
+  "status": "passed",
+  "command": "cargo test -p xsh --lib solved_query_ -- --test-threads=1",
+  "passed": 61,
+  "failed": 0,
+  "preserved_query_cases": 54,
+  "new_choice_and_protocol_cases": 4,
+  "new_stage_protocol_source_cases": 1,
+  "new_conditional_all_source_cases": 2,
+  "raw_logs": [
+    {
+      "file": "logs/xsh-query-all61-final-current.log",
+      "status": "passed_61_all_query_cases",
+      "sha256": "175d4f7e7143a470f9ad54f405ad6fb5c3bec18c01b96144cb1873b61e30eb50"
+    },
+    {
+      "file": "logs/xsh-query-all-two-source-current2.log",
+      "status": "passed_2_conditional_all_source_cases",
+      "sha256": "fbb75a88295a4bec0721a6e98d39d56ad6d9004f2315ac17111637aa3203e369"
+    },
+    {
+      "file": "logs/xsh-query-command-selected-arrow-current.log",
+      "status": "passed_original_argv_and_selected_arrow_case",
+      "sha256": "5ee9ce92e6ab21f9aba416f67137354e1a299e1337ccb93dbece317e54e90852"
+    },
+    {
+      "file": "logs/xsh-query-alpha-flow-source-origin-current.log",
+      "status": "passed_exact_owned_source_origin_fixture",
+      "sha256": "5c0c4d036d93351240ec57227af7fb86430c51102574c3fbd02902f475fc21a6"
+    },
+    {
+      "file": "logs/xsh-query-stage-protocol-cold-current.log",
+      "status": "passed_stage_protocol_source_case",
+      "sha256": "847b606a379974c350a29ba04892fe60d65d8d228073b51ab3b2ea6995a7a22b"
+    },
+    {
+      "file": "logs/xsh-query-hash-canonical-fs-current.log",
+      "status": "passed_corrected_canonical_hash_fs_source_case",
+      "sha256": "522f7693403330a0c943da979597c51cdef149015e132482c39fb7bbe614df7b"
+    },
+    {
+      "file": "logs/xsh-query-all-families-source-red2.log",
+      "status": "failed_source_conditional_join_before_fix",
+      "sha256": "b09825b9fac72b02f384eedc78d69bf84b70e03c47d8ec320ac2072dbab9e63c"
+    },
+    {
+      "file": "logs/xsh-query-all-user-source-red.log",
+      "status": "failed_source_conditional_join_before_fix",
+      "sha256": "48a264a6521851e764d4e3c16972629cdc02c31ab345c2c8cc342f309cb6ae45"
+    },
+    {
+      "file": "logs/xsh-query-all-two-source-current.log",
+      "status": "failed_source_conditional_context_and_branch_publication_before_fix",
+      "sha256": "eb948060a8d5d9ea78cb0df11173549558bf7193c619f12a48130dcaff9f4383"
+    },
+    {
+      "file": "logs/xsh-query-choice58-current2.log",
+      "status": "failed_56_passed_2_source_origin_and_selected_arrow_failures",
+      "sha256": "9a4779f16b5ee75a2f56d82b438d9e6eb7a6c8092710afb4173f3e85d9d37143"
+    }
+  ],
+  "preserved_evidence": [
+    {
+      "path": "bench/typing/measurements/query-native-first-slice/verification.json",
+      "sha256": "54dcee1e385d0e50c0c4a0bc0be5bee0627215f6ab7bca53b27da5d144c678d8"
+    },
+    {
+      "path": "bench/typing/measurements/query-native-family-first-slice/verification.json",
+      "sha256": "2bf5f80eed0c92f7e5cb41a254309fe9227efd380362e91b7dc49f88a5a4973d"
+    },
+    {
+      "path": "bench/typing/measurements/query-native-choice-first-slice/verification.json",
+      "sha256": "e8108d0cba5c8c7a68538f284b9a48ea936a7eb89981ee381a28642cd121304c"
+    }
+  ],
+  "source_observation": {
+    "recorded_at_utc": "2026-10-01T16:49:47.012566+00:00",
+    "git_head_observed": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "worktree_mutable": true,
+    "post_run_snapshot_hashes": {
+      "src/frontend/query.rs": "f150c7db1fb13ad4a40f3ac43925dad12bfd7ec86cba31c4a60354539c8d7f34",
+      "src/frontend/query/native_tests.rs": "1843e8cde768b2e85a14e590b66d69cbca7c5594f3169d312f3351e0d46d7437"
+    },
+    "post_run_test_product": {
+      "path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa",
+      "sha256": "3802bbc1d86bdd5e240eeedcd374ad54991865c280e9d12c076f7ea36871053d"
+    }
+  },
+  "contract": "Complete ordered callable choices and conditional ALL branch plans retain each actual signature, binding masks, defaults, timing, effects and original authority. Native family ONE member choice remains distinct from conditional ALL authorities. User branch origins are tied to exact retained source expression/declaration ledger facts. Pending choices have no representative Arrow or invented EMPTY effect summary. Original Command argv carriers and canonical selected member masks remain exact.",
+  "provenance_note": "All 61 query tests passed without exclusions. Source tests parse/check once, drop the arena and consume immutable solved facts; no runtime or factory execution claim. Hash Proc file overload FS and Pure overload EMPTY are approved canonical compiled authority corrections; the original frozen 730 inventory remains unchanged. Earlier failed and pending evidence is preserved under original names. Source/product hashes are post-run observations of a mutable shared worktree, not immutable executed compiler source provenance. Application facade accessors and new ErrorJoin normalization are subsequent work, not covered by this checkpoint."
+}

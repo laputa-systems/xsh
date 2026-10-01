@@ -1,0 +1,270 @@
+    Blocking waiting for file lock on build directory
+warning: unused imports: `SolvedConstructorArgument` and `SolvedConstructorParameter`
+  --> src/sema/check.rs:30:139
+   |
+30 | ...dConstructorApplication, SolvedConstructorArgument, SolvedConstructorDefault, SolvedConstructorParameter};
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+
+warning: unused import: `ModuleProjectionKind`
+  --> src/sema/check.rs:82:29
+   |
+82 | pub use module_projection::{ModuleProjectionKind, SolvedModuleProjection};
+   |                             ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:88:157
+   |
+88 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:175:21
+    |
+175 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:183:84
+    |
+183 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `Contextual` is never constructed
+ --> src/sema/check/registry_boundaries.rs:9:52
+  |
+9 | pub(crate) enum RegistryValidationMode { Explicit, Contextual }
+  |                 ----------------------             ^^^^^^^^^^
+  |                 |
+  |                 variant in this enum
+  |
+  = note: `RegistryValidationMode` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `operation` is never read
+  --> src/sema/check/registry_boundaries.rs:25:21
+   |
+25 |     CliDescriptor { operation: RuntimeOp, plan: Arc<crate::modules::cli::CliDescriptorPlan> },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `algorithm` is never read
+  --> src/sema/check/registry_boundaries.rs:26:21
+   |
+26 |     HashAlgorithm { algorithm: Name },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `mode` is never read
+  --> src/sema/check/registry_boundaries.rs:27:48
+   |
+27 |     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
+   |     ---------------- field in this variant     ^^^^
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `error` is never used
+  --> src/sema/check/operation_catalog.rs:90:19
+   |
+43 | impl SolvedOperationCatalog {
+   | --------------------------- method in this implementation
+...
+90 |     pub(crate) fn error(&self, graph: &InferenceContext, authority: Name) -> Result<&RegistryErrorVariant, InferenceError> {
+   |                   ^^^^^
+
+warning: function `evaluate_producer_flow` is never used
+   --> src/sema/check/producer_eval.rs:202:15
+    |
+202 | pub(crate) fn evaluate_producer_flow(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `evaluate_producer_flows` is never used
+   --> src/sema/check/producer_eval.rs:223:15
+    |
+223 | pub(crate) fn evaluate_producer_flows(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `family` is never read
+  --> src/sema/operation_graph.rs:12:65
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ----------------- field in this struct        ^^^^^^
+   |
+   = note: `LanguageAuthority` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `statement_result_is_unit` is never read
+   --> src/sema/operation_graph.rs:185:9
+    |
+179 | pub(crate) struct OperationCandidate {
+    |                   ------------------ field in this struct
+...
+185 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: associated constants `MIN`, `MAX`, and `ALL` are never used
+  --> src/sema/stage_graph.rs:18:43
+   |
+17 | impl ReductionModes {
+   | ------------------- associated constants in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |                                           ^^^                         ^^^                         ^^^
+
+warning: fields `input_numeric`, `form`, `parameters`, `callback_slot`, and `additional_producer` are never read
+  --> src/sema/stage_graph.rs:54:9
+   |
+49 | pub(crate) struct StageCandidate {
+   |                   -------------- fields in this struct
+...
+54 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+55 |     pub form: StageForm,
+   |         ^^^^
+56 |     pub variant: StageVariant,
+57 |     pub parameters: &'static [StageParameter],
+   |         ^^^^^^^^^^
+58 |     pub callback_slot: Option<usize>,
+   |         ^^^^^^^^^^^^^
+59 |     pub additional_producer: Option<AdditionalProducer>,
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `intrinsic_pull` is never read
+  --> src/sema/stage_graph.rs:74:9
+   |
+71 | pub(crate) struct StageEffectRelation {
+   |                   ------------------- field in this struct
+...
+74 |     pub intrinsic_pull: EffectSet,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `StageEffectRelation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MapKey`, `OptionalPayload`, `ResultError`, and `RecordField` are never constructed
+  --> src/sema/registry_graph.rs:36:55
+   |
+36 | pub(crate) enum RegistryProducerComponent { ListItem, MapKey, MapValue, OptionalPayload, ResultSuccess, ResultError, RecordField(Nam...
+   |                 -------------------------             ^^^^^^            ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^  ^^^^^^^^^^^
+   |                 |
+   |                 variants in this enum
+   |
+   = note: `RegistryProducerComponent` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry`, `binding`, and `command` are never read
+  --> src/sema/registry_graph.rs:76:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+76 |     pub entry: &'static str,
+   |         ^^^^^
+77 |     pub operation: RuntimeOp,
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `RegistryProducerPath` is never used
+   --> src/sema/registry_graph.rs:128:17
+    |
+128 | pub(crate) enum RegistryProducerPath { ResultSuccess }
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerAlternative` is never constructed
+   --> src/sema/registry_graph.rs:131:19
+    |
+131 | pub(crate) struct RegistryProducerAlternative {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerRelation` is never constructed
+   --> src/sema/registry_graph.rs:137:19
+    |
+137 | pub(crate) struct RegistryProducerRelation {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `family` and `variant` are never read
+   --> src/sema/registry_graph.rs:155:9
+    |
+153 | pub(crate) struct RegistryErrorVariant {
+    |                   -------------------- fields in this struct
+154 |     pub authority_id:Name,
+155 |     pub family:Name,
+    |         ^^^^^^
+156 |     pub variant:Name,
+    |         ^^^^^^^
+    |
+    = note: `RegistryErrorVariant` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `producer_result_relation` is never used
+   --> src/sema/registry_graph.rs:319:19
+    |
+173 | impl RegistryGraph {
+    | ------------------ method in this implementation
+...
+319 |     pub(crate) fn producer_result_relation(&self,graph:&InferenceContext,family:OperationFamilyId)->Result<Option<RegistryProducerR...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `xsh` (lib) generated 25 warnings (run `cargo fix --lib -p xsh` to apply 6 suggestions)
+   Compiling xsh v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2)
+warning: fields `binding` and `command` are never read
+  --> src/sema/registry_graph.rs:78:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `xsh` (lib test) generated 12 warnings (11 duplicates)
+    Finished `test` profile [unoptimized] target(s) in 11.05s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 16 tests
+test sema::check::source_permission_contract_tests::arithmetic_each_domain_retains_original_receipts_and_reached_operand_permissions ... ok
+test sema::check::source_permission_contract_tests::assignment_each_domain_keeps_monomorphic_storage_and_reached_operand_permissions ... ok
+test sema::check::source_permission_contract_tests::each_map_key_domain_retains_original_eligibility_and_reached_key_and_value_permissions ... ok
+test sema::check::source_permission_contract_tests::each_process_stream_mode_keeps_live_pull_and_close_authority_separate_from_creation ... ok
+test sema::check::source_permission_contract_tests::each_run_mode_forwards_argv_eligibility_without_generalizing_its_fixed_syntax ... ok
+test sema::check::source_permission_contract_tests::each_run_mode_keeps_process_and_propagation_permissions_and_argv_refusals ... ok
+test sema::check::source_permission_contract_tests::each_slice_domain_retains_original_authority_and_reached_receiver_and_bound_permissions ... ok
+test sema::check::source_permission_contract_tests::each_unary_domain_retains_original_authority_and_reached_operand_permissions ... ok
+test sema::check::source_permission_contract_tests::every_explicit_dynamic_binary_variant_keeps_fixed_results_and_operand_permissions ... ok
+test sema::check::source_permission_contract_tests::explicit_dynamic_get_keeps_opaque_effects_and_erased_record_get_keeps_its_checked_envelope ... ok
+test sema::check::source_permission_contract_tests::explicit_dynamic_projection_operands_keep_each_reached_permission ... ok
+test sema::check::source_permission_contract_tests::explicit_dynamic_projections_keep_original_source_ledgers_and_closed_cold_results ... ok
+test sema::check::source_permission_contract_tests::list_addition_and_compound_storage_retain_item_pull_and_cleanup_permissions ... ok
+test sema::check::source_permission_contract_tests::membership_each_receiver_and_key_domain_retains_operand_permissions_and_cold_authority ... ok
+test sema::check::source_permission_contract_tests::plain_context_commands_keep_statement_roles_finite_permissions_and_scalar_arguments ... ok
+test sema::check::source_permission_contract_tests::pure_dynamic_get_cannot_hide_its_opaque_effect_contract ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 912 filtered out; finished in 1.27s
+

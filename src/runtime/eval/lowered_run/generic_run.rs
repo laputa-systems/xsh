@@ -94,6 +94,8 @@ mod tests {
 
     #[test]
     fn projection_reads_distinct_physical_slots_and_shares_container_payloads() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
         let values = Arc::new(vec![LoweredValue::Int(7)]);
         let narrow = LoweredValue::RecordVec(Arc::new(vec![
             (Name::intern("name"), LoweredValue::SharedList(Arc::clone(&values))),

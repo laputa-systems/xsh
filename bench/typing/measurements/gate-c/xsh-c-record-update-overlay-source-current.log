@@ -1,0 +1,284 @@
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `SchemaValidationMode`, `SolvedSchemaApplication`, and `SolvedSchemaExpectation`
+  --> src/sema/check.rs:78:53
+   |
+78 | pub use schema_validation::{SolvedSchemaValidation, SolvedSchemaExpectation, SolvedSchemaApplication, SchemaValidationMode};
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:82:157
+   |
+82 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: unused variable: `arrow`
+  --> src/sema/check/infer_effects.rs:95:61
+   |
+95 | ...   let crate::sema::inference::TypeNode::Arrow(arrow) = state.facts.graph.node(state.facts.graph.resolved(signature)?)? else {
+   |                                                   ^^^^^ help: if this is intentional, prefix it with an underscore: `_arrow`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:146:21
+    |
+146 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:154:84
+    |
+154 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+
+warning: unused variable: `span`
+   --> src/sema/check/producer.rs:269:124
+    |
+269 | ..., call: ExpressionIdentity, span: crate::source::Span) -> Result<Vec<ProducerFlowId>, InferenceError> {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_span`
+
+warning: variant `Contextual` is never constructed
+ --> src/sema/check/registry_boundaries.rs:9:52
+  |
+9 | pub(crate) enum RegistryValidationMode { Explicit, Contextual }
+  |                 ----------------------             ^^^^^^^^^^
+  |                 |
+  |                 variant in this enum
+  |
+  = note: `RegistryValidationMode` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `operation` is never read
+  --> src/sema/check/registry_boundaries.rs:25:21
+   |
+25 |     CliDescriptor { operation: RuntimeOp, plan: Arc<crate::modules::cli::CliDescriptorPlan> },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `algorithm` is never read
+  --> src/sema/check/registry_boundaries.rs:26:21
+   |
+26 |     HashAlgorithm { algorithm: Name },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `mode` is never read
+  --> src/sema/check/registry_boundaries.rs:27:48
+   |
+27 |     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
+   |     ---------------- field in this variant     ^^^^
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `error` is never used
+  --> src/sema/check/operation_catalog.rs:90:19
+   |
+43 | impl SolvedOperationCatalog {
+   | --------------------------- method in this implementation
+...
+90 |     pub(crate) fn error(&self, graph: &InferenceContext, authority: Name) -> Result<&RegistryErrorVariant, InferenceError> {
+   |                   ^^^^^
+
+warning: fields `family` and `disposition` are never read
+  --> src/sema/operation_graph.rs:12:65
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ----------------- fields in this struct       ^^^^^^                    ^^^^^^^^^^^
+   |
+   = note: `LanguageAuthority` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variant `Declaration` is never constructed
+   --> src/sema/operation_graph.rs:168:5
+    |
+153 | pub(crate) enum PreparedLanguageOperation {
+    |                 ------------------------- variant in this enum
+...
+168 |     Declaration { authority: &'static str, identity: Name },
+    |     ^^^^^^^^^^^
+    |
+    = note: `PreparedLanguageOperation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `authority` and `statement_result_is_unit` are never read
+   --> src/sema/operation_graph.rs:180:9
+    |
+177 | pub(crate) struct OperationCandidate {
+    |                   ------------------ fields in this struct
+...
+180 |     pub authority: &'static str,
+    |         ^^^^^^^^^
+...
+183 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `declaration_family` is never used
+   --> src/sema/operation_graph.rs:451:19
+    |
+193 | impl OperationGraph {
+    | ------------------- method in this implementation
+...
+451 |     pub(crate) fn declaration_family(&mut self, graph: &mut InferenceContext, authority_id: &'static str, identity: Name, scheme: S...
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: associated constants `MIN`, `MAX`, and `ALL` are never used
+  --> src/sema/stage_graph.rs:18:43
+   |
+17 | impl ReductionModes {
+   | ------------------- associated constants in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |                                           ^^^                         ^^^                         ^^^
+
+warning: fields `input_numeric`, `form`, `parameters`, `callback_slot`, and `additional_producer` are never read
+  --> src/sema/stage_graph.rs:51:9
+   |
+46 | pub(crate) struct StageCandidate {
+   |                   -------------- fields in this struct
+...
+51 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+52 |     pub form: StageForm,
+   |         ^^^^
+53 |     pub variant: StageVariant,
+54 |     pub parameters: &'static [StageParameter],
+   |         ^^^^^^^^^^
+55 |     pub callback_slot: Option<usize>,
+   |         ^^^^^^^^^^^^^
+56 |     pub additional_producer: Option<AdditionalProducer>,
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `intrinsic_pull` is never read
+  --> src/sema/stage_graph.rs:71:9
+   |
+68 | pub(crate) struct StageEffectRelation {
+   |                   ------------------- field in this struct
+...
+71 |     pub intrinsic_pull: EffectSet,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `StageEffectRelation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MapKey`, `OptionalPayload`, `ResultError`, and `RecordField` are never constructed
+  --> src/sema/registry_graph.rs:36:55
+   |
+36 | pub(crate) enum RegistryProducerComponent { ListItem, MapKey, MapValue, OptionalPayload, ResultSuccess, ResultError, RecordField(Nam...
+   |                 -------------------------             ^^^^^^            ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^  ^^^^^^^^^^^
+   |                 |
+   |                 variants in this enum
+   |
+   = note: `RegistryProducerComponent` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry`, `binding`, and `command` are never read
+  --> src/sema/registry_graph.rs:76:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+76 |     pub entry: &'static str,
+   |         ^^^^^
+77 |     pub operation: RuntimeOp,
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `RegistryProducerPath` is never used
+   --> src/sema/registry_graph.rs:100:17
+    |
+100 | pub(crate) enum RegistryProducerPath { ResultSuccess }
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerAlternative` is never constructed
+   --> src/sema/registry_graph.rs:103:19
+    |
+103 | pub(crate) struct RegistryProducerAlternative {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerRelation` is never constructed
+   --> src/sema/registry_graph.rs:109:19
+    |
+109 | pub(crate) struct RegistryProducerRelation {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `family` and `variant` are never read
+   --> src/sema/registry_graph.rs:127:9
+    |
+125 | pub(crate) struct RegistryErrorVariant {
+    |                   -------------------- fields in this struct
+126 |     pub authority_id:Name,
+127 |     pub family:Name,
+    |         ^^^^^^
+128 |     pub variant:Name,
+    |         ^^^^^^^
+    |
+    = note: `RegistryErrorVariant` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `producer_result_relation` is never used
+   --> src/sema/registry_graph.rs:291:19
+    |
+145 | impl RegistryGraph {
+    | ------------------ method in this implementation
+...
+291 |     pub(crate) fn producer_result_relation(&self,graph:&InferenceContext,family:OperationFamilyId)->Result<Option<RegistryProducerR...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `xsh` (lib) generated 26 warnings (run `cargo fix --lib -p xsh` to apply 7 suggestions)
+warning: field `statement_result_is_unit` is never read
+   --> src/sema/operation_graph.rs:183:9
+    |
+177 | pub(crate) struct OperationCandidate {
+    |                   ------------------ field in this struct
+...
+183 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `binding` and `command` are never read
+  --> src/sema/registry_graph.rs:78:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `xsh` (lib test) generated 15 warnings (13 duplicates)
+    Finished `test` profile [unoptimized] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 4 tests
+test sema::check::record_update::tests::generic_record_updates_preserve_complete_rows_through_forwarding ... ok
+test sema::check::record_update::tests::generic_record_updates_reject_changed_fields_missing_paths_and_overlaps ... ok
+test sema::check::record_update::tests::generic_record_updates_replace_only_selected_producer_subtrees ... ok
+test sema::check::record_update::tests::generic_record_updates_retain_disjoint_paths_nominals_and_lexical_versions ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 728 filtered out; finished in 0.05s
+

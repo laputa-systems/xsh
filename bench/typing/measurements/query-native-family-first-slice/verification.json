@@ -1,0 +1,89 @@
+{
+  "status": "passed",
+  "command": "cargo test -p xsh --lib solved_query_ -- --test-threads=1",
+  "passed": 54,
+  "failed": 0,
+  "preserved_singleton_query_cases": 52,
+  "new_native_family_source_boundary_cases": 2,
+  "preserved_singleton_evidence": {
+    "path": "bench/typing/measurements/query-native-first-slice/verification.json",
+    "sha256": "54dcee1e385d0e50c0c4a0bc0be5bee0627215f6ab7bca53b27da5d144c678d8"
+  },
+  "raw_logs": [
+    {
+      "file": "logs/xsh-native-family-query-header-check.log",
+      "status": "compile_blocked_owned_atom_key_typo_and_producer_evaluator_ordering",
+      "sha256": "8483d501fa5d59baeaa87fd6446c19868c616acdc6190d32debc008d66e79ef2"
+    },
+    {
+      "file": "logs/xsh-native-family-singleton-query-current.log",
+      "status": "compile_blocked_producer_evaluator_ordering",
+      "sha256": "b60321e6ff2db6de74dacaa77186c4c43b1f7d3a42a93079cfa44b52a649acca"
+    },
+    {
+      "file": "logs/xsh-native-family-selected-receipt-red.log",
+      "status": "compile_blocked_other_owned_span_and_statement_test_fixtures",
+      "sha256": "d872355aae92fc4bdd52e4c7b6359152d8cb67bca12bdff90713589f803f689c"
+    },
+    {
+      "file": "logs/xsh-native-family-query-source-red.log",
+      "status": "compile_blocked_other_owned_span_and_statement_test_fixtures",
+      "sha256": "90ce2521a8e4fa610cf27c2ecb29080886649a42fee32ee515b818a958a139cb"
+    },
+    {
+      "file": "logs/xsh-native-family-selected-receipt-red2.log",
+      "status": "failed_1_intentional_missing_selected_member_query_receipt",
+      "sha256": "ab98342cdf362607955a6521dbf8c4197d0309e079d4ce02e84ba6c65312ab74"
+    },
+    {
+      "file": "logs/xsh-native-family-selected-receipt-green.log",
+      "status": "passed_1_selected_member_query_receipt",
+      "sha256": "8abb1107d2480132e97cffe3a977b13476c75f4c29391e118f284dcb40570fe8"
+    },
+    {
+      "file": "logs/xsh-native-family-query-source-red2.log",
+      "status": "failed_1_family_constructor_not_implemented",
+      "sha256": "53bb448678f073e67c280543d92540dff04453de490e992e27296f92b1aba814"
+    },
+    {
+      "file": "logs/xsh-native-family-query-invocations-red.log",
+      "status": "failed_1_family_constructor_not_implemented",
+      "sha256": "8bdcbf0e97cb9fbbbad4704cf856365cb01dca631a2b82e5b4379bd0f6c93764"
+    },
+    {
+      "file": "logs/xsh-native-family-query-two-first.log",
+      "status": "passed_2_new_command_family_source_cases",
+      "sha256": "1db78c7f823470e98720898ff3c7fc1c1cb6dd790cbf570ecfc62b8690b88310"
+    },
+    {
+      "file": "logs/xsh-native-family-query54-final.log",
+      "status": "passed_54",
+      "sha256": "4f05ad35474589c8397d527a7a6b4a106e7c7f53b8cf803f49c62a47bcc8fd2e"
+    }
+  ],
+  "source_observation": {
+    "recorded_at_utc": "2026-10-01T13:34:51.816517+00:00",
+    "git_head_observed": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "worktree_mutable": true,
+    "post_run_snapshot_hashes": {
+      "src/frontend/query.rs": "9e4b15e8ec1f308e6e1a0570a46dbc91836472a7a9789c598081c0d322f686bf",
+      "src/frontend/query/native_tests.rs": "1e451d6f2d8e08a8552f6a35213378eef6ea9e7481fc764f6ad47f338fdc549d",
+      "docs/FRONTEND.md": "630679d6ee28d286cae9ce2bc05693aeb44cdee4252465dcdefaf834b0a59388",
+      "docs/TEST-MAP.md": "38431f99e064d305b2be7f0bd85dbdf62a8ecf08f6e6dc2853ba526b327339ab"
+    },
+    "post_run_dependency_hashes": {
+      "src/sema/inference.rs": "3424106c51aeac0a3bfa697cadda92b2d70770e2570db92e8956dac93f656927",
+      "src/sema/inference/native.rs": "9d40de2e8cc9b1e427afcb285029c1cde2c7bb24db0e374f41c53cf48cb166a5",
+      "src/sema/inference/finalized.rs": "1595d87165c74aa5549d6af173b9a13be564222f087aba9bf944094ff41668b4",
+      "src/sema/check/solved.rs": "2185fe50aaa80e6bbfa304de8aacafa7fe1240e9b1ef61732b30ba248e6cd435",
+      "src/sema/check/producer.rs": "a4f76735797cf369d6faabd93cab1e153ec71ecaa2119eaa0744b7fbc35876c6",
+      "src/sema/check/registry_boundaries.rs": "d7305ab48697a4e0e147b078c27de9869e82807bea11368671841c96b4711bee"
+    },
+    "post_run_test_product": {
+      "path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa",
+      "sha256": "de27193ff0ec47b8f05ec8e55eadc07ae96280f7e3929c7effc71a202084f0bd"
+    }
+  },
+  "contract": "NativeAuthority Single versus Family remains typed. Family preserves one overload choice, all eight canonical Command member monotypes/prototypes and cross-slot tuples, typed finite-domain admission relations, public default OR without changing member-specific stdin default masks, exact source scope and GraphOwner. Source invocation views retain original actual values/masks/timing, canonical selected child evidence and shared Arc member/family contracts; optional selected_member is absent only when no child certificate exists. Domain names and member identities normalize before binder numbering. No read-only query selection, freshening, checker replay or factory execution.",
+  "provenance_note": "All52 preserved cases and two new command-family cold source/query cases passed on a mutable shared worktree. Snapshots and dependency/product hashes are post-run observations, not an immutable executed compiler source snapshot. The source fixtures drop parser arenas, inspect frozen facts and check unchanged instantiation/constraint/unification counters. Factory processes are not executed; runtime, arbitrary generic native overloads and varying producer protocols are not established by this gate. Raw compilation gaps and actual semantic/query reds are retained with their original names and classifications."
+}

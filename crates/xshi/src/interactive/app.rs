@@ -805,7 +805,7 @@ fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOu
         session.env.clone(),
         session.last_process_status.clone(),
     )
-    .eval(&parsed.arena, source_id);
+    .eval_checked(&parsed.arena, source_id, &checked);
     let mut stderr = output.stderr;
     if !output.diagnostics.is_empty() {
         stderr.extend_from_slice(
@@ -849,7 +849,7 @@ fn run_interactive_program(
         session.env.clone(),
         session.last_process_status.clone(),
     )
-    .eval(&arena, source_id);
+    .eval_checked(&arena, source_id, &checked);
     let mut stderr = output.stderr;
     if !output.diagnostics.is_empty() {
         stderr.extend_from_slice(
@@ -3398,6 +3398,28 @@ mod tests {
         assert_eq!(execute_line(&mut session, "true").status, 0);
         let after_shell = execute_line(&mut session, "print bytes.human(4096)");
         assert_eq!(after_shell.status, 0, "{:?}", after_shell.stderr);
+    }
+
+    #[test]
+    fn submitted_generic_xsh_sources_keep_definition_contracts_across_submissions() {
+        let mut session = Session::for_test();
+        let declarations = "pure identity(value) { value }\npure named(value) { value.name }\npure add(left, right) { left + right }\npure forwarded(left, right) { add(left, right) }\n";
+        for (calls, expected) in [
+            ("print ${identity(7)} ${identity(\"word\")} ${named({name: 11})} ${named({extra: false, name: \"row\"})} ${forwarded(19, 23)}", b"7 word 11 row 42\n".as_slice()),
+            ("print ${identity(\"word\")} ${identity(7)} ${named({extra: false, name: \"row\"})} ${named({name: 11})} ${forwarded(0.5, 0.75)}", b"word 7 row 11 1.25\n".as_slice()),
+        ] {
+            let source = format!("{declarations}{calls}\n");
+            let output = execute_line(&mut session, &source);
+            assert_eq!(output.status, 0, "{source}: {:?}", output.stderr);
+            assert_eq!(output.stdout, expected);
+        }
+        let invalid = format!("{declarations}let invalid = forwarded(true, false)\n");
+        let rejected = execute_line(&mut session, &invalid);
+        assert_ne!(rejected.status, 0);
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("check."));
+        let recovered = execute_line(&mut session, &format!("{declarations}print ${{identity(false)}}\n"));
+        assert_eq!(recovered.status, 0, "{:?}", recovered.stderr);
+        assert_eq!(recovered.stdout, b"false\n");
     }
 
     #[test]

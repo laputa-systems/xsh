@@ -335,7 +335,17 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         semantic_rule: sig.semantic_rule,
         op: sig.op,
         binding: sig.binding,
-        effect: Effect::from_module_call(module, function),
+        effect: module_overload_required_effect(module, function, sig),
+    }
+}
+
+// Permissions belong to individual overloads. Mode-bit queries and byte
+// digests are pure, while the effectful digest members read a host file.
+fn module_overload_required_effect(module: &str, function: &str, signature: &registry::ModuleFnSig) -> Option<Effect> {
+    if signature.pure { return None; }
+    match signature.op {
+        RuntimeOp::HashMd5 | RuntimeOp::HashSha1 | RuntimeOp::HashSha256 | RuntimeOp::HashSha512 => Some(Effect::Fs),
+        _ => Effect::from_module_call(module, function),
     }
 }
 
@@ -459,6 +469,8 @@ fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Eff
             | RuntimeOp::FsMetadata
             | RuntimeOp::FsRead
             | RuntimeOp::FsReadText
+            | RuntimeOp::FsStreamLines
+            | RuntimeOp::FsBytesLines
             | RuntimeOp::FsWrite
             | RuntimeOp::FsWriteAtomic
             | RuntimeOp::FsCopy
@@ -522,9 +534,10 @@ mod tests {
                     assert_module_overload_matches_registry(main_overload, registry_overload);
                     assert_eq!(
                         main_overload.effect,
-                        crate::syntax::node::Effect::from_module_call(
+                        super::module_overload_required_effect(
                             main_module.name,
                             main_function.name,
+                            registry_overload,
                         )
                     );
                 }

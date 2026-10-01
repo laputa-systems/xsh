@@ -147,6 +147,9 @@ impl Checker {
                     let body = type_def_body_arena(type_program.clone(), def_id, self.current_namespace);
                     self.type_defs.insert(def.name, body.clone());
                     if let TypeDefBody::TagUnion(variants) = &body {
+                        let nominal = crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(program.root_nominal_namespace), def.name);
+                        let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Type(def_id), member: None };
+                        self.generic.borrow_mut().nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::Tag(nominal)), identity);
                         for variant in variants {
                             let field_types = variant
                                 .fields
@@ -177,9 +180,17 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
+                    let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: None };
+                    {
+                        let mut state = self.generic.borrow_mut();
+                        state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorFamily(def.name)), identity);
+                        for variant in program.arena.error_variants(def.variants) {
+                            state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorVariant { family: def.name, variant: variant.name }), super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: Some(variant.name) });
+                        }
+                    }
                     self.register_error_family_arena(program, source, def_id);
                 }
-                ArenaStmtKind::ProcDef(def_id) => {
+                ArenaStmtKind::ProcDef(def_id) | ArenaStmtKind::CliMain(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if CoreCommand::from_name(&def.name.as_str()).is_some() {
@@ -217,6 +228,10 @@ impl Checker {
                     let def = program.arena.function_def(def_id);
                     let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Proc);
                     if !def.test_declaration { self.procs.insert(def.name, sig); }
+                }
+                ArenaStmtKind::CliMain(def_id) => {
+                    self.register_graph_declaration(program, def_id, crate::sema::inference::CallableKind::Proc, true);
+                    self.generic.borrow_mut().names.remove(&(self.current_namespace, program.arena.function_def(def_id).name));
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
@@ -261,7 +276,6 @@ impl Checker {
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
-        self.prepare_local_inference(program);
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();
@@ -309,14 +323,27 @@ impl Checker {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
                     }
                     self.check_enum_constructor_names(program, def, &mut names);
-                    self.type_defs
-                        .insert(def.name, type_def_body_arena(type_program.clone(), def_id, self.current_namespace));
+                    let body = type_def_body_arena(type_program.clone(), def_id, self.current_namespace);
+                    if matches!(&body, TypeDefBody::TagUnion(_)) {
+                        let nominal = crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(program.root_nominal_namespace), def.name);
+                        let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Type(def_id), member: None };
+                        self.generic.borrow_mut().nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::Tag(nominal)), identity);
+                    }
+                    self.type_defs.insert(def.name, body);
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     let def = program.arena.error_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
+                    }
+                    {
+                        let mut state = self.generic.borrow_mut();
+                        let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: None };
+                        state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorFamily(def.name)), identity);
+                        for variant in program.arena.error_variants(def.variants) {
+                            state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorVariant { family: def.name, variant: variant.name }), super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: Some(variant.name) });
+                        }
                     }
                     self.register_error_family_arena(program, source, def_id);
                 }
@@ -362,10 +389,7 @@ impl Checker {
                 }
             }
         }
-        self.infer_default_parameter_types(program, source, &stmt_ids);
-        self.infer_local_pure_returns(program, source, &stmt_ids);
-        self.infer_default_parameter_types(program, source, &stmt_ids);
-        let mut exports = UserModuleSig::default();
+        let mut exports = UserModuleSig { namespace: Some(module.name), ..UserModuleSig::default() };
         for stmt_id in &stmt_ids {
             let stmt = program.arena.stmt(*stmt_id);
             if let ArenaStmtKind::SignalHook(hook_id) = stmt.kind {
@@ -556,12 +580,12 @@ impl Checker {
     ) -> FunctionSig {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
-        self.register_graph_declaration(program, def_id, kind);
+        self.register_graph_declaration(program, def_id, kind, false);
         let graph_parameters = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].params.clone());
         let graph_return = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].result);
         FunctionSig {
             effect_declaration: Some(effect_declaration),
-            inferred_effects: self.effect_graph.is_inferred(effect_declaration),
+            inferred_effects: kind != crate::sema::inference::CallableKind::Pure && def.effects.is_none() && !def.test_declaration && def.name != "main",
             explicit_return: !def.return_ty_defaulted,
             is_alias: false,
             definition: Some(program.arena.span(program.arena.block(def.body).span)),
@@ -652,7 +676,7 @@ impl Checker {
         };
         self.import_user_module_types(key, Some(namespace), span, false);
         let mut binding = Binding::new(module_type_from_user_signature(&module), false);
-        binding.static_namespace = true;
+        binding.static_namespace = module.namespace;
         self.define(namespace, binding, span);
         for (name, sig) in &module.procs {
             self.qualified_procs

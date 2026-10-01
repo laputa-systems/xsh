@@ -1,0 +1,627 @@
+{
+  "status": "passed",
+  "count": 42,
+  "preserved_query_cohort_count": 38,
+  "added_operation_source_count": 4,
+  "cases": [
+    {
+      "name": "frontend::query::tests::solved_query_binding_retains_fixed_collection_type_and_mutability",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_builtin_error_identity_comes_from_registered_family",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_call_result_is_concrete_without_specializing_the_declaration",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_callable_invocation_preserves_actual_modes_without_formal_labels",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_closed_annotation_parses_and_rechecks_without_generic_syntax",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_effect_quantifier_preserves_derived_calculation_provenance",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_expansion_is_bounded_and_does_not_mutate_solver_counters",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_foreign_owner_cannot_reinterpret_names_after_arena_drop",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_generalized_value_descendant_keeps_context_without_new_forall",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_generic_operation_keeps_definition_scope_after_independent_calls",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_identity_exposes_one_principal_relationship_without_rechecking",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_latent_roles_normalize_effect_binders_and_bounds",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_masked_effect_inclusion_keeps_permissions_and_binder_relationships",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_missing_foreign_and_unresolved_are_distinct",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_nested_graph_leaves_offer_only_closed_source_annotations",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_nominal_source_identity_compares_only_within_its_bundle",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_nominal_spelling_is_not_semantic_parity_evidence",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_operation_roles_keep_formal_inputs_and_derived_outputs_separate",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_operation_transfers_keep_paths_shared_inputs_and_uncertainty",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_owned_names_survive_source_and_graph_disposal",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_preserves_default_rest_labels_kind_and_effect_bounds",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_producer_field_names_precede_latent_binder_numbering",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_producer_profiles_preserve_paths_and_latent_effects",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_recursive_components_normalize_binders_by_relationship",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_residual_registry_operations_display_public_labels",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_resolves_captured_type_and_effect_handles_without_generalizing_them",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_reveal_uses_frozen_principal_and_instantiated_source_facts",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_root_value_operation_retains_its_generalized_initializer_scope",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_row_binder_order_uses_flattened_semantic_fields",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_rows_and_additions_normalize_independent_declaration_order",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_safe_value_schemes_override_the_lexical_function_scope",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_source_addition_keeps_distinct_value_inputs_and_requirement",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_source_callable_alias_keeps_its_original_scheme",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_source_flow_keeps_distinct_formals_after_type_unification",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_source_for_statement_preserves_iterable_binding_after_ast_drop",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_source_stages_keep_pipeline_identity_and_actual_ordinals",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_source_statement_and_expression_operations_preserve_binding_and_scope",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_source_stream_reveal_separates_creation_pull_and_cleanup",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_symbolic_binding_snapshot_preserves_versions_and_owner",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_symbolic_flow_alpha_normalizes_each_source_scope",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_symbolic_flow_preserves_parameter_identity_and_shared_edges",
+      "status": "ok"
+    },
+    {
+      "name": "frontend::query::tests::solved_query_unscoped_binders_and_captures_are_not_parity_evidence",
+      "status": "ok"
+    }
+  ],
+  "raw_logs": [
+    {
+      "file": "xsh-gate-c-query-35-current.log",
+      "sha256": "ecf251b4a0f265e9c60f9b8ed4248fafaed28e4c34d959f1c745409907c15ddc",
+      "observed_result": "passed",
+      "passed": 35,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-42-final-current.log",
+      "sha256": "e5a68ca06e7f3a56bf2cedfc5dce165e7e7bdc2adfb4e2f1eb2d4e493174cd04",
+      "observed_result": "passed",
+      "passed": 42,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-capture-red.log",
+      "sha256": "c320df24a7e1845f43edce63838e3f0bc9ea36c3f3914ff48ad7c41b1a23fb17",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-derived-current.log",
+      "sha256": "ed8192138fbaece18c24fe63678f17ffef038961c682b1a8f3ca199df437a98d",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-derived-green.log",
+      "sha256": "c13abd849c9ba81fe57ad56b1a6d6119659a814a86fa92ac972a43392cb21f29",
+      "observed_result": "passed",
+      "passed": 24,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-derived-red.log",
+      "sha256": "d4e182dde487914e0d6af2c99ddbffd6163bf2202ed2f91653a23a47887c147f",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-final-current.log",
+      "sha256": "525072f31f1b27534459ff999dbb79f333579467d1e8aacf65eaaec099997ad5",
+      "observed_result": "passed",
+      "passed": 33,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-for-operation-current.log",
+      "sha256": "d4c0959607bee092ea73e24a5174d4dcef83ab4104b9cd1bc95f1d764ce1146b",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-for-operation-current2.log",
+      "sha256": "b2b18ecb305dfc2046c23bd6ae74a83a780a7d90616b11a60340379c5d6afd98",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-generic-operation-current.log",
+      "sha256": "8dbed9360ed6679c9be0809a8d62932547f43de8adfde1a8dd6c8855e0084957",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-generic-operation-principal-current.log",
+      "sha256": "a8ed12be981da059aa4a5a50776d010a146aaa0c8002b24cff5fbdb6b43caf3a",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-generic-operation-principal-current2.log",
+      "sha256": "ff135f9b73de67a4261ce8803f63f2cedb2909bf87cba8f2fef0cde3b509aa10",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-generic-operation-supported-current.log",
+      "sha256": "a628438ed6b27cd29b06a2bfd83debe70d592cb7ac2bc96a758a5e90d3601f61",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-invocation-header-current.log",
+      "sha256": "cc367f0ad4a7481feffe94abbc9f0468f7354e5ad95421072e52b8b59ea3024c",
+      "observed_result": "passed",
+      "passed": 33,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-invocation-modes-current.log",
+      "sha256": "62d474e5ac2cda34a6fa064e7b5e732ddd470b228b9f05b624a6972c34be98f5",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-invocation-solver-current.log",
+      "sha256": "24dba82309930efd73954859c61a95d22540cce96a4861c431b24f6c43cfa744",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-masked-inclusion-current.log",
+      "sha256": "9d7f82fb6fc84bfc847b5a2dfad97301c8c0b0ec6c31d6e1c2876589d9ad1254",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-masked-inclusion-first.log",
+      "sha256": "c502186a9caabfabee71d4e128fbde9a12f9742eaa112713eaf23934d78857b2",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-masked-inclusion-solver-current.log",
+      "sha256": "23a2c9cf5e8a39d9ff04a5431cec90c38fb93b9a6e669ff63d398d12b99421bf",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-nominal-red.log",
+      "sha256": "670994db07e9db26f46aaf530d753c4e66b178ccbe6e283f42630d59403c7093",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-operation-header-current.log",
+      "sha256": "5abf7e4f12bdbae2ff6b21e49400c217408de6d17fe07fe199d410ff6b76f225",
+      "observed_result": "passed",
+      "passed": 33,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-operation-proofs-current.log",
+      "sha256": "e4ccb47766e8261f391105789ee6430cd60b95429cc36ea751a8c1065292a58d",
+      "observed_result": "passed",
+      "passed": 33,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-operation-transfers-green.log",
+      "sha256": "2c576e9c3535c4633a9670f821c4322ba3f1513d60abe03584e46d61979555cb",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-operation-transfers-red.log",
+      "sha256": "90cb4d3f558489997e78ae8f405af50ca798e64449a9618f723d0af9834c2070",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-producer-current.log",
+      "sha256": "c5b420aee933050f3b746fb0407821409d15e1bd8841ea0f90ee03e79105c9e2",
+      "observed_result": "passed",
+      "passed": 26,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-producer-display-current.log",
+      "sha256": "577207acfc328c2b8f860eb6f5a7c30184738fcc2f4fbee5ae61f1d8c87b4d5b",
+      "observed_result": "passed",
+      "passed": 32,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-producer-display-red.log",
+      "sha256": "969f5ee8215d182bff3d2bf66e2c9a02f43a85d7ca65156cbc1dd5beba13ca19",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-producer-red.log",
+      "sha256": "702920524f632986de5b8e3005037e868edf81df838e96a089bc27b86ec2e62d",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-projected-roles-current.log",
+      "sha256": "5363b24f4c0540c136c8c58f263c3dfefb26539aa17133cba322a4468b06f430",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-projected-roles-current2.log",
+      "sha256": "c4c18a14abce9c10f7e159439f430c8a7d6f1d65068ede2e9a91f6c43403c0a5",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-public-label-red.log",
+      "sha256": "a929a28ebf678a139ebdb4b98ad20a9d3217297dbd75ba84ee2407d1a6d33885",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-requirement-alpha-red.log",
+      "sha256": "96ba8bbec3599c1ee07e79d3e9340278468844ffa2162a848443b9b935da04a7",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-role-alpha-red.log",
+      "sha256": "fd9d69f35a67a947e53c864f8cb4b0cb7b72ac2fd893aa2816b4fa224a040448",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-row-flat-red.log",
+      "sha256": "468f671721413b7d2f12b8f66dc66372afda1ccf7e726547b275631595b163eb",
+      "observed_result": "failed",
+      "passed": 18,
+      "failed": 2
+    },
+    {
+      "file": "xsh-gate-c-query-scc-alpha-red.log",
+      "sha256": "180192361a47cda6f6743ec3abc316cc6db8924d3e7fb3a27f5552b38208be31",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-source-addition-current.log",
+      "sha256": "1ff321484c9c61354a6dae6d4999b018396d3871811ed591a1c24815e1f8b4f7",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-aggregate-green.log",
+      "sha256": "db7dc3a381d0c13accfa3003e5c88cc8bf6560a012cffbd7068af643950c050d",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-aggregate-red.log",
+      "sha256": "2cbebe737a07ddbd0f7de00fc976b62d39225846812b8fd08ef55fb41dc7898a",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-catalog-current.log",
+      "sha256": "3915f81213b5aa4ef294c4ef32ab4c35ca82290e28f4ff139b4504ad50b103a9",
+      "observed_result": "zero_selected_tests",
+      "passed": 0,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-catalog-green.log",
+      "sha256": "3ee5f544405b5a351187ecd759bc5b0f497d61dcba269c34091c6e44ce33c6f0",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-current.log",
+      "sha256": "c8995e2d4e915a258962af3de329f49759791a8d0f402188db440fa36833f143",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-final-current.log",
+      "sha256": "ea7035226a5004674d6b25811bc6605d42ace9a44d27a1bc8cbeb99d8c53bd6b",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-recovery.log",
+      "sha256": "273b3c930e5bdacf4f7d2cc46ffbc19a6680846d54e182bd07771847aac88ff3",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-source-stages-recovery2.log",
+      "sha256": "944311f90f19d15407942c315eb080804c6a92d4abb81b6770318efa772765cf",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-source-stream-current.log",
+      "sha256": "7efb60b94b48fe294976bdb49e7ca0457ac09ea1bd0684f6bfea8c2c54b18966",
+      "observed_result": "passed",
+      "passed": 33,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-stage-header-current.log",
+      "sha256": "7c5b5f322e1ba9739b034d33943e0001facf4800e6568e76258ee5d1ef181e64",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-stage-preserved-current.log",
+      "sha256": "3727dc574ef2b2bf9d9f4bb8d84bb0e1becb8fce9cedd262050f2cfff9a66f95",
+      "observed_result": "passed",
+      "passed": 35,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-statement-operations-current.log",
+      "sha256": "2f4ef50512eebfd270bf5a274719446d4aa70fb14f916b4771880ce0d3e3d6ac",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-statement-operations-current2.log",
+      "sha256": "441670fe77b8334cfe754f8825d7386c476bb45c9b9b933a8acdeab0c3f7b570",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-statement-operations-green.log",
+      "sha256": "02c4a61978a71facc967f80b1ae3591826d86367ee676528f8da63d015318f6f",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-statement-operations-red.log",
+      "sha256": "8cfaa8d7aaa8d21ed3754389e7fbff08bc02e8eaca887c91283f5dbdd4b80ecd",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-symbol-reuse-red.log",
+      "sha256": "668f8b1febc662ffb2d551ecb1675b6bc692fa728f38ec395209bb5154434616",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-symbolic-current.log",
+      "sha256": "2c68baf1b03ca09423fc6c3a51388c2e51f129f94f29a875c3270b49018d8698",
+      "observed_result": "passed",
+      "passed": 30,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-symbolic-red.log",
+      "sha256": "c588e7274091f8b0b063d9f413a6a163a321cfe6b01169cac457691f719a119f",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-transfers-preserved-current.log",
+      "sha256": "c86e3df7b01bc84b552495308bcb5d1b98a09557162c4da3243b534fe8be8b45",
+      "observed_result": "passed",
+      "passed": 37,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-value-operation-requirement-observation.log",
+      "sha256": "fdaf1fba58031ef5347892863b93c8129243ba838410dac6a088dfdc9f03adaa",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-value-operation-scope-final-current.log",
+      "sha256": "d4c0959607bee092ea73e24a5174d4dcef83ab4104b9cd1bc95f1d764ce1146b",
+      "observed_result": "compile_blocked"
+    },
+    {
+      "file": "xsh-gate-c-query-value-operation-scope-final2-current.log",
+      "sha256": "59764c8e4c00d3b50e59ca600010916c4b9efb48591e6c3693b9e47040b639fe",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-value-operation-scope-final3-current.log",
+      "sha256": "c63ec93544079c5941e8868cca2b6a9b32dd8f57e5854ab47a91d630b845a638",
+      "observed_result": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "xsh-gate-c-query-value-operation-scope-green.log",
+      "sha256": "82c55ab8285daabfe4dcb69242571c04a1c61b8213f5f6b2c82165f141d0b823",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    },
+    {
+      "file": "xsh-gate-c-query-value-operation-scope-red.log",
+      "sha256": "e808f3f5eef94de27dd6839ebea45bfdccd17e65e54ddcd06ceeac98440817b9",
+      "observed_result": "failed",
+      "passed": 0,
+      "failed": 1
+    }
+  ],
+  "source_observation_before": {
+    "recorded_at_utc": "2026-10-01T07:06:26.543897+00:00",
+    "git_head_observed": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "worktree_mutable": true,
+    "files": {
+      "src/frontend/query.rs": "7889af5809833c70f9fe7b60f64dd6f404bfeb223b16960464f3643d4c65ba9c",
+      "crates/xsht/src/api.rs": "c1b45fbb0db77c0833ad58b6323dc401222f46d25c5ee0c2986e76699cea10e0",
+      "src/sema/check/solved.rs": "c7f9295a59db3183c08d0f0bd5e7d38d7841ade7e7b1b987b87793dae1bcd42d",
+      "src/sema/check/producer.rs": "a8bd5ea521321fffc662966e1025a9824987cba434d7744c1e3530a6dff3a499",
+      "src/sema/check/operation_catalog.rs": "de4d1693586e7499af37f433d03929d77c1dcb441ac4e0460b6ab848e941aa16",
+      "src/sema/inference.rs": "52439cc0946dbd41a6a56e0badeb8f326adfc8d85471b4e414869491999949f6",
+      "docs/FRONTEND.md": "c3936e8f33c439010d0a63a9d0c708be1e85b8d6f876d375a9521d1b92c90515",
+      "docs/TEST-MAP.md": "9ac79cbd39054fd0170cd72a9934fb8248409e457394ca4275cffb01552b2880"
+    }
+  },
+  "source_observation_after": {
+    "recorded_at_utc": "2026-10-01T07:07:00.116645+00:00",
+    "files": {
+      "src/frontend/query.rs": "7889af5809833c70f9fe7b60f64dd6f404bfeb223b16960464f3643d4c65ba9c",
+      "crates/xsht/src/api.rs": "c1b45fbb0db77c0833ad58b6323dc401222f46d25c5ee0c2986e76699cea10e0",
+      "src/sema/check/solved.rs": "c7f9295a59db3183c08d0f0bd5e7d38d7841ade7e7b1b987b87793dae1bcd42d",
+      "src/sema/check/producer.rs": "3182adb3e6ef2527b56f6a2e65744b6f159651f39d69368c22405d4fdc1b7e97",
+      "src/sema/check/operation_catalog.rs": "de4d1693586e7499af37f433d03929d77c1dcb441ac4e0460b6ab848e941aa16",
+      "src/sema/inference.rs": "52439cc0946dbd41a6a56e0badeb8f326adfc8d85471b4e414869491999949f6",
+      "docs/FRONTEND.md": "c3936e8f33c439010d0a63a9d0c708be1e85b8d6f876d375a9521d1b92c90515",
+      "docs/TEST-MAP.md": "9ac79cbd39054fd0170cd72a9934fb8248409e457394ca4275cffb01552b2880"
+    }
+  },
+  "observed_file_hashes_stable": false,
+  "source_provenance_note": "Checked in a mutable shared worktree. Git HEAD identifies its base commit, not an immutable compiler source snapshot. File hashes are before/after observations; the complete compiler source was not frozen for this run. Historical logs retain their original names and statuses.",
+  "product_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa",
+  "product_post_run_sha256": "1549237c733172f397657152ddabd903f60afd14d5f9a46203cc361e46ad4247",
+  "product_hash_note": "Observed product file after the run; concurrent builds may replace that path, so this is not asserted to identify the exact executed inode.",
+  "command": "cargo test -p xsh --lib solved_query_ -- --test-threads=1",
+  "historical_fixture_observations": [
+    "The Str len fixture was corrected to supported List receivers; canonical Str uses count_chars. Its rejection was not a compiler bug.",
+    "The where result graph preserves input-item provenance; its predicate application remains separately retained. The source stage assertion was corrected to that contract.",
+    "Generalized map.empty preserves both key and value binders and the constructor Operation relation. MapKey eligibility belongs to the retained formal constructor scheme; the fixture does not invent a standalone principal predicate.",
+    "Zero-selected-test and compile-blocked attempts remain explicitly classified and do not count as successful verification."
+  ]
+}

@@ -232,6 +232,7 @@ impl SemanticRule {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApiArgCheck {
     Standard,
+    CommandArgv,
     JsonCompatible,
     HashVerifyFile,
     PathLikeSingle,

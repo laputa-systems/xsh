@@ -7,9 +7,33 @@ impl InferenceContext {
     /// Trees are bounded input/output views of the graph. They never decide
     /// compatibility, infer generic relationships, or manufacture dynamic types.
     pub fn import_type(&mut self, ty: &Type, level: u32, origin: Span) -> Result<TypeId, InferenceError> {
-        self.probe(|graph| graph.import_view(ty, level, origin, 0))
+        self.probe(|graph| graph.import_view(ty, level, origin, 0, false))
     }
-    fn import_view(&mut self, ty: &Type, level: u32, origin: Span, depth: usize) -> Result<TypeId, InferenceError> {
+    /// Legacy identities are keys into this graph, never independent answers.
+    /// Constraints must target the returned handle; no legacy substitution is
+    /// consulted and dynamic or recovery views do not become metavariables.
+    pub fn shared_variable(&mut self, id: TypeVariableId, level: u32, origin: Span) -> Result<TypeId, InferenceError> {
+        self.probe(|graph| {
+            graph.work()?;
+            if let Some(previous) = graph.legacy_variables.get(&id).copied() {
+                graph.node(previous.ty)?;
+                if previous.level > level {
+                    let why = graph.reason(origin, None)?; graph.capture(previous.ty, level, why)?;
+                    graph.trail.push(Trail::LegacyVariable(id, Some(previous)));
+                    graph.legacy_variables.insert(id, LegacyVariable { ty: previous.ty, level });
+                }
+                return Ok(previous.ty);
+            }
+            let ty = graph.fresh(level, origin)?;
+            graph.trail.push(Trail::LegacyVariable(id, None));
+            graph.legacy_variables.insert(id, LegacyVariable { ty, level });
+            Ok(ty)
+        })
+    }
+    pub fn import_type_shared(&mut self, ty: &Type, level: u32, origin: Span) -> Result<TypeId, InferenceError> {
+        self.probe(|graph| graph.import_view(ty, level, origin, 0, true))
+    }
+    fn import_view(&mut self, ty: &Type, level: u32, origin: Span, depth: usize, shared: bool) -> Result<TypeId, InferenceError> {
         self.work()?;
         if depth > self.limits.structural_depth { return Err(InferenceError::Limit("boundary view depth")); }
         let atom = match ty {
@@ -24,28 +48,29 @@ impl InferenceContext {
             Type::ErrorVariant { family, variant } => Atom::ErrorVariant { family: *family, variant: *variant },
             Type::Graph(id) => { self.node(*id)?; return Ok(*id); }
             Type::Unknown | Type::Invalid => return self.poison(),
+            Type::Inference(id) if shared => return self.shared_variable(*id, level, origin),
             Type::Inference(_) => return Err(InferenceError::Boundary("legacy variable must be resolved before graph import")),
             Type::BuiltinParameter(_) => return Err(InferenceError::Boundary("builtin parameter must be instantiated before graph import")),
             Type::List(item) | Type::Optional(item) | Type::Stream(item) => {
-                let item = self.import_view(item, level, origin, depth + 1)?;
+                let item = self.import_view(item, level, origin, depth + 1, shared)?;
                 return match ty { Type::List(_) => self.list(item), Type::Optional(_) => self.optional(item), _ => self.stream(item) };
             }
             Type::Map(a, b) | Type::Result(a, b) => {
-                let a = self.import_view(a, level, origin, depth + 1)?; let b = self.import_view(b, level, origin, depth + 1)?;
+                let a = self.import_view(a, level, origin, depth + 1, shared)?; let b = self.import_view(b, level, origin, depth + 1, shared)?;
                 return match ty { Type::Map(_, _) => self.map(a, b), _ => self.result(a, b) };
             }
             Type::Record(fields) => {
                 let mut row = Vec::with_capacity(fields.len());
-                for (label, ty) in fields { row.push(RowField { label: *label, ty: self.import_view(ty, level, origin, depth + 1)? }); }
+                for (label, ty) in fields { row.push(RowField { label: *label, ty: self.import_view(ty, level, origin, depth + 1, shared)? }); }
                 let row = self.row(row, None)?; return self.record(row);
             }
             Type::Module(exports) => {
                 let mut fields = Vec::with_capacity(exports.len());
                 for (label, export) in exports {
                     let ty = match export {
-                        ModuleExportType::Value { ty, .. } => self.import_view(ty, level, origin, depth + 1)?,
-                        ModuleExportType::Pure { sig, .. } => self.import_callable(sig, CallableKind::Pure, level, origin, depth + 1)?,
-                        ModuleExportType::Proc { sig, .. } => self.import_callable(sig, CallableKind::Proc, level, origin, depth + 1)?,
+                        ModuleExportType::Value { ty, .. } => self.import_view(ty, level, origin, depth + 1, shared)?,
+                        ModuleExportType::Pure { sig, .. } => self.import_callable(sig, CallableKind::Pure, level, origin, depth + 1, shared)?,
+                        ModuleExportType::Proc { sig, .. } => self.import_callable(sig, CallableKind::Proc, level, origin, depth + 1, shared)?,
                     };
                     fields.push(ModuleField { label: *label, ty, optional: export.optional() });
                 }
@@ -54,10 +79,10 @@ impl InferenceContext {
         };
         self.atom(atom)
     }
-    fn import_callable(&mut self, signature: &CallableType, kind: CallableKind, level: u32, origin: Span, depth: usize) -> Result<TypeId, InferenceError> {
+    fn import_callable(&mut self, signature: &CallableType, kind: CallableKind, level: u32, origin: Span, depth: usize, shared: bool) -> Result<TypeId, InferenceError> {
         let mut params = Vec::with_capacity(signature.params.len());
-        for parameter in &signature.params { params.push(Parameter { label: parameter.name, ty: self.import_view(&parameter.ty, level, origin, depth + 1)?, defaulted: parameter.defaulted, rest: parameter.rest }); }
-        let result = self.import_view(&signature.return_ty, level, origin, depth + 1)?;
+        for parameter in &signature.params { params.push(Parameter { label: parameter.name, ty: self.import_view(&parameter.ty, level, origin, depth + 1, shared)?, defaulted: parameter.defaulted, rest: parameter.rest }); }
+        let result = self.import_view(&signature.return_ty, level, origin, depth + 1, shared)?;
         let effects = signature.effects.as_ref().map(|effects| EffectSummary::Closed(effect_bits(effects))).unwrap_or(EffectSummary::Unknown);
         self.arrow(Arrow { kind, params, result, effects })
     }
@@ -78,7 +103,7 @@ impl InferenceContext {
                 Atom::ErrorVariant { family, variant } => Type::ErrorVariant { family: *family, variant: *variant },
             },
             TypeNode::List(item) => Type::List(Box::new(self.export_view(*item, depth + 1)?)),
-            TypeNode::Optional(item) => Type::Optional(Box::new(self.export_view(*item, depth + 1)?)),
+            TypeNode::Optional(item) => {let item=self.export_view(*item,depth+1)?;if matches!(item,Type::Optional(_)){item}else{Type::Optional(Box::new(item))}},
             TypeNode::Stream(item) => Type::Stream(Box::new(self.export_view(*item, depth + 1)?)),
             TypeNode::Map(key, value) => Type::Map(Box::new(self.export_view(*key, depth + 1)?), Box::new(self.export_view(*value, depth + 1)?)),
             TypeNode::Result(ok, error) => Type::Result(Box::new(self.export_view(*ok, depth + 1)?), Box::new(self.export_view(*error, depth + 1)?)),
@@ -97,7 +122,7 @@ impl InferenceContext {
                 }
                 Type::Module(fields)
             }
-            TypeNode::Meta(_) | TypeNode::Rigid { .. } | TypeNode::Row(_) | TypeNode::Arrow(_) => return Err(InferenceError::Unresolved(ty)),
+            TypeNode::Meta(_) | TypeNode::Rigid { .. } | TypeNode::Row(_) | TypeNode::Arrow(_) | TypeNode::NativeCallable(_) | TypeNode::CallableChoice(_) | TypeNode::FiniteDomain(_) => return Err(InferenceError::Unresolved(ty)),
             TypeNode::Poison | TypeNode::NonCompletion => return Err(InferenceError::Recovery(ty)),
         })
     }

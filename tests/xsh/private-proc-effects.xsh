@@ -167,26 +167,26 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_preserve_public_unrestricted_boundary [error] { |ctx|
+test test_private_proc_effects_preserve_authored_public_upper_bound [error] { |ctx|
   let output = test.run_xsh(ctx, """
 ##! Public effect boundary.
-## Leaves its public effect contract unrestricted.
-export proc published() -> Int { 42 }
+## Retains its written host capability promise even when unused.
+export proc published() [time] -> Int { 42 }
 proc caller() [] -> Int { published() }
 """)?
   output.status != 0
   ("check.effect-violation" in output.stderr) == true
-  ("unrestricted" in output.stderr) == true
+  ("time" in output.stderr) == true
 }
 
-test test_private_proc_effects_preserve_stream_unrestricted_boundary [error] { |ctx|
+test test_private_proc_effects_preserve_authored_stream_upper_bound [error] { |ctx|
   let output = test.run_xsh(ctx, """
-stream values() -> Stream[Int] { yield 42 }
+stream values() [time] -> Stream[Int] { yield 42 }
 proc caller() [] -> Stream[Int] { values() }
 """)?
   output.status != 0
   ("check.effect-violation" in output.stderr) == true
-  ("unrestricted" in output.stderr) == true
+  ("time" in output.stderr) == true
 }
 
 test test_private_proc_effects_capture_transitive_plain_return_failure [error] { |ctx|

@@ -1,0 +1,306 @@
+warning: unused imports: `SolvedConstructorArgument` and `SolvedConstructorParameter`
+  --> src/sema/check.rs:30:139
+   |
+30 | ...dConstructorApplication, SolvedConstructorArgument, SolvedConstructorDefault, SolvedConstructorParameter};
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:86:157
+   |
+86 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:175:21
+    |
+175 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:183:84
+    |
+183 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `span`
+   --> src/sema/check/producer.rs:271:124
+    |
+271 | ..., call: ExpressionIdentity, span: crate::source::Span) -> Result<Vec<ProducerFlowId>, InferenceError> {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_span`
+
+warning: variant `Contextual` is never constructed
+ --> src/sema/check/registry_boundaries.rs:9:52
+  |
+9 | pub(crate) enum RegistryValidationMode { Explicit, Contextual }
+  |                 ----------------------             ^^^^^^^^^^
+  |                 |
+  |                 variant in this enum
+  |
+  = note: `RegistryValidationMode` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `operation` is never read
+  --> src/sema/check/registry_boundaries.rs:25:21
+   |
+25 |     CliDescriptor { operation: RuntimeOp, plan: Arc<crate::modules::cli::CliDescriptorPlan> },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `algorithm` is never read
+  --> src/sema/check/registry_boundaries.rs:26:21
+   |
+26 |     HashAlgorithm { algorithm: Name },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `mode` is never read
+  --> src/sema/check/registry_boundaries.rs:27:48
+   |
+27 |     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
+   |     ---------------- field in this variant     ^^^^
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `error` is never used
+  --> src/sema/check/operation_catalog.rs:90:19
+   |
+43 | impl SolvedOperationCatalog {
+   | --------------------------- method in this implementation
+...
+90 |     pub(crate) fn error(&self, graph: &InferenceContext, authority: Name) -> Result<&RegistryErrorVariant, InferenceError> {
+   |                   ^^^^^
+
+warning: function `evaluate_producer_flow` is never used
+   --> src/sema/check/producer_eval.rs:201:15
+    |
+201 | pub(crate) fn evaluate_producer_flow(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `evaluate_producer_flows` is never used
+   --> src/sema/check/producer_eval.rs:222:15
+    |
+222 | pub(crate) fn evaluate_producer_flows(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `family` is never read
+  --> src/sema/operation_graph.rs:12:65
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ----------------- field in this struct        ^^^^^^
+   |
+   = note: `LanguageAuthority` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `statement_result_is_unit` is never read
+   --> src/sema/operation_graph.rs:185:9
+    |
+179 | pub(crate) struct OperationCandidate {
+    |                   ------------------ field in this struct
+...
+185 |     pub statement_result_is_unit: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `OperationCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: associated constants `MIN`, `MAX`, and `ALL` are never used
+  --> src/sema/stage_graph.rs:18:43
+   |
+17 | impl ReductionModes {
+   | ------------------- associated constants in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |                                           ^^^                         ^^^                         ^^^
+
+warning: fields `input_numeric`, `form`, `parameters`, `callback_slot`, and `additional_producer` are never read
+  --> src/sema/stage_graph.rs:51:9
+   |
+46 | pub(crate) struct StageCandidate {
+   |                   -------------- fields in this struct
+...
+51 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+52 |     pub form: StageForm,
+   |         ^^^^
+53 |     pub variant: StageVariant,
+54 |     pub parameters: &'static [StageParameter],
+   |         ^^^^^^^^^^
+55 |     pub callback_slot: Option<usize>,
+   |         ^^^^^^^^^^^^^
+56 |     pub additional_producer: Option<AdditionalProducer>,
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `intrinsic_pull` is never read
+  --> src/sema/stage_graph.rs:71:9
+   |
+68 | pub(crate) struct StageEffectRelation {
+   |                   ------------------- field in this struct
+...
+71 |     pub intrinsic_pull: EffectSet,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `StageEffectRelation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MapKey`, `OptionalPayload`, `ResultError`, and `RecordField` are never constructed
+  --> src/sema/registry_graph.rs:36:55
+   |
+36 | pub(crate) enum RegistryProducerComponent { ListItem, MapKey, MapValue, OptionalPayload, ResultSuccess, ResultError, RecordField(Nam...
+   |                 -------------------------             ^^^^^^            ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^  ^^^^^^^^^^^
+   |                 |
+   |                 variants in this enum
+   |
+   = note: `RegistryProducerComponent` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry`, `binding`, and `command` are never read
+  --> src/sema/registry_graph.rs:76:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+76 |     pub entry: &'static str,
+   |         ^^^^^
+77 |     pub operation: RuntimeOp,
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `RegistryProducerPath` is never used
+   --> src/sema/registry_graph.rs:122:17
+    |
+122 | pub(crate) enum RegistryProducerPath { ResultSuccess }
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerAlternative` is never constructed
+   --> src/sema/registry_graph.rs:125:19
+    |
+125 | pub(crate) struct RegistryProducerAlternative {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerRelation` is never constructed
+   --> src/sema/registry_graph.rs:131:19
+    |
+131 | pub(crate) struct RegistryProducerRelation {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `family` and `variant` are never read
+   --> src/sema/registry_graph.rs:149:9
+    |
+147 | pub(crate) struct RegistryErrorVariant {
+    |                   -------------------- fields in this struct
+148 |     pub authority_id:Name,
+149 |     pub family:Name,
+    |         ^^^^^^
+150 |     pub variant:Name,
+    |         ^^^^^^^
+    |
+    = note: `RegistryErrorVariant` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `producer_result_relation` is never used
+   --> src/sema/registry_graph.rs:313:19
+    |
+167 | impl RegistryGraph {
+    | ------------------ method in this implementation
+...
+313 |     pub(crate) fn producer_result_relation(&self,graph:&InferenceContext,family:OperationFamilyId)->Result<Option<RegistryProducerR...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `xsh` (lib) generated 25 warnings (run `cargo fix --lib -p xsh` to apply 6 suggestions)
+warning: fields `binding` and `command` are never read
+  --> src/sema/registry_graph.rs:78:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+78 |     pub binding: ImplBinding,
+   |         ^^^^^^^
+79 |     pub kind: CallableKind,
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `xsh` (lib test) generated 12 warnings (11 duplicates)
+    Finished `test` profile [unoptimized] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 54 tests
+test frontend::query::native_tests::solved_query_actual_callback_type_keeps_principal_scheme_separate_after_ast_drop ... ok
+test frontend::query::native_tests::solved_query_native_command_family_keeps_finite_domains_and_each_member_default_after_ast_drop ... ok
+test frontend::query::native_tests::solved_query_native_command_invocations_keep_selected_member_and_original_default_masks ... ok
+test frontend::query::native_tests::solved_query_native_invocation_keeps_original_masks_timing_and_shared_authority ... ok
+test frontend::query::native_tests::solved_query_native_json_reference_retains_mono_signature_guards_after_ast_drop ... ok
+test frontend::query::native_tests::solved_query_native_process_factory_keeps_projected_roles_through_returned_value ... ok
+test frontend::query::native_tests::solved_query_native_user_selection_keeps_both_authorities_in_either_source_order ... ok
+test frontend::query::tests::solved_query_binding_retains_fixed_collection_type_and_mutability ... ok
+test frontend::query::tests::solved_query_builtin_error_identity_comes_from_registered_family ... ok
+test frontend::query::tests::solved_query_call_result_is_concrete_without_specializing_the_declaration ... ok
+test frontend::query::tests::solved_query_callable_invocation_preserves_actual_modes_without_formal_labels ... ok
+test frontend::query::tests::solved_query_canonical_eligibility_keeps_residual_item_and_command_domains ... ok
+test frontend::query::tests::solved_query_closed_annotation_parses_and_rechecks_without_generic_syntax ... ok
+test frontend::query::tests::solved_query_effect_quantifier_preserves_derived_calculation_provenance ... ok
+test frontend::query::tests::solved_query_expansion_is_bounded_and_does_not_mutate_solver_counters ... ok
+test frontend::query::tests::solved_query_foreign_owner_cannot_reinterpret_names_after_arena_drop ... ok
+test frontend::query::tests::solved_query_generalized_value_descendant_keeps_context_without_new_forall ... ok
+test frontend::query::tests::solved_query_generic_operation_keeps_definition_scope_after_independent_calls ... ok
+test frontend::query::tests::solved_query_identity_exposes_one_principal_relationship_without_rechecking ... ok
+test frontend::query::tests::solved_query_latent_roles_normalize_effect_binders_and_bounds ... ok
+test frontend::query::tests::solved_query_masked_effect_inclusion_keeps_permissions_and_binder_relationships ... ok
+test frontend::query::tests::solved_query_missing_foreign_and_unresolved_are_distinct ... ok
+test frontend::query::tests::solved_query_nested_graph_leaves_offer_only_closed_source_annotations ... ok
+test frontend::query::tests::solved_query_nominal_source_identity_compares_only_within_its_bundle ... ok
+test frontend::query::tests::solved_query_nominal_spelling_is_not_semantic_parity_evidence ... ok
+test frontend::query::tests::solved_query_operation_failure_projection_keeps_declared_error_binder ... ok
+test frontend::query::tests::solved_query_operation_roles_keep_formal_inputs_and_derived_outputs_separate ... ok
+test frontend::query::tests::solved_query_operation_transfers_keep_paths_shared_inputs_and_uncertainty ... ok
+test frontend::query::tests::solved_query_owned_names_survive_source_and_graph_disposal ... ok
+test frontend::query::tests::solved_query_preserves_default_rest_labels_kind_and_effect_bounds ... ok
+test frontend::query::tests::solved_query_producer_field_names_precede_latent_binder_numbering ... ok
+test frontend::query::tests::solved_query_producer_profiles_preserve_paths_and_latent_effects ... ok
+test frontend::query::tests::solved_query_recursive_components_normalize_binders_by_relationship ... ok
+test frontend::query::tests::solved_query_residual_registry_operations_display_public_labels ... ok
+test frontend::query::tests::solved_query_resolves_captured_type_and_effect_handles_without_generalizing_them ... ok
+test frontend::query::tests::solved_query_reveal_uses_frozen_principal_and_instantiated_source_facts ... ok
+test frontend::query::tests::solved_query_root_value_operation_retains_its_generalized_initializer_scope ... ok
+test frontend::query::tests::solved_query_row_binder_order_uses_flattened_semantic_fields ... ok
+test frontend::query::tests::solved_query_rows_and_additions_normalize_independent_declaration_order ... ok
+test frontend::query::tests::solved_query_safe_value_schemes_override_the_lexical_function_scope ... ok
+test frontend::query::tests::solved_query_source_addition_keeps_distinct_value_inputs_and_requirement ... ok
+test frontend::query::tests::solved_query_source_callable_alias_keeps_its_original_scheme ... ok
+test frontend::query::tests::solved_query_source_comprehension_preserves_generator_qualifier_ordinals_and_inputs ... ok
+test frontend::query::tests::solved_query_source_dynamic_splice_keeps_segments_defaults_and_guards_after_ast_drop ... ok
+test frontend::query::tests::solved_query_source_flow_keeps_distinct_formals_after_type_unification ... ok
+test frontend::query::tests::solved_query_source_for_statement_preserves_iterable_binding_after_ast_drop ... ok
+test frontend::query::tests::solved_query_source_record_update_preserves_base_ordered_paths_and_shared_values ... ok
+test frontend::query::tests::solved_query_source_stages_keep_pipeline_identity_and_actual_ordinals ... ok
+test frontend::query::tests::solved_query_source_statement_and_expression_operations_preserve_binding_and_scope ... ok
+test frontend::query::tests::solved_query_source_stream_reveal_separates_creation_pull_and_cleanup ... ok
+test frontend::query::tests::solved_query_symbolic_binding_snapshot_preserves_versions_and_owner ... ok
+test frontend::query::tests::solved_query_symbolic_flow_alpha_normalizes_each_source_scope ... ok
+test frontend::query::tests::solved_query_symbolic_flow_preserves_parameter_identity_and_shared_edges ... ok
+test frontend::query::tests::solved_query_unscoped_binders_and_captures_are_not_parity_evidence ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 794 filtered out; finished in 0.06s
+

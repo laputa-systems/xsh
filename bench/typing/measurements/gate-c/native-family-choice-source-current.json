@@ -1,0 +1,79 @@
+{
+  "candidate_dispositions": {
+    "arrow_reference": 253,
+    "descriptor_reference_refusal": 3,
+    "family_preparation_protocol_refusal": 2,
+    "native_finite_family_protocol": 28,
+    "native_monomorphic_protocol": 36,
+    "semantic_binding_reference_refusal": 1
+  },
+  "captured_at_utc": "2026-10-01T16:07:31.679829+00:00",
+  "catalogue_module_candidates": 323,
+  "denominator": 730,
+  "effect_correction": "native-effect-authority-corrections.json",
+  "json_diagnostic": {
+    "log": "source-native-json-ledger-diagnostic-green.log",
+    "passed": 1,
+    "tests": 1
+  },
+  "native_effect_controls": {
+    "existing_fs_module": {
+      "failed": 1,
+      "log": "source-native-fs-existing-module-blocker.log",
+      "passed": 0,
+      "qualification": "Whole module fails source checking at unrelated FsRoot traversal test, before requested mode test execution."
+    },
+    "hash_tempfile": {
+      "failed": 0,
+      "log": "source-native-hash-tempfile-green.log",
+      "passed": 1
+    },
+    "mode_no_host": {
+      "failed": 0,
+      "green": "source-native-mode-no-host-green.log",
+      "passed": 1,
+      "red": "source-native-mode-no-host-red.log"
+    }
+  },
+  "provenance": {
+    "head": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "qualification": "Live shared-worktree capture; hashes identify capture-time files, not an immutable gate or compiled snapshot.",
+    "source_sha256": {
+      "src/modules/signature.rs": "604111c509bdd4fdcb8b9ad4dcdb00e854c8a4880a6c4d14fc3c61125f0725a7",
+      "src/sema/check/call.rs": "c069164c35bb28b47cc830a6c94559b7ced79f376bde5c4e7c3a0aec4470235f",
+      "src/sema/check/native_command_tests.rs": "7277ff23b1352844f01deb1e248d5b2952054259bacef40639e9f7d40bd98bd1",
+      "src/sema/check/native_family_tests.rs": "6ca88bcbc70d2bf7e3e6c29d29297cd2f40f306f07220ccc7cb5d4607476a03f",
+      "src/sema/check/registry.rs": "114538b3dc94a57366f54ec177e801e7182065a809e66a1b2301f26ab78bdbe7",
+      "src/sema/check/registry_boundaries.rs": "f8c6f45888b3d190da466ddf9d92a147623002fa7ff3e74a1ffbd588c2ec8b49",
+      "src/sema/check/solved.rs": "fd6295b8d88b0769f11480c5e9bf8363bae0d3bc3883535a1c673e853dd7d6c1",
+      "src/sema/registry_graph.rs": "52d123a3c193eb855037289ba590c72ba4d3cbc8f7f6fcd805472d2a5f7474c9",
+      "tests/xsh/stdlib/native-effects.xsh": "c9bf358c3cf1667b7cc631430248fd9692da7584d77b3ed5d1e27bb3dc9c81e4"
+    }
+  },
+  "qualification": "Source tests retain exact canonical facts after frontend disposal. Passing importer applicability does not prove source completeness or prepared execution. Logs refer to their compile/run snapshot; hashes below identify the subsequent live capture.",
+  "source_command_suite": {
+    "contracts": "Original domains, masks/defaults, mixed literal guards, generic captured factory/forwarding and rejected domains; no per-call native scheme freshening.",
+    "failed": 0,
+    "log": "source-native-command-six-green.log",
+    "passed": 6,
+    "tests": 6
+  },
+  "source_descriptor_refusals": {
+    "apis": [
+      "cli.parse",
+      "cli.parse_full",
+      "cli.applet",
+      "cli.commands"
+    ],
+    "log": "source-native-descriptor-refusal-green.log",
+    "passed": 1,
+    "tests": 1
+  },
+  "source_family_suite": {
+    "contracts": "ports/threads zero/one members; hash Bytes Pure[] vs Path Proc[fs]; json.get fallback result; fs.executable mode Pure[] vs Path Proc[fs]. Selected original argument binding and TypeIds retained.",
+    "failed": 0,
+    "log": "source-native-family-original-ledger-green.log",
+    "passed": 4,
+    "tests": 4
+  }
+}

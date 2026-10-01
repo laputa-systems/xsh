@@ -1,0 +1,129 @@
+{
+  "status": "passed",
+  "focused_current_passed": 5,
+  "focused_current_failed": 0,
+  "defined_query_cases": 44,
+  "raw_logs": [
+    {
+      "file": "xsh-gate-c-query-dynamic-splice-red.log",
+      "status": "zero_selected",
+      "sha256": "f0c36b9ee2391cffdbb6da26e428de1617079e13681e9491655b1cf5e9ca9688",
+      "observed_results": [
+        [
+          "ok",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-dynamic-splice-source-red.log",
+      "status": "failed_intentional_query_stub",
+      "sha256": "c81af6f0f3681faf5164098432542aaf08ef7c9557fc212f0ee0f05053afc0d8",
+      "observed_results": [
+        [
+          "FAILED",
+          "0",
+          "1"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-dynamic-splice-green.log",
+      "status": "failed_test_source_id_sentinel",
+      "sha256": "033d4877c7fa7b292210806e7015e16357797697b18242240b94429db37b5bc6",
+      "observed_results": [
+        [
+          "FAILED",
+          "0",
+          "1"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-dynamic-splice-green2.log",
+      "status": "passed",
+      "sha256": "8ff10e737ade088bddaa0750f5b52c494534d0d47512bd1eb46f3437c29201fb",
+      "observed_results": [
+        [
+          "ok",
+          "1",
+          "0"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-dynamic-splice-final.log",
+      "status": "passed",
+      "sha256": "0eb6e11d1848f071aac6fa2f8930facd434f8223dc2c2b01f5c5e12dd5fe1bcd",
+      "observed_results": [
+        [
+          "ok",
+          "1",
+          "0"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-binding-shared-statement.log",
+      "status": "passed",
+      "sha256": "fea5d4da3efede913671d94d3de08a4595ab4314a4f299231e62e286ba0340b0",
+      "observed_results": [
+        [
+          "ok",
+          "1",
+          "0"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-binding-shared-generic-operation.log",
+      "status": "passed",
+      "sha256": "ee82bea97587fbead75e9b69473ac764c6c6a2e0dbb5d332b9847cd281c19b91",
+      "observed_results": [
+        [
+          "ok",
+          "1",
+          "0"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-binding-shared-for.log",
+      "status": "passed",
+      "sha256": "403e52860ba0baabd2542a58711ad104bc7f51c1c1252b3e8c3da009459d2f7f",
+      "observed_results": [
+        [
+          "ok",
+          "1",
+          "0"
+        ]
+      ]
+    },
+    {
+      "file": "xsh-gate-c-query-binding-shared-comprehension.log",
+      "status": "passed",
+      "sha256": "763b92082a282745324c0bc998e1db55253519f6337e76d16dc55436a18ef543",
+      "observed_results": [
+        [
+          "ok",
+          "1",
+          "0"
+        ]
+      ]
+    }
+  ],
+  "source_observation": {
+    "recorded_at_utc": "2026-10-01T08:02:20.615385+00:00",
+    "git_head_observed": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "worktree_mutable": true,
+    "post_run_file_hashes": {
+      "src/frontend/query.rs": "0e75b3663d81873c272ccacb3c6b62377aa559a67cdc55c6d6d67a70873ce02a",
+      "src/sema/check/solved.rs": "53f3274962e5c2c83c9e1fa24aac30fb38e99b94a549bf373891716715d412d3",
+      "src/sema/inference.rs": "0ebd2b63a82c0475587d828734e3b6cb35442c9877a2de73ad6bfc6e9c6c2c1a",
+      "src/sema/inference/invocations.rs": "e78b2dee31742e8253f9fab457bfbb4e5ee58557682b60083b41e1361ee316d1"
+    }
+  },
+  "contract": "Exact ExpressionIdentity call binding query reads retained calls only; MissingCall differs from MissingExpression. Dynamic ordered StaticSlot/DynamicRange, fixed/rest slots, required/conditional defaults, and runtime arity/duplicate guards remain explicit. The same preflight bounded normalizer serves operations. Source query survives parsed AST disposal and leaves graph instantiation counters unchanged.",
+  "provenance_note": "Five affected tests passed in a mutable shared worktree. Source hashes are post-run observations, not an immutable compiler snapshot. The prior42/42 full suite and isolated comprehension pass remain recorded separately; no full44 run was performed. First exact selector selected zero tests and is not pass evidence. The first implementation run failed solely because the missing-source test used usize::MAX beyond the existing SourceId u32 domain; corrected to u32::MAX."
+}

@@ -34,7 +34,12 @@ impl CallableAlias {
 impl Checker {
     pub(super) fn resolve_callable_alias_target(&self, program: &ArenaProgram, expression: ExprId) -> Option<CallableAlias> {
         let span = program.arena.expr(expression).span;
-        if matches!(self.expr_types.get(&span), Some(Type::Pure | Type::Proc)) {
+        let projected_expression = match program.arena.expr(expression).kind {
+            ArenaExprKind::Try(inner) => inner,
+            _ => expression,
+        };
+        let checked_module_projection = self.generic.borrow().facts.module_projections.contains_key(&self.expression_identity(program, projected_expression));
+        if checked_module_projection || matches!(self.expr_types.get(&span), Some(Type::Pure | Type::Proc)) {
             let projected = match program.arena.expr(expression).kind {
                 ArenaExprKind::Try(inner) => self.projections.get(&program.arena.expr(inner).span),
                 _ => self.projections.get(&span),
@@ -55,7 +60,7 @@ impl Checker {
             }
             ArenaExprKind::Field { base, name } => {
                 let ArenaExprKind::Ident(namespace) = program.arena.expr(base).kind else { return None; };
-                if self.lookup(namespace).is_some_and(|binding| !binding.static_namespace) { return None; }
+                if self.lookup(namespace).is_some_and(|binding| binding.static_namespace.is_none()) { return None; }
                 let qualified = QualifiedName::new(namespace, name);
                 if let Some(signature) = self.qualified_pures.get(&qualified) { (name, signature, true) }
                 else { (name, self.qualified_procs.get(&qualified)?, false) }
@@ -67,7 +72,7 @@ impl Checker {
 
     fn resolve_module_callable_alias(&self, program: &ArenaProgram, receiver: ExprId, name: Name, export: &ModuleExportType) -> Option<CallableAlias> {
         if let ArenaExprKind::Ident(namespace) = program.arena.expr(receiver).kind
-            && self.lookup(namespace).is_none_or(|binding| binding.static_namespace) {
+            && self.lookup(namespace).is_none_or(|binding| binding.static_namespace.is_some()) {
             let qualified = QualifiedName::new(namespace, name);
             if let Some(signature) = self.qualified_pures.get(&qualified) { return Some(CallableAlias { name, signature: signature.clone(), pure: true }); }
             if let Some(signature) = self.qualified_procs.get(&qualified) { return Some(CallableAlias { name, signature: signature.clone(), pure: false }); }

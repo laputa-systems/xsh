@@ -1,6 +1,6 @@
 # Type-and-effect inference execution
 
-**Incomplete — Gate A passed; Gate B compiler implementation is next.** No inference changes are authoritative.
+**Incomplete — Gates A, B and C passed; D is in progress.** Full inference acceptance remains pending.
 
 The isolated candidate is on `typing-inference-campaign-v2`; the immutable baseline
 is revision `d6f09bc54305515b4c34d3b872d7f9f13b874061` in the adjacent
@@ -67,9 +67,9 @@ forward as new acceptance.
 | Gate | Status |
 |---|---|
 | A — semantic freeze and baseline | Passed at corrected handoff; exhaustive timing waived by user |
-| B — shared inference and early indexed execution | In progress; no implementation pass claimed |
-| C — declaration inference and solved consumers | Not run |
-| D — full indexed integration and module reuse | Not run |
+| B — shared inference and early indexed execution | Passed; exact commands and source identities in `gate-b-verification.json` |
+| C — declaration inference and solved consumers | Passed; coherent source/product verification in `gate-c-verification.json` |
+| D — full indexed integration and module reuse | In progress; exhaustive execution obligations remain |
 | E — joint annotation removal and adversarial witnesses | Not run |
 | F — paired time, memory and scaling acceptance | Not run |
 | G — consolidation and maintained-source migration | Not run |
@@ -92,16 +92,45 @@ missing required-parameter grammar cannot satisfy a negative type test.
 Fresh Rust verification passed 174 semantic, 155 authorized syntax, 74 indexed
 verifier/runtime, and one process-group test. The independently reproduced
 interactive completion directory-order golden failure remains documented.
-No annotation reduction, new inference, generic execution, measured performance
-improvement or campaign completion is claimed yet.
+Those counts describe the baseline. The candidate now passes B: 41 core/reference
+tests, 17 solved-fact tests, 96 indexed tests, 174 semantic compatibility tests,
+eight frontend-drop lifecycle tests, four prepared-frame tests, ten execution
+tests and ten frozen native witnesses. The source-to-runtime slice covers shared
+identity, row projection, Add and forwarding bodies, with independently verified
+evidence and fixed declaration return plans. `gate-b-verification.json` records
+the exact source hashes, commands and raw logs. No annotation reduction,
+performance improvement or campaign completion is claimed.
 
-Next: record the compiling baseline checkpoint, then implement the shared
-inference core and early generic indexed slice. No further exhaustive baseline
-sampling blocks that work.
+C passed on one final source snapshot. The final debug products execute all ten
+ordinary early generic witnesses, including row projection and forwarded Add
+requirements. The full library passes 956 tests, semantic integration 181,
+authorized syntax integration 162, xsht 99, interactive application 19, API 65,
+registry 10, and interactive embedded preparation one. The no-default library
+build also passes. The existing ignored cold-start profiling test and baseline
+package formatting exclusion remain explicit; no Linux check ran.
+`gate-c-verification.json` retains commands, logs, product identities, exact source
+hashes and the final source audit. Earlier development failures remain archived
+and are superseded by the coherent verification rather than deleted.
 
-## Next implementation ownership
+The source audit reconciles all frozen 730 authority rows: 480 registry callables,
+73 schemas, 17 error variants, 35 stages and 125 language entries. Source-owned
+schemes preserve callable protocols, independent error joins, nullable payload
+relationships, effect/default timing and original producer paths. Both concrete
+and residual source obligations retain their original identity after frontend
+disposal; query reads do not add inference work. The separate private return
+walker, cloned default repair and whole-program effect scan have been removed.
 
-These are reviewed interfaces for B, not implemented facts:
+D has started. `measurements/gate-c/indexed-execution-remaining.json` partitions
+the frozen inventory into exact remaining execution obligations; its counts are
+inventory rows, not failing-program counts. Full generalized operations, callable
+and effect evidence, schemas, stages, resources, module reuse and removal of
+semantic lowerer reconstruction remain required. Unsupported evidence currently
+fails preparation explicitly. Annotation reduction and performance acceptance
+remain pending; C does not establish campaign completion.
+
+## Implementation ownership and remaining adapters
+
+The following contracts guided B and remain the boundaries for consolidation:
 
 - Keep the existing `Checker` traversal. Its bindings, signatures, expectations,
   expression facts and refinements will use IDs in one shared graph. Annotated
@@ -127,10 +156,18 @@ These are reviewed interfaces for B, not implemented facts:
 - Quantifier scopes, layouts, evidence owners, forwarding maps and pool rewind
   are verifier contracts. Ground display/schema-input views can be bounded
   adapters; they cannot resolve assignability or erase open/quantified facts.
+- `RecordConstructors::begin_constructor_inference` and
+  `finish_constructor_inference` still use the bounded legacy `TypeConstraints`
+  constructor-group adapter. Original field expressions are checked once; null,
+  empty, and nested groups publish only after their independent supplied fields
+  contribute, then retain exact core assignment endpoints. Gate D must consume
+  the canonical application/default plans for execution, and Gate G must remove
+  this group adapter in favor of graph-owned occurrence variables while keeping
+  null/empty anchoring, universal defaults, phantom arguments, and lexical owners.
 
 The 38 semantic cases freeze statement/Result decisions, not all 28 required
-witness families. B still needs row/sealed-operation source-to-runtime and
-reference/verifier fixtures. C needs computed callable flows, value restriction,
-inferred exports and all operation families. D needs complete indexed boundary,
+witness families. B's source-to-runtime and reference/verifier slice has passed.
+C's computed callable flows, value restrictions, inferred exports and source
+operation-family contracts are verified. D needs complete indexed boundary,
 resource/refinement and counted module-reuse coverage. Existing annotated native
 tests are compatibility owners; inferred counterparts still need execution.

@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "runs": [
+    {
+      "id": "tests/xsh/typing-inference-targets.xsh::generic_identity_payloads",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-targets.xsh::generic_identity_payloads"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 26.025
+    },
+    {
+      "id": "tests/xsh/typing-inference-targets.xsh::omitted_proc_bool_value",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-targets.xsh::omitted_proc_bool_value"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 26.434
+    },
+    {
+      "id": "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_two_domains",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_two_domains"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 25.215
+    },
+    {
+      "id": "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_forwarded_requirements",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_forwarded_requirements"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 25.443
+    },
+    {
+      "id": "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_unsupported_domain_rejected",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_unsupported_domain_rejected"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 25.321
+    },
+    {
+      "id": "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_mixed_domains_rejected",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-operations.xsh::generic_sealed_add_mixed_domains_rejected"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 26.112
+    },
+    {
+      "id": "tests/xsh/typing-inference-rows.xsh::generic_row_projection_shapes_and_field_types",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-rows.xsh::generic_row_projection_shapes_and_field_types"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 26.012
+    },
+    {
+      "id": "tests/xsh/typing-inference-rows.xsh::generic_row_projection_forwarded",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-rows.xsh::generic_row_projection_forwarded"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 25.892
+    },
+    {
+      "id": "tests/xsh/typing-inference-rows.xsh::generic_row_projection_missing_field_rejected",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-rows.xsh::generic_row_projection_missing_field_rejected"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 25.057
+    },
+    {
+      "id": "tests/xsh/typing-inference-rows.xsh::generic_row_projection_wrong_field_type_rejected",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/typing-inference-rows.xsh::generic_row_projection_wrong_field_type_rejected"
+      ],
+      "exit_status": 0,
+      "wall_seconds": 25.795
+    }
+  ],
+  "products": {
+    "xsh": "391d68d08047c6d2fe97e2776dac8274f175a29f922768231bf1dbf2608455ca",
+    "xsht": "8f9bf2398504a9642c4d812bd50e829553055efe85156ac379487b1100b2fd92",
+    "xshi": "dd20ca8f37eb210d0a4bb6d2540468b15b5e9fe734b86245adaece578c3744b7"
+  }
+}

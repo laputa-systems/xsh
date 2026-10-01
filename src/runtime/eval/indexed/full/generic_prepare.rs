@@ -61,7 +61,10 @@ impl FullBuilder {
         let result = self.reference(graph, declaration.scheme, arrow.result)?;
         let mut requirements = Vec::new();
         for template in &scheme.requirements {
-            let RequirementTemplate::Add { left, right, result } = *template;
+            let (left, right, result) = match *template {
+                RequirementTemplate::Add { left, right, result } => (left, right, result),
+                RequirementTemplate::Eligibility { .. } | RequirementTemplate::Operation { .. } | RequirementTemplate::EqualityCompatible { .. } | RequirementTemplate::CallableInvocation { .. } | RequirementTemplate::ErrorJoin { .. } | RequirementTemplate::EffectInclusion { .. } => return Err(problem("generic_runtime_requirement_not_prepared")),
+            };
             requirements.push(Requirement::Add {
                 left: self.reference(graph, declaration.scheme, left)?,
                 right: self.reference(graph, declaration.scheme, right)?,
@@ -206,11 +209,34 @@ impl FullBuilder {
                 if let Some(declaration) = solved.expression_owners.get(&expression) {
                     if let Some(&scope) = self.generic_declarations.get(declaration) {
                         let scheme = self.generic_schemes[&scope];
-                        let RequirementTemplate::Add { left, right, result } = solved.graph.requirement_template(requirement).map_err(|_| problem("generic_add_requirement"))?;
-                        let expected = Requirement::Add { left: self.reference(&solved.graph, scheme, left)?, right: self.reference(&solved.graph, scheme, right)?, result: self.reference(&solved.graph, scheme, result)? };
-                        let requirement = self.generic.as_ref().unwrap().scope(scope).map_err(|_| problem("generic_add_scope"))?.requirements.iter().position(|requirement| *requirement == expected)
-                            .ok_or_else(|| problem("generic_add_body_requirement"))?;
-                        self.generic_evidence_mut().add_requirement_use(SolvedRequirementUse { instruction, scope, requirement: requirement as u32 });
+                        let (left, right, result) = match solved.graph.requirement_template(requirement).map_err(|_| problem("generic_add_requirement"))? {
+                            RequirementTemplate::Add { left, right, result } => (left, right, result),
+                            RequirementTemplate::Eligibility { .. } | RequirementTemplate::Operation { .. } | RequirementTemplate::EqualityCompatible { .. } | RequirementTemplate::CallableInvocation { .. } | RequirementTemplate::ErrorJoin { .. } | RequirementTemplate::EffectInclusion { .. } => return Err(problem("generic_runtime_requirement_not_prepared")),
+                        };
+                        let pending = solved.graph.scheme(scheme).map_err(|_| problem("generic_add_scope"))?.requirement_origins.iter().position(|origin| *origin == requirement);
+                        if let Some(index) = pending {
+                            let expected = Requirement::Add { left: self.reference(&solved.graph, scheme, left)?, right: self.reference(&solved.graph, scheme, right)?, result: self.reference(&solved.graph, scheme, result)? };
+                            if self.generic.as_ref().unwrap().scope(scope).map_err(|_| problem("generic_add_scope"))?.requirements.get(index) != Some(&expected) {
+                                return Err(problem("generic_add_body_requirement"));
+                            }
+                            self.generic_evidence_mut().add_requirement_use(SolvedRequirementUse { instruction, scope, requirement: index as u32 });
+                        } else {
+                            // A definition can fix this operation while its other
+                            // obligations remain generic. Its own checked discharge
+                            // proves the fixed instruction, without a frame guard.
+                            let evidence = solved.graph.discharge(requirement).map_err(|_| problem("generic_add_requirement"))?
+                                .ok_or_else(|| problem("generic_add_body_requirement"))?;
+                            if solved.owner != solved.graph.owner() || evidence.requirement != requirement
+                                || !matches!(evidence.operation, crate::sema::inference::SealedOperation::AddInt | crate::sema::inference::SealedOperation::AddFloat | crate::sema::inference::SealedOperation::AddStr) {
+                                return Err(problem("generic_add_body_requirement"));
+                            }
+                            for (source, checked) in [(left, evidence.left), (right, evidence.right), (result, evidence.result)] {
+                                if solved.graph.resolved(source).map_err(|_| problem("generic_add_requirement"))? != solved.graph.resolved(checked).map_err(|_| problem("generic_add_requirement"))? {
+                                    return Err(problem("generic_add_body_requirement"));
+                                }
+                                self.ground(&solved.graph, checked)?;
+                            }
+                        }
                     }
                 }
             }
@@ -244,8 +270,10 @@ impl FullBuilder {
             let scheme = self.generic_schemes[&caller];
             if substitution {
                 let ty = solved.graph.resolved(ty).map_err(|_| problem("generic_forwarding_substitution"))?;
-                if let TypeNode::Rigid { scope, index, .. } = solved.graph.node(ty).map_err(|_| problem("generic_forwarding_substitution"))? {
-                    if *scope == scheme { return Ok(TypeRef::Rigid(*index)); }
+                if let TypeNode::Rigid { .. } = solved.graph.node(ty).map_err(|_| problem("generic_forwarding_substitution"))? {
+                    if let Some(index) = solved.graph.scheme_binder_index(scheme, ty).map_err(|_| problem("generic_forwarding_substitution"))? {
+                        return Ok(TypeRef::Rigid(u32::try_from(index).map_err(|_| problem("generic_forwarding_quantifier"))?));
+                    }
                 }
             }
             self.reference(&solved.graph, scheme, ty)

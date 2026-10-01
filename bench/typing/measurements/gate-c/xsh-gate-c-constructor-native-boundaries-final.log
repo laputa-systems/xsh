@@ -1,0 +1,4 @@
+running 2 tests
+tests/xsh/constructor-application-boundaries.xsh::test_constructor_application_preserves_closed_callable_boundaries ... ok 217ms
+tests/xsh/constructor-application-boundaries.xsh::test_constructor_application_preserves_partial_spread_context_and_owned_defaults ... ok 24ms
+test result: ok. 2 passed; 0 failed; 0 skipped

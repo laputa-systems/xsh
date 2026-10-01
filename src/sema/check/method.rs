@@ -18,6 +18,7 @@ impl Checker {
         source: &str,
         base: crate::syntax::arena::ExprId,
         base_ty: Type,
+        receiver_path: &super::ProducerPath,
         name: &str,
         args: &[ArenaCallArg],
         span: Span,
@@ -46,10 +47,15 @@ impl Checker {
             }
             return Type::Any;
         }
+        if base_ty.contains_graph() && self.graph_generation {
+            return self.check_graph_standard_method(arena, source, &base_ty, Some(base), receiver_path, None, name, args, span, expected, self.schema_expectation_for_expr(arena, base));
+        }
         if let Type::Result(_, _) = &base_ty {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Result,
                 name,
                 args,
@@ -64,6 +70,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::EnvPathList,
                 name,
                 args,
@@ -78,6 +86,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Path,
                 name,
                 args,
@@ -92,6 +102,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Int,
                 name,
                 args,
@@ -106,6 +118,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Float,
                 name,
                 args,
@@ -118,7 +132,7 @@ impl Checker {
         }
         if matches!(base_ty, Type::Stream(_)) {
             return self.check_registered_method_arena(
-                arena, source, MethodReceiver::Stream, name, args, span, &base_ty,
+                arena, source, Some(base), receiver_path, MethodReceiver::Stream, name, args, span, &base_ty,
                 "check.unknown-method", expected, self.schema_expectation_for_expr(arena, base),
             );
         }
@@ -126,6 +140,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::List,
                 name,
                 args,
@@ -140,6 +156,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Map,
                 name,
                 args,
@@ -157,12 +175,27 @@ impl Checker {
                     &arena.arena, &self.prepared_constants, base, &base_ty, args,
                 ));
             let result = self.check_registered_method_arena(
-                arena, source, MethodReceiver::Record, name, args, span,
+                arena, source, Some(base), receiver_path, MethodReceiver::Record, name, args, span,
                 &if matches!(base_ty, Type::Module(_)) { Type::ErasedRecord } else { base_ty.clone() }, "check.unknown-method",
                 if projection.is_some() { None } else { expected }, self.schema_expectation_for_expr(arena, base),
             );
             if let Type::Result(_, error) = &result && let Some(projection) = projection {
                 let refined = Type::Result(Box::new(projection.value_type.clone()), error.clone());
+                if self.graph_generation && let Some(expression) = self.current_expression {
+                    let identity = self.expression_identity(arena, expression);
+                    let receiver = self.expression_identity(arena, projection.receiver);
+                    let input = self.generic.borrow().facts.expression_producer_flows.get(&receiver).copied();
+                    if let Some(input) = input {
+                        let source = super::ProducerFlowSource::Expression(identity);
+                        if let Some(field) = self.push_source_producer_flow(source, super::ProducerFlowKind::Project {
+                            input, path: super::ProducerPath(receiver_path.0.iter().cloned().chain([super::ProducerPathComponent::RecordField(projection.field)]).collect()),
+                        }, span) && let Some(flow) = self.push_source_producer_flow(source, super::ProducerFlowKind::Aggregate {
+                            entries: vec![super::ProducerFlowField { path: super::ProducerPath(vec![super::ProducerPathComponent::ResultSuccess]), input: field }],
+                        }, span) {
+                            self.generic.borrow_mut().facts.expression_producer_flows.insert(identity, flow);
+                        }
+                    }
+                }
                 self.projections.insert(span, projection);
                 if let Some(expected) = expected { self.expect_type(expected, &refined, span); }
                 return refined;
@@ -173,6 +206,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Str,
                 name,
                 args,
@@ -187,6 +222,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Bytes,
                 name,
                 args,
@@ -201,6 +238,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Status,
                 name,
                 args,
@@ -215,6 +254,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::ProcessHandle,
                 name,
                 args,
@@ -229,6 +270,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::NetJob,
                 name,
                 args,
@@ -243,6 +286,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::FsRoot,
                 name,
                 args,
@@ -257,6 +302,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Digest,
                 name,
                 args,
@@ -271,6 +318,8 @@ impl Checker {
             return self.check_registered_method_arena(
                 arena,
                 source,
+                Some(base),
+                receiver_path,
                 MethodReceiver::Regex,
                 name,
                 args,
@@ -328,7 +377,7 @@ impl Checker {
             self.error(span, "unknown method", "check.unknown-method");
             return Type::Unknown;
         }
-        self.check_opaque_callable_effects("Pure.call", span);
+        self.record_graph_effect_summary(crate::sema::inference::EffectSummary::Closed(crate::sema::inference::EffectSet::EMPTY), span);
         for arg in args {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
@@ -339,6 +388,8 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        receiver_expression: Option<crate::syntax::arena::ExprId>,
+        receiver_path: &super::ProducerPath,
         receiver: MethodReceiver,
         name: &str,
         args: &[ArenaCallArg],
@@ -352,6 +403,11 @@ impl Checker {
             self.report_unknown_method(receiver, receiver_ty, name, span, unknown_code);
             return Type::Unknown;
         };
+        if self.graph_generation {
+            return self.check_graph_standard_method(arena, source, receiver_ty, receiver_expression, receiver_path, Some(receiver), name, args, span, expected, receiver_schema);
+        }
+        // A graph-disabled ground probe cannot create or replace a source
+        // operation certificate. Registered source calls use the graph above.
         let (method, _) = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
         let mut instance = match crate::sema::builtin_templates::BuiltinInstantiation::new(
             &method.sig, method.receiver_ty.as_ref(), Some(receiver_ty), &mut self.type_constraints, span,
@@ -524,7 +580,7 @@ impl Checker {
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
     ) {
         match method.sig.arg_check {
-            ApiArgCheck::Standard | ApiArgCheck::JsonCompatible => {
+            ApiArgCheck::Standard | ApiArgCheck::JsonCompatible | ApiArgCheck::CommandArgv => {
                 if !args_checked {
                     self.check_module_sig_args_with_schema_arena(arena, source, args, &method.sig, span, schemas);
                 }

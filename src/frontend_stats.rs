@@ -329,7 +329,10 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let ast_retained_bytes = ast.retained_bytes;
     let (checked_type_count, checked_retained_bytes) =
         measure_check_output(checked.checked.as_ref());
-    let declarations = Checker::check_compact_declarations(&checked.parsed.arena);
+    let declarations = checked.checked.as_ref().map_or_else(
+        crate::sema::check::CompactDeclOutput::default,
+        |output| Checker::compact_declarations_from_checked(&checked.parsed.arena, output),
+    );
     let bodies = Checker::probe_compact_bodies(&checked.parsed.arena, &declarations);
     let (declaration_type_count, declaration_retained_bytes) =
         measure_compact_declarations(&declarations);

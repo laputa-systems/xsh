@@ -4,6 +4,7 @@ use std::io::Read;
 use xsh::api::api_spec;
 use xsh::api::{MethodReceiver, ModuleFnSig};
 use xsh::frontend::check::Type;
+use xsh::frontend::query::registry_type;
 use xsh::frontend::check::record_schemas;
 use xsh_registry::reference::language_references;
 use xsh_registry::signature::{
@@ -128,7 +129,7 @@ pub fn query(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         return Ok(intro(options));
     }
 
-    let catalog = catalog();
+    let catalog = catalog()?;
     let mut responses = Vec::with_capacity(raw_queries.len());
     let mut missing = false;
     for (raw_query, from_input) in raw_queries {
@@ -179,7 +180,7 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         ));
     }
 
-    let catalog = catalog();
+    let catalog = catalog()?;
     let spec = api_spec();
     let mut modules = spec
         .module_entries()
@@ -556,7 +557,7 @@ fn search_score(item: &ApiItem, terms: &[String]) -> Option<u8> {
     Some(3)
 }
 
-fn catalog() -> Vec<ApiItem> {
+fn catalog() -> Result<Vec<ApiItem>, ApiError> {
     let spec = api_spec();
     let mut items = Vec::new();
     for (module_name, module) in spec.module_entries() {
@@ -573,7 +574,7 @@ fn catalog() -> Vec<ApiItem> {
                             module_signature(module_name, function.name, overload)
                         })
                     })
-                    .collect(),
+                    .collect::<Result<Vec<_>, _>>()?,
                 module_effects(module),
             ));
         }
@@ -588,7 +589,7 @@ fn catalog() -> Vec<ApiItem> {
                         .overloads
                         .iter()
                         .map(|overload| module_signature(module_name, function.name, overload))
-                        .collect(),
+                        .collect::<Result<Vec<_>, _>>()?,
                     module_function_effects(&function.overloads),
                 ));
             }
@@ -606,7 +607,7 @@ fn catalog() -> Vec<ApiItem> {
                         .overloads
                         .iter()
                         .map(|overload| method_signature(receiver, method.name, overload))
-                        .collect(),
+                        .collect::<Result<Vec<_>, _>>()?,
                     method_effects(&method.overloads),
                 ));
             }
@@ -622,7 +623,7 @@ fn catalog() -> Vec<ApiItem> {
                         .into_iter()
                         .flatten()
                         .map(|overload| module_signature(module, function, overload))
-                        .collect(),
+                        .collect::<Result<Vec<_>, _>>()?,
                     spec.module_overloads(module, function)
                         .map(module_function_effects)
                         .unwrap_or_else(|| vec!["none".to_string()]),
@@ -635,13 +636,13 @@ fn catalog() -> Vec<ApiItem> {
             }
         }
     }
-    items.extend(record_items());
+    items.extend(record_items()?);
     items.extend(language_items());
     assert!(
         items.iter().all(|item| !item.summary.trim().is_empty()),
         "the canonical API catalog contains an undocumented public item"
     );
-    items
+    Ok(items)
 }
 
 fn item_from_docs(
@@ -680,18 +681,18 @@ fn contract_with_calling_convention(contract: &str, signatures: &[String]) -> St
     }
 }
 
-fn record_items() -> Vec<ApiItem> {
+fn record_items() -> Result<Vec<ApiItem>, ApiError> {
     record_schemas()
         .into_iter()
         .map(|(name, ty)| {
             let docs = record_docs(name);
-            item_from_docs(
+            Ok(item_from_docs(
                 format!("record.{name}"),
                 "record",
                 &docs,
-                vec![format!("{name} {}", render_type(&ty))],
+                vec![format!("{name} {}", render_type(&ty)?)],
                 vec!["none".to_string()],
-            )
+            ))
         })
         .collect()
 }
@@ -757,89 +758,62 @@ fn method_effects(overloads: &[xsh::api::MethodSig]) -> Vec<String> {
     effects.into_iter().collect()
 }
 
-fn module_signature(module: &str, function: &str, signature: &ModuleFnSig) -> String {
-    format!(
+fn module_signature(module: &str, function: &str, signature: &ModuleFnSig) -> Result<String, ApiError> {
+    Ok(format!(
         "{module}.{function}({}) -> {}",
-        render_params(&signature.params),
-        render_type(&signature.return_ty)
-    )
+        render_params(&signature.params)?,
+        render_type(&signature.return_ty)?
+    ))
 }
 
 fn method_signature(
     receiver: MethodReceiver,
     method: &str,
     signature: &xsh::api::MethodSig,
-) -> String {
-    let return_type = render_type(&signature.sig.return_ty);
-    format!(
+) -> Result<String, ApiError> {
+    let return_type = render_type(&signature.sig.return_ty)?;
+    Ok(format!(
         "{}.{method}({}) -> {return_type}",
-        signature.receiver_ty.as_ref().map(render_type).unwrap_or_else(|| receiver_name(receiver).to_string()),
-        render_params(&signature.sig.params)
-    )
+        signature.receiver_ty.as_ref().map(render_type).transpose()?.unwrap_or_else(|| receiver_name(receiver).to_string()),
+        render_params(&signature.sig.params)?
+    ))
 }
 
-fn render_params(params: &[xsh::api::ParamSig]) -> String {
-    params
+fn render_params(params: &[xsh::api::ParamSig]) -> Result<String, ApiError> {
+    Ok(params
         .iter()
         .map(|param| {
             let suffix = if param.defaulted { " = default" } else { "" };
-            format!("{}: {}{suffix}", param.name, render_type(&param.ty))
+            Ok(format!("{}: {}{suffix}", param.name, render_type(&param.ty)?))
         })
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect::<Result<Vec<_>, ApiError>>()?
+        .join(", "))
 }
 
-fn render_type(ty: &Type) -> String {
-    match ty {
-        Type::BuiltinParameter(parameter) => parameter.label().to_string(),
-        Type::Inference(_) => "<type needs an annotation>".to_string(),
-        Type::Graph(_) => "<generic type>".to_string(),
-        Type::Any => "Any".to_string(),
-        Type::Unknown => "Unknown".to_string(),
-        Type::Invalid => "<invalid>".to_string(),
-        Type::Null => "Null".to_string(),
-        Type::Bool => "Bool".to_string(),
-        Type::Int => "Int".to_string(),
-        Type::UInt => "UInt".to_string(),
-        Type::Float => "Float".to_string(),
-        Type::Duration => "Duration".to_string(),
-        Type::Str => "Str".to_string(),
-        Type::Bytes => "Bytes".to_string(),
-        Type::Digest => "Digest".to_string(),
-        Type::Regex => "Regex".to_string(),
-        Type::Path => "Path".to_string(),
-        Type::List(inner) => format!("List[{}]", render_type(inner)),
-        Type::Map(key, inner) if matches!(key.as_ref(), Type::Unknown) && matches!(inner.as_ref(), Type::Any) => "Map[K, V]".to_string(),
-        Type::Map(key, inner) => if matches!(key.as_ref(), Type::Str) { format!("Map[{}]", render_type(inner)) } else { format!("Map[{}, {}]", render_type(key), render_type(inner)) },
-        Type::Stream(inner) => format!("Stream[{}]", render_type(inner)),
-        Type::ErasedRecord => "Record".to_string(),
-        Type::Record(fields) if fields.is_empty() => "{}".to_string(),
-        Type::Record(fields) => format!(
-            "{{{}}}",
-            fields
-                .iter()
-                .map(|(name, field_type)| format!("{name}: {}", render_type(field_type)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Type::Module(_) | Type::DynamicModule => "Module".to_string(),
-        Type::Result(ok, error) => format!("Result[{}, {}]", render_type(ok), render_type(error)),
-        Type::Status => "Status".to_string(),
-        Type::EnvPathList => "EnvPathList".to_string(),
-        Type::Error => "Error".to_string(),
-        Type::ErrorFamily(name) => name.to_string(),
-        Type::ErrorVariant { family, variant } => format!("{family}.{variant}"),
-        Type::ErrorFacet(name) => name.to_string(),
-        Type::ProcessError => "ProcessError".to_string(),
-        Type::Pure => "Pure".to_string(),
-        Type::Proc => "Proc".to_string(),
-        Type::Command => "Command".to_string(),
-        Type::ProcessHandle => "ProcessHandle".to_string(),
-        Type::NetJob => "NetJob".to_string(),
-        Type::FsRoot => "FsRoot".to_string(),
-        Type::Unit => "Unit".to_string(),
-        Type::Tag(name) => name.to_string(),
-        Type::Optional(inner) => format!("{}?", render_type(inner)),
+fn render_type(ty: &Type) -> Result<String, ApiError> {
+    registry_type(ty).map(|ty| ty.to_string()).map_err(|error| ApiError {
+        status: 2,
+        message: format!("canonical API type cannot be displayed: {error:?}"),
+    })
+}
+
+#[cfg(test)]
+mod signature_query_tests {
+    use super::render_type;
+    use xsh::frontend::check::{Checker, Type};
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    #[test]
+    fn api_registry_graph_handle_needs_its_checked_owner() {
+        let source = "pure identity(value) { value }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let ty = checked.parameter_types.values().find(|ty| matches!(ty, Type::Graph(_))).unwrap();
+        let error = render_type(ty).expect_err("a registry template cannot own a source graph handle");
+        assert_eq!(error.status, 2);
+        assert!(error.message.contains("ForeignGraph"), "{}", error.message);
     }
 }
 

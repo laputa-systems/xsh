@@ -56,6 +56,10 @@ exactly one positional argument, emits a note containing the inferred type of
 that argument, and has type `Unit`. Named arguments, splices, and wrong arity
 are ordinary checker errors. Outside reveal-enabled checking, `reveal_type`
 reports `check.reveal-type`; it is not part of the runtime API.
+Named callables and transparent immutable aliases reveal their principal scheme
+with type, row, and effect relationships and requirements. Other expressions
+reveal their checked instantiated type. Rendering consumes the same frozen facts
+as source tooling queries.
 
 ## Type Kinds
 
@@ -64,6 +68,11 @@ dynamic record helpers, and first-class dynamic callable dispatch may have this
 type. Concrete values can be erased into `Any`; values typed `Any` remain
 dynamic until an explicit validation or type-pattern boundary establishes a
 concrete type. Dynamic operations retain their runtime checks.
+
+Field access, indexing and slicing on an `Any` receiver retain dynamic results
+without intrinsic effects; reached operand effects still apply. Calling a method
+on `Any` has an unknown effect summary. That call cannot establish a pure or
+finite effect contract, including when its result is discarded.
 
 `Unknown` and `Invalid` are checker-internal recovery types. `Unknown` means the
 checker could not determine a type after a prior error or unsupported dynamic
@@ -169,6 +178,15 @@ must first be checked explicitly. `Result` and `Stream` wrappers require explici
 handling before they can be spliced. Invalid operand diagnostics cover the
 original `@expression` span (`check.list-splice-type`).
 
+A preparation-time constant string index retains a definition-owned choice
+between Map indexing and structural record projection when the receiver is
+generic. The record alternative relates the result to that exact field and
+retains the remaining row; it does not turn the record into a homogeneous Map.
+The Map alternative relates the result to the invariant value parameter.
+Callable signatures and nested producer permissions follow the selected field
+or Map value, independently of equal item types. Nonconstant record keys retain
+the existing erased projection boundary.
+
 Half-open slices preserve their checked receiver type: `List[T]` becomes
 `List[T]`, `Str` becomes `Str`, and `Bytes` becomes `Bytes`. Each supplied bound
 must be `Int`; omitted bounds introduce no new expression or dynamic conversion.
@@ -196,6 +214,15 @@ Assignments to `var` are checked against the binding's declared or inferred
 type. Assignments to `let` are errors. Compound assignments require operands
 accepted by the operator and produce a value assignable to the existing binding
 type.
+
+Compound assignment retains a sealed operator requirement when its operands
+belong to a generic function. Each call instantiates that function's requirement;
+the mutable slot remains monomorphic within the instance. List `+=` requires a
+List operand with the same element type, including optional and nominal element
+domains. It does not append a scalar or widen the existing collection type.
+Compound assignment completes with Unit. A UInt replacement retains the slot's
+UInt domain while signed operands and arithmetic intermediates still cross the
+checked storage boundary before publication.
 
 ## Duration Operators
 
@@ -232,6 +259,10 @@ module contract. Dynamic keys and fields with no proven visible type retain
 `Ok(null)`. Use `value.require(Schema)?` to validate or convert genuinely
 dynamic data at a typed boundary.
 
+An unresolved inferred field type does not impose a concrete validation target.
+Once that field type is fixed, `Any` cannot enter it without validation. This
+distinction applies through nested records and containers.
+
 `record.require` and its parallel string-contract grammar are removed.
 Use a named schema at `.require(Schema)`. Optional key presence, nullable field
 values, callable signatures, and dynamic validation policies remain distinct
@@ -244,6 +275,13 @@ The ordinary checker rechecks the complete edited source.
 
 `Result[T, E]` has an `Ok(T)` success value and an `Err(E)` error value.
 `Result[T]` uses `Error` as the error type.
+
+An inert `Err(error)` constructor has an expression-owned scheme for its absent
+success payload. The known error type remains fixed; no Unit or Any success is
+invented. Propagating that proven error completes no success path, so its absent
+payload contributes nothing to later branch joins. A try body with no successful
+type anchor reports `check.try-success-type`; a retry result may retain the
+quantified unreachable payload without manufacturing a successful value.
 
 `retry [delays] on (PATTERN) { ... }` checks its non-binding pattern against the
 attempt's inferred error type. Nominal variants from an unrelated family are
@@ -267,6 +305,20 @@ owned by the application.
 Postfix `?` may be applied only to `Result` values. It produces the `Ok` type
 and propagates the `Err` value from a `Result`-returning context. In effectful
 procs, `?` also requires the `error` effect unless the context is unrestricted.
+
+An unconstrained operand owned by the definition acquires its Result shape at
+the postfix operation. `Checker::propagation_result_parts` relates the original
+operand to independent success and error variables at its lexical level; it
+does not choose either payload from callers or supply a default error type.
+A local capture with one failure contribution preserves that exact error
+variable through its own Result and through forwarded instantiations.
+With multiple contributions, `RequirementTemplate::ErrorJoin` retains their
+independent input ports and the capture's output port. Unknown inputs remain
+conditional relationships in the principal scheme. Once known, variants of one
+nominal family join to that family, and distinct checked error families join to
+`Error`. A written error bound validates the joined output; it does not ground
+the independent inputs to the bound. Forwarding copies the entire relationship,
+so caller order cannot change the declaration's error parameters.
 
 Tail values in functions and tasks may be implicitly wrapped in `Ok(...)` when
 the declared return type is `Result[T]` and the tail expression has type `T`.
@@ -434,6 +486,13 @@ Pattern checking is type-directed:
   type. They are for intentionally dynamic data, not for rechecking ordinary
   concrete values.
 
+Pattern bindings preserve producer paths from the original matched value.
+`Ok` and `Err` project the success and data-error payloads respectively; record
+fields and list items preserve their nested paths. Aliases retain the full
+matched value, and alternatives join the possible producer profiles for the
+same binding. Matching a value neither opens its producers nor removes their
+pull or cleanup permissions.
+
 For tag unions, a `match` without a wildcard or catch-all binding reports
 `check.non-exhaustive-match` when any variant is uncovered. This diagnostic is a
 warning so scripts can stage migrations, but the type information in covered
@@ -449,6 +508,13 @@ may publish complete inferred schemes. Written module-contract signatures retain
 their promises. A callback parameter or collection element is monomorphic within
 one instantiation; it does not acquire an independently quantified scheme.
 
+Mutually dependent declarations keep monomorphic placeholders until every body
+in the group has contributed its constraints. Capture and value restrictions
+apply before the group generalizes. Shared variables have one binder owner;
+each member exposes only its reachable binders, so membership in the same group
+does not grant access to unrelated variables. Reordering declarations does not
+change their principal relationships.
+
 Defaults participate in declaration constraints, but never acquire access to other
 parameters. Supplied arguments evaluate in written source order; omitted defaults
 evaluate once in parameter order in the declaration environment. Producer defaults
@@ -458,12 +524,43 @@ nominal, UInt, and optional-domain boundaries. An unresolved executable overload
 underconstrained boundary requires a local annotation rather than caller training,
 dynamic fallback, or an invented success value.
 
+A default-only header with a written return uses the same declaration constraints
+as its fully annotated equivalent. Literal defaults can anchor a concrete type;
+null and empty containers introduce Optional or container relationships that
+still need independent constraints. Mutable collection bindings and their early
+aliases share one variable: later item constraints apply to every earlier read.
+Mutation does not create a fresh independently generalized collection.
+
 Callable signatures remain checked facts through compatible aliases, conditionals,
 fields, containers, parameters, mutable slots, and returns. Preserve callable kind,
 parameter/default relationships, return shape, and latent effects. Referencing,
 storing, or returning a callable executes neither its body nor its defaults.
 Explicit `Pure`/`Proc` erasure and runtime-loaded dynamic handles retain their
 existing dynamic `.call(...)` contract and runtime validation.
+
+Static standard-API references also retain their canonical argument admission
+rules and producer relationships. Each reference or permitted enclosing scheme
+instantiation has one monomorphic callable signature. Passing that value as a
+callback does not independently instantiate its contract at each invocation.
+Declared `Any` parameters retain their explicit erasure, while native guards
+check each original supplied value before erasure. A compatible conditional
+retains every possible callable authority, in either branch order; an invocation
+must satisfy the native guards of every possible alternative. The source binding
+plan retains supplied and omitted slots. Native proc defaults run at call time
+even when the result contains a Stream, whose pull and cleanup permissions remain
+separate from invocation effects.
+
+Stage callback protocols retain the original callable value and invoke it with
+the checked positional item/result/effect relationship. A single selected
+member keeps its exact callable kind. For `InvocationPlan::All`, an exact kind
+checks the aggregate of the selected original branches: Pure requires every
+branch to be Pure; Proc permits Pure and Proc branches and requires at least
+one Proc branch; Stream requires every branch to be Stream. Stream mixed with
+Pure or Proc has no such aggregate. Pure/Proc stage forms continue to exclude
+Stream callbacks. The aggregate chooses a protocol; it does not replace any
+branch's signature, labels, default/rest binding, timing, or effects.
+`CallableDomain::Exact` owns this check, and `StageCallback::Protocol` retains
+the operation/formal-slot projection until the invocation is selected.
 
 Proc calls retain proc kind even when their inferred effect summary is empty.
 Pure functions may call only pure functions and pure standard APIs. Restricted
@@ -476,7 +573,12 @@ point independent of declaration order; retained callable signatures carry laten
 effect relationships through application.
 
 Producer body work and omitted defaults remain latent until the established pull
-boundary. Supplied arguments retain their eager effects. An opaque or unrestricted
+boundary. Supplied arguments retain their eager effects. Script producer effect
+clauses bound latent body/default/cleanup work. Creation, pull, and close summaries
+remain distinct; pull includes cleanup performed on exhaustion or failure.
+Producer facts preserve nested field, container, optional, Result, and callable
+paths through bindings and returns. Generic forwarding retains parameter and
+capture relationships instead of guessing effects from `Stream[T]`. An opaque or unrestricted
 external dependency has unknown effects, never an empty summary, and cannot
 satisfy a restricted caller. Local error capture erases outward `error` only.
 Written module contracts and host entrypoint promises retain their boundaries;
@@ -528,6 +630,43 @@ the established channel. Omitted boundaries infer the success type from normal
 completions and the error type from propagated failures, using existing nominal
 error joins. An explicit return is a value and cannot be reinterpreted merely to
 make an inferred boundary fit.
+
+Generic iteration over an outer Result map, string, or byte source needs an
+established lexical completion boundary. A written return fixes that boundary
+without fixing the receiver's item, key, or row types. For a written Result return,
+the canonical candidate's Result error projection must be assignable to the
+declared error type; plain iterable candidates contribute no failure type. The
+relationship survives generalization and forwarding in
+`OperationCall.declared_error_bound` and `CandidateTemplate.failure_projection`.
+`Checker::check_source_iteration_operation` keeps the receiver shape probe separate
+from this retained contextual relationship. An omitted ambiguous completion still
+requires sufficient receiver or return annotation before generalization.
+
+For loops, comprehension generators, and delegated yields reuse the original
+checked iterable expression's type endpoint. A composite view such as
+`Stream[T]` does not authorize importing a replacement shell around the same
+binder. `SolvedTypes.statement_operations` and `comprehension_operations` retain
+the original source identity, argument binding, and item producer flow; readonly
+queries preserve their canonical candidate authority after the parsed AST is gone.
+
+Inside local try/retry, the capture fixes its own Result shape. An unresolved
+iterator receives a fresh definition-owned error port in
+`OperationCall.declared_error_bound`; `Checker::end_error_boundary` relates each
+original contribution to the capture's final error type. A single contribution
+preserves that port's identity, while multiple nominal contributions use the
+retained `ErrorJoin` relationship. The capture neither borrows the enclosing function's error
+type nor unifies independent nominal failures. Captured ERROR stays local, and
+producer permissions such as TIME remain in the callable's effects. A port with
+no observed failure remains underconstrained and requires context or a local
+annotation instead of a fabricated Error or Any substitution.
+
+An ordinary return inside a retry attempt still leaves the enclosing function.
+When every path returns, the retry initializer contributes no normal completion
+to that function's written Result boundary. The absent payload's expression
+scope survives a following `?` through `expression_value_scopes` and
+`non_completing_expressions`, without making the projected value polymorphic or
+manufacturing a success type. Return values and genuinely reachable attempt
+tails still obey the declared type.
 
 `assert condition, message` consumes Unit and requires concrete Bool and Str,
 rejecting Any, Status, Optional, and Result wrappers. Both expressions are

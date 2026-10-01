@@ -1,0 +1,11 @@
+running 9 tests
+tests/xsh/stdlib/env.xsh::environment_path_lookup_requires_permission_at_the_read ... ok 76ms
+tests/xsh/stdlib/env.xsh::test_env_bool_accepts_only_the_baseline_spellings ... ok 1ms
+tests/xsh/stdlib/env.xsh::test_env_conversions_read_the_scoped_overlay ... ok 2ms
+tests/xsh/stdlib/env.xsh::test_env_functions_and_path_list ... ok 43ms
+tests/xsh/stdlib/env.xsh::test_env_get_or_yields_the_fallback_only_for_an_unset_name ... ok 0ms
+tests/xsh/stdlib/env.xsh::test_env_int_parses_the_baseline_grammar ... ok 1ms
+tests/xsh/stdlib/env.xsh::test_env_int_rejects_unparsable_and_out_of_range_text ... ok 1ms
+tests/xsh/stdlib/env.xsh::test_env_overlays_blocks_lookup_and_path_mutation_affect_children ... ok 35ms
+tests/xsh/stdlib/env.xsh::test_path_literals_method_sugar_and_expr_env_blocks ... ok 33ms
+test result: ok. 9 passed; 0 failed; 0 skipped

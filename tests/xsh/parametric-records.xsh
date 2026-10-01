@@ -3,7 +3,7 @@ test test_parametric_record_aliases_keep_selected_field_types [error] { |ctx|
   let output = test.run_script(ctx, r"""type ParametricObservation[T] = {state: Str, value: T? = null, samples: List[T] = [], options: Map[T] = {}}
 type ParametricName = ParametricObservation[Str]
 type ParametricCount = ParametricObservation[Int]
-proc witness() [error] {
+proc witness() [error] -> Result[Unit] {
   let count = ParametricCount(state: "observed", value: 7, samples: [3, 7])
   let name = ParametricName(state: "observed", value: "demo", samples: ["demo"])
   let {value: count_value, samples: count_samples, ..} = count

@@ -1,0 +1,19 @@
+err[check.effect-violation]: callable effect contract cannot be established: EffectViolation
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-10-producer_omitted_default_stays_latent_at_creation/producer-contract.xsh-1:3:26
+  proc create() [] -> Unit { let _ = delayed() }
+                           ^^^^^^^^^^^^^^^^^^^^^ callable effect contract cannot be established: EffectViolation
+
+err[check.effect-violation]: effect `time` required by `delayed` is not in caller's declared effects
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-10-producer_omitted_default_stays_latent_at_creation/producer-contract.xsh-1:3:36
+  proc create() [] -> Unit { let _ = delayed() }
+                                     ^^^^^^^^^ effect `time` required by `delayed` is not in caller's declared effects
+
+err[check.effect-violation]: callable effect contract cannot be established: EffectViolation
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-10-producer_omitted_default_stays_latent_at_creation/producer-contract.xsh-1:3:36
+  proc create() [] -> Unit { let _ = delayed() }
+                                     ^^^^^^^^^ callable effect contract cannot be established: EffectViolation
+
+err[check.effect-violation]: callable body exceeds its declared effect boundary
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-10-producer_omitted_default_stays_latent_at_creation/producer-contract.xsh-1:3:26
+  proc create() [] -> Unit { let _ = delayed() }
+                           ^^^^^^^^^^^^^^^^^^^^^ callable body exceeds its declared effect boundary

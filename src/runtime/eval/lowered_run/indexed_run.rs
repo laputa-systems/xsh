@@ -9904,8 +9904,72 @@ pub(super) fn lowered_shares_backing(left: &LoweredValue, right: &LoweredValue) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sema::check::Checker;
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn recursive_component_calls_keep_member_evidence_in_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let first = "pure first(value, count: Int) { if count == 0 { value } else { second(value, count - 1) } }\n";
+            let second = "pure second(value, count: Int) { first(value, count) }\n";
+            for declarations in [format!("{first}{second}"), format!("{second}{first}")] {
+                let source = format!("{declarations}print ${{first(7, 2)}} ${{second(\"word\", 2)}}\n");
+                for force_recursive in [false, true] {
+                    let output = run_program_through_route_inspecting(&source, force_recursive, |program| {
+                        let evidence = program.generic_evidence().expect("recursive relationships require member evidence");
+                        for name in ["first", "second"] {
+                            let view = program.function_view(LoweredFunctionKey::Name(Name::intern(name)), LoweredFunctionKind::Pure).unwrap().unwrap();
+                            let scope = evidence.scope(view.generic_scope().unwrap()).unwrap();
+                            assert_eq!(scope.quantifiers.len(), 1);
+                        }
+                    });
+                    assert_eq!(output, (0, b"7 word\n".to_vec(), Vec::new()));
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn checked_preparation_executes_after_its_solved_bundle_is_dropped() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure identity(value) { value }\nprint ${identity(7)} ${identity(\"word\")} ${identity(false)}\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("checked-preparation.xsh", source.to_string());
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let solved = Arc::downgrade(&checked.solved);
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked).unwrap();
+            drop(checked);
+            drop(parsed);
+            assert!(solved.upgrade().is_none(), "execution must not retain the inference bundle");
+            let output = evaluator.try_eval_installed_compact_indexed_only_inner(plan).unwrap_or_else(|_| panic!("prepared program remains installed"));
+            assert_eq!(output.status, 0);
+            assert_eq!(output.stdout, b"7 word false\n");
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        });
+    }
+
+    #[test]
+    fn checked_preparation_preserves_existing_check_failure() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "print \"must not run\"\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("checked-failure.xsh", source.to_string());
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            let mut checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty());
+            checked.diagnostics.push(crate::diagnostic::Diagnostic::error("retained check failure").with_code("check.retained-failure"));
+            let output = Evaluator::new_with_sources(Vec::new(), sources).eval_checked(&parsed.arena, source_id, &checked);
+            assert_eq!(output.status, 2);
+            assert!(output.stdout.is_empty());
+            assert_eq!(output.diagnostics.len(), 1);
+            assert_eq!(output.diagnostics[0].code.as_deref(), Some("check.retained-failure"));
+        });
+    }
 
     #[test]
     fn unused_generic_row_extensions_keep_all_projection_obligations() {

@@ -19,189 +19,148 @@ pub struct FunctionEffectFact {
     pub unknown_chain: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct EffectSummary {
-    pub known: Vec<Effect>,
-    pub unknown_chain: Vec<String>,
-}
-
-impl EffectSummary {
-    pub fn effects(&self) -> Option<Vec<Effect>> {
-        self.unknown_chain.is_empty().then(|| self.known.clone())
-    }
-
-    fn add(&mut self, effect: Effect) -> bool {
-        if self.known.contains(&effect) { return false; }
-        self.known.push(effect);
-        self.known.sort_by_key(Effect::as_str);
-        true
-    }
-
-    fn unknown(&mut self, chain: Vec<String>) -> bool {
-        if chain.is_empty() { return false; }
-        if self.unknown_chain.is_empty()
-            || (chain.len(), &chain) < (self.unknown_chain.len(), &self.unknown_chain)
-        {
-            self.unknown_chain = chain;
-            return true;
-        }
-        false
-    }
-}
-
-#[derive(Clone, Debug)]
-struct EffectEdge {
-    target: EffectDeclarationId,
-    captures_error: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct EffectNode {
-    pub name: String,
-    pub inferred: bool,
-    pub inference_allowed: bool,
-    pub declared: Option<Vec<Effect>>,
-    direct: EffectSummary,
-    edges: Vec<EffectEdge>,
-}
-
-/// Checked calls populate this graph once. The solver never interprets syntax
-/// or guesses which host operation a similarly named call might execute.
-#[derive(Clone, Debug, Default)]
-pub(super) struct EffectGraph {
-    nodes: BTreeMap<EffectDeclarationId, EffectNode>,
-}
-
-impl EffectGraph {
-    pub fn declare(&mut self, id: EffectDeclarationId, name: String, inference_allowed: bool, declared: Option<Vec<Effect>>) {
-        self.nodes.entry(id).or_insert_with(|| EffectNode {
-            name, inferred: inference_allowed && declared.is_none(), inference_allowed, declared, direct: EffectSummary::default(), edges: Vec::new(),
-        });
-    }
-
-    pub fn is_inferred(&self, id: EffectDeclarationId) -> bool {
-        self.nodes.get(&id).is_some_and(|node| node.inferred)
-    }
-
-    pub fn require(&mut self, owner: Option<EffectDeclarationId>, effect: Effect, captures_error: bool) {
-        if captures_error && effect == Effect::Error { return; }
-        if let Some(node) = owner.and_then(|owner| self.nodes.get_mut(&owner)) {
-            node.direct.add(effect);
-        }
-    }
-
-    pub fn unknown(&mut self, owner: Option<EffectDeclarationId>, name: String) {
-        if let Some(node) = owner.and_then(|owner| self.nodes.get_mut(&owner)) {
-            node.direct.unknown(vec![name]);
-        }
-    }
-
-    pub fn call(&mut self, owner: Option<EffectDeclarationId>, target: EffectDeclarationId, captures_error: bool) {
-        if let Some(node) = owner.and_then(|owner| self.nodes.get_mut(&owner))
-            && !node.edges.iter().any(|edge| edge.target == target && edge.captures_error == captures_error)
-        {
-            node.edges.push(EffectEdge { target, captures_error });
-        }
-    }
-
-    /// Effect sets only grow within the finite domain. Unknown witnesses choose
-    /// the shortest stable chain, so recursive calls cannot grow diagnostic paths.
-    pub fn solve(&self) -> BTreeMap<EffectDeclarationId, EffectSummary> {
-        let mut summaries = self.nodes.iter().map(|(&id, node)| (id, node.direct.clone())).collect::<BTreeMap<_, _>>();
-        loop {
-            let mut changed = false;
-            for (&id, node) in &self.nodes {
-                for edge in &node.edges {
-                    let Some(target) = summaries.get(&edge.target).cloned() else { continue; };
-                    let summary = summaries.get_mut(&id).expect("every declaration has an initial summary");
-                    for effect in target.known {
-                        if !(edge.captures_error && effect == Effect::Error) {
-                            changed |= summary.add(effect);
-                        }
-                    }
-                    if !target.unknown_chain.is_empty() {
-                        let mut chain = vec![self.nodes[&edge.target].name.clone()];
-                        chain.extend(target.unknown_chain);
-                        changed |= summary.unknown(chain);
-                    }
-                }
-            }
-            if !changed { return summaries; }
-        }
-    }
-
-    pub fn facts(&self, summaries: &BTreeMap<EffectDeclarationId, EffectSummary>) -> BTreeMap<EffectDeclarationId, FunctionEffectFact> {
-        self.nodes.iter().map(|(id, node)| {
-            let summary = &summaries[id];
-            (*id, FunctionEffectFact {
-                effective: if node.inferred { summary.effects() } else { node.declared.clone() },
-                required: summary.effects(),
-                inferred: node.inferred,
-                inference_allowed: node.inference_allowed,
-                unknown_chain: summary.unknown_chain.clone(),
-            })
-        }).collect()
-    }
-}
-
 use super::{Checker, FunctionSig};
-use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BlockId, StmtId};
+use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, BlockId};
+
+pub(super) fn graph_effects(summary: crate::sema::inference::EffectSummary) -> Option<Vec<Effect>> {
+    let crate::sema::inference::EffectSummary::Closed(bits) = summary else { return None; };
+    let mut effects = Vec::new();
+    for (bit, effect) in [
+        (crate::sema::inference::EffectSet::ERROR, Effect::Error),
+        (crate::sema::inference::EffectSet::FS, Effect::Fs),
+        (crate::sema::inference::EffectSet::NET, Effect::Net),
+        (crate::sema::inference::EffectSet::PROCESS, Effect::Process),
+        (crate::sema::inference::EffectSet::ENV, Effect::Env),
+        (crate::sema::inference::EffectSet::TIME, Effect::Time),
+        (crate::sema::inference::EffectSet::IO, Effect::Io),
+    ] { if bits.0 & bit.0 != 0 { effects.push(effect); } }
+    effects.sort_by_key(Effect::as_str);
+    Some(effects)
+}
+
+impl Checker {
+    pub(super) fn function_effect_facts_from_solved(&self, solved: &super::SolvedTypes, program: &ArenaProgram) -> BTreeMap<EffectDeclarationId, FunctionEffectFact> {
+        let mut facts: BTreeMap<_, _> = self.diagnostic_effect_facts.iter().map(|(identity, fact)| {
+            let def = program.arena.function_def(identity.declaration);
+            (EffectDeclarationId { namespace: identity.namespace, body: program.arena.span(program.arena.block(def.body).span) }, fact.clone())
+        }).collect();
+        facts.extend(solved.declarations.iter().filter_map(|(identity, declaration)| {
+            if declaration.kind == crate::sema::inference::CallableKind::Pure { return None; }
+            let def = program.arena.function_def(identity.declaration);
+            let inference_allowed = !def.test_declaration && def.name != "main";
+            let effective = graph_effects(declaration.effective_effects);
+            let required = graph_effects(declaration.required_effects);
+            Some((EffectDeclarationId { namespace: identity.namespace, body: program.arena.span(program.arena.block(def.body).span) }, FunctionEffectFact {
+                effective, required: required.clone(), inferred: inference_allowed && def.effects.is_none(), inference_allowed,
+                unknown_chain: if required.is_none() { vec![def.name.to_string()] } else { Vec::new() },
+            }))
+        }));
+        facts
+    }
+
+    /// Effect diagnostics remain available when unrelated typing facts cannot
+    /// publish. Only a calculated closed execution summary justifies an edit;
+    /// an unresolved or unrestricted dependency keeps the summary unknown.
+    pub(super) fn retain_diagnostic_effect_facts(&mut self) {
+        let mut state = self.generic.borrow_mut();
+        let roots: Vec<_> = state.pending.values().map(|declaration| declaration.required_effects).collect();
+        let complete = state.facts.graph.seal_derived_effects(&roots).is_ok();
+        for (identity, fact) in &mut self.diagnostic_effect_facts {
+            let Some(declaration) = state.pending.get(identity) else { continue; };
+            fact.required = if complete { state.facts.graph.resolved_effect_summary(declaration.required_effects).ok().and_then(graph_effects) } else { None };
+            if fact.inferred {
+                fact.effective = fact.required.clone();
+            }
+            if fact.required.is_some() { fact.unknown_chain.clear(); }
+        }
+    }
+
+    pub(super) fn callable_effects_from_solved(&self, solved: &super::SolvedTypes, program: &ArenaProgram) -> super::FxHashMap<String, Option<Vec<Effect>>> {
+        let facts = self.function_effect_facts_from_solved(solved, program);
+        let mut effects = super::FxHashMap::default();
+        for (name, sig) in self.procs.iter().chain(self.streams.iter()).map(|(name, sig)| (name.to_string(), sig))
+            .chain(self.qualified_procs.iter().chain(self.qualified_streams.iter()).map(|(name, sig)| (name.to_string(), sig))) {
+            let summary = sig.effect_declaration.and_then(|identity| facts.get(&identity)).map(|fact| fact.effective.clone()).unwrap_or_else(|| sig.effects.clone());
+            effects.insert(name, summary);
+        }
+        effects
+    }
+}
 
 impl Checker {
     pub(super) fn effect_declaration_id(&self, program: &ArenaProgram, body: BlockId) -> EffectDeclarationId {
         EffectDeclarationId { namespace: self.current_namespace, body: program.arena.span(program.arena.block(body).span) }
     }
 
-    pub(super) fn prepare_effect_declarations(&mut self, program: &ArenaProgram, namespace: Option<Name>) {
-        let mut exported = super::FxHashSet::default();
-        let mut namespaces = super::FxHashMap::default();
-        for module in &program.modules {
-            for statement in program.arena.stmt_ids(module.statements) {
-                namespaces.insert(program.arena.stmt(statement).span.source_id, module.name);
-            }
-        }
-        for raw in 0..program.arena.stmt_tags.len() {
-            if let ArenaStmtKind::Export(inner) = program.arena.stmt(StmtId::from_index(raw)).kind
-                && let ArenaStmtKind::ProcDef(definition) = program.arena.stmt(inner).kind
-            { exported.insert(definition); }
-        }
-        for raw in 0..program.arena.stmt_tags.len() {
-            let statement = program.arena.stmt(StmtId::from_index(raw));
-            let (definition, ordinary) = match statement.kind {
-                ArenaStmtKind::ProcDef(definition) => (definition, true),
-                ArenaStmtKind::StreamDef(definition) | ArenaStmtKind::CliMain(definition) => (definition, false),
-                _ => continue,
-            };
-            {
-                let def = program.arena.function_def(definition);
-                let id = EffectDeclarationId {
-                    namespace: namespaces.get(&statement.span.source_id).copied().or(namespace),
-                    body: program.arena.span(program.arena.block(def.body).span),
-                };
-                let declared = def.effects.map(|effects| program.arena.effects(effects).collect());
-                let inference_allowed = ordinary && !def.test_declaration && !exported.contains(&definition) && def.name != "main";
-                let name = id.namespace.map(|namespace| format!("{namespace}.{}", def.name)).unwrap_or_else(|| def.name.to_string());
-                self.effect_graph.declare(id, name, inference_allowed, declared);
-            }
-        }
-    }
-
     pub(super) fn effective_function_effects(&self, program: &ArenaProgram, def: &ArenaFunctionDef) -> Option<Vec<Effect>> {
         if let Some(effects) = def.effects { return Some(program.arena.effects(effects).collect()); }
-        let id = self.effect_declaration_id(program, def.body);
-        if !self.effect_graph.is_inferred(id) { return None; }
-        if self.collecting_effects { return Some(Vec::new()); }
-        self.effect_summaries.get(&id).and_then(EffectSummary::effects)
+        let identity = self.graph_declaration(def.body)?;
+        let state = self.generic.borrow();
+        let pending = state.pending.get(&identity)?;
+        let crate::sema::inference::TypeNode::Arrow(arrow) = state.facts.graph.node(pending.signature).ok()? else { return None; };
+        graph_effects(state.facts.graph.resolved_effect_summary(arrow.effects).ok()?)
     }
 
     pub(super) fn record_required_effect(&mut self, effect: Effect) {
-        if self.collecting_effects { self.effect_graph.require(self.effect_owner, effect, self.retry_attempt_depth > 0); }
+        let span = self.effect_owner.map(|owner| owner.body);
+        if let Some(span) = span { self.record_graph_effect_requirement(&[effect], span); }
+    }
+
+    pub(super) fn record_graph_effect_summary(&mut self, effects: crate::sema::inference::EffectSummary, span: Span) {
+        if !self.graph_generation { return; }
+        if self.current_generic.is_none() && self.stage_callback_effects.is_none() { return; }
+        let outcome = (|| {
+            let mut state = self.generic.borrow_mut();
+            let (raw, expected) = if let Some(sink) = self.stage_callback_effects { (sink, sink) } else {
+                let owner = self.current_generic.ok_or(crate::sema::inference::InferenceError::InvalidScheme)?;
+                let signature = state.pending[&owner].signature;
+                let crate::sema::inference::TypeNode::Arrow(arrow) = state.facts.graph.node(state.facts.graph.resolved(signature)?)? else {
+                    return Err(crate::sema::inference::InferenceError::InvalidScheme);
+                };
+                let declaration = &state.pending[&owner];
+                (declaration.required_effects, declaration.producer_effects.map(|producer| if self.in_defer_block { producer.close } else { producer.pull }).unwrap_or(arrow.effects))
+            };
+            let reason = state.facts.graph.reason(span, None)?;
+            if raw != expected {
+                if self.retry_attempt_depth > 0 {
+                    let requirement = state.facts.graph.include_effects_masked(effects, raw, crate::sema::inference::EffectSet::ERROR, reason)?;
+                    if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.push(requirement); }
+                } else { state.facts.graph.include_effects(effects, raw, reason)?; }
+            }
+            if self.retry_attempt_depth > 0 {
+                let requirement = state.facts.graph.include_effects_masked(effects, expected, crate::sema::inference::EffectSet::ERROR, reason)?;
+                if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.push(requirement); }
+                Ok(())
+            } else { state.facts.graph.include_effects(effects, expected, reason) }
+        })();
+        if let Err(error) = outcome {
+            let (known, minimum) = {
+                use crate::sema::inference::{EffectSummary, EffectSet};
+                let state = self.generic.borrow();
+                let graph = &state.facts.graph;
+                match graph.resolved_effect_summary(effects) {
+                    Ok(EffectSummary::Closed(bits)) => (Some(bits), false),
+                    Ok(EffectSummary::Variable(id)) => (graph.effect_value(id).ok().filter(|bits| *bits != EffectSet::EMPTY), true),
+                    Ok(EffectSummary::Rigid { scope, index }) => (graph.scheme(scope).ok().and_then(|scheme| scheme.effect_quantifiers.get(index as usize)).map(|quantifier| quantifier.lower).filter(|bits| *bits != EffectSet::EMPTY), true),
+                    _ => (None, false),
+                }
+            };
+            let required = known.and_then(|bits| graph_effects(crate::sema::inference::EffectSummary::Closed(bits)))
+                .map(|effects| effects.iter().map(Effect::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_else(|| "a retained latent or unrestricted effect".to_string());
+            let quantity = if minimum && known.is_some() { "at least " } else { "" };
+            self.error(span, &format!("callable requires {quantity}[{required}], which exceeds its checked effect boundary: {error:?}"), "check.effect-violation");
+        }
+    }
+
+    fn record_graph_effect_requirement(&mut self, effects: &[Effect], span: Span) {
+        let retained: Vec<_> = effects.iter().filter(|effect| !(self.retry_attempt_depth > 0 && **effect == Effect::Error)).cloned().collect();
+        self.record_graph_effect_summary(crate::sema::inference::EffectSummary::Closed(super::generic::graph_effect_bits(&retained)), span);
     }
 
     pub(super) fn require_effect(&mut self, effect: Effect, span: Span, subject: &str) {
         let captured = self.retry_attempt_depth > 0;
-        if self.collecting_effects { self.effect_graph.require(self.effect_owner, effect.clone(), captured); }
         if captured && effect == Effect::Error { return; }
+        self.record_graph_effect_requirement(&[effect.clone()], span);
         if let Some(caller) = &self.current_effects
             && !Self::effects_covers(caller, &effect)
         {
@@ -210,17 +169,10 @@ impl Checker {
     }
 
     pub(super) fn check_resolved_callable_effects(&mut self, sig: &FunctionSig, name: &str, span: Span) {
-        if self.collecting_effects {
-            if sig.inferred_effects && let Some(declaration) = sig.effect_declaration {
-                self.effect_graph.call(self.effect_owner, declaration, self.retry_attempt_depth > 0);
-            } else {
-                self.record_effect_contract(&sig.effects, name);
-            }
-        }
+        if !sig.inferred_effects { self.record_effect_contract(&sig.effects, name); }
         if let Some(caller) = self.current_effects.clone() {
             if sig.effects.is_none() && sig.inferred_effects {
                 let mut chain = vec![name.to_string()];
-                if let Some(summary) = sig.effect_declaration.and_then(|declaration| self.effect_summaries.get(&declaration)) { chain.extend(summary.unknown_chain.clone()); }
                 self.error(span, &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")), "check.effect-violation");
             } else {
                 self.check_callee_effects(&caller, &sig.effects, name, span);
@@ -229,17 +181,22 @@ impl Checker {
     }
 
     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
-        if !self.collecting_effects { return; }
-        match effects {
-            Some(effects) => for effect in effects {
-                self.effect_graph.require(self.effect_owner, effect.clone(), self.retry_attempt_depth > 0);
-            },
-            None => self.effect_graph.unknown(self.effect_owner, name.to_string()),
+        if let Some(span) = self.effect_owner.map(|owner| owner.body) {
+            match effects {
+                Some(effects) => self.record_graph_effect_requirement(effects, span),
+                None => self.record_graph_effect_summary(crate::sema::inference::EffectSummary::Unknown, span),
+            }
         }
+
     }
 
     pub(super) fn check_opaque_callable_effects(&mut self, name: &str, span: Span) {
-        self.record_effect_contract(&None, name);
-        if let Some(caller) = self.current_effects.clone() { self.check_callee_effects(&caller, &None, name, span); }
+        // Pure bodies retain an empty graph budget without a legacy effect owner.
+        self.record_graph_effect_summary(crate::sema::inference::EffectSummary::Unknown, span);
+        if let Some(caller) = self.current_effects.clone() {
+            self.check_callee_effects(&caller, &None, name, span);
+        } else if self.in_pure && !self.graph_generation {
+            self.check_callee_effects(&[], &None, name, span);
+        }
     }
 }

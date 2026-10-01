@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-10-01T17:53:15.325161+00:00",
+  "candidate_head_at_capture": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+  "denominator": 730,
+  "authority_ids": [
+    "language.stage.sum"
+  ],
+  "corrections": [
+    {
+      "boundary": "inline stage callback parameters",
+      "old": "Known graph AtomAny entered structural field projection",
+      "current": "Only already resolved AtomAny is presented as source Any; unresolved and structural graph parameters remain graph-owned",
+      "paired_producer_flow_preserved": true
+    },
+    {
+      "boundary": "canonical Sum receiver domains",
+      "old": [
+        "Int",
+        "UInt"
+      ],
+      "current": [
+        "Int",
+        "UInt",
+        "Any"
+      ],
+      "relation": "Exact",
+      "result": "Int",
+      "reason": "Known dynamic items retain the native runtime integer check. Their item type is not assigned or refined to Int. Concrete Float and Str remain rejected and unresolved items retain a residual operation."
+    }
+  ],
+  "native_authority": {
+    "baseline": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/src/sema/check/stream.rs:267",
+    "baseline_policy": "expect_type(Int,item) accepts known Any and returns Int",
+    "runtime": "src/runtime/eval/lowered_run/indexed_run.rs:5331",
+    "runtime_policy": "Each pulled item must be Int; an invalid item causes type-error and producer cancellation"
+  },
+  "evidence": {
+    "field_red": "json-stage-known-any-red.log",
+    "field_green": "json-stage-known-any-green.log",
+    "sum_red": "json-stage-dynamic-sum-red.log",
+    "source_and_cold_controls": "json-stage-source36-green.log",
+    "catalog_controls": "json-stage-catalog8-green.log",
+    "native_callable_controls": "json-stage-native17-green.log",
+    "unchanged_original_rollup_execution": "json-rollup-source-sum-green.log",
+    "bad_dynamic_json_runtime_refusal": "xsh-gate-c-json-rollup-native-guard-green.log"
+  },
+  "checks": {
+    "source_stages": {
+      "passed": 36,
+      "failed": 0
+    },
+    "stage_catalog": {
+      "passed": 8,
+      "failed": 0
+    },
+    "native_callables": {
+      "passed": 17,
+      "failed": 0
+    },
+    "unchanged_rollup_runner": {
+      "passed": 1,
+      "failed": 0
+    },
+    "bad_dynamic_json_runtime_refusal": {
+      "passed": 1,
+      "failed": 0,
+      "runtime_status": 3,
+      "diagnostic": "sum expected Int stream"
+    }
+  },
+  "log_sha256": {
+    "json-stage-known-any-red.log": "fec251e7855127411dd3c683e65132cabe63e206ef028a6e2ba1e0ba1e7ff157",
+    "json-stage-known-any-green.log": "13028c69678c2b7f91751fc136b7621708cf66ce0dbfb3679d03ddcf70e81663",
+    "json-stage-dynamic-sum-red.log": "5df2e13c8ca08ef0c90a520e1dbfc08b83e1e568a085082e1795204b3fa30269",
+    "json-stage-dynamic-sum-green.log": "75e64256b253d8a94c86f5e0ecf8fba49579548d5aae3ae8206238ec7e3b1ce0",
+    "json-rollup-after-dynamic-field-red.log": "914005efb984ef43e8a544e8437c838133424756914e07c7b94769d7c624b188",
+    "json-rollup-source-sum-green.log": "7b2db77144c091920033e3f69d0f54b0cab61edf5d6abbb66b9510becb02e837",
+    "json-stage-source36-green.log": "53ae298bb9b6de18b68ffa8a048ef3cc2a5e3c51dd0d4e2a95b98ff8ff8006c0",
+    "json-stage-catalog8-green.log": "6e6893945489860626aa53556e3e2bd46800f84efb8d5a93a8f726f1a0e64d10",
+    "json-stage-native17-green.log": "494aa37af19e10f80b2157a88dd497918abc1713f2939167a133c880d20060e0",
+    "xsh-gate-c-json-rollup-native-guard-green.log": "a13bca69a1059da73e8906d8cd2a769808c6e8cffa8ccba470e72c5100e6e368"
+  },
+  "source_sha256_at_capture": {
+    "src/sema/check/stage_operation.rs": "65f02e5b4b1ba9eeded84a9f56fb72024f4d3503367b7b3c573c8c38c1c2b0f5",
+    "src/sema/stage_graph.rs": "1ee2fb0b5044a3ccf90c33301fac0a056fb1d8e6ca5c99c1746cf3a93df6af4c",
+    "src/sema/check/stream.rs": "9e2bee1f7b0ad95b79cf4dbbae1103aaedd5925d6a937e09364b051d3b2416c7",
+    "docs/SPEC.md": "f2615e2750091c4a683006f3fd87a3c822b16f930627e2ec1ffa314608ae975b",
+    "src/runtime/eval/lowered_run/indexed_run.rs": "8e6add2884314a84a2e9d1382dc6a3c257bf14194798ac885ea38950a0d96d15"
+  },
+  "qualification": "Live shared-worktree capture, not a sealed compiler-input snapshot. Existing rollup fixture executes both indexed routes; no runtime implementation change or generic runtime expansion."
+}

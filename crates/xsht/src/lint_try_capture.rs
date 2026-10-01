@@ -10,8 +10,8 @@ use xsh::frontend::syntax::parser::Parser;
 /// Eliminate a closed, straight-line fallible helper at its sole eager fallback
 /// use. Restricting the body to immutable locals and scalar methods excludes
 /// captures, callable defaults, resource escape, and lexical control transfers.
-pub(super) fn lint_try_capture_helpers(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    let before = std::cell::LazyCell::new(|| Checker::check_arena(program, source));
+pub(super) fn lint_try_capture_helpers_with_checked<'checked>(program: &ArenaProgram, source: &str, check_original: impl FnOnce() -> &'checked CheckOutput) -> Vec<Diagnostic> {
+    let before = std::cell::LazyCell::new(check_original);
     let statements = program.statement_ids().collect::<Vec<_>>();
     let mut diagnostics = Vec::new();
     for pair in statements.windows(2) {

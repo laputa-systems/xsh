@@ -1,0 +1,15 @@
+
+running 1 test
+
+thread 'sema::check::call_contract_source_tests::forwarded_result_constructors_retain_nested_success_and_data_error_profiles' (5619046) panicked at src/sema/check/call_contract_source_tests.rs:173:9:
+a retained data-error profile must reach its matching payload binding: [Diagnostic { severity: Error, code: Some("check.effect-violation"), message: "callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation", span: None, labels: [Label { style: Primary, span: Span { source_id: SourceId(74), start: 635, len: 14 }, message: Some("callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation") }], notes: [], fix_hints: [] }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sema::check::call_contract_source_tests::forwarded_result_constructors_retain_nested_success_and_data_error_profiles ... FAILED
+
+failures:
+
+failures:
+    sema::check::call_contract_source_tests::forwarded_result_constructors_retain_nested_success_and_data_error_profiles
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 896 filtered out; finished in 0.02s
+

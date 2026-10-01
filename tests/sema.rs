@@ -5,6 +5,122 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
 #[test]
+fn compact_declarations_reuse_checked_graph_and_source_owned_facts() {
+    use xsh::frontend::symbols::Name;
+    use xsh::frontend::syntax::arena::ArenaProgramBuilder;
+
+    let source = "const label = \"label:\"\npure render(value: Str, prefix: Str = label) -> Str { prefix + value }\nlet format = render\nlet rendered = format(value: \"one\")\nproc clock() -> Int { let _ = time.now(); 42 }\n";
+    let module_source = "type Row = {value: Str = \"default\"}\nenum State: Str { Ready = \"ready\", Missing = \"missing\" }\npure render(value: Str, prefix: Str = \"module:\") -> Str { prefix + value }\nlet format = render\nlet rendered = format(value: \"two\")\nproc clock() -> Int { let _ = time.now(); 7 }\n";
+    let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+    let entry = Parser::parse_source_into_arena_builder(SourceId::new(7), source, &mut builder);
+    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
+    let module = Parser::parse_source_into_arena_builder(SourceId::new(11), module_source, &mut builder);
+    assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+    let module_name = builder.symbol_owner().with_current(|| Name::intern("helper"));
+    builder.push_arena_module("helper".to_string(), module_name, module.statements);
+    let program = builder.finish_with_statements(entry.statements);
+    let checked = Checker::check_arena(&program, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(!checked.static_callable_aliases.is_empty());
+    assert!(!checked.function_effect_facts.is_empty());
+    assert!(!checked.prepared_constants.values.is_empty());
+    assert!(!checked.wire_enums.mappings.is_empty());
+    let counters = checked.solved.graph.counters().clone();
+    let declarations = Checker::compact_declarations_from_checked(&program, &checked);
+    assert_eq!(counters.attempted_constraints, declarations.solved.graph.counters().attempted_constraints);
+    assert_eq!(counters.unifications, declarations.solved.graph.counters().unifications);
+    assert_eq!(counters.instantiations, declarations.solved.graph.counters().instantiations);
+    assert_eq!(checked.prepared_constants.values, declarations.prepared_constants.values);
+    assert_eq!(checked.prepared_constants.types, declarations.prepared_constants.types);
+    assert_eq!(checked.wire_enums.mappings, declarations.wire_enums.mappings);
+    for (name, mapping) in &checked.wire_enums.mappings {
+        assert!(std::sync::Arc::ptr_eq(mapping, &declarations.wire_enums.mappings[name]));
+    }
+    assert!(std::sync::Arc::ptr_eq(&checked.solved, &declarations.solved));
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    assert_eq!(checked.static_callable_aliases, declarations.static_callable_aliases);
+    assert_eq!(checked.parameter_types, declarations.parameter_types);
+    assert_eq!(checked.function_return_types, declarations.function_return_types);
+    assert_eq!(checked.function_effect_facts, declarations.function_effect_facts);
+    for source_id in [SourceId::new(7), SourceId::new(11)] {
+        assert!(declarations.parameter_types.keys().any(|span| span.source_id == source_id));
+        assert!(declarations.solved.declarations.keys().any(|identity| identity.source == source_id));
+    }
+    for (expression, ty) in &declarations.checked_expr_types {
+        let canonical = checked.solved.expressions.iter().find_map(|(identity, ty)|
+            (identity.expression == *expression).then_some(*ty));
+        if let Some(canonical) = canonical && let Ok(expected) = checked.solved.graph.export_type(canonical) {
+            assert_eq!(ty, &expected);
+        } else if let Some(expected) = checked.expr_types.get(&program.arena.expr(*expression).span) {
+            assert_eq!(ty, expected);
+        } else {
+            assert_eq!(Some(ty), canonical.map(xsh::frontend::check::Type::Graph).as_ref());
+        }
+    }
+    let compact = Checker::probe_compact_bodies(&program, &declarations);
+    assert!(std::sync::Arc::ptr_eq(&checked.solved, &compact.solved));
+}
+
+#[test]
+fn compact_declarations_publish_checked_errors_without_revalidating_source() {
+    for source in [
+        "pure unused() -> Regex { rx\"(\" }\n",
+        "type Duplicate = {item: Int, item: Str}\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(3), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.is_empty());
+        let expected = checked.diagnostics.iter().map(|diagnostic| (&diagnostic.code, &diagnostic.message)).collect::<Vec<_>>();
+        let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &checked);
+        let actual = declarations.diagnostics.iter().map(|diagnostic| (&diagnostic.code, &diagnostic.message)).collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+        let once = Checker::check_compact_declarations(&parsed.arena);
+        let actual = once.diagnostics.iter().map(|diagnostic| (&diagnostic.code, &diagnostic.message)).collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn compact_body_facts_preserve_checked_context_tails_across_source_ids() {
+    use xsh::frontend::symbols::Name;
+    use xsh::frontend::syntax::arena::{ArenaProgramBuilder, StmtId};
+
+    let source = "let predicate = cd (p\".\") { false }?\n";
+    let module_source = "let predicate = env ({X: \"value\"}) { false }?\n";
+    let mut builder = ArenaProgramBuilder::with_token_capacity(64);
+    let entry = Parser::parse_source_into_arena_builder(SourceId::new(5), source, &mut builder);
+    let module = Parser::parse_source_into_arena_builder(SourceId::new(9), module_source, &mut builder);
+    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
+    assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+    let name = builder.symbol_owner().with_current(|| Name::intern("helper"));
+    builder.push_arena_module("helper".to_string(), name, module.statements);
+    let program = builder.finish_with_statements(entry.statements);
+    let checked = Checker::check_arena(&program, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let counters = checked.solved.graph.counters().clone();
+    let declarations = Checker::compact_declarations_from_checked(&program, &checked);
+    let compact = Checker::probe_compact_bodies(&program, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    assert!(std::sync::Arc::ptr_eq(&checked.solved, &compact.solved));
+    for source_id in [SourceId::new(5), SourceId::new(9)] {
+        assert!(checked.statement_positions.keys().any(|span| span.source_id == source_id));
+    }
+    for index in 0..program.arena.stmt_tags.len() {
+        let statement = StmtId::from_index(index);
+        let span = program.arena.stmt(statement).span;
+        if let Some(position) = checked.statement_positions.get(&span) {
+            assert_eq!(compact.statement_positions.get(&statement), Some(position), "{span:?}");
+        }
+    }
+    for (expression, ty) in &declarations.checked_expr_types {
+        assert_eq!(compact.expr_types.get(expression), Some(ty));
+    }
+    assert_eq!(checked.solved.graph.counters().attempted_constraints, counters.attempted_constraints);
+    assert_eq!(checked.solved.graph.counters().unifications, counters.unifications);
+}
+
+#[test]
 fn context_scope_capture_tail_types_agree_in_full_and_compact_facts() {
     use xsh::frontend::check::{StatementPosition, Type};
     use xsh::frontend::syntax::arena::{ArenaExprKind, ArenaStmtKind};
@@ -1272,12 +1388,12 @@ fn checker_rejects_process_time_system_identity_calls_in_pure_functions() {
 }
 
 #[test]
-fn checker_requires_explicit_contract_for_unrestricted_public_callee() {
+fn checker_preserves_authored_public_effect_bounds_and_infers_omitted_bounds() {
     let messages = check_messages(
         r#"
 ##! Public effect boundary.
 ## Trims a line.
-export proc trim_line(value: Str) -> Str {
+export proc trim_line(value: Str) [time] -> Str {
   return value
 }
 
@@ -1287,16 +1403,15 @@ proc main() [fs, error] -> Result[Str] {
 "#,
     );
     assert!(
-        messages.iter().any(|message| message
-            .contains("establish an explicit checked contract at its declaration")),
-        "expected actionable unrestricted-proc diagnostic, got {messages:?}"
+        messages.iter().any(|message| message.contains("time")),
+        "expected the authored public effect bound, got {messages:?}"
     );
 
     let accepted = check(
         r#"
 ##! Public effect boundary.
 ## Trims a line.
-export proc trim_line(value: Str) [] -> Str {
+export proc trim_line(value: Str) -> Str {
   return value
 }
 
@@ -1919,7 +2034,7 @@ fn checker_rejects_foundation_contract_errors() {
         let output = check(source);
         assert!(
             has_code(&output, code),
-            "expected {code} in diagnostics: {output:?}"
+            "{source}: expected {code} in diagnostics: {output:?}"
         );
     }
 }
@@ -3505,6 +3620,180 @@ fn checker_records_value_and_statement_bool_positions() {
 }
 
 #[test]
+fn compound_assignment_generic_mutable_slots_keep_definition_owned_requirements() {
+    let declarations = "pure added(left, right) { var total = left; total += right; total }\n";
+    for calls in [
+        "let integer: Int = added(1, 2)\nlet floating: Float = added(1.0, 2.0)\nlet list: List[Int] = added([1], [2])\nlet unsigned: UInt = 1\nlet updated: UInt = added(unsigned, 2)\n",
+        "let unsigned: UInt = 1\nlet updated: UInt = added(unsigned, 2)\nlet list: List[Int] = added([1], [2])\nlet floating: Float = added(1.0, 2.0)\nlet integer: Int = added(1, 2)\n",
+    ] {
+        let source = format!("{declarations}{calls}");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(4), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.solved.statement_operations.len(), 1, "one compound assignment owns one operation fact");
+        let (identity, operation) = checked.solved.statement_operations.iter().next().unwrap();
+        assert_eq!(identity.source, SourceId::new(4));
+        let statement = parsed.arena.arena.stmt(identity.statement);
+        assert_eq!(&source[statement.span.range()], "total += right;");
+        let caller = operation.caller.expect("definition owns its assignment");
+        assert_eq!(caller.source, SourceId::new(4));
+        assert_eq!(checked.solved.statement_owners.get(identity), Some(&caller));
+        assert!(checked.solved.declarations[&caller].source_requirements.contains(&operation.requirement));
+        assert_eq!(operation.actual_arguments.len(), 2);
+        assert_eq!(operation.binding.supplied_slots, [0, 1]);
+        let mutable = checked.solved.bindings.values().filter(|binding| binding.mutable).collect::<Vec<_>>();
+        assert_eq!(mutable.len(), 1);
+        assert!(mutable[0].scheme.is_none(), "a mutable slot is not independently generalized");
+        assert_eq!(mutable[0].owner, Some(caller));
+        let counters = checked.solved.graph.counters().clone();
+        let query = xsh::frontend::query::SolvedQuery::new(&checked.solved, checked.solved.symbol_owner());
+        let normalized = query.statement_operation(*identity).unwrap();
+        assert_eq!(normalized.binding.supplied_slots, [0, 1]);
+        assert!(normalized.binding.default_slots.is_empty());
+        assert!(normalized.enclosing_scheme.is_some());
+        assert_eq!(normalized.actual_arguments.len(), 2);
+        assert!(normalized.semantic_parity(&query.statement_operation(*identity).unwrap()).unwrap());
+        assert_eq!(checked.solved.graph.counters().attempted_constraints, counters.attempted_constraints);
+        assert_eq!(checked.solved.graph.counters().unifications, counters.unifications);
+        checked.solved.validate().unwrap();
+        let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &checked);
+        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+        assert!(std::sync::Arc::ptr_eq(&checked.solved, &compact.solved));
+    }
+}
+
+#[test]
+fn compound_assignment_each_operator_forwards_exact_source_contracts() {
+    use xsh::frontend::query::{NormalizedEffect, NormalizedRequirement, SolvedQuery};
+
+    let cases = [
+        ("-=", "Sub", vec![("Int", "12", "Int", "3"), ("Float", "12.0", "Float", "3.0"), ("Duration", "12s", "Duration", "3s"), ("UInt", "12", "Int", "3")]),
+        ("*=", "Mul", vec![("Int", "12", "Int", "3"), ("Float", "12.0", "Float", "3.0"), ("Duration", "12s", "Int", "3"), ("UInt", "12", "Int", "3")]),
+        ("/=", "Div", vec![("Int", "12", "Int", "3"), ("Float", "12.0", "Float", "3.0"), ("Duration", "12s", "Int", "3"), ("UInt", "12", "Int", "3"), ("Path", "p\"root\"", "Str", "\"child\""), ("Path", "p\"root\"", "Path", "p\"child\"")]),
+        ("%=", "Rem", vec![("Int", "12", "Int", "3"), ("UInt", "12", "Int", "3")]),
+    ];
+    for (operator, authority, domains) in cases {
+        for reverse in [false, true] {
+            let mut selected = domains.clone();
+            if reverse { selected.reverse(); }
+            let mut source = format!("pure updated(left, right) {{ var total = left; total {operator} right; total }}\npure forwarded(left, right) {{ updated(left, right) }}\n");
+            for (index, (left, lhs, right, rhs)) in selected.iter().enumerate() {
+                source.push_str(&format!("let left_{index}: {left} = {lhs}\nlet right_{index}: {right} = {rhs}\nlet direct_{index}: {left} = updated(left_{index}, right_{index})\nlet forwarded_{index}: {left} = forwarded(left_{index}, right_{index})\n"));
+            }
+            let parsed = Parser::parse_source_arena_only(SourceId::new(54), &source);
+            assert!(parsed.diagnostics.is_empty(), "{operator}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.is_empty(), "{operator}: {:?}", checked.diagnostics);
+            assert_eq!(checked.solved.statement_operations.len(), 1);
+            let (identity, operation) = checked.solved.statement_operations.iter().next().unwrap();
+            assert_eq!(identity.source, SourceId::new(54));
+            assert_eq!(source[parsed.arena.arena.stmt(identity.statement).span.range()].trim(), format!("total {operator} right;"));
+            let caller = operation.caller.unwrap();
+            assert_eq!(checked.solved.statement_owners.get(identity), Some(&caller));
+            assert!(checked.solved.declarations[&caller].source_requirements.contains(&operation.requirement));
+            let slots = checked.solved.bindings.values().filter(|binding| binding.mutable).collect::<Vec<_>>();
+            assert_eq!(slots.len(), 1);
+            assert_eq!(slots[0].owner, Some(caller));
+            assert!(slots[0].scheme.is_none());
+            let selected_requirements = checked.solved.calls.values().filter(|call| call.caller.is_none())
+                .flat_map(|call| &call.requirements).filter(|&&requirement| checked.solved.graph.requirement_origin(requirement).unwrap() == operation.requirement)
+                .map(|&requirement| checked.solved.graph.candidate_evidence(requirement).unwrap().expect("each concrete caller discharges the original compound requirement")).collect::<Vec<_>>();
+            assert_eq!(selected_requirements.len(), selected.len() * 2);
+            let counters = checked.solved.graph.counters().clone();
+            drop(parsed);
+            checked.solved.validate().unwrap();
+            checked.solved.symbol_owner().with_current(|| {
+                for evidence in &selected_requirements {
+                    let candidate = checked.solved.graph.candidate(evidence.candidate).unwrap();
+                    assert_eq!(candidate.public_label.as_str().as_str(), format!("language.assignment.{authority}"));
+                }
+            });
+            let query = SolvedQuery::new(&checked.solved, checked.solved.symbol_owner());
+            let normalized = query.statement_operation(*identity).unwrap();
+            assert_eq!(normalized.binding.supplied_slots, [0, 1]);
+            assert_eq!(normalized.effects, NormalizedEffect::Closed(Vec::new()));
+            let NormalizedRequirement::Operation { candidates, .. } = &normalized.requirement else { panic!("compound assignment retains an operation family") };
+            assert!(!candidates.is_empty());
+            assert!(candidates.iter().all(|candidate| candidate.public_label == format!("language.assignment.{authority}")));
+            assert_eq!(checked.solved.graph.counters().attempted_constraints, counters.attempted_constraints);
+            assert_eq!(checked.solved.graph.counters().unifications, counters.unifications);
+        }
+    }
+}
+
+#[test]
+fn compound_assignment_forwarders_reject_dimension_and_mutable_lifetime_widening() {
+    for (operator, arguments) in [
+        ("-=", "1, 2.0"), ("-=", "1s, 1"),
+        ("*=", "1, 2.0"), ("*=", "1s, 2.0"),
+        ("/=", "1, 2.0"), ("/=", "1s, 2s"), ("/=", "p\"root\", 2"),
+        ("%=", "1.0, 2.0"), ("%=", "1s, 2"),
+    ] {
+        let source = format!("pure updated(left, right) {{ var total = left; total {operator} right; total }}\npure forwarded(left, right) {{ updated(left, right) }}\nlet invalid = forwarded({arguments})\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(55), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")), "{source}: {:?}", checked.diagnostics);
+    }
+    for operator in ["-=", "*=", "/=", "%="] {
+        let source = format!("pure changed() {{ var total = 12; total {operator} 3; let snapshot = total; total = 2.0; snapshot }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(55), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")
+            && diagnostic.labels.iter().any(|label| &source[label.span.range()] == "2.0")), "{source}: {:?}", checked.diagnostics);
+    }
+    let source = "pure updated(left, right) { var total = left; total += right; total }\npure forwarded(left, right) { updated(left, right) }\nlet left: List[Int?] = [1]\nlet right = [2]\nlet invalid = forwarded(left, right)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(55), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn compound_assignment_preserves_dimensions_and_collection_invariance() {
+    let source = "var elapsed = 1s\nelapsed += 500ms\nelapsed -= 100ms\nelapsed *= 2\nelapsed /= 5\nvar destination = p\"root\"\ndestination /= \"child\"\ndestination /= p\"nested\"\nvar items = [1]\nitems += [2]\nvar unsigned: UInt = 5\nunsigned -= 1\nunsigned -= -3\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(6), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.solved.statement_operations.len(), 9);
+    checked.solved.validate().unwrap();
+    let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &checked);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    assert!(std::sync::Arc::ptr_eq(&checked.solved, &compact.solved));
+    let mut signed_replacements = 0;
+    for (identity, operation) in &checked.solved.statement_operations {
+        assert_eq!(identity.source, SourceId::new(6));
+        assert!(operation.caller.is_none());
+        assert_eq!(compact.statement_positions.get(&identity.statement), Some(&xsh::frontend::check::StatementPosition::Statement));
+        if source[parsed.arena.arena.stmt(identity.statement).span.range()].trim() == "unsigned -= -3" {
+            signed_replacements += 1;
+            assert_eq!(checked.solved.graph.export_type(operation.result).unwrap(), xsh::frontend::check::Type::UInt);
+            assert_eq!(checked.solved.graph.export_type(operation.actual_arguments[1]).unwrap(), xsh::frontend::check::Type::Int);
+        }
+    }
+    assert_eq!(signed_replacements, 1);
+    for (source, code, operand) in [
+        ("var elapsed = 1s\nelapsed *= 2.0\n", "check.operator-type", "2.0"),
+        ("var elapsed = 1s\nelapsed /= 1s\n", "check.operator-type", "1s"),
+        ("var destination = p\"root\"\ndestination /= 1\n", "check.type-mismatch", "1"),
+        ("var items: List[Int?] = [1]\nlet extra = [2]\nitems += extra\n", "check.type-mismatch", "extra"),
+        ("pure mixed() { var value = 1; value += 2.0; value }\n", "check.type-mismatch", "2.0"),
+        ("proc unchecked(value: Any) { var item = 1; item += value }\n", "check.type-mismatch", "value"),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(6), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some(code)
+            && diagnostic.labels.iter().any(|label| &source[label.span.range()] == operand)), "{source}: {:?}", checked.diagnostics);
+    }
+}
+
+#[test]
 fn checker_list_compound_assignment_points_at_scalar_rhs() {
     let source = "var items = [1]\nitems += 2\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -3602,7 +3891,7 @@ fn checker_guarded_control_proofs_agree_on_full_and_compact_routes() {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let full = Checker::check_arena(&parsed.arena, source);
-        assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
+        assert!(full.diagnostics.is_empty(), "{source}: {:?}", full.diagnostics);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
         let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
@@ -3779,7 +4068,14 @@ fn private_pure_inference_keeps_principal_returns_and_rejects_conflicting_paths(
     for source in [
         "pure value() { [] }\n",
         "pure value() { map.empty() }\n",
-    ] { assert!(!check(source).is_empty(), "unanchored legacy collection boundary: {source}"); }
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        let declaration = checked.solved.declarations.values().next().unwrap();
+        assert!(!checked.solved.graph.scheme(declaration.scheme).unwrap().quantifiers.is_empty(), "inert collection results retain their principal parameters");
+        checked.solved.validate().unwrap();
+    }
     for source in [
         "pure first(value: Int) -> Int { second(value) }\npure second(value: Int) -> Str { first(value) }\n",
         "pure value(flag: Bool) { if flag { Ok(1) } else { 1 } }\n",
@@ -3966,22 +4262,22 @@ fn private_proc_effects_publish_matching_full_and_compact_facts() {
 
 #[test]
 fn private_proc_effects_preserve_unknown_and_declaration_boundaries() {
-    for (source, name) in [
-        ("proc opaque(callback: Proc) -> Int { let _ = callback.call(); 42 }\n", "opaque"),
-        ("proc main() -> Int { 42 }\n", "main"),
-        ("##! Boundary.\n## Public.\nexport proc published() -> Int { 42 }\n", "published"),
-        ("stream values() -> Stream[Int] { yield 42 }\n", "values"),
+    for (source, name, expected) in [
+        ("proc opaque(callback: Proc) -> Int { let _ = callback.call(); 42 }\n", "opaque", None),
+        ("proc main() -> Int { 42 }\n", "main", None),
+        ("##! Boundary.\n## Public.\nexport proc published() -> Int { 42 }\n", "published", Some(vec![])),
+        ("stream values() -> Stream[Int] { yield 42 }\n", "values", Some(vec![])),
     ] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        assert_eq!(checked.callable_effects[name], None);
+        assert_eq!(checked.callable_effects[name], expected);
         let compact = Checker::check_compact_declarations(&parsed.arena);
         parsed.arena.symbol_owner().with_current(|| {
             let name = xsh::frontend::symbols::Name::intern(name);
             let signature = compact.procs.get(&name).or_else(|| compact.streams.get(&name)).unwrap();
-            assert_eq!(signature.effects, None);
+            assert_eq!(signature.effects, expected);
         });
     }
     let source = "test registered { assert true, \"checked\" }\n";
@@ -4076,7 +4372,7 @@ fn typed_cause_full_and_compact_inference_retains_only_outer_error() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let full = Checker::check_arena(&parsed.arena, source);
     assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
-    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &full);
     let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
     assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
     let (span, full_type) = full.expr_types.iter().find(|(span, _)| source[span.range()].starts_with("Err(")).unwrap();
@@ -4139,7 +4435,8 @@ fn checker_record_proof_types_agree_on_full_and_compact_routes() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let full = Checker::check_arena(&parsed.arena, source);
     assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
-    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &full);
+    assert!(std::sync::Arc::ptr_eq(&full.solved, &declarations.solved));
     let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
     for (id, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(id).span;
@@ -4260,15 +4557,21 @@ fn default_parameter_types_are_checked_declaration_facts_shared_with_compact() {
 }
 
 #[test]
-fn default_parameter_inference_needs_own_default_anchor_and_never_body_or_callers() {
+fn default_parameter_constraints_use_definition_bodies_and_declaring_environment() {
+    let source = "pure choose(value = []) -> List[Int] { value }\nlet x = choose([1])\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.parameter_types.values().collect::<Vec<_>>(), vec![&xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::Int))]);
+    let nullable = check("pure choose(value = null) -> Str { value.trim() }\nlet x = choose(\"anchored caller\")\n");
+    assert!(nullable.iter().any(|code| matches!(code.as_deref(), Some("check.type-mismatch" | "check.unknown-method" | "check.unsolved-relationship"))), "{:?}", nullable);
     for source in [
-        "pure choose(value = null) -> Str { value.trim() }\nlet x = choose(\"anchored caller\")\n",
-        "pure choose(value = []) -> List[Int] { value }\nlet x = choose([1])\n",
         "pure choose(first: Int = 1, second = first) -> Int { second }\n",
         "pure choose(value = later) -> Int { value }\nlet later = 4\nlet supplied = choose(9)\n",
     ] {
         let checked = check(source);
-        assert!(checked.iter().any(|code| code.as_deref() == Some("check.infer-param")), "{:?}", checked);
+        assert!(checked.iter().any(|code| code.as_deref() == Some("check.unresolved-name")), "{:?}", checked);
     }
 }
 
@@ -4616,7 +4919,7 @@ fn retry_family_selectors_keep_builtin_and_user_error_identity() {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
         let compact = Checker::check_compact_declarations(&parsed.arena);
         assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
     }

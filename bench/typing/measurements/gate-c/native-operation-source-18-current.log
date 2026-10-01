@@ -1,0 +1,213 @@
+running 18 tests
+tests/xsh/typing-inference-operations.xsh::operation_source_builtin_nominal_payload_keeps_declaring_family ... FAILED 71ms
+tests/xsh/typing-inference-operations.xsh::operation_source_cli_descriptors_keep_static_plans_and_dynamic_boundaries ... ok 83ms
+tests/xsh/typing-inference-operations.xsh::operation_source_command_argv_preserves_native_input_domains ... FAILED 122ms
+tests/xsh/typing-inference-operations.xsh::operation_source_explicit_registry_schema_validation_keeps_dynamic_boundary ... ok 65ms
+tests/xsh/typing-inference-operations.xsh::operation_source_fresh_map_module_results_keep_key_and_value_constraints ... FAILED 840ms
+tests/xsh/typing-inference-operations.xsh::operation_source_generalized_stage_projection_keeps_item_relationships ... FAILED 73ms
+tests/xsh/typing-inference-operations.xsh::operation_source_hash_aliases_keep_selector_authority_and_fs_permission ... ok 66ms
+tests/xsh/typing-inference-operations.xsh::operation_source_json_eligibility_survives_generic_forwarding ... FAILED 68ms
+tests/xsh/typing-inference-operations.xsh::operation_source_materialized_line_consumers_keep_receiver_identity ... FAILED 66ms
+tests/xsh/typing-inference-operations.xsh::operation_source_named_native_module_forwarding ... FAILED 65ms
+tests/xsh/typing-inference-operations.xsh::operation_source_named_stage_callback_requires_its_effects ... ok 64ms
+tests/xsh/typing-inference-operations.xsh::operation_source_nonadd_arithmetic_and_membership_keep_finite_domains ... FAILED 65ms
+tests/xsh/typing-inference-operations.xsh::operation_source_path_literal_coercion_preserves_the_path_boundary ... ok 63ms
+tests/xsh/typing-inference-operations.xsh::operation_source_record_get_keeps_the_selected_producer_permissions ... ok 66ms
+tests/xsh/typing-inference-operations.xsh::operation_source_result_context_keeps_registered_arity_and_result_data ... ok 67ms
+tests/xsh/typing-inference-operations.xsh::operation_source_result_flat_map_requires_propagation_effect ... ok 72ms
+tests/xsh/typing-inference-operations.xsh::operation_source_standard_method_candidates_ignore_caller_order ... FAILED 33ms
+tests/xsh/typing-inference-operations.xsh::operation_source_stream_collect_retains_pull_and_close_permissions ... FAILED 66ms
+
+failures:
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_builtin_nominal_payload_keeps_declaring_family ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-0-operation_source_builtin_nominal_payload_keeps_declaring_family/operation-contract.xsh-1:1:1
+  pure identity(value) { value }
+  ^ indexed IR could not encode `full_ir_verification`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:255:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-0-operation_source_builtin_nominal_payload_keeps_declaring_family/operation-contract.xsh-1:1:1
+  pure identity(value) { value }
+  ^ indexed IR could not encode `full_ir_verification`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:255:3-256:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_command_argv_preserves_native_input_domains ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-2-operation_source_command_argv_preserves_native_input_domains/operation-contract.xsh-1:1:1
+  pure recipe(target, argv) { process.command_argv(target: target, argv: argv) }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:88:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-2-operation_source_command_argv_preserves_native_input_domains/operation-contract.xsh-1:1:1
+  pure recipe(target, argv) { process.command_argv(target: target, argv: argv) }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:88:3-89:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_fresh_map_module_results_keep_key_and_value_constraints ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-4-operation_source_fresh_map_module_results_keep_key_and_value_constraints/operation-contract.xsh-1:1:1
+  pure empty(marker) { let _ = marker; map.empty() }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:152:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-4-operation_source_fresh_map_module_results_keep_key_and_value_constraints/operation-contract.xsh-1:1:1
+  pure empty(marker) { let _ = marker; map.empty() }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:152:3-153:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_generalized_stage_projection_keeps_item_relationships ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_effect_evidence_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-5-operation_source_generalized_stage_projection_keeps_item_relationships/operation-contract.xsh-1:1:1
+  pure names(values) { values |> map { |item| item.name } }
+  ^ indexed IR could not encode `generic_effect_evidence_not_prepared`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:207:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_effect_evidence_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-5-operation_source_generalized_stage_projection_keeps_item_relationships/operation-contract.xsh-1:1:1
+  pure names(values) { values |> map { |item| item.name } }
+  ^ indexed IR could not encode `generic_effect_evidence_not_prepared`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:207:3-208:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_json_eligibility_survives_generic_forwarding ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-7-operation_source_json_eligibility_survives_generic_forwarding/operation-contract.xsh-1:1:1
+  pure encoded(value) { json.encode(value: value) }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:247:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-7-operation_source_json_eligibility_survives_generic_forwarding/operation-contract.xsh-1:1:1
+  pure encoded(value) { json.encode(value: value) }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:247:3-248:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_materialized_line_consumers_keep_receiver_identity ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `full_ir_function_blocker`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-8-operation_source_materialized_line_consumers_keep_receiver_identity/operation-contract.xsh-1:1:25
+  pure collected(value) { value.lines().collect() }
+                          ^^^^^^^^^^^^^^^^^^^^^ indexed IR could not encode `full_ir_function_blocker`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:179:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `full_ir_function_blocker`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-8-operation_source_materialized_line_consumers_keep_receiver_identity/operation-contract.xsh-1:1:25
+  pure collected(value) { value.lines().collect() }
+                          ^^^^^^^^^^^^^^^^^^^^^ indexed IR could not encode `full_ir_function_blocker`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:179:3-180:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_named_native_module_forwarding ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-9-operation_source_named_native_module_forwarding/operation-contract.xsh-1:1:1
+  pure added(items, item, marker) {
+  ^ indexed IR could not encode `full_ir_verification`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:140:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-9-operation_source_named_native_module_forwarding/operation-contract.xsh-1:1:1
+  pure added(items, item, marker) {
+  ^ indexed IR could not encode `full_ir_verification`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:140:3-141:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_nonadd_arithmetic_and_membership_keep_finite_domains ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-11-operation_source_nonadd_arithmetic_and_membership_keep_finite_domains/operation-contract.xsh-1:1:1
+  pure scaled(value, factor) { value * factor }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:269:3
+    assert accepted.status.exited_with(0), accepted.stderr
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-11-operation_source_nonadd_arithmetic_and_membership_keep_finite_domains/operation-contract.xsh-1:1:1
+  pure scaled(value, factor) { value * factor }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:269:3-270:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_standard_method_candidates_ignore_caller_order ----
+err[runtime.error]: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-16-operation_source_standard_method_candidates_ignore_caller_order/operation-contract.xsh-1:1:1
+  pure appended(values, item) { values.push(item: item) }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:165:5
+      assert accepted.status.exited_with(0), accepted.stderr
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: boolean assertion failed: err[compact.indexed-build]: indexed IR could not encode `generic_runtime_requirement_not_prepared`
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-16-operation_source_standard_method_candidates_ignore_caller_order/operation-contract.xsh-1:1:1
+  pure appended(values, item) { values.push(item: item) }
+  ^ indexed IR could not encode `generic_runtime_requirement_not_prepared`
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:165:5-166:1
+
+---- tests/xsh/typing-inference-operations.xsh::operation_source_stream_collect_retains_pull_and_close_permissions ----
+err[runtime.error]: membership comparison failed: "env" in "err[check.effect-violation]: callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation\n  /var/f…: err[check.effect-violation]: callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-17-operation_source_stream_collect_retains_pull_and_close_permissions/operation-contract.xsh-2:7:40
+  proc collected() [time] -> List[Int] { rows.collect() }
+                                         ^^^^^^^^^^^^^^ callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation
+
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:196:10
+    assert "env" in rejected.stderr, rejected.stderr
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+runtime traceback
+executable: target/debug/xsht
+operation: test.call
+error: AssertionError.Failed: membership comparison failed: "env" in "err[check.effect-violation]: callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation\n  /var/f…: err[check.effect-violation]: callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation
+  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-46004-1790845310797571000-17-operation_source_stream_collect_retains_pull_and_close_permissions/operation-contract.xsh-2:7:40
+  proc collected() [time] -> List[Int] { rows.collect() }
+                                         ^^^^^^^^^^^^^^ callable requires [a retained latent or unrestricted effect], which exceeds its checked effect boundary: EffectViolation
+
+at /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/typing-inference-operations.xsh:196:10-196:34
+
+test result: FAILED. 8 passed; 10 failed; 0 skipped

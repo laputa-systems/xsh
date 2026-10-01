@@ -167,6 +167,18 @@ impl SymbolOwner {
         Name(symbol)
     }
 
+    /// Resolve a spelling only when this owner retains its dynamic allocation.
+    /// Preloaded names are shared immutable symbols and need no session owner.
+    pub fn resolve(&self, name: Name) -> Option<NameText> {
+        let symbols = self.0.symbols.read().expect("symbol owner poisoned");
+        (name.is_preloaded() || symbols.contains_key(&name.symbol())).then(|| name.as_str())
+    }
+
+    /// Compare allocation ownership without equating separate symbol sessions.
+    pub fn shares_storage_with(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+
     fn identity(&self) -> usize {
         std::sync::Arc::as_ptr(&self.0) as usize
     }
@@ -694,6 +706,19 @@ fn resolve_preloaded(symbol: Symbol) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn owner_resolution_rejects_foreign_names_and_preserves_owned_text() {
+        let owner = super::SymbolOwner::new();
+        let foreign = super::SymbolOwner::new();
+        let name = owner.intern("owner-resolution-dynamic-witness");
+        assert!(foreign.resolve(name).is_none());
+        assert_eq!(owner.resolve(name).unwrap().as_str(), "owner-resolution-dynamic-witness");
+        assert_eq!(foreign.resolve(super::Name::INT).unwrap().as_str(), "Int");
+        let text = owner.resolve(name).unwrap();
+        drop(owner);
+        assert_eq!(text.as_str(), "owner-resolution-dynamic-witness");
+    }
+
     use super::{Interner, Name, SymbolOwner, interner};
     use crate::modules::api_spec;
     use crate::sema::records::record_schemas;

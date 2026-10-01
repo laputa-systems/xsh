@@ -36,6 +36,11 @@ impl InferenceContext {
     fn depth(&self, depth: usize) -> Result<(), InferenceError> {
         if depth > self.limits.structural_depth { Err(InferenceError::Limit("structural depth")) } else { Ok(()) }
     }
+    // A generic nullable payload can itself become nullable after binding.
+    // Strip only repeated nullable wrappers; keep its original variable intact.
+    fn nullable_payload(&mut self,mut item:TypeId,mut depth:usize)->Result<(TypeId,usize),InferenceError> {
+        loop {self.work()?;self.depth(depth)?;item=self.resolved(item)?;match self.node(item)? {TypeNode::Optional(inner)=>{item=*inner;depth+=1;},_=>return Ok((item,depth))}}
+    }
     pub(super) fn unify_inner(&mut self, left: TypeId, right: TypeId, depth: usize) -> Result<(), InferenceError> {
         self.work()?; self.depth(depth)?;
         let left = self.resolved(left)?; let right = self.resolved(right)?;
@@ -48,9 +53,16 @@ impl InferenceContext {
             (TypeNode::Meta(a), TypeNode::Meta(b)) => self.union(a, b),
             (TypeNode::Meta(variable), _) => self.bind(variable, right),
             (_, TypeNode::Meta(variable)) => self.bind(variable, left),
+            (TypeNode::NativeCallable(a), TypeNode::NativeCallable(b)) if a.alternatives == b.alternatives => self.unify_inner(a.signature, b.signature, depth + 1),
+            (TypeNode::FiniteDomain(a), TypeNode::FiniteDomain(b)) => {
+                if a.len() != b.len() { return Err(InferenceError::TypeMismatch { left, right }); }
+                for (a,b) in a.iter().zip(&b) { self.work()?; if a.relation != b.relation { return Err(InferenceError::TypeMismatch { left, right }); } self.unify_inner(a.ty,b.ty,depth + 1)?; }
+                Ok(())
+            },
             (TypeNode::Atom(a), TypeNode::Atom(b)) if a == b => Ok(()),
             (TypeNode::Rigid { scope: a, index: ai, kind: ak }, TypeNode::Rigid { scope: b, index: bi, kind: bk }) if a == b && ai == bi && ak == bk => Ok(()),
-            (TypeNode::List(a), TypeNode::List(b)) | (TypeNode::Optional(a), TypeNode::Optional(b)) | (TypeNode::Stream(a), TypeNode::Stream(b)) => self.unify_inner(a, b, depth + 1),
+            (TypeNode::List(a), TypeNode::List(b)) | (TypeNode::Stream(a), TypeNode::Stream(b)) => self.unify_inner(a, b, depth + 1),
+            (TypeNode::Optional(a),TypeNode::Optional(b))=>{let(a,ad)=self.nullable_payload(a,depth+1)?;let(b,bd)=self.nullable_payload(b,depth+1)?;self.unify_inner(a,b,ad.max(bd))},
             (TypeNode::Map(a, b), TypeNode::Map(c, d)) | (TypeNode::Result(a, b), TypeNode::Result(c, d)) => { self.unify_inner(a, c, depth + 1)?; self.unify_inner(b, d, depth + 1) }
             (TypeNode::Record(a), TypeNode::Record(b)) | (TypeNode::Row(a), TypeNode::Row(b)) => self.unify_rows(a, b, depth + 1),
             (TypeNode::Module(a), TypeNode::Module(b)) => {
@@ -150,6 +162,9 @@ impl InferenceContext {
             TypeNode::List(item) | TypeNode::Optional(item) | TypeNode::Stream(item) => vec![*item],
             TypeNode::Map(key, value) | TypeNode::Result(key, value) => vec![*key, *value],
             TypeNode::Arrow(arrow) => arrow.params.iter().map(|parameter| parameter.ty).chain(std::iter::once(arrow.result)).collect(),
+            TypeNode::NativeCallable(callable) => { let mut children = vec![callable.signature]; for authority in &callable.alternatives { match authority { CallableAuthority::User { signature, .. } => children.push(*signature), CallableAuthority::Native { authority } => { let members = match authority { NativeAuthority::Single(contract) => vec![*contract], NativeAuthority::Family(family) => self.native_family_contract(*family)?.members.clone() }; for contract in members { let instance = &self.native_contract(contract)?.instance; children.push(instance.ty); children.extend_from_slice(&instance.substitutions); for requirement in &instance.requirements { children.extend(self.requirement_types(self.requirement(*requirement)?.template)?); } } } } } children },
+            TypeNode::CallableChoice(signatures) => signatures.clone(),
+            TypeNode::FiniteDomain(alternatives) => alternatives.iter().map(|alternative| alternative.ty).collect(),
             TypeNode::Module(exports) => exports.iter().map(|field| field.ty).collect(),
             TypeNode::Record(row) | TypeNode::Row(row) => { let row = self.row_data(*row)?; row.fields.iter().map(|field| field.ty).chain(row.tail).collect() }
             _ => Vec::new(),
@@ -268,6 +283,12 @@ impl InferenceContext {
         self.probe(|graph| {
             let original_record = record;
             let record = graph.resolved(record)?;
+            if let TypeNode::Module(exports) = graph.node(record)? {
+                graph.work_many((usize::BITS - exports.len().leading_zeros()) as usize + 1)?;
+                let export = graph.module_field(record, label)?; let result = export.ty; let optional = export.optional;
+                graph.contribute(ConstraintRelation::ModuleProjection { module: original_record, label, result, optional }, reason)?;
+                return Ok(result);
+            }
             let result = match graph.clone_node(record)? {
                 TypeNode::Record(row) => graph.project_row(row, label, level, origin, 0),
                 TypeNode::Meta(_) => {
@@ -314,13 +335,13 @@ impl InferenceContext {
             (TypeNode::Atom(Atom::Error), TypeNode::Atom(Atom::ErrorFamily(_) | Atom::ErrorVariant { .. } | Atom::ErrorFacet(_) | Atom::ProcessError)) => Ok(()),
             (TypeNode::Atom(Atom::ErrorFamily(expected)), TypeNode::Atom(Atom::ErrorVariant { family, .. })) if expected == family => Ok(()),
             (TypeNode::Optional(_), TypeNode::Atom(Atom::Null)) => Ok(()),
-            (TypeNode::Optional(e), TypeNode::Optional(a)) => self.unify_inner(e, a, depth + 1),
-            (TypeNode::Optional(e), _) => self.assign_inner(e, actual, depth + 1),
+            (TypeNode::Optional(e), TypeNode::Optional(a)) => {let(e,ed)=self.nullable_payload(e,depth+1)?;let(a,ad)=self.nullable_payload(a,depth+1)?;self.unify_inner(e,a,ed.max(ad))},
+            (TypeNode::Optional(e), _) => {let(e,depth)=self.nullable_payload(e,depth+1)?;self.assign_inner(e,actual,depth)},
             (TypeNode::Result(es, ee), TypeNode::Result(as_, ae)) => { self.assign_inner(es, as_, depth + 1)?; self.assign_inner(ee, ae, depth + 1) }
             (TypeNode::Arrow(expected_arrow), TypeNode::Arrow(actual_arrow)) => {
                 if expected_arrow.kind != actual_arrow.kind || expected_arrow.params.len() != actual_arrow.params.len() { return Err(InferenceError::TypeMismatch { left: expected, right: actual }); }
                 for (expected, actual) in expected_arrow.params.iter().zip(&actual_arrow.params) {
-                    if expected.label != actual.label || expected.defaulted != actual.defaulted || expected.rest != actual.rest { return Err(InferenceError::InvalidScheme); }
+                    if expected.label != actual.label || expected.defaulted != actual.defaulted || expected.rest != actual.rest { return Err(InferenceError::TypeMismatch { left: expected_arrow.result, right: actual_arrow.result }); }
                     self.unify_inner(expected.ty, actual.ty, depth + 1)?;
                 }
                 self.assign_inner(expected_arrow.result, actual_arrow.result, depth + 1)?;

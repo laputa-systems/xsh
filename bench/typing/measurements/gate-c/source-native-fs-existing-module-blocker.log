@@ -1,0 +1,17 @@
+running 1 tests
+tests/xsh/stdlib/fs.xsh ... FAILED 0ms
+
+failures:
+
+---- tests/xsh/stdlib/fs.xsh ----
+err[check.type-relationship]: operation needs a local annotation; its type is independent of the callable signature
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/stdlib/fs.xsh:249:59
+  test test_fs_root_operations_reject_traversal [fs, error] { |ctx|
+                                                            ^^^^^^^ operation needs a local annotation; its type is independent of the callable signature
+
+err[check.unsolved-relationship]: arguments do not establish a complete callable relationship
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/tests/xsh/stdlib/fs.xsh:1:1
+  test test_missing_file_read_propagates_structured_error [fs, error] { |ctx|
+  ^ arguments do not establish a complete callable relationship
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

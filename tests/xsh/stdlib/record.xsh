@@ -1,6 +1,20 @@
 type JsonPackage = {name: Str, version: Str}
 type PackageName = {name: Str}
 
+test explicit_any_record_fields_preserve_the_dynamic_boundary [error] { |ctx|
+  let accepted = test.run_script(ctx, r"""pure answer(value: Any) -> Any { value.answer }
+print ${answer({answer: 7})} ${answer({answer: "word"})}
+""")?
+  assert accepted.status == 0, accepted.stderr
+  assert accepted.stdout == "7 word\n", accepted.stdout
+  let rejected = test.run_script(ctx, r"""pure answer(value: Any) -> Int { value.answer }
+let _ = answer({answer: 7})
+""")?
+  assert rejected.status == 2, rejected.stderr
+  assert "check.dynamic-boundary" in rejected.stderr, rejected.stderr
+  true
+}
+
 test test_record_schema_validation_and_any_require [error] {
   let required = json.decode("{\"name\":\"pkg\",\"version\":\"1\",\"extra\":1}")?.require(PackageName)?
   (required.name) == ("pkg")

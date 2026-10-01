@@ -1725,6 +1725,25 @@ fn embedded_and_quoted_dollar_command_interpolation_is_accepted() {
 }
 
 #[test]
+fn parser_retains_omitted_stream_return_holes_and_authored_contracts() {
+    let source = "stream inferred(item) { yield item }\nstream authored(item: Int) [] -> Stream[Int] { yield item }\n";
+    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let declarations = output.arena.statement_ids().map(|statement| match output.arena.arena.stmt(statement).kind {
+        ArenaStmtKind::StreamDef(id) => output.arena.arena.function_def(id),
+        _ => panic!("expected stream declaration"),
+    }).collect::<Vec<_>>();
+    assert_eq!(declarations.len(), 2);
+    assert!(declarations[0].return_ty_defaulted);
+    assert!(!declarations[1].return_ty_defaulted);
+    assert!(output.arena.arena.params(declarations[0].params)[0].ty_defaulted);
+    assert!(!output.arena.arena.params(declarations[1].params)[0].ty_defaulted);
+    assert!(declarations[0].effects.is_none());
+    assert!(declarations[1].effects.unwrap().is_empty());
+    assert_eq!(output.arena.arena.type_expr_data[declarations[0].return_ty.index()].lhs, xsh::frontend::symbols::Name::UNKNOWN.symbol().raw());
+}
+
+#[test]
 fn parser_accepts_compact_sugar_forms() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),

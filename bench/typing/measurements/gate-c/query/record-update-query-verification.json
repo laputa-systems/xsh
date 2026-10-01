@@ -1,0 +1,41 @@
+{
+  "status": "passed",
+  "focused_current_passed": 2,
+  "focused_current_failed": 0,
+  "defined_query_cases": 46,
+  "raw_logs": [
+    {
+      "file": "xsh-gate-c-query-record-update-red.log",
+      "status": "compile_blocked_evaluator_new_variant",
+      "sha256": "ccbc504406bba07cda98c99729376b333d9b9eaa6c9481cf2d405bf8f2e4d5ed"
+    },
+    {
+      "file": "xsh-gate-c-query-record-update-source-red.log",
+      "status": "failed_intentional_query_output_stub",
+      "sha256": "5c7f01e7447da904ad5f0306fb36a1e26c88d2ce164fec0326de445986b29995"
+    },
+    {
+      "file": "xsh-gate-c-query-record-update-green.log",
+      "status": "passed",
+      "sha256": "0989826f195cd6275b4374ceab19d8798d67f242377644d32d82ce8ed8675f66"
+    },
+    {
+      "file": "xsh-gate-c-query-record-update-aggregate-preserved.log",
+      "status": "passed",
+      "sha256": "cff29e0379dcea0052dc69cc706782485b9cc8af795804758fc29d1f012c0416"
+    }
+  ],
+  "source_observation": {
+    "recorded_at_utc": "2026-10-01T09:22:56.925858+00:00",
+    "git_head_observed": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "worktree_mutable": true,
+    "post_run_file_hashes": {
+      "src/frontend/query.rs": "0b331947a573930b25592614f0c3c1a7100adde784f823d3441eb3ebc09b4c48",
+      "src/sema/check/producer.rs": "a6891ab8d4daafd5a1099294ebe2ea2b31fb45d1e97ee8fc892f0fce170937a6",
+      "src/sema/check/solved.rs": "a710e8a7ca46cc09731c59840b9970e91b6c409a0f88844a34360f82487abe8d",
+      "src/sema/check/record_update.rs": "da5c16fb9ea36174a6a37957a0cf885f26fb42362ca09a4a1193ebb9b040dc6b"
+    }
+  },
+  "contract": "Normalized producer RecordUpdate is a distinct overlay with base and authored ordered replacement paths/input references. Exact real expression source/scope survives AST disposal; field names resolve before child local references; shared parameter ancestry is preserved. Aggregate sorting remains distinct. Parity distinguishes an overlay from an aggregate or reordered plan. Queries leave graph instantiation counters unchanged and enforce depth limits.",
+  "provenance_note": "Two focused query tests passed against source-published facts in mutable shared worktree. Actual source query red reached intentional output stub; initial compile-blocked evaluator log is not counted as a semantic failure. Query evidence does not establish evaluator overlay permission/resource semantics. No full46 query suite was run. Post-run source hashes are observations, not immutable compiler snapshot."
+}

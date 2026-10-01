@@ -1,0 +1,179 @@
+{
+  "captured_at_utc": "2026-10-01T15:49:54.118621+00:00",
+  "correction_authority": "src/modules/signature.rs::module_overload_required_effect",
+  "corrections": [
+    {
+      "authority_id": "registry.module.error.fail.ResultContext.a005b0fd795e1601",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": false,
+      "frozen_required_effects": [
+        "error"
+      ],
+      "reason": "The separately approved error.fail Pure construction correction does not execute propagation; constructing error data requires no ERROR creation permission.",
+      "runtime_operation": "ResultContext"
+    },
+    {
+      "authority_id": "registry.module.fs.executable.FsExecutable.e1d0a31f8513f356",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsExecutable"
+    },
+    {
+      "authority_id": "registry.module.fs.group_executable.FsGroupExecutable.bb4bfafc4da2327c",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsGroupExecutable"
+    },
+    {
+      "authority_id": "registry.module.fs.other_executable.FsOtherExecutable.59a07123515f592e",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsOtherExecutable"
+    },
+    {
+      "authority_id": "registry.module.fs.owner_executable.FsOwnerExecutable.0aa9dc26640a42f2",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsOwnerExecutable"
+    },
+    {
+      "authority_id": "registry.module.fs.setgid.FsSetgid.843ffb732ea6a3cd",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsSetgid"
+    },
+    {
+      "authority_id": "registry.module.fs.setuid.FsSetuid.d21254be5a634fae",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsSetuid"
+    },
+    {
+      "authority_id": "registry.module.fs.sticky.FsSticky.51f01636cb02de76",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsSticky"
+    },
+    {
+      "authority_id": "registry.module.fs.world_writable.FsWorldWritable.6dcace4567f57c2b",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "fs"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "FsWorldWritable"
+    },
+    {
+      "authority_id": "registry.module.hash.md5.HashMd5.908eef1f1958f733",
+      "corrected_kind_pure": false,
+      "corrected_required_effects": [
+        "fs"
+      ],
+      "frozen_kind_pure": false,
+      "frozen_required_effects": [],
+      "reason": "The effectful Path overload invokes digest_file and reads the host file; Bytes data hashing remains pure.",
+      "runtime_operation": "HashMd5"
+    },
+    {
+      "authority_id": "registry.module.hash.sha1.HashSha1.d64c9d42804c9a30",
+      "corrected_kind_pure": false,
+      "corrected_required_effects": [
+        "fs"
+      ],
+      "frozen_kind_pure": false,
+      "frozen_required_effects": [],
+      "reason": "The effectful Path overload invokes digest_file and reads the host file; Bytes data hashing remains pure.",
+      "runtime_operation": "HashSha1"
+    },
+    {
+      "authority_id": "registry.module.hash.sha256.HashSha256.71bad5f12fecc177",
+      "corrected_kind_pure": false,
+      "corrected_required_effects": [
+        "fs"
+      ],
+      "frozen_kind_pure": false,
+      "frozen_required_effects": [],
+      "reason": "The effectful Path overload invokes digest_file and reads the host file; Bytes data hashing remains pure.",
+      "runtime_operation": "HashSha256"
+    },
+    {
+      "authority_id": "registry.module.hash.sha512.HashSha512.60a055ef7f1fa974",
+      "corrected_kind_pure": false,
+      "corrected_required_effects": [
+        "fs"
+      ],
+      "frozen_kind_pure": false,
+      "frozen_required_effects": [],
+      "reason": "The effectful Path overload invokes digest_file and reads the host file; Bytes data hashing remains pure.",
+      "runtime_operation": "HashSha512"
+    },
+    {
+      "authority_id": "registry.module.time.duration_compact.TimeDurationCompact.3100396358ccf030",
+      "corrected_kind_pure": true,
+      "corrected_required_effects": [],
+      "frozen_kind_pure": true,
+      "frozen_required_effects": [
+        "time"
+      ],
+      "reason": "Pure data computation performs no native creation effect; propagation remains separately checked.",
+      "runtime_operation": "TimeDurationCompact"
+    }
+  ],
+  "denominator": 730,
+  "frozen_inventory_preserved": true,
+  "frozen_inventory_sha256": "00f418c4508e6d03201c82d5acd1a64d09f630d5ce3ca826652db73f8313a53e",
+  "provenance": {
+    "head": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "qualification": "Live capture; hashes identify capture-time files, not an immutable gate or the earlier log compile snapshots.",
+    "source_sha256": {
+      "docs/SPEC.md": "48b539437cf581a3d62f8f838989af996646d47806ac314e3935a3db3bfd8f08",
+      "src/modules/signature.rs": "604111c509bdd4fdcb8b9ad4dcdb00e854c8a4880a6c4d14fc3c61125f0725a7",
+      "src/sema/check/native_family_tests.rs": "33b24cd3636553802bd5125445684e916fbb60ab648ce8355d3e85f43d3d7c73",
+      "src/sema/registry_graph.rs": "52d123a3c193eb855037289ba590c72ba4d3cbc8f7f6fcd805472d2a5f7474c9"
+    }
+  },
+  "schema_version": 1,
+  "source_regressions": {
+    "after": "source-native-family-effect-green.log",
+    "before": "source-native-family-current-red.log",
+    "source_suite_passed": 4
+  }
+}

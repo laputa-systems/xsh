@@ -1,8 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
-use super::decl::is_builtin_or_standard_record_type_name;
 use super::{
-    BTreeMap, BinaryOp, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo,
+    BTreeMap, BinaryOp, Checker, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo,
     FxHashMap, FxHashSet, Label, Name, TagVariantInfo, Type, UnaryOp, api_spec,
 };
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
@@ -28,6 +27,7 @@ pub struct CompactDeclOutput {
     pub local_binding_types: BTreeMap<crate::source::Span, Type>,
     pub checked_projections: FxHashMap<ExprId, crate::sema::projection::CheckedProjection>,
     pub checked_expr_types: FxHashMap<ExprId, Type>,
+    pub checked_statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     pub record_constructors: super::RecordConstructors,
     pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
@@ -125,15 +125,45 @@ impl Checker {
     // Compact execution must pass the same checked boundaries as normal source
     // checking before representation probes can prepare runtime frames.
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
+        let checked = Checker::check_arena(program, "");
+        Self::compact_declarations_from_checked(program, &checked)
+    }
+
+    /// Adapts facts checked for this arena to the compact declaration layout.
+    /// The shared solved graph and prepared metadata retain their checked owner;
+    /// this conversion performs no semantic checking or constraint generation.
+    pub fn compact_declarations_from_checked(program: &ArenaProgram, checked: &super::CheckOutput) -> CompactDeclOutput {
         program.symbol_owner().with_current(|| {
-            let checked = Checker::check_arena(program, "");
+            let mut checked_expr_types = FxHashMap::default();
+            let mut span_counts = BTreeMap::new();
+            for index in 0..program.arena.expr_tags.len() {
+                let id = ExprId::from_index(index);
+                let span = program.arena.expr(id).span;
+                if let Some(ty) = checked.expr_types.get(&span) {
+                    checked_expr_types.insert(id, ty.clone());
+                    *span_counts.entry(span).or_insert(0usize) += 1;
+                }
+            }
+            // Exact instruction handles distinguish equal spans in different
+            // namespaces. Preserve a legacy partial binder tree only when its
+            // span identifies one instruction; otherwise retain the graph handle.
+            for (identity, &ty) in &checked.solved.expressions {
+                match checked.solved.graph.export_type(ty) {
+                    Ok(ty) => { checked_expr_types.insert(identity.expression, ty); }
+                    Err(_) if span_counts.get(&program.arena.expr(identity.expression).span) == Some(&1)
+                        && checked_expr_types.contains_key(&identity.expression) => {}
+                    Err(_) => { checked_expr_types.insert(identity.expression, Type::Graph(ty)); }
+                }
+            }
             let mut collector = CompactDeclCollector {
-                diagnostics: Vec::new(),
-                names: FxHashSet::default(),
                 output: CompactDeclOutput {
                     solved: checked.solved.clone(),
                     assertion_spans: checked.assertion_spans.clone(),
-                    record_constructors: super::RecordConstructors::collect(program),
+                    record_constructors: checked.record_constructors.clone(),
+                    prepared_constants: checked.prepared_constants.clone(),
+                    wire_enums: checked.wire_enums.clone(),
+                    cli_entry: checked.cli_entry.clone(),
+                    error_families_by_name: checked.error_families.clone(),
                     requirement_targets: (0..program.arena.expr_tags.len()).filter_map(|index| {
                         let id = ExprId::from_index(index);
                         checked.requirement_targets.get(&program.arena.expr(id).span).cloned().map(|target| (id, target))
@@ -152,34 +182,19 @@ impl Checker {
                         let id = ExprId::from_index(index);
                         checked.projections.get(&program.arena.expr(id).span).map(|fact| (id, fact.clone()))
                     }).collect(),
-                    checked_expr_types: (0..program.arena.expr_tags.len()).filter_map(|index| {
-                        let id = ExprId::from_index(index);
-                        checked.expr_types.get(&program.arena.expr(id).span).map(|ty| (id, ty.clone()))
+                    checked_expr_types,
+                    checked_statement_positions: (0..program.arena.stmt_tags.len()).filter_map(|index| {
+                        let id = StmtId::from_index(index);
+                        checked.statement_positions.get(&program.arena.stmt(id).span).map(|position| (id, *position))
                     }).collect(),
                     function_return_types: checked.function_return_types.clone(),
                     ..CompactDeclOutput::default()
                 },
             };
-            collector.output.error_families_by_name = Checker::new(super::CheckOptions::default()).error_families;
-            collector.diagnostics.extend(Self::prepare_regex_literals(program));
             collector.collect_program(program);
             let mut output = collector.output;
-            output.prepared_constants = crate::sema::constants::PreparedConstants::collect(program, &output.record_constructors);
-            collector.diagnostics.extend(output.prepared_constants.diagnostics.clone());
-            output.record_constructors.apply_prepared_defaults(program, &output.prepared_constants);
-            let (wire_enums, wire_diagnostics) = crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr|
-                output.prepared_constants.analyze_expression(&program.arena, expr));
-            output.wire_enums = wire_enums;
-            collector.diagnostics.extend(wire_diagnostics);
-            let (entry, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
-                |parameter| output.parameter_types.get(&program.arena.span(parameter.span)).cloned().unwrap_or_else(|| output.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
-                |ty| output.record_constructors.cli_parser_type(&program.arena, ty),
-                |expr| output.prepared_constants.analyze_expression(&program.arena, expr));
-            output.cli_entry = entry;
-            collector.diagnostics.extend(diagnostics);
-            output.diagnostics = collector.diagnostics;
-            output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
-                diagnostic.severity == crate::diagnostic::Severity::Error));
+            output.diagnostics = checked.diagnostics.iter().filter(|diagnostic|
+                diagnostic.severity == crate::diagnostic::Severity::Error).cloned().collect();
             output
         })
     }
@@ -194,6 +209,7 @@ impl Checker {
             output.projections = declarations.checked_projections.clone();
             output.requirement_targets = declarations.requirement_targets.clone();
             output.expr_types = declarations.checked_expr_types.clone();
+            output.statement_positions = declarations.checked_statement_positions.clone();
             for (&id, ty) in &declarations.checked_expr_types {
                 match program.arena.expr(id).kind {
                     ArenaExprKind::ContextScope { block, .. } => {
@@ -236,14 +252,25 @@ impl Checker {
             // contextual tails and narrowing; the execution probe carries its facts.
             probe.output.assertion_spans = declarations.assertion_spans.clone();
             probe.resolve_checked_types();
+            // Representation calculations cannot replace checked source contracts,
+            // including quantified constructor types and contextual tail purposes.
+            probe.output.expr_types.extend(declarations.checked_expr_types.clone());
+            probe.output.statement_positions.extend(declarations.checked_statement_positions.clone());
+            for (&expression, ty) in &declarations.checked_expr_types {
+                match program.arena.expr(expression).kind {
+                    ArenaExprKind::ContextScope { block, .. } => {
+                        if let Some(ok) = ty.result_ok() { probe.output.block_types.insert(block, ok.clone()); }
+                    }
+                    ArenaExprKind::ValueBlock(block) => { probe.output.block_types.insert(block, ty.clone()); }
+                    _ => {}
+                }
+            }
             probe.output
         })
     }
 }
 
 struct CompactDeclCollector {
-    diagnostics: Vec<Diagnostic>,
-    names: FxHashSet<Name>,
     output: CompactDeclOutput,
 }
 
@@ -253,13 +280,9 @@ impl CompactDeclCollector {
             self.collect_decl_stmt(program, stmt, None);
         }
         for module in &program.modules {
-            // Declaration collisions belong to one lexical module. Separate
-            // modules may export distinct schemas with the same local name.
-            let entry_names = std::mem::take(&mut self.names);
             for stmt in program.module_statements(module) {
                 self.collect_decl_stmt(program, stmt, Some(module.name));
             }
-            self.names = entry_names;
         }
     }
 
@@ -297,15 +320,12 @@ impl CompactDeclCollector {
         &mut self,
         program: &ArenaProgram,
         id: TypeDefId,
-        span: crate::source::Span,
+        _span: crate::source::Span,
         namespace: Option<Name>,
     ) {
         let def = program.arena.type_def(id);
         self.output.type_defs += 1;
         let internal = namespace.is_some_and(|namespace| program.is_internal_namespace(namespace));
-        if !internal {
-            self.check_top_level_name(def.name, span, "type name conflicts with a built-in type");
-        }
         let info = self.collect_type_def_body(program, def, namespace);
         if !internal {
             self.output.types.insert(def.name, info);
@@ -321,19 +341,11 @@ impl CompactDeclCollector {
         match def.body {
             ArenaTypeDefBody::Alias(ty) => CompactTypeDefInfo::Alias(ty),
             ArenaTypeDefBody::RecordSchema(fields) => {
-                let mut names = FxHashSet::default();
                 let fields = program.arena.schema_fields(fields);
                 self.output.schema_fields += fields.len();
                 let mut record = BTreeMap::new();
                 let mut schema_fields = BTreeMap::new();
                 for field in fields {
-                    if !names.insert(field.name) {
-                        self.error(
-                            program.arena.span(field.span),
-                            "duplicate schema field",
-                            "check.duplicate-record-field",
-                        );
-                    }
                     record.insert(field.name, Type::from_arena(&program.arena, field.ty));
                     schema_fields.insert(field.name, field.ty);
                 }
@@ -345,18 +357,10 @@ impl CompactDeclCollector {
                 CompactTypeDefInfo::Record(record)
             }
             ArenaTypeDefBody::ModuleContract(entries) => {
-                let mut names = FxHashSet::default();
                 let entries = program.arena.module_contract_entries(entries);
                 self.output.module_contract_entries += entries.len();
                 let mut exports = BTreeMap::new();
                 for entry in entries {
-                    if !names.insert(entry.name) {
-                        self.error(
-                            program.arena.span(entry.span),
-                            "duplicate module contract export",
-                            "check.duplicate-name",
-                        );
-                    }
                     match entry.kind {
                         ArenaModuleContractEntryKind::Value(ty) => {
                             exports.insert(
@@ -428,18 +432,11 @@ impl CompactDeclCollector {
         &mut self,
         program: &ArenaProgram,
         id: ErrorDefId,
-        span: crate::source::Span,
+        _span: crate::source::Span,
         namespace: Option<Name>,
     ) {
         let def = program.arena.error_def(id);
         self.output.error_families += 1;
-        if !namespace.is_some_and(|namespace| program.is_internal_namespace(namespace)) {
-            self.check_top_level_name(
-                def.name,
-                span,
-                "error family name conflicts with a built-in type",
-            );
-        }
         self.collect_error_variants(program, def, namespace);
     }
 
@@ -449,30 +446,14 @@ impl CompactDeclCollector {
         def: &ArenaErrorDef,
         namespace: Option<Name>,
     ) {
-        let mut variants = FxHashSet::default();
         let error_variants = program.arena.error_variants(def.variants);
         self.output.error_variants += error_variants.len();
         let mut family_variants = BTreeMap::new();
         for variant in error_variants {
-            if !variants.insert(variant.name) {
-                self.error(
-                    program.arena.span(variant.span),
-                    "duplicate error variant",
-                    "check.duplicate-name",
-                );
-            }
             let fields = program.arena.error_fields(variant.fields);
             self.output.error_fields += fields.len();
-            let mut field_names = FxHashSet::default();
             let mut field_types = BTreeMap::new();
             for field in fields {
-                if !field_names.insert(field.name) {
-                    self.error(
-                        program.arena.span(field.span),
-                        "duplicate error payload field",
-                        "check.duplicate-record-field",
-                    );
-                }
                 field_types.insert(field.name, Type::from_arena(&program.arena, field.ty));
             }
             let facets = program.arena.names(variant.facets).collect::<Vec<_>>();
@@ -500,27 +481,12 @@ impl CompactDeclCollector {
         program: &ArenaProgram,
         id: FunctionDefId,
         kind: CompactFunctionKind,
-        span: crate::source::Span,
+        _span: crate::source::Span,
         namespace: Option<Name>,
     ) {
         let def = program.arena.function_def(id);
         let internal = namespace.is_some_and(|namespace| program.is_internal_namespace(namespace));
         self.output.function_defs += 1;
-        if !internal {
-            self.check_standard_module_shadow(&def.name.as_str(), span);
-            if kind == CompactFunctionKind::Proc
-                && CoreCommand::from_name(&def.name.as_str()).is_some()
-            {
-                self.error(
-                    span,
-                    "proc name conflicts with a core command",
-                    "check.core-command-shadow",
-                );
-            }
-        }
-        if !self.names.insert(def.name) {
-            self.error(span, "duplicate top-level name", "check.duplicate-name");
-        }
         let sig = self.function_sig(program, id, namespace);
         if let Some(namespace) = namespace {
             let qualified = QualifiedName::new(namespace, def.name);
@@ -559,7 +525,9 @@ impl CompactDeclCollector {
         let def = program.arena.function_def(id);
         let mut params = self.param_sigs(program, def.params);
         let parameter_schemas = program.arena.params(def.params).iter().zip(&mut params).map(|(syntax, param)| {
-            param.ty = self.output.record_constructors.resolve_type(&program.arena, syntax.ty, namespace);
+            if !self.output.parameter_types.contains_key(&program.arena.span(syntax.span)) {
+                param.ty = self.output.record_constructors.resolve_type(&program.arena, syntax.ty, namespace);
+            }
             self.output.record_constructors.annotation_expectation(&program.arena, syntax.ty, namespace).ok()
         }).collect();
         let body_span = program.arena.span(program.arena.block(def.body).span);
@@ -610,38 +578,7 @@ impl CompactDeclCollector {
             .collect()
     }
 
-    fn check_top_level_name(
-        &mut self,
-        name: Name,
-        span: crate::source::Span,
-        builtin_message: &str,
-    ) {
-        if is_builtin_or_standard_record_type_name(name.as_str()) {
-            self.error(span, builtin_message, "check.duplicate-name");
-        }
-        self.check_standard_module_shadow(&name.as_str(), span);
-        if !self.names.insert(name) {
-            self.error(span, "duplicate top-level name", "check.duplicate-name");
-        }
-    }
 
-    fn check_standard_module_shadow(&mut self, name: &str, span: crate::source::Span) {
-        if name == "args" {
-            return;
-        }
-        if name != "error" && api_spec().is_standard_module(name) {
-            let message = format!("name `{name}` shadows the standard module `{name}`");
-            self.error(span, &message, "check.standard-module-shadow");
-        }
-    }
-
-    fn error(&mut self, span: crate::source::Span, message: &str, code: &str) {
-        self.diagnostics.push(
-            Diagnostic::error(message)
-                .with_code(code)
-                .with_label(Label::primary(span, message)),
-        );
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1003,10 +940,17 @@ impl CompactBodyProbe<'_> {
                     if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.boolean_proof = boolean_proof; }
                 }
             }
-            ArenaStmtKind::Assign { target, value, .. } => {
+            ArenaStmtKind::Assign { target, value, op } => {
                 self.output.supported_statements += 1;
                 self.check_compact_assign_target(target, stmt.span);
-                let expected = self.compact_assign_target_type(target);
+                let expected = if op == crate::syntax::node::AssignOp::Set {
+                    self.compact_assign_target_type(target)
+                } else {
+                    let identity = super::StatementIdentity { source: stmt.span.source_id, namespace: self.current_namespace, statement: id };
+                    self.declarations.solved.statement_operations.get(&identity)
+                        .and_then(|operation| operation.actual_arguments.get(1)).map(|&ty|
+                            self.declarations.solved.graph.export_type(ty).unwrap_or(Type::Graph(ty)))
+                };
                 match value {
                     ArenaExprOrRun::Expr(expr) => { self.check_compact_expr_expected(expr, expected.as_ref()); }
                     ArenaExprOrRun::Run(run) => { self.check_compact_expr_or_run(ArenaExprOrRun::Run(run)); }

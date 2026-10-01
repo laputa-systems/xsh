@@ -1,0 +1,39 @@
+{
+  "captured_at_utc": "2026-10-01T17:37:11.814739+00:00",
+  "denominator": 730,
+  "regression": "native_command_captured_factory_retains_pending_original_argument_guards",
+  "red": {
+    "passed": 0,
+    "failed": 1,
+    "log": "source-native-command-pending-recipe-red.log",
+    "cause": "Cold source Slots validation required public selected InvocationEvidence for an intentionally pending generic native choice."
+  },
+  "isolated_green": {
+    "passed": 1,
+    "failed": 0,
+    "log": "source-native-command-pending-recipe-isolated-green.log"
+  },
+  "suite_green": {
+    "passed": 6,
+    "failed": 0,
+    "log": "source-native-command-pending-recipe-suite-green.log",
+    "command": "cargo test -p xsh --lib sema::check::native_command_tests --offline -- --test-threads=1"
+  },
+  "proof": "Static source binding is independently checked against retained native authority labels and omission contract. Exact original argument IDs and Some/None masks survive without requiring an overload winner. Rich Invocation children retain exact original InvocationCallId.",
+  "retained_regression_assertions": [
+    "one unresolved generic parent invocation with no published evidence",
+    "one canonical private child with no selected candidate",
+    "child target/argv preserve exact original TypeIds",
+    "all optional child slots remain None"
+  ],
+  "qualification": "Source checking and cold facts after frontend disposal only; no prepared runtime execution or full acceptance claim. Log runs identify their compile snapshot; hashes below identify subsequent live shared-worktree capture.",
+  "provenance": {
+    "head": "e01ff5199ad1ac2076a6d83441b6fce056cfc58a",
+    "source_sha256": {
+      "src/sema/check/solved.rs": "57ac5d52be3df295cc9d5643928e9107476caef47fd60509c0646fbdd5ae3916",
+      "src/sema/check/native_command_tests.rs": "548bce2b0a90f68328667e03cb392a8cd1fef0c1278ef8f916b3bd876d5a0fc5",
+      "src/sema/check/callable.rs": "61c3d5eaa2a2dd2723ad7f647092a8fe83ad137cd961ca327e48dee021dd8e0b",
+      "src/sema/inference/invocations.rs": "983d516a39be7dbff08f6872423ace32be727c2b2bd30ce9224e5d9b37be2929"
+    }
+  }
+}

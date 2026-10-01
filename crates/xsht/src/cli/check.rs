@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{
-    AnnotationFact, AnnotationFactKind, CheckOptions, Checker, CompactBodyProbeOutput,
+    AnnotationFactKind, CheckOptions, CheckOutput, Checker, CompactBodyProbeOutput,
 };
 use xsh::frontend::load::{self as loader, parse_load_check_file};
 use xsh::frontend::source::{SourceId, SourceMap, Span};
@@ -337,7 +337,7 @@ pub fn check_paths_with_summary_options(
                 &path_str,
                 source_id,
                 &mut sources,
-                module_roots,
+                module_roots.clone(),
             );
 
             if !parsed.diagnostics.is_empty() {
@@ -375,7 +375,7 @@ pub fn check_paths_with_summary_options(
 
             let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &sources);
 
-            let declarations = Checker::check_compact_declarations(&parsed.arena);
+            let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &checked);
             let bodies = if declarations.diagnostics.is_empty() {
                 Checker::probe_compact_bodies(&parsed.arena, &declarations)
             } else {
@@ -429,7 +429,7 @@ pub fn check_paths_with_summary_options(
                     continue;
                 };
                 let edits = annotation_edits(
-                    &checked.annotation_facts,
+                    &checked,
                     annotation_policy,
                     source_id,
                     &original,
@@ -454,10 +454,10 @@ pub fn check_paths_with_summary_options(
                         continue;
                     }
                     if reformatted.formatted != original
-                        && let Err(err) = fs::write(&path_str, &reformatted.formatted)
+                        && let Err(err) = write_checked_annotation(&path_str, &reformatted.formatted, source_id, &sources, &module_roots, check_options)
                     {
-                        stderr.push_str(&format!("xsht: failed to write '{path_str}': {err}\n"));
-                        status = 4;
+                        stderr.push_str(&err.message(&path_str));
+                        status = err.status();
                         continue;
                     }
                 }
@@ -628,14 +628,15 @@ fn check_one_script(
     module_roots: &[PathBuf],
     line_width: usize,
 ) -> CliOutput {
+    let check_options = CheckOptions {
+        interactive_commands: None,
+        reveal_types: true,
+        migration_diagnostics: true,
+    };
     let checked_program = match parse_load_check_file(
         script,
         module_roots.to_vec(),
-        CheckOptions {
-            interactive_commands: None,
-            reveal_types: true,
-            migration_diagnostics: true,
-        },
+        check_options,
     ) {
         Ok(source) => source,
         Err(err) => {
@@ -676,7 +677,7 @@ fn check_one_script(
     let mut stderr =
         DiagnosticRenderer::new().render(&checked.reveal_types, &checked_program.sources);
 
-    let declarations = Checker::check_compact_declarations(&checked_program.parsed.arena);
+    let declarations = Checker::compact_declarations_from_checked(&checked_program.parsed.arena, checked);
     let bodies = if declarations.diagnostics.is_empty() {
         Checker::probe_compact_bodies(&checked_program.parsed.arena, &declarations)
     } else {
@@ -714,7 +715,7 @@ fn check_one_script(
             };
         };
         let edits = annotation_edits(
-            &checked.annotation_facts,
+            checked,
             annotation_policy,
             checked_program.entry_source_id,
             original,
@@ -742,12 +743,12 @@ fn check_one_script(
                 };
             }
             if reformatted.formatted != original
-                && let Err(err) = fs::write(script, &reformatted.formatted)
+                && let Err(err) = write_checked_annotation(script, &reformatted.formatted, checked_program.entry_source_id, &checked_program.sources, module_roots, check_options)
             {
                 return CliOutput {
-                    status: 4,
+                    status: err.status(),
                     stdout: Vec::new(),
-                    stderr: text_bytes(format!("xsht: failed to write '{script}': {err}\n")),
+                    stderr: text_bytes(err.message(script)),
                     trace_text: String::new(),
                     syscall_summary: None,
                 };
@@ -807,6 +808,70 @@ fn configured_annotation_policy(
         .map_err(|message| format!("invalid xsht-config.ini check.annotate: {message}"))
 }
 
+#[derive(Debug)]
+enum AnnotationWriteError {
+    Rejected(String),
+    Write(std::io::Error),
+}
+
+impl AnnotationWriteError {
+    fn status(&self) -> u8 {
+        match self {
+            Self::Rejected(_) => 2,
+            Self::Write(_) => 4,
+        }
+    }
+
+    fn message(&self, script: &str) -> String {
+        match self {
+            Self::Rejected(diagnostics) => diagnostics.clone(),
+            Self::Write(error) => format!("xsht: failed to write '{script}': {error}\n"),
+        }
+    }
+}
+
+fn write_checked_annotation(
+    script: &str,
+    replacement: &str,
+    source_id: SourceId,
+    sources: &SourceMap,
+    module_roots: &[PathBuf],
+    options: CheckOptions,
+) -> Result<(), AnnotationWriteError> {
+    // Rewrites are new source. Keep the entry's source identity and import
+    // resolution context, then validate semantic and execution boundaries before
+    // writing any bytes. Facts from the original text cannot validate new spans.
+    let mut rewritten_sources = SourceMap::new();
+    for source in sources.files() {
+        let text = if source.id() == source_id { replacement } else { source.text() };
+        let retained_id = rewritten_sources.add_file(source.name(), text);
+        debug_assert_eq!(retained_id, source.id());
+    }
+    let parsed = loader::parse_load_entry_source_shared_arena_only(script, source_id, &mut rewritten_sources, module_roots.to_vec());
+    if !parsed.diagnostics.is_empty() {
+        return Err(AnnotationWriteError::Rejected(DiagnosticRenderer::new().render(&parsed.diagnostics, &rewritten_sources)));
+    }
+    let checked = Checker::check_arena_with_options(&parsed.arena, replacement, options);
+    if !checked.diagnostics.is_empty() {
+        return Err(AnnotationWriteError::Rejected(DiagnosticRenderer::new().render(&checked.diagnostics, &rewritten_sources)));
+    }
+    let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &checked);
+    let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
+        &parsed.arena,
+        source_id,
+        rewritten_sources.clone(),
+        declarations,
+        bodies,
+        Vec::new(),
+        xsh::execution::script::script_command_name(script),
+    );
+    if !diagnostics.is_empty() {
+        return Err(AnnotationWriteError::Rejected(DiagnosticRenderer::new().render(&diagnostics, &rewritten_sources)));
+    }
+    fs::write(script, replacement).map_err(AnnotationWriteError::Write)
+}
+
 fn formatter_line_width_for_script(
     script: &str,
     fallback_config: &XshConfig,
@@ -816,13 +881,14 @@ fn formatter_line_width_for_script(
 
 #[allow(clippy::single_call_fn)]
 fn annotation_edits(
-    facts: &[AnnotationFact],
+    checked: &CheckOutput,
     policy: AnnotationPolicy,
     target_source: SourceId,
     source: &str,
 ) -> Vec<(usize, usize, String)> {
     let mut edits = Vec::new();
-    for fact in facts {
+    let query = xsh::frontend::query::SolvedQuery::new(&checked.solved, checked.solved.symbol_owner());
+    for fact in &checked.annotation_facts {
         if matches!(
             fact.kind,
             AnnotationFactKind::Binding { .. } | AnnotationFactKind::DefaultedParam { .. }
@@ -830,7 +896,10 @@ fn annotation_edits(
         {
             continue;
         }
-        let Some(ty) = fact.ty.annotation_source() else {
+        let Ok(view) = query.type_view(&fact.ty, None) else {
+            continue;
+        };
+        let Some(ty) = view.annotation_source() else {
             continue;
         };
         match &fact.kind {
@@ -874,4 +943,78 @@ fn annotation_edits(
     edits.sort_unstable_by_key(|(start, end, _)| Reverse((*start, *end)));
     edits.dedup_by_key(|(start, end, _)| (*start, *end));
     edits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn annotation_edits_accept_closed_nested_graph_leaves_and_refuse_generic_graphs() {
+        use xsh::frontend::check::Type;
+        let source = "pure identity(value) { value }\nlet result = [identity(7)]\n";
+        let source_id = SourceId::new(2);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        checked.annotation_facts.retain(|fact| matches!(fact.kind, AnnotationFactKind::Binding { .. }));
+        assert_eq!(checked.annotation_facts.len(), 1);
+        let call = *checked.solved.calls.keys().next().unwrap();
+        let ground = checked.solved.expressions[&call];
+        checked.annotation_facts[0].ty = Type::List(Box::new(Type::Graph(ground)));
+        let edits = annotation_edits(&checked, AnnotationPolicy::with_locals(), source_id, source);
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        assert_eq!(edits[0].2, ": List[Int] ");
+        let mut rewritten = source.to_string();
+        for (start, end, replacement) in edits { rewritten.replace_range(start..end, &replacement); }
+        let reparsed = Parser::parse_source_arena_only(source_id, &rewritten);
+        assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+        let rewritten_check = Checker::check_arena(&reparsed.arena, &rewritten);
+        assert!(rewritten_check.diagnostics.is_empty(), "{:?}", rewritten_check.diagnostics);
+        let generic = checked.solved.declarations.values().next().expect("generic identity declaration").signature;
+        for unsupported in [Type::List(Box::new(Type::Graph(generic))), Type::Any, Type::Record(BTreeMap::new())] {
+            checked.annotation_facts[0].ty = unsupported;
+            assert!(annotation_edits(&checked, AnnotationPolicy::with_locals(), source_id, source).is_empty());
+        }
+    }
+
+    #[test]
+    fn annotation_write_rejects_semantically_invalid_source_without_changing_bytes() {
+        let root = std::env::temp_dir().join(format!("xsh-invalid-annotation-{}", std::process::id()));
+        fs::create_dir_all(&root).expect("create annotation fixture");
+        let script = root.join("entry.xsh");
+        let path = script.to_str().unwrap();
+        let original = "let value = 42\n";
+        fs::write(&script, original).unwrap();
+        let mut sources = SourceMap::new();
+        sources.add_file("<preceding-source>", "let unrelated = true\n");
+        let source_id = sources.add_file(path, original);
+        let outcome = write_checked_annotation(path, "let value: Bool = 42\n", source_id, &sources, &[], CheckOptions::default());
+        let unchanged = fs::read_to_string(&script).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        assert!(matches!(outcome, Err(AnnotationWriteError::Rejected(_))), "{outcome:?}");
+        assert_eq!(unchanged, original);
+    }
+
+    #[test]
+    fn annotation_write_retains_entry_source_identity_and_configured_module_roots() {
+        let root = std::env::temp_dir().join(format!("xsh-imported-annotation-{}", std::process::id()));
+        let modules = root.join("modules");
+        fs::create_dir_all(&modules).unwrap();
+        fs::write(modules.join("helper.xsh"), "##! Text helper.\n## Render a value.\nexport pure render(value: Str = \"module\") -> Str { value }\n").unwrap();
+        let script = root.join("entry.xsh");
+        let path = script.to_str().unwrap();
+        let original = "use helper\nlet value = helper.render()\n";
+        let replacement = "use helper\nlet value: Str = helper.render()\n";
+        fs::write(&script, original).unwrap();
+        let mut sources = SourceMap::new();
+        sources.add_file("<preceding-source>", "let unrelated = true\n");
+        let source_id = sources.add_file(path, original);
+        let outcome = write_checked_annotation(path, replacement, source_id, &sources, &[modules], CheckOptions { migration_diagnostics: true, ..CheckOptions::default() });
+        let written = fs::read_to_string(&script).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(written, replacement);
+    }
 }
