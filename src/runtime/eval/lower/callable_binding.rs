@@ -82,7 +82,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             let source_type = crate::sema::inference::ScopedRoot { ty, scope: solved.expression_scope(origin, Some(caller)).ok()? };
             solved.graph.validate_scoped(source_type).ok()?;
             let Some(callable) = solved.expression_callables.get(&origin) else { return Some(()); };
-            callable.declaration?;
+            if callable.declaration.is_none() { return Some(()); }
             scratch.callable_receiver_origins.insert(read, super::super::BuildCallableReceiverOrigin {
                 origin, binding: binding_identity, initializer, slot, wrapper: None,
                 capture: Some(BuildCapturedCallableReceiver { caller, slot: capture_slot, name, source_type }),

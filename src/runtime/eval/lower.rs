@@ -9398,7 +9398,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let slot = slots.reserve("call receiver");
                 bindings.push((receiver, slot));
                 let read = push_build_row!(self, expr, BuildExprRow::Param(slot));
-                self.record_original_callable_receiver(base, receiver, read, slot)?;
+                self.record_original_callable_receiver(base, receiver, read, slot, slots)?;
                 receiver_override = Some((base, slots.postfix_receivers.insert(base, read)));
             }
         }
@@ -15661,7 +15661,7 @@ pub(super) use iteration::{original_user_stream_call, original_top_level_iterato
 mod storage;
 
 #[path = "lower/callable_binding.rs"]
-mod callable_binding;
+pub(super) mod callable_binding;
 mod native_receiver;
 mod native_byte_at;
 mod container_creation;

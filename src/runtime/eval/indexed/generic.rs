@@ -1,3 +1,4 @@
+use crate::sema::types::Type;
 use super::semantic::{SemanticPools, TypeTag};
 use super::{IrFunctionId, IrVerifyError, SignatureId, TypeId as GroundTypeId};
 use crate::symbol::Name;
@@ -68,7 +69,7 @@ pub(in crate::runtime::eval) use eligibility_requirements::OriginalScopedEligibi
 mod value_bindings;
 mod native_callables;
 mod callable_receivers;
-pub(in crate::runtime::eval) use callable_receivers::OriginalCallableReceiver;
+pub(in crate::runtime::eval) use callable_receivers::{OriginalCallableReceiver, CapturedCallableReceiver};
 pub(in crate::runtime::eval) use native_callables::{NativeCallableContract, NativeCallableSource, PreparedNativeCallableValue, GroundNativeInvocationContract, NativeInvocationSource, PreparedNativeInvocationPlan};
 pub(in crate::runtime::eval) use value_bindings::{ValueBindingIdentity, ValueBindingAllocation, ValueBindingSourceId, ValueBindingId, ValueBindingContract, ValueInitializerWrapper, ValueInitializerWrapperKind, ValueBindingSource, PreparedValueBinding, ValueBindingUse};
 pub(in crate::runtime::eval) use operation_requirements::{ScopedOperationRequirement, ScopedOperationSource, ScopedOperationObligation, ScopedOperationWitness, ScopedOperationCode, ScopedOperationSourceId, ScopedOperationWitnessId};

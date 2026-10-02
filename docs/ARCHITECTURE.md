@@ -12,6 +12,12 @@ using existing prepared default slots and capture hydration. Dynamic module
 exports register an alias handle against the original indexed definition;
 they do not create a forwarding body.
 
+`generic/callable_receivers.rs::OriginalCallableReceiver` retains a saved `.call`
+receiver independently of supplied arguments. Captured immutable aliases retain
+their original checked binding, receiving capture allocation and exact
+`UserCallableContract`. A compiler temporary cannot supply local binding authority
+or substitute another capture with the same signature.
+
 `runtime::eval::RuntimeCallableValue` carries an owning `Arc<FullProgram>`, a
 validated `CallableValueId`, and the original lexical capture environment.
 Immutable captures retain values; supported mutable captures retain live cells.

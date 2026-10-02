@@ -147,6 +147,10 @@ original capture allocation and read authority, both routes after frontend
 disposal, cold forgery refusals, and checkpoint retirement. The existing
 `runtime::eval::callable_value::tests` filter owns host value transport.
 
+`cargo test -p xsh --lib saved_captured_callable_receiver_` checks original
+immutable capture allocations for saved `.call` receivers after frontend disposal,
+including missing receipts and substituted bindings, capture headers and reads.
+
 `cargo test -p xsh --lib live_mutable_capture_` checks nested writes, deferred
 updates, reads after supplied argument evaluation, defaults, scalar reads
 within one expression and stored callable aliases on both workers after

@@ -1,8 +1,7 @@
 use super::*;
 
-/// A compiler-saved callable receiver retains the original immutable binding.
-/// It is not a supplied argument, and its temporary slot cannot replace that
-/// binding's source identity or initialization authority.
+/// An immutable callable capture keeps its checked binding allocation and the
+/// exact receiving header independently of compiler-created receiver slots.
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct CapturedCallableReceiver {
     pub declaration: crate::sema::check::DeclarationIdentity,
@@ -10,10 +9,13 @@ pub(in crate::runtime::eval) struct CapturedCallableReceiver {
     pub header_index: u32,
     pub slot: u32,
     pub name: u32,
-    pub ty: super::super::semantic::TypeId,
+    pub ty: super::super::TypeId,
     pub source_type: crate::sema::inference::ScopedRoot,
 }
 
+/// A compiler-saved callable receiver retains the original immutable binding.
+/// It is not a supplied argument, and its temporary slot cannot replace that
+/// binding's source identity or initialization authority.
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct OriginalCallableReceiver {
     pub origin: crate::sema::check::ExpressionIdentity,

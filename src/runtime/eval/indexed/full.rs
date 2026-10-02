@@ -1652,6 +1652,7 @@ struct FullCheckpoint {
     callable_binding_rows: usize,
     callable_use_rows: usize,
     callable_receiver_rows: usize,
+    original_callable_capture_rows: usize,
     saved_native_receiver_rows: usize,
     result_receiver_rows: usize,
     host_binding_read_rows: usize,
@@ -1741,6 +1742,7 @@ pub(in crate::runtime::eval) struct FullBuilder {
     active_callable_bindings: FxHashMap<BuildStmtId, (crate::sema::check::BindingIdentity, super::super::BuildCallableBindingOrigin)>,
     active_encoded_expressions: FxHashMap<BuildExprId, u32>,
     callable_binding_rows: Vec<(crate::sema::check::BindingIdentity, super::super::BuildCallableBindingOrigin, u32, u32, InstructionOwner)>,
+    original_callable_capture_rows: Vec<(IrFunctionId, crate::sema::check::DeclarationIdentity, u32, LoweredTopLevelSlot)>,
     callable_use_rows: Vec<super::generic::OriginalCallableUse>,
     callable_receiver_rows: Vec<(super::super::BuildCallableReceiverOrigin, u32, InstructionOwner, Option<(u32, u32, u32)>)>,
     active_callable_receiver_wrappers: FxHashMap<BuildExprId, Vec<usize>>,
@@ -3092,6 +3094,7 @@ impl FullBuilder {
             callable_binding_rows: self.callable_binding_rows.len(),
             callable_use_rows: self.callable_use_rows.len(),
             callable_receiver_rows: self.callable_receiver_rows.len(),
+            original_callable_capture_rows: self.original_callable_capture_rows.len(),
             saved_native_receiver_rows: self.saved_native_receiver_rows.len(),
             result_receiver_rows: self.result_receiver_rows.len(),
             host_binding_read_rows: self.host_binding_read_rows.len(),
@@ -3157,6 +3160,7 @@ impl FullBuilder {
         self.callable_binding_rows.truncate(checkpoint.callable_binding_rows);
         self.callable_use_rows.truncate(checkpoint.callable_use_rows);
         self.callable_receiver_rows.truncate(checkpoint.callable_receiver_rows);
+        self.original_callable_capture_rows.truncate(checkpoint.original_callable_capture_rows);
         self.saved_native_receiver_rows.truncate(checkpoint.saved_native_receiver_rows);
         self.result_receiver_rows.truncate(checkpoint.result_receiver_rows);
         self.active_native_receiver_wrappers.retain(|_, rows| { rows.retain(|&row| row < checkpoint.saved_native_receiver_rows); !rows.is_empty() });
@@ -5368,7 +5372,7 @@ impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
-        let pattern_tree = store.generic.as_deref().is_some_and(|generic| generic.has_pattern_applications() || generic.has_original_patterns() || generic.has_local_callable_bindings() || generic.has_original_argument_bindings() || generic.has_iteration_bindings() || generic.has_value_bindings() || generic.has_comprehensions() || generic.has_context_producers() || generic.has_try_captures() || generic.has_native_scalars() || generic.has_mutable_bindings() || generic.has_saved_native_receivers() || generic.has_mutable_paths() || generic.has_host_bindings() || generic.has_lexical_captures() || generic.has_conditionals() || generic.has_formatted_paths() || generic.has_optional_receiver_guards() || generic.has_native_record_arguments() || generic.operations().any(|(_, operation)| operation.literal_comparison_slot.is_some())).then(|| std::sync::Mutex::new(super::pattern::PatternTreeBuilder::new(store.tags.len())));
+        let pattern_tree = store.generic.as_deref().is_some_and(|generic| generic.has_pattern_applications() || generic.has_original_patterns() || generic.has_local_callable_bindings() || generic.original_callable_receivers().next().is_some() || generic.has_original_argument_bindings() || generic.has_iteration_bindings() || generic.has_value_bindings() || generic.has_comprehensions() || generic.has_context_producers() || generic.has_try_captures() || generic.has_native_scalars() || generic.has_mutable_bindings() || generic.has_saved_native_receivers() || generic.has_mutable_paths() || generic.has_host_bindings() || generic.has_lexical_captures() || generic.has_conditionals() || generic.has_formatted_paths() || generic.has_optional_receiver_guards() || generic.has_native_record_arguments() || generic.operations().any(|(_, operation)| operation.literal_comparison_slot.is_some())).then(|| std::sync::Mutex::new(super::pattern::PatternTreeBuilder::new(store.tags.len())));
         let mut wire_types = rustc_hash::FxHashSet::default();
         for mapping in &store.wire_enums {
             if mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len() {
@@ -7251,7 +7255,7 @@ macro_rules! impl_build_id_codec {
                         let (wrapper, _) = original.wrapper.ok_or_else(|| IrBuildError::format("callable_receiver_wrapper_missing", None, 0, 0))?;
                         builder.active_callable_receiver_wrappers.entry(wrapper).or_default().push(builder.callable_receiver_rows.len());
                         builder.callable_receiver_rows.push((original.clone(), instruction, owner, None));
-                        builder.callable_use_rows.push(super::generic::OriginalCallableUse { instruction, origin: original.origin, binding: original.binding, owner });
+                        if original.capture.is_none() { builder.callable_use_rows.push(super::generic::OriginalCallableUse { instruction, origin: original.origin, binding: original.binding, owner }); }
                     }
                     if let Some(rows) = builder.active_callable_receiver_wrappers.remove(&expression) {
                         let (initializer, pattern, _) = argument_prepare::saved_argument_wrapper(&builder.store, instruction).map_err(|_| IrBuildError::format("callable_receiver_wrapper_changed", None, 0, 0))?;

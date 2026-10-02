@@ -5,7 +5,6 @@ use std::num::NonZeroU32;
 
 pub(super) mod full;
 pub(super) mod generic;
-pub(super) mod native_methods;
 mod semantic;
 pub(super) mod pattern;
 pub(in crate::runtime::eval) mod native_methods;

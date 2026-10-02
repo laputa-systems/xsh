@@ -681,6 +681,7 @@ struct BuildIterationBindingOrigin {
 /// it is separate from the supplied argument recipes of the invocation.
 #[derive(Clone, Debug)]
 struct BuildCallableReceiverOrigin {
+    capture: Option<lower::callable_binding::BuildCapturedCallableReceiver>,
     origin: crate::sema::check::ExpressionIdentity,
     binding: crate::sema::check::BindingIdentity,
     initializer: BuildExprId,

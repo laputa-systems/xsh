@@ -104,7 +104,7 @@ impl FullBuilder {
         Ok((kind, signature))
     }
 
-    fn checked_user_callable(&mut self, solved: &crate::sema::check::SolvedTypes, expression: crate::sema::check::ExpressionIdentity) -> Result<UserCallableContract, IrBuildError> {
+    pub(super) fn checked_user_callable(&mut self, solved: &crate::sema::check::SolvedTypes, expression: crate::sema::check::ExpressionIdentity) -> Result<UserCallableContract, IrBuildError> {
         let callable = solved.expression_callables.get(&expression).ok_or_else(|| problem("callable_original_expression_missing"))?;
         let declaration = callable.declaration.ok_or_else(|| problem("callable_user_authority_missing"))?;
         let target = *self.declaration_functions.get(&declaration).ok_or_else(|| problem("callable_original_target_missing"))?;
@@ -218,7 +218,10 @@ pub(super) fn checked_storage_kind(pools: &super::super::semantic::SemanticPools
 
 impl FullVerifier {
     pub(super) fn verify_local_callable_dominance(store: &FullStore, tree: &super::super::pattern::PatternTree) -> Result<(), IrVerifyError> {
-        let Some(generic) = store.generic.as_deref().filter(|generic| generic.has_local_callable_bindings()) else { return Ok(()); };
+        let Some(generic) = store.generic.as_deref().filter(|generic| generic.has_local_callable_bindings() || generic.original_callable_receivers().next().is_some()) else { return Ok(()); };
+        for receiver in generic.original_callable_receivers().filter(|receiver| receiver.capture.is_some()) {
+            Self::verify_captured_saved_callable_receiver(store, tree, receiver)?;
+        }
         let index = CallableLexicalIndex::new(store, tree)?;
         for use_ in generic.original_callable_uses() {
             let binding = generic.original_callable_binding(use_.binding).ok_or_else(|| IrVerifyError::new("callable read lost its original binding"))?;
@@ -293,12 +296,8 @@ impl FullVerifier {
             if store.tags.get(callee) != Some(&FullTag::ExprParam) { return Err(IrVerifyError::new("ground user invocation callee carrier is not prepared")); }
             let slot = *store.payload(store.data[callee].range())?.first().ok_or_else(|| IrVerifyError::new("invocation callee slot is missing"))?;
             let ty = if let Some(receiver) = generic.original_callable_receiver(contract.callee_instruction)? {
-                let use_ = generic.original_callable_use(contract.callee_instruction).ok_or_else(|| IrVerifyError::new("saved callable receiver lost its original use"))?;
-                let binding = generic.original_callable_binding(receiver.binding).ok_or_else(|| IrVerifyError::new("saved callable receiver lost its original binding"))?;
-                if use_.binding != receiver.binding || use_.origin != contract.callee_origin || receiver.origin != contract.callee_origin
-                    || use_.owner != source.owner || receiver.owner != source.owner || receiver.slot != slot || binding.contract != contract.callable {
-                    return Err(IrVerifyError::new("saved callable receiver changes its original binding or authority"));
-                }
+                Self::verify_saved_callable_receiver_authority(store, generic, receiver, contract.callable, contract.callee_origin, source.owner)?;
+                if receiver.slot != slot { return Err(IrVerifyError::new("saved callable receiver changes its original slot")); }
                 None
             } else { match source.owner {
                 InstructionOwner::Driver(step) => {
