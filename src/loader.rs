@@ -19,6 +19,30 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[cfg(test)]
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ModuleLoadCounters {
+    pub successful_reads: BTreeMap<String, usize>,
+    pub parsed_modules: BTreeMap<String, usize>,
+    pub reused_modules: BTreeMap<String, usize>,
+    pub resolved_edges: BTreeMap<String, usize>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static MODULE_LOAD_COUNTERS: std::cell::RefCell<ModuleLoadCounters> = std::cell::RefCell::new(ModuleLoadCounters::default());
+}
+
+#[cfg(test)]
+pub(crate) fn reset_module_load_counters() {
+    MODULE_LOAD_COUNTERS.with(|counts| *counts.borrow_mut() = ModuleLoadCounters::default());
+}
+
+#[cfg(test)]
+pub(crate) fn module_load_counters() -> ModuleLoadCounters {
+    MODULE_LOAD_COUNTERS.with(|counts| counts.borrow().clone())
+}
+
 #[derive(Clone, Debug)]
 pub struct EntrySource {
     pub sources: SourceMap,
@@ -741,6 +765,8 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
                 continue;
             }
             if let Some(key) = self.load_module(importer, &path, span) {
+                #[cfg(test)]
+                MODULE_LOAD_COUNTERS.with(|counts| *counts.borrow_mut().resolved_edges.entry(key.clone()).or_default() += 1);
                 self.arena.set_use_resolved(use_id, Arc::from(key.as_str()));
             }
         }
@@ -816,19 +842,33 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
     }
 
     fn load_module(&mut self, importer: &Path, path: &[Name], span: Span) -> Option<String> {
-        let (module_path, bytes) =
-            match read_module_from_candidates(importer, path, &self.module_roots) {
-                Ok(found) => found,
-                Err(message) => {
-                    self.diagnostics.push(
-                        Diagnostic::error("failed to read module")
-                            .with_code("parse.module-read")
-                            .with_label(Label::primary(span, message)),
-                    );
-                    return None;
+        let mut failures = Vec::new();
+        for candidate in resolve_module_path_candidates(importer, path, &self.module_roots) {
+            // A successfully loaded canonical file already owns this bundle's
+            // source and interface. An additional alias needs only its key.
+            if let Ok(canonical) = candidate.canonicalize() {
+                let key = canonical.to_string_lossy().into_owned();
+                if self.loaded.contains(&key) {
+                    #[cfg(test)]
+                    MODULE_LOAD_COUNTERS.with(|counts| *counts.borrow_mut().reused_modules.entry(key.clone()).or_default() += 1);
+                    return Some(key);
                 }
-            };
-        self.load_file_bytes(&module_path, bytes, span)
+            }
+            match fs::read(&candidate) {
+                Ok(bytes) => {
+                    #[cfg(test)]
+                    MODULE_LOAD_COUNTERS.with(|counts| *counts.borrow_mut().successful_reads.entry(module_key(&candidate)).or_default() += 1);
+                    return self.load_file_bytes(&candidate, bytes, span);
+                }
+                Err(error) => failures.push(format!("`{}`: {error}", candidate.display())),
+            }
+        }
+        self.diagnostics.push(
+            Diagnostic::error("failed to read module")
+                .with_code("parse.module-read")
+                .with_label(Label::primary(span, module_read_failure_message(&failures))),
+        );
+        None
     }
 
     fn load_file_bytes(
@@ -847,6 +887,8 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             return None;
         }
         if self.loaded.contains(&key) {
+            #[cfg(test)]
+            MODULE_LOAD_COUNTERS.with(|counts| *counts.borrow_mut().reused_modules.entry(key.clone()).or_default() += 1);
             return Some(key);
         }
         let source_name = module_path.to_string_lossy().into_owned();
@@ -879,6 +921,8 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             .get(source_id)
             .expect("source was just inserted")
             .text();
+        #[cfg(test)]
+        MODULE_LOAD_COUNTERS.with(|counts| *counts.borrow_mut().parsed_modules.entry(key.clone()).or_default() += 1);
         let parsed = Parser::parse_source_into_arena_builder(source_id, text, self.arena);
         if !parsed.diagnostics.is_empty() {
             self.diagnostics.push(
@@ -954,10 +998,14 @@ fn read_module_from_candidates(
             Err(error) => failures.push(format!("`{}`: {error}", candidate.display())),
         }
     }
-    Err(format!(
+    Err(module_read_failure_message(&failures))
+}
+
+fn module_read_failure_message(failures: &[String]) -> String {
+    format!(
         "failed to read module; tried {}. Set XSH_MODULE_PATH to add module search roots",
         failures.join(", ")
-    ))
+    )
 }
 
 /// Resolve a user import using the same search order as the runtime loader.
@@ -1018,6 +1066,60 @@ fn module_path_from_base(base: &Path, path: &[Name]) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn static_module_diamond_reads_and_parses_each_canonical_dependency_once() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("xsh-loader-diamond-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        for (file, text) in [
+            ("leaf.xsh", "export pure identity(value) { value }\n"),
+            ("left.xsh", "use leaf as shared\nexport pure forward(value) { shared.identity(value) }\n"),
+            ("right.xsh", "use leaf as shared\nexport pure forward(value) { shared.identity(value) }\n"),
+        ] { fs::write(root.join(file), text).unwrap(); }
+        let entry = root.join("entry.xsh");
+        reset_module_load_counters();
+        let (sources, parsed) = parse_load_entry_source_arena_only(entry.to_str().unwrap(),
+            entry_source_from_text(entry.to_str().unwrap(), "use left\nuse right\n".to_string()), Vec::new());
+        let counts = module_load_counters();
+        let leaf = module_key(&root.join("leaf.xsh"));
+        let _ = fs::remove_dir_all(&root);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert_eq!(sources.files().len(), 4);
+        assert_eq!(parsed.arena.modules.len(), 3);
+        assert_eq!(counts.parsed_modules.get(&leaf), Some(&1));
+        assert_eq!(counts.resolved_edges.get(&leaf), Some(&2));
+        assert_eq!(counts.reused_modules.get(&leaf), Some(&1));
+        assert_eq!(counts.successful_reads.get(&leaf), Some(&1), "a shared dependency must not be reread for the second import edge");
+        assert_eq!(counts.successful_reads.values().sum::<usize>(), 3);
+    }
+
+    #[test]
+    fn static_module_reuse_preserves_missing_import_and_cycle_source_labels() {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("xsh-loader-errors-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let entry = root.join("entry.xsh");
+        let missing = "use missing_boundary_dependency\n";
+        let (sources, parsed) = parse_load_entry_source_arena_only(entry.to_str().unwrap(),
+            entry_source_from_text(entry.to_str().unwrap(), missing.to_string()), Vec::new());
+        assert_eq!(parsed.diagnostics.len(), 1);
+        let diagnostic = &parsed.diagnostics[0];
+        assert_eq!(diagnostic.code.as_deref(), Some("parse.module-read"));
+        assert_eq!(diagnostic.labels[0].span.source_id, sources.files()[0].id());
+        assert!(diagnostic.labels[0].message.as_deref().unwrap().contains("missing_boundary_dependency.xsh"));
+        fs::write(root.join("alpha.xsh"), "use beta\n").unwrap();
+        fs::write(root.join("beta.xsh"), "use alpha\n").unwrap();
+        let (sources, parsed) = parse_load_entry_source_arena_only(entry.to_str().unwrap(),
+            entry_source_from_text(entry.to_str().unwrap(), "use alpha\n".to_string()), Vec::new());
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        let diagnostic = &parsed.diagnostics[0];
+        assert_eq!(diagnostic.code.as_deref(), Some("parse.module-cycle"));
+        let source = sources.get(diagnostic.labels[0].span.source_id).unwrap();
+        assert!(source.name().ends_with("beta.xsh"));
+        assert_eq!(source.span_text(diagnostic.labels[0].span), Some("use alpha\n"));
+    }
 
     #[test]
     fn compact_file_unit_wraps_parsed_arena_without_checker_runtime_state() {

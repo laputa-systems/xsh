@@ -1,3 +1,5 @@
+mod scoped_callable_tests;
+mod native_callable_tests;
 use super::*;
 use super::super::generic::{ForwardedRequirement, ForwardingId};
 use crate::sema::check::Checker;

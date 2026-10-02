@@ -282,6 +282,9 @@ impl Checker {
                         );
                     }
                     self.define_binding_target_arena(arena, field.target, &field_ty, mutable, field_span);
+                    if matches!(arena.arena.binding_target(field.target).kind, ArenaBindingTargetKind::Name(name) if name != "_") {
+                        self.record_graph_binding(field.target, &field_ty, mutable, field_span);
+                    }
                 }
             }
         }
@@ -452,10 +455,10 @@ impl Checker {
             }
             ArenaStmtKind::TypeDef(def_id) => {
                 let def = arena.arena.type_def(def_id);
-                self.check_type_def_arena(arena, source, def, stmt.span);
+                self.check_type_def_arena(arena, source, def_id, def, stmt.span);
             }
             ArenaStmtKind::ErrorDef(def_id) => {
-                self.check_error_def_arena(arena, source, def_id);
+                self.check_error_def_arena(arena, source, def_id, stmt.span);
             }
             ArenaStmtKind::ProcDef(def_id) | ArenaStmtKind::CliMain(def_id) => {
                 let def = arena.arena.function_def(def_id).clone();
@@ -687,6 +690,7 @@ impl Checker {
         if let ArenaExprKind::PatternCondition { value, arms } = arena.arena.expr(condition).kind {
             let ty = self.expr_types.get(&arena.arena.expr(value).span).cloned().unwrap_or(Type::Unknown);
             self.check_pattern_arena(arena, source, arena.arena.match_expr_arms(arms)[0].pattern, &ty);
+            self.record_checked_pattern_value_scope(arena, arena.arena.match_expr_arms(arms)[0].pattern, value);
             self.record_pattern_producer_flow(arena, arena.arena.match_expr_arms(arms)[0].pattern, value);
         }
     }
@@ -988,6 +992,7 @@ impl Checker {
         for arm in arm_list {
             self.push_scope();
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
+            self.record_checked_pattern_value_scope(arena, arm.pattern, value);
             self.record_pattern_producer_flow(arena, arm.pattern, value);
             if let Some(value) = Self::single_error_handler_value_arena(arena, arm.block) {
                 self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);
@@ -1223,6 +1228,8 @@ impl Checker {
                 || self.generic.borrow().checking.contains(&identity)
                 || self.generic.borrow().rejected.contains(&identity) { return; }
             self.generic.borrow_mut().checking.insert(identity);
+            #[cfg(test)]
+            Self::record_declaration_check(identity);
         }
         if def.test_declaration {
             if self.current_exported {
@@ -1420,6 +1427,8 @@ impl Checker {
             if !self.graph_generation || self.generic.borrow().generated.contains(&identity)
                 || self.generic.borrow().checking.contains(&identity) || self.generic.borrow().rejected.contains(&identity) { return; }
             self.generic.borrow_mut().checking.insert(identity);
+            #[cfg(test)]
+            Self::record_declaration_check(identity);
         }
         let previous_callback_effects = self.stage_callback_effects.take();
         let saved_capture_scopes = self.scopes.clone();
@@ -2582,6 +2591,7 @@ impl Checker {
         for arm in arm_list {
             self.push_scope();
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
+            self.record_checked_pattern_value_scope(arena, arm.pattern, value);
             self.record_pattern_producer_flow(arena, arm.pattern, value);
             if let Some(value) = Self::single_error_handler_value_arena(arena, arm.block) {
                 self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);

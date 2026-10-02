@@ -80,20 +80,23 @@ impl Checker {
         tail_ty
     }
 
+    // Parameter placement validates configuration; the ordered expansion
+    // retains how it was supplied. Fields from one finite spread share one
+    // source entry so preparation can evaluate their record exactly once.
     pub(super) fn check_stage_arguments_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         stage: &ArenaStreamStage,
         args: &[crate::syntax::arena::ArenaCallArg],
-    ) -> Vec<Option<crate::sema::arguments::ExpandedArgument>> {
+    ) -> (Vec<Option<crate::sema::arguments::ExpandedArgument>>, Vec<crate::sema::arguments::ExpandedArgument>) {
         use crate::sema::arguments::{ArgumentValueSource, bind_static_arguments, expand_named_arguments};
         use xsh_registry::stream_parameters::{StageParameterValidation, stage_parameters};
         let contract = stage_parameters(stage.kind.as_str());
         let params = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
         if params.is_empty() {
             if !args.is_empty() { self.error(arena.arena.span(stage.span), "stream stage does not accept call arguments", "check.arity"); }
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         let mut positional = 0;
         for arg in args {
@@ -110,18 +113,23 @@ impl Checker {
         }
         let expanded = match expand_named_arguments(arena, args, |expr| self.expr_types.get(&arena.arena.expr(expr).span).cloned()) {
             Ok(expanded) => expanded,
-            Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return vec![None; params.len()]; }
+            Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return (vec![None; params.len()], Vec::new()); }
         };
         let binding = match bind_static_arguments(&params, &expanded) {
             Ok(binding) => binding,
             Err(error) => {
                 let span = if args.is_empty() { arena.arena.span(stage.span) } else { error.span };
                 self.error(span, &error.message, "check.named-arg");
-                return vec![None; params.len()];
+                return (vec![None; params.len()], Vec::new());
             }
         };
+        let copied = self.generic.borrow_mut().facts.graph.charge_source_fact_work(expanded.len() as u64);
+        if let Err(error) = copied {
+            self.graph_error(arena.arena.span(stage.span), error);
+            return (vec![None; params.len()], Vec::new());
+        }
         let mut values = vec![None; params.len()];
-        for (argument, slot) in expanded.into_iter().zip(binding.argument_slots) {
+        for (argument, slot) in expanded.iter().zip(binding.argument_slots) {
             if argument.name.is_none() && !contract[slot].positional {
                 self.error(argument.span, "stage configuration parameters must be named", "check.named-arg");
             }
@@ -136,7 +144,7 @@ impl Checker {
                 && self.stage_argument_literal(arena, &argument).is_some_and(|value| matches!(value, crate::sema::constants::LiteralConstant::Int(value) if value < 0)) {
                 self.error(argument.span, "stream count must be nonnegative", "check.stream-count");
             }
-            values[slot] = Some(argument);
+            values[slot] = Some(argument.clone());
         }
         if stage.kind == StreamStageKind::ReduceBy {
             let modes = &values[..3];
@@ -152,7 +160,7 @@ impl Checker {
         {
             self.error(arena.arena.span(stage.span), "batch requires an enabled count or byte limit", "check.stream-batch");
         }
-        values
+        (values, expanded)
     }
 
     pub(super) fn stage_argument_literal(&self, arena: &ArenaProgram, argument: &crate::sema::arguments::ExpandedArgument) -> Option<crate::sema::constants::LiteralConstant> {

@@ -821,6 +821,14 @@ pub(super) fn lowered_return_value(
 }
 
 pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> bool {
+    if let LoweredValue::NativeCallable(value)=value {
+        return matches!(kind,LoweredType::Any|LoweredType::Generic)
+            ||matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc));
+    }
+    if let LoweredValue::Callable(value)=value {
+        return matches!(kind,LoweredType::Any|LoweredType::Generic)
+            ||matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc));
+    }
     matches!(
         (kind, value),
         (LoweredType::Any, _)
@@ -931,6 +939,8 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Pure, Value::Pure(value)) => Some(LoweredValue::Pure(*value)),
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
+        (LoweredType::Pure|LoweredType::Proc,Value::Callable(value)) if matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc))=>Some(LoweredValue::Callable(value.clone())),
+        (LoweredType::Pure|LoweredType::Proc,Value::NativeCallable(value)) if matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc))=>Some(LoweredValue::NativeCallable(value.clone())),
         (LoweredType::Error, Value::Error(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
         (LoweredType::Record, Value::FsEntry(value)) => Some(LoweredValue::FsEntry(value.clone())),
@@ -975,6 +985,8 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
         Value::Pure(value) => Some(LoweredValue::Pure(*value)),
         Value::Proc(value) => Some(LoweredValue::Proc(*value)),
+        Value::Callable(value)=>Some(LoweredValue::Callable(value.clone())),
+        Value::NativeCallable(value)=>Some(LoweredValue::NativeCallable(value.clone())),
         Value::Error(_) | Value::RunError(_) => Some(LoweredValue::Error(Box::new(value.clone()))),
         Value::Record(value) => lowered_record_from_runtime(value),
         Value::Module(value) => lowered_module_from_runtime(value),

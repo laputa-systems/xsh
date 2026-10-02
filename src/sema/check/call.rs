@@ -339,6 +339,9 @@ impl Checker {
                                 span,
                             );
                         }
+                        if self.graph_generation {
+                            return self.check_graph_module_contract_call(arena, source, callee, args, sig, &Type::Proc, span);
+                        }
                         self.check_module_callable_arg_list_arena(
                             arena,
                             source,
@@ -350,6 +353,9 @@ impl Checker {
                         return sig.return_ty.as_ref().clone();
                     }
                     ModuleExportType::Pure { sig, .. } => {
+                        if self.graph_generation {
+                            return self.check_graph_module_contract_call(arena, source, callee, args, sig, &Type::Pure, span);
+                        }
                         self.check_module_callable_arg_list_arena(
                             arena,
                             source,
@@ -496,6 +502,47 @@ impl Checker {
             );
         }
         Type::Unit
+    }
+
+    fn check_graph_module_contract_call(
+        &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
+        args: &[ArenaCallArg], contract: &crate::sema::types::CallableType, checked: &Type, span: Span,
+    ) -> Type {
+        use crate::sema::inference::{InferenceError, TypeNode};
+        let Some(expression) = self.current_expression else {
+            self.graph_error(span, InferenceError::InvalidScheme); return Type::Invalid;
+        };
+        let identity = self.expression_identity(arena, expression);
+        let projected = self.record_graph_module_projection(arena, callee, checked);
+        let Some(Type::Graph(signature)) = projected else {
+            if !matches!(projected, Some(Type::Invalid)) { self.graph_error(span, InferenceError::Boundary("module callable has no checked original export projection")); }
+            return Type::Invalid;
+        };
+        let outcome = (|| {
+            let arrow = {
+                let state = self.generic.borrow();
+                let TypeNode::Arrow(arrow) = state.facts.graph.node(state.facts.graph.resolved(signature)?)? else { return Err(InferenceError::KindMismatch); };
+                arrow.clone()
+            };
+            let schemas = contract.params.iter().map(|parameter| Some(if parameter.rest {
+                crate::sema::constants::SchemaExpectation { instances: Vec::new(), children: BTreeMap::from([(crate::sema::constants::SchemaComponent::Item, crate::sema::constants::SchemaExpectation::default())]) }
+            } else { crate::sema::constants::SchemaExpectation::default() })).collect::<Vec<_>>();
+            let (actual_arguments, binding) = self.check_graph_callable_arguments(arena, source, signature, args, span, &schemas)?;
+            self.generic.borrow_mut().facts.graph.solve()?;
+            self.record_graph_effect_summary(arrow.effects, span);
+            self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
+            let mut state = self.generic.borrow_mut();
+            state.producer_inputs.call_bindings.insert(identity, binding.clone());
+            state.facts.calls.insert(identity, super::SolvedCall {
+                signature, declaration: None, caller: self.current_generic,
+                requirements: Vec::new(), requirement_origins: Vec::new(), substitutions: Vec::new(), effect_substitutions: Vec::new(),
+                argument_producers: vec![BTreeMap::new(); actual_arguments.len()], result_producers: BTreeMap::new(),
+                result_producer_flow: None, actual_arguments, binding,
+            });
+            state.facts.expressions.insert(identity, arrow.result);
+            Ok::<_, InferenceError>(arrow.result)
+        })();
+        match outcome { Ok(result) => self.graph_view(result), Err(error) => { self.graph_error(span, error); Type::Invalid } }
     }
 
     fn check_module_callable_arg_list_arena(
@@ -678,7 +725,8 @@ impl Checker {
                 };
                 let result = Type::Result(Box::new(ty.clone()), Box::new(error));
                 if self.graph_generation {
-                    self.record_graph_constructor_operation(arena, &actuals, &(0..args.len()).collect::<Vec<_>>(), Some(&result), span, crate::sema::operation_graph::ValueConstructor::Ok)
+                    let Some(sources) = Self::fixed_constructor_argument_sources(arena, args) else { return Type::Invalid; };
+                    self.record_graph_constructor_operation(arena, &actuals, &(0..args.len()).collect::<Vec<_>>(), sources, Some(&result), span, crate::sema::operation_graph::ValueConstructor::Ok)
                 } else { result }
             }
             "Err" => {
@@ -709,7 +757,8 @@ impl Checker {
                 } else { Type::Unknown };
                 let result = Type::Result(Box::new(success), Box::new(outer));
                 if self.graph_generation {
-                    self.record_graph_constructor_operation(arena, &expanded.iter().map(|argument| argument.ty.clone()).collect::<Vec<_>>(), &binding.argument_slots, Some(&result), span, crate::sema::operation_graph::ValueConstructor::Err)
+                    let sources = expanded.iter().map(|argument| super::SolvedArgumentSource { entry_index: argument.entry_index, name: argument.name, value: argument.value, span: argument.span }).collect();
+                    self.record_graph_constructor_operation(arena, &expanded.iter().map(|argument| argument.ty.clone()).collect::<Vec<_>>(), &binding.argument_slots, sources, Some(&result), span, crate::sema::operation_graph::ValueConstructor::Err)
                 } else { result }
             }
             "Error" => {
@@ -762,10 +811,23 @@ impl Checker {
     fn check_graph_value_constructor(&mut self, arena: &ArenaProgram, source: &str, args: &[ArenaCallArg], span: Span, kind: crate::sema::operation_graph::ValueConstructor) -> Type {
         let expected = if kind == crate::sema::operation_graph::ValueConstructor::Path { Type::Str } else { Type::Int };
         let actuals = args.iter().map(|argument| self.check_call_arg_arena(arena, source, &argument.kind, Some(&expected))).collect::<Vec<_>>();
-        self.record_graph_constructor_operation(arena, &actuals, &(0..actuals.len()).collect::<Vec<_>>(), None, span, kind)
+        let Some(sources) = Self::fixed_constructor_argument_sources(arena, args) else { return Type::Invalid; };
+        self.record_graph_constructor_operation(arena, &actuals, &(0..actuals.len()).collect::<Vec<_>>(), sources, None, span, kind)
     }
 
-    fn record_graph_constructor_operation(&mut self, arena: &ArenaProgram, actuals: &[Type], supplied_slots: &[usize], expected: Option<&Type>, span: Span, kind: crate::sema::operation_graph::ValueConstructor) -> Type {
+    fn fixed_constructor_argument_sources(arena: &ArenaProgram, args: &[ArenaCallArg]) -> Option<Vec<super::SolvedArgumentSource>> {
+        use crate::sema::arguments::ArgumentValueSource;
+        args.iter().enumerate().map(|(entry_index, argument)| {
+            let (name, value, span) = match argument.kind {
+                ArenaCallArgKind::Positional(value) => (None, ArgumentValueSource::Expression(value), arena.arena.expr(value).span),
+                ArenaCallArgKind::Named { name, value, span } => (Some(name), ArgumentValueSource::Expression(value), arena.arena.span(span)),
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
+            };
+            Some(super::SolvedArgumentSource { entry_index, name, value, span })
+        }).collect()
+    }
+
+    fn record_graph_constructor_operation(&mut self, arena: &ArenaProgram, actuals: &[Type], supplied_slots: &[usize], sources: Vec<super::SolvedArgumentSource>, expected: Option<&Type>, span: Span, kind: crate::sema::operation_graph::ValueConstructor) -> Type {
         use crate::sema::inference::{OperationCall, EffectSummary, EffectSet};
         let Some(expression) = self.current_expression else { return Type::Invalid; };
         let identity = self.expression_identity(arena, expression);
@@ -791,7 +853,7 @@ impl Checker {
             let result = state.facts.graph.fresh(level, span)?;
             let effects = EffectSummary::Closed(EffectSet::EMPTY);
             let reason = state.facts.graph.reason(span, None)?;
-            if arguments.len() != supplied_slots.len() { return Err(crate::sema::inference::InferenceError::InvalidScheme); }
+            if arguments.len() != supplied_slots.len() || arguments.len() != sources.len() { return Err(crate::sema::inference::InferenceError::InvalidScheme); }
             let mut formal_arguments = vec![None; arguments.len()];
             for (&argument, &slot) in arguments.iter().zip(supplied_slots) {
                 let target = formal_arguments.get_mut(slot).ok_or(crate::sema::inference::InferenceError::InvalidScheme)?;
@@ -800,6 +862,9 @@ impl Checker {
             let requirement = state.facts.graph.require_operation(family, OperationCall { binding: crate::sema::inference::OperationBinding::Slots, effect_mode: crate::sema::inference::OperationEffectMode::AvailableBudget, mono_authority: None, declared_error_bound: None, receiver: None, arguments: formal_arguments, result, effects, effect_bindings: Vec::new(), output_effect_bindings: Vec::new() }, reason)?;
             state.facts.graph.solve()?;
             if let Some(expected) = expected { state.facts.graph.assignable(expected, result, reason)?; state.facts.graph.solve()?; }
+            drop(state);
+            self.record_argument_source_rows(identity, sources)?;
+            let mut state = self.generic.borrow_mut();
             if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.push(requirement); state.facts.expression_owners.insert(identity, owner); }
             state.facts.operations.insert(identity, super::SolvedOperation { requirement, result, effects, receiver: None, binding: super::CallBinding { supplied_slots: supplied_slots.to_vec(), default_slots: Vec::new(), rest_slot: None, dynamic: None }, argument_coercions: Vec::new(), actual_arguments: arguments, caller: self.current_generic });
             state.facts.expressions.insert(identity, result);

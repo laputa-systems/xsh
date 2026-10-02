@@ -533,13 +533,18 @@ impl Checker {
                 }
                 self.push_scope();
                 self.check_pattern_arena(arena, source, pattern, &value_ty);
+                self.record_checked_pattern_value_scope(arena, pattern, *value);
                 self.pop_scope();
                 Type::Bool
             }
             ArenaExprKind::PatternTest { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
-                let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
-                self.check_nonbinding_pattern_arena(arena, source, pattern, &value_ty);
+                // Both original arms are lowered. The false arm's wildcard
+                // needs the same checked subject authority as the tested arm.
+                for arm in arena.arena.match_expr_arms(*arms) {
+                    self.check_nonbinding_pattern_arena(arena, source, arm.pattern, &value_ty);
+                    self.record_checked_pattern_value_scope(arena, arm.pattern, *value);
+                }
                 Type::Bool
             }
             ArenaExprKind::Match { value, arms } => {
@@ -1224,6 +1229,7 @@ impl Checker {
         if let Some(pattern) = pattern {
             let Type::Result(_, error_ty) = &result_ty else { unreachable!() };
             self.check_nonbinding_pattern_arena(arena, source, pattern, error_ty);
+            if let Some(subject) = self.current_expression { self.record_checked_pattern_value_scope(arena, pattern, subject); }
             self.check_retry_selection_shape(arena, pattern);
         }
         result_ty
@@ -1360,6 +1366,7 @@ impl Checker {
         for arm in arm_list {
             self.push_scope();
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
+            self.record_checked_pattern_value_scope(arena, arm.pattern, value);
             self.record_pattern_producer_flow(arena, arm.pattern, value);
             self.warn_flattened_error_handler_arena(arena, arm.value, arm.pattern, &value_ty);
             if let Some(guard) = arm.guard {

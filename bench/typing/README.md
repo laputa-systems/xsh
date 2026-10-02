@@ -1,18 +1,30 @@
 # Type-and-effect inference execution
 
-**Incomplete — Gates A, B and C passed; D is in progress.** Full inference acceptance remains pending.
+**Incomplete — Gates A, B and C passed; D is paused.** Full inference acceptance remains pending.
 
-The isolated candidate is on `typing-inference-campaign-v2`; the immutable baseline
-is revision `d6f09bc54305515b4c34d3b872d7f9f13b874061` in the adjacent
-`xsh-typing-baseline-v2` worktree. Their Cargo build directories are separate.
-The preceding ergonomics corrections are committed in the shared checkout.
-The original cohort, eligibility ledger, and denominators remain frozen at
-`877a114d6dc403db32c50f035b38aab7f193147a`. Historical results and policies
-are preserved under `history/877a114d/`; their measurements retain their original
-revision and product provenance and do not count as corrected-handoff acceptance. Local checkpoint commits disable hooks;
-merging, pushing, dependency additions, formatter/autofix commands, and Linux
-execution are outside this run. The explicitly requested repository read-only
-lint integration gate remains required.
+The user paused implementation and requested consolidation into the primary
+checkout (`master`). `wind-down.json` records the frozen source fingerprint,
+actual verification, and remaining failures; `wind-down-failures.json` retains
+the complete failed-test list and diagnostics. The campaign document now lists
+only outstanding work and architecture improvements. No runtime integration,
+annotation-reduction, or final performance gate is claimed from this checkpoint.
+
+The immutable baseline remains Git revision
+`d6f09bc54305515b4c34d3b872d7f9f13b874061`; cohort identity remains
+`877a114d6dc403db32c50f035b38aab7f193147a`. Old isolated worktrees and build caches
+are removed after integration. Paths in historical artifacts describe their
+original observations. Recreate comparison checkouts only when needed on resume.
+`history/wind-down/legacy-preservation.json` verifies preservation of all old
+non-cache benchmark files; the historical harness versions, original campaign
+texts, and superseded specification patch are retained. Quiet timing and
+exhaustive sampling requirements remain removed.
+
+`gate-d-development.json` contains focused concurrent observations, not final
+acceptance. The final frozen library run passes 1,114 tests and fails 56; the
+semantic integration gate passes 181 tests. Source and prepared authority are
+still being connected for existing programs and several operation/callable/
+binding protocols remain unsupported. Local commits disable hooks; no push,
+formatter/autofixer, dependency addition, or Linux execution is authorized.
 
 ## Frozen scope and historical evidence
 

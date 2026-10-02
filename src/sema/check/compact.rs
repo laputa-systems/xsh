@@ -320,13 +320,13 @@ impl CompactDeclCollector {
         &mut self,
         program: &ArenaProgram,
         id: TypeDefId,
-        _span: crate::source::Span,
+        span: crate::source::Span,
         namespace: Option<Name>,
     ) {
         let def = program.arena.type_def(id);
         self.output.type_defs += 1;
         let internal = namespace.is_some_and(|namespace| program.is_internal_namespace(namespace));
-        let info = self.collect_type_def_body(program, def, namespace);
+        let info = self.collect_type_def_body(program, id, span.source_id, def, namespace);
         if !internal {
             self.output.types.insert(def.name, info);
         }
@@ -335,6 +335,8 @@ impl CompactDeclCollector {
     fn collect_type_def_body(
         &mut self,
         program: &ArenaProgram,
+        id: TypeDefId,
+        source: crate::source::SourceId,
         def: &ArenaTypeDef,
         namespace: Option<Name>,
     ) -> CompactTypeDefInfo {
@@ -414,6 +416,13 @@ impl CompactDeclCollector {
                         type_name: crate::sema::wire_enums::nominal_enum_name(namespace.or(program.root_nominal_namespace), def.name),
                         field_count: field_types.len(),
                         field_types,
+                        canonical_name: variant.name,
+                        identity: super::QualifiedNominalIdentity::Source {
+                            source,
+                            namespace: namespace.or(program.root_nominal_namespace),
+                            declaration: super::NominalDeclaration::Type(id),
+                            member: Some(variant.name),
+                        },
                     };
                     if let Some(namespace) = namespace {
                         self.output
@@ -432,18 +441,20 @@ impl CompactDeclCollector {
         &mut self,
         program: &ArenaProgram,
         id: ErrorDefId,
-        _span: crate::source::Span,
+        span: crate::source::Span,
         namespace: Option<Name>,
     ) {
         let def = program.arena.error_def(id);
         self.output.error_families += 1;
-        self.collect_error_variants(program, def, namespace);
+        self.collect_error_variants(program, def, id, span, namespace);
     }
 
     fn collect_error_variants(
         &mut self,
         program: &ArenaProgram,
         def: &ArenaErrorDef,
+        id: ErrorDefId,
+        span: crate::source::Span,
         namespace: Option<Name>,
     ) {
         let error_variants = program.arena.error_variants(def.variants);
@@ -462,11 +473,17 @@ impl CompactDeclCollector {
                 ErrorVariantInfo {
                     fields: field_types,
                     facets,
+                    field_order: fields.iter().map(|field| field.name).collect(),
+                    canonical_family: crate::sema::wire_enums::nominal_enum_name(namespace.or(program.root_nominal_namespace), def.name),
+                    canonical_name: variant.name,
+                    identity: super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(id), member: Some(variant.name) },
                 },
             );
         }
         let info = ErrorFamilyInfo {
             variants: family_variants,
+            canonical_name: crate::sema::wire_enums::nominal_enum_name(namespace.or(program.root_nominal_namespace), def.name),
+            identity: super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(id), member: None },
         };
         if let Some(namespace) = namespace {
             self.output

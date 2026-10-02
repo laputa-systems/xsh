@@ -12,6 +12,93 @@ using existing prepared default slots and capture hydration. Dynamic module
 exports register an alias handle against the original indexed definition;
 they do not create a forwarding body.
 
+`runtime::eval::RuntimeCallableValue` carries an owning `Arc<FullProgram>`, a
+validated `CallableValueId`, and immutable values for the original lexical
+capture slots. `Value::Callable` and `LoweredValue::Callable` preserve that same
+creation through the host bridge and nested containers; neither conversion
+replaces it with a function name. Creation validates the prepared program owner,
+capture order, storage kinds, and original callable kind. Clones preserve
+creation identity, while separate creations remain distinct. Persistent value
+encoding refuses these handles. Mutable captures require a live binding-cell
+environment and are explicitly refused by this immutable handle constructor;
+stream callable activation is not part of its current prepared contract.
+
+`RuntimeNativeCallableValue` retains a separate `NativeCallableValueId` and
+owning `Arc<FullProgram>`. `NativeCallableRef` encodes no registry name or
+frontend ID; its original checked expression supplies the sealed registry
+authority. `generic/native_callables.rs` owns the creation and invocation
+receipts, and `full/native_callable_prepare.rs` validates their source, owner,
+signature, permissions, admission guards, producer roles, operands, and omission
+masks. A declared `Any` formal preserves each original operand descriptor and
+its checked eligibility.
+Native handles use `Value::NativeCallable` and `LoweredValue::NativeCallable`
+through the host bridge and remain distinct from user declarations. Persistent
+encoding refuses them. The current prepared execution supports a single
+closed native module authority with static argument slots; conditional
+families and scoped native invocations require their own prepared protocols.
+`indexed_run/native_callable_run.rs` checks the owning program and value receipt
+before constructing the formal native argument packet. Saved bindings evaluate
+named operands in source order; absent default slots stay absent for the
+existing numeric native backend, including its trace and error handling.
+
+Framed user invocation keeps the prepared `InvocationPlanId` through callee and
+argument continuations. A typed value must match that plan's owning program and
+callable contract before entry by numeric function target. Its retained captures
+hydrate the callee slots before defaults execute; the ordinary current-binding
+hydration path does not overwrite that environment. Typed values with no prepared
+invocation authority are refused. This entry path covers prepared monomorphic
+user Pure/Proc callables, independently of conditional/native/stream protocols.
+
+Original immutable local callable `let` bindings retain a `BindingIdentity`
+through lowering. `BuildScratch::callable_binding_origins` pairs that identity
+with the original statement, emitted `Let` row and slot, actual initializer row
+and expression identity, and checked binding root with its lexical scheme.
+`SlotScope::callable_binding_authorities` follows lexical declaration and
+shadowing; `BuildScratch::callable_binding_uses` links original identifier reads
+to the visible definition before expression lowering discards names. Equal
+signatures do not identify a creation environment. Missing checked definition
+or initializer facts refuse lowering; explicit kind erasure, mutable bindings,
+constants, and compiler argument temporaries do not acquire this local receipt.
+
+Original immutable closed-data `let` bindings use the separate
+`BuildScratch::value_binding_origins` and `value_binding_uses` ledgers.
+`lower/value_binding.rs` retains the qualified binding and statement, actual
+emitted `Let` and initializer rows, original initializer expression, and both
+the binding and initializer scoped graph roots. Groundness only determines
+whether this transport is supported; a tree view cannot replace either root.
+`SlotScope::value_binding_authorities` restores the original definition after
+lexical shadows and excludes mutable and callable bindings. Missing source
+facts refuse supported data lowering. This transport currently covers ordinary
+value `Let` rows; specialized `LetInt` and `LetBool` initializers need their own
+physical row authority before using the same proof path.
+
+Original simple `for` item bindings retain the selected iteration operation,
+qualified statement, binding and iterator identities, and independently checked
+input, item and binding roots. `generic::OriginalIterationBinding` seals the
+encoded loop, iterator, item slot and body in a program-owned original receipt;
+`OriginalIterationUse` seals each original read's relationship to that binding.
+Cold verification checks actual body ancestry, excludes iterator and sibling
+reads, rejects mutable item slots, and verifies the original iterator producer.
+The prepared item type supplies operand evidence without searching for a
+same-typed local slot. The currently activated receipt covers direct `List[Str]`
+with a simple named target; other iterable and binding protocols require their
+own original source proof before using this operand path.
+
+Saved named call arguments retain a separate compiler binding receipt in
+`BuildScratch::argument_binding_origins`. Each generated slot read names the
+original call, authored expansion ordinal and `SolvedArgumentSource`, actual
+initializer, slot, and emitted match wrapper with its bind pattern. Parameter
+reordering changes destinations without changing this evaluation sequence.
+Generated reads never acquire the original initializer's expression identity.
+
+Prepared ground native calls retain their selected registry operation, signature,
+argument recipes, omitted slots, result carrier and closed effect roles in the
+owning `GenericEvidenceStore`. Both indexed execution routes consult
+`FullExecution::ground_native_call` before dispatch, validating the exact program,
+body, instruction and decoded operation against the prepared authority. Calls
+without an activated proof remain explicit legacy boundaries until their full
+operand and protocol authority can be prepared.
+
 XSH is implemented as a small compiler-style pipeline around a verified
 indexed runtime:
 
@@ -61,6 +148,17 @@ that requirement in its source scheme. `frontend/query.rs` normalizes the retain
 relationship and its actual argument modes without rechecking or guessing a
 signature. Computed invocation effects remain distinct from the caller's
 permission budget.
+
+`SolvedTypes::argument_sources` retains each checked call's ordered supplied
+sources independently of graph handles. `SolvedArgumentSource` preserves the
+original entry index, label, span, and expression, record-field projection, or
+positional splice. Fields from one finite spread share an entry index and source
+record so consumers evaluate that record once. Static supplied slots, dynamic
+segment argument indices, conditional branch plans, and constructor supplied
+values correspond to this same vector order. Receivers and omitted defaults
+remain separate; zero supplied arguments have an explicit empty recipe. Producer
+argument transfers use this retained ledger rather than a transient source cache.
+
 `SolvedQuery::schema_validation` and `constructor_application` project frozen
 source application facts. Applied phantom arguments and qualified declaration,
 default and member owners remain distinct from structural record layouts.
@@ -100,6 +198,43 @@ suspended frames. Their return and cleanup behavior uses the declaration's
 fixed return plan, so a returned `Err` payload is distinguished from a declared
 Result failure channel.
 
+`indexed/generic/callable_types.rs` materializes type templates directly into
+semantic pool identities. Callable templates retain their kind, parameter
+labels, positional or named mode, default and rest markers, result, and closed
+effects through nested data types. Instance and forwarding validation compares
+that complete structure. Signature parameter flags use default bit 0, rest bit
+1, and named-only bit 2; function body parameter flags have a separate encoding.
+Exporting a typed callable through the legacy `Type` representation remains an
+explicit refusal. Materializing a signature alone does not authorize invoking
+an unresolved generic callback; invocation needs its own prepared source proof.
+
+`indexed/full/scoped_callable_prepare.rs` reads the original frozen callable
+obligation and its exact contextual requirement correspondence for a concrete
+instance. `indexed/generic/scoped_invocations.rs` retains the protected source
+receipt separately from its public proof view. A signature-only invocation
+witness supplies the actual parameter binding; it does not invent a declaration
+target. The value handle retains its numeric target and creation environment.
+Forwarded obligations retain each enclosing scheme's immediate requirement ID
+and the exact ancestry to that original body obligation. Concrete frame
+preparation composes those correspondences before reading the frozen invocation
+evidence, so repeated calls of the same generic body remain distinct and binder
+reordering cannot substitute another invocation's proof. The protected body
+receipt owns these correspondences alongside the original argument recipes.
+The initial scoped protocol admits Pure callbacks with closed empty effects and
+static supplied/default slots. Native alternatives, conditional plans, splice
+binding, and effect-quantifier activation require their own prepared protocol.
+
+`indexed/full/generic_operation_prepare.rs` prepares the original checked
+`Ok(value)` constructor requirement and its concrete contextual certificates.
+`indexed/generic/operation_requirements.rs` retains the constructor's source
+instruction and operand separately from the instance witness. Forwarding keeps
+the exact source requirement ancestry and each declaration's binder mapping;
+it does not create a second constructor instruction. Cold verification checks
+the canonical language authority, complete signature, result shell, empty
+effects, and original operand before either evaluator selects the stored numeric
+constructor operation. Other operation requirements remain explicitly unavailable
+until their own source and witness protocols are prepared.
+
 Recursive declaration groups share a canonical binder owner while each member
 retains only its reachable type and effect binders. `inference/components.rs`
 generalizes after all member constraints and restrictions are solved.
@@ -137,17 +272,44 @@ adapters are explicit integration work:
   container shells into old storage views. Expression and call type helpers
   retain tree/slot/shape reconstruction outside solved expression coverage;
   statement/assertion consumers retain span facts outside exact solved identities.
-- `lower_function_call_args` and `lower_named_spread_call` retain the old
-  parameter binder and temporary projection expansion. Shared binding plans
-  must replace this path while preserving source order, declaration-scoped
-  defaults, rest packing, and lazy producer defaults.
+  `lower_function_with_blocker` obtains parameter and result storage kinds from
+  `lower/storage.rs::checked_storage_view` using the original declaration's
+  Arrow roots and scheme. A generic `List[T]` keeps List storage, while a bare
+  type parameter uses Generic storage. `FunctionBuild::solved_declaration`
+  preserves the semantic signature independently of those physical kinds.
+  Record destructuring publishes each original leaf `BindingIdentity` while
+  `define_binding_target_arena` checks that leaf. Top-level storage and capture
+  consumers use those facts directly. Metadata collection returns the first
+  unsupported statement, and function prefixes refuse that failure instead of
+  constructing a partial binding environment.
+- `lower/call_argument_plan.rs::lower_function_call_args` reads original supplied
+  sources and checked slot plans from `SolvedTypes`. Script implementations use
+  the selected registry candidate's binding rather than an overload search.
+  Supplied values stay in source order, while interior omitted slots retain
+  declaration-owned default markers. `lower_named_spread_call` consumes original
+  call and invocation argument recipes directly, evaluates authored entries
+  once, and calls the existing dispatch with unchanged syntax and saved values.
+  It does not expand fields again, rebind parameters, or clone an arena for those
+  plans. `lower_legacy_named_spread_call` keeps temporary argument projections
+  only for native operation and constructor adapters outside that active path.
+  Saved finite record entries retain separate original record roots and real
+  initialization wrappers in `BuildScratch::argument_record_binding_origins`;
+  generated record reads and field projections do not acquire syntax identities.
 - `check_stream_stage_arena` keeps temporary stage-call AST nodes outside graph
   publication and accepts only a resolved ground target signature through its
   stage adapter. Generic stage calls require a plan tied to the original stage
   descriptor; generated arena identities cannot establish evidence ownership.
+- `lower/iteration.rs` reads original statement and comprehension operation
+  facts, their selected language authority, and exact iterator endpoints.
+  Item graph identities remain available alongside bounded storage views;
+  destructured leaves use their own checked binding facts. Generator identities
+  preserve relative qualifier ordinals across filters. Materialized map, string,
+  and byte Result sources retain lexical propagation, while list and stream
+  adapters retain runtime failure transport. Missing or pending source evidence
+  refuses preparation instead of reconstructing an iterable relationship.
 - `FullBuilder::predeclare` retains coarse storage-to-signature construction
   for non-scoped headers. Exact ground, nested container, nominal, and producer
-  signatures must come from solved declarations before this adapter is removed.
+signatures must come from solved declarations before this adapter is removed.
   Graph-backed ground declarations now supply exact checked types directly.
   `FunctionBuild::legacy_checked_signature` transfers already checked ground
   parameter/result trees for declarations outside graph ownership, preserving
@@ -156,6 +318,11 @@ adapters are explicit integration work:
 
 These adapters do not supply missing evidence for generic execution. Unsupported
 generic bindings, sources, or operation domains fail preparation.
+`lower.rs::CompactFunctionIndex` retains definition keys for lookup and
+enumeration. `FullBuilder` predeclares the function units before encoding their
+bodies, so mutual recursion and declaration order need no additional lowering
+dependency graph. Source-owned checked declaration identities and instance
+receipts preserve each generic call's relationship through preparation.
 Effect quantifiers currently require prepared effect evidence that the indexed
 scope format does not yet carry. Extra row lacks constraints must be represented
 by the signature's checked record prefixes; unrepresented constraints fail
@@ -1087,21 +1254,77 @@ Structural grep distinguishes value blocks from literal records and local Result
 capture. Expression-only block replacements substitute captures at child source
 spans, retaining parentheses and surrounding block trivia.
 
+Imported module initializers use separate lexical binding maps keyed by their
+original module owner. `Evaluator::indexed_module_bindings` retains private
+values after the initializer scope is removed; capture hydration uses the
+callee's qualified owner. Import aliases select the exposed namespace without
+changing ownership. Nested imports and equally spelled private bindings therefore
+cannot replace each other's captures or leak into root bindings.
+
+`SolvedTypes::patterns` retains original pattern topology, capture identities,
+checked joins, structural shape, literal values, and canonical constructor
+owners. A shared immutable original receipt authenticates cold projections.
+Repeated success-branch lexical visits reuse that receipt; unresolved recovery
+children leave ancestor authority unavailable. Lowering transports pattern rows,
+allocated capture slots, and lexical uses before cleanup, including bare terminal
+identifier statements with their own statement identities.
+Pattern tests retain both original arms' receipts, including the wildcard false
+arm, against the single checked subject type.
+
+`SolvedTypes::nominal_members` independently retains ground enum and error
+member declarations, including unused and private members. Original registration
+publishes qualified declaration identities, canonical families and members,
+ordered payload fields, and facets. `checked_nominal_member` authenticates a
+projection against its shared immutable original receipt. Import aliases retain
+that owner; an error pattern's surface tested type stays separate from its
+canonical declaration member. Cold preparation consumes these checked roots
+without resolving field annotations or treating a pattern as its own declaration
+authority. Non-ground declaration member receipts remain unavailable.
+`checked_pattern_nominal` authenticates the input and tested roots' original
+nominal owners after declaration solving and import publication. Surface error
+aliases retain their original qualified family and member owners without changing
+type equality. Missing provenance for a nominal root stays unavailable;
+`checked_pattern_scope` separately projects the authenticated source scope.
+
 ### Static argument expansion
 
 `sema::arguments::expand_named_arguments` exposes only checked finite record
 fields and retains each source entry's index. `bind_static_arguments` resolves
 those fields and ordinary arguments to callable parameter slots before runtime
 lowering; absent slots continue to select ordinary defaults. Expression calls
-and structured stages share these facts. `lower_expanded_argument_values`
-creates source-ordered hygienic slots and projects each spread before the next
-entry. `wrap_argument_bindings` sequences the initialization around existing
-call and operation rows. Compiler-generated projection IDs are transient and
-leave the original source argument ranges and CST unchanged. A checked omitted
-parameter of a loaded module call uses `LoweredCallArg::Default`, a parameter
-index in the existing call argument codec. Execution selects that exact
-prepared callable's immutable default; it is distinct from a caller frame slot
-and introduces no runtime name binding.
+and structured stages share these facts. Original calls and invocations retain
+ordered `SolvedArgumentSource` recipes in `SolvedTypes::argument_sources`.
+`lower_named_spread_call` consumes those recipes and their checked binding
+without repeating expansion or changing the source argument range.
+An unresolved Pure callback may instead retain its exact original invocation
+in the caller's declaration scheme. Its supplied values remain in authored
+order until the instance proof selects formal destinations; missing evidence
+outside that original declaration scope still refuses lowering.
+`lower_source_argument_values` creates source-ordered hygienic slots, saves each
+spread record once, and projects its fields before the next entry.
+`wrap_argument_bindings` sequences the initialization around existing call and
+operation rows. Saved records retain their original scoped graph root separately
+from the argument receipts; generated reads and projections have no invented
+syntax identities. Selected standard native operations also consume these
+recipes directly through `lower_original_native_named_call`, using the original
+registry authority and checked slot/default masks. Their finite spreads create
+no projection syntax nodes and repeat neither expansion nor binding.
+A saved argument read cannot carry its initializer's source operation identity;
+`checked_saved_argument_read` validates the original initializer receipt before
+suppressing source stamping. `lower_legacy_named_spread_call` still uses temporary
+projection expressions for specialized native boundaries and constructor
+adapters. A separate adapter map validates those projections against the exact
+record-field recipe and original saved-record receipt; temporary syntax has no
+source authority. A checked interior
+omission uses `LoweredCallArg::Default`, the callee's parameter index in the
+existing call argument codec. `IndexedCallArguments` carries evaluated supplied
+values separately from omitted indices; a supplied null remains a value.
+`LoweredParamDefault` distinguishes absent, prepared constant, and expression
+defaults. Callee binding installs constants and retains expression defaults in
+`IndexedCallSlots::pending_defaults`. Both evaluators execute the verified
+declaration prefix after capture hydration, once in parameter order. Suspended
+producer frames retain pending defaults until first pull. No default expression
+is evaluated in the caller or reconstructed from source syntax.
 
 Native `ModuleCall` argument vectors retain optional expression slots in static
 parameter order. `NativeArgumentValues` exposes an omitted slot as absence to

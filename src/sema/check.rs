@@ -52,6 +52,10 @@ mod local_inference;
 mod method;
 #[path = "check/pattern.rs"]
 mod pattern;
+#[path = "check/pattern_plan.rs"]
+mod pattern_plan;
+#[path = "check/nominal_member_plan.rs"]
+mod nominal_member_plan;
 #[path = "check/proof.rs"]
 mod proof;
 #[path = "check/stmt.rs"]
@@ -86,8 +90,11 @@ mod producer;
 #[path = "check/producer_eval.rs"]
 pub(crate) mod producer_eval;
 pub use producer::{ProducerFlowField, ProducerFlowGraph, ProducerFlowId, ProducerFlowKind, ProducerFlowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
-pub use solved::{NominalDeclaration, QualifiedNominalIdentity, BindingIdentity, CallBinding, ComprehensionIdentity, DeclarationIdentity, ExpressionIdentity, StageIdentity, StageCallback, SolvedStage, SolvedComprehensionClause, ProducerEffects, ProducerPath, ProducerPathComponent, ProducerProfile, ReturnElaboration, SolvedBinding, SolvedCall, SolvedCallable, SolvedExpressionCallable, SolvedInvocation, SolvedOperation, SolvedProjection, SolvedRecordUpdate, SolvedRecordUpdateReplacement, RecordUpdateValueSource, SolvedTypes, StatementIdentity};
+pub use solved::{NominalDeclaration, QualifiedNominalIdentity, BindingIdentity, CallBinding, ComprehensionIdentity, DeclarationIdentity, ExpressionIdentity, StageIdentity, StageCallback, SolvedStage, SolvedComprehensionClause, ProducerEffects, ProducerPath, ProducerPathComponent, ProducerProfile, ReturnElaboration, SolvedBinding, SolvedCall, SolvedCallable, SolvedExpressionCallable, SolvedInvocation, SolvedOperation, SolvedArgumentSource, SolvedProjection, SolvedRecordUpdate, SolvedRecordUpdateReplacement, RecordUpdateValueSource, SolvedTypes, StatementIdentity};
 pub use solved::RegistryArgumentCoercion;
+pub use solved::{PatternIdentity, PatternCaptureIdentity, SolvedPattern, SolvedPatternCapture, SolvedPatternDecision, SolvedPatternShape};
+pub use solved::{NominalMemberKind, SolvedNominalMember};
+pub use solved::PatternTypePosition;
 
 #[cfg(test)]
 #[path = "check/generic_tests.rs"]
@@ -309,6 +316,8 @@ pub struct TagVariantInfo {
     pub type_name: Name,
     pub field_count: usize,
     pub field_types: Vec<Type>,
+    pub canonical_name: Name,
+    pub identity: QualifiedNominalIdentity,
 }
 
 #[derive(Clone, Debug)]
@@ -380,12 +389,18 @@ pub(super) struct TagVariant {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorFamilyInfo {
     pub variants: BTreeMap<Name, ErrorVariantInfo>,
+    pub canonical_name: Name,
+    pub identity: QualifiedNominalIdentity,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorVariantInfo {
     pub fields: BTreeMap<Name, Type>,
     pub facets: Vec<Name>,
+    pub field_order: Vec<Name>,
+    pub canonical_family: Name,
+    pub canonical_name: Name,
+    pub identity: QualifiedNominalIdentity,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -809,6 +824,8 @@ impl Checker {
 
     fn register_builtin_process_error_family(&mut self) {
         for family in xsh_registry::errors::builtin_error_families() {
+            let family_name = if family.name == "ProcessError" { Name::PROCESS_ERROR } else { Name::intern(family.name) };
+            let field_order = family.fields.iter().map(|field| Name::intern(field.name)).collect::<Vec<_>>();
             let fields = family
                 .fields
                 .iter()
@@ -821,14 +838,23 @@ impl Checker {
                 .collect::<BTreeMap<_, _>>();
             let mut variants = BTreeMap::new();
             for variant in family.variants {
+                let member = Name::intern(variant.name);
+                let identity = QualifiedNominalIdentity::Builtin { family: family_name, member: Some(member) };
+                let facets = variant.facets.iter().map(Name::intern).collect::<Vec<_>>();
+                let ordered_fields = field_order.iter().map(|name| (Some(*name), fields[name].clone())).collect::<Vec<_>>();
+                self.record_checked_nominal_member(identity, NominalMemberKind::Error, family_name, member, &ordered_fields, &facets, Span::at(crate::source::SourceId::new(0), 0));
                 for facet in variant.facets {
                     self.error_facets.insert(Name::intern(facet));
                 }
                 variants.insert(
-                    Name::intern(variant.name),
+                    member,
                     ErrorVariantInfo {
                         fields: fields.clone(),
-                        facets: variant.facets.iter().map(Name::intern).collect(),
+                        facets,
+                        field_order: field_order.clone(),
+                        canonical_family: family_name,
+                        canonical_name: member,
+                        identity,
                     },
                 );
             }
@@ -848,7 +874,7 @@ impl Checker {
                 }
             }
             self.error_families
-                .insert(family_name, ErrorFamilyInfo { variants });
+                .insert(family_name, ErrorFamilyInfo { variants, canonical_name: family_name, identity: QualifiedNominalIdentity::Builtin { family: family_name, member: None } });
         }
     }
 
@@ -1121,3 +1147,6 @@ impl Checker {
         );
     }
 }
+
+#[cfg(test)]
+mod argument_recipe_tests;

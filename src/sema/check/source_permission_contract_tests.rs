@@ -933,7 +933,7 @@ fn named_stage_descriptors_keep_callback_permissions_and_reached_receiver_permis
         let (identity, stage) = checked.solved.stage_operations.iter().next().unwrap();
         assert_eq!(checked.solved.stage_operations.len(), 1);
         let identity = *identity;
-        let StageCallback::Callable { expression, requirement, declaration: Some(declaration) } = stage.callback.as_ref().unwrap() else { panic!("named descriptor preserves its exact original declaration") };
+        let StageCallback::Callable { expression, requirement, declaration: Some(declaration), .. } = stage.callback.as_ref().unwrap() else { panic!("named descriptor preserves its exact original declaration") };
         assert_eq!(&source[parsed.arena.arena.expr(*expression).span.range()], "clocked");
         assert_eq!(parsed.arena.arena.function_def(declaration.declaration).name, "clocked");
         let (callback, requirement, declaration) = (*expression, *requirement, *declaration);

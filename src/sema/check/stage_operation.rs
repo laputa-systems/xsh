@@ -102,8 +102,13 @@ impl Checker {
             Ok(value) => value.map(|(expression, _)| expression),
             Err((span, message)) => { self.error(span, &message, "check.stream-callable"); return Err(InferenceError::Boundary("stage callable descriptor cannot be bound")); }
         };
-        let arguments: Vec<_> = arena.arena.call_args(stage.args).iter().filter(|argument| !descriptor.is_some_and(|callee| matches!(argument.kind, ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } if value == callee))).cloned().collect();
-        let configuration = self.check_stage_arguments_arena(arena, source, stage, &arguments);
+        let configuration_entries = arena.arena.call_args(stage.args).iter().enumerate().filter(|(_, argument)| !descriptor.is_some_and(|callee| matches!(argument.kind, ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } if value == callee))).map(|(index, _)| index).collect::<Vec<_>>();
+        let arguments = configuration_entries.iter().map(|&index| arena.arena.call_args(stage.args)[index].clone()).collect::<Vec<_>>();
+        let (configuration, expanded_configuration) = self.check_stage_arguments_arena(arena, source, stage, &arguments);
+        self.generic.borrow_mut().facts.graph.charge_source_fact_work(expanded_configuration.len() as u64 + 1)?;
+        let configuration_sources = expanded_configuration.iter().map(|argument| {
+            Ok(super::SolvedArgumentSource { entry_index: *configuration_entries.get(argument.entry_index).ok_or(InferenceError::InvalidScheme)?, name: argument.name, value: argument.value, span: argument.span })
+        }).collect::<Result<Vec<_>, InferenceError>>()?;
         let config = xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str());
         let receiver = self.graph_type(input, span)?;
         let level = self.local_initializer_level.unwrap_or(if self.current_generic.is_some() { 1 } else { 0 });
@@ -111,16 +116,19 @@ impl Checker {
         let mut supplied = Vec::with_capacity(config.len() + 1);
         let mut actual_arguments = Vec::new();
         let mut supplied_slots = Vec::new();
-        let mut written_configuration = Vec::new();
+        let mut configuration_slots = std::collections::BTreeMap::new();
         let mut default_slots = Vec::new();
         for (slot, argument) in configuration.iter().enumerate() {
             if let Some(argument) = argument {
                 let ty = self.graph_type(&argument.ty, argument.span)?;
-                supplied.push(Some(ty)); written_configuration.push((argument.entry_index, slot, ty));
+                supplied.push(Some(ty)); configuration_slots.insert((argument.entry_index, argument.name), slot);
             } else { supplied.push(None); default_slots.push(slot); }
         }
-        written_configuration.sort_by_key(|(entry, _, _)| *entry);
-        for (_, slot, ty) in written_configuration { actual_arguments.push(ty); supplied_slots.push(slot); }
+        for argument in &expanded_configuration {
+            let slot = *configuration_slots.get(&(argument.entry_index, argument.name)).ok_or(InferenceError::InvalidScheme)?;
+            actual_arguments.push(supplied[slot].ok_or(InferenceError::InvalidScheme)?);
+            supplied_slots.push(slot);
+        }
         let mut form = StageForm::default();
         let bool_value = |slot: usize| match configuration.get(slot).and_then(|argument| argument.as_ref()) {
             None => Some(false),
@@ -244,13 +252,13 @@ impl Checker {
             actual_arguments.push(callable); supplied_slots.push(config.len());
             callback = Some(StageCallback::Protocol { expression: callee, operation: requirement, formal_slot, declaration });
         } else if let Some(callee) = descriptor {
-            let (shell, effects, _result, requirement, declaration, result_flow, _kind) = self.source_stage_descriptor(arena, source, identity, callee, item, item_flow, span)?;
+            let (shell, effects, _result, requirement, declaration, result_flow, _kind, instance) = self.source_stage_descriptor(arena, source, identity, callee, item, item_flow, span)?;
             let mut state = self.generic.borrow_mut();
             let reason = state.facts.graph.reason(span, None)?;
             state.facts.graph.unify(protocol_callback.ok_or(InferenceError::InvalidScheme)?, shell, reason)?;
             drop(state);
             actual_arguments.push(shell); supplied_slots.push(config.len());
-            callback = Some(StageCallback::Callable { expression: callee, requirement, declaration });
+            callback = Some(StageCallback::Callable { expression: callee, requirement, declaration, instance });
             callback_flow = result_flow; callback_effects = Some(effects);
         } else if let Some(block) = stage.block {
             let kind = if self.in_pure { CallableKind::Pure } else { CallableKind::Proc };
@@ -347,6 +355,7 @@ impl Checker {
         };
         let mut state = self.generic.borrow_mut();
         if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.push(requirement); }
+        state.facts.stage_argument_sources.insert(identity, configuration_sources);
         state.facts.stage_operations.insert(identity, SolvedStage { operation: SolvedOperation { requirement, result, effects, receiver: Some(receiver), actual_arguments,
             binding: CallBinding { supplied_slots, default_slots, rest_slot: None, dynamic: None }, caller: self.current_generic, argument_coercions: Vec::new() }, callback, input_producer_flow: input_flow, result_producer_flow: output_flow });
         drop(state);
@@ -488,21 +497,30 @@ impl Checker {
         shape.map(|(kind, _)| kind).ok_or(InferenceError::Boundary("registered stage callback violates its callable domain"))
     }
 
-    fn source_stage_descriptor(&mut self, arena: &ArenaProgram, source: &str, stage: StageIdentity, expression: ExprId, item: TypeId, item_flow: Option<ProducerFlowId>, span: Span) -> Result<(TypeId, EffectSummary, TypeId, crate::sema::inference::RequirementId, Option<super::DeclarationIdentity>, Option<ProducerFlowId>, CallableKind), InferenceError> {
+    fn source_stage_descriptor(&mut self, arena: &ArenaProgram, source: &str, stage: StageIdentity, expression: ExprId, item: TypeId, item_flow: Option<ProducerFlowId>, span: Span) -> Result<(TypeId, EffectSummary, TypeId, crate::sema::inference::RequirementId, Option<super::DeclarationIdentity>, Option<ProducerFlowId>, CallableKind, Option<Box<crate::sema::inference::InstanceCertificate>>), InferenceError> {
         self.prepare_graph_callable_value(arena, source, expression);
         let Some(target) = self.graph_callable_target(arena, expression) else {
             return self.source_registry_stage_descriptor(arena, stage, expression, item, item_flow, span);
         };
         let level = self.local_initializer_level.unwrap_or(if self.current_generic.is_some() { 1 } else { 0 });
-        let (callable, requirements, origins, pairs) = {
+        let (callable, requirements, origins, pairs, certificate) = {
             let mut state = self.generic.borrow_mut();
             if let Some(scheme) = target.scheme {
                 let reason = state.facts.graph.reason(span, None)?;
                 let binders = state.facts.graph.scheme_effect_binders(scheme)?;
                 let instance = state.facts.graph.instantiate(scheme, level, reason)?;
+                let certificate = if target.declaration.is_some() {
+                    let work = 1 + instance.substitutions.len() + instance.effect_substitutions.len() + instance.effect_roots.len() + 2 * instance.requirement_origins.len();
+                    state.facts.graph.charge_source_fact_work(work as u64)?;
+                    Some(Box::new(crate::sema::inference::InstanceCertificate {
+                        scheme, signature: instance.ty, substitutions: instance.substitutions.clone(),
+                        effect_substitutions: instance.effect_substitutions.clone(), effect_roots: instance.effect_roots.clone(),
+                        requirement_origins: instance.requirement_origins.clone(),
+                    }))
+                } else { None };
                 let pairs = binders.into_iter().zip(instance.effect_substitutions.into_iter().map(EffectSummary::Variable)).collect();
-                (instance.ty, instance.requirements, instance.requirement_origins, pairs)
-            } else { (target.signature, Vec::new(), Vec::new(), Vec::new()) }
+                (instance.ty, instance.requirements, instance.requirement_origins, pairs, certificate)
+            } else { (target.signature, Vec::new(), Vec::new(), Vec::new(), None) }
         };
         self.record_graph_expression(arena, expression, &Type::Graph(callable));
         self.record_expression_producer_flow(arena, expression, &Type::Graph(callable));
@@ -528,10 +546,10 @@ impl Checker {
         let callee = self.generic.borrow().facts.expression_producer_flows.get(&self.expression_identity(arena, expression)).copied();
         let result_flow = if let (Some(callee), Some(item)) = (callee, item_flow) { self.push_source_producer_flow(ProducerFlowSource::Stage(stage), ProducerFlowKind::StageApply { stage, callee, arguments: vec![item] }, span) } else { None };
         let shell = self.stage_callback_shell(kind, &[item], result, effects)?;
-        Ok((shell, effects, result, requirement, target.declaration, result_flow, kind))
+        Ok((shell, effects, result, requirement, target.declaration, result_flow, kind, certificate))
     }
 
-    fn source_registry_stage_descriptor(&mut self, arena: &ArenaProgram, stage: StageIdentity, expression: ExprId, item: TypeId, item_flow: Option<ProducerFlowId>, span: Span) -> Result<(TypeId, EffectSummary, TypeId, crate::sema::inference::RequirementId, Option<super::DeclarationIdentity>, Option<ProducerFlowId>, CallableKind), InferenceError> {
+    fn source_registry_stage_descriptor(&mut self, arena: &ArenaProgram, stage: StageIdentity, expression: ExprId, item: TypeId, item_flow: Option<ProducerFlowId>, span: Span) -> Result<(TypeId, EffectSummary, TypeId, crate::sema::inference::RequirementId, Option<super::DeclarationIdentity>, Option<ProducerFlowId>, CallableKind, Option<Box<crate::sema::inference::InstanceCertificate>>), InferenceError> {
         let ArenaExprKind::Field { base, name } = arena.arena.expr(expression).kind else { return Err(InferenceError::Boundary("stage descriptor has no registered callable identity")); };
         let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind else { return Err(InferenceError::Boundary("registered stage descriptor needs its module namespace")); };
         let level = self.local_initializer_level.unwrap_or(if self.current_generic.is_some() { 1 } else { 0 });
@@ -569,7 +587,7 @@ impl Checker {
         let flow = Some(self.registry_operation_producer_flow_from_flows(requirement, None, &formal_arguments, ProducerFlowSource::Stage(stage), span)?);
         if let Some(owner) = self.current_generic { self.generic.borrow_mut().pending.get_mut(&owner).unwrap().requirements.push(requirement); }
         let shell = self.stage_callback_shell(kind, &[item], result, effects)?;
-        Ok((shell, effects, result, requirement, None, flow, kind))
+        Ok((shell, effects, result, requirement, None, flow, kind, None))
     }
 
     fn stage_argument_flow(&mut self, arena: &ArenaProgram, stage: StageIdentity, argument: &ExpandedArgument, span: Span) -> Option<ProducerFlowId> {
@@ -633,6 +651,49 @@ impl Checker {
     }
 }
 
+impl<Graph> super::SolvedTypes<Graph> {
+    pub(crate) fn stage_callback_instance_roots(&self, graph: &crate::sema::inference::InferenceContext) -> Result<Vec<crate::sema::inference::ScopedInstanceRoot>, InferenceError> {
+        if self.owner != graph.owner() { return Err(InferenceError::ForeignHandle); }
+        let mut roots = Vec::new();
+        for (identity, stage) in &self.stage_operations {
+            let Some(StageCallback::Callable { expression, requirement, declaration, instance: Some(instance) }) = &stage.callback else { continue; };
+            let declaration = declaration.ok_or(InferenceError::InvalidScheme)?;
+            let callee = self.declarations.get(&declaration).ok_or(InferenceError::InvalidScheme)?;
+            if callee.scheme != instance.scheme { return Err(InferenceError::InvalidScheme); }
+            let source = super::ExpressionIdentity { expression: *expression, ..identity.pipeline };
+            if self.expression_callables.get(&source).is_none_or(|callable| callable.declaration != Some(declaration)) { return Err(InferenceError::InvalidScheme); }
+            let original = self.expressions.get(&source).ok_or(InferenceError::InvalidScheme)?;
+            let crate::sema::inference::RequirementTemplate::CallableInvocation { call } = graph.requirement_template(*requirement)? else { return Err(InferenceError::InvalidScheme); };
+            let callable = graph.invocation_call(call)?.callable;
+            if graph.resolved(callable)? != graph.resolved(instance.signature)? || graph.resolved(*original)? != graph.resolved(instance.signature)? { return Err(InferenceError::InvalidScheme); }
+            let scope = self.operation_scope(ProducerFlowSource::Stage(*identity), &stage.operation)?;
+            roots.push(crate::sema::inference::ScopedInstanceRoot { certificate: (**instance).clone(), scope });
+        }
+        Ok(roots)
+    }
+
+    pub(crate) fn stage_callback_certificate_bytes(&self) -> usize {
+        use std::mem::size_of;
+        self.stage_operations.values().filter_map(|stage| match &stage.callback {
+            Some(StageCallback::Callable { instance: Some(instance), .. }) => Some(instance),
+            _ => None,
+        }).map(|instance| {
+            size_of::<crate::sema::inference::InstanceCertificate>()
+                + instance.substitutions.capacity() * size_of::<TypeId>()
+                + instance.effect_substitutions.capacity() * size_of::<crate::sema::inference::EffectId>()
+                + instance.effect_roots.capacity() * size_of::<EffectSummary>()
+                + instance.requirement_origins.capacity() * size_of::<(crate::sema::inference::RequirementId, crate::sema::inference::RequirementId)>()
+        }).sum()
+    }
+
+    pub(crate) fn stage_callback_certificate_edges(&self) -> u64 {
+        self.stage_operations.values().filter_map(|stage| match &stage.callback {
+            Some(StageCallback::Callable { instance: Some(instance), .. }) => Some(instance),
+            _ => None,
+        }).map(|instance| (1 + instance.substitutions.len() + instance.effect_substitutions.len() + instance.effect_roots.len() + 2 * instance.requirement_origins.len()) as u64).sum()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::sema::check::Checker;
@@ -683,6 +744,71 @@ mod tests {
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         checked.solved.validate().unwrap();
+    }
+
+    #[test]
+    fn named_stage_callbacks_retain_each_original_instance_certificate() {
+        let output = checked("pure identity(value) { value }\nlet integers = [1] |> map(identity)\nlet strings = [\"word\"] |> map(identity)\n");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let symbols = output.solved.symbol_owner().clone(); let _symbols = symbols.enter();
+        let roots = output.solved.stage_callback_instance_roots(&output.solved.graph).unwrap();
+        assert_eq!(roots.len(), 2);
+        let mut atoms = Vec::new();
+        for root in &roots {
+            output.solved.graph.validate_instance_scoped(root).unwrap();
+            assert_eq!(root.certificate.substitutions.len(), 1);
+            let ty = output.solved.graph.resolved(root.certificate.substitutions[0]).unwrap();
+            let crate::sema::inference::TypeNode::Atom(atom) = output.solved.graph.node(ty).unwrap() else { panic!("source callback substitution remains concrete") };
+            atoms.push(*atom);
+        }
+        assert!(atoms.contains(&crate::sema::inference::Atom::Int));
+        assert!(atoms.contains(&crate::sema::inference::Atom::Str));
+        assert!(output.solved.stage_callback_certificate_bytes() > 0);
+        output.solved.validate().unwrap();
+    }
+
+    #[test]
+    fn stage_configuration_recipes_preserve_spreads_and_original_descriptor_gaps() {
+        use crate::symbol::Name;
+        use crate::sema::arguments::ArgumentValueSource;
+        let output = checked("pure key(value: Int) -> Int { value }\nlet sorted = [1] |> sort-by(key, ...{desc: true})\nlet reduced = [1] |> reduce-by(jobs: 2, sum: true) { |item| {key: \"group\", value: item} }\n");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let symbols = output.solved.symbol_owner().clone(); let _symbols = symbols.enter();
+        assert_eq!(output.solved.stage_argument_sources.len(), 2);
+        let mut seen = Vec::new();
+        for (identity, sources) in &output.solved.stage_argument_sources {
+            let stage = &output.solved.stage_operations[identity];
+            let count = sources.len();
+            assert_eq!(stage.operation.binding.supplied_slots.len(), count + 1);
+            seen.push(sources.iter().map(|source| source.entry_index).collect::<Vec<_>>());
+            if count == 1 {
+                assert_eq!(sources[0].name, Some(Name::intern("desc")));
+                assert!(matches!(sources[0].value, ArgumentValueSource::RecordField { field, .. } if field == Name::intern("desc")));
+                assert_eq!(stage.operation.binding.supplied_slots, vec![0, 1]);
+            } else {
+                assert_eq!(sources.iter().map(|source| source.name.unwrap()).collect::<Vec<_>>(), vec![Name::intern("jobs"), Name::intern("sum")]);
+                assert_eq!(stage.operation.binding.supplied_slots, vec![3, 0, 4]);
+            }
+        }
+        assert!(seen.contains(&vec![1]));
+        assert!(seen.contains(&vec![0, 1]));
+        output.solved.validate().unwrap();
+    }
+
+    #[test]
+    fn finite_stage_spread_recipes_keep_their_original_parameter_destinations() {
+        let output = checked("let batches = [\"aa\", \"bb\"] |> batch(...{max_argv: false, max_bytes: 4, count: 2})\n");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let symbols = output.solved.symbol_owner().clone(); let _symbols = symbols.enter();
+        let (identity, stage) = output.solved.stage_operations.iter().next().unwrap();
+        let sources = &output.solved.stage_argument_sources[identity];
+        assert_eq!(sources.len(), 3);
+        assert!(sources.iter().all(|source| source.entry_index == 0));
+        let selected = output.solved.graph.candidate_evidence(stage.operation.requirement).unwrap().unwrap();
+        let crate::sema::check::SolvedOperationAuthority::Stage(metadata) = output.solved.operation_catalog.candidate(&output.solved.graph, selected.candidate).unwrap() else { panic!("stage must retain its original catalog authority") };
+        let expected = sources.iter().map(|source| metadata.parameters.iter().position(|parameter| source.name.unwrap().as_str().as_str() == parameter.name).unwrap()).collect::<Vec<_>>();
+        assert_eq!(stage.operation.binding.supplied_slots, expected);
+        output.solved.validate().unwrap();
     }
 
     #[test]

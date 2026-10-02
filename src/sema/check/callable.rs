@@ -197,6 +197,7 @@ impl Checker {
                 } else { checked };
                 arguments.push(InvocationArgument { kind, ty });
             }
+            self.record_argument_sources(identity, &expanded)?;
             let level = self.local_initializer_level.unwrap_or(if self.current_generic.is_some() { 1 } else { 0 });
             let mut state = self.generic.borrow_mut();
             let result = state.facts.graph.fresh(level, span)?;
@@ -206,7 +207,6 @@ impl Checker {
                 domain: if self.in_pure { CallableDomain::Pure } else { CallableDomain::AnyCallable } }, reason)?;
             state.facts.graph.solve()?;
             if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.push(requirement); state.facts.expression_owners.insert(identity, owner); }
-            state.call_argument_sources.insert(identity, expanded.iter().map(|argument| argument.value).collect());
             state.facts.invocations.insert(identity, super::SolvedInvocation { requirement, caller: self.current_generic });
             state.producer_inputs.invocation_requirements.insert(identity, requirement);
             state.facts.expressions.insert(identity, result);
@@ -326,8 +326,8 @@ impl Checker {
         }
         if let Some(expression) = self.current_expression {
             let identity = self.expression_identity(arena, expression);
+            self.record_argument_sources(identity, &expanded)?;
             let mut state = self.generic.borrow_mut();
-            state.call_argument_sources.insert(identity, expanded.iter().map(|argument| argument.value).collect());
             if binding.dynamic.is_some() || kinds.iter().any(|kind| matches!(kind, InvocationArgumentKind::PositionalSplice)) {
                 let reason = state.facts.graph.reason(span, None)?;
                 let requirement = state.facts.graph.require_callable_invocation(InvocationCall {

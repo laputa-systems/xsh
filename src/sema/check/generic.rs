@@ -63,7 +63,6 @@ pub(super) struct GenericState {
     pub rejected: BTreeSet<DeclarationIdentity>,
     pub diagnostics: Vec<super::Diagnostic>,
     pub producer_binding_versions: BTreeMap<super::BindingIdentity, u32>,
-    pub call_argument_sources: BTreeMap<ExpressionIdentity, Vec<crate::sema::arguments::ArgumentValueSource>>,
     pub producer_inputs: super::producer_eval::ProducerEvaluationInputs,
     pub run_argument_stack: Vec<Vec<super::run_operation::RunArgumentGuard>>,
 }
@@ -177,6 +176,26 @@ impl Checker {
         declaration.completions.push(ty.clone());
         declaration.ambiguous_result_completion |= ambiguous;
     }
+
+    pub(super) fn record_argument_sources(&mut self, identity: ExpressionIdentity, arguments: &[crate::sema::arguments::ExpandedArgument]) -> Result<(), InferenceError> {
+        if !self.graph_generation { return Ok(()); }
+        let sources = arguments.iter().map(|argument| super::SolvedArgumentSource {
+            entry_index: argument.entry_index, name: argument.name, value: argument.value, span: argument.span,
+        }).collect();
+        self.record_argument_source_rows(identity, sources)
+    }
+
+    pub(super) fn record_argument_source_rows(&mut self, identity: ExpressionIdentity, sources: Vec<super::SolvedArgumentSource>) -> Result<(), InferenceError> {
+        if !self.graph_generation { return Ok(()); }
+        let mut state = self.generic.borrow_mut();
+        state.facts.graph.charge_source_fact_work(sources.len() as u64 + 1)?;
+        if let Some(previous) = state.facts.argument_sources.get(&identity) {
+            return if previous == &sources { Ok(()) } else { Err(InferenceError::Boundary("checked call argument sources changed after publication")) };
+        }
+        state.facts.graph.charge_source_fact_nodes(sources.len() as u64 + 1)?;
+        state.facts.argument_sources.insert(identity, sources);
+        Ok(())
+    }
     pub(super) fn record_statement_position(&mut self, arena: &ArenaProgram, id: crate::syntax::arena::StmtId, position: super::StatementPosition) {
         let span = arena.arena.stmt(id).span;
         self.statement_positions.insert(span, position);
@@ -261,6 +280,8 @@ impl Checker {
             self.finish_declaration_producer_flow(arena, def, identity);
             let mut state = self.generic.borrow_mut();
             state.generated.insert(identity);
+            #[cfg(test)]
+            Self::record_declaration_generation(identity);
             state.checking.remove(&identity);
             let component = state.components.get(&identity).cloned().unwrap_or_else(|| vec![identity].into());
             if component.iter().any(|member| !state.generated.contains(member)) {
@@ -295,6 +316,8 @@ impl Checker {
                 effects: std::iter::once(state.pending[member].required_effects).chain(state.pending[member].producer_effects.into_iter().chain(state.pending[member].parameter_producers.iter().flat_map(|profile| profile.values().copied())).flat_map(|effects| [effects.pull, effects.close])).collect(),
             }).collect();
             let schemes = state.facts.graph.generalize_component_with_roots(&members, 0, None, &roots)?;
+            #[cfg(test)]
+            Self::record_declaration_generalization(&component);
             for (member, scheme) in component.iter().copied().zip(schemes) {
                 let pending = &state.pending[&member];
                 let signature = pending.signature;

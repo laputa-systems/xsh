@@ -4,6 +4,8 @@ pub use crate::map_key::{MapKey, MapKeyRef};
 mod error_cause;
 mod resource_values;
 pub use error_cause::ErrorCause;
+pub use crate::runtime::eval::RuntimeCallableValue;
+pub use crate::runtime::eval::RuntimeNativeCallableValue;
 
 use crate::runtime::process::{AcceptedExitCodes, ProcessStatus};
 use crate::source::Span;
@@ -886,6 +888,8 @@ pub enum Value {
     RunError(Box<RunError>),
     Pure(FunctionName),
     Proc(FunctionName),
+    Callable(RuntimeCallableValue),
+    NativeCallable(RuntimeNativeCallableValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
@@ -940,6 +944,8 @@ impl Value {
             Self::RunError(_) => "RunError",
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
+            Self::Callable(value) => value.type_name(),
+            Self::NativeCallable(value) => value.type_name(),
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::NetJob(_) => "NetJob",

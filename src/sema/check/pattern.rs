@@ -73,12 +73,13 @@ impl Checker {
         }
     }
 
-    fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) {
+    fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) -> bool {
         if self.current_scope().contains_key(&name) {
             self.error(span, "duplicate name in pattern", "check.pattern-binding");
-            return;
+            return false;
         }
         self.define(name, Binding::new(ty, false), span);
+        true
     }
 
     fn check_error_facet_applicability(&mut self, facet: Name, value_ty: &Type, span: Span) {
@@ -124,13 +125,24 @@ impl Checker {
         pattern_id: PatternId,
         value_ty: &Type,
     ) {
+        let diagnostics_before = self.diagnostics.len();
+        self.begin_checked_pattern(arena, pattern_id, value_ty);
+        self.check_pattern_arena_inner(arena, source, pattern_id, value_ty);
+        self.finish_checked_pattern(arena, pattern_id, diagnostics_before);
+    }
+
+    fn check_pattern_arena_inner(
+        &mut self, arena: &ArenaProgram, source: &str, pattern_id: PatternId, value_ty: &Type,
+    ) {
         let pattern = arena.arena.pattern(pattern_id);
         let span = arena.arena.span(pattern.span);
         match &pattern.kind {
             ArenaPatternKind::Group(child) => self.check_pattern_arena(arena, source, *child, value_ty),
             ArenaPatternKind::Alias { pattern, name, name_span } => {
                 self.check_pattern_arena(arena, source, *pattern, value_ty);
-                self.define_pattern_binding(*name, value_ty.clone(), arena.arena.span(*name_span));
+                if self.define_pattern_binding(*name, value_ty.clone(), arena.arena.span(*name_span)) {
+                    self.checked_pattern_capture(arena, pattern_id, *name, Vec::new());
+                }
             }
             ArenaPatternKind::Wildcard => {}
             ArenaPatternKind::TestName { name, ty } => {
@@ -143,8 +155,12 @@ impl Checker {
                         if !matches!(target, Type::Unit | Type::Unknown) {
                             self.error(span, "constructor pattern needs an argument for this Result type", "check.pattern-arity");
                         }
+                        let payload = self.checked_pattern_fields(arena, pattern_id, &[target]).map(|fields| fields[0]);
+                        self.checked_pattern_decision(arena, pattern_id, None, super::SolvedPatternDecision::Result { success: name == "Ok", payload });
                     } else if !matches!(value_ty, Type::Any | Type::Unknown) {
                         self.error(span, "constructor patterns require a Result value", "check.pattern-type");
+                    } else {
+                        self.checked_pattern_decision(arena, pattern_id, None, super::SolvedPatternDecision::Result { success: name == "Ok", payload: None });
                     }
                     return;
                 }
@@ -152,13 +168,15 @@ impl Checker {
                 if let Some((family, variant)) = text.rsplit_once('.') {
                     let family = Name::intern(family);
                     let variant = Name::intern(variant);
-                    if self.error_families.get(&family).is_some_and(|info| info.variants.contains_key(&variant)) {
+                    if let Some(info) = self.error_families.get(&family).and_then(|info| info.variants.get(&variant)).cloned() {
                         if self.tag_variants.contains_key(name) || self.error_facets.contains(name)
                             || self.type_namespaces.get(&family).is_some_and(|types| types.contains_key(&variant))
                         {
                             self.error(span, "ambiguous pattern test name; qualify the type or constructor", "check.pattern-test-ambiguous");
                         }
                         self.pattern_test_types.insert(pattern_id, Type::ErrorVariant { family, variant });
+                        self.checked_pattern_decision(arena, pattern_id, Some(&Type::ErrorVariant { family, variant }),
+                            super::SolvedPatternDecision::ErrorVariant { family: info.canonical_family, variant: info.canonical_name, identity: info.identity, fields: Vec::new() });
                         let applicable = match value_ty {
                             Type::Any | Type::Unknown | Type::Error | Type::ProcessError => true,
                             Type::ErrorFamily(actual) => *actual == family,
@@ -180,6 +198,7 @@ impl Checker {
                 if usize::from(is_type) + usize::from(is_facet) + usize::from(constructor.is_some()) > 1 {
                     self.error(span, "ambiguous pattern test name; use a qualified type, facet, or constructor", "check.pattern-test-ambiguous");
                 } else if let Some(info) = constructor {
+                    self.checked_tag_pattern(arena, pattern_id, *name, &info);
                     if info.field_count != 0 {
                         self.error(span, "constructor pattern needs arguments; use `_` for payloads", "check.pattern-arity");
                     }
@@ -189,6 +208,8 @@ impl Checker {
                 } else {
                     let tested = self.type_from_arena(arena, *ty);
                     self.pattern_test_types.insert(pattern_id, tested.clone());
+                    let decision = if let Type::ErrorFacet(facet) = &tested { super::SolvedPatternDecision::Facet { facet: *facet } } else { super::SolvedPatternDecision::Type };
+                    self.checked_pattern_decision(arena, pattern_id, Some(&tested), decision);
                     if let Type::ErrorFacet(facet) = tested { self.check_error_facet_applicability(facet, value_ty, span); }
                     if !matches!(tested, Type::ErrorFacet(_)) {
                         self.check_type_pattern_applicability(&tested, value_ty, span);
@@ -203,6 +224,7 @@ impl Checker {
                 if let Some(info) = self.tag_variants.get(name).cloned()
                     && info.field_count == 0
                 {
+                    self.checked_tag_pattern(arena, pattern_id, *name, &info);
                     if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
@@ -217,20 +239,27 @@ impl Checker {
                     }
                     return;
                 }
-                self.define_pattern_binding(*name, value_ty.clone(), span);
+                self.checked_pattern_decision(arena, pattern_id, None, super::SolvedPatternDecision::Binding);
+                if self.define_pattern_binding(*name, value_ty.clone(), span) {
+                    self.checked_pattern_capture(arena, pattern_id, *name, Vec::new());
+                }
             }
             ArenaPatternKind::Type { binding, ty } => {
                 let narrowed_ty = self.type_from_arena(arena, *ty);
                 self.check_type_pattern_applicability(&narrowed_ty, value_ty, span);
                 self.pattern_test_types.insert(pattern_id, narrowed_ty.clone());
+                self.checked_pattern_decision(arena, pattern_id, Some(&narrowed_ty), super::SolvedPatternDecision::Type);
                 if let Some(name) = binding {
-                    self.define_pattern_binding(*name, narrowed_ty, span);
+                    if self.define_pattern_binding(*name, narrowed_ty, span) {
+                        self.checked_pattern_capture(arena, pattern_id, *name, Vec::new());
+                    }
                 }
             }
             ArenaPatternKind::Literal(expr) => {
                 let actual = self.check_expr_arena(arena, source, *expr, Some(value_ty));
                 let expr_span = arena.arena.expr(*expr).span;
                 self.expect_type(value_ty, &actual, expr_span);
+                self.checked_pattern_literal(arena, pattern_id, *expr);
             }
             ArenaPatternKind::List { elements, rest } => {
                 let element_ty = match value_ty {
@@ -294,12 +323,15 @@ impl Checker {
                 }
             }
             ArenaPatternKind::Alternation(patterns) => {
+                self.checked_pattern_decision(arena, pattern_id, None, super::SolvedPatternDecision::Alternation);
                 let existing = self.current_scope().clone();
                 let mut common: Option<super::FxHashMap<Name, Binding>> = None;
+                let mut origins = Vec::new();
                 for sub_id in arena.arena.pattern_ids(*patterns) {
                     self.push_scope();
                     *self.current_scope_mut() = existing.clone();
                     self.check_pattern_arena(arena, source, sub_id, value_ty);
+                    origins.push(self.checked_alternative_capture_origins(arena, sub_id));
                     let captures: super::FxHashMap<_, _> = self.current_scope().iter().filter(|(name, _)| !existing.contains_key(name)).map(|(name, binding)| (*name, binding.clone())).collect();
                     self.pop_scope();
                     if let Some(common) = &common {
@@ -308,7 +340,13 @@ impl Checker {
                         }
                     } else { common = Some(captures); }
                 }
-                for (name, binding) in common.unwrap_or_default() { self.define_pattern_binding(name, binding.ty, span); }
+                for (name, binding) in common.unwrap_or_default() {
+                    if self.define_pattern_binding(name, binding.ty, span) && self.graph_generation {
+                        let branches = origins.iter().map(|branch| branch.as_ref()?.get(&name).copied()).collect::<Option<Vec<_>>>();
+                        if let Some(branches) = branches { self.checked_pattern_capture(arena, pattern_id, name, branches); }
+                        else { self.unavailable_checked_pattern(arena, pattern_id); }
+                    }
+                }
             }
             ArenaPatternKind::Tuple(patterns) => {
                 for sub_id in arena.arena.pattern_ids(*patterns) {
@@ -317,6 +355,7 @@ impl Checker {
             }
             ArenaPatternKind::Constructor { name, arg } => {
                 if let Some(info) = self.tag_variants.get(name).cloned() {
+                    self.checked_tag_pattern(arena, pattern_id, *name, &info);
                     if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
@@ -348,6 +387,11 @@ impl Checker {
                         } else if let ArenaPatternKind::Tuple(sub_patterns) =
                             &arena.arena.pattern(*arg).kind
                         {
+                            let diagnostics_before = self.diagnostics.len();
+                            self.begin_checked_pattern(arena, *arg, value_ty);
+                            if let Some(fields) = self.checked_pattern_fields(arena, *arg, &info.field_types) {
+                                self.checked_pattern_decision(arena, *arg, Some(&Type::Tag(info.type_name)), super::SolvedPatternDecision::TagFields { fields });
+                            } else { self.unavailable_checked_pattern(arena, *arg); }
                             for (sub_id, field_ty) in arena
                                 .arena
                                 .pattern_ids(*sub_patterns)
@@ -355,6 +399,7 @@ impl Checker {
                             {
                                 self.check_pattern_arena(arena, source, sub_id, field_ty);
                             }
+                            self.finish_checked_pattern(arena, *arg, diagnostics_before);
                         } else {
                             self.check_pattern_arena(arena, source, *arg, &Type::Unknown);
                         }
@@ -392,6 +437,8 @@ impl Checker {
                         Type::Unknown
                     }
                 };
+                let payload = self.checked_pattern_fields(arena, pattern_id, std::slice::from_ref(&target)).map(|fields| fields[0]);
+                self.checked_pattern_decision(arena, pattern_id, None, super::SolvedPatternDecision::Result { success: name.as_str() == "Ok", payload });
                 if let Some(arg) = arg {
                     self.check_pattern_arena(arena, source, *arg, &target);
                 } else if !matches!(target, Type::Unit | Type::Unknown) {
@@ -409,6 +456,7 @@ impl Checker {
             } => {
                 let qualified = Name::intern(format!("{family}.{variant}"));
                 if fields.len == 0 && let Some(info) = self.tag_variants.get(&qualified).cloned() {
+                    self.checked_tag_pattern(arena, pattern_id, qualified, &info);
                     if info.field_count != 0 {
                         self.error(span, "constructor pattern needs arguments", "check.pattern-arity");
                     }
@@ -430,6 +478,13 @@ impl Checker {
                     );
                     return;
                 };
+                let field_names = variant_info.field_order.clone();
+                let field_types = field_names.iter().map(|name| variant_info.fields[name].clone()).collect::<Vec<_>>();
+                if let Some(checked_fields) = self.checked_pattern_fields(arena, pattern_id, &field_types) {
+                    self.checked_pattern_decision(arena, pattern_id, Some(&Type::ErrorVariant { family: *family, variant: *variant }),
+                        super::SolvedPatternDecision::ErrorVariant { family: variant_info.canonical_family, variant: variant_info.canonical_name, identity: variant_info.identity,
+                            fields: field_names.into_iter().zip(checked_fields).collect() });
+                } else { self.unavailable_checked_pattern(arena, pattern_id); }
                 let type_matches = match value_ty {
                     Type::Unknown | Type::Any | Type::Error | Type::ProcessError => true,
                     Type::ErrorFamily(name) => name == family,
@@ -465,6 +520,7 @@ impl Checker {
                 }
             }
             ArenaPatternKind::Facet(name) => {
+                self.checked_pattern_decision(arena, pattern_id, Some(&Type::ErrorFacet(*name)), super::SolvedPatternDecision::Facet { facet: *name });
                 self.check_error_facet_applicability(*name, value_ty, span);
                 if !self.error_facets.contains(name) {
                     self.error(

@@ -1,0 +1,21 @@
+
+running 16 tests
+test runtime::eval::indexed::generic::callable_types::tests::callable_signature_named_only_flag_is_distinct_from_default_and_rest ... ok
+test runtime::eval::indexed::generic::callable_types::tests::generic_callable_instance_proof_rejects_signature_metadata_substitution ... ok
+test runtime::eval::indexed::generic::callable_types::tests::generic_callable_materialization_preserves_the_complete_signature ... ok
+test runtime::eval::indexed::generic::callable_types::tests::generic_callable_materialization_rewinds_failed_children_and_bounds_depth ... ok
+test runtime::eval::indexed::generic::callable_types::tests::generic_callable_template_comes_from_the_original_scheme_signature ... ok
+test runtime::eval::indexed::generic::iterations::tests::iteration_receipts_reject_foreign_and_rewound_handles_and_count_shared_payloads_once ... ok
+test runtime::eval::indexed::generic::tests::concrete_add_witnesses_reject_foreign_signatures_and_erased_repairs ... ok
+test runtime::eval::indexed::generic::tests::foreign_retired_and_out_of_range_evidence_cannot_become_valid_by_slot_reuse ... ok
+test runtime::eval::indexed::generic::tests::forwarding_precomputes_scoped_edges_and_rejects_missing_or_ambiguous_maps ... ok
+test runtime::eval::indexed::generic::tests::identity_evidence_retains_one_scope_for_distinct_payloads_and_fixed_return_plan ... ok
+test runtime::eval::indexed::generic::tests::nested_templates_and_any_substitution_cannot_launder_concrete_arguments ... ok
+test runtime::eval::indexed::generic::tests::prepared_component_templates_remap_sparse_member_binders_and_reject_siblings ... ok
+test runtime::eval::indexed::generic::tests::prepared_record_template_flattens_solved_field_extensions ... ok
+test runtime::eval::indexed::generic::tests::projection_uses_constructor_layout_and_rejects_wrong_slot_type_and_owner ... ok
+test runtime::eval::indexed::generic::tests::rejected_cross_child_rewind_preserves_live_receipts_indexes_and_serials ... ok
+test runtime::eval::indexed::generic::tests::row_tail_substitution_preserves_width_and_explicit_dynamic_fields ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 1156 filtered out; finished in 0.02s
+

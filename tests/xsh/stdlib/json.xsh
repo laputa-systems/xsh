@@ -4,6 +4,20 @@ type JsonNestedRow = {cpu: Int, online: Bool}
 
 type JsonNestedRows = {cpus: List[JsonNestedRow]}
 
+type JsonRequireConfig = {jobs: UInt}
+
+type JsonRequireEnvelope = {cpus: List[JsonNestedRow], config: JsonRequireConfig}
+
+test test_json_require_preserves_extra_and_nested_fields_roundtrip [error] {
+  let raw = json.decode("{\"aardvark\":17,\"config\":{\"jobs\":3,\"extra\":\"kept\"},\"cpus\":[{\"cpu\":2,\"online\":true,\"extra\":false}],\"tail\":{\"kept\":true}}")?
+  let checked = raw.require(JsonRequireEnvelope)?
+  checked.cpus[0].cpu == 2
+  checked.cpus[0].online == true
+  checked.config.jobs == 3
+  (json.get(checked, ["tail", "kept"])?) == true
+  json.encode(checked)? == "{\"aardvark\":17,\"config\":{\"extra\":\"kept\",\"jobs\":3},\"cpus\":[{\"cpu\":2,\"extra\":false,\"online\":true}],\"tail\":{\"kept\":true}}"
+}
+
 test test_json_require_checks_nested_named_record_fields [error] {
   let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
   valid.require(JsonNestedRows)?.cpus[0].online == true

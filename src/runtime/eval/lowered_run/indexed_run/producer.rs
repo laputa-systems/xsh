@@ -153,6 +153,7 @@ impl Evaluator {
         kind: LoweredFunctionKind,
         view: super::FullFunctionView<'_>,
         slots: Vec<LoweredValue>,
+        pending_defaults: super::PendingParameterDefaults,
         call_span: Span,
     ) -> Result<ScriptStreamState, RuntimeError> {
         let program = Arc::clone(
@@ -172,7 +173,7 @@ impl Evaluator {
             .map_err(|error| super::indexed_error(error, call_span))?;
         // The call scope is entered on the first pull, so a producer whose body
         // never starts never owns one.
-        let frame = ProducerFrameState::begin_body_instantiated(statements, slots, execution.active_instantiation());
+        let frame = ProducerFrameState::begin_body_instantiated(statements, slots, pending_defaults, execution.active_instantiation());
         let header = view.header().map_err(|error| super::indexed_error(error, call_span))?;
         let item_check = header.return_check.clone().and_then(|check| {
             let ty = match check.ty {

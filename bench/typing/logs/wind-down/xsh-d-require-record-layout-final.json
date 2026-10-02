@@ -1,0 +1,156 @@
+{
+  "status": "normalization_library_verified_native_pending",
+  "source_revision": "de278c8833d47e78ac2da86acdce8810c78ad144",
+  "dirty_worktree": true,
+  "owned_files": {
+    "src/runtime/eval/require.rs": "679b5135e15dc011f9eb115538e1eb033f51fbd8a56a995c04bcf07ed4cc47d3",
+    "tests/xsh/stdlib/json.xsh": "8f20d58a14738f0e58a221fe3755211ee55d1f1987e3eaced8ae359264574a92",
+    "docs/JSON.md": "54ae8910db5147f4a403bce77965b2f08e62eb357e7c32e3a82d0f85e9f0bdfc"
+  },
+  "products": {
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsh": "d5bb5fb8a00ee587f20d154ae6d4fdfd4b30ef215f06b9c5c2f3eb6c5e07f3cf",
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/target/debug/xsht": "a774601d99eb14030763f1af3545544b62c97eca8a335f193222ffe9bd0c8d5e"
+  },
+  "contract": "Validated records retain the exact prepared-schema required-field prefix, all additional fields, nested decoded layouts and wire mappings. Prepared schema/type agreement requires exact canonical field order.",
+  "observations": [
+    {
+      "path": "/tmp/xsh-d-require-record-layout-original-red.log",
+      "status": "failed_preparation",
+      "passed": 0,
+      "failed": 1,
+      "sha256": "6d310ca558c9af2244a376ac91f24c145337de91260d1da2a4d8d300a6a58b5d"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-isolated-red.log",
+      "status": "compile_only",
+      "passed": 0,
+      "failed": 0,
+      "sha256": "78ecbf73dc7378d2881a3ee6fe678447b8a24e43b341f5c8d88bdae12029d679"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-isolated-red2.log",
+      "status": "compile_only",
+      "passed": 0,
+      "failed": 0,
+      "sha256": "e84764d888eb1ea097e6f55d2b0205cf05757172294d3d9d37d9380b6bbda5c8"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-isolated-red3.log",
+      "status": "failed",
+      "passed": 0,
+      "failed": 3,
+      "sha256": "7a09b51cd305a13fb73c58fc30f567881d566f1ec15f9992b374d22b3d0c7600"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-isolated-green.log",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "sha256": "eb4a4912b0963fb4c9ef004ed2d7b21908499615de8d6af635c60001fc36e5e3"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-final-owned.log",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "sha256": "e5a1c62ae047e58ec5add0d62a445b0b75b85a5b6f0a1b9b4f5f8e839aa20a06"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-original-green.log",
+      "status": "passed_both_routes",
+      "passed": 1,
+      "failed": 0,
+      "sha256": "f6f2fbc4b64cdf9eb3696592e0b7ea625aadb943bad5978b620ab18a35163a79"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-products-build.log",
+      "status": "build_passed",
+      "passed": 0,
+      "failed": 0,
+      "sha256": "f940a29d1b60d3bb6d5c5df1cd6e6db807eb8a190af9ea3a37db31a2482bdb98"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-products-build2.log",
+      "status": "build_passed",
+      "passed": 0,
+      "failed": 0,
+      "sha256": "d79016288f936f2f5187bda50bb841765678221df32006e7f1d8202922b36bfc"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-native-preservation.log",
+      "status": "parse_only_failure",
+      "passed": 0,
+      "failed": 1,
+      "sha256": "a6d90290e3bf8f4a4704e9d397929025a33f901509d24e50ec240222783258ae"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-native-preservation2.log",
+      "status": "blocked_unrelated_existing_module_source",
+      "passed": 0,
+      "failed": 1,
+      "sha256": "343db6c8a6f3ccbda5c54c1df3fb4ce079343579843e805e237440a4a8033ae1"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-native-isolated.log",
+      "status": "no_tests_discovered",
+      "passed": 0,
+      "failed": 0,
+      "sha256": "f4afc645e4e11733063c9ce5c1247f76428943ffd5d448660cd111b722b6ff03"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-native-isolated2.log",
+      "status": "blocked_preparation",
+      "passed": 0,
+      "failed": 1,
+      "sha256": "bc50170fa98212f88f57b0363297c3f6e66db74b574e26669374ba6fe6f9f248"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-native-isolated3.log",
+      "status": "blocked_preparation",
+      "passed": 0,
+      "failed": 1,
+      "sha256": "bc50170fa98212f88f57b0363297c3f6e66db74b574e26669374ba6fe6f9f248"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-wire-controls.log",
+      "status": "compile_only",
+      "passed": 0,
+      "failed": 0,
+      "sha256": "b0c8ea558166effa3001a168104d246da1c28b82b5be9912d217fc957adfa2a5"
+    },
+    {
+      "path": "/tmp/xsh-d-require-record-layout-wire-controls2.log",
+      "status": "blocked_native_argument_verification",
+      "passed": 0,
+      "failed": 1,
+      "sha256": "1cf92371f9c690c8987206a84b9acb4d6a11e7f3541ec624a3b4907cb3991c42"
+    }
+  ],
+  "commands": [
+    "cargo test -p xsh --lib require::tests::prepared_record_schema_ -- --nocapture",
+    "cargo test -p xsh --lib inferred_require_targets_survive_frontend_drop_on_both_routes -- --nocapture",
+    "cargo build -p xsh --bin xsh -p xsht --bin xsht",
+    "target/debug/xsht test --exact --jobs 1 tests/xsh/stdlib/json.xsh::test_json_require_preserves_extra_and_nested_fields_roundtrip",
+    "cargo test -p xsh --lib wire_enum_preparation_survives_frontend_drop_and_executes_both_routes -- --nocapture"
+  ],
+  "remaining": [
+    "Canonical JSON native module is blocked by existing mixed json.encode_lines list admission diagnostics and unrelated operation relationship diagnostics.",
+    "Same new native declaration isolated under a temporary tests directory reaches generic_evidence_verification before execution; no native pass claimed.",
+    "Existing wire-enum frontend-drop test reaches native call argument disagrees with its selected signature before decoding; direct native declared-erasure metadata correction owned separately.",
+    "Mixed JSON source correction was explicitly stopped at user wind-down: no sourcechecker/test edits were made."
+  ],
+  "mixed_json_handoff": {
+    "source": "/tmp/xsh-d-json-mixed-encode-lines.xsh",
+    "source_sha256": "00def26d836378cfe1edc3d435c094282978df43bdd983d9c3baceaea1b17f0d",
+    "baseline_product": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+    "baseline_exit_status": 0,
+    "baseline_log": "/tmp/xsh-d-json-mixed-encode-lines-baseline.log",
+    "baseline_sha256": "875fa6115a1f816d1474b33f1a34d1b0e9b74a85089a9441d3420f0cf6736db5",
+    "current_exit_status": 2,
+    "current_log": "/tmp/xsh-d-json-mixed-encode-lines-current-red.log",
+    "current_sha256": "cd3c2d2ee095444ecc058e18eb158d4c9efdf001e7589d2ab805b9da93e94aa0",
+    "root_cause": "check_graph_special_module_call checks every original argument with None before canonical family binding; the old JsonCompatible encode_lines source admission used declared List[Any] context. Mixed literal trains its first Int item. Future correction must use actual canonical declared erasure and JSON eligibility, retain original child types and guards, and avoid broad user/list Any widening.",
+    "implemented": false
+  },
+  "checks": "git diff --check passed; source comments contain no planning/document citations. No formatter, linter, dependency, source fixture, or immutable C artifact changes."
+}

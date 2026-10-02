@@ -31,6 +31,9 @@ for file in package.files {
 the text parsed. `.require(Package)?` is the trust boundary: it checks the
 runtime value, including nested named records inside collections, and gives the
 checker a concrete type for the rest of the script.
+Validation preserves additional object fields, including inside nested records;
+encoding the checked value retains them. Required fields use the schema's
+prepared order for typed access without changing JSON's object-name semantics.
 
 Prefer this whenever the script knows what it needs. It produces better errors,
 keeps field access ordinary, and avoids scattering dynamic checks through the

@@ -32,6 +32,7 @@ proc options() -> Pair {
   print spread
   return {first: 2, second: 3}
 }
+
 proc marked(value: Int) -> Int {
   print $value
   return value
@@ -44,6 +45,23 @@ print ${sum(third: marked(7), ...options())}
     assert assertion_condition, assertion_message
   }
   (executed.stdout) == ("7\nspread\n12\n")
+}
+
+test test_named_argument_spreads_keep_defaults_in_the_declaration_environment [error] { |ctx|
+  let output = test.run_script(ctx, r"""type Third = {third: Int}
+const lexical = 4
+pure total(left: Int = lexical, right: Int = 2, third: Int = 3) -> Int { left + right + third }
+proc marked(value: Int) [io] -> Int { print $value; value }
+proc options() [io] -> Third { print spread; {third: 9} }
+proc caller() [io] -> Int {
+  let lexical = 100
+  let _ = lexical
+  total(right: marked(7), ...options())
+}
+print ${caller()}
+""")?
+  assert output.success, output.stderr
+  output.stdout == "7\nspread\n20\n"
 }
 
 test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes [error] { |ctx|

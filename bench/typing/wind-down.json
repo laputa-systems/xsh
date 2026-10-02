@@ -1,0 +1,94 @@
+{
+  "status": "paused-incomplete",
+  "authority": "User requested wind down, integration into primary checkout, removal of old worktrees, and remaining-work-only campaign document. No new feature work authorized during wind down.",
+  "last_accepted_gate": "C",
+  "remaining_gate": "D",
+  "baseline_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+  "source_code_fingerprint": "6cea1d1d937d1ffcb769f2278dd7d47d99bd261af4292ea833d516429fb97491",
+  "source_fingerprint_policy": "Sorted path plus SHA256 for every tracked/untracked .rs/.xsh/.toml and Cargo.lock, excluding ignored build outputs. Documentation-only handoff edits do not change this fingerprint.",
+  "source_files": 1212,
+  "library_product_sha256": "16e54aba75d6b16967021f8c61616a9582ccc7f010d3e038d7989a3e2743a934",
+  "library_product_original_path": "target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa",
+  "verification": [
+    {
+      "command": "cargo test -p xsh --lib --offline -- --test-threads=1",
+      "passed": 1114,
+      "failed": 56,
+      "ignored": 1,
+      "exit_code": 101
+    },
+    {
+      "command": "cargo test -p xsh --test integration sema:: --offline -- --test-threads=1",
+      "passed": 181,
+      "failed": 0,
+      "exit_code": 0
+    }
+  ],
+  "observations": [
+    {
+      "name": "library",
+      "log": "bench/typing/logs/wind-down/library.log",
+      "sha256": "60b0d6ac24b329aed8b0961f8bf946e3e5d74bb2e2aa0e12b529eb77c34e28f9"
+    },
+    {
+      "name": "semantic",
+      "log": "bench/typing/logs/wind-down/semantic.log",
+      "sha256": "e563590dc214342bf96b12fafeaf2859db773372d77adc66dd41dccc97bf1db8"
+    },
+    {
+      "name": "comment-audit",
+      "log": "bench/typing/logs/wind-down/comment-audit.log",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "name": "native-callables",
+      "log": "bench/typing/logs/wind-down/native-callables.log",
+      "sha256": "f35e15da1192279cd9655e57e4c6f4052d87c261d49f6e5d024eee3aade559dd"
+    },
+    {
+      "name": "value-bindings",
+      "log": "bench/typing/logs/wind-down/value-bindings.log",
+      "sha256": "f45dcdb83592405e97c30a1f1167620eb0f3a82b3e1a568fee06ff62a2ed78c5"
+    },
+    {
+      "name": "atomic-rewind",
+      "log": "bench/typing/logs/wind-down/atomic-rewind.log",
+      "sha256": "6d263ced112dfe2f3317a8a1365daf94b97e37542e69421fc1612b2162c5d0a2"
+    },
+    {
+      "name": "atomic-rewind-nearest",
+      "log": "bench/typing/logs/wind-down/atomic-rewind-nearest.log",
+      "sha256": "beecdf1be83eaa4aa4ec0efc6be234b445f4cec78009fe5314369c5376fe3bc8"
+    },
+    {
+      "name": "require-layout",
+      "log": "bench/typing/logs/wind-down/require-layout.log",
+      "sha256": "e5a1c62ae047e58ec5add0d62a445b0b75b85a5b6f0a1b9b4f5f8e839aa20a06"
+    },
+    {
+      "name": "require-runtime",
+      "log": "bench/typing/logs/wind-down/require-runtime.log",
+      "sha256": "f6f2fbc4b64cdf9eb3696592e0b7ea625aadb943bad5978b620ab18a35163a79"
+    },
+    {
+      "name": "user-call-receiver",
+      "log": "bench/typing/logs/wind-down/user-call-receiver.log",
+      "sha256": "5746a8781395118babd1f35c5d95ada537ea7cfde5399f4097e6fb69ec3b817b"
+    },
+    {
+      "name": "wire-native",
+      "log": "bench/typing/logs/wind-down/wire-native.log",
+      "sha256": "a07a59ea39d0abbe060cfc27dac35e6589196efaddfc572b43c20b4d5485e472"
+    }
+  ],
+  "remaining_work": "xsh-typing-inference-campaign.md",
+  "historical_paths": "Archived absolute paths describe the original runs; their worktrees/build products are removed after useful contents are integrated. Source revisions and preserved evidence remain reproducible.",
+  "not_claimed": [
+    "Gate D completion",
+    "annotation reduction targets",
+    "full native stdlib compatibility",
+    "final performance/scaling acceptance",
+    "a clean whole-repository lint gate for this typing checkpoint"
+  ],
+  "primary_debug_build": "pending integration build"
+}

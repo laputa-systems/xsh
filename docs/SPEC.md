@@ -848,6 +848,12 @@ a nonempty contract. A runtime-loaded module has a separate internal dynamic
 module representation and is checked against the contract when `.require(T)`
 executes.
 
+A pure export promises empty execution effects. A proc export with no written
+effect list retains an unknown effect contract, so a caller with a finite
+permission list cannot assume it is effect-free. Direct calls retain the export's
+checked parameter names, defaults, rest slot, result, and effects; they do not
+infer an implementation declaration from the contract.
+
 `optional` permits an export to be absent. When an optional export is present,
 its kind and full signature must still match. Extra actual exports are allowed.
 Value types, parameter lists, parameter types, and return types are invariant.
@@ -1650,7 +1656,7 @@ promises and module-contract signatures remain checked boundaries. Monomorphic
 recursion is permitted when its declaration constraints solve, while polymorphic
 recursion and independently polymorphic callback parameters are unsupported.
 
-An omitted callback parameter used through `.call(...)` retains a reusable
+An omitted callback parameter invoked directly or through `.call(...)` retains a reusable
 callable-invocation requirement connecting the callback, ordered actual arguments,
 result, and computed effects. A pure body requires a Pure callback; an ordinary
 callable body admits the exact Pure, Proc, or Stream factory kinds permitted by

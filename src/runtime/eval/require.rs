@@ -59,7 +59,7 @@ impl PreparedSchema {
             (Self::Validate(expected), actual) => expected == actual,
             (Self::WireEnum(mapping), Type::Tag(name)) => mapping.type_name == *name,
             (Self::Record(schemas), Type::Record(fields)) => schemas.len() == fields.len()
-                && schemas.iter().all(|(name, schema)| fields.get(name).is_some_and(|ty| schema.matches_type(ty))),
+                && schemas.iter().zip(fields).all(|((name, schema), (expected_name, ty))| name == expected_name && schema.matches_type(ty)),
             (Self::Map(key, schema), Type::Map(expected_key, ty)) => key == expected_key.as_ref() && schema.matches_type(ty),
             (Self::List(schema), Type::List(ty))
             | (Self::Optional(schema), Type::Optional(ty)) => schema.matches_type(ty),
@@ -101,17 +101,27 @@ impl PreparedSchema {
                 if matches!(value, LoweredValue::Null) { Ok(value) } else { schema.decode(evaluator, value, path, span) }
             }
             Self::Record(fields) => {
-                let mut value = value;
+                let mut converted = Vec::with_capacity(fields.len());
                 for (field, schema) in fields {
                     let field_path = if path == "$" { field.to_string() } else { format!("{path}.{field}") };
                     let selected = super::lowered_run::lowered_record_field_value(&value, &field.as_str())
                         .ok_or_else(|| failure(format!("missing required field {field}")))?;
-                    let converted = schema.decode(evaluator, selected, &field_path, span)?;
-                    if schema.converts_wire() {
-                        *super::lowered_ops::lowered_record_field_mut(&mut value, *field, span)? = converted;
-                    }
+                    converted.push((*field, schema.decode(evaluator, selected, &field_path, span)?));
                 }
-                Ok(value)
+                let original = match value {
+                    LoweredValue::Record(fields) | LoweredValue::Module(fields) => super::lower::take_shared(fields).into_iter()
+                        .map(|(name, value)| (Name::intern(name.as_ref()), value)).collect(),
+                    LoweredValue::RecordVec(fields) => super::lower::take_shared(fields),
+                    LoweredValue::Stats { blanks, code, comments } => super::lowered_inline_stats_to_record_vec(blanks, code, comments),
+                    LoweredValue::StatsBlob(stats) => stats.to_record_vec(),
+                    value => return Err(failure(format!("expected Record, found {}", value.type_name()))),
+                };
+                // Required fields occupy the prepared schema's numeric slots.
+                // Extra fields remain visible after that prefix, and decoded
+                // nested values carry their own prepared layouts and mappings.
+                let required = fields.iter().map(|(name, _)| *name).collect::<std::collections::BTreeSet<_>>();
+                converted.extend(original.into_iter().filter(|(name, _)| !required.contains(name)));
+                Ok(LoweredValue::RecordVec(Arc::new(converted)))
             }
             Self::List(schema) => {
                 let items = match value {
@@ -165,5 +175,86 @@ pub(super) fn require_value(evaluator: &Evaluator, value: LoweredValue, check: &
     match result {
         Ok(value) => LoweredValue::ResultOk(Box::new(value)),
         Err(error) => LoweredValue::ResultErr(Box::new(super::Value::Error(Box::new(error)))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn prepared_record_schema_rejects_reordered_projection_layout() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        symbols.with_current(|| {
+            let ty = Type::Record(BTreeMap::from([(Name::intern("first"), Type::Int), (Name::intern("second"), Type::Str)]));
+            let schema = PreparedSchema::compile(&ty, &PreparedWireEnums::default());
+            assert!(schema.matches_type(&ty));
+            let PreparedSchema::Record(fields) = schema.as_ref() else { unreachable!() };
+            let mut fields = fields.clone();
+            fields.reverse();
+            let forged = PreparedSchema::Record(fields);
+            assert!(!forged.matches_type(&ty), "the same field set cannot authorize another physical projection order");
+        });
+    }
+
+    #[test]
+    fn prepared_record_schema_preserves_nested_values_and_extra_fields_in_its_layout() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        symbols.with_current(|| {
+            let required = Name::intern("required");
+            let payload = Name::intern("payload");
+            let schema = PreparedSchema::compile(&Type::Record(BTreeMap::from([
+                (required, Type::Int),
+                (payload, Type::Record(BTreeMap::from([(required, Type::Int)]))),
+            ])), &PreparedWireEnums::default());
+            let raw = LoweredValue::Record(Arc::new(BTreeMap::from([
+                (Arc::from("aardvark"), LoweredValue::Bool(true)),
+                (Arc::from("required"), LoweredValue::Int(7)),
+                (Arc::from("payload"), LoweredValue::Record(Arc::new(BTreeMap::from([
+                    (Arc::from("aardvark"), LoweredValue::Str(Arc::from("extra"))),
+                    (Arc::from("required"), LoweredValue::Int(9)),
+                ])))),
+            ])));
+            let evaluator = Evaluator::new(Vec::new());
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let expected = raw.clone().into_value();
+            let decoded = schema.decode(&evaluator, raw, "$", span).unwrap();
+            assert_eq!(decoded.clone().into_value(), expected);
+            let LoweredValue::RecordVec(fields) = &decoded else { panic!("a checked record must retain the prepared field layout"); };
+            let PreparedSchema::Record(prepared) = schema.as_ref() else { unreachable!() };
+            assert_eq!(fields.iter().take(prepared.len()).map(|(name, _)| *name).collect::<Vec<_>>(), prepared.iter().map(|(name, _)| *name).collect::<Vec<_>>());
+            let nested = fields.iter().find(|(name, _)| *name == payload).unwrap();
+            let LoweredValue::RecordVec(nested) = &nested.1 else { panic!("nested validation must retain its converted layout"); };
+            assert_eq!(nested[0], (required, LoweredValue::Int(9)));
+            assert_eq!(fields.len(), 3);
+            assert_eq!(nested.len(), 2);
+            assert_eq!(schema.decode(&evaluator, decoded.clone(), "$", span).unwrap(), decoded);
+        });
+    }
+
+    #[test]
+    fn prepared_record_schema_keeps_compact_statistics_fields() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        symbols.with_current(|| {
+            let code = Name::intern("code");
+            let schema = PreparedSchema::compile(&Type::Record(BTreeMap::from([(code, Type::Int)])), &PreparedWireEnums::default());
+            let evaluator = Evaluator::new(Vec::new());
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            for value in [
+                LoweredValue::Stats { blanks: 2, code: 7, comments: 3 },
+                LoweredValue::StatsBlob(Box::new(super::super::LoweredStatsValue {
+                    blanks: 2, code: 7, comments: 3,
+                    blobs: BTreeMap::from([(crate::map_key::MapKey::Str(Arc::from("rust")), LoweredValue::Int(5))]),
+                })),
+            ] {
+                let expected = value.clone().into_value();
+                let decoded = schema.decode(&evaluator, value, "$", span).unwrap();
+                assert_eq!(decoded.clone().into_value(), expected);
+                let LoweredValue::RecordVec(fields) = decoded else { panic!("synthesized record fields need the checked layout"); };
+                assert_eq!(fields[0], (code, LoweredValue::Int(7)));
+                assert_eq!(fields.len(), 4);
+            }
+        });
     }
 }

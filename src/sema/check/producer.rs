@@ -288,10 +288,10 @@ impl super::Checker {
     pub(super) fn argument_producer_flows(&mut self, arena: &crate::syntax::arena::ArenaProgram, call: ExpressionIdentity, _span: crate::source::Span) -> Result<Vec<ProducerFlowId>, InferenceError> {
         use crate::sema::arguments::ArgumentValueSource as Source;
         use super::ProducerPathComponent as Path;
-        let sources = self.generic.borrow().call_argument_sources.get(&call).cloned().ok_or(InferenceError::Boundary("call has no source argument binding"))?;
+        let sources = self.generic.borrow().facts.argument_sources.get(&call).cloned().ok_or(InferenceError::Boundary("call has no source argument binding"))?;
         let mut arguments = Vec::with_capacity(sources.len());
         for source in sources {
-            let (expression, path) = match source {
+            let (expression, path) = match source.value {
                 Source::Expression(expression) => (expression, None),
                 Source::RecordField { record, field } => (record, Some(ProducerPath(vec![Path::RecordField(field)]))),
                 Source::PositionalSplice(expression) => (expression, None),
@@ -311,7 +311,7 @@ impl super::Checker {
         use crate::sema::inference::{InvocationArgumentKind, RequirementTemplate};
         use super::ProducerPathComponent as Path;
         if profiles.iter().all(ProducerProfile::is_empty) {
-            let count = self.generic.borrow().call_argument_sources.get(&call).map_or(binding.supplied_slots.len(), Vec::len);
+            let count = self.generic.borrow().facts.argument_sources.get(&call).ok_or(InferenceError::Boundary("call has no source argument binding"))?.len();
             return Ok(vec![ProducerProfile::new(); count]);
         }
         let flows = self.argument_producer_flows(arena, call, span)?;
@@ -418,7 +418,7 @@ impl super::Checker {
 
     pub(super) fn record_registry_operation_producer_flow_with_receiver_path(&mut self, arena: &crate::syntax::arena::ArenaProgram, expression: crate::syntax::arena::ExprId, requirement: RequirementId, receiver: Option<crate::syntax::arena::ExprId>, receiver_path: &ProducerPath, arguments: &[crate::sema::arguments::ExpandedArgument], binding: &crate::sema::arguments::StaticArgumentBinding, span: crate::source::Span) -> Result<ProducerFlowId, InferenceError> {
         let identity = self.expression_identity(arena, expression);
-        self.generic.borrow_mut().call_argument_sources.insert(identity, arguments.iter().map(|argument| argument.value).collect());
+        self.record_argument_sources(identity, arguments)?;
         let mut formal = vec![None; binding.argument_slots.len() + binding.omitted_slots.len()];
         for (argument, &slot) in arguments.iter().zip(&binding.argument_slots) {
             use crate::sema::arguments::ArgumentValueSource as Source;
@@ -812,11 +812,11 @@ impl super::Checker {
                     self.record_expression_producer_flow(arena, callee, &super::Type::Graph(callable.signature));
                 }
                 let Some(callee) = expression_flow(self, callee) else { return; };
-                let Some(sources) = self.generic.borrow().call_argument_sources.get(&identity).cloned() else { return; };
+                let Some(sources) = self.generic.borrow().facts.argument_sources.get(&identity).cloned() else { return; };
                 let mut arguments = Vec::with_capacity(sources.len());
                 for source in sources {
                     use crate::sema::arguments::ArgumentValueSource as Source;
-                    let (expression, path) = match source {
+                    let (expression, path) = match source.value {
                         Source::Expression(expression) => (expression, None),
                         Source::RecordField { record, field } => (record, Some(ProducerPath(vec![Path::RecordField(field)]))),
                         Source::PositionalSplice(expression) => (expression, None),

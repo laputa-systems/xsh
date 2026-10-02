@@ -1,3 +1,13 @@
+test generic_sealed_add_text_and_forwarding [error] { |ctx|
+  let output = test.run_script(ctx, r"""pure add(left, right) { left + right }
+pure forwarded(left, right) { add(left, right) }
+print ${add("shared", " body")} ${forwarded("same", " contract")}
+""")?
+  assert output.success, output.stderr
+  output.status == 0
+  output.stdout == "shared body same contract\n"
+}
+
 test generic_sealed_add_two_domains [error] { |ctx|
   let output = test.run_script(ctx, r"""pure add(left, right) { left + right }
 let integer: Int = add(7, 11)

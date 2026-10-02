@@ -1,0 +1,277 @@
+{
+  "status": "in_progress",
+  "last_accepted_checkpoint": "de278c8833d47e78ac2da86acdce8810c78ad144",
+  "working_tree_changes": true,
+  "evidence_provenance": "Concurrent development observations. Logs preserve actual test output. Commands are selector families; exact arguments are not reconstructed from output. No final source/product hash linkage or whole-tree pass is claimed.",
+  "observations": [
+    {
+      "name": "source-patterns",
+      "command_family": "cargo test -p xsh --lib checked_pattern_",
+      "observed_passed": 15,
+      "log": "bench/typing/logs/gate-d-development/source-patterns.log",
+      "log_sha256": "e3afffb84abcca36488be632cc5739eb565b0ad9476cdab6f493b6e314611e88",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "semantic-compatibility",
+      "command_family": "cargo test -p xsh --test integration sema",
+      "observed_passed": 181,
+      "log": "bench/typing/logs/gate-d-development/semantic-compatibility.log",
+      "log_sha256": "7fd67e445d60573853a3052651c0d2b5fa90af8a3b7382d7db96ea1bdfad1b8e",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "pattern-transport",
+      "command_family": "cargo test -p xsh --lib pattern_transport_tests --offline -- --test-threads=1",
+      "observed_passed": 3,
+      "log": "bench/typing/logs/gate-d-development/pattern-transport.log",
+      "log_sha256": "b1c3b1427a2b2d62fbe218205b95559ec73e70a1c7b1fdaddde00f69a00ec536",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "module-environments",
+      "command_family": "cargo test -p xsh --lib module_reuse_tests -- --nocapture",
+      "observed_passed": 5,
+      "log": "bench/typing/logs/gate-d-development/module-environments.log",
+      "log_sha256": "80014173816eb4fa025df75dd192e564383819ad54d014aa1d9c058e1db233dc",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "immutable-callable-host-bridge",
+      "command_family": "cargo test -p xsh --lib runtime::eval::callable_value::tests",
+      "observed_passed": 3,
+      "log": "bench/typing/logs/gate-d-development/immutable-callable-host-bridge.log",
+      "log_sha256": "fd490f056d98b8ec861aab8ea9ad67cc207053e9143a9fc240ae9242ad49379e",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "ground-callable-cold-proofs",
+      "command_family": "cargo test -p xsh --lib callable_prepare::tests",
+      "observed_passed": 4,
+      "log": "bench/typing/logs/gate-d-development/ground-callable-cold-proofs.log",
+      "log_sha256": "ae94325cf64bb80efcfd5d5dfeafd0f12ac90b2cb3d3abe6b8c1799e8a57d424",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "ground-projection-cold-proofs",
+      "command_family": "cargo test -p xsh --lib projection_prepare -- --nocapture",
+      "observed_passed": 6,
+      "log": "bench/typing/logs/gate-d-development/ground-projection-cold-proofs.log",
+      "log_sha256": "7fcb3ca6e65a8cb4456399565bfbf16e87d1b8bbd14875a0f2c2fbf3de0f6275",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "language-operation-cold-proofs",
+      "command_family": "cargo test -p xsh --lib operation_prepare -- --nocapture",
+      "observed_passed": 13,
+      "log": "bench/typing/logs/gate-d-development/language-operation-cold-proofs.log",
+      "log_sha256": "985e35f6c1b51b8619abb59073c190aa50d38adb6e4cca5d351e15775446d36e",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "iteration-original-plans",
+      "command_family": "cargo test -p xsh --lib iteration::tests",
+      "observed_passed": 7,
+      "log": "bench/typing/logs/gate-d-development/iteration-original-plans.log",
+      "log_sha256": "a18b943a3f761c858d7d8c7285dacc429fb95c00e447a4fca3a7e4819779eae0",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "source-pattern-principal-scopes",
+      "command_family": "cargo test -p xsh --lib checked_pattern_",
+      "observed_passed": 16,
+      "log": "bench/typing/logs/gate-d-development/source-pattern-principal-scopes.log",
+      "log_sha256": "f2debe01a2b23c575eccf5425174dedd3616dd6b5cab541ea9986372e369b631",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "original-named-argument-transport",
+      "command_family": "cargo test -p xsh --lib lower::argument_binding::tests::saved_named_arguments -- --nocapture",
+      "observed_passed": 1,
+      "log": "bench/typing/logs/gate-d-development/original-named-argument-transport.log",
+      "log_sha256": "fa169608dc2c7d81c6e22c48ce8f548eee84cf9f42130447f2fd889d764944dd",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "fixed-projection-runtime-routes",
+      "command_family": "cargo test -p xsh --lib fixed_record_string_field_projection_executes_its_ground_proof_after_frontend_disposal_on_both_routes",
+      "observed_passed": 1,
+      "log": "bench/typing/logs/gate-d-development/fixed-projection-runtime-routes.log",
+      "log_sha256": "76d809e047bf27dc38b424cf3e365a56a07362ffaa7d5cae708747737012b25c",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "native-ground-cold-proofs",
+      "command_family": "cargo test -p xsh --lib native_prepare::tests",
+      "observed_passed": 5,
+      "log": "bench/typing/logs/gate-d-development/native-ground-cold-proofs.log",
+      "log_sha256": "99f73226b55e06ff692fbbfd238ed4be55a7f6fe7cb0a187c319156405756ef4",
+      "scope": "focused development observation; not final current-tree acceptance",
+      "explicit_exclusions": [
+        "canonical_native_named_arguments_keep_original_recipes_before_formal_slot_order"
+      ]
+    },
+    {
+      "name": "pattern-ground-current",
+      "command_family": "cargo test -p xsh --lib full::pattern_prepare::tests -- --skip ground_nominal_",
+      "observed_passed": 9,
+      "log": "bench/typing/logs/gate-d-development/pattern-ground-current.log",
+      "log_sha256": "950409878554d0a5eb724cc83cd79a59bd63d6339560a82790aa32d079a422bd",
+      "scope": "focused development observation; not final current-tree acceptance",
+      "explicit_exclusions": [
+        "ground_nominal_"
+      ]
+    },
+    {
+      "name": "local-callable-source-transport",
+      "command_family": "cargo test -p xsh --lib callable_binding::tests",
+      "observed_passed": 2,
+      "log": "bench/typing/logs/gate-d-development/local-callable-source-transport.log",
+      "log_sha256": "5dcf7efb344f74d068fdb76d18d29b84f8191fd6a057495d34b10188ae0f7cf8",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "native-result-runtime-routes",
+      "command_family": "cargo test -p xsh --lib native_result_carrier_executes_prepared_authority_after_frontend_disposal_on_both_routes -- --nocapture",
+      "observed_passed": 1,
+      "log": "bench/typing/logs/gate-d-development/native-result-runtime-routes.log",
+      "log_sha256": "2c05fb4912ac6f0cc647ba26b6656bb94518efa78ddf0d4b25018dae994da66f",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "iteration-native-runtime-routes",
+      "command_family": "cargo test -p xsh --lib original_list_item_native_operand_executes_on_both_routes_after_frontend_drop -- --nocapture",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/iteration-native-runtime-routes.log",
+      "log_sha256": "73acbb8f0e5ef82052f37b94ae160de3dfdd72a10447f1880488719c6242b899",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "iteration-original-shadow-source",
+      "command_family": "cargo test -p xsh --lib original_list_item_uses_follow_nested_loops",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/iteration-original-shadow-source.log",
+      "log_sha256": "c9afa9e773ac7bdae53e6bb06cf3472643b22ec71a6cfa21444bdfdda28755d3",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "scoped-callback-forwarded-runtime",
+      "command_family": "cargo test -p xsh --lib [forwarded scoped callback selector]",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/scoped-callback-forwarded-runtime.log",
+      "log_sha256": "cd7429a57e2ae986c747f5bdd47ebaaa8a7c06a2199881b1bda16dc3ad9211b2",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "pattern-builtin-facet",
+      "command_family": "cargo test -p xsh --lib [builtin facet selector]",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/pattern-builtin-facet.log",
+      "log_sha256": "b501683ad60dc09cea9a6a798ff618f53688b057af7301aa4953de0125ba9de6",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "pattern-scoped-list-cold-rigids",
+      "command_family": "cargo test -p xsh --lib [scoped list cold selector]",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/pattern-scoped-list-cold-rigids.log",
+      "log_sha256": "c007fb4c046370e03474e3cc144b455d6e0eb6cd50218831e20e8d1413f3b9db",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "pattern-current-22-of-23",
+      "command_family": "cargo test -p xsh --lib pattern_prepare::tests",
+      "observed_passed": 22,
+      "observed_failed": 1,
+      "log": "bench/typing/logs/gate-d-development/pattern-current-22-of-23.log",
+      "log_sha256": "b8fbe5de4cbdfae5b6edd5d03bd43986140376d4bc4c027a7c71198f17c734b2",
+      "scope": "focused development observation; not final current-tree acceptance",
+      "remaining_failure": "scoped Ok constructor operation requirement preparation"
+    },
+    {
+      "name": "original-named-residual-source",
+      "command_family": "cargo test -p xsh --lib [original named residual selector]",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/original-named-residual-source.log",
+      "log_sha256": "900cff2e73e56e7d4bdfad04610ea685c628c265179d4fa05e1959929eea074b",
+      "scope": "focused development observation; not final current-tree acceptance"
+    },
+    {
+      "name": "native-alias-named-packet",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/native-alias-named-packet.log",
+      "log_sha256": "bb8b36a22df3068ba5ba7378f9556ac815ed695c263c56b732e88f77520dbb4d",
+      "scope": "concurrent development observation; not final current-tree or product acceptance",
+      "exact_command": "cargo test -p xsh --lib native_alias_named_packets_preserve_evaluation_and_defaults_on_both_routes -- --nocapture"
+    },
+    {
+      "name": "native-callable-cold-host",
+      "observed_passed": 22,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/native-callable-cold-host.log",
+      "log_sha256": "5147443d47f5bdaa5d6781c1852c31e1a617a6887a2ef1cd8a743ca71738629b",
+      "scope": "concurrent development observation; not final current-tree or product acceptance",
+      "exact_command": "cargo test -p xsh --lib native_callable --offline -- --test-threads=1",
+      "command_provenance": "Exact arguments confirmed by test owner; log redirection omitted."
+    },
+    {
+      "name": "pattern-original-false-arm-semantics",
+      "observed_passed": 181,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/pattern-original-false-arm-semantics.log",
+      "log_sha256": "a6dccba6c9d9b5d7d3772e0c2c6ddcb9aaa1eecdb256444578675c161128eaff",
+      "scope": "concurrent development observation; not final current-tree or product acceptance",
+      "exact_command": "cargo test -p xsh --test integration sema:: -- --test-threads=1"
+    },
+    {
+      "name": "require-schema-layout-isolated",
+      "observed_passed": 3,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/require-schema-layout-isolated.log",
+      "log_sha256": "eb4a4912b0963fb4c9ef004ed2d7b21908499615de8d6af635c60001fc36e5e3",
+      "scope": "concurrent development observation; not final current-tree or product acceptance",
+      "command_provenance": "Selector not reconstructed from output; actual command retained in owner evidence."
+    },
+    {
+      "name": "library-development-existing-regressions",
+      "observed_passed": 1087,
+      "observed_failed": 61,
+      "log": "bench/typing/logs/gate-d-development/library-development-existing-regressions.log",
+      "log_sha256": "3d028495ae40239a394a51d2973cad0fb9c45b7608829bc8f51ca7eb14d7a322",
+      "scope": "concurrent development observation; not final current-tree or product acceptance",
+      "exact_command": "cargo test -p xsh --lib -- --test-threads=1"
+    },
+    {
+      "name": "original-nested-value-cold",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/original-nested-value-cold.log",
+      "log_sha256": "b57c1b291e71d0d01b543dba115bc9c39df837d93da54e56c6c6d412699709b4",
+      "scope": "concurrent development observation; not final current-tree or product acceptance",
+      "exact_command": "cargo test -p xsh --lib original_nested_immutable_native_result_binding_survives_frontend_disposal -- --nocapture"
+    },
+    {
+      "name": "pattern-conditional-original-result",
+      "observed_passed": 1,
+      "observed_failed": 0,
+      "log": "bench/typing/logs/gate-d-development/pattern-conditional-original-result.log",
+      "log_sha256": "7e2770e317a019fceb0101c8792377761c11125dfc3b397d5d85eddc39bd0895",
+      "scope": "concurrent development observation; not final current-tree or product acceptance",
+      "command_provenance": "Selector not reconstructed from output; actual command retained in owner evidence."
+    }
+  ],
+  "route_requalification": "The worker-thread route flag is now installed inside actual execution workers. Earlier archives are unchanged; affected route claims require fresh replay before acceptance.",
+  "remaining": [
+    "Complete callable invocation provenance through compiler temporary bindings, symbolic and native callable flows, and live mutable capture environments.",
+    "Complete checked pattern preparation and runtime capture/use authority.",
+    "Prepare all frozen operation families and native carrier/producer proofs; preserve annotated native modules.",
+    "Retire remaining semantic reconstruction and rechecking, complete joint annotation removal and resource/performance gates, then run final verification and commit."
+  ]
+}

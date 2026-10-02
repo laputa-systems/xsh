@@ -87,7 +87,7 @@ use super::modules::{
 };
 use super::net_job::NetJobTask;
 use super::{
-    Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
+    Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredParamDefault, IndexedCallArguments, IndexedCallSlots, PendingParameterDefaults, LoweredCompTarget,
     LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, LoweredReturnKind,
     LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name, ReduceByOp,
     ScanCondition, StmtFlow, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
@@ -104,6 +104,20 @@ use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 const INDEXED_EVAL_DEPTH_LIMIT: usize = 2048;
 const INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT: usize = 128;
+
+impl IndexedCallArguments {
+    fn supplied(values: Vec<LoweredValue>) -> Self {
+        Self { values, omitted_parameters: PendingParameterDefaults::new() }
+    }
+
+    fn omit(&mut self, parameter: usize, span: Span) -> Result<(), RuntimeError> {
+        if parameter != self.values.len() + self.omitted_parameters.len() {
+            return Err(RuntimeError::new("indexed-ir", "omitted argument has an invalid parameter position").with_span(span));
+        }
+        self.omitted_parameters.push(parameter);
+        Ok(())
+    }
+}
 
 fn indexed_eval_depth_limit() -> usize {
     if cfg!(feature = "native-tests") && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
@@ -3252,7 +3266,7 @@ fn lowered_required_arg_count(lowered: &FunctionHeader) -> usize {
         .param_defaults
         .iter()
         .take(limit)
-        .filter(|default| default.is_none())
+        .filter(|default| matches!(default, LoweredParamDefault::None))
         .count()
 }
 
@@ -3424,8 +3438,10 @@ fn validate_unsigned_runtime_args(header: &FunctionHeader, args: &[Value], span:
         } else if let Some(value) = args.get(index) {
             value_matches_static_type(value, &check.ty)
         } else {
-            header.param_defaults.get(index).and_then(Option::as_ref)
-                .is_none_or(|value| lowered_value_matches_static_type(value, &check.ty))
+            match header.param_defaults.get(index) {
+                Some(LoweredParamDefault::Constant(value)) => lowered_value_matches_static_type(value, &check.ty),
+                _ => true,
+            }
         };
         if !valid {
             return Err(RuntimeError::new("type-error", format!("call violates UInt constraint in {}", check.name)).with_span(span));
@@ -3457,9 +3473,6 @@ fn lowered_value_matches_param(
     kind: LoweredType,
     value: &LoweredValue,
 ) -> bool {
-    if matches!(value, LoweredValue::OmittedArgument) {
-        return lowered.param_defaults.get(index).is_some_and(|default| matches!(default, Some(LoweredValue::OmittedArgument)));
-    }
     lowered_value_matches(kind, value)
         && lowered_param_check(lowered, index)
             .is_none_or(|check| lowered_value_matches_static_type(value, &check.ty))
@@ -9693,7 +9706,8 @@ impl Evaluator {
         &mut self,
         lowered: &FunctionHeader,
         args: &[Value],
-    ) -> Option<Vec<LoweredValue>> {
+    ) -> Option<IndexedCallSlots> {
+        let mut pending_defaults = PendingParameterDefaults::new();
         let values = if let Some(rest_index) = lowered_rest_index(lowered) {
             if args.len() < lowered_required_arg_count(lowered)
                 || lowered.param_kinds[rest_index] != LoweredType::List
@@ -9723,7 +9737,11 @@ impl Evaluator {
                         }
                         values.push(lowered_value_from_runtime(value, kind)?);
                     }
-                    None => values.push(lowered.param_defaults.get(index)?.clone()?),
+                    None => match lowered.param_defaults.get(index)? {
+                        LoweredParamDefault::Expression => { pending_defaults.push(index); values.push(LoweredValue::Int(0)); }
+                        LoweredParamDefault::Constant(value) => values.push(value.clone()),
+                        LoweredParamDefault::None => return None,
+                    },
                 }
             }
             values
@@ -9741,13 +9759,17 @@ impl Evaluator {
                         }
                         values.push(lowered_value_from_runtime(value, kind)?);
                     }
-                    None => values.push(lowered.param_defaults.get(index)?.clone()?),
+                    None => match lowered.param_defaults.get(index)? {
+                        LoweredParamDefault::Expression => { pending_defaults.push(index); values.push(LoweredValue::Int(0)); }
+                        LoweredParamDefault::Constant(value) => values.push(value.clone()),
+                        LoweredParamDefault::None => return None,
+                    },
                 }
             }
             values
         };
-        if values.iter().enumerate().any(|(index, value)| lowered_param_check(lowered, index).is_some_and(|check| check.ty.has_unsigned_constraint()) && !lowered_value_matches_param(lowered, index, lowered.param_kinds[index], value)) { return None; }
-        Some(self.lowered_call_slots(lowered, values))
+        if values.iter().enumerate().any(|(index, value)| !pending_defaults.contains(&index) && lowered_param_check(lowered, index).is_some_and(|check| check.ty.has_unsigned_constraint()) && !lowered_value_matches_param(lowered, index, lowered.param_kinds[index], value)) { return None; }
+        Some(IndexedCallSlots { slots: self.lowered_call_slots(lowered, values), pending_defaults })
     }
 
     fn bind_lowered_values(
@@ -9755,134 +9777,68 @@ impl Evaluator {
         lowered: &FunctionHeader,
         args: &[LoweredValue],
         span: Span,
-    ) -> Result<Vec<LoweredValue>, RuntimeError> {
-        let values = if let Some(rest_index) = lowered_rest_index(lowered) {
-            if args.len() < lowered_required_arg_count(lowered)
-                || lowered.param_kinds[rest_index] != LoweredType::List
-            {
-                return Err(RuntimeError::new(
-                    "arity",
-                    lowered_call_arity_message(lowered, args.len()),
-                )
-                .with_span(span));
-            }
-            let mut values = Vec::with_capacity(lowered.params.len());
-            for (index, kind) in lowered.param_kinds.iter().copied().enumerate() {
-                if index == rest_index {
-                    let value = LoweredValue::List(args.get(index..).unwrap_or(&[]).to_vec());
-                    if !lowered_value_matches_param(lowered, index, LoweredType::List, &value) {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!(
-                                "lowered call expected {}, found List",
-                                lowered_param_type_name(lowered, index, LoweredType::List)
-                            ),
-                        )
-                        .with_span(span));
-                    }
-                    values.push(value);
-                    break;
-                }
-                match args.get(index) {
-                    Some(value) => {
-                        if !lowered_value_matches_param(lowered, index, kind, value) {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                format!(
-                                    "lowered call expected {}, found {}",
-                                    lowered_param_type_name(lowered, index, kind),
-                                    value.type_name()
-                                ),
-                            )
-                            .with_span(span));
-                        }
-                        values.push(value.clone());
-                    }
-                    None => {
-                        let Some(Some(default)) = lowered.param_defaults.get(index) else {
-                            return Err(RuntimeError::new(
-                                "arity",
-                                lowered_call_arity_message(lowered, args.len()),
-                            )
-                            .with_span(span));
-                        };
-                        values.push(default.clone());
-                    }
-                }
-            }
-            values
-        } else {
-            if args.len() < lowered_required_arg_count(lowered) || args.len() > lowered.params.len()
-            {
-                return Err(RuntimeError::new(
-                    "arity",
-                    lowered_call_arity_message(lowered, args.len()),
-                )
-                .with_span(span));
-            }
-            let mut values = Vec::with_capacity(lowered.params.len());
-            for (index, kind) in lowered.param_kinds.iter().copied().enumerate() {
-                match args.get(index) {
-                    Some(value) => {
-                        if !lowered_value_matches_param(lowered, index, kind, value) {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                format!(
-                                    "lowered call expected {}, found {}",
-                                    lowered_param_type_name(lowered, index, kind),
-                                    value.type_name()
-                                ),
-                            )
-                            .with_span(span));
-                        }
-                        values.push(value.clone());
-                    }
-                    None => {
-                        let Some(Some(default)) = lowered.param_defaults.get(index) else {
-                            return Err(RuntimeError::new(
-                                "arity",
-                                lowered_call_arity_message(lowered, args.len()),
-                            )
-                            .with_span(span));
-                        };
-                        values.push(default.clone());
-                    }
-                }
-            }
-            values
-        };
-        for (index, value) in values.iter().enumerate() {
-            if lowered_param_check(lowered, index).is_some_and(|check| check.ty.has_unsigned_constraint()) && !lowered_value_matches_param(lowered, index, lowered.param_kinds[index], value) {
-                return Err(RuntimeError::new("type-error", format!("lowered call expected {}, found {}", lowered_param_type_name(lowered, index, lowered.param_kinds[index]), value.type_name())).with_span(span));
-            }
-        }
-        Ok(self.lowered_call_slots(lowered, values))
+    ) -> Result<IndexedCallSlots, RuntimeError> {
+        self.bind_indexed_call_arguments(lowered, IndexedCallArguments::supplied(args.to_vec()), span)
     }
 
-    fn bind_lowered_values_owned(
+    fn bind_indexed_call_arguments(
         &mut self,
         lowered: &FunctionHeader,
-        mut args: Vec<LoweredValue>,
+        mut args: IndexedCallArguments,
         span: Span,
-    ) -> Result<Vec<LoweredValue>, RuntimeError> {
-        if lowered_rest_index(lowered).is_none()
-            && args.len() == lowered.params.len()
-            && lowered.slot_count <= args.capacity()
-            && lowered
-                .param_kinds
-                .iter()
-                .copied()
-                .enumerate()
-                .all(|(index, kind)| {
-                    lowered_value_matches_param(lowered, index, kind, &args[index])
-                })
+    ) -> Result<IndexedCallSlots, RuntimeError> {
+        let rest = lowered_rest_index(lowered);
+        let fixed = rest.unwrap_or(lowered.params.len());
+        if args.omitted_parameters.iter().any(|&slot| slot >= fixed)
+            || args.omitted_parameters.windows(2).any(|slots| slots[0] >= slots[1])
         {
-            // A fully bound call owns its evaluated arguments. Use that vector
-            // as the frame slots so the binding step need not copy the values.
-            args.resize(lowered.slot_count, LoweredValue::Int(0));
-            return Ok(args);
+            return Err(RuntimeError::new("indexed-ir", "omitted argument parameter indices are invalid").with_span(span));
         }
-        self.bind_lowered_values(lowered, &args, span)
+        if rest.is_none() && args.omitted_parameters.is_empty() && args.values.len() == fixed
+            && lowered.slot_count <= args.values.capacity()
+            && args.values.iter().enumerate().all(|(slot, value)| lowered_value_matches_param(lowered, slot, lowered.param_kinds[slot], value))
+        {
+            args.values.resize(lowered.slot_count, LoweredValue::Int(0));
+            return Ok(IndexedCallSlots { slots: args.values, pending_defaults: PendingParameterDefaults::new() });
+        }
+        let actual = args.values.len();
+        let mut values = args.values.into_iter();
+        let mut omissions = args.omitted_parameters.into_iter().peekable();
+        let mut bound = Vec::with_capacity(lowered.slot_count);
+        let mut pending_defaults = PendingParameterDefaults::new();
+        for slot in 0..fixed {
+            let omitted = omissions.peek() == Some(&slot);
+            if omitted { omissions.next(); }
+            let value = if omitted { None } else { values.next() };
+            if let Some(value) = value {
+                if !lowered_value_matches_param(lowered, slot, lowered.param_kinds[slot], &value) {
+                    return Err(RuntimeError::new("type-error", format!("lowered call expected {}, found {}", lowered_param_type_name(lowered, slot, lowered.param_kinds[slot]), value.type_name())).with_span(span));
+                }
+                bound.push(value);
+            } else {
+                match lowered.param_defaults.get(slot) {
+                    Some(LoweredParamDefault::Expression) => {
+                        pending_defaults.push(slot);
+                        bound.push(LoweredValue::Int(0));
+                    }
+                    Some(LoweredParamDefault::Constant(value)) => {
+                        validate_parameter_default(value, lowered.param_kinds[slot], lowered_param_check(lowered, slot), span)?;
+                        bound.push(value.clone());
+                    }
+                    Some(LoweredParamDefault::None) | None => return Err(RuntimeError::new("arity", lowered_call_arity_message(lowered, actual)).with_span(span)),
+                }
+            }
+        }
+        if let Some(slot) = rest {
+            let value = LoweredValue::List(values.collect());
+            if !lowered_value_matches_param(lowered, slot, lowered.param_kinds[slot], &value) {
+                return Err(RuntimeError::new("type-error", "lowered rest argument does not match its checked parameter").with_span(span));
+            }
+            bound.push(value);
+        } else if values.next().is_some() {
+            return Err(RuntimeError::new("arity", lowered_call_arity_message(lowered, actual)).with_span(span));
+        }
+        Ok(IndexedCallSlots { slots: self.lowered_call_slots(lowered, bound), pending_defaults })
     }
 
     fn lowered_call_slots(
@@ -9925,17 +9881,23 @@ impl Evaluator {
         lowered: &FunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
+        namespace: Option<Name>,
     ) -> Result<(), RuntimeError> {
         for capture in &lowered.captures {
-            let Some(binding) = self.lookup(capture.name) else {
+            let module_binding = namespace.and_then(|owner| self.indexed_module_bindings.get(&owner))
+                .and_then(|bindings| bindings.get(&capture.name));
+            let binding = if namespace.is_some_and(|owner| self.indexed_module_bindings.contains_key(&owner))
+                && capture.name != Name::intern("args") {
+                module_binding
+            } else { self.lookup(capture.name) };
+            let Some(binding) = binding else {
                 return Err(RuntimeError::new(
                     "unknown-name",
                     format!("unknown captured name `{}`", capture.name),
                 )
                 .with_span(call_span));
             };
-            let Some(value) = self
-                .lookup_lowered_capture(capture.name, capture.kind)
+            let Some(value) = lowered_value_from_runtime(&binding.value, capture.kind)
                 .or_else(|| lowered_value_from_runtime_any(&binding.value))
             else {
                 let detail = if capture.kind == LoweredType::Module {
@@ -9978,9 +9940,17 @@ impl Evaluator {
         lowered: &FunctionHeader,
         slots: &[LoweredValue],
         call_span: Span,
+        namespace: Option<Name>,
     ) -> Result<(), RuntimeError> {
         for capture in &lowered.captures {
             if capture.mutable {
+                if let Some(bindings) = namespace.and_then(|owner| self.indexed_module_bindings.get_mut(&owner)) {
+                    let binding = bindings.get_mut(&capture.name).ok_or_else(||
+                        RuntimeError::new("unknown-name", "mutable module capture lost its original binding").with_span(call_span))?;
+                    if !binding.mutable { return Err(RuntimeError::new("immutable-binding", "module capture is immutable").with_span(call_span)); }
+                    binding.value = slots[capture.slot].clone().into_value();
+                    if self.indexed_module_owners.last().copied() != namespace { continue; }
+                }
                 self.assign(
                     &capture.name.as_str(),
                     slots[capture.slot].clone().into_value(),

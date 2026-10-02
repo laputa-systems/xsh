@@ -1,0 +1,80 @@
+{
+  "status": "frozen_for_handoff; no aggregate acceptance claim",
+  "active_worktree": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2",
+  "owned_files": [
+    {
+      "path": "src/runtime/eval/indexed/pattern.rs",
+      "sha256": "0e832fc95fa25b14e7b631e1177cbf1598f3ed121c068e1e18cc3d721682e6e4"
+    },
+    {
+      "path": "src/runtime/eval/indexed/full/pattern_prepare.rs",
+      "sha256": "fc708e315ab9010fbc00e4cdccf689a269088e905c3768efb9bfd03457064cf8"
+    },
+    {
+      "path": "src/runtime/eval/lower/pattern_admission.rs",
+      "sha256": "abeffac79396ad292d20dc87b83053c71b8e474e43ee3779962fc70ca662f576"
+    }
+  ],
+  "shared_transport_files": [
+    "src/runtime/eval.rs",
+    "src/runtime/eval/lower.rs",
+    "src/runtime/eval/indexed/full.rs"
+  ],
+  "coordinated_store_owner": "typing_operations: src/runtime/eval/indexed/generic.rs",
+  "last_complete_suite": {
+    "command": "cargo +nightly-2026-09-15 test -p xsh --lib pattern_prepare -- --nocapture",
+    "tests": 25,
+    "passed": 23,
+    "failed": 2,
+    "log": "/tmp/xsh-d-pattern-if-while-owned-full-current.log",
+    "failures": [
+      "ground_conditional_patterns_keep_captures_inside_the_admitted_branch_after_frontend_drop",
+      "scoped_pattern_list_proofs_reject_other_rigids_and_foreign_callers"
+    ]
+  },
+  "later_focused_results": [
+    {
+      "name": "ground_conditional_patterns_keep_captures_inside_the_admitted_branch_after_frontend_drop",
+      "passed": 1,
+      "failed": 0,
+      "log": "/tmp/xsh-d-pattern-conditional-original-result-first-fix.log",
+      "evidence": "original source; both execution routes after frontend drop; Bool admission, capture slots, branch visibility, same-Int actual terminal replacement, coupled expected/encoded terminal replacement"
+    },
+    {
+      "name": "ground_conditional_result_roots_preserve_nullable_branch_widening_after_frontend_drop",
+      "passed": 1,
+      "failed": 0,
+      "log": "/tmp/xsh-d-pattern-conditional-nullable-result-current.log",
+      "evidence": "independent source Int and Null branch roots with Optional[Int] result; both routes after frontend drop"
+    }
+  ],
+  "current_authored_test_count": 26,
+  "aggregate_26_not_run": true,
+  "unrefreshed_failures": [
+    {
+      "name": "scoped_pattern_list_proofs_reject_other_rigids_and_foreign_callers",
+      "diagnostic": "value binding changes its original definition, initializer, or owner",
+      "owner": "constant_scope_performance and ergonomics_early",
+      "log": "/tmp/xsh-d-value-binding-pattern-producer-diagnostic.log"
+    },
+    {
+      "name": "enum_payload_alias_and_alternation_execute_after_frontend_drop_on_both_routes",
+      "diagnostic": "value binding changes its original definition, initializer, or owner",
+      "owner": "constant_scope_performance",
+      "log": "/tmp/xsh-d-pattern-alias-retained-proof-diagnostic.log"
+    }
+  ],
+  "remaining_boundaries": [
+    "Distinct value-principal pattern scopes require original instantiation authority; no ground or erased binder fallback.",
+    "Conditional result execution has focused ground evidence. The cold compatibility relation preserves identical normalized scoped roots, but unequal symbolic joins require an original checker receipt and broader symbolic conditional execution was not judged.",
+    "Conditional value proof has original expression controls and completing expression tails; terminal bare statements and noncompletion need an exact additional source receipt.",
+    "Qualified imported facets require original canonical predicate ownership; authenticated built-in facet predicate is supported.",
+    "Pattern literal Path and Regex encoded scalar comparison are not activated in the current verifier.",
+    "Guard success binding needs distinct real BindingIdentity and ResultSuccess admission/dominance; no fake PatternId. No implementation was started.",
+    "Final native pattern-conditional observation was not rerun against a newly coherent debug product."
+  ],
+  "runtime_inference_added": false,
+  "dependencies_added": false,
+  "forbidden_tools_run": false,
+  "temporary_diagnostics": "Shared Full finish/verify diagnostics belong to constant_scope_performance; owner will remove after its in-flight check."
+}

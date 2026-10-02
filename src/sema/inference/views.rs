@@ -83,7 +83,8 @@ impl InferenceContext {
         let mut params = Vec::with_capacity(signature.params.len());
         for parameter in &signature.params { params.push(Parameter { label: parameter.name, ty: self.import_view(&parameter.ty, level, origin, depth + 1, shared)?, defaulted: parameter.defaulted, rest: parameter.rest }); }
         let result = self.import_view(&signature.return_ty, level, origin, depth + 1, shared)?;
-        let effects = signature.effects.as_ref().map(|effects| EffectSummary::Closed(effect_bits(effects))).unwrap_or(EffectSummary::Unknown);
+        let effects = if kind == CallableKind::Pure { EffectSummary::Closed(EffectSet::EMPTY) }
+            else { signature.effects.as_ref().map(|effects| EffectSummary::Closed(effect_bits(effects))).unwrap_or(EffectSummary::Unknown) };
         self.arrow(Arrow { kind, params, result, effects })
     }
     pub fn export_type(&self, ty: TypeId) -> Result<Type, InferenceError> { self.export_view(ty, 0) }

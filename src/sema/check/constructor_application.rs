@@ -297,6 +297,7 @@ impl super::Checker {
             let default_slots = (0..parameters.len()).filter(|slot| !occupied.contains(slot)).collect::<Vec<_>>();
             if default_slots.iter().any(|&slot| parameters[slot].default.is_none()) { return Err(InferenceError::InvalidScheme); }
             let supplied = self.constructor_arguments(arena, &pending.arguments, &slots, &parameters, pending.caller)?;
+            self.record_argument_sources(pending.expression, &pending.arguments)?;
             let mut state = self.generic.borrow_mut();
             state.facts.graph.charge_source_fact_nodes(1 + parameters.len() as u64 + supplied.len() as u64)?;
             state.facts.graph.charge_source_fact_edges(parameters.len() as u64 + supplied.len() as u64 + default_slots.len() as u64)?;
@@ -351,6 +352,9 @@ impl super::Checker {
             let supplied = self.constructor_arguments(arena, arguments, slots, &parameters, self.current_generic)?;
             let occupied = slots.iter().copied().collect::<BTreeSet<_>>();
             if occupied.len() != parameters.len() || occupied.len() != slots.len() { return Err(InferenceError::InvalidScheme); }
+            if matches!(arena.arena.expr(expression.expression).kind, crate::syntax::arena::ArenaExprKind::Call { .. }) {
+                self.record_argument_sources(expression, arguments)?;
+            }
             let mut state = self.generic.borrow_mut();
             state.facts.graph.charge_source_fact_nodes(1 + parameters.len() as u64 + supplied.len() as u64)?;
             state.facts.graph.charge_source_fact_edges(parameters.len() as u64 + supplied.len() as u64)?;

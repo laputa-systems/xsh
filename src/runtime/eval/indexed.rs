@@ -6,6 +6,7 @@ use std::num::NonZeroU32;
 pub(super) mod full;
 pub(super) mod generic;
 mod semantic;
+pub(super) mod pattern;
 
 const IR_NONE: u32 = u32::MAX;
 
@@ -122,6 +123,7 @@ pub struct IrBuildError {
     pub span: Option<Span>,
     pub attempted_instructions: usize,
     pub committed_instructions: usize,
+    pub source_lowering_stats: Option<super::FrontendLoweredStats>,
 }
 
 impl IrBuildError {
@@ -136,6 +138,7 @@ impl IrBuildError {
             span,
             attempted_instructions,
             committed_instructions,
+            source_lowering_stats: None,
         }
     }
 }

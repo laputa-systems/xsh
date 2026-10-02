@@ -7,6 +7,9 @@ use super::super::generic::{
 use crate::sema::check::{ReturnElaboration, SolvedTypes};
 use crate::sema::inference::{InferenceContext, RequirementTemplate, SchemeId, TypeId as GraphTypeId, TypeNode, VariableKind};
 
+#[cfg(test)]
+mod stage_prepare_tests;
+
 #[derive(Clone)]
 struct PreparedCall {
     instruction: u32,
@@ -16,6 +19,7 @@ struct PreparedCall {
     substitutions: Vec<TypeRef>,
     parameters: Vec<TypeRef>,
     result: TypeRef,
+    requirement_origins: Vec<(crate::sema::inference::RequirementId, crate::sema::inference::RequirementId)>,
 }
 
 struct PreparedForwarding {
@@ -54,22 +58,22 @@ impl FullBuilder {
         if solved.owner != graph.owner() { return Err(problem("generic_foreign_solved_owner")); }
         for (index, parameter) in arrow.params.iter().enumerate() {
             if parameter.label != body.params[index] || parameter.rest != body.param_rest[index]
-                || parameter.defaulted != body.param_defaults[index].is_some()
+                || parameter.defaulted != !matches!(body.param_defaults[index], LoweredParamDefault::None)
             { return Err(problem("generic_parameter_contract")); }
         }
         let parameters = arrow.params.iter().map(|parameter| self.reference(graph, declaration.scheme, parameter.ty)).collect::<Result<Vec<_>, _>>()?;
         let result = self.reference(graph, declaration.scheme, arrow.result)?;
         let mut requirements = Vec::new();
         for template in &scheme.requirements {
-            let (left, right, result) = match *template {
-                RequirementTemplate::Add { left, right, result } => (left, right, result),
-                RequirementTemplate::Eligibility { .. } | RequirementTemplate::Operation { .. } | RequirementTemplate::EqualityCompatible { .. } | RequirementTemplate::CallableInvocation { .. } | RequirementTemplate::ErrorJoin { .. } | RequirementTemplate::EffectInclusion { .. } => return Err(problem("generic_runtime_requirement_not_prepared")),
+            let requirement = match *template {
+                RequirementTemplate::Add { left, right, result } => Requirement::Add {
+                    left: self.reference(graph, declaration.scheme, left)?, right: self.reference(graph, declaration.scheme, right)?, result: self.reference(graph, declaration.scheme, result)?,
+                },
+                RequirementTemplate::CallableInvocation { call } => self.prepare_scoped_invocation_requirement(graph, declaration.scheme, call)?,
+                RequirementTemplate::Operation { family, call } => self.prepare_scoped_operation_requirement(&solved, declaration.scheme, family, call)?,
+                _ => return Err(problem("generic_runtime_requirement_not_prepared")),
             };
-            requirements.push(Requirement::Add {
-                left: self.reference(graph, declaration.scheme, left)?,
-                right: self.reference(graph, declaration.scheme, right)?,
-                result: self.reference(graph, declaration.scheme, result)?,
-            });
+            requirements.push(requirement);
         }
         // Row obligations travel with parameters even when this body forwards
         // the projection to another declaration rather than reading the field.
@@ -100,6 +104,8 @@ impl FullBuilder {
         }
         for requirement in &requirements {
             match *requirement {
+                Requirement::Operation(ref operation) => for reference in operation.references() { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
+                Requirement::Invocation { callable, ref arguments, result, .. } => for reference in [callable, result].into_iter().chain(arguments.iter().map(|argument| argument.ty)) { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
                 Requirement::Add { left, right, result } => for reference in [left, right, result] { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
                 Requirement::Projection { receiver, result, .. } => for reference in [receiver, result] { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
             }
@@ -124,8 +130,8 @@ impl FullBuilder {
             }
         };
         let flags = (0..body.params.len()).map(|index| {
-            u8::from(body.param_rest[index]) | u8::from(body.param_defaults[index].is_some()) << 1
-                | u8::from(matches!(body.param_defaults[index], Some(LoweredValue::OmittedArgument))) << 2
+            u8::from(body.param_rest[index]) | u8::from(!matches!(body.param_defaults[index], LoweredParamDefault::None)) << 1
+                | u8::from(matches!(body.param_defaults[index], LoweredParamDefault::Expression)) << 2
         }).collect::<Vec<_>>();
         let scope = self.generic_evidence_mut().add_scope(SchemeScope {
             owner: function, quantifiers: scheme.quantifiers.iter().map(|quantifier| match quantifier.kind {
@@ -140,6 +146,8 @@ impl FullBuilder {
         let original = self.generic.as_ref().unwrap().scope(scope).map_err(|_| problem("generic_scope_allocation"))?.clone();
         for (expression, projection) in &solved.projections {
             if solved.expression_owners.get(expression) != Some(&identity) { continue; }
+            if matches!(graph_ground_type(&solved.graph, projection.receiver), Ok(Type::Record(_)))
+                && graph_ground_type(&solved.graph, projection.result).is_ok() { continue; }
             let scratch = body.scratch.borrow();
             let parameter = body.expression_origins.iter().find_map(|(id, origin)| {
                 if origin != expression { return None; }
@@ -189,9 +197,11 @@ impl FullBuilder {
     }
 
     pub(super) fn prepare_generic_expressions(&mut self) -> Result<(), IrBuildError> {
-        if self.generic_declarations.is_empty() { return Ok(()); }
+        if self.generic_declarations.is_empty() && self.generic_stage_call_rows.is_empty() { return Ok(()); }
         let solved = Arc::clone(self.solved.as_ref().ok_or_else(|| problem("generic_missing_solved_owner"))?);
         let mut layouts = BTreeMap::new();
+        self.prepare_scoped_invocation_sources(&solved)?;
+        self.prepare_scoped_operation_sources(&solved)?;
         for (instruction, expression, owner) in self.generic_expression_rows.clone() {
             let tag = *self.store.tags.get(instruction as usize).ok_or_else(|| problem("generic_expression_instruction"))?;
             if tag == FullTag::ExprRecord {
@@ -245,6 +255,11 @@ impl FullBuilder {
     }
 
     fn encoded_call_sources(&self, instruction: u32, count: usize, target: SchemeScopeId) -> Result<Vec<Option<u32>>, IrBuildError> {
+        let target = self.generic.as_ref().unwrap().scope(target).map_err(|_| problem("generic_call_scope"))?.owner;
+        self.encoded_sources_for_function(instruction, count, target)
+    }
+
+    pub(super) fn encoded_sources_for_function(&self, instruction: u32, count: usize, target: IrFunctionId) -> Result<Vec<Option<u32>>, IrBuildError> {
         let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| problem("generic_call_payload"))?;
         let block_index = if self.store.tags[instruction as usize] == FullTag::ExprSelfCall { 0 } else { 1 };
         let block = words.get(block_index).and_then(|&id| IrBlockId::from_raw(id)).and_then(|id| self.store.blocks.get(id.index()))
@@ -252,20 +267,23 @@ impl FullBuilder {
         let words = self.store.payload(block.instructions).map_err(|_| problem("generic_call_arguments"))?;
         let encoded = words.first().copied().ok_or_else(|| problem("generic_call_argument_arity"))? as usize;
         if encoded > count || words.len() != 1 + encoded * 2 { return Err(problem("generic_call_argument_arity")); }
-        let scope = self.generic.as_ref().unwrap().scope(target).map_err(|_| problem("generic_call_scope"))?;
+        let function = self.store.functions.get(target.index()).ok_or_else(|| problem("generic_call_target"))?;
+        let params = function.params.bounds(self.store.params.len()).ok_or_else(|| problem("generic_call_parameters"))?;
+        if params.len() != count { return Err(problem("generic_call_parameter_arity")); }
+        let parameters = &self.store.params[params];
         let mut sources = words[1..].chunks_exact(2).enumerate().map(|(slot, argument)| match argument[0] {
             0 => Ok(Some(argument[1])),
-            2 if argument[1] as usize == slot && scope.parameter_flags[slot] & 2 != 0 => Ok(None),
+            2 if argument[1] as usize == slot && parameters[slot].flags & 2 != 0 => Ok(None),
             _ => Err(problem("generic_call_splice_requires_prepared_binding")),
         }).collect::<Result<Vec<_>, _>>()?;
         for slot in encoded..count {
-            if scope.parameter_flags[slot] & 2 == 0 { return Err(problem("generic_call_missing_required_argument")); }
+            if parameters[slot].flags & 2 == 0 { return Err(problem("generic_call_missing_required_argument")); }
             sources.push(None);
         }
         Ok(sources)
     }
 
-    fn call_reference(&mut self, solved: &SolvedTypes, caller: Option<SchemeScopeId>, ty: GraphTypeId, substitution: bool) -> Result<TypeRef, IrBuildError> {
+    pub(super) fn call_reference(&mut self, solved: &SolvedTypes, caller: Option<SchemeScopeId>, ty: GraphTypeId, substitution: bool) -> Result<TypeRef, IrBuildError> {
         if let Some(caller) = caller {
             let scheme = self.generic_schemes[&caller];
             if substitution {
@@ -277,7 +295,10 @@ impl FullBuilder {
                 }
             }
             self.reference(&solved.graph, scheme, ty)
-        } else { self.ground(&solved.graph, ty).map(TypeRef::Ground) }
+        } else {
+            let reference = self.generic.get_or_insert_with(GenericEvidenceBuilder::default).prepare_closed_reference(&solved.graph, ty, &mut self.store.semantic, &mut self.semantic).map_err(|_| problem("generic_ground_type"))?;
+            self.materialize(reference, &[]).map(TypeRef::Ground)
+        }
     }
 
     fn materialize(&mut self, reference: TypeRef, substitutions: &[TypeId]) -> Result<TypeId, IrBuildError> {
@@ -373,6 +394,12 @@ impl FullBuilder {
         let mut mapping = Vec::with_capacity(callee.requirements.len());
         for requirement in &callee.requirements {
             let rebased = match *requirement {
+                Requirement::Operation(ref operation) => Requirement::Operation(operation.rebase(|reference| self.compose_reference(reference, &call.substitutions, &mut cache, 0))?),
+                Requirement::Invocation { callable, ref arguments, result, domain } => Requirement::Invocation {
+                    callable: self.compose_reference(callable, &call.substitutions, &mut cache, 0)?,
+                    arguments: arguments.iter().map(|argument| Ok(super::super::generic::TemplateInvocationArgument { kind: argument.kind, ty: self.compose_reference(argument.ty, &call.substitutions, &mut cache, 0)? })).collect::<Result<Vec<_>, IrBuildError>>()?.into_boxed_slice(),
+                    result: self.compose_reference(result, &call.substitutions, &mut cache, 0)?, domain,
+                },
                 Requirement::Add { left, right, result } => Requirement::Add {
                     left: self.compose_reference(left, &call.substitutions, &mut cache, 0)?,
                     right: self.compose_reference(right, &call.substitutions, &mut cache, 0)?,
@@ -416,15 +443,17 @@ impl FullBuilder {
         Ok(mapping)
     }
 
-    fn instantiate_prepared_call(&mut self, call: &PreparedCall, caller_substitutions: &[TypeId], layouts: &mut BTreeMap<TypeId, PhysicalLayoutId>) -> Result<InstantiationId, IrBuildError> {
+    fn instantiate_prepared_call(&mut self, call: &PreparedCall, caller_substitutions: &[TypeId], contextual: &FxHashMap<crate::sema::inference::RequirementId, crate::sema::inference::RequirementId>, layouts: &mut BTreeMap<TypeId, PhysicalLayoutId>) -> Result<InstantiationId, IrBuildError> {
         let substitutions = call.substitutions.iter().map(|&reference| self.materialize(reference, caller_substitutions)).collect::<Result<Vec<_>, _>>()?;
         let parameters = call.parameters.iter().map(|&reference| self.materialize(reference, caller_substitutions)).collect::<Result<Vec<_>, _>>()?;
         let result_type = self.materialize(call.result, caller_substitutions)?;
         let scope = self.generic.as_ref().unwrap().scope(call.target).map_err(|_| problem("generic_call_scope"))?.clone();
         if substitutions.len() != scope.quantifiers.len() || parameters.len() != scope.parameters.len() { return Err(problem("generic_instantiation_arity")); }
         let mut requirements = Vec::with_capacity(scope.requirements.len());
-        for requirement in &scope.requirements {
+        for (index, requirement) in scope.requirements.iter().enumerate() {
             requirements.push(match *requirement {
+                Requirement::Invocation { .. } => self.prepare_scoped_invocation_witness(call.target, index, contextual)?,
+                Requirement::Operation(_) => self.prepare_scoped_operation_witness(call.target, index, contextual)?,
                 Requirement::Projection { receiver_parameter, field, result, .. } => {
                     let receiver = *parameters.get(receiver_parameter as usize).ok_or_else(|| problem("generic_projection_parameter"))?;
                     let layout = self.layout(receiver, layouts)?;
@@ -476,8 +505,9 @@ impl FullBuilder {
             for (parameter, (&ty, &source_instruction)) in parameters.iter().zip(&sources).enumerate() {
                 self.generic_evidence_mut().add_argument(SolvedArgument { call_instruction: instruction, parameter: parameter as u32, source_instruction, ty });
             }
-            calls.push(PreparedCall { instruction, owner, target, caller, substitutions, parameters, result });
+            calls.push(PreparedCall { instruction, owner, target, caller, substitutions, parameters, result, requirement_origins: call.requirement_origins.clone() });
         }
+        self.prepare_stage_callback_calls(solved, &mut calls)?;
         let mut pending = Vec::new();
         let mut by_caller: FxHashMap<SchemeScopeId, Vec<usize>> = FxHashMap::default();
         let mut queue = std::collections::VecDeque::new();
@@ -488,23 +518,27 @@ impl FullBuilder {
                 let requirements = self.prepare_forwarded_requirements(&call, layouts)?;
                 pending.push(PreparedForwarding { call, requirements, edges: Vec::new() });
             } else {
-                let instance = self.instantiate_prepared_call(&call, &[], layouts)?;
+                let contextual = call.requirement_origins.iter().copied().collect::<FxHashMap<_, _>>();
+                let instance = self.instantiate_prepared_call(&call, &[], &contextual, layouts)?;
                 self.generic_evidence_mut().add_call(SolvedCall { instruction: call.instruction, caller: call.owner, target: call.target, evidence: CallEvidence::Ground(instance) });
-                if visited.insert(instance) { queue.push_back(instance); }
+                if visited.insert(instance) { queue.push_back((instance, contextual)); }
             }
         }
-        while let Some(instance) = queue.pop_front() {
+        while let Some((instance, caller_context)) = queue.pop_front() {
             let caller = self.generic.as_ref().unwrap().instance(instance).map_err(|_| problem("generic_forwarding_instance"))?.clone();
             for &index in by_caller.get(&caller.scope).map(Vec::as_slice).unwrap_or(&[]) {
                 let edge = &mut pending[index];
-                let destination = self.instantiate_prepared_call(&edge.call, &caller.substitutions, layouts)?;
+                let contextual = edge.call.requirement_origins.iter().map(|&(source, immediate)| {
+                    (source, caller_context.get(&immediate).copied().unwrap_or(immediate))
+                }).collect::<FxHashMap<_, _>>();
+                let destination = self.instantiate_prepared_call(&edge.call, &caller.substitutions, &contextual, layouts)?;
                 let callee = self.generic.as_ref().unwrap().instance(destination).map_err(|_| problem("generic_forwarding_instance"))?;
                 for (&mapping, actual) in edge.requirements.iter().zip(&callee.requirements) {
                     let expected = match mapping { ForwardedRequirement::Caller(index) => caller.requirements[index as usize], ForwardedRequirement::Fixed(witness) => witness };
                     if expected != *actual { return Err(problem("generic_forwarding_requirement_relationship")); }
                 }
                 edge.edges.push((instance, destination));
-                if visited.insert(destination) { queue.push_back(destination); }
+                if visited.insert(destination) { queue.push_back((destination, contextual)); }
                 if visited.len() > 2_000_000 { return Err(problem("generic_instantiation_limit")); }
             }
         }
@@ -514,6 +548,133 @@ impl FullBuilder {
             let plan = self.generic_evidence_mut().add_forwarding(ForwardingPlan { caller, callee: edge.call.target, substitutions: edge.call.substitutions.into_boxed_slice(), requirements: requirements.into_boxed_slice(), instances: edge.edges.into_boxed_slice() })
                 .map_err(|_| problem("generic_forwarding_allocation"))?;
             self.generic_evidence_mut().add_call(SolvedCall { instruction: edge.call.instruction, caller: edge.call.owner, target: edge.call.target, evidence: CallEvidence::Forwarded(plan) });
+        }
+        Ok(())
+    }
+
+    fn prepare_stage_callback_calls(&mut self, solved: &SolvedTypes, calls: &mut Vec<PreparedCall>) -> Result<(), IrBuildError> {
+        use crate::sema::check::{ExpressionIdentity, ProducerFlowSource, StageCallback};
+        use crate::sema::inference::{InvocationArgumentKind, InvocationDefaultTiming, ScopedInstanceRoot};
+        let mut positions = BTreeMap::new();
+        let mut pipeline = None;
+        let mut next = 0u32;
+        for &identity in solved.stage_operations.keys() {
+            if pipeline != Some(identity.pipeline) { pipeline = Some(identity.pipeline); next = 0; }
+            positions.insert(identity, next);
+            next = next.checked_add(1).ok_or_else(|| problem("ground_stage_position_capacity"))?;
+        }
+        for (instruction, identity, owner) in self.generic_stage_call_rows.clone() {
+            let stage = solved.stage_operations.get(&identity).ok_or_else(|| problem("generic_stage_origin"))?;
+            let Some(StageCallback::Callable { expression, requirement, declaration: Some(declaration), instance: Some(certificate) }) = &stage.callback else {
+                return Err(problem("generic_stage_callback_not_prepared"));
+            };
+            let target_function = *self.declaration_functions.get(declaration).ok_or_else(|| problem("generic_stage_original_target"))?;
+            let graph = &solved.graph;
+            let callee = solved.declarations.get(declaration).ok_or_else(|| problem("generic_stage_declaration"))?;
+            if certificate.scheme != callee.scheme { return Err(problem("generic_stage_instance_declaration")); }
+            let scope = solved.operation_scope(ProducerFlowSource::Stage(identity), &stage.operation).map_err(|_| problem("generic_stage_scope"))?;
+            graph.validate_instance_scoped(&ScopedInstanceRoot { certificate: (**certificate).clone(), scope })
+                .map_err(|_| problem("generic_stage_instance_certificate"))?;
+            let callback = ExpressionIdentity { expression: *expression, ..identity.pipeline };
+            if solved.expression_callables.get(&callback).is_none_or(|callable| callable.declaration != Some(*declaration)) {
+                return Err(problem("generic_stage_callback_declaration"));
+            }
+            let RequirementTemplate::CallableInvocation { call } = graph.requirement_template(*requirement).map_err(|_| problem("generic_stage_invocation"))? else {
+                return Err(problem("generic_stage_invocation"));
+            };
+            let invocation = graph.invocation_call(call).map_err(|_| problem("generic_stage_invocation"))?;
+            let evidence = graph.invocation_evidence(*requirement).map_err(|_| problem("generic_stage_invocation"))?
+                .ok_or_else(|| problem("generic_stage_invocation_pending"))?;
+            let (signature, binding, timing) = evidence.unique_plan().ok_or_else(|| problem("generic_stage_invocation_alternatives"))?;
+            if timing != InvocationDefaultTiming::AtCall || binding.dynamic.is_some() || binding.rest_slot.is_some()
+                || !evidence.native_alternatives.is_empty() || binding.supplied_slots.len() != invocation.arguments.len()
+                || invocation.arguments.len() != 1 || invocation.arguments[0].kind != InvocationArgumentKind::Positional {
+                return Err(problem("generic_stage_argument_binding"));
+            }
+            let signature = graph.resolved(signature).map_err(|_| problem("generic_stage_signature"))?;
+            if signature != graph.resolved(certificate.signature).map_err(|_| problem("generic_stage_signature"))?
+                || signature != graph.resolved(invocation.callable).map_err(|_| problem("generic_stage_signature"))? {
+                return Err(problem("generic_stage_instance_signature"));
+            }
+            let TypeNode::Arrow(signature) = graph.node(signature).map_err(|_| problem("generic_stage_signature"))? else {
+                return Err(problem("generic_stage_signature"));
+            };
+            let tag = self.store.tags.get(instruction as usize).copied().ok_or_else(|| problem("generic_stage_instruction"))?;
+            if !matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) { return Err(problem("generic_stage_call_opcode")); }
+            let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| problem("generic_stage_instruction"))?;
+            if words.first() != Some(&target_function.raw()) {
+                return Err(problem("generic_stage_call_target"));
+            }
+            let sources = self.encoded_sources_for_function(instruction, signature.params.len(), target_function)?;
+            for (slot, source) in sources.iter().enumerate() {
+                if source.is_some() != binding.supplied_slots.contains(&slot)
+                    || source.is_none() != binding.default_slots.contains(&slot) { return Err(problem("generic_stage_encoded_binding")); }
+            }
+            let Some(&target) = self.generic_declarations.get(declaration) else {
+                let function = self.store.functions[target_function.index()];
+                let parameters = function.params.bounds(self.store.params.len()).ok_or_else(|| problem("ground_stage_parameter_range"))?;
+                for (index, parameter) in signature.params.iter().enumerate() {
+                    let prepared = self.store.params[parameters.start + index];
+                    if Name::intern(self.store.string(prepared.name).map_err(|_| problem("ground_stage_parameter_name"))?) != parameter.label
+                        || (prepared.flags & 1 != 0) != parameter.rest || (prepared.flags & 2 != 0) != parameter.defaulted
+                        || prepared.type_id != self.ground(graph, parameter.ty)?.raw() { return Err(problem("ground_stage_parameter_contract")); }
+                }
+                let prepared = SignatureId::from_raw(function.signature).ok_or_else(|| problem("ground_stage_signature"))?;
+                let result = self.ground(graph, signature.result)?;
+                if self.store.semantic.signature_return_type(prepared).map_err(|_| problem("ground_stage_signature"))? != result {
+                    return Err(problem("ground_stage_result_contract"));
+                }
+                let kind = match signature.kind {
+                    crate::sema::inference::CallableKind::Pure => CallableKind::Pure,
+                    crate::sema::inference::CallableKind::Proc => CallableKind::Proc,
+                    _ => return Err(problem("ground_stage_callable_kind")),
+                };
+                if tag == FullTag::ExprDirectPureCall && (kind != CallableKind::Pure || !binding.default_slots.is_empty()) { return Err(problem("ground_stage_direct_call_defaults")); }
+                let mut argument_types = signature.params.iter().map(|parameter| self.ground(graph, parameter.ty)).collect::<Result<Vec<_>, _>>()?;
+                for (&slot, actual) in binding.supplied_slots.iter().zip(&invocation.arguments) {
+                    argument_types[slot] = self.ground(graph, actual.ty)?;
+                }
+                let crate::sema::inference::EffectSummary::Closed(creation) = graph.closed_effect_summary(evidence.effects).map_err(|_| problem("ground_stage_creation_effects"))? else { return Err(problem("ground_stage_latent_creation_effects")); };
+                let selected = graph.candidate_evidence(stage.operation.requirement).map_err(|_| problem("ground_stage_operation_owner"))?.ok_or_else(|| problem("ground_stage_operation_pending"))?;
+                let crate::sema::check::SolvedOperationAuthority::Stage(metadata) = solved.operation_catalog.candidate(graph, selected.candidate).map_err(|_| problem("ground_stage_catalog_owner"))? else { return Err(problem("ground_stage_catalog_kind")); };
+                let stage_authority = super::super::generic::PreparedOperationAuthority::Stage {
+                    identity: metadata.identity, stage: metadata.stage.clone(), source: metadata.source, form: metadata.form,
+                    variant: metadata.variant, callback_slot: metadata.callback_slot, additional_producer: metadata.additional_producer,
+                };
+                let sequence = |builder: &mut FullBuilder, ty| -> Result<(TypeRef, TypeRef), IrBuildError> {
+                    let resolved = graph.resolved(ty).map_err(|_| problem("ground_stage_sequence_owner"))?;
+                    let (TypeNode::List(item) | TypeNode::Stream(item)) = graph.node(resolved).map_err(|_| problem("ground_stage_sequence_owner"))? else { return Err(problem("ground_stage_sequence_not_prepared")); };
+                    Ok((TypeRef::Ground(builder.ground(graph, ty)?), TypeRef::Ground(builder.ground(graph, *item)?)))
+                };
+                let (input_sequence, input_item) = sequence(self, stage.operation.receiver.ok_or_else(|| problem("ground_stage_receiver_missing"))?)?;
+                let (result_sequence, result_item) = sequence(self, selected.result)?;
+                let crate::sema::inference::EffectSummary::Closed(operation_creation) = graph.closed_effect_summary(selected.effects).map_err(|_| problem("ground_stage_operation_effects"))? else { return Err(problem("ground_stage_operation_latent_effects")); };
+                let contract = super::super::generic::GroundStageCallContract {
+                    original_position: positions[&identity],
+                    stage_authority, input_sequence, input_item, result_sequence, result_item, operation_creation,
+                    declaration: *declaration, target: target_function, signature: prepared, kind,
+                    argument_types: argument_types.into_boxed_slice(),
+                    supplied_slots: binding.supplied_slots.iter().map(|&slot| slot as u32).collect(),
+                    default_slots: binding.default_slots.iter().map(|&slot| slot as u32).collect(),
+                    argument_sources: sources.into_boxed_slice(), timing, creation,
+                };
+                let source = self.generic_evidence_mut().add_stage_call_source(super::super::generic::StageCallSource {
+                    origin: identity, instruction, owner, expected: contract.clone(),
+                }).map_err(|_| problem("ground_stage_source_capacity"))?;
+                self.generic_evidence_mut().add_ground_stage_call(super::super::generic::PreparedGroundStageCall { source, contract }).map_err(|_| problem("ground_stage_proof_capacity"))?;
+                continue;
+            };
+            let caller = stage.operation.caller.and_then(|declaration| self.generic_declarations.get(&declaration).copied());
+            let mut parameters = signature.params.iter().map(|parameter| self.call_reference(solved, caller, parameter.ty, false)).collect::<Result<Vec<_>, _>>()?;
+            for (&slot, actual) in binding.supplied_slots.iter().zip(&invocation.arguments) {
+                *parameters.get_mut(slot).ok_or_else(|| problem("generic_stage_argument_slot"))? = self.call_reference(solved, caller, actual.ty, false)?;
+            }
+            let substitutions = certificate.substitutions.iter().map(|&ty| self.call_reference(solved, caller, ty, true)).collect::<Result<Vec<_>, _>>()?;
+            let result = self.call_reference(solved, caller, signature.result, false)?;
+            for (parameter, (&ty, &source_instruction)) in parameters.iter().zip(&sources).enumerate() {
+                self.generic_evidence_mut().add_argument(SolvedArgument { call_instruction: instruction, parameter: parameter as u32, source_instruction, ty });
+            }
+            calls.push(PreparedCall { instruction, owner, target, caller, substitutions, parameters, result, requirement_origins: certificate.requirement_origins.clone() });
         }
         Ok(())
     }

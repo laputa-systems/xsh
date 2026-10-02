@@ -151,8 +151,9 @@ fn nominal_graph_facts_retain_the_registered_declaration_identity() {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let mut types = Vec::new();
     let mut errors = Vec::new();
+    let mut error_members = Vec::new();
     for (ty, identity) in &checked.solved.nominals {
-        let super::QualifiedNominalIdentity::Source { source, namespace, declaration, member: _ } = identity else { continue; };
+        let super::QualifiedNominalIdentity::Source { source, namespace, declaration, member } = identity else { continue; };
         assert_eq!(*source, SourceId::new(0));
         assert_eq!(*namespace, None);
         match *declaration {
@@ -163,13 +164,28 @@ fn nominal_graph_facts_retain_the_registered_declaration_identity() {
             }
             super::NominalDeclaration::Error(id) => {
                 assert_eq!(parsed.arena.arena.error_def(id).name, "Failure");
-                assert!(matches!(checked.solved.graph.node(*ty).unwrap(), TypeNode::Atom(Atom::ErrorFamily(name)) if name == "Failure"));
-                errors.push(*ty);
+                if let Some(member) = member {
+                    let receipt = checked.solved.checked_nominal_member(*identity).unwrap();
+                    assert_eq!(receipt.kind, super::NominalMemberKind::Error);
+                    assert_eq!(receipt.family, "Failure");
+                    assert_eq!(receipt.member, *member);
+                    assert_eq!(receipt.member, "Failed");
+                    assert!(matches!(checked.solved.graph.node(*ty).unwrap(), TypeNode::Atom(Atom::ErrorVariant { family, variant }) if *family == receipt.family && *variant == receipt.member));
+                    assert_eq!(checked.solved.graph.resolved(*ty).unwrap(), checked.solved.graph.resolved(receipt.tested).unwrap());
+                    assert_eq!(receipt.fields.len(), 1);
+                    assert_eq!(receipt.fields[0].0.unwrap(), "message");
+                    assert_eq!(checked.solved.graph.node(receipt.fields[0].1).unwrap(), &TypeNode::Atom(Atom::Str));
+                    error_members.push(*ty);
+                } else {
+                    assert!(matches!(checked.solved.graph.node(*ty).unwrap(), TypeNode::Atom(Atom::ErrorFamily(name)) if name == "Failure"));
+                    errors.push(*ty);
+                }
             }
         }
     }
     assert_eq!(types.len(), 1, "alias resolves to the original nominal declaration");
     assert_eq!(errors.len(), 1);
+    assert_eq!(error_members.len(), 1, "the unused member retains its independent original registration");
     checked.solved.validate().unwrap();
 }
 

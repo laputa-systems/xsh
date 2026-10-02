@@ -3398,6 +3398,11 @@ mod tests {
             let crate::sema::inference::TypeNode::Arrow(arrow) = facts.graph.node(caller_signature).unwrap() else { panic!("caller retains its solved signature") };
             let argument = arrow.params[0].ty;
             let result = arrow.result;
+            let argument_expression = ExpressionIdentity { source: call.source, namespace: call.namespace, expression: ExprId::from_index(2) };
+            facts.expressions.insert(argument_expression, argument);
+            facts.expression_owners.insert(argument_expression, caller);
+            facts.argument_sources.insert(call, vec![crate::sema::check::SolvedArgumentSource { entry_index: 0, name: None,
+                value: crate::sema::arguments::ArgumentValueSource::Expression(argument_expression.expression), span }]);
             facts.expressions.insert(call, result);
             facts.expression_owners.insert(call, caller);
             let root = facts.producer_flows.push_fixture(&mut facts.graph, ProducerFlowSource::DeclarationResult(caller), ProducerFlowKind::Apply { call, callee, arguments: vec![parameter] }).unwrap();

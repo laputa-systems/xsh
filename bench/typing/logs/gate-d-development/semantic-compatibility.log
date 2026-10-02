@@ -1,0 +1,508 @@
+    Blocking waiting for file lock on build directory
+warning: unused imports: `SolvedConstructorArgument` and `SolvedConstructorParameter`
+  --> src/sema/check.rs:30:139
+   |
+30 | ...dConstructorApplication, SolvedConstructorArgument, SolvedConstructorDefault, SolvedConstructorParameter};
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `StmtId`
+ --> src/sema/check/local_inference.rs:2:129
+  |
+2 | use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+  |                                                                                                                                 ^^^^^^
+
+warning: unused import: `ModuleProjectionKind`
+  --> src/sema/check.rs:84:29
+   |
+84 | pub use module_projection::{ModuleProjectionKind, SolvedModuleProjection};
+   |                             ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProducerFlowNode`
+  --> src/sema/check.rs:90:157
+   |
+90 | ...lowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+   |                                                            ^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src/sema/check/infer_effects.rs:175:21
+    |
+175 |                 let mut chain = vec![name.to_string()];
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `name`
+   --> src/sema/check/infer_effects.rs:183:84
+    |
+183 |     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
+    |                                                                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: type `SemanticPools` is more private than the item `pattern_ground_type`
+   --> src/runtime/eval/indexed/pattern.rs:111:1
+    |
+111 | / pub(in crate::runtime::eval) fn pattern_ground_type(
+112 | |     pools: &super::semantic::SemanticPools, reference: TypeRef,
+113 | | ) -> Result<crate::sema::types::Type, IrVerifyError> {
+    | |____________________________________________________^ function `pattern_ground_type` is reachable at visibility `pub(in crate::runtime::eval)`
+    |
+note: but type `SemanticPools` is only usable at visibility `pub(in crate::runtime::eval::indexed)`
+   --> src/runtime/eval/indexed/semantic.rs:97:1
+    |
+ 97 | pub(super) struct SemanticPools {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `SemanticPools` is more private than the item `verify_pattern_store`
+   --> src/runtime/eval/indexed/pattern.rs:135:1
+    |
+135 | / pub(in crate::runtime::eval) fn verify_pattern_store(
+136 | |     store: &super::generic::GenericEvidenceStore,
+137 | |     pools: &super::semantic::SemanticPools,
+138 | |     owners: &[Option<InstructionOwner>],
+139 | | ) -> Result<(), IrVerifyError> {
+    | |______________________________^ function `verify_pattern_store` is reachable at visibility `pub(in crate::runtime::eval)`
+    |
+note: but type `SemanticPools` is only usable at visibility `pub(in crate::runtime::eval::indexed)`
+   --> src/runtime/eval/indexed/semantic.rs:97:1
+    |
+ 97 | pub(super) struct SemanticPools {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `lowered_method_call_args` is never used
+   --> src/runtime/eval/lower.rs:193:4
+    |
+193 | fn lowered_method_call_args(name: Name, args: &[ArenaCallArg]) -> Option<Vec<ExprId>> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `lowered_arena_result_ok_type` is never used
+    --> src/runtime/eval/lower.rs:1541:4
+     |
+1541 | fn lowered_arena_result_ok_type(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `top_level_run_binding_checked_type` and `infer_lowered_run_result_ok_type` are never used
+    --> src/runtime/eval/lower.rs:5015:8
+     |
+2836 | impl CompactLowerConstructProbe<'_, '_> {
+     | --------------------------------------- methods in this implementation
+...
+5015 |     fn top_level_run_binding_checked_type(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5041 |     fn infer_lowered_run_result_ok_type(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `record_binding_types` is never used
+     --> src/runtime/eval/lower.rs:12814:4
+      |
+12814 | fn record_binding_types(program: &ArenaProgram, target: BindingTargetId, ty: Option<&Type>) -> Vec<(Name, Option<Type>)> {
+      |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `source`, `candidate`, `authority`, and `item_type` are never read
+  --> src/runtime/eval/lower/iteration.rs:14:9
+   |
+13 | pub(super) struct CheckedIterationProjection {
+   |                   -------------------------- fields in this struct
+14 |     pub source: ProducerFlowSource,
+   |         ^^^^^^
+15 |     pub iterator: ExpressionIdentity,
+16 |     pub candidate: CandidateId,
+   |         ^^^^^^^^^
+17 |     pub authority: Name,
+   |         ^^^^^^^^^
+18 |     pub item_type: TypeId,
+   |         ^^^^^^^^^
+
+warning: method `lookup_lowered_capture` is never used
+    --> src/runtime/eval/lowered_run.rs:9930:8
+     |
+3509 | impl Evaluator {
+     | -------------- method in this implementation
+...
+9930 |     fn lookup_lowered_capture(&self, name: Name, kind: LoweredType) -> Option<LoweredValue> {
+     |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `eval_indexed_external_call` is never used
+    --> src/runtime/eval/lowered_run/indexed_run.rs:2322:8
+     |
+ 349 | impl Evaluator {
+     | -------------- method in this implementation
+...
+2322 |     fn eval_indexed_external_call(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `checked_pattern` is never used
+ --> src/sema/check/solved/pattern_plan.rs:5:19
+  |
+4 | impl<Graph> SolvedTypes<Graph> {
+  | ------------------------------ method in this implementation
+5 |     pub(crate) fn checked_pattern(&self, identity: PatternIdentity) -> Result<&SolvedPattern, InferenceError> {
+  |                   ^^^^^^^^^^^^^^^
+
+warning: variant `Contextual` is never constructed
+ --> src/sema/check/registry_boundaries.rs:9:52
+  |
+9 | pub(crate) enum RegistryValidationMode { Explicit, Contextual }
+  |                 ----------------------             ^^^^^^^^^^
+  |                 |
+  |                 variant in this enum
+  |
+  = note: `RegistryValidationMode` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `operation` is never read
+  --> src/sema/check/registry_boundaries.rs:25:21
+   |
+25 |     CliDescriptor { operation: RuntimeOp, plan: Arc<crate::modules::cli::CliDescriptorPlan> },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `algorithm` is never read
+  --> src/sema/check/registry_boundaries.rs:26:21
+   |
+26 |     HashAlgorithm { algorithm: Name },
+   |     -------------   ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `mode` is never read
+  --> src/sema/check/registry_boundaries.rs:27:48
+   |
+27 |     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
+   |     ---------------- field in this variant     ^^^^
+   |
+   = note: `RegistryBoundaryKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `error` is never used
+  --> src/sema/check/operation_catalog.rs:90:19
+   |
+43 | impl SolvedOperationCatalog {
+   | --------------------------- method in this implementation
+...
+90 |     pub(crate) fn error(&self, graph: &InferenceContext, authority: Name) -> Result<&RegistryErrorVariant, InferenceError> {
+   |                   ^^^^^
+
+warning: function `evaluate_producer_flow` is never used
+   --> src/sema/check/producer_eval.rs:207:15
+    |
+207 | pub(crate) fn evaluate_producer_flow(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `evaluate_producer_flows` is never used
+   --> src/sema/check/producer_eval.rs:228:15
+    |
+228 | pub(crate) fn evaluate_producer_flows(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `family` is never read
+  --> src/sema/operation_graph.rs:12:65
+   |
+12 | pub(crate) struct LanguageAuthority { pub id: &'static str, pub family: &'static str, pub disposition: LanguageDisposition }
+   |                   ----------------- field in this struct        ^^^^^^
+   |
+   = note: `LanguageAuthority` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: associated constants `MIN`, `MAX`, and `ALL` are never used
+  --> src/sema/stage_graph.rs:18:43
+   |
+17 | impl ReductionModes {
+   | ------------------- associated constants in this implementation
+18 |     pub const SUM:Self=Self(1); pub const MIN:Self=Self(2); pub const MAX:Self=Self(4); pub const ALL:Self=Self(7);
+   |                                           ^^^                         ^^^                         ^^^
+
+warning: field `input_numeric` is never read
+  --> src/sema/stage_graph.rs:54:9
+   |
+49 | pub(crate) struct StageCandidate {
+   |                   -------------- field in this struct
+...
+54 |     pub input_numeric: Option<Atom>,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `StageCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: field `intrinsic_pull` is never read
+  --> src/sema/stage_graph.rs:74:9
+   |
+71 | pub(crate) struct StageEffectRelation {
+   |                   ------------------- field in this struct
+...
+74 |     pub intrinsic_pull: EffectSet,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `StageEffectRelation` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MapKey`, `OptionalPayload`, `ResultError`, and `RecordField` are never constructed
+  --> src/sema/registry_graph.rs:36:55
+   |
+36 | pub(crate) enum RegistryProducerComponent { ListItem, MapKey, MapValue, OptionalPayload, ResultSuccess, ResultError, RecordField(Nam...
+   |                 -------------------------             ^^^^^^            ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^  ^^^^^^^^^^^
+   |                 |
+   |                 variants in this enum
+   |
+   = note: `RegistryProducerComponent` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `entry` and `command` are never read
+  --> src/sema/registry_graph.rs:76:9
+   |
+71 | pub(crate) struct RegistryCandidate {
+   |                   ----------------- fields in this struct
+...
+76 |     pub entry: &'static str,
+   |         ^^^^^
+...
+80 |     pub command: bool,
+   |         ^^^^^^^
+   |
+   = note: `RegistryCandidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `RegistryProducerPath` is never used
+   --> src/sema/registry_graph.rs:128:17
+    |
+128 | pub(crate) enum RegistryProducerPath { ResultSuccess }
+    |                 ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerAlternative` is never constructed
+   --> src/sema/registry_graph.rs:131:19
+    |
+131 | pub(crate) struct RegistryProducerAlternative {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RegistryProducerRelation` is never constructed
+   --> src/sema/registry_graph.rs:137:19
+    |
+137 | pub(crate) struct RegistryProducerRelation {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `family` and `variant` are never read
+   --> src/sema/registry_graph.rs:155:9
+    |
+153 | pub(crate) struct RegistryErrorVariant {
+    |                   -------------------- fields in this struct
+154 |     pub authority_id:Name,
+155 |     pub family:Name,
+    |         ^^^^^^
+156 |     pub variant:Name,
+    |         ^^^^^^^
+    |
+    = note: `RegistryErrorVariant` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: method `producer_result_relation` is never used
+   --> src/sema/registry_graph.rs:319:19
+    |
+173 | impl RegistryGraph {
+    | ------------------ method in this implementation
+...
+319 |     pub(crate) fn producer_result_relation(&self,graph:&InferenceContext,family:OperationFamilyId)->Result<Option<RegistryProducerR...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: the `slots:` in this pattern is redundant
+  --> src/runtime/eval/lowered_run/indexed_run/callable_run.rs:52:32
+   |
+52 |         let IndexedCallSlots { slots: mut slots, pending_defaults } = bound;
+   |                                ^^^^^^^^^^^^^^^^ help: use shorthand field pattern: `mut slots`
+   |
+   = note: `#[warn(non_shorthand_field_patterns)]` on by default
+
+warning: `xsh` (lib) generated 35 warnings (run `cargo fix --lib -p xsh` to apply 7 suggestions)
+   Compiling xsh v0.0.1 (/Users/josh/d/laputa-systems/xsh-typing-campaign-v2)
+    Finished `test` profile [unoptimized] target(s) in 21.84s
+     Running tests/integration.rs (target/debug/build/xsh/66797801bced6191/out/integration-66797801bced6191)
+
+running 181 tests
+test sema::checker_accepts_documented_public_exports ... ok
+test sema::checker_accepts_error_bindings_and_preserves_error_fail_effect ... ok
+test sema::checker_accepts_entry_signal_hook_with_prior_bindings ... ok
+test sema::checker_accepts_any_as_public_dynamic_type ... ok
+test sema::checker_accepts_error_propagation_in_value_returning_proc ... ok
+test sema::boolean_guard_checked_facts_preserve_refinement_and_statement_position ... ok
+test sema::canonical_stream_stage_facts_distinguish_equal_spans_in_modules ... ok
+test sema::callable_alias_signatures_agree_in_full_and_compact_facts ... ok
+test sema::checker_accepts_float_literals_methods_json_and_schema_checks ... ok
+test sema::checker_accepts_float_math_methods ... ok
+test sema::checker_accepts_half_open_slicing_types_and_rejects_bad_bounds ... ok
+test sema::checker_accepts_match_with_all_arms_returning_in_nested_function ... ok
+test sema::checker_accepts_local_field_and_map_entry_assignment ... ok
+test sema::checker_accepts_match_with_all_returning_arms_and_no_trailing_return ... ok
+test sema::checker_accepts_match_with_all_returning_arms_as_function_body ... ok
+test sema::checker_accepts_list_comprehension_with_destructuring ... ok
+test sema::checker_accept_policy_requires_bounded_int_codes_on_every_plan_route ... ok
+test sema::checker_accepts_pipeline_collect_terminal ... ok
+test sema::checker_accepts_result_unit_proc_expression_calls ... ok
+test sema::checker_accepts_list_comprehensions ... ok
+test sema::checker_accepts_retry_attempt_local_try_without_error_effect ... ok
+test sema::callable_alias_module_projection_contracts_preserve_full_compact_facts ... ok
+test sema::checker_accepts_narrow_function_tail_values ... ok
+test sema::builtin_template_checked_facts_agree_on_full_and_compact_routes ... ok
+test sema::checker_accepts_platform_signal_hook_names ... ok
+test sema::checker_accepts_str_parse_float ... ok
+test sema::checker_accepts_string_concatenation ... ok
+test sema::checker_accepts_nominal_error_construction_matching_and_facets ... ok
+test sema::checker_allows_nested_args_and_repeated_discard_bindings ... ok
+test sema::checker_allows_proc_expression_splice_to_supply_multiple_arguments ... ok
+test sema::checker_allows_plain_values_for_result_returns ... ok
+test sema::checker_accepts_sort_by_desc_named_argument ... ok
+test sema::checker_accepts_validated_dynamic_data_and_dynamic_storage ... ok
+test sema::checker_chains_string_concatenation ... ok
+test sema::checker_allows_value_returning_proc_calls_in_expression_position ... ok
+test sema::checker_cli_constant_descriptor_errors_keep_the_declaration_origin ... ok
+test sema::checker_accepts_type_patterns_for_dynamic_values ... ok
+test sema::checker_allows_local_mutation_inside_pure_functions ... ok
+test sema::checker_deferred_block_rejects_yield_delegation ... ok
+test sema::checker_accepts_sort_by_record_keys_and_record_sort_items ... ok
+test sema::checker_cli_command_descriptors_keep_conditional_fields_and_dynamic_fallback_erased ... ok
+test sema::checker_cli_dynamic_full_descriptors_keep_the_outcome_envelope ... ok
+test sema::checker_enforces_method_call_effects ... ok
+test sema::checker_deferred_block_restores_mutable_capture_types ... ok
+test sema::checker_explains_unknown_methods_and_accepts_list_concatenation ... ok
+test sema::checker_accepts_group_by_key_sort_by_for_scalar_keys ... ok
+test sema::checker_accepts_sort_by_any_typed_record_fields_from_map_get ... ok
+test sema::checker_guarded_value_control_narrows_only_the_selected_payload ... ok
+test sema::checker_cli_command_descriptors_match_inline_const_and_spread_shapes ... ok
+test sema::checker_guarded_value_control_retains_lexical_targets_and_effects ... ok
+test sema::checker_cli_constant_descriptors_match_inline_and_compact_facts ... ok
+test sema::checker_handles_batch_stream_stage ... ok
+test sema::checker_cli_prepared_descriptor_context_uses_the_refined_result ... ok
+test sema::checker_handles_compact_sugar_forms ... ok
+test sema::checker_enforces_stage_13_module_export_boundaries ... ok
+test sema::checker_handles_foundation_builders_literals_and_context ... ok
+test sema::checker_handles_dynamic_module_load_and_proc_call_values ... ok
+test sema::checker_handles_ergonomic_sugar_pass_forms ... ok
+test sema::checker_handles_args_and_regex_modules ... ok
+test sema::checker_enforces_net_effect_for_http_module_calls ... ok
+test sema::checker_handles_hash_module_apis ... ok
+test sema::checker_handles_bytes_module_apis ... ok
+test sema::checker_handles_adapter_stream_stages ... ok
+test sema::checker_handles_implicit_standard_modules_and_pipe_shorthand ... ok
+test sema::checker_handles_spawn_wait_process_handles ... ok
+test sema::checker_infers_args_parse_literal_schema_records ... ok
+test sema::checker_handles_fold_accumulator_plus_item_blocks ... ok
+test sema::checker_list_splice_errors_cover_the_original_splice_span ... ok
+test sema::checker_keeps_selected_nested_record_field_types ... ok
+test sema::checker_list_compound_assignment_points_at_scalar_rhs ... ok
+test sema::checker_handles_path_literals_methods_and_expr_env_blocks ... ok
+test sema::checker_handles_user_stream_producers ... ok
+test sema::checker_handles_while_match_aliases_schemas_and_rest_params ... ok
+test sema::checker_preserves_nested_record_update_schema_and_context ... ok
+test sema::checker_record_proof_types_agree_on_full_and_compact_routes ... ok
+test sema::checker_preserves_authored_public_effect_bounds_and_infers_omitted_bounds ... ok
+test sema::checker_narrows_optional_record_membership_result_and_tag_flows ... ok
+test sema::checker_guarded_control_proofs_agree_on_full_and_compact_routes ... ok
+test sema::checker_multi_clause_comprehensions_retain_nested_item_types ... ok
+test sema::checker_records_value_and_statement_bool_positions ... ok
+test sema::checker_rejects_field_assignment_to_let_binding ... ok
+test sema::checker_handles_collection_modules ... ok
+test sema::checker_multi_clause_comprehensions_reject_invalid_inner_domains_and_filters ... ok
+test sema::checker_rejects_ambiguous_or_non_result_tail_values ... ok
+test sema::checker_rejects_ergonomic_sugar_pass_errors ... ok
+test sema::checker_rejects_list_comprehension_non_bool_condition ... ok
+test sema::checker_rejects_invalid_spawn_wait_shapes ... ok
+test sema::checker_rejects_list_comprehension_non_list_iter ... ok
+test sema::checker_rejects_mixed_numeric_float_operations ... ok
+test sema::checker_rejects_non_duration_retry_delays ... ok
+test sema::checker_rejects_orphaned_and_duplicate_module_docs ... ok
+test sema::checker_map_iteration_preserves_entry_types_and_error_boundaries ... ok
+test sema::checker_rejects_nonlocal_assignment_inside_pure_functions ... ok
+test sema::checker_rejects_reveal_type_bad_argument_shapes ... ok
+test sema::checker_rejects_nested_record_binding_contract_violations ... ok
+test sema::checker_rejects_reveal_type_outside_reveal_mode ... ok
+test sema::checker_rejects_signal_hooks_in_modules_and_interactive_input ... ok
+test sema::checker_rejects_linux_names_moved_to_unix ... ok
+test sema::checker_rejects_non_json_compatible_public_json_apis ... ok
+test sema::checker_rejects_foundation_contract_errors ... ok
+test sema::checker_rejects_invalid_signal_hooks ... ok
+test sema::checker_rejects_process_time_system_identity_calls_in_pure_functions ... ok
+test sema::checker_rejects_standard_module_aliases ... ok
+test sema::checker_rejects_string_concatenation_with_bool ... ok
+test sema::checker_rejects_string_concatenation_with_int ... ok
+test sema::checker_rejects_type_patterns_for_concrete_values ... ok
+test sema::checker_rejects_nested_record_update_contract_violations ... ok
+test sema::checker_rejects_removed_verbose_apis ... ok
+test sema::checker_reports_missing_known_record_fields_and_removed_record_contracts ... ok
+test sema::checker_rejects_stage_11_and_12_errors ... ok
+test sema::checker_reports_opaque_status_record_literals ... ok
+test sema::checker_reports_empty_process_argv ... ok
+test sema::checker_reports_nominal_error_migration_and_payload_errors ... ok
+test sema::checker_rejects_stage_8_table_and_sort_contract_errors ... ok
+test sema::checker_reports_shadowing_as_the_cause_of_module_like_method_calls ... ok
+test sema::checker_rejects_stage_7_fs_path_contract_errors ... ok
+test sema::checker_requires_retained_docs_for_public_exports ... ok
+test sema::checker_requires_time_effect_for_retry_delays ... ok
+test sema::checker_treats_old_schema_helper_name_as_unresolved_call ... ok
+test sema::checker_still_rejects_non_exhaustive_returning_match_without_catchall ... ok
+test sema::checker_rejects_undefined_utility_names_as_proc_commands ... ok
+test sema::checker_requires_alias_for_hyphenated_module_name ... ok
+test sema::checker_reports_unvalidated_dynamic_flows ... ok
+test sema::checker_retains_annotation_facts_and_reveal_notes ... ok
+test sema::checker_resolves_tail_bare_identifier_candidates ... ok
+test sema::checker_try_capture_rejects_underconstrained_success_and_outer_effects ... ok
+test sema::checker_try_capture_infers_nominal_error_and_keeps_result_tail_data ... ok
+test sema::compact_body_facts_preserve_checked_context_tails_across_source_ids ... ok
+test sema::checker_try_capture_merges_variants_within_their_nominal_family ... ok
+test sema::checker_types_require_schema_checks ... ok
+test sema::checker_rejects_stage_5_acceptance_cases ... ok
+test sema::checker_types_owned_net_jobs_and_requires_net_effects ... ok
+test sema::compact_declarations_publish_checked_errors_without_revalidating_source ... ok
+test sema::compact_declarations_reuse_checked_graph_and_source_owned_facts ... ok
+test sema::checker_rejects_standard_module_shadowing ... ok
+test sema::computed_map_literals_locate_key_errors_without_weakening_values ... ok
+test sema::constant_key_projection_keeps_module_get_exports_and_callable_metadata ... ok
+test sema::constant_key_projection_guarded_access_keeps_optional_result_layers ... ok
+test sema::compact_count_and_json_adapter_facts_match_checked_pipeline_outputs ... ok
+test sema::compound_assignment_generic_mutable_slots_keep_definition_owned_requirements ... ok
+test sema::default_parameter_contract_headers_keep_checked_omitted_literal_types ... ok
+test sema::default_parameter_types_are_checked_declaration_facts_shared_with_compact ... ok
+test sema::constant_key_projection_full_and_compact_facts_preserve_field_types ... ok
+test sema::default_parameter_constraints_use_definition_bodies_and_declaring_environment ... ok
+test sema::context_scope_capture_tail_types_agree_in_full_and_compact_facts ... ok
+test sema::dynamic_boundary_record_facts_agree_across_checked_representations ... ok
+test sema::guarded_postfix_preserves_outer_result_effect_checks ... ok
+test sema::error_fallback_checked_facts_keep_nominal_error_and_value_tail ... ok
+test sema::ignored_result_diagnostic_has_source_span ... ok
+test sema::parametric_record_separate_module_arenas_keep_private_schema_dependencies ... ok
+test sema::compound_assignment_preserves_dimensions_and_collection_invariance ... ok
+test sema::inferred_require_full_and_compact_targets_preserve_schema_identity ... ok
+test sema::guarded_postfix_rejects_guessed_wrappers_and_unguarded_nullable_hops ... ok
+test sema::duration_arithmetic_compact_and_full_checked_types_agree ... ok
+test sema::private_proc_effects_module_helpers_use_declaring_module_identity ... ok
+test sema::private_pure_inference_destructured_capture ... ok
+test sema::private_proc_effects_publish_matching_full_and_compact_facts ... ok
+test sema::private_pure_inference_imported_module_predeclares_tag_variants ... ok
+test sema::private_pure_inference_preserves_prefix_capture_visibility ... ok
+test sema::private_proc_effects_preserve_unknown_and_declaration_boundaries ... ok
+test sema::fold_complete_accumulator_contracts_match_full_and_compact_facts ... ok
+test sema::private_pure_inference_pattern_captures_do_not_create_recursive_dependencies ... ok
+test sema::private_pure_inference_keeps_principal_returns_and_rejects_conflicting_paths ... ok
+test sema::private_pure_inference_publishes_exact_returns_and_annotations ... ok
+test sema::removed_record_require_identity_fix_uses_plain_values_and_exact_named_schema ... ok
+test sema::signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries ... ok
+test sema::signature_cli_inferred_defaults_reuse_checked_parameter_facts ... ok
+test sema::signature_cli_rejects_imported_entries_and_unprepared_defaults ... ok
+test sema::signature_cli_checks_body_without_registering_a_callable ... ok
+test sema::typed_cause_full_and_compact_inference_retains_only_outer_error ... ok
+test sema::value_pipeline_holes_preserve_record_presence_refinement ... ok
+test sema::removed_record_require_refuses_unproved_or_different_contracts ... ok
+test sema::value_pipeline_holes_publish_the_checked_input_and_ordinary_call_types ... ok
+test sema::compound_assignment_forwarders_reject_dimension_and_mutable_lifetime_widening ... ok
+test sema::retry_family_selectors_keep_builtin_and_user_error_identity ... ok
+test sema::typed_cause_flattened_handler_guidance_has_no_automatic_fix ... ok
+test sema::yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts ... ok
+test sema::compact_stream_stage_result_matrix_matches_canonical_checked_facts ... ok
+test sema::compound_assignment_each_operator_forwards_exact_source_contracts ... ok
+test sema::checker_handles_standard_module_signatures_and_status_methods ... ok
+test sema::stream_callback_result_contracts_publish_matching_full_and_compact_types ... ok
+
+test result: ok. 181 passed; 0 failed; 0 ignored; 0 measured; 649 filtered out; finished in 0.20s
+

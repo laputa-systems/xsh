@@ -430,6 +430,15 @@ traffic, peak live bytes, blocker counts, dynamic-symbol ownership, and a
 reconciliation delta. The binary in `src/entrypoints/frontend_stats.rs` alone
 installs `mem_track::CountingAllocator`; product binaries do not.
 
+The lower stage passes the loader's existing `CheckOutput` to
+`Evaluator::prepare_compact_indexed_only_from_checked` and builds executable IR
+once. `Evaluator::frontend_lowered_stats` reports the source statement,
+expression, and pattern visits from that build, rather than counting finalized
+instructions as expressions. Failed preparation retains the partial work and
+blocker events from the actual build; it does not run a discarded lowering pass
+to count bodies beyond the refusal. Semantic retained-byte projections remain
+separate from executable construction.
+
 The library reports structural counters without allocator tracking, marking the
 lowered retained value as estimated when necessary. With tracking enabled,
 lower-stage retained bytes are the live-byte delta across lowering. Worker
@@ -580,21 +589,24 @@ parameter span. Declaration analysis checks defaults in their outer lexical
 environment and publishes only concrete canonical substitutions. It runs before
 callers and after private return dependencies are established.
 
-Prepared defaults retain their compact values. Other checked defaults lower to
-`BuildStmtRow::DefaultParameter` at callee entry. Argument binding preserves an
-unforgeable private omission marker; entry evaluates only marked slots, in
-parameter order, after all supplied arguments. The shared call frame evaluates
+`LoweredParamDefault` retains absent, prepared constant, and expression defaults
+as distinct header cases. Other checked defaults lower to
+`BuildStmtRow::DefaultParameter` at callee entry. `IndexedCallArguments` retains
+supplied values separately from omitted parameter indices, keeping supplied null
+distinct from absence. Binding produces `IndexedCallSlots::pending_defaults`;
+entry evaluates only these slots, in parameter order, after all supplied
+arguments and capture hydration. The shared call frame evaluates
 default expressions and their cleanup without introducing a new return or error
 boundary. A lazy producer executes this entry prefix on its first pull; supplied
 arguments are still bound during the call, and a producer stopped before its
-first pull executes no defaults. `FullParam` records expression-default presence separately from the
-semantic signature's defaulted flag; omission markers cannot be encoded as
-literal values.
+first pull executes no defaults. `FullParam` records expression-default presence
+separately from the semantic signature's defaulted flag. Omission is call state
+and never a runtime literal value.
 
 CLI entry validation consumes these checked parameter types after declaration
 analysis; an omitted annotation supplies its parser spelling from the concrete
 supported type. Explicit alias annotations preserve their parser constraints,
 including UInt. CLI default values still come exclusively from preparation.
-Static callable alias dispatch retains lowered arguments through callee binding,
-including private omission markers; nested local alias calls use the same heap
-frame engine as direct calls.
+Static callable alias dispatch retains the same typed argument packet through
+callee binding; nested local alias calls use the same heap frame engine as
+direct calls.

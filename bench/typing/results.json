@@ -35,8 +35,8 @@
       "artifact": "gate-c-verification.json"
     },
     "D": {
-      "status": "in-progress",
-      "reason": "Passed C; explicit immutable execution obligation inventory retained; full generic evidence and removal of semantic lowering remain."
+      "status": "paused-incomplete",
+      "reason": "Integrated unfinished runtime work at user-requested wind down; final frozen library run has 56 failures. Continue from remaining-work-only campaign document."
     },
     "E": {
       "status": "not-run",
@@ -463,5 +463,7 @@
       "campaign_complete": false
     }
   ],
-  "inference_implementation_started": true
+  "inference_implementation_started": true,
+  "paused_at_user_request": true,
+  "wind_down_artifact": "wind-down.json"
 }

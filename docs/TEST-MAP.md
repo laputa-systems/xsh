@@ -9,6 +9,76 @@ integration filter covers exact forwarder fixes, refusal, and convergence.
 Run the native module, the focused checker/tooling filters, then ordinary
 semantic and tooling integration suites.
 
+The host bridge uses `cargo test -p xsh --lib runtime::eval::callable_value::tests`
+for prepared callable creation after frontend disposal, nested container
+round trips, exact program ownership and capture slots, storage mismatch
+refusal, and refusal to snapshot mutable lexical bindings. These are host value
+transport tests; user invocation and capture hydration are checked separately
+by the indexed runtime tests.
+
+`cargo test -p xsh --lib prepared_callable_frame_entry_retains_its_creation_environment_for_defaults`
+checks actual driver creation, host transport, original default captures,
+foreign-program refusal, and missing invocation-authority refusal after frontend
+disposal. The `prepared_captured_callable_frame_uses_its_original_default_on_both_runtime_routes`
+selector forces explicit and recursive execution for captured user-callable
+defaults. The local alias and supplied-argument frame witnesses retain the
+original source creation and argument proof boundaries.
+
+`cargo test -p xsh --lib callable_binding::tests` checks original local callable
+definition and initialization rows, exact scoped source roots, same-signature
+lexical shadows and restoration, scalar shadow exclusion, and refusal when an
+original binding or initializer fact is removed. The source arena is discarded
+before inspecting the retained positive receipts; runtime default capture
+execution remains a separate indexed frame check.
+
+`cargo test -p xsh --lib value_binding::tests` checks the original nested native
+result `let`, independent binding and initializer scoped roots, actual emitted
+rows, exact lexical reads, and restoration after mutable and callable shadows.
+Missing definition or initializer facts refuse lowering. An inert list initializer
+also retains its actual material instruction identity, independently of prepared
+constant storage. These source receipts are inspected after frontend disposal;
+cold value proof activation is separate.
+
+`cargo test -p xsh --lib original_list_item` checks original iteration authority,
+physical item allocation and lexical read attribution, including nested loops
+and shadow restoration. The native-operand witness executes `shlex.quote` on
+actual loop items through both indexed routes after frontend disposal.
+`cargo test -p xsh --lib iteration_prepare::tests` and
+`cargo test -p xsh --lib generic::iterations::tests` own cold source, slot,
+body visibility and original receipt lifetime controls.
+
+`cargo test -p xsh --lib argument_binding::tests` checks saved authored arguments
+and finite spread record entries independently, including actual initialization
+wrappers, original scoped roots, generated projection reads, and missing source
+root or lexical owner refusal. The same group checks original native finite
+spread recipes and ensures a saved native argument read never impersonates
+its initializer's arithmetic operation. The `original_named_spread_lowering_uses_retained_recipes_without_legacy_expansion_type_hints`
+selector removes reliance on the old expansion facade. The
+`original_named_callback_recipes_keep_the_declaration_owned_residual_invocation`
+selector checks source lowering of named callback arguments before an instance
+selects formal destinations, retaining the exact declaration-owned Pure
+invocation and authored argument wrappers. The
+`original_finite_named_spread_entries_preserve_order_defaults_and_disposal_on_both_routes`
+selector checks original direct calls, multi-field spread evaluation once,
+source order, lexical defaults, frontend disposal, and both actual execution
+routes; this is separate from cold compiler-temporary proof activation.
+
+`cargo test -p xsh --lib module_reuse_tests` covers checked diamond reuse,
+private module capture owners, import order, nested imports and root shadows,
+fresh dependency bundles, frontend disposal, and both indexed call routes.
+`cargo test -p xsh --lib pattern_transport_tests` checks original capture slots,
+lexical use identities, bare terminal statements and scalar specialization
+after arena disposal. These transport checks are separate from cold runtime
+proof validation and execution.
+
+`cargo test -p xsh --lib fixed_record_string_field_projection_executes_its_ground_proof_after_frontend_disposal_on_both_routes`
+pins a real prepared projection and a nonfirst field among equal storage kinds,
+then executes both indexed routes after checking and parsing owners are dropped.
+`cargo test -p xsh --lib native_result_carrier_executes_prepared_authority_after_frontend_disposal_on_both_routes`
+checks selected native authority and Result propagation in both routes. Its MIME
+API retains the declared erased `Record` boundary; it does not claim a fixed
+field projection proof for that result.
+
 Choose the narrowest useful command first, then run the broader gate for the
 area touched. Agents do not run formatters or linters; leave gates that invoke
 them to the owner and report that limit. Unfiltered `cargo test` includes
@@ -120,6 +190,36 @@ The `prepared_generic_frame` filter owns call evidence across effectful
 arguments, reentry, argument failure, constructor storage, and cleanup; these
 Rust tests inspect host-owned IR and frontend disposal boundaries.
 
+`cargo test -p xsh --lib generic::callable_types::tests -- --test-threads=1`
+checks original scoped Arrow templates, independent Int and Str materialization,
+nested callable descriptors, full signature metadata substitution refusal,
+bounded traversal, and failed materialization rollback. The separate
+`prepared_generic_callback_invocation_keeps_independent_signatures_after_frontend_drop`
+source witness also requires scoped invocation preparation; signature
+materialization does not substitute for that authority.
+
+`cargo test -p xsh --lib native_callable -- --test-threads=1` checks native
+capsule host transport and program lifetime, foreign identity refusal, protected
+creation/invocation receipts, operand/default packet corruption, and the original
+`json.encode` alias after syntax and inference disposal. The separate
+`native_alias_named_packets_preserve_evaluation_and_defaults_on_both_routes`
+selector checks source-order evaluation and native omission packets on both
+forced indexed routes. These Rust tests own the frozen IR and host value boundary.
+
+`cargo test -p xsh --lib scoped_callback_ -- --test-threads=1` verifies exact
+original callback receipts, independent Int/Str signatures, coupled visible
+source and scope corruption refusal, foreign signatures and roots, supplied-slot
+mutation, deletion, and serial retirement after rewind. The host-owned
+`prepared_scoped_callback_uses_original_named_order_and_handle_defaults` witness
+checks original source-order arguments against the selected formal slots and
+retains the callable's captured default environment on both indexed routes.
+`cargo test -p xsh --lib callable_template_tests -- --test-threads=1` also runs
+`prepared_forwarded_callback_invocation_keeps_rebased_requirement_ancestry` and
+`prepared_repeated_forwarded_callbacks_keep_distinct_original_obligations` after
+frontend disposal on both forced routes. `scoped_forwarded_callback_proof_rejects_same_shaped_body_substitution`
+checks that identical callback descriptors cannot substitute a different body's
+original obligation or alter its immediate forwarding ancestry.
+
 `cargo test -p xsh --lib call_contract_source_tests` checks original module and
 Result-constructor identities, captured and forwarded data-error producer paths,
 and fixed guarded control relationships after AST disposal. Loop witnesses cover
@@ -160,6 +260,11 @@ Broaden verification to `cargo test -p xsh --test integration sema::` and
 `cargo test -p xsh --lib runtime::eval::indexed:: -- --test-threads=1` before
 accepting an inference checkpoint. These retain existing builtin, assertion,
 Result, local collection, loader, and indexed compatibility coverage.
+`cargo test -p xsh --lib recursive_component_calls_keep_member_evidence_in_both_routes`
+checks mutual recursion in both declaration orders and both indexed call routes
+after retiring unconsumed lowering call-edge and SCC metadata. The
+`sema::check::dependency::tests` filter preserves checked lexical shadowing and
+canonical alias identities.
 
 ## Read-only lint performance gate
 
@@ -363,6 +468,7 @@ after the shell terminated it.
 
 | Change | Narrow command | Broader gate |
 |---|---|---|
+| Checked original call argument recipes and finite spread evaluation entries | `cargo test -p xsh --lib checked_argument_recipes_keep_original_spread_entries_and_dynamic_branch_indices -- --nocapture` | Generic checker, registry boundaries, standard operations, and constructor application source tests; original source identities, static defaults, dynamic conditional branch indices, and explicit zero-argument recipes survive syntax disposal |
 | Error payload/cause ownership transfers and long shared resource reachability | `target/debug/xsht test --jobs 1 tests/xsh/error-resource-ownership.xsh` and `cargo test -p xsh --lib resource_reachable_values -j1 -- --test-threads=1` | Rebuild exact debug xsh/xsht binaries; `tests/xsh/stdlib/process.xsh` and `tests/xsh/typed-causes.xsh` |
 | Typed causes, outer Result error inference, immutable aliases, context/process metadata, bounded diagnostics, and constructor frames | `target/debug/xsht test --jobs 1 tests/xsh/typed-causes.xsh` and `cargo test -p xsh --lib typed_cause -- --test-threads=1` | Syntax/checker gates, indexed verifier tests, `cargo test -p xsht --test integration typed_cause`; rebuild the exact debug xsh/xsht binaries before native tests |
 | Rust compile only | `cargo build` | relevant filtered package tests; unfiltered `cargo test` is owner-run |
@@ -371,6 +477,7 @@ after the shell terminated it.
 | Nullable conditional payload identity, generic Optional flattening, and latent producer permissions | `cargo test -p xsh --lib nullable_conditional -- --nocapture` | Concrete and generic payloads, both branch/caller orders, scalar mismatch refusal, single OptionalPayload producer path, original/forwarded nullable sources, syntax disposal, and restricted consumer denial |
 | Local empty collection and nullable inference, monomorphic aliases, static branch/loop contributions, and concrete indexed publication | `target/debug/xsht test --jobs 1 tests/xsh/local-inference.xsh` and `cargo test -p xsh --lib local_collection_inference_publishes_concrete_indexed_call_and_slot_types -- --test-threads=1` | Checker and syntax gates; shared constraint solver tests; `local_constraint_probe_does_not_copy_completed_body_binding_history` and `local_constraint_probe_does_not_copy_checked_expression_history`; `empty_map_fold_inference_publishes_concrete_accumulator_types`; focused annotation rewrite acceptance |
 | Canonical builtin signature templates and collection call binding | `target/debug/xsht test --jobs 1 tests/xsh/builtin-templates.xsh` | Native collection and Map suites; checker, indexed verifier, registry signature, and API gates |
+| Single native callable receipts, named packet order, and omitted native defaults after frontend disposal | `cargo test -p xsh --lib native_callable_alias_executes_with_its_selected_original_receipt_after_disposal -- --nocapture` and `cargo test -p xsh --lib native_alias_named_packets_preserve_evaluation_and_defaults_on_both_routes -- --nocapture` | Both indexed routes; source authority, cold receipt checks, host bridge, and native JSON boundary coverage |
 | Definition-owned Print/Eprint display and Wait relationships, retained source identities, exact scalar/handle domains, and process permissions | `cargo test -p xsh --lib command_operation:: -- --test-threads=1`, `cargo test -p xsh --lib wait_operation:: -- --test-threads=1`, and `target/debug/xsht test --jobs 1 tests/xsh/command-operation-boundaries.xsh` | Checker gate and existing `cargo test -p xsh --test integration spawn_wait -- --test-threads=1`; source proof tests validate retained operation families and metadata after AST disposal, while native output tests use closed scalar signatures |
 | Explicit/contextual schema validation source identities, composite/applied targets, phantom arguments, private owners, UInt/wire/resource rules | `cargo test -p xsh --lib schema_validation -- --test-threads=1` and `target/debug/xsht test --jobs 1 tests/xsh/schema-validation-boundaries.xsh` | Checker gate; native `tests/xsh/parametric-records.xsh`, `tests/xsh/dynamic-boundaries.xsh`, and `tests/xsh/stdlib/fs_root_methods.xsh`; frozen source tests reject changed input/target, foreign argument handles, same-bundle phantom application substitution, and removed application metadata, and account retained application capacities |
 | Checked dynamic boundaries and removed check strict option | `target/debug/xsht test --jobs 1 tests/xsh/dynamic-boundaries.xsh` and `cargo test -p xsht --test integration check_dynamic_boundary` / `check_strict_option` | Checker full/compact facts, indexed verifier, native JSON/module/auth gates; checker and runners share `tests/fixtures/sema/invalid/unchecked-json-boundary.xsh`, and rejected annotation passes preserve source bytes |
@@ -387,6 +494,8 @@ after the shell terminated it.
 | Nested functional record updates, snapshots, typed replacements, failure propagation, and safe nested spread fixes | `target/debug/xsht test --jobs 1 tests/xsh/record-update.xsh`, `cargo test -p xsh --test integration nested_record_update`, and `cargo test -p xsht --test integration nested_record_update` | Syntax/checker gates, `cargo test -p xsh --lib record_update`, `cargo test -p xsht --test integration static_record_update`, and native collection/storage gates |
 
 | Static named argument spreading, finite visible fields, occupancy, defaults, source order, native operations, and safe forwarding fixes | `target/debug/xsht test --jobs 1 tests/xsh/named-argument-spreading.xsh` and `cargo test -p xsht --test integration named_argument_spread` | Syntax/checker gates, indexed verifier tests, API registry tests, and `target/debug/xsht test --jobs 1 core/tests/test-fd.xsh` |
+| User call recipes, mandatory checked bindings, original scoped function and destructure storage, first missing binding refusal, lexical defaults, and execution after source arena disposal | `cargo test -p xsh --lib call_argument_plan_tests -- --test-threads=1` | `cargo test -p xsh --lib solved_lowering_tests -- --test-threads=1`; native named argument spreading, record binding, and default parameter suites |
+| Original For, comprehension, and delegation operation proofs; carrier projection and nested bindings after frontend disposal | `cargo test -p xsh --lib runtime::eval::lower::iteration::tests -- --test-threads=1` | Both indexed execution routes assert their route inside the execution worker, release the original solved bundle, and preserve stream pull/cleanup timing; removed source proofs make statements, functions, or preparation unavailable |
 | Constructor inference, nested constraints, declared receiver slots, expected unused arguments, constants, and structural compatibility | `target/debug/xsht test --jobs 1 tests/xsh/generic-constructors.xsh` | `cargo test -p xsh --lib inferred_record_constructors_keep_concrete_facts_after_frontend_drop` and `cargo test -p xsht --test integration generic_record_constructor` |
 | Module callable field/get/index projections, original receiver/export promises, and cold carrier proof | `cargo test -p xsh --lib module_projection` and `cargo test -p xsh --lib module_contract_projected_aliases_keep_their_source_caller_and_written_promises` | Checker gate; the retained proof rejects export and optional-presence mutation after syntax disposal, preserves labels/defaults/kind/effects, and keeps implementation declarations absent. |
 | Constructor source applications, original spread projections, qualified aliases/members, canonical defaults, phantom arguments, and directional assignment proofs after AST disposal | `cargo test -p xsh --lib constructor_application -- --test-threads=1` and `target/debug/xsht test --jobs 1 tests/xsh/constructor-application-boundaries.xsh` | Checker gate and the nearest generic/parameterized record and enum tests; source tests reverse caller order, preserve distinct positional tag payload slots, retain TIME/ENV argument requirements through nominal/record forwarding, keep prepared defaults effect-free, defer shared null/empty groups, reject altered slot/default/member proofs, same-bundle phantom application substitution and removed source plans, and account retained capacities. Prepend the active debug binary directory to `PATH` for native checker subprocesses. |

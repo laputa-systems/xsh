@@ -45,6 +45,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
 mod indexed;
+mod callable_value;
+pub use callable_value::RuntimeCallableValue;
+mod native_callable_value;
+pub use native_callable_value::RuntimeNativeCallableValue;
 mod lower;
 use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
@@ -483,6 +487,56 @@ build_id!(BuildIntId);
 build_id!(BuildBoolId);
 build_id!(BuildTopStmtId);
 
+// Bare terminal identifiers belong to original statements. Their prepared
+// use names the physical row that survives scalar specialization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum BuildPatternUseRow {
+    Expression(BuildExprId),
+    Int(BuildIntId),
+    Bool(BuildBoolId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum BuildPatternControlRow { Expression(BuildExprId), Statement(BuildStmtId) }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum BuildPatternAdmissionBody { Expression(BuildExprId), Statements(Box<[BuildStmtId]>) }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BuildPatternResultSource {
+    origin: crate::sema::check::ExpressionIdentity,
+    ty: crate::sema::inference::TypeId,
+    scope: Option<crate::sema::inference::SchemeId>,
+    caller: Option<crate::sema::check::DeclarationIdentity>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BuildPatternResultBody {
+    instruction: BuildExprId,
+    source: BuildPatternResultSource,
+    condition: Option<(BuildExprId, BuildPatternResultSource)>,
+    terminal: Option<(BuildStmtId, BuildExprId, BuildPatternResultSource, crate::sema::check::StatementIdentity)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BuildPatternConditionalResult {
+    source: BuildPatternResultSource,
+    branches: Box<[BuildPatternResultBody]>,
+    fallback: BuildPatternResultBody,
+}
+
+// The original condition selects one admitted branch. Its user body remains
+// separate from the synthetic Bool body used to implement pattern testing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BuildPatternAdmission {
+    control: BuildPatternControlRow,
+    control_origin: indexed::generic::OperationSourceOrigin,
+    condition_origin: crate::sema::check::ExpressionIdentity,
+    branch: u32,
+    body: BuildPatternAdmissionBody,
+    result: Option<Box<BuildPatternConditionalResult>>,
+}
+
 #[derive(Clone, Debug, Default)]
 struct BuildScratch {
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
@@ -493,9 +547,115 @@ struct BuildScratch {
     duration_binary_expressions: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
     patterns: Vec<BuildPatternRow>,
+    pattern_origins: FxHashMap<BuildPatternId, crate::sema::check::PatternIdentity>,
+    pattern_admissions: FxHashMap<BuildExprId, BuildPatternAdmission>,
+    pattern_capture_slots: BTreeMap<crate::sema::check::PatternCaptureIdentity, usize>,
+    pattern_use_origins: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::PatternCaptureIdentity>,
+    callable_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildCallableBindingOrigin>,
+    callable_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
+    value_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildValueBindingOrigin>,
+    value_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
+    iteration_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildIterationBindingOrigin>,
+    iteration_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
+    callable_receiver_origins: FxHashMap<BuildExprId, BuildCallableReceiverOrigin>,
+    callable_receiver_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
+    argument_binding_origins: FxHashMap<BuildExprId, BuildArgumentBindingOrigin>,
+    argument_binding_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
+    argument_record_binding_origins: FxHashMap<BuildExprId, BuildArgumentRecordBindingOrigin>,
+    argument_record_binding_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
+    pattern_statement_use_origins: BTreeMap<crate::sema::check::StatementIdentity, (BuildPatternUseRow, crate::sema::check::PatternCaptureIdentity)>,
+    // Specialization updates the physical row of an original statement use
+    // directly, without scanning unrelated capture statements.
+    pattern_statement_use_sources: FxHashMap<BuildExprId, crate::sema::check::StatementIdentity>,
+    pattern_statement_use_rows: FxHashMap<BuildPatternUseRow, crate::sema::check::StatementIdentity>,
     ints: Vec<BuildIntRow>,
+    int_expression_origins: FxHashMap<BuildIntId, crate::sema::check::ExpressionIdentity>,
     bools: Vec<BuildBoolRow>,
+    bool_expression_origins: FxHashMap<BuildBoolId, crate::sema::check::ExpressionIdentity>,
     top_statements: Vec<BuildTopStmtRow>,
+}
+
+/// The original immutable binding and its emitted initialization row remain
+/// paired so a callable read cannot acquire another same-signature value's
+/// creation environment by sharing a slot number.
+#[derive(Clone, Debug)]
+struct BuildCallableBindingOrigin {
+    statement: crate::sema::check::StatementIdentity,
+    row: BuildStmtId,
+    slot: usize,
+    initializer: BuildExprId,
+    initializer_source: crate::sema::check::ExpressionIdentity,
+    source_type: crate::sema::inference::ScopedRoot,
+}
+
+/// A checked immutable data binding keeps its original definition and actual
+/// initialization row. The initializer's scoped type remains independent of
+/// a written binding annotation or a later use of the allocated slot.
+#[derive(Clone, Debug)]
+struct BuildValueBindingOrigin {
+    statement: crate::sema::check::StatementIdentity,
+    row: BuildStmtId,
+    slot: usize,
+    initializer: BuildExprId,
+    initializer_source: crate::sema::check::ExpressionIdentity,
+    source_type: crate::sema::inference::ScopedRoot,
+    initializer_type: crate::sema::inference::ScopedRoot,
+}
+
+/// A loop item belongs to one original iteration operation and binding target.
+/// Its emitted loop and operand remain separate from later identifier reads.
+#[derive(Clone, Debug)]
+struct BuildIterationBindingOrigin {
+    statement: crate::sema::check::StatementIdentity,
+    binding: crate::sema::check::BindingIdentity,
+    iterator_source: crate::sema::check::ExpressionIdentity,
+    caller: Option<crate::sema::check::DeclarationIdentity>,
+    selected: crate::sema::inference::CandidateId,
+    input: crate::sema::inference::ScopedRoot,
+    item: crate::sema::inference::ScopedRoot,
+    binding_type: crate::sema::inference::ScopedRoot,
+    iterator_parameter: Option<(crate::sema::check::DeclarationIdentity, u32)>,
+    row: BuildStmtId,
+    iterator: BuildExprId,
+    slot: usize,
+}
+
+/// A saved method receiver retains its original immutable callable binding;
+/// it is separate from the supplied argument recipes of the invocation.
+#[derive(Clone, Debug)]
+struct BuildCallableReceiverOrigin {
+    origin: crate::sema::check::ExpressionIdentity,
+    binding: crate::sema::check::BindingIdentity,
+    initializer: BuildExprId,
+    slot: usize,
+    wrapper: Option<(BuildExprId, BuildPatternId)>,
+}
+
+/// Saved call arguments have compiler-generated reads. Their original recipes
+/// remain separate from those reads, and the actual binding wrapper proves
+/// which initialization supplies each read before parameter reordering.
+#[derive(Clone, Debug)]
+struct BuildArgumentBindingOrigin {
+    call: crate::sema::check::ExpressionIdentity,
+    ordinal: usize,
+    recipe: crate::sema::check::SolvedArgumentSource,
+    initializer: BuildExprId,
+    slot: usize,
+    wrapper: Option<(BuildExprId, BuildPatternId)>,
+}
+
+/// A finite named spread saves its original record once before projecting
+/// fields. That record read has its own authored entry and initialization
+/// authority, independently of the argument ordinals supplied by its fields.
+#[derive(Clone, Debug)]
+struct BuildArgumentRecordBindingOrigin {
+    call: crate::sema::check::ExpressionIdentity,
+    entry_index: usize,
+    record: crate::sema::check::ExpressionIdentity,
+    initializer: BuildExprId,
+    slot: usize,
+    source_type: crate::sema::inference::ScopedRoot,
+    wrapper: Option<(BuildExprId, BuildPatternId)>,
 }
 
 impl BuildScratch {
@@ -545,6 +705,7 @@ struct FunctionBuild {
     legacy_checked_signature: Option<(Vec<Type>, Type)>,
     // Scratch instructions keep arena identities until final instruction IDs exist.
     expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
+    stage_call_origins: FxHashMap<BuildExprId, crate::sema::check::StageIdentity>,
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -577,6 +738,7 @@ struct ProgramBuild {
     // One retained owner covers declaration, expression, and call proof handles.
     solved: Option<Arc<crate::sema::check::SolvedTypes>>,
     expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
+    stage_call_origins: FxHashMap<BuildExprId, crate::sema::check::StageIdentity>,
     statements: Vec<Option<BuildTopStmtId>>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
@@ -616,6 +778,10 @@ impl LoweredFunctionKey {
 
     pub fn is_qualified(self) -> bool {
         matches!(self, Self::Qualified(_))
+    }
+
+    pub(crate) fn namespace(self) -> Option<Name> {
+        match self { Self::Name(_) => None, Self::Qualified(qualified) => Some(qualified.namespace) }
     }
 }
 
@@ -661,6 +827,7 @@ impl LoweredFunctionBlocker {
 
 #[derive(Clone, Debug)]
 pub struct LoweredFunctionUnit {
+    source_lowering_stats: FrontendLoweredStats,
     key: LoweredFunctionKey,
     kind: LoweredFunctionKind,
     source_span: Span,
@@ -669,15 +836,16 @@ pub struct LoweredFunctionUnit {
     param_count: usize,
     capture_count: usize,
     slot_count: usize,
-    dependency_edges: Vec<LoweredFunctionKey>,
     body: Option<FunctionBuild>,
     blocker: Option<LoweredFunctionBlocker>,
     blocker_detail: Option<(Span, String)>,
-    scc_member_count: usize,
-    scc_group: Option<usize>,
 }
 
 impl LoweredFunctionUnit {
+    pub(in crate::runtime::eval) fn source_lowering_stats(&self) -> FrontendLoweredStats {
+        self.source_lowering_stats
+    }
+
     pub fn key(&self) -> LoweredFunctionKey {
         self.key
     }
@@ -710,10 +878,6 @@ impl LoweredFunctionUnit {
         self.slot_count
     }
 
-    pub fn dependency_edges(&self) -> &[LoweredFunctionKey] {
-        &self.dependency_edges
-    }
-
     pub fn is_lowered(&self) -> bool {
         self.body.is_some()
     }
@@ -724,18 +888,6 @@ impl LoweredFunctionUnit {
 
     pub fn blocker_detail(&self) -> Option<&(Span, String)> {
         self.blocker_detail.as_ref()
-    }
-
-    pub fn scc_member_count(&self) -> usize {
-        self.scc_member_count
-    }
-
-    pub fn scc_group(&self) -> Option<usize> {
-        self.scc_group
-    }
-
-    pub fn is_scc_member(&self) -> bool {
-        self.scc_member_count > 1
     }
 
     fn lowered_body(&self) -> Option<FunctionBuild> {
@@ -902,6 +1054,8 @@ struct LoweredTopLevelSlot {
     slot: usize,
     kind: LoweredType,
     mutable: bool,
+    // Source construction keeps the semantic root; decoded slots use sealed type IDs.
+    source_type: Option<crate::sema::inference::ScopedRoot>,
 }
 
 // A driver owns slot copies of surrounding bindings. Script calls use scopes,
@@ -927,6 +1081,8 @@ struct LoweredTopLevelBinding {
     checked: Option<Type>,
     mutable: bool,
     slot: bool,
+    // Physical storage cannot replace the binding's original type and scope.
+    source_type: Option<crate::sema::inference::ScopedRoot>,
 }
 
 #[derive(Clone, Debug)]
@@ -978,7 +1134,28 @@ type LoweredParamNames = SmallVec<[Name; 4]>;
 type LoweredParamKinds = SmallVec<[LoweredType; 4]>;
 type LoweredParamChecks = SmallVec<[Option<LoweredTypeCheck>; 4]>;
 type LoweredParamRest = SmallVec<[bool; 4]>;
-type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
+#[derive(Clone, Debug)]
+enum LoweredParamDefault {
+    None,
+    Constant(LoweredValue),
+    Expression,
+}
+
+type LoweredParamDefaults = SmallVec<[LoweredParamDefault; 4]>;
+type PendingParameterDefaults = SmallVec<[usize; 4]>;
+
+// Omission names a parameter position independently of its supplied value;
+// null is therefore never interpreted as a request to evaluate a default.
+#[derive(Default)]
+struct IndexedCallArguments {
+    values: Vec<LoweredValue>,
+    omitted_parameters: PendingParameterDefaults,
+}
+
+struct IndexedCallSlots {
+    slots: Vec<LoweredValue>,
+    pending_defaults: PendingParameterDefaults,
+}
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
 type BuildPatternIdSlots = SmallVec<[Option<usize>; 2]>;
 type LoweredCompFields = SmallVec<[(Name, Box<LoweredCompTarget>, Span); 4]>;
@@ -1395,6 +1572,7 @@ enum BuildExprRow {
         function: FunctionName,
         pure: bool,
     },
+    NativeCallableRef,
     PathFrom {
         value: BuildExprId,
         span: Span,
@@ -2182,8 +2360,6 @@ fn assign_lowered_bytes_view(slot: &mut LoweredValue, bytes: &Arc<[u8]>, start: 
 
 #[derive(Clone, Debug)]
 enum LoweredValue {
-    // This private marker survives argument binding only until callee entry.
-    OmittedArgument,
     Null,
     Unit,
     Int(i64),
@@ -2206,6 +2382,8 @@ enum LoweredValue {
     Stream(Box<StreamValue>),
     Pure(FunctionName),
     Proc(FunctionName),
+    Callable(RuntimeCallableValue),
+    NativeCallable(RuntimeNativeCallableValue),
     Error(Box<Value>),
     // Container payloads are shareable: reading a slot is a pointer bump
     // rather than a copy of every entry, and a mutation copies only when the
@@ -2486,7 +2664,7 @@ impl PartialEq for LoweredValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Null, Self::Null) => true,
-            (Self::Unit, Self::Unit) | (Self::OmittedArgument, Self::OmittedArgument) => true,
+            (Self::Unit, Self::Unit) => true,
             (Self::Int(left), Self::Int(right)) => left == right,
             (Self::Float(left), Self::Float(right)) => left == right,
             (Self::Duration(left), Self::Duration(right)) => left == right,
@@ -2511,6 +2689,8 @@ impl PartialEq for LoweredValue {
             (Self::Stream(left), Self::Stream(right)) => left == right,
             (Self::Pure(left), Self::Pure(right)) => left == right,
             (Self::Proc(left), Self::Proc(right)) => left == right,
+            (Self::Callable(left), Self::Callable(right)) => left == right,
+            (Self::NativeCallable(left), Self::NativeCallable(right)) => left == right,
             (Self::Error(left), Self::Error(right)) => left == right,
             (Self::Record(left), Self::Record(right)) => left == right,
             (Self::RecordVec(left), Self::RecordVec(right)) => left == right,
@@ -2562,7 +2742,6 @@ impl PartialEq for LoweredValue {
 impl LoweredValue {
     fn into_value(self) -> Value {
         match self {
-            Self::OmittedArgument => unreachable!("omitted argument escaped callee entry"),
             Self::Null => Value::Null,
             Self::Unit => Value::Unit,
             Self::Int(value) => Value::Int(value),
@@ -2585,6 +2764,8 @@ impl LoweredValue {
             Self::Stream(value) => Value::Stream(value),
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
+            Self::Callable(value) => Value::Callable(value),
+            Self::NativeCallable(value) => Value::NativeCallable(value),
             Self::Error(value) => *value,
             Self::Record(value) => Value::Record(RecordMap::from_name_values(
                 crate::runtime::eval::lower::take_shared(value)
@@ -2645,7 +2826,6 @@ impl LoweredValue {
     fn type_name(&self) -> &'static str {
         match self {
             Self::Null => "Null",
-            Self::OmittedArgument => "omitted argument",
             Self::Unit => "Unit",
             Self::Int(_) => "Int",
             Self::Float(_) => "Float",
@@ -2665,6 +2845,8 @@ impl LoweredValue {
             Self::Stream(_) => "Stream",
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
+            Self::Callable(value) => value.type_name(),
+            Self::NativeCallable(value) => value.type_name(),
             Self::Error(_) => "Error",
             Self::Record(_) | Self::RecordVec(_) | Self::Stats { .. } | Self::StatsBlob(_) => {
                 "Record"
@@ -2869,6 +3051,8 @@ pub struct Evaluator {
     command_name: String,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
+    indexed_module_bindings: FxHashMap<Name, FxHashMap<Name, Binding>>,
+    indexed_module_owners: Vec<Name>,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
     // compact declaration probe at load time so `module.require` can validate
@@ -2876,6 +3060,7 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
+    last_lowering_stats: Option<FrontendLoweredStats>,
     indexed_root_slots: Option<IndexedRootSlots>,
     indexed_root_records: FxHashMap<(usize, usize), IndexedRootRecord>,
     scope_write_revision: u64,
@@ -2979,6 +3164,8 @@ struct LoweredSharedState {
     command_name: String,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
+    indexed_module_bindings: FxHashMap<Name, FxHashMap<Name, Binding>>,
+    indexed_module_owners: Vec<Name>,
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
@@ -3072,16 +3259,9 @@ impl Evaluator {
     }
 
     pub fn frontend_lowered_stats(&self) -> FrontendLoweredStats {
+        if let Some(stats) = self.last_lowering_stats { return stats; }
         if let Some(indexed) = &self.indexed_program {
-            return FrontendLoweredStats {
-                function_count: indexed.function_count(),
-                constructed_functions: indexed.function_count(),
-                statement_count: 0,
-                expression_count: indexed.instruction_count(),
-                pattern_count: 0,
-                blocker_events: 0,
-                retained_estimate_bytes: indexed.store_retained_bytes(),
-            };
+            return indexed.source_lowering_stats();
         }
         FrontendLoweredStats::default()
     }
@@ -3123,8 +3303,11 @@ impl Evaluator {
                 .and_then(|arg| arg.into_string().ok())
                 .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
+            indexed_module_bindings: FxHashMap::default(),
+            indexed_module_owners: Vec::new(),
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
+            last_lowering_stats: None,
             indexed_root_slots: None,
             indexed_root_records: FxHashMap::default(),
             scope_write_revision: 0,
@@ -3266,6 +3449,8 @@ impl Evaluator {
             command_name: self.command_name.clone(),
             exe_path: self.exe_path.clone(),
             scopes: self.scopes.clone(),
+            indexed_module_bindings: self.indexed_module_bindings.clone(),
+            indexed_module_owners: self.indexed_module_owners.clone(),
             module_export_signatures: self.module_export_signatures.clone(),
             indexed_program: self.indexed_program.clone(),
             indexed_dynamic_functions: self.indexed_dynamic_functions.clone(),
@@ -3288,8 +3473,11 @@ impl Evaluator {
             command_name: shared.command_name.clone(),
             exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
+            indexed_module_bindings: shared.indexed_module_bindings.clone(),
+            indexed_module_owners: shared.indexed_module_owners.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
+            last_lowering_stats: None,
             indexed_root_slots: None,
             indexed_root_records: FxHashMap::default(),
             scope_write_revision: 0,
@@ -3933,6 +4121,7 @@ impl Evaluator {
         source_id: SourceId,
         allow_checker_only: bool,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        self.last_lowering_stats = Some(FrontendLoweredStats::default());
         let mut declarations = Checker::check_compact_declarations(program);
         if !declarations.diagnostics.is_empty() {
             return Err(declarations.diagnostics.remove(0));
@@ -3956,6 +4145,7 @@ impl Evaluator {
         source_id: SourceId,
         checked: &CheckOutput,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        self.last_lowering_stats = Some(FrontendLoweredStats::default());
         program.symbol_owner().with_current(|| {
             if let Some(diagnostic) = checked.diagnostics.iter().find(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
                 return Err(diagnostic.clone());
@@ -3996,6 +4186,9 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map_err(|error| {
+            let mut stats = error.source_lowering_stats.unwrap_or_default();
+            stats.blocker_events = stats.blocker_events.max(1);
+            self.last_lowering_stats = Some(stats);
             let span = error.span.unwrap_or_else(zero_span);
             compact_lowerability_diagnostic(
                 span,
@@ -4003,6 +4196,7 @@ impl Evaluator {
                 "compact.indexed-build",
             )
         })?;
+        self.last_lowering_stats = Some(indexed.source_lowering_stats());
         let root = program.statement_ids().collect::<Vec<_>>();
         let driver_steps = indexed.driver_step_count().map_err(|error| {
             compact_lowerability_diagnostic(
@@ -4132,6 +4326,7 @@ impl Evaluator {
                 skip_auto_main,
             });
         }
+        self.last_lowering_stats = None;
         Ok(CompactIndexedRunPlan {
             script_span: statements
                 .first()
@@ -6709,8 +6904,8 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
         }
         Type::ProcessError => matches!(value, Value::RunError(_)),
-        Type::Pure => matches!(value, Value::Pure(_)),
-        Type::Proc => matches!(value, Value::Proc(_)),
+        Type::Pure => matches!(value, Value::Pure(_))||matches!(value,Value::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Pure)||matches!(value,Value::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Pure),
+        Type::Proc => matches!(value, Value::Proc(_))||matches!(value,Value::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Proc)||matches!(value,Value::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Proc),
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
@@ -6834,8 +7029,8 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::ProcessError => {
             matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::RunError(_)))
         },
-        Type::Pure => matches!(value, LoweredValue::Pure(_)),
-        Type::Proc => matches!(value, LoweredValue::Proc(_)),
+        Type::Pure => matches!(value, LoweredValue::Pure(_))||matches!(value,LoweredValue::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Pure)||matches!(value,LoweredValue::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Pure),
+        Type::Proc => matches!(value, LoweredValue::Proc(_))||matches!(value,LoweredValue::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Proc)||matches!(value,LoweredValue::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Proc),
         Type::Unit => matches!(value, LoweredValue::Unit),
         Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
         Type::Optional(inner) => {

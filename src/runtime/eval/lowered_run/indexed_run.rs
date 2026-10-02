@@ -3,7 +3,7 @@ use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::map_key::MapKey;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
-    Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
+    Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName, IndexedCallArguments, IndexedCallSlots, PendingParameterDefaults,
     LoweredScalarCursor, LoweredMapCursor, LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind,
     LoweredProjectedReduceState, LoweredReduceProjection, LoweredRetryAttemptValue,
     LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name,
@@ -59,6 +59,8 @@ use smallvec::SmallVec;
 
 pub(in crate::runtime::eval) mod explicit_run;
 mod producer;
+mod callable_run;
+mod native_callable_run;
 mod serial_pipeline;
 
 use serial_pipeline::IndexedPipelineItems;
@@ -1713,6 +1715,10 @@ impl Evaluator {
                 let child_steps = program
                     .driver_program_step_views(child)
                     .map_err(|error| indexed_error(error, span))?;
+                let module_owner = Name::intern(key.as_ref());
+                self.scopes.push(Default::default());
+                self.indexed_module_owners.push(module_owner);
+                let module_result = (|| {
                 for child_view in child_steps {
                     if child_view.tag() == FullDriverTag::Defer {
                         continue;
@@ -1741,6 +1747,7 @@ impl Evaluator {
                             .with_span(child_span));
                         }
                     }
+                    self.indexed_module_bindings.insert(module_owner, self.scopes.last().unwrap().clone());
                     for (name, record) in &modules_before {
                         if let Some(binding) = self.lookup(*name)
                             && !matches!(&binding.value, Value::Module(_))
@@ -1798,6 +1805,21 @@ impl Evaluator {
                                 mutable: false,
                             },
                         );
+                    }
+                }
+                Ok::<_, RuntimeError>(record_fields)
+                })();
+                self.indexed_module_owners.pop();
+                let bindings = self.scopes.pop().expect("module lexical scope remains installed");
+                if module_result.is_ok() {
+                    self.indexed_module_bindings.insert(module_owner, bindings);
+                } else {
+                    self.indexed_module_bindings.remove(&module_owner);
+                }
+                let record_fields = module_result?;
+                if alias.is_none() {
+                    for (name, value) in &record_fields {
+                        self.define(*name, Binding { value: value.clone(), mutable: false });
                     }
                 }
                 self.define(
@@ -2071,30 +2093,6 @@ impl Evaluator {
         result
     }
 
-    fn indexed_argument_default(&self, callee: &LoweredValue, slot: usize, span: Span) -> Result<LoweredValue, RuntimeError> {
-        let (function, kind) = match callee {
-            LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
-            LoweredValue::Proc(function) => (function, LoweredFunctionKind::Proc),
-            _ => return Err(RuntimeError::new("type-error", "argument default requires a prepared callable").with_span(span)),
-        };
-        let key = function.as_name().map(LoweredFunctionKey::Name)
-            .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified)).expect("callable identity is interned");
-        self.indexed_argument_default_for(key, kind, slot, span)
-    }
-
-    fn indexed_argument_default_for(&self, key: LoweredFunctionKey, kind: LoweredFunctionKind, slot: usize, span: Span) -> Result<LoweredValue, RuntimeError> {
-        let program = self.indexed_program.as_ref().expect("indexed call retains its program");
-        let view = if let Some(view) = program.function_view(key, kind).map_err(|error| indexed_error(error, span))? { view }
-            else {
-                let LoweredFunctionKey::Qualified(qualified) = key else { return Err(RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span)); };
-                let dynamic = self.indexed_dynamic_functions.get(&qualified).ok_or_else(|| RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span))?;
-                dynamic.program.function_view(dynamic.function, dynamic.kind).map_err(|error| indexed_error(error, span))?
-                    .ok_or_else(|| RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span))?
-            };
-        view.header().map_err(|error| indexed_error(error, span))?.param_defaults.get(slot).and_then(Clone::clone)
-            .ok_or_else(|| RuntimeError::new("indexed-ir", "checked omitted argument has no prepared default").with_span(span))
-    }
-
     pub(in crate::runtime::eval) fn call_indexed_direct(
         &mut self,
         function: LoweredFunctionKey,
@@ -2157,9 +2155,9 @@ impl Evaluator {
                 .map(LoweredValue::into_value),
             );
         }
-        let mut slots = slots;
+        let IndexedCallSlots { mut slots, pending_defaults } = slots;
         let result = self
-            .eval_indexed_call_frame(function, kind, view, &header, &mut slots, call_span)
+            .eval_indexed_call_frame(function, kind, view, &header, &mut slots, pending_defaults, call_span)
             .and_then(|value| super::checked_lowered_return_value(&header, value, call_span))
             .map(LoweredValue::into_value);
         self.recycle_lowered_slots(slots);
@@ -2173,7 +2171,22 @@ impl Evaluator {
         view: FullFunctionView<'_>,
         header: &FunctionHeader,
         slots: &mut [LoweredValue],
+        pending_defaults: PendingParameterDefaults,
         call_span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        self.eval_indexed_call_frame_with_environment(function, kind, view, header, slots, pending_defaults, call_span, None)
+    }
+
+    fn eval_indexed_call_frame_with_environment(
+        &mut self,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+        view: FullFunctionView<'_>,
+        header: &FunctionHeader,
+        slots: &mut [LoweredValue],
+        pending_defaults: PendingParameterDefaults,
+        call_span: Span,
+        captures: Option<&[crate::runtime::eval::callable_value::RuntimeCallableCapture]>,
     ) -> Result<LoweredValue, RuntimeError> {
         let (frame_kind, enter_kind, exit_kind) = match kind {
             LoweredFunctionKind::Pure => (
@@ -2209,7 +2222,7 @@ impl Evaluator {
             call_span: Some(call_span),
         });
         let result = with_indexed_eval_depth(call_span, || {
-            self.eval_indexed_function(view, header, slots, call_span)
+            self.eval_indexed_function_with_environment(view, header, slots, pending_defaults, call_span, captures)
         });
         self.call_stack.pop();
         if self.trace_enabled {
@@ -2238,6 +2251,16 @@ impl Evaluator {
         &mut self,
         function: LoweredFunctionKey,
         values: &[LoweredValue],
+        call_span: Span,
+        instantiation: Option<InstantiationId>,
+    ) -> Result<LoweredValue, RuntimeError> {
+        self.eval_indexed_named_call_with_arguments(function, IndexedCallArguments::supplied(values.to_vec()), call_span, instantiation)
+    }
+
+    fn eval_indexed_named_call_with_arguments(
+        &mut self,
+        function: LoweredFunctionKey,
+        arguments: IndexedCallArguments,
         call_span: Span,
         instantiation: Option<InstantiationId>,
     ) -> Result<LoweredValue, RuntimeError> {
@@ -2275,16 +2298,17 @@ impl Evaluator {
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
+        let bound = self.bind_indexed_call_arguments(&header, arguments, call_span)?;
         if self.indexed_frames_supported(view, call_span)?
             && !super::indexed_recursive_fast_path_allowed(header.return_kind)
         {
             return super::with_indexed_explicit_frames(|| {
-                self.eval_indexed_with_frames_instantiated(program.as_ref(), function, kind, values, call_span, instantiation)
+                self.eval_indexed_with_frame_slots_instantiated(program.as_ref(), function, kind, bound, call_span, instantiation)
             });
         }
-        let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
+        let IndexedCallSlots { slots: mut next_slots, pending_defaults } = bound;
         let result = self
-            .eval_indexed_call_frame(function, kind, view, &header, &mut next_slots, call_span)
+            .eval_indexed_call_frame(function, kind, view, &header, &mut next_slots, pending_defaults, call_span)
             .and_then(|value| super::checked_lowered_return_value(&header, value, call_span));
         self.recycle_lowered_slots(next_slots);
         result
@@ -2302,6 +2326,15 @@ impl Evaluator {
         values: &[LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        self.eval_indexed_external_call_with_arguments(qualified, IndexedCallArguments::supplied(values.to_vec()), call_span)
+    }
+
+    fn eval_indexed_external_call_with_arguments(
+        &mut self,
+        qualified: QualifiedName,
+        arguments: IndexedCallArguments,
+        call_span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
         let key = LoweredFunctionKey::Qualified(qualified);
         let program = Arc::clone(
             self.indexed_program
@@ -2314,7 +2347,7 @@ impl Evaluator {
                 .map_err(|error| indexed_error(error, call_span))?
                 .is_some()
             {
-                return self.eval_indexed_named_call(key, values, call_span);
+                return self.eval_indexed_named_call_with_arguments(key, arguments, call_span, None);
             }
         }
         let dynamic = self
@@ -2326,7 +2359,7 @@ impl Evaluator {
                     .with_span(call_span)
             })?;
         let previous = self.indexed_program.replace(Arc::clone(&dynamic.program));
-        let result = self.eval_indexed_named_call(dynamic.function, values, call_span);
+        let result = self.eval_indexed_named_call_with_arguments(dynamic.function, arguments, call_span, None);
         self.indexed_program = previous;
         result
     }
@@ -2368,7 +2401,7 @@ impl Evaluator {
                 )
             });
         }
-        let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
+        let IndexedCallSlots { slots: mut next_slots, pending_defaults } = self.bind_lowered_values(&header, values, call_span)?;
         self.call_stack.push(TracebackFrame {
             kind: TracebackFrameKind::Pure,
             name: function.traceback_name(),
@@ -2376,7 +2409,7 @@ impl Evaluator {
             call_span: Some(call_span),
         });
         let result = with_indexed_eval_depth(call_span, || {
-            self.eval_indexed_function(view, &header, &mut next_slots, call_span)
+            self.eval_indexed_function(view, &header, &mut next_slots, pending_defaults, call_span)
         });
         self.call_stack.pop();
         let result =
@@ -2425,9 +2458,9 @@ impl Evaluator {
                 self.eval_indexed_with_frames(program.as_ref(), function, kind, values, call_span)
             });
         }
-        let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
+        let IndexedCallSlots { slots: mut next_slots, pending_defaults } = self.bind_lowered_values(&header, values, call_span)?;
         let result = with_indexed_eval_depth(call_span, || {
-            self.eval_indexed_function(view, &header, &mut next_slots, call_span)
+            self.eval_indexed_function(view, &header, &mut next_slots, pending_defaults, call_span)
         })
         .and_then(|value| super::checked_lowered_return_value(&header, value, call_span));
         self.recycle_lowered_slots(next_slots);
@@ -2439,12 +2472,27 @@ impl Evaluator {
         view: FullFunctionView<'_>,
         header: &FunctionHeader,
         slots: &mut [LoweredValue],
+        pending_defaults: PendingParameterDefaults,
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        self.hydrate_lowered_captures(header, slots, call_span)?;
-        let execution = view
-            .execution()
-            .map_err(|error| indexed_error(error, call_span))?;
+        self.eval_indexed_function_with_environment(view, header, slots, pending_defaults, call_span, None)
+    }
+
+    fn eval_indexed_function_with_environment(
+        &mut self,
+        view: FullFunctionView<'_>,
+        header: &FunctionHeader,
+        slots: &mut [LoweredValue],
+        pending_defaults: PendingParameterDefaults,
+        call_span: Span,
+        captures: Option<&[crate::runtime::eval::callable_value::RuntimeCallableCapture]>,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let execution = view.execution().map_err(|error| indexed_error(error, call_span))?;
+        let (function, _) = execution.function_identity().map_err(|error| indexed_error(error, call_span))?;
+        match captures {
+            Some(captures) => Self::hydrate_indexed_callable_environment(captures, slots, call_span)?,
+            None => self.hydrate_lowered_captures(header, slots, call_span, function.namespace())?,
+        }
         let (_, body) = view
             .body(&execution)
             .map_err(|error| indexed_error(error, call_span))?;
@@ -2459,13 +2507,17 @@ impl Evaluator {
                 .function_identity()
                 .map_err(|error| indexed_error(error, call_span))?;
             let state =
-                self.start_script_producer(function, kind, view, slots.to_vec(), call_span)?;
+                self.start_script_producer(function, kind, view, slots.to_vec(), pending_defaults, call_span)?;
             return Ok(LoweredValue::Stream(Box::new(StreamValue::from_script(
                 state,
             ))));
         }
-        let result = self.eval_indexed_stmts(&execution, body, header, slots, call_span);
-        let write_back = self.write_back_lowered_captures(header, slots, call_span);
+        let result = self.eval_indexed_parameter_defaults(&execution, body, slots, &pending_defaults, call_span)
+            .and_then(|completion| match completion {
+                Some(flow) => Ok(flow),
+                None => self.eval_indexed_stmts(&execution, body, header, slots, call_span),
+            });
+        let write_back = self.write_back_lowered_captures(header, slots, call_span, function.namespace());
         let flow = result?;
         write_back?;
         if let Some(scope) = execution.generic_scope() {
@@ -2487,6 +2539,42 @@ impl Evaluator {
                 Err(RuntimeError::new("control-flow", "break outside loop").with_span(call_span))
             }
         }
+    }
+
+    fn eval_indexed_parameter_defaults(
+        &mut self,
+        execution: &FullExecution<'_>,
+        mut body: FullPayload<'_>,
+        slots: &mut [LoweredValue],
+        pending: &[usize],
+        call_span: Span,
+    ) -> Result<Option<StmtFlow>, RuntimeError> {
+        if pending.is_empty() { return Ok(None); }
+        let count = indexed_raw(&mut body, call_span)? as usize;
+        let mut initialized = 0;
+        for _ in 0..count {
+            let instruction = indexed_raw(&mut body, call_span)?;
+            let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+            if tag != FullTag::StmtDefaultParameter { break; }
+            let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+            let expression = indexed_raw(&mut payload, call_span)?;
+            let kind = indexed_decode::<LoweredType>(&mut payload, execution, call_span)?;
+            let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, execution, call_span)?;
+            let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+            indexed_finish(payload, span)?;
+            if !pending.contains(&slot) { continue; }
+            let value = match self.eval_indexed_expr(execution, expression, slots, span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(Some(self.pending_value_block_flow.take().unwrap_or(StmtFlow::Propagate(value)))),
+            };
+            validate_parameter_default(&value, kind, check.as_ref(), span)?;
+            slots[slot] = value;
+            initialized += 1;
+        }
+        if initialized != pending.len() {
+            return Err(RuntimeError::new("indexed-ir", "omitted parameter has no prepared initializer").with_span(call_span));
+        }
+        Ok(None)
     }
 
     fn indexed_stage_name(tag: FullStageTag) -> &'static str {
@@ -3105,11 +3193,18 @@ impl Evaluator {
                 let function = indexed_decode::<FunctionName>(&mut payload, execution, call_span)?;
                 let pure = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(if pure {
-                    LoweredValue::Pure(function)
-                } else {
-                    LoweredValue::Proc(function)
+                ControlFlow::Continue(match self.create_indexed_callable(execution, instruction, call_span)? {
+                    Some(value) => value,
+                    None if pure => LoweredValue::Pure(function),
+                    None => LoweredValue::Proc(function),
                 })
+            }
+            FullTag::ExprNativeCallableRef => {
+                indexed_finish(payload, call_span)?;
+                let id = execution.native_callable_value(instruction).map_err(|error| indexed_error(error, call_span))?;
+                let program = Arc::clone(self.indexed_program.as_ref().ok_or_else(|| RuntimeError::new("indexed-ir", "native callable creation has no installed program").with_span(call_span))?);
+                ControlFlow::Continue(crate::runtime::eval::RuntimeNativeCallableValue::new(program, id)
+                    .map(LoweredValue::NativeCallable).map_err(|error| error.with_span(call_span))?)
             }
             FullTag::ExprPathFrom => {
                 let value = indexed_raw(&mut payload, call_span)?;
@@ -5668,6 +5763,13 @@ impl Evaluator {
                     return super::generic_run::project_record_slot(&base, field_slot, span)
                         .map(ControlFlow::Continue);
                 }
+                if let Some((_, field_slot)) = execution.ground_projection(instruction).map_err(|error| indexed_error(error, span))? {
+                    let base = match self.eval_indexed_expr(execution, base, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    return super::generic_run::project_record_slot(&base, field_slot, span).map(ControlFlow::Continue);
+                }
                 if let Some(base) = Self::indexed_field_chain_ref(execution, base, slots, span)?
                     && let Some(value) = lowered_record_field_value(base, name)
                 {
@@ -6582,6 +6684,8 @@ impl Evaluator {
             }
             FullTag::ExprModuleCall => {
                 let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
+                execution.ground_native_call(instruction, op)
+                    .map_err(|error| indexed_error(error, call_span))?;
                 let cli_plan = indexed_decode::<Option<Arc<crate::modules::cli::CliDescriptorPlan>>>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
                     .block(&mut payload, BLOCK_LIST)
@@ -7209,6 +7313,7 @@ impl Evaluator {
                 ))));
             }
             FullTag::ExprOk => {
+                execution.prepared_result_ok(instruction).map_err(|error| indexed_error(error, call_span))?;
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
@@ -7359,14 +7464,12 @@ impl Evaluator {
                 let len = indexed_raw(&mut args, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let mut values = Vec::with_capacity(len);
+                let mut values = IndexedCallArguments::supplied(Vec::with_capacity(len));
                 for _ in 0..len {
                     let kind = indexed_raw(&mut args, span)?;
                     let arg = indexed_raw(&mut args, span)?;
                     if kind == 2 {
-                        let default = self.indexed_argument_default_for(function, LoweredFunctionKind::Pure, arg as usize, span)
-                            .or_else(|_| self.indexed_argument_default_for(function, LoweredFunctionKind::Proc, arg as usize, span))?;
-                        values.push(default);
+                        values.omit(arg as usize, span)?;
                         continue;
                     }
                     let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
@@ -7374,8 +7477,8 @@ impl Evaluator {
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
                     match kind {
-                        0 => values.push(value),
-                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        0 => values.values.push(value),
+                        1 => values.values.extend(lowered_splice_arg_items(value, span)?),
                         _ => {
                             return Err(RuntimeError::new(
                                 "indexed-ir",
@@ -7387,7 +7490,7 @@ impl Evaluator {
                 }
                 indexed_finish(args, span)?;
                 return self
-                    .eval_indexed_named_call_with_instantiation(function, &values, span,
+                    .eval_indexed_named_call_with_arguments(function, values, span,
                         execution.call_instantiation(instruction).map_err(|error| indexed_error(error, span))?)
                     .map(ControlFlow::Continue);
             }
@@ -7400,23 +7503,20 @@ impl Evaluator {
                 let len = indexed_raw(&mut args, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let mut values = Vec::with_capacity(len);
+                let mut values = IndexedCallArguments::supplied(Vec::with_capacity(len));
                 for _ in 0..len {
                     let kind = indexed_raw(&mut args, span)?;
                     let arg = indexed_raw(&mut args, span)?;
                     if kind == 2 {
-                        let key = LoweredFunctionKey::Qualified(qualified);
-                        let default = self.indexed_argument_default_for(key, LoweredFunctionKind::Pure, arg as usize, span)
-                            .or_else(|_| self.indexed_argument_default_for(key, LoweredFunctionKind::Proc, arg as usize, span))?;
-                        values.push(default); continue;
+                        values.omit(arg as usize, span)?; continue;
                     }
                     let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
                     match kind {
-                        0 => values.push(value),
-                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        0 => values.values.push(value),
+                        1 => values.values.extend(lowered_splice_arg_items(value, span)?),
                         _ => {
                             return Err(RuntimeError::new(
                                 "indexed-ir",
@@ -7428,7 +7528,7 @@ impl Evaluator {
                 }
                 indexed_finish(args, span)?;
                 return self
-                    .eval_indexed_external_call(qualified, &values, span)
+                    .eval_indexed_external_call_with_arguments(qualified, values, span)
                     .map(ControlFlow::Continue);
             }
             FullTag::ExprDirectPureCall => {
@@ -7440,17 +7540,18 @@ impl Evaluator {
                 let len = indexed_raw(&mut args, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let mut values = Vec::with_capacity(len);
+                let mut values = IndexedCallArguments::supplied(Vec::with_capacity(len));
                 for _ in 0..len {
                     let kind = indexed_raw(&mut args, span)?;
                     let arg = indexed_raw(&mut args, span)?;
+                    if kind == 2 { values.omit(arg as usize, span)?; continue; }
                     let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
                     match kind {
-                        0 => values.push(value),
-                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        0 => values.values.push(value),
+                        1 => values.values.extend(lowered_splice_arg_items(value, span)?),
                         _ => {
                             return Err(RuntimeError::new(
                                 "indexed-ir",
@@ -7463,12 +7564,12 @@ impl Evaluator {
                 indexed_finish(args, span)?;
                 let instantiation = execution.call_instantiation(instruction)
                     .map_err(|error| indexed_error(error, span))?;
-                let result = if instantiation.is_some() {
-                    self.eval_indexed_named_call_with_instantiation(function, &values, span, instantiation)?
+                let result = if instantiation.is_some() || !values.omitted_parameters.is_empty() {
+                    self.eval_indexed_named_call_with_arguments(function, values, span, instantiation)?
                 } else if self.trace_enabled {
-                    self.eval_indexed_named_call(function, &values, span)?
+                    self.eval_indexed_named_call(function, &values.values, span)?
                 } else {
-                    self.eval_indexed_direct_pure_call(function, &values, span)?
+                    self.eval_indexed_direct_pure_call(function, &values.values, span)?
                 };
                 return Ok(ControlFlow::Continue(result));
             }
@@ -7484,12 +7585,12 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let mut values = Vec::with_capacity(arg_count);
+                let mut values = IndexedCallArguments::supplied(Vec::with_capacity(arg_count));
                 for _ in 0..arg_count {
                     let argument_kind = indexed_raw(&mut args, span)?;
                     if argument_kind == 2 {
                         let slot = indexed_raw(&mut args, span)? as usize;
-                        values.push(self.indexed_argument_default(&callee, slot, span)?);
+                        values.omit(slot, span)?;
                         continue;
                     }
                     let splice = match argument_kind {
@@ -7511,20 +7612,31 @@ impl Evaluator {
                         }
                     };
                     if splice {
-                        values.extend(lowered_splice_arg_items(value, span)?);
+                        values.values.extend(lowered_splice_arg_items(value, span)?);
                     } else {
-                        values.push(value);
+                        values.values.push(value);
                     }
                 }
                 indexed_finish(args, span)?;
+                if let Some(plan) = execution.native_invocation_plan(instruction).map_err(|error| indexed_error(error, span))? {
+                    return self.eval_indexed_native_callable(execution, plan, &callee, values, span);
+                }
+                if let Some(plan) = execution.user_invocation_authority(instruction).map_err(|error| indexed_error(error, span))? {
+                    let handle = self.checked_indexed_callable_authority(execution, plan, &callee, span)?;
+                    let values = Self::prepared_indexed_callable_arguments(plan, &handle, values, span)?;
+                    return self.eval_indexed_prepared_callable(handle, values, span).map(ControlFlow::Continue);
+                }
+                if matches!(callee, LoweredValue::Callable(_) | LoweredValue::NativeCallable(_)) {
+                    return Err(RuntimeError::new("indexed-ir", "typed user invocation lacks its original prepared authority").with_span(span));
+                }
                 let (function, _) = indexed_callable_identity(&callee, span)?;
                 let instantiation = execution.call_instantiation(instruction)
                     .map_err(|error| indexed_error(error, span))?;
                 let result = if instantiation.is_some() {
-                    self.eval_indexed_named_call_with_instantiation(function, &values, span, instantiation)?
+                    self.eval_indexed_named_call_with_arguments(function, values, span, instantiation)?
                 } else { match function {
-                    LoweredFunctionKey::Name(_) => self.eval_indexed_named_call(function, &values, span)?,
-                    LoweredFunctionKey::Qualified(qualified) => self.eval_indexed_external_call(qualified, &values, span)?,
+                    LoweredFunctionKey::Name(_) => self.eval_indexed_named_call_with_arguments(function, values, span, None)?,
+                    LoweredFunctionKey::Qualified(qualified) => self.eval_indexed_external_call_with_arguments(qualified, values, span)?,
                 } };
                 ControlFlow::Continue(result)
             }
@@ -7535,17 +7647,18 @@ impl Evaluator {
                 let len = indexed_raw(&mut args, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let mut values = Vec::with_capacity(len);
+                let mut values = IndexedCallArguments::supplied(Vec::with_capacity(len));
                 for _ in 0..len {
                     let kind = indexed_raw(&mut args, span)?;
                     let arg = indexed_raw(&mut args, span)?;
+                    if kind == 2 { values.omit(arg as usize, span)?; continue; }
                     let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
                     match kind {
-                        0 => values.push(value),
-                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        0 => values.values.push(value),
+                        1 => values.values.extend(lowered_splice_arg_items(value, span)?),
                         _ => {
                             return Err(RuntimeError::new(
                                 "indexed-ir",
@@ -7559,15 +7672,11 @@ impl Evaluator {
                 let (function, _) = execution
                     .function_identity()
                     .map_err(|error| indexed_error(error, span))?;
-                if let Some(instance) = execution.call_instantiation(instruction)
-                    .map_err(|error| indexed_error(error, span))?
-                {
-                    return self.eval_indexed_named_call_with_instantiation(function, &values, span, Some(instance))
-                        .map(ControlFlow::Continue);
+                let instantiation = execution.call_instantiation(instruction).map_err(|error| indexed_error(error, span))?;
+                if instantiation.is_some() || !values.omitted_parameters.is_empty() {
+                    return self.eval_indexed_named_call_with_arguments(function, values, span, instantiation).map(ControlFlow::Continue);
                 }
-                return self
-                    .eval_indexed_self_call(function, &values, span)
-                    .map(ControlFlow::Continue);
+                return self.eval_indexed_self_call(function, &values.values, span).map(ControlFlow::Continue);
             }
             _ => {
                 return Err(RuntimeError::new(
@@ -8065,23 +8174,7 @@ impl Evaluator {
     ) -> Result<StmtFlow, RuntimeError> {
         let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         match tag {
-            FullTag::StmtDefaultParameter => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let value = indexed_raw(&mut payload, call_span)?;
-                let kind = indexed_decode::<LoweredType>(&mut payload, execution, call_span)?;
-                let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                if matches!(slots[slot], LoweredValue::OmittedArgument) {
-                    let value = match self.eval_indexed_expr(execution, value, slots, span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(self.pending_value_block_flow.take().unwrap_or(StmtFlow::Propagate(value))),
-                    };
-                    validate_parameter_default(&value, kind, check.as_ref(), span)?;
-                    slots[slot] = value;
-                }
-                Ok(StmtFlow::None)
-            }
+            FullTag::StmtDefaultParameter => Ok(StmtFlow::None),
             FullTag::StmtLet => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 self.declare_recursive_context_slot(slots, slot);
@@ -9908,6 +10001,10 @@ mod tests {
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
 
+    include!("indexed_run/stage_evidence_tests.rs");
+    include!("indexed_run/module_reuse_tests.rs");
+    include!("indexed_run/omitted_argument_tests.rs");
+
     #[test]
     fn recursive_component_calls_keep_member_evidence_in_both_routes() {
         crate::runtime::eval::run_eval(|| {
@@ -9950,6 +10047,103 @@ mod tests {
             assert_eq!(output.status, 0);
             assert_eq!(output.stdout, b"7 word false\n");
             assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        });
+    }
+
+    #[test]
+    fn fixed_record_string_field_projection_executes_its_ground_proof_after_frontend_disposal_on_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure selected(text: Str) -> Str { let record = {first: \"wrong-slot\", text: text}; record.text }\nlet text = \"caller-shadow\"\nprint ${selected(\"chosen\")}\n";
+            for force_recursive in [false, true] {
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file("fixed-record-field-routes.xsh", source);
+                let parsed = Parser::parse_source_arena_only(source_id, source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let symbols = parsed.arena.symbol_owner().clone();
+                symbols.with_current(|| {
+                    let checked = Checker::check_arena(&parsed.arena, source);
+                    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                    let (&original, projection) = checked.solved.projections.iter().find(|(_, projection)| projection.field == "text").unwrap();
+                    let crate::syntax::arena::ArenaExprKind::Field { base, .. } = parsed.arena.arena.expr(original.expression).kind else { panic!(); };
+                    let receiver = crate::sema::check::ExpressionIdentity { expression: base, ..original };
+                    assert!(matches!(checked.solved.graph.node(checked.solved.graph.resolved(projection.result).unwrap()).unwrap(), crate::sema::inference::TypeNode::Atom(crate::sema::inference::Atom::Str)));
+                    let solved = Arc::downgrade(&checked.solved);
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                    let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked)
+                        .unwrap_or_else(|diagnostic| panic!("the original fixed projection prepares: {diagnostic:?}"));
+                    let program = evaluator.indexed_program.as_deref().unwrap();
+                    let evidence = program.generic_evidence().expect("the field instruction retains its ground projection proof");
+                    assert_eq!(evidence.ground_projections().count(), 1, "this runtime witness must exercise a checked projection rather than the legacy field fallback");
+                    let (id, proof) = evidence.ground_projections().next().unwrap();
+                    let retained = evidence.ground_projection_source(proof.source).unwrap();
+                    assert_eq!(retained.origin, original);
+                    assert_eq!(retained.receiver_origin, receiver);
+                    assert_eq!(retained.field, "text");
+                    assert_eq!(evidence.ground_projection_at(retained.instruction).unwrap(), Some(id));
+                    let layout = evidence.layout(proof.layout).unwrap();
+                    assert_eq!(layout.fields.len(), 2);
+                    assert_eq!(proof.field_slot, 1, "the same-typed first field cannot stand in for the selected text field");
+                    assert_eq!(layout.fields[proof.field_slot as usize].0, retained.field);
+                    assert_eq!(retained.field_slot, proof.field_slot);
+                    drop(checked);
+                    drop(parsed);
+                    assert!(solved.upgrade().is_none(), "projection execution must not retain the inference bundle");
+                    let execute = || {
+                        assert_eq!(crate::runtime::eval::lowered_run::recursive_fast_path_forced(), force_recursive);
+                        evaluator.try_eval_installed_compact_indexed_only_inner(plan)
+                            .unwrap_or_else(|_| panic!("the fixed projection program remains installed"))
+                    };
+                    let output = if force_recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) } else { execute() };
+                    assert_eq!(output.status, 0, "recursive={force_recursive}: {:?}", output.diagnostics);
+                    assert_eq!(output.stdout, b"chosen\n", "recursive={force_recursive}");
+                    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+                    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                    assert!(output.traceback.is_none(), "{:?}", output.traceback);
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn native_result_carrier_executes_prepared_authority_after_frontend_disposal_on_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "proc parse_media(value: Str) [error] -> Result[Str] { Ok(mime.parse(value)?.type) }\nprint ${parse_media(\"Text/Plain; a=1\")?}\n";
+            for force_recursive in [false, true] {
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file("native-result-routes.xsh", source);
+                let parsed = Parser::parse_source_arena_only(source_id, source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let symbols = parsed.arena.symbol_owner().clone();
+                symbols.with_current(|| {
+                    let checked = Checker::check_arena(&parsed.arena, source);
+                    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                    let solved = Arc::downgrade(&checked.solved);
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                    let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked)
+                        .unwrap_or_else(|diagnostic| panic!("the native Result prepares: {diagnostic:?}"));
+                    let program = evaluator.indexed_program.as_deref().unwrap();
+                    let evidence = program.generic_evidence().unwrap();
+                    assert_eq!(evidence.ground_native_calls().count(), 1);
+                    let (_, proof) = evidence.ground_native_calls().next().unwrap();
+                    assert!(matches!(proof.contract.authority,
+                        crate::runtime::eval::indexed::generic::PreparedOperationAuthority::Registry { operation: RuntimeOp::MimeParse, .. }));
+                    assert!(checked.solved.projections.is_empty(), "the native API returns an explicit erased Record");
+                    drop(checked);
+                    drop(parsed);
+                    assert!(solved.upgrade().is_none(), "native execution cannot retain the inference bundle");
+                    let execute = || {
+                        assert_eq!(crate::runtime::eval::lowered_run::recursive_fast_path_forced(), force_recursive);
+                        evaluator.try_eval_installed_compact_indexed_only_inner(plan)
+                            .unwrap_or_else(|_| panic!("the native Result program remains installed"))
+                    };
+                    let output = if force_recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) } else { execute() };
+                    assert_eq!(output.status, 0, "recursive={force_recursive}: {:?}; {:?}", output.diagnostics, output.traceback);
+                    assert_eq!(output.stdout, b"text/plain\n", "recursive={force_recursive}");
+                    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+                    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                    assert!(output.traceback.is_none(), "{:?}", output.traceback);
+                });
+            }
         });
     }
 
@@ -10038,6 +10232,32 @@ print "ready"
                     assert_eq!(forwarded, 2);
                 });
                 assert_eq!(observation, (0, b"ready\n".to_vec(), Vec::new()));
+            }
+        });
+    }
+
+    #[test]
+    fn generic_text_add_and_forwarding_use_prepared_witnesses_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure add(left, right) { left + right }\npure forwarded(left, right) { add(left, right) }\nprint ${add(\"shared\", \" body\")} ${forwarded(\"same\", \" contract\")}\n";
+            for recursive in [false, true] {
+                let observation = run_program_through_route_inspecting(source, recursive, |program| {
+                    let evidence = program.generic_evidence().unwrap();
+                    assert_eq!(evidence.scopes().count(), 2);
+                    let mut witnesses = 0;
+                    for call in evidence.calls() {
+                        if let crate::runtime::eval::indexed::generic::CallEvidence::Ground(instance) = call.evidence {
+                            for witness in &evidence.instance(instance).unwrap().requirements {
+                                if let RequirementWitness::Add { operation, .. } = witness {
+                                    assert_eq!(*operation, ConcreteOperationId::AddStr);
+                                    witnesses += 1;
+                                }
+                            }
+                        }
+                    }
+                    assert!(witnesses >= 2);
+                });
+                assert_eq!(observation, (0, b"shared body same contract\n".to_vec(), Vec::new()));
             }
         });
     }
@@ -10384,14 +10604,16 @@ pure pipeline(values: List[Int]) -> List[Int] {
             .unwrap_or_else(|diagnostic| panic!("the call-route program prepares: {diagnostic:?}"));
         let program = evaluator.indexed_program.as_deref().expect("preparation installs indexed code");
         program.symbol_owner().with_current(|| inspect(program));
+        let symbols = program.symbol_owner().clone();
         drop(parsed);
-        let output = if force_recursive {
-            crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(|| {
-                evaluator.eval_installed_compact_indexed_only(plan)
-            })
-        } else {
-            evaluator.eval_installed_compact_indexed_only(plan)
-        };
+        let output = crate::runtime::eval::run_eval(move || symbols.with_current(|| {
+            let execute = || {
+                assert_eq!(crate::runtime::eval::lowered_run::recursive_fast_path_forced(), force_recursive);
+                evaluator.try_eval_installed_compact_indexed_only_inner(plan)
+            };
+            if force_recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) }
+            else { execute() }
+        }));
         let output = match output {
             Ok(output) => output,
             // The error arm hands the evaluator back, which has no `Debug`.
@@ -10401,8 +10623,8 @@ pure pipeline(values: List[Int]) -> List[Int] {
     }
 }
 
-// Defaults retain their private omission marker until the actual callee binds
-// its slots. Callable aliases therefore keep lowered values across dispatch.
+// Callable aliases select the prepared function identity before their supplied
+// values and omitted parameter indices are bound in that callee's environment.
 fn indexed_callable_identity(callee: &LoweredValue, span: Span) -> Result<(LoweredFunctionKey, LoweredFunctionKind), RuntimeError> {
     let (function, kind) = match callee {
         LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
