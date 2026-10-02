@@ -1,3 +1,33 @@
+test test_error_variant_payloads_evaluate_once_in_written_order [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+error Failure = Failed(kind: Str, message: Str) : InvalidData
+proc marker(label: Str) [io] -> Str { print $label; label }
+proc made() [io] -> Failure {
+  Failure.Failed(message: marker("message"), kind: marker("kind"))
+}
+match made() {
+  Failure.Failed {kind, message} => print $kind $message
+  _ => print "wrong"
+}
+""")?
+  assert output.success, output.stderr
+  output.stdout == "message\nkind\nkind message\n"
+}
+
+test test_error_variant_wrong_payload_field_refuses_before_effects [error] { |ctx|
+  for expression in [
+    "Failure.Failed(message: 4)",
+    "Failure.Failed(other: \"wrong\")",
+    "Err(Failure.Failed(message: \"outer\"), cause: \"wrong\")",
+  ] {
+    let source = "error Failure = Failed(message: Str)\nprint \"executed\"\nlet value = " + expression + "\n"
+    let output = test.run_script(ctx, source)?
+    output.status == 2
+    output.stdout == ""
+    "compact-unsupported" not in output.stderr
+  }
+}
+
 test test_err_typed_cause_preserves_outer_nominal_contract [error] { |ctx|
   let output = test.run_script(ctx, """
 error BuildError = Failed(message: Str, cause: Str) : InvalidData

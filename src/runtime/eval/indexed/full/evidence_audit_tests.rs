@@ -119,6 +119,59 @@ fn unused_forwarding_rejects_an_in_bounds_but_different_caller_requirement() {
 }
 
 #[test]
+fn unused_scoped_operation_preserves_quantified_relationships_without_instances() {
+    run_with_large_stack(|| {
+        let program = fixture("unused-scoped-operation.xsh", r#"
+pure preserved(value, unused) {
+    match Ok(value) { Ok(original) => original, Err(_) => value }
+}
+pure unused(value, other) { preserved(value, other) }
+"#);
+        let _symbols = program.symbol_owner().enter();
+        let evidence = program.generic_evidence().unwrap();
+        let (_, source) = evidence.scoped_operation_sources().next().unwrap();
+        assert_eq!(evidence.scoped_operation_sources().count(), 1);
+        assert_eq!(evidence.instances().count(), 0);
+        let original = evidence.scope(source.scope).unwrap();
+        assert_eq!(source.expected.arguments.as_ref(), &[original.parameters[0]]);
+        assert_ne!(original.parameters[0], original.parameters[1]);
+        assert!(matches!(source.expected.arguments[0], TypeRef::Rigid(_)));
+        let forwarding = unused_forwarding(&program);
+        let plan = evidence.forwarding(forwarding).unwrap();
+        let ForwardedRequirement::Caller(index) = plan.requirements[0] else { panic!("unused operation must remain quantified"); };
+        let obligation = source.obligations.iter().find(|obligation|
+            obligation.scope == plan.caller && obligation.requirement == index).unwrap();
+        assert_eq!(obligation.ancestry.last(), Some(&source.original_requirement));
+        assert!(plan.instances.is_empty());
+        assert!(evidence.scoped_operation_authority(source.instruction, None).is_err());
+
+        let mut rewritten = program.clone();
+        let changed = rewritten.store.generic.as_mut().unwrap().test_scoped_operation_source_mut(
+            evidence.scoped_operation_sources().next().unwrap().0).unwrap();
+        changed.obligations[0].ancestry = Box::new([]);
+        assert_rejected_evidence(&rewritten, "unused quantified operations retain their sealed original ancestry");
+    });
+}
+
+#[test]
+fn scoped_operation_rejects_another_active_frame_in_the_same_program() {
+    run_with_large_stack(|| {
+        let program = fixture("scoped-operation-foreign-frame.xsh", r#"
+pure preserved(value) { match Ok(value) { Ok(original) => original, Err(_) => value } }
+pure forwarded(value) { preserved(value) }
+let result = forwarded(7)
+"#);
+        let _symbols = program.symbol_owner().enter();
+        let evidence = program.generic_evidence().unwrap();
+        let (_, source) = evidence.scoped_operation_sources().next().unwrap();
+        let matching = evidence.instances().find(|(_, instance)| instance.scope == source.scope).unwrap().0;
+        let other = evidence.instances().find(|(_, instance)| instance.scope != source.scope).unwrap().0;
+        assert!(evidence.scoped_operation_authority(source.instruction, Some(matching)).unwrap().is_some());
+        assert!(evidence.scoped_operation_authority(source.instruction, Some(other)).is_err());
+    });
+}
+
+#[test]
 fn unused_forwarding_rejects_a_fixed_projection_with_a_foreign_layout() {
     run_with_large_stack(|| {
         let mut program = fixture("unused-fixed-projection.xsh", r#"

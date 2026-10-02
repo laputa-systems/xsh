@@ -1,5 +1,18 @@
 use super::*;
 
+impl Atom {
+    pub(crate) fn display_eligible(self) -> bool {
+        matches!(self, Atom::Any | Atom::Str | Atom::Int | Atom::UInt | Atom::Bool | Atom::Path | Atom::Duration | Atom::Float)
+    }
+}
+
+impl Eligibility {
+    /// Prepared Display witnesses use the same scalar policy as inference.
+    pub(crate) fn accepts_closed_display(self, ty: &crate::sema::types::Type) -> bool {
+        self == Eligibility::Display && Atom::from_type(ty).is_some_and(Atom::display_eligible)
+    }
+}
+
 impl InferenceContext {
     pub fn allow_wire_tag(&mut self, tag: Name) -> Result<(), InferenceError> {
         self.work()?;
@@ -41,7 +54,7 @@ impl InferenceContext {
             match (predicate, self.clone_node(ty)?) {
                 (_, TypeNode::Meta(_) | TypeNode::Rigid { .. }) => complete = false,
                 (_, TypeNode::Poison | TypeNode::NonCompletion) => return Err(InferenceError::Recovery(ty)),
-                (Eligibility::Display, TypeNode::Atom(Atom::Any | Atom::Str | Atom::Int | Atom::UInt | Atom::Bool | Atom::Path | Atom::Duration | Atom::Float)) => {},
+                (Eligibility::Display, TypeNode::Atom(atom)) if atom.display_eligible() => {},
                 (Eligibility::Error, TypeNode::Atom(Atom::Error | Atom::ProcessError | Atom::ErrorFamily(_) | Atom::ErrorVariant { .. } | Atom::ErrorFacet(_))) => {},
                 (Eligibility::CommandTarget, TypeNode::Atom(Atom::Str | Atom::Path | Atom::Any)) => {},
                 (Eligibility::CommandArgv, TypeNode::Atom(Atom::Any)) => {},
@@ -66,7 +79,9 @@ impl InferenceContext {
                 (Eligibility::MapKey, TypeNode::Atom(Atom::Str | Atom::Int | Atom::UInt | Atom::Bool | Atom::Bytes | Atom::Path | Atom::Duration)) => {},
                 (Eligibility::JsonCompatible, TypeNode::Atom(Atom::Null | Atom::Bool | Atom::Int | Atom::UInt | Atom::Float | Atom::Str | Atom::Any | Atom::ErasedRecord)) => {},
                 (Eligibility::JsonCompatible, TypeNode::Atom(Atom::Tag(tag))) if self.wire_tags.contains(&tag) => {},
-                (Eligibility::JsonCompatible, TypeNode::Optional(item) | TypeNode::List(item) | TypeNode::Stream(item)) => pending.push((predicate, item, depth + 1)),
+                // JSON traverses materialized data. Producers require explicit
+                // collection before their item types can certify an array.
+                (Eligibility::JsonCompatible, TypeNode::Optional(item) | TypeNode::List(item)) => pending.push((predicate, item, depth + 1)),
                 (Eligibility::JsonCompatible, TypeNode::Map(key, value)) => {
                     match self.node(self.resolved(key)?)? { TypeNode::Atom(Atom::Str) => {}, TypeNode::Meta(_) | TypeNode::Rigid { .. } => complete = false, _ => return Err(InferenceError::Boundary("JSON Map key must be Str")) }
                     pending.push((predicate, value, depth + 1));

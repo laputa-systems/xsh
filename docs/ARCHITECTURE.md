@@ -13,15 +13,31 @@ exports register an alias handle against the original indexed definition;
 they do not create a forwarding body.
 
 `runtime::eval::RuntimeCallableValue` carries an owning `Arc<FullProgram>`, a
-validated `CallableValueId`, and immutable values for the original lexical
-capture slots. `Value::Callable` and `LoweredValue::Callable` preserve that same
+validated `CallableValueId`, and the original lexical capture environment.
+Immutable captures retain values; supported mutable captures retain live cells.
+`Value::Callable` and `LoweredValue::Callable` preserve that same
 creation through the host bridge and nested containers; neither conversion
 replaces it with a function name. Creation validates the prepared program owner,
 capture order, storage kinds, and original callable kind. Clones preserve
 creation identity, while separate creations remain distinct. Persistent value
-encoding refuses these handles. Mutable captures require a live binding-cell
-environment and are explicitly refused by this immutable handle constructor;
+encoding refuses these handles. Mutable captures require an authenticated live
+cell for the original program, `BindingIdentity`, definition owner and type;
+an immutable value snapshot cannot supply that authority.
 stream callable activation is not part of its current prepared contract.
+
+`generic/lexical_captures.rs` seals declaration capture allocations independently
+of their original reads. `full/lexical_capture_prepare.rs` checks the original
+`BindingIdentity`, definition owner, declaration header, scoped type root and
+`CapturedBinding` producer provenance. `indexed_run/live_capture_cells.rs`
+binds supported ground captures to their original allocation and defining
+activation. Nested calls, supplied arguments, defaults and defers share those
+cells; reads refresh the receiving slots and assignments publish immediately.
+The evaluator's shared environment retains the cell registry. Completion
+refreshes slots and retires the receiving activation before slot reuse;
+`CompletedLiveCaptureFrame` authenticates publication to external scopes while
+local captures keep their defining cells. Resource and callable captures need
+their own ownership transport; the plain ground cell protocol does not retain
+those values.
 
 `RuntimeNativeCallableValue` retains a separate `NativeCallableValueId` and
 owning `Arc<FullProgram>`. `NativeCallableRef` encodes no registry name or
@@ -68,9 +84,10 @@ the binding and initializer scoped graph roots. Groundness only determines
 whether this transport is supported; a tree view cannot replace either root.
 `SlotScope::value_binding_authorities` restores the original definition after
 lexical shadows and excludes mutable and callable bindings. Missing source
-facts refuse supported data lowering. This transport currently covers ordinary
-value `Let` rows; specialized `LetInt` and `LetBool` initializers need their own
-physical row authority before using the same proof path.
+facts refuse supported data lowering. Ordinary `Let`, specialized `LetInt` and
+`LetBool`, and successful `Guard` continuations retain their actual physical
+allocation and lexical reads. `full/value_prepare.rs` validates those rows;
+equal storage kinds never replace the original binding identity.
 
 Original simple `for` item bindings retain the selected iteration operation,
 qualified statement, binding and iterator identities, and independently checked
@@ -80,9 +97,10 @@ encoded loop, iterator, item slot and body in a program-owned original receipt;
 Cold verification checks actual body ancestry, excludes iterator and sibling
 reads, rejects mutable item slots, and verifies the original iterator producer.
 The prepared item type supplies operand evidence without searching for a
-same-typed local slot. The currently activated receipt covers direct `List[Str]`
-with a simple named target; other iterable and binding protocols require their
-own original source proof before using this operand path.
+same-typed local slot. Direct closed Lists, including Path items, and scalar
+Bytes iteration retain original item authority. Fallible Bytes sources also
+retain their actual propagation carrier. `full/iteration_prepare.rs` verifies
+each supported producer and physical item read before execution.
 
 Saved named call arguments retain a separate compiler binding receipt in
 `BuildScratch::argument_binding_origins`. Each generated slot read names the
@@ -98,6 +116,84 @@ owning `GenericEvidenceStore`. Both indexed execution routes consult
 body, instruction and decoded operation against the prepared authority. Calls
 without an activated proof remain explicit legacy boundaries until their full
 operand and protocol authority can be prepared.
+Removing a proof for an originally prepared native call or method is rejected
+before dispatch by `FullExecution::ground_native_call` and
+`FullExecution::ground_native_method`.
+`FullStore::original_generic_owner` preserves the original evidence owner
+outside the optional evidence store. Verification and both worker entry paths
+reject removal or replacement of that complete store.
+
+Generated Result postfix receivers retain a separate
+`generic/result_receivers.rs::PreparedResultReceiver` inside the original
+native call receipt. `full/result_receiver_prepare.rs` checks the carrier's
+authored identity, Result success/error domains and executed `ExprTry` before
+admitting the success value as a method receiver. The generated `ExprTry`
+never acquires an authored expression identity.
+
+`full/language_result_prepare.rs::verify_language_result_operand` consumes the
+original selected primitive operation's operand and result domains separately.
+A string equality result remains `Bool` when supplied to a generic function;
+its operand domain remains `Str`. `operation_prepare/error_field.rs` applies
+the same original-operation boundary to concrete Error `.message` projections,
+including family, variant, facet and ProcessError receivers.
+
+`indexed/native_methods.rs::nondefault_method_spelling` shares the bounded
+Str and Bytes operation mapping between preparation and execution. The backend
+spelling comes from the selected numeric operation and actual receiver domain;
+source spelling remains checked by the original sealed method receipt. These
+nondefault operations reuse the existing text and byte implementations while
+retaining their selected result domains and effects.
+
+`Str.parse_int` carries its selected `TextParseInt` operation and closed
+`Result[Int, Error]` producer type through native receipts. Both workers use
+the selected operation when producing success values or parser errors.
+
+Materialized `Str.lines` and `Bytes.lines` retain their selected item domains.
+`List.collect` retains a separate List receiver contract even though its
+selected operation is `StreamCollect`; the worker returns those list items
+without introducing a lazy stream carrier.
+
+`Stream.collect` retains its selected Stream receiver, item type and producer
+effect roles separately from `List.collect`. Both workers drain it through
+the existing evaluator stream driver, preserving suspended script ownership,
+producer cancellation and cleanup.
+
+`Str.words` and `Str.split` retain their original selected text operations.
+The split packet records an omitted trailing limit as absence, checked against
+the original default slot; its backend receives that absence directly. Named
+arguments retain authored evaluation order separately from formal slots.
+
+`Str.byte_slice` retains its byte offset and an omitted trailing length as
+absence in the original method packet. Its selected backend preserves UTF-8
+boundary errors and does not reinterpret those bounds as character offsets.
+
+`fs.children` retains its specialized `ExprFsList` operand packet, selected
+`FsChildren` authority, omitted stat/order markers and original
+`Result[Stream[FsEntry], Error]` producer. Both workers validate that authority
+before evaluating its operands and preserve the existing filesystem stream
+lifecycle.
+
+`Digest.hex` and `Digest.base64` retain the nominal Digest producer and selected
+encoding operation. Their native receipts admit that closed receiver directly
+without converting it into a byte or record boundary.
+
+Finite native spread fields retain `PreparedNativeRecordFieldArgument` in the
+same sealed `NativeCallSource`. Each receipt keeps the authored record entry,
+expansion ordinal and formal destination, exact field membership and closed
+record type, and both compiler allocations. Cold verification checks the actual
+projection and saved read scopes against the original record producer; a
+generated field never acquires an invented expression identity.
+
+Native `Result` success records retain their canonical selected schema in the
+sealed native source receipt. `FullExecution::materialize_native_result_record`
+uses that schema on `Ok` values before numeric projection. The existing `Err`
+value and opaque capability identity remain intact through the host bridge.
+
+Scoped Display eligibility retains its original published requirement and exact
+`TypeRef` in the declaring scheme. Concrete witnesses use the checker’s Display
+policy for the instantiated type. Generalization may replace source graph type
+handles with rigid binders; preparation compares both references within the
+original scheme, preserving the source requirement identity.
 
 XSH is implemented as a small compiler-style pipeline around a verified
 indexed runtime:
@@ -655,6 +751,16 @@ wrapping contract without per-word chunk vectors.
    implementation function and emit an ordinary `Call`, so execution uses the
    normal frame engine.
 
+Catalog ingestion seals original native bridge declarations and formal rows
+from that module's existing parse. The checker publishes the exact native
+signature and effects without assigning expression or completion facts to its
+linkage body. Lowering rewrites only original checked invocations in the
+declaring catalog module. `full/bridge_prepare.rs` and `generic/bridges.rs`
+retain the original caller, argument recipe, formal and actual types, result,
+and program receipt. Both execution routes consume that authority after the
+frontend has been disposed. Authored functions with matching names or internal
+module flags acquire no catalog authority.
+
 A dynamically loaded user module never reparses embedded source: it lowers its
 standard calls to `BuildExprRow::ExternalCall`, and the runtime resolves them
 through the evaluator's dynamic function table to the implementations the
@@ -1127,6 +1233,16 @@ nested cleanup order. `run_indexed_defers` executes every registered action,
 retains the first failure, and reports secondary failures without replacing the
 primary traceback.
 
+Eager recursive calls and lexical statement blocks use
+`indexed_run.rs::finish_indexed_statement_scope`. It retains escaping values and
+checked failures in the parent, releases unused process handles before deferred
+actions, and closes the resource scope even after an error or forced abort.
+Explicit calls use `explicit_run.rs::cleanup_deferred_call_body` and
+`exit_block_scope` for the same body-before-defer resource ordering while
+preserving escaping handles and the scope that registers each deferred action.
+Parameter defaults share the function's resource scope. Suspended stream bodies
+retain their own continuation lifecycle.
+
 Callable result slots retain complete declared schemas through
 `compact_function_return_type`. Checked or inferred signature facts take
 precedence over syntactic recovery. Resolving a named record return before
@@ -1389,6 +1505,12 @@ and continuation intersections. Immutable aliases retain shared proof sets;
 revive stale evidence. Both routes publish precise expression types and proved
 Optional fallback receivers. Indexed lowering reads those facts and inserts no
 casts or runtime proof checks.
+`SolvedTypes::checked_refined_read` retains the original null predicate,
+immutable Boolean aliases, exiting guard, subject binding and projection path
+for a refined read. Its sealed receipt preserves the invariant binding type
+separately from the narrowed read type and records accepted disjoint writes.
+`full/mutable_prepare.rs::prepare_mutable_refinements` checks that relationship
+against the actual prepared statements before the frontend is discarded.
 Removed compatibility vocabulary has no executable registry entry or lowering
 mode. `Checker::removed_compatibility_name` records fatal diagnostics and exact
 edits after ordinary name/receiver resolution; the parser recovers canonical run

@@ -109,9 +109,37 @@ pub(super) struct SemanticPools {
     signature_extra: Vec<u32>,
     shapes: Vec<IrRange>,
     shape_fields: Vec<Name>,
+    original: Option<std::sync::Arc<SemanticPools>>,
 }
 
 impl SemanticPools {
+    pub(super) fn seal_original_contract(&mut self) {
+        if self.original.is_none() {
+            self.original = Some(std::sync::Arc::new(self.clone()));
+        }
+    }
+
+    pub(super) fn verify_original_contract(&self) -> Result<(), IrVerifyError> {
+        if let Some(original) = &self.original
+            && (self.type_tags != original.type_tags
+                || self.type_data != original.type_data
+                || self.type_extra != original.type_extra
+                || self.signature_data != original.signature_data
+                || self.signature_extra != original.signature_extra
+                || self.shapes != original.shapes
+                || self.shape_fields != original.shape_fields) {
+            return Err(IrVerifyError::new("semantic pools differ from their original prepared contract"));
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_reinterpret_uint_as_int(&mut self) {
+        for tag in &mut self.type_tags {
+            if *tag == TypeTag::UInt { *tag = TypeTag::Int; }
+        }
+    }
+
     pub(super) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.type_tags.capacity() * size_of::<TypeTag>()
@@ -121,6 +149,7 @@ impl SemanticPools {
             + self.signature_extra.capacity() * size_of::<u32>()
             + self.shapes.capacity() * size_of::<IrRange>()
             + self.shape_fields.capacity() * size_of::<Name>()
+            + self.original.as_ref().map_or(0, |original| original.retained_bytes() + 2 * size_of::<usize>())
     }
 
     pub(super) fn shrink_to_fit(&mut self) {
@@ -547,6 +576,7 @@ impl SemanticPools {
     }
 
     pub(super) fn verify(&self) -> Result<(), IrVerifyError> {
+        self.verify_original_contract()?;
         if self.type_tags.len() != self.type_data.len() {
             return Err(IrVerifyError::new(
                 "type tag and data columns have different lengths",

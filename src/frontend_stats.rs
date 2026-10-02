@@ -855,6 +855,7 @@ mod tests {
         include_str!("../tests/fixtures/frontend-indexed/indexed-execution.xsh");
 
     const SOURCE_COUNTS: &str = "pure choose(value: Int) -> Int {\n  let selected = match value {\n    0 => 1,\n    _ => value,\n  }\n  return selected\n}\nprint ${choose(0)}\n";
+    const NATIVE_ALIAS_COUNTS: &str = "pure ready(value: Int) -> Int { value + 1 }\nlet encode = json.encode\nlet encoded = encode(1)\n";
 
     #[test]
     fn installed_lowering_stats_preserve_original_source_counts() {
@@ -881,10 +882,9 @@ mod tests {
     }
 
     #[test]
-    fn failed_preparation_retains_attempted_source_counts() {
-        let source = "pure ready(value: Int) -> Int { value + 1 }\nlet encode = json.encode\nlet encoded = encode(1)\n";
+    fn native_alias_preparation_retains_attempted_source_counts() {
         let checked = crate::loader::parse_load_check_text(
-            "stats-blocker.xsh", source.to_string(), Vec::new(),
+            "stats-native-alias.xsh", NATIVE_ALIAS_COUNTS.to_string(), Vec::new(),
             crate::sema::check::CheckOptions::default(),
         );
         let output = checked.checked.as_ref().expect("the source is checked");
@@ -892,9 +892,35 @@ mod tests {
         let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(
             Vec::new(), checked.sources.clone(),
         );
+        evaluator.prepare_compact_indexed_only_from_checked(
+            &checked.parsed.arena, checked.entry_source_id, output,
+        ).expect("the original native alias authority prepares");
+        drop(checked);
+        let counts = evaluator.frontend_lowered_stats();
+        assert_eq!((counts.function_count, counts.constructed_functions), (1, 1));
+        assert!(counts.expression_count > 0);
+        assert_eq!(counts.blocker_events, 0);
+    }
+
+    #[test]
+    fn failed_preparation_retains_attempted_source_counts() {
+        let mut checked = crate::loader::parse_load_check_text(
+            "stats-blocker.xsh", NATIVE_ALIAS_COUNTS.to_string(), Vec::new(),
+            crate::sema::check::CheckOptions::default(),
+        );
+        let output = checked.checked.as_mut().expect("the source is checked");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        // The source remains valid, but its original native reference authority
+        // is absent. Reject that missing proof after retaining attempted work.
+        let solved = std::sync::Arc::get_mut(&mut output.solved).expect("the checked source has one solved owner");
+        assert_eq!(solved.registry_references.len(), 1);
+        solved.registry_references.clear();
+        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(
+            Vec::new(), checked.sources.clone(),
+        );
         let error = evaluator.prepare_compact_indexed_only_from_checked(
             &checked.parsed.arena, checked.entry_source_id, output,
-        ).err().expect("the native callable has no indexed preparation protocol");
+        ).err().expect("a native callable cannot prepare without its original reference authority");
         assert_eq!(error.code.as_deref(), Some("compact.indexed-build"));
         drop(checked);
         let counts = evaluator.frontend_lowered_stats();

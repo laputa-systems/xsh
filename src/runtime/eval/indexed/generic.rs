@@ -7,15 +7,74 @@ use std::sync::Arc;
 mod callable_types;
 mod scoped_invocations;
 mod iterations;
+mod records;
+mod comprehensions;
+mod context_producers;
+mod stages;
+mod durations;
+mod native_receivers;
+mod native_results;
+mod native_record_arguments;
+pub(in crate::runtime::eval) use native_record_arguments::PreparedNativeRecordFieldArgument;
+mod ranges;
+pub(in crate::runtime::eval) use ranges::PreparedRangeLowering;
+pub(in crate::runtime::eval) use native_results::PreparedNativeResultRecord;
+mod constants;
+mod record_updates;
+mod conditionals;
+mod paths;
+pub(in crate::runtime::eval) use paths::{FormattedPathId, FormattedPathPart, PreparedFormattedPath};
+pub(in crate::runtime::eval) use record_updates::{PreparedRecordReplacement, PreparedRecordUpdateSource, PreparedUpdateProjection, PreparedUpdateValue, PreparedUpdateWrapper, RecordUpdateSourceId};
+pub(in crate::runtime::eval) use conditionals::{ConditionalSourceId, ConditionalKind, ConditionalValue, ConditionalTerminalValue, ConditionalBody, ConditionalArm, ConditionalResultSource};
+mod host_bindings;
+mod lexical_captures;
+mod mutable_paths;
+mod error_constructors;
+mod bridges;
+pub(in crate::runtime::eval) use bridges::PreparedBridgeCall;
+mod fs_root_methods;
+mod process_producers;
+pub(in crate::runtime::eval) use process_producers::{PreparedProcessCommandArgv, PreparedProcessArgvRow};
+pub(in crate::runtime::eval) use fs_root_methods::is_fs_root_method_owner;
+pub(in crate::runtime::eval) use native_receivers::PreparedNativeReceiverTransport;
+pub(in crate::runtime::eval) use stages::{OriginalPreparedStage, OriginalStagePipeline, OriginalStageBlockCallback};
+pub(in crate::runtime::eval) use constants::{OriginalConstantSource, PreparedConstantSource, ConstantSourceId};
+pub(in crate::runtime::eval) use host_bindings::{HostBindingSourceId, HostBindingSource, HostBindingCaptureId, HostBindingCapture};
+pub(in crate::runtime::eval) use lexical_captures::{LexicalCaptureId, LexicalCapture, LexicalCaptureSourceId, LexicalCaptureSource};
+pub(in crate::runtime::eval) use mutable_paths::{MutablePathEncoding, MutablePathReceipt, MutablePathStep, MutablePathCompound};
+pub(in crate::runtime::eval) use error_constructors::PreparedErrorConstructor;
+mod cli_calls;
+mod captures;
+mod compiler_wrappers;
+mod indexing;
+mod containers;
+mod native_scalars;
+mod mutable_bindings;
+mod record_constructors;
+pub(in crate::runtime::eval) use native_scalars::{ByteAtFallbackComposite, NativeScalarReceiver, NativeScalarSource};
+pub(in crate::runtime::eval) use mutable_bindings::{MutableBindingReceipt, MutableCompoundAssignment, MutableDriverReceipt, MutableReadRefinement};
+pub(in crate::runtime::eval) use record_constructors::{PreparedRecordConstructor, RecordConstructorRow, RecordConstructorId, RecordConstructorSpread};
+pub(in crate::runtime::eval) use containers::{GroundContainerCreationCheck, ContainerKind, ContainerOperandOrigin, ContainerOperandRole, GroundContainerOperand, GroundContainerSource, OriginalNamedMapKey};
+pub(in crate::runtime::eval) use indexing::OriginalIndex;
+pub(in crate::runtime::eval) use context_producers::{PreparedSpawnRunSource, ContextProducerRoot, PreparedContextProducer, PreparedRunProducer, RunProducerOperand, RunProducerArgument};
+pub(in crate::runtime::eval) use cli_calls::{PreparedCliDescriptor, CliDescriptorRow};
+pub(in crate::runtime::eval) use captures::{RetryCaptureDelay, RetryCapturePolicy, TryCaptureSourceId, TryCaptureSource};
+pub(in crate::runtime::eval) use compiler_wrappers::{OriginalCompilerArgumentWrapper, OriginalOptionalReceiverGuard};
+pub(in crate::runtime::eval) use records::{RecordChildWrapper, PreparedRecordEntry, PreparedRecordSource, RecordEntryKind, RecordSourceId};
+pub(in crate::runtime::eval) use comprehensions::{ComprehensionRoot, ComprehensionGenerator, ComprehensionBinding, ComprehensionTarget, PreparedComprehension};
 mod operation_requirements;
+mod eligibility_requirements;
+pub(in crate::runtime::eval) use eligibility_requirements::OriginalScopedEligibility;
 mod value_bindings;
 mod native_callables;
 mod callable_receivers;
 pub(in crate::runtime::eval) use callable_receivers::OriginalCallableReceiver;
 pub(in crate::runtime::eval) use native_callables::{NativeCallableContract, NativeCallableSource, PreparedNativeCallableValue, GroundNativeInvocationContract, NativeInvocationSource, PreparedNativeInvocationPlan};
-pub(in crate::runtime::eval) use value_bindings::{ValueBindingSourceId, ValueBindingId, ValueBindingContract, ValueInitializerWrapper, ValueInitializerWrapperKind, ValueBindingSource, PreparedValueBinding, ValueBindingUse};
+pub(in crate::runtime::eval) use value_bindings::{ValueBindingIdentity, ValueBindingAllocation, ValueBindingSourceId, ValueBindingId, ValueBindingContract, ValueInitializerWrapper, ValueInitializerWrapperKind, ValueBindingSource, PreparedValueBinding, ValueBindingUse};
 pub(in crate::runtime::eval) use operation_requirements::{ScopedOperationRequirement, ScopedOperationSource, ScopedOperationObligation, ScopedOperationWitness, ScopedOperationCode, ScopedOperationSourceId, ScopedOperationWitnessId};
-pub(in crate::runtime::eval) use iterations::{OriginalIterationBinding, OriginalIterationUse};
+pub(in crate::runtime::eval) use iterations::{OriginalIterationBinding, OriginalIterationUse, OriginalIterationProducer};
+mod result_receivers;
+pub(in crate::runtime::eval) use result_receivers::PreparedResultReceiver;
 pub(in crate::runtime::eval) use scoped_invocations::{TemplateInvocationArgument, ScopedInvocationSource, ScopedInvocationObligation, ScopedInvocationWitness, UserInvocationAuthority};
 
 static NEXT_ROOT: AtomicU64 = AtomicU64::new(1);
@@ -106,6 +165,7 @@ pub(in crate::runtime::eval) enum GenericReturnPlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum Requirement {
     Operation(ScopedOperationRequirement),
+    Eligibility { predicate: crate::sema::inference::Eligibility, ty: TypeRef },
     Projection { receiver: TypeRef, receiver_parameter: u32, field: Name, result: TypeRef },
     Add { left: TypeRef, right: TypeRef, result: TypeRef },
     Invocation { callable: TypeRef, arguments: Box<[TemplateInvocationArgument]>, result: TypeRef, domain: crate::sema::inference::CallableDomain },
@@ -141,6 +201,7 @@ pub(in crate::runtime::eval) enum ConcreteOperationId {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::runtime::eval) enum RequirementWitness {
     Operation(ScopedOperationWitnessId),
+    Eligibility { predicate: crate::sema::inference::Eligibility, ty: GroundTypeId },
     Invocation(ScopedInvocationWitnessId),
     Projection { layout: PhysicalLayoutId, field_slot: u32, result: GroundTypeId },
     Add { operation: ConcreteOperationId, left: GroundTypeId, right: GroundTypeId, result: GroundTypeId },
@@ -206,6 +267,7 @@ pub(in crate::runtime::eval) struct OperationSource {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum PreparedOperationAuthority {
+    Sealed { operation: crate::sema::inference::SealedOperation },
     Language { identity: Name, authority: &'static str, operation: crate::sema::operation_graph::PreparedLanguageOperation,
         argument_order: crate::sema::operation_graph::OperationArgumentOrder, statement_result_is_unit: bool },
     Registry { identity: Name, operation: crate::modules::RuntimeOp, binding: crate::modules::signature::ImplBinding,
@@ -217,7 +279,16 @@ pub(in crate::runtime::eval) enum PreparedOperationAuthority {
 }
 
 impl PreparedOperationAuthority {
-    pub fn identity(&self) -> Name { match self { Self::Language { identity, .. } | Self::Registry { identity, .. } | Self::Stage { identity, .. } => *identity } }
+    pub fn identity(&self) -> Name { match self {
+        Self::Sealed { operation } => Name::intern(match operation {
+            crate::sema::inference::SealedOperation::AddInt => "sealed.add.Int",
+            crate::sema::inference::SealedOperation::AddFloat => "sealed.add.Float",
+            crate::sema::inference::SealedOperation::AddStr => "sealed.add.Str",
+            crate::sema::inference::SealedOperation::AddDuration => "sealed.add.Duration",
+            crate::sema::inference::SealedOperation::AddList => "sealed.add.List",
+        }),
+        Self::Language { identity, .. } | Self::Registry { identity, .. } | Self::Stage { identity, .. } => *identity,
+    } }
     fn retained_bytes(&self) -> usize {
         match self {
             Self::Registry { producer_transfer: crate::sema::registry_graph::RegistryProducerTransferPlan::Transfers(transfers), .. } =>
@@ -255,6 +326,44 @@ pub(in crate::runtime::eval) struct PreparedOperation {
     pub result: TypeRef,
     pub effects: PreparedOperationEffects,
     pub binding: PreparedOperationBinding,
+    pub fallback_lowering: Option<PreparedFallbackLowering>,
+    pub original_integer_addition: Option<super::full::PreparedIntegerAddition>,
+    pub range_lowering: Option<PreparedRangeLowering>,
+    pub literal_comparison_slot: Option<super::full::PreparedLiteralComparisonSlot>,
+    pub membership_lowering: Option<super::full::PreparedMembershipLowering>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) struct PreparedNativeReceiver {
+    pub origin: crate::sema::check::ExpressionIdentity,
+    pub instruction: u32,
+    pub source_instruction: u32,
+    pub source_wrappers: Box<[ValueInitializerWrapper]>,
+    pub source_type: TypeRef,
+    pub ty: TypeRef,
+    pub method_name: Name,
+    pub saved: Option<PreparedNativeReceiverTransport>,
+    pub postfix: Option<PreparedResultReceiver>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum PreparedFallbackLowering {
+    Result { instruction_payload: Box<[u32]> },
+    Optional {
+        instruction_payload: Box<[u32]>, arms_flags: u8, arms_payload: Box<[u32]>,
+        null_pattern_payload: Box<[u32]>, present_pattern_payload: Box<[u32]>, present_payload: Box<[u32]>,
+    },
+}
+
+impl PreparedFallbackLowering {
+    fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        match self {
+            Self::Result { instruction_payload } => instruction_payload.len() * size_of::<u32>(),
+            Self::Optional { instruction_payload, arms_payload, null_pattern_payload, present_pattern_payload, present_payload, .. } =>
+                (instruction_payload.len() + arms_payload.len() + null_pattern_payload.len() + present_pattern_payload.len() + present_payload.len()) * size_of::<u32>(),
+        }
+    }
 }
 
 /// The native call retains the selected original signature and actual written
@@ -263,6 +372,9 @@ pub(in crate::runtime::eval) struct PreparedOperation {
 pub(in crate::runtime::eval) struct GroundNativeCallContract {
     pub authority: PreparedOperationAuthority,
     pub registry_owner: crate::sema::registry_graph::RegistryOwner,
+    pub receiver: Option<PreparedNativeReceiver>,
+    pub cli_descriptor: Option<PreparedCliDescriptor>,
+    pub process_command_argv: Option<PreparedProcessCommandArgv>,
     pub signature: SignatureId,
     pub kind: CallableKind,
     pub result: TypeRef,
@@ -275,9 +387,36 @@ pub(in crate::runtime::eval) struct GroundNativeCallContract {
 }
 
 impl GroundNativeCallContract {
+    fn has_closed_collect_effects(&self, pools: &SemanticPools) -> Result<bool, IrVerifyError> {
+        use crate::sema::inference::EffectRole;
+        if self.registry_owner != crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Stream)
+            || !matches!(self.authority, PreparedOperationAuthority::Registry {
+                operation: crate::modules::RuntimeOp::StreamCollect,
+                binding: crate::modules::signature::ImplBinding::Native,
+                semantic_rule: crate::modules::signature::SemanticRule::Standard,
+                lifecycle: crate::sema::registry_graph::RegistryLifecycle::CollectReceiver { materialized: false }, .. })
+            || !self.effects.outputs.is_empty() || pools.signature_param_count(self.signature)? != 1 {
+            return Ok(false);
+        }
+        let [(EffectRole::Pull { source: 0 }, pull), (EffectRole::Close { source: 0 }, close)] = self.effects.inputs.as_ref() else { return Ok(false); };
+        let Some(receiver) = &self.receiver else { return Ok(false); };
+        let TypeRef::Ground(receiver) = receiver.ty else { return Ok(false); };
+        let TypeRef::Ground(result) = self.result else { return Ok(false); };
+        let (Type::Stream(item), Type::List(result)) = (pools.to_type(receiver)?, pools.to_type(result)?) else { return Ok(false); };
+        Ok(item == result && self.effects.creation.0 == pull.0 | close.0)
+    }
+
     fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
-        self.authority.retained_bytes() + self.arguments.len() * size_of::<PreparedInvocationArgument>()
+        self.receiver.as_ref().map_or(0, |receiver| {
+            receiver.source_wrappers.len() * size_of::<ValueInitializerWrapper>()
+                + receiver.source_wrappers.iter().map(|wrapper| wrapper.payload.len() * size_of::<u32>()).sum::<usize>()
+                + receiver.saved.as_ref().map_or(0, PreparedNativeReceiverTransport::retained_bytes)
+                + receiver.postfix.as_ref().map_or(0, PreparedResultReceiver::retained_bytes)
+        })
+            + self.cli_descriptor.as_ref().map_or(0, PreparedCliDescriptor::retained_bytes)
+            + self.process_command_argv.as_ref().map_or(0, PreparedProcessCommandArgv::retained_bytes)
+            + self.authority.retained_bytes() + self.arguments.len() * size_of::<PreparedInvocationArgument>()
             + self.argument_relations.len() * size_of::<crate::sema::inference::ArgumentRelation>()
             + self.input_eligibility.len() * size_of::<(usize, crate::sema::inference::Eligibility)>()
             + self.argument_sources.len() * size_of::<Option<u32>>()
@@ -295,6 +434,8 @@ pub(in crate::runtime::eval) struct NativeCallSource {
     pub owner: InstructionOwner,
     pub scope: Option<SchemeScopeId>,
     pub expected: GroundNativeCallContract,
+    pub result_record_layout: Option<PreparedNativeResultRecord>,
+    pub record_arguments: Box<[PreparedNativeRecordFieldArgument]>,
 }
 
 #[derive(Clone, Debug)]
@@ -407,6 +548,8 @@ pub(in crate::runtime::eval) struct GroundProjectionSource {
     pub scope: Option<SchemeScopeId>,
     pub receiver_origin: crate::sema::check::ExpressionIdentity,
     pub receiver_instruction: u32,
+    pub receiver_source_instruction: u32,
+    pub receiver_wrappers: Box<[ValueInitializerWrapper]>,
     pub field: Name,
     pub receiver: GroundTypeId,
     pub result: GroundTypeId,
@@ -509,6 +652,8 @@ pub(in crate::runtime::eval) struct OriginalArgumentBinding {
     pub recipe: crate::sema::check::SolvedArgumentSource,
     pub instruction: u32,
     pub initializer: u32,
+    pub initializer_source_instruction: u32,
+    pub initializer_wrappers: Box<[ValueInitializerWrapper]>,
     pub slot: u32,
     pub wrapper: u32,
     pub pattern: u32,
@@ -528,7 +673,28 @@ pub(in crate::runtime::eval) struct GenericEvidenceStore {
     native_callables: native_callables::NativeCallableEvidence,
     callable_receivers: callable_receivers::CallableReceiverEvidence,
     values: value_bindings::ValueBindingEvidence,
+    eligibility: eligibility_requirements::EligibilityEvidence,
     iterations: iterations::IterationEvidence,
+    records: records::RecordEvidence,
+    comprehensions: comprehensions::ComprehensionEvidence,
+    compiler_wrappers: compiler_wrappers::CompilerWrapperEvidence,
+    indices: indexing::IndexEvidence,
+    containers: containers::ContainerEvidence,
+    record_constructors: record_constructors::RecordConstructorEvidence,
+    mutables: mutable_bindings::MutableBindingEvidence,
+    native_scalars: native_scalars::NativeScalarEvidence,
+    try_captures: captures::TryCaptureEvidence,
+    context_producers: context_producers::ContextProducerEvidence,
+    stages: stages::StageEvidence,
+    error_constructors: error_constructors::ErrorConstructorEvidence,
+    bridges: bridges::BridgeEvidence,
+    mutable_paths: mutable_paths::MutablePathEvidence,
+    host_bindings: host_bindings::HostBindingEvidence,
+    lexical_captures: lexical_captures::LexicalCaptureEvidence,
+    constants: constants::ConstantEvidence,
+    record_updates: record_updates::RecordUpdateEvidence,
+    conditionals: conditionals::ConditionalEvidence,
+    paths: paths::PathEvidence,
     operation_requirements: operation_requirements::OperationRequirementEvidence,
     original_argument_bindings: Vec<Entry<Arc<OriginalArgumentBinding>>>,
     argument_binding_receipts: Vec<Arc<OriginalArgumentBinding>>,
@@ -575,8 +741,10 @@ pub(in crate::runtime::eval) struct GenericEvidenceStore {
     uses: Vec<SolvedRequirementUse>,
     constructors: Vec<SolvedRecordLayout>,
     function_scopes: Vec<(IrFunctionId, SchemeScopeId)>,
-    operation_sources: Vec<Entry<OperationSource>>,
-    operations: Vec<Entry<PreparedOperation>>,
+    operation_sources: Vec<Entry<Arc<OperationSource>>>,
+    original_operation_sources: Vec<Arc<OperationSource>>,
+    operations: Vec<Entry<Arc<PreparedOperation>>>,
+    original_operations: Vec<Arc<PreparedOperation>>,
     operation_instructions: Vec<(u32, OperationId)>,
     checked_functions: Vec<Entry<CheckedFunctionSource>>,
     checked_function_index: Vec<(crate::sema::check::DeclarationIdentity, CheckedFunctionId)>,
@@ -585,7 +753,7 @@ pub(in crate::runtime::eval) struct GenericEvidenceStore {
     ground_stage_call_instructions: Vec<(u32, GroundStageCallId)>,
 }
 
-fn failure(message: &'static str) -> IrVerifyError { IrVerifyError::new(message) }
+fn failure(message: impl Into<String>) -> IrVerifyError { IrVerifyError::new(message) }
 
 fn owned<'a, T>(root: u64, entries: &'a [Entry<T>], index: u32, proof: OwnerProof) -> Result<&'a T, IrVerifyError> {
     if proof.root != root { return Err(failure("generic evidence belongs to a foreign program")); }
@@ -595,6 +763,7 @@ fn owned<'a, T>(root: u64, entries: &'a [Entry<T>], index: u32, proof: OwnerProo
 }
 
 impl GenericEvidenceStore {
+    pub(in crate::runtime::eval) fn program_owner(&self) -> u64 { self.root }
     pub fn pattern_nominal(&self, identity: crate::sema::check::QualifiedNominalIdentity) -> Result<&super::pattern::PreparedPatternNominalMember, IrVerifyError> {
         self.pattern_nominals.binary_search_by_key(&identity, |entry| entry.value.identity).ok().map(|index| &self.pattern_nominals[index].value).ok_or_else(|| failure("original pattern nominal member is missing"))
     }
@@ -617,11 +786,20 @@ impl GenericEvidenceStore {
     pub fn original_argument_bindings(&self) -> impl Iterator<Item = &OriginalArgumentBinding> { self.original_argument_bindings.iter().map(|entry| entry.value.as_ref()) }
     pub fn has_original_argument_bindings(&self) -> bool { !self.original_argument_bindings.is_empty() }
     pub fn argument_has_original_source(&self, instruction: u32, call: crate::sema::check::ExpressionIdentity, ordinal: usize, recipe: &crate::sema::check::SolvedArgumentSource, owner: InstructionOwner, ty: TypeRef) -> bool {
+        if matches!(recipe.value, crate::sema::arguments::ArgumentValueSource::RecordField { .. }) {
+            return self.native_record_argument_has_original_source(instruction, call, ordinal, recipe, owner, ty);
+        }
         let crate::sema::arguments::ArgumentValueSource::Expression(expression) = recipe.value else { return false; };
         let origin = OperationSourceOrigin::Expression(crate::sema::check::ExpressionIdentity { expression, ..call });
-        if self.registered_instruction_origin(instruction, false) == Some((origin, owner)) { return true; }
+        let mut source = instruction;
+        for _ in 0..=256 {
+            if self.registered_instruction_origin(source, false) == Some((origin, owner)) { return true; }
+            let Ok(Some(wrapper)) = self.original_compiler_argument_wrapper(source) else { break; };
+            if wrapper.owner != owner || wrapper.body >= source { return false; }
+            source = wrapper.body;
+        }
         self.original_argument_binding(instruction).is_some_and(|saved| saved.call == call && saved.ordinal as usize == ordinal && saved.recipe == *recipe && saved.owner == owner && saved.ty == ty
-            && self.registered_instruction_origin(saved.initializer, false) == Some((origin, owner)))
+            && self.registered_instruction_origin(saved.initializer_source_instruction, false) == Some((origin, owner)))
     }
     #[cfg(test)]
     pub(in crate::runtime::eval) fn test_original_argument_binding_mut(&mut self, instruction: u32) -> Result<&mut OriginalArgumentBinding, IrVerifyError> {
@@ -636,6 +814,9 @@ impl GenericEvidenceStore {
         let original = self.original_native_call_sources.get(id.index as usize).ok_or_else(|| failure("original prepared source receipt is missing"))?;
         if !Arc::ptr_eq(source, original) { return Err(failure("prepared source differs from its original receipt")); }
         Ok(source.as_ref())
+    }
+    pub(in crate::runtime::eval) fn native_call_originally_prepared(&self, instruction: u32) -> bool {
+        self.original_native_call_sources.iter().any(|source| source.instruction == instruction)
     }
     pub fn ground_native_call(&self, id: GroundNativeCallId) -> Result<&PreparedGroundNativeCall, IrVerifyError> { owned(self.root, &self.ground_native_calls, id.index, id.proof) }
     pub fn native_call_sources(&self) -> impl Iterator<Item = (NativeCallSourceId, &NativeCallSource)> {
@@ -792,33 +973,43 @@ impl GenericEvidenceStore {
     pub(in crate::runtime::eval) fn test_remove_ground_stage_calls(&mut self) { self.ground_stage_calls.clear(); self.ground_stage_call_instructions.clear(); }
     #[cfg(test)]
     pub(in crate::runtime::eval) fn test_remove_stage_call_sources(&mut self) { self.stage_call_sources.clear(); }
-    pub fn operation_source(&self, id: OperationSourceId) -> Result<&OperationSource, IrVerifyError> { owned(self.root, &self.operation_sources, id.index, id.proof) }
-    pub fn operation(&self, id: OperationId) -> Result<&PreparedOperation, IrVerifyError> { owned(self.root, &self.operations, id.index, id.proof) }
+    pub fn operation_source(&self, id: OperationSourceId) -> Result<&OperationSource, IrVerifyError> {
+        let value = owned(self.root, &self.operation_sources, id.index, id.proof)?;
+        if !self.original_operation_sources.get(id.index as usize).is_some_and(|original| Arc::ptr_eq(original, value)) { return Err(failure("prepared operation differs from its original receipt")); }
+        Ok(value.as_ref())
+    }
+    pub fn operation(&self, id: OperationId) -> Result<&PreparedOperation, IrVerifyError> {
+        let value = owned(self.root, &self.operations, id.index, id.proof)?;
+        if !self.original_operations.get(id.index as usize).is_some_and(|original| Arc::ptr_eq(original, value)) { return Err(failure("prepared operation differs from its original receipt")); }
+        Ok(value.as_ref())
+    }
     pub fn operation_sources(&self) -> impl Iterator<Item = (OperationSourceId, &OperationSource)> {
-        self.operation_sources.iter().enumerate().map(|(index, entry)| (OperationSourceId { index: index as u32, proof: OwnerProof { root: self.root, serial: entry.serial } }, &entry.value))
+        self.operation_sources.iter().enumerate().map(|(index, entry)| (OperationSourceId { index: index as u32, proof: OwnerProof { root: self.root, serial: entry.serial } }, entry.value.as_ref()))
     }
     pub fn operations(&self) -> impl Iterator<Item = (OperationId, &PreparedOperation)> {
-        self.operations.iter().enumerate().map(|(index, entry)| (OperationId { index: index as u32, proof: OwnerProof { root: self.root, serial: entry.serial } }, &entry.value))
+        self.operations.iter().enumerate().map(|(index, entry)| (OperationId { index: index as u32, proof: OwnerProof { root: self.root, serial: entry.serial } }, entry.value.as_ref()))
     }
     pub fn operation_at(&self, instruction: u32) -> Result<Option<&PreparedOperation>, IrVerifyError> {
         self.operation_instructions.binary_search_by_key(&instruction, |entry| entry.0).ok().map(|index| self.operation(self.operation_instructions[index].1)).transpose()
     }
     #[cfg(test)]
-    pub(in crate::runtime::eval) fn test_operation_mut(&mut self, id: OperationId) -> Result<&mut PreparedOperation, IrVerifyError> { self.operation(id)?; Ok(&mut self.operations[id.index as usize].value) }
+    pub(in crate::runtime::eval) fn test_operation_mut(&mut self, id: OperationId) -> Result<&mut PreparedOperation, IrVerifyError> { self.operation(id)?; Ok(Arc::make_mut(&mut self.operations[id.index as usize].value)) }
     #[cfg(test)]
-    pub(in crate::runtime::eval) fn test_operation_source_mut(&mut self, id: OperationSourceId) -> Result<&mut OperationSource, IrVerifyError> { self.operation_source(id)?; Ok(&mut self.operation_sources[id.index as usize].value) }
+    pub(in crate::runtime::eval) fn test_operation_source_mut(&mut self, id: OperationSourceId) -> Result<&mut OperationSource, IrVerifyError> { self.operation_source(id)?; Ok(Arc::make_mut(&mut self.operation_sources[id.index as usize].value)) }
     #[cfg(test)]
     pub(in crate::runtime::eval) fn test_remove_operations(&mut self) { self.operations.clear(); self.operation_instructions.clear(); }
     pub fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         size_of::<Self>()
-            + self.iterations.retained_bytes() + self.operation_requirements.retained_bytes() + self.values.retained_bytes() + self.callable_receivers.retained_bytes() + self.native_callables.retained_bytes()
+            + self.records.retained_bytes() + self.comprehensions.retained_bytes() + self.compiler_wrappers.retained_bytes() + self.indices.retained_bytes() + self.containers.retained_bytes() + self.record_constructors.retained_bytes() + self.mutables.retained_bytes() + self.native_scalars.retained_bytes() + self.try_captures.retained_bytes() + self.context_producers.retained_bytes() + self.stages.retained_bytes() + self.bridges.retained_bytes() + self.error_constructors.retained_bytes() + self.mutable_paths.retained_bytes() + self.host_bindings.retained_bytes() + self.lexical_captures.retained_bytes() + self.constants.retained_bytes() + self.record_updates.retained_bytes() + self.conditionals.retained_bytes() + self.paths.retained_bytes()
+            + self.eligibility.retained_bytes() + self.iterations.retained_bytes() + self.operation_requirements.retained_bytes() + self.values.retained_bytes() + self.callable_receivers.retained_bytes() + self.native_callables.retained_bytes()
             + self.pattern_nominals.capacity() * size_of::<Entry<super::pattern::PreparedPatternNominalMember>>()
             + self.pattern_nominals.iter().map(|entry| entry.value.retained_bytes()).sum::<usize>()
             + self.original_argument_wrappers.capacity() * size_of::<(u32, u32)>()
             + self.original_argument_bindings.capacity() * size_of::<Entry<Arc<OriginalArgumentBinding>>>()
             + self.argument_binding_receipts.capacity() * size_of::<Arc<OriginalArgumentBinding>>()
             + self.argument_binding_receipts.len() * (size_of::<OriginalArgumentBinding>() + 2 * size_of::<usize>())
+            + self.argument_binding_receipts.iter().map(|entry| entry.initializer_wrappers.len() * size_of::<ValueInitializerWrapper>() + entry.initializer_wrappers.iter().map(|wrapper| wrapper.payload.len() * size_of::<u32>()).sum::<usize>()).sum::<usize>()
             + self.original_callable_bindings.capacity() * size_of::<Entry<OriginalCallableBinding>>()
             + self.original_callable_uses.capacity() * size_of::<Entry<OriginalCallableUse>>()
             + self.native_call_sources.capacity() * size_of::<Entry<Arc<NativeCallSource>>>()
@@ -826,7 +1017,8 @@ impl GenericEvidenceStore {
             + self.original_native_call_sources.len() * (size_of::<NativeCallSource>() + 2 * size_of::<usize>())
             + self.ground_native_calls.capacity() * size_of::<Entry<PreparedGroundNativeCall>>()
             + self.ground_native_call_instructions.capacity() * size_of::<(u32, GroundNativeCallId)>()
-            + self.original_native_call_sources.iter().map(|entry| entry.expected.retained_bytes()).sum::<usize>()
+            + self.original_native_call_sources.iter().map(|entry| entry.expected.retained_bytes() + entry.result_record_layout.as_ref().map_or(0, PreparedNativeResultRecord::retained_bytes)
+                + entry.record_arguments.len() * size_of::<PreparedNativeRecordFieldArgument>() + entry.record_arguments.iter().map(PreparedNativeRecordFieldArgument::retained_bytes).sum::<usize>()).sum::<usize>()
             + self.ground_native_calls.iter().map(|entry| entry.value.contract.retained_bytes()).sum::<usize>()
             + self.scopes.capacity() * size_of::<Entry<SchemeScope>>()
             + self.callable_sources.capacity() * size_of::<Entry<CallableValueSource>>()
@@ -845,6 +1037,7 @@ impl GenericEvidenceStore {
             + self.ground_projection_sources.capacity() * size_of::<Entry<Arc<GroundProjectionSource>>>()
             + self.original_ground_projection_sources.capacity() * size_of::<Arc<GroundProjectionSource>>()
             + self.original_ground_projection_sources.len() * (size_of::<GroundProjectionSource>() + 2 * size_of::<usize>())
+            + self.original_ground_projection_sources.iter().map(|source| source.receiver_wrappers.len() * size_of::<ValueInitializerWrapper>() + source.receiver_wrappers.iter().map(|wrapper| wrapper.payload.len() * size_of::<u32>()).sum::<usize>()).sum::<usize>()
             + self.ground_projections.capacity() * size_of::<Entry<PreparedGroundProjection>>()
             + self.ground_projection_instructions.capacity() * size_of::<(u32, GroundProjectionId)>()
             + self.pattern_sources.capacity() * size_of::<Entry<Arc<super::pattern::PreparedPatternSource>>>()
@@ -869,13 +1062,13 @@ impl GenericEvidenceStore {
             + self.ground_stage_call_instructions.capacity() * size_of::<(u32, GroundStageCallId)>()
             + self.stage_call_sources.iter().map(|entry| entry.value.expected.retained_bytes()).sum::<usize>()
             + self.ground_stage_calls.iter().map(|entry| entry.value.contract.retained_bytes()).sum::<usize>()
-            + self.operation_sources.capacity() * size_of::<Entry<OperationSource>>()
+            + self.operation_sources.capacity() * size_of::<Entry<Arc<OperationSource>>>() + self.original_operation_sources.capacity() * size_of::<Arc<OperationSource>>() + self.operation_sources.len() * (size_of::<OperationSource>() + 2 * size_of::<usize>())
             + self.operation_sources.iter().map(|entry| entry.value.expected.retained_bytes()).sum::<usize>()
-            + self.operations.capacity() * size_of::<Entry<PreparedOperation>>()
+            + self.operations.capacity() * size_of::<Entry<Arc<PreparedOperation>>>() + self.original_operations.capacity() * size_of::<Arc<PreparedOperation>>() + self.operations.len() * (size_of::<PreparedOperation>() + 2 * size_of::<usize>())
             + self.operation_instructions.capacity() * size_of::<(u32, OperationId)>()
             + self.operations.iter().map(|entry| {
                 let operation = &entry.value;
-                operation.authority.retained_bytes() + operation.arguments.len() * size_of::<Option<TypeRef>>()
+                operation.membership_lowering.as_ref().map_or(0, super::full::PreparedMembershipLowering::retained_bytes) + operation.literal_comparison_slot.as_ref().map_or(0, super::full::PreparedLiteralComparisonSlot::retained_bytes) + operation.range_lowering.as_ref().map_or(0, PreparedRangeLowering::retained_bytes) + operation.fallback_lowering.as_ref().map_or(0, PreparedFallbackLowering::retained_bytes) + operation.authority.retained_bytes() + operation.arguments.len() * size_of::<Option<TypeRef>>()
                     + (operation.binding.supplied_slots.len() + operation.binding.default_slots.len() + operation.binding.operands.len()) * size_of::<u32>()
                     + operation.effects.inputs.len() * size_of::<(crate::sema::inference::EffectRole, crate::sema::inference::EffectSet)>()
                     + operation.effects.outputs.len() * size_of::<(crate::sema::inference::ProducerRole, crate::sema::inference::EffectSet)>()
@@ -892,7 +1085,7 @@ impl GenericEvidenceStore {
             + self.forwarding.iter().map(|entry| entry.value.substitutions.len() * size_of::<TypeRef>() + entry.value.requirements.len() * size_of::<ForwardedRequirement>() + entry.value.instances.len() * size_of::<(InstantiationId, InstantiationId)>()).sum::<usize>()
             + self.templates.iter().map(|entry| match &entry.value { TypeTemplate::Record { fields, .. } => fields.len() * size_of::<(Name, TypeRef)>(), TypeTemplate::Arrow { parameters, effects, .. } => parameters.len() * size_of::<TemplateParameter>() + effects.len() * size_of::<crate::syntax::node::Effect>(), _ => 0 }).sum::<usize>()
     }
-    pub fn shrink_to_fit(&mut self) { self.callable_receivers.shrink_to_fit(); self.native_callables.shrink_to_fit(); self.values.shrink_to_fit(); self.iterations.shrink_to_fit(); self.operation_requirements.shrink_to_fit(); self.scoped_invocation_sources.shrink_to_fit(); self.original_scoped_invocation_sources.shrink_to_fit(); self.scoped_invocation_witnesses.shrink_to_fit(); self.scoped_invocation_instructions.shrink_to_fit(); self.original_argument_bindings.shrink_to_fit(); self.argument_binding_receipts.shrink_to_fit(); self.original_argument_wrappers.shrink_to_fit(); self.pattern_nominals.shrink_to_fit(); self.original_callable_bindings.shrink_to_fit(); self.original_callable_uses.shrink_to_fit(); self.native_call_sources.shrink_to_fit(); self.original_native_call_sources.shrink_to_fit(); self.ground_native_calls.shrink_to_fit(); self.ground_native_call_instructions.shrink_to_fit(); self.pattern_origins.shrink_to_fit(); self.pattern_sources.shrink_to_fit(); self.original_pattern_sources.shrink_to_fit(); self.pattern_applications.shrink_to_fit(); self.original_pattern_applications.shrink_to_fit(); self.pattern_conditional_results.shrink_to_fit(); self.pattern_captures.shrink_to_fit(); self.pattern_uses.shrink_to_fit(); self.original_pattern_uses.shrink_to_fit(); self.ground_projection_sources.shrink_to_fit(); self.original_ground_projection_sources.shrink_to_fit(); self.ground_projections.shrink_to_fit(); self.ground_projection_instructions.shrink_to_fit(); self.callable_sources.shrink_to_fit(); self.callable_values.shrink_to_fit(); self.invocation_sources.shrink_to_fit(); self.invocation_plans.shrink_to_fit(); self.callable_instructions.shrink_to_fit(); self.invocation_instructions.shrink_to_fit(); self.instruction_origins.shrink_to_fit(); self.checked_functions.shrink_to_fit(); self.checked_function_index.shrink_to_fit(); self.stage_call_sources.shrink_to_fit(); self.ground_stage_calls.shrink_to_fit(); self.ground_stage_call_instructions.shrink_to_fit(); self.operation_sources.shrink_to_fit(); self.operations.shrink_to_fit(); self.operation_instructions.shrink_to_fit(); self.scopes.shrink_to_fit(); self.layouts.shrink_to_fit(); self.instances.shrink_to_fit(); self.forwarding.shrink_to_fit(); self.templates.shrink_to_fit(); self.calls.shrink_to_fit(); self.arguments.shrink_to_fit(); self.uses.shrink_to_fit(); self.constructors.shrink_to_fit(); self.function_scopes.shrink_to_fit(); }
+    pub fn shrink_to_fit(&mut self) { self.eligibility.shrink_to_fit(); self.callable_receivers.shrink_to_fit(); self.native_callables.shrink_to_fit(); self.values.shrink_to_fit(); self.iterations.shrink_to_fit(); self.records.shrink_to_fit(); self.comprehensions.shrink_to_fit(); self.compiler_wrappers.shrink_to_fit(); self.indices.shrink_to_fit(); self.containers.shrink_to_fit(); self.record_constructors.shrink_to_fit(); self.mutables.shrink_to_fit(); self.native_scalars.shrink_to_fit(); self.try_captures.shrink_to_fit(); self.context_producers.shrink_to_fit(); self.stages.shrink_to_fit(); self.error_constructors.shrink_to_fit(); self.bridges.shrink_to_fit(); self.mutable_paths.shrink_to_fit(); self.host_bindings.shrink_to_fit(); self.lexical_captures.shrink_to_fit(); self.constants.shrink_to_fit(); self.record_updates.shrink_to_fit(); self.conditionals.shrink_to_fit(); self.paths.shrink_to_fit(); self.operation_requirements.shrink_to_fit(); self.scoped_invocation_sources.shrink_to_fit(); self.original_scoped_invocation_sources.shrink_to_fit(); self.scoped_invocation_witnesses.shrink_to_fit(); self.scoped_invocation_instructions.shrink_to_fit(); self.original_argument_bindings.shrink_to_fit(); self.argument_binding_receipts.shrink_to_fit(); self.original_argument_wrappers.shrink_to_fit(); self.pattern_nominals.shrink_to_fit(); self.original_callable_bindings.shrink_to_fit(); self.original_callable_uses.shrink_to_fit(); self.native_call_sources.shrink_to_fit(); self.original_native_call_sources.shrink_to_fit(); self.ground_native_calls.shrink_to_fit(); self.ground_native_call_instructions.shrink_to_fit(); self.pattern_origins.shrink_to_fit(); self.pattern_sources.shrink_to_fit(); self.original_pattern_sources.shrink_to_fit(); self.pattern_applications.shrink_to_fit(); self.original_pattern_applications.shrink_to_fit(); self.pattern_conditional_results.shrink_to_fit(); self.pattern_captures.shrink_to_fit(); self.pattern_uses.shrink_to_fit(); self.original_pattern_uses.shrink_to_fit(); self.ground_projection_sources.shrink_to_fit(); self.original_ground_projection_sources.shrink_to_fit(); self.ground_projections.shrink_to_fit(); self.ground_projection_instructions.shrink_to_fit(); self.callable_sources.shrink_to_fit(); self.callable_values.shrink_to_fit(); self.invocation_sources.shrink_to_fit(); self.invocation_plans.shrink_to_fit(); self.callable_instructions.shrink_to_fit(); self.invocation_instructions.shrink_to_fit(); self.instruction_origins.shrink_to_fit(); self.checked_functions.shrink_to_fit(); self.checked_function_index.shrink_to_fit(); self.stage_call_sources.shrink_to_fit(); self.ground_stage_calls.shrink_to_fit(); self.ground_stage_call_instructions.shrink_to_fit(); self.operation_sources.shrink_to_fit(); self.original_operation_sources.shrink_to_fit(); self.operations.shrink_to_fit(); self.original_operations.shrink_to_fit(); self.operation_instructions.shrink_to_fit(); self.scopes.shrink_to_fit(); self.layouts.shrink_to_fit(); self.instances.shrink_to_fit(); self.forwarding.shrink_to_fit(); self.templates.shrink_to_fit(); self.calls.shrink_to_fit(); self.arguments.shrink_to_fit(); self.uses.shrink_to_fit(); self.constructors.shrink_to_fit(); self.function_scopes.shrink_to_fit(); }
     pub fn instances(&self) -> impl Iterator<Item = (InstantiationId, &Instantiation)> {
         self.instances.iter().enumerate().map(|(index, entry)| (InstantiationId { index: index as u32, proof: OwnerProof { root: self.root, serial: entry.serial } }, &entry.value))
     }
@@ -954,6 +1147,7 @@ impl GenericEvidenceStore {
         let mut expected = Vec::new();
         for (id, proof) in self.ground_native_calls() {
             let source = self.native_call_source(proof.source)?;
+            source.verify_result_record_layout(pools)?;
             let contract = &proof.contract;
             if source.expected != *contract || !sources.insert(proof.source.index)
                 || owners.get(source.instruction as usize) != Some(&Some(source.owner))
@@ -963,14 +1157,19 @@ impl GenericEvidenceStore {
             if let Some(scope) = source.scope {
                 if source.owner != InstructionOwner::Function(self.scope(scope)?.owner) { return Err(failure("native call scope belongs to another declaration")); }
             }
-            if !matches!(contract.registry_owner, crate::sema::registry_graph::RegistryOwner::Module(_))
-                || !matches!(contract.authority, PreparedOperationAuthority::Registry { binding: crate::modules::signature::ImplBinding::Native, semantic_rule: crate::modules::signature::SemanticRule::Standard, .. }) {
+            let cli = contract.verify_cli_descriptor(pools)?;
+            self.verify_process_command_argv_contract(pools, source, contract, owners)?;
+            contract.verify_fs_root_method(pools)?;
+            if !(matches!(contract.registry_owner, crate::sema::registry_graph::RegistryOwner::Module(_)) && contract.receiver.is_none()
+                || matches!(contract.registry_owner, crate::sema::registry_graph::RegistryOwner::Method(_)) && contract.receiver.is_some())
+                || !(cli || matches!(contract.authority, PreparedOperationAuthority::Registry { binding: crate::modules::signature::ImplBinding::Native, semantic_rule: crate::modules::signature::SemanticRule::Standard, .. })) {
                 return Err(failure("native call boundary protocol is not prepared"));
             }
             if contract.binding.rest_slot.is_some() || contract.binding.dynamic.is_some()
                 || pools.signature_closed_effects(contract.signature)? != contract.effects.creation
-                || (contract.kind == CallableKind::Pure && contract.effects.creation != crate::sema::inference::EffectSet::EMPTY)
-                || contract.result != TypeRef::Ground(pools.signature_return_type(contract.signature)?) {
+                || (contract.kind == CallableKind::Pure && contract.effects.creation != crate::sema::inference::EffectSet::EMPTY
+                    && !contract.has_closed_collect_effects(pools)?)
+                || (!cli && contract.result != TypeRef::Ground(pools.signature_return_type(contract.signature)?)) {
                 return Err(failure("native call signature or creation effects changed"));
             }
             let count = pools.signature_param_count(contract.signature)?;
@@ -981,13 +1180,32 @@ impl GenericEvidenceStore {
             }
             Self::verify_type(pools, pools.signature_return_type(contract.signature)?)?;
             let mut slots = std::collections::BTreeSet::new();
+            if let Some(receiver) = &contract.receiver {
+                if count == 0 || contract.argument_sources[0] != Some(receiver.instruction)
+                    || owners.get(receiver.instruction as usize) != Some(&Some(source.owner))
+                    || !self.native_receiver_has_original_source(receiver, source.owner, owners)? {
+                    return Err(failure("native method receiver lost its original source or owner"));
+                }
+                let TypeRef::Ground(actual) = receiver.ty else { return Err(failure("native method receiver requires a scoped protocol")); };
+                let (label, formal, _) = pools.signature_param(contract.signature, 0)?;
+                if label != Name::intern("<receiver>") || pools.signature_parameter_rest(contract.signature, 0)? || pools.signature_parameter_defaulted(contract.signature, 0)?
+                    || !native_callables::native_parameter_accepts(contract.argument_relations.first().copied().unwrap_or(crate::sema::inference::ArgumentRelation::Assignable), &pools.to_type(formal)?, &pools.to_type(actual)?, false, 0)? {
+                    return Err(failure("native method receiver changes its hidden formal contract"));
+                }
+                slots.insert(0);
+            }
+            let mut guards = std::collections::BTreeSet::new();
+            self.verify_native_record_arguments(pools, source, owners)?;
+            if contract.input_eligibility.iter().any(|&(slot, _)| slot >= count.saturating_sub(usize::from(contract.receiver.is_some())) || !guards.insert(slot)) {
+                return Err(failure("native call eligibility slots are ambiguous or invalid"));
+            }
             for (ordinal, ((argument, &slot), &instruction)) in contract.arguments.iter().zip(&contract.binding.supplied_slots).zip(&contract.binding.operands).enumerate() {
                 if slot as usize >= count || !slots.insert(slot) || instruction != argument.instruction
                     || contract.argument_sources[slot as usize] != Some(instruction)
                     || owners.get(instruction as usize) != Some(&Some(source.owner)) {
                     return Err(failure("native call supplied slot is invalid"));
                 }
-                let crate::sema::arguments::ArgumentValueSource::Expression(expression) = argument.original.value else { return Err(failure("native call source recipe is not prepared")); };
+                if !matches!(argument.original.value, crate::sema::arguments::ArgumentValueSource::Expression(_) | crate::sema::arguments::ArgumentValueSource::RecordField { .. }) { return Err(failure("native call source recipe is not prepared")); }
                 if !self.argument_has_original_source(instruction, source.origin, ordinal, &argument.original, source.owner, argument.ty) {
                     return Err(failure("native call supplied operand lost its original source"));
                 }
@@ -997,7 +1215,7 @@ impl GenericEvidenceStore {
                 Self::verify_type(pools, formal)?;
                 if pools.signature_parameter_rest(contract.signature, slot as usize)? || argument.original.name.is_some_and(|name| name != label)
                     || !native_callables::native_parameter_accepts(contract.argument_relations.get(slot as usize).copied().unwrap_or(crate::sema::inference::ArgumentRelation::Assignable), &pools.to_type(formal)?, &pools.to_type(actual)?, false, 0)? {
-                    return Err(failure("native call argument disagrees with its selected signature"));
+                    return Err(failure(&format!("native call {:?}, supplied slot {slot} ({label:?}) disagrees with its selected signature: formal {:?}, actual {:?}, relation {:?}", source.origin, pools.to_type(formal)?, pools.to_type(actual)?, contract.argument_relations.get(slot as usize))));
                 }
             }
             for &slot in &contract.binding.default_slots {
@@ -1051,7 +1269,13 @@ impl GenericEvidenceStore {
             if use_.owner != binding.owner || use_.origin.source != binding.binding.source || use_.origin.namespace != binding.binding.namespace {
                 return Err(failure("callable read changes its original lexical owner"));
             }
-            origin(use_.instruction, use_.origin, use_.owner)?;
+            if let Some(receiver) = self.original_callable_receiver(use_.instruction)? {
+                if receiver.origin != use_.origin || receiver.binding != use_.binding || receiver.owner != use_.owner
+                    || owners.get(use_.instruction as usize) != Some(&Some(use_.owner))
+                    || self.registered_instruction_origin(use_.instruction, false).is_some() {
+                    return Err(failure("saved callable receiver changes its original read transport"));
+                }
+            } else { origin(use_.instruction, use_.origin, use_.owner)?; }
             previous = Some(use_.instruction);
         }
         let mut expected = Vec::new();
@@ -1072,7 +1296,11 @@ impl GenericEvidenceStore {
             let contract = &plan.contract;
             if source.scope.is_some() || source.expected != *contract || !sources.insert(plan.source.index) { return Err(failure("invocation changes or duplicates its original source contract")); }
             origin(source.instruction, source.origin, source.owner)?;
-            origin(contract.callee_instruction, contract.callee_origin, source.owner)?;
+            if let Some(receiver) = self.original_callable_receiver(contract.callee_instruction)? {
+                if receiver.origin != contract.callee_origin || receiver.owner != source.owner {
+                    return Err(failure("invocation callee changes its original saved receiver"));
+                }
+            } else { origin(contract.callee_instruction, contract.callee_origin, source.owner)?; }
             self.verify_user_callable(pools, contract.callable)?;
             if contract.timing != crate::sema::inference::InvocationDefaultTiming::AtCall || contract.effects != contract.callable.creation
                 || contract.result != TypeRef::Ground(pools.signature_return_type(contract.callable.signature)?)
@@ -1112,7 +1340,11 @@ impl GenericEvidenceStore {
             if let Some(scope) = source.scope {
                 if source.owner != InstructionOwner::Function(self.scope(scope)?.owner) { return Err(failure("ground projection scope belongs to another declaration")); }
             }
-            for (instruction, origin) in [(source.instruction, source.origin), (source.receiver_instruction, source.receiver_origin)] {
+            if owners.get(source.receiver_instruction as usize) != Some(&Some(source.owner))
+                || source.receiver_wrappers.iter().any(|wrapper| owners.get(wrapper.instruction as usize) != Some(&Some(source.owner))) {
+                return Err(failure("ground projection receiver transport belongs to another owner"));
+            }
+            for (instruction, origin) in [(source.instruction, source.origin), (source.receiver_source_instruction, source.receiver_origin)] {
                 if owners.get(instruction as usize) != Some(&Some(source.owner))
                     || self.registered_instruction_origin(instruction, false) != Some((OperationSourceOrigin::Expression(origin), source.owner)) { return Err(failure("ground projection changes its original instruction or owner")); }
             }
@@ -1165,6 +1397,12 @@ impl GenericEvidenceStore {
         let mut memo = rustc_hash::FxHashMap::default();
         let mut expected = |reference| self.expand(pools, reference, substitutions, &mut memo);
         match (requirement, witness) {
+            (Requirement::Eligibility { predicate, ty }, RequirementWitness::Eligibility { predicate: actual_predicate, ty: actual }) => {
+                let actual_type = pools.to_type(actual)?;
+                if *predicate != actual_predicate || expected(*ty)? != actual_type || !predicate.accepts_closed_display(&actual_type) {
+                    return Err(failure("eligibility witness disagrees with its scoped requirement"));
+                }
+            }
             (Requirement::Operation(operation), RequirementWitness::Operation(id)) => self.verify_scoped_operation_witness(pools, scope, operation, requirement_index, substitutions, id)?,
             (Requirement::Invocation { .. }, RequirementWitness::Invocation(id)) => self.verify_scoped_invocation_witness(pools, scope, requirement, requirement_index, substitutions, parameter_types, id)?,
             (Requirement::Projection { receiver, receiver_parameter, field, result }, RequirementWitness::Projection { layout, field_slot, result: actual }) => {
@@ -1229,11 +1467,21 @@ impl GenericEvidenceStore {
     }
 
     pub(super) fn verify(&self, pools: &SemanticPools, function_count: usize, instruction_owners: &[Option<InstructionOwner>]) -> Result<(), IrVerifyError> {
+        pools.verify_original_contract()?;
+        if self.operation_sources.len() != self.original_operation_sources.len()
+            || self.operations.len() != self.original_operations.len()
+            || self.operation_sources.iter().zip(&self.original_operation_sources).any(|(entry, original)| !Arc::ptr_eq(&entry.value, original))
+            || self.operations.iter().zip(&self.original_operations).any(|(entry, original)| !Arc::ptr_eq(&entry.value, original)) {
+            return Err(failure("prepared operation differs from its original receipt"));
+        }
         self.verify_callable_receivers(instruction_owners)?;
         self.verify_native_callable_evidence(pools, instruction_owners)?;
         self.verify_value_binding_evidence(pools, instruction_owners)?;
         self.verify_iteration_evidence(pools, instruction_owners)?;
+        self.verify_record_evidence(pools, instruction_owners)?;
+        self.verify_comprehension_evidence(pools, instruction_owners)?;
         self.verify_scoped_operation_evidence(pools, instruction_owners)?;
+        self.verify_original_eligibility(pools)?;
         pools.verify()?;
         self.verify_scoped_invocation_sources(instruction_owners)?;
         if self.original_argument_bindings.len() != self.argument_binding_receipts.len()
@@ -1244,8 +1492,8 @@ impl GenericEvidenceStore {
         for saved in self.original_argument_bindings() {
             if previous_argument.is_some_and(|previous| previous >= saved.instruction) { return Err(failure("original argument bindings are ambiguous or stale")); }
             let crate::sema::arguments::ArgumentValueSource::Expression(expression) = saved.recipe.value else { return Err(failure("saved argument recipe is not prepared")); };
-            if [saved.instruction, saved.initializer, saved.wrapper].into_iter().any(|instruction| instruction_owners.get(instruction as usize) != Some(&Some(saved.owner)))
-                || self.registered_instruction_origin(saved.initializer, false) != Some((OperationSourceOrigin::Expression(crate::sema::check::ExpressionIdentity { expression, ..saved.call }), saved.owner)) {
+            if [saved.instruction, saved.initializer, saved.initializer_source_instruction, saved.wrapper].into_iter().any(|instruction| instruction_owners.get(instruction as usize) != Some(&Some(saved.owner)))
+                || self.registered_instruction_origin(saved.initializer_source_instruction, false) != Some((OperationSourceOrigin::Expression(crate::sema::check::ExpressionIdentity { expression, ..saved.call }), saved.owner)) {
                 return Err(failure("saved argument initializer changes its original source or owner"));
             }
             match saved.scope {
@@ -1293,6 +1541,10 @@ impl GenericEvidenceStore {
                     Requirement::Projection { receiver, receiver_parameter, result, .. } => {
                         if scope.parameters.get(*receiver_parameter as usize) != Some(receiver) { return Err(failure("projection receiver does not denote its scoped parameter")); }
                         for reference in [receiver, result] { self.verify_reference(pools, scope, *reference)?; }
+                    }
+                    Requirement::Eligibility { predicate, ty } => {
+                        if *predicate != crate::sema::inference::Eligibility::Display { return Err(failure("generic eligibility predicate is not prepared")); }
+                        self.verify_reference(pools, scope, *ty)?;
                     }
                     Requirement::Operation(operation) => { operation.verify_supported()?; for reference in operation.references() { self.verify_reference(pools, scope, reference)?; } },
                     Requirement::Invocation { callable, arguments, result, .. } => {
@@ -1372,6 +1624,24 @@ impl GenericEvidenceStore {
         self.verify_callable_store(pools, instruction_owners)?;
         if self.native_call_sources.len() != self.original_native_call_sources.len() { return Err(failure("original prepared source receipt closure is incomplete")); }
         self.verify_native_call_store(pools, instruction_owners)?;
+        self.verify_context_producer_evidence(pools, instruction_owners)?;
+        self.verify_stage_evidence(instruction_owners)?;
+        self.verify_error_constructor_evidence(pools, instruction_owners)?;
+        self.verify_bridge_evidence(pools, instruction_owners)?;
+        self.verify_mutable_path_evidence(pools, instruction_owners)?;
+        self.verify_host_binding_evidence(pools, instruction_owners)?;
+        self.verify_lexical_capture_evidence(pools, instruction_owners)?;
+        self.verify_constant_evidence(pools, instruction_owners)?;
+        self.verify_record_update_evidence(pools, instruction_owners)?;
+        self.verify_conditional_evidence(pools, instruction_owners)?;
+        self.verify_path_evidence(pools, instruction_owners)?;
+        self.verify_try_capture_evidence(pools, instruction_owners)?;
+        self.verify_compiler_wrappers(instruction_owners)?;
+        self.verify_original_indices(pools, instruction_owners)?;
+        self.verify_container_evidence(pools, instruction_owners)?;
+        self.verify_record_constructor_evidence(pools, instruction_owners)?;
+        self.verify_mutable_binding_evidence(pools, instruction_owners)?;
+        self.verify_native_scalar_evidence(pools, instruction_owners)?;
         if self.ground_projection_sources.len() != self.original_ground_projection_sources.len() { return Err(failure("original prepared source receipt closure is incomplete")); }
         self.verify_ground_projection_store(pools, instruction_owners)?;
         if self.pattern_origins.windows(2).any(|pair| pair[0].0 >= pair[1].0) { return Err(failure("pattern instruction origins are ambiguous or unordered")); }
@@ -1453,6 +1723,7 @@ impl GenericEvidenceStore {
         let mut expected_operations = Vec::new();
         let mut proof_sources = std::collections::BTreeSet::new();
         for (id, operation) in self.operations() {
+            self.operation(id)?;
             let source = self.operation_source(operation.source)?;
             if self.registered_instruction_origin(source.instruction, false) != Some((source.origin, source.owner)) { return Err(failure("operation origin disagrees with its original instruction")); }
             if !proof_sources.insert(operation.source.index) { return Err(failure("source operation has multiple prepared proofs")); }
@@ -1469,8 +1740,20 @@ impl GenericEvidenceStore {
                 else { return Err(failure("source operation type lacks a declaration scope")); }
             }
             for &operand in &operation.binding.operands { check_owner(operand, source.owner)?; }
+            if operation.literal_comparison_slot.is_some() {
+                if !super::full::FullVerifier::is_literal_comparison(pools, operation)? { return Err(failure("fused literal slot proof has another selected operation")); }
+                super::full::FullVerifier::verify_prepared_literal_comparison_contract(pools, operation)?;
+                expected_operations.push((source.instruction, id));
+                continue;
+            }
             if operation.binding.dynamic.is_some() || operation.binding.rest_slot.is_some() { return Err(failure("operation dynamic binding is not prepared")); }
             match &operation.authority {
+                PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::ErrorField { .. }, .. } => {
+                    super::full::FullVerifier::verify_prepared_error_field_contract(pools, operation)?;
+                },
+                PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::Membership { .. }, .. } => {
+                    super::full::FullVerifier::verify_prepared_membership_contract(pools, operation)?;
+                },
                 PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::Arithmetic { domain: crate::sema::operation_graph::ArithmeticDomain::Float, .. }, .. } => {
                     if operation.receiver.is_some() || operation.arguments.len() != 2 || operation.binding.supplied_slots.as_ref() != [0, 1]
                         || !operation.binding.default_slots.is_empty() || operation.binding.operands.len() != 2
@@ -1482,11 +1765,36 @@ impl GenericEvidenceStore {
                     }
                     if operation.arguments.iter().any(Option::is_none) { return Err(failure("selected Float operation is missing an operand")); }
                 },
+                PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::Index { .. }, .. } => {
+                    Self::verify_index_operation_contract(pools, operation)?;
+                },
+                PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::Fallback { .. }, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. } => {
+                    super::full::FullVerifier::verify_prepared_fallback_contract(pools, operation)?;
+                },
+                PreparedOperationAuthority::Sealed { operation: crate::sema::inference::SealedOperation::AddDuration }
+                |PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::Arithmetic { domain: crate::sema::operation_graph::ArithmeticDomain::DurationPair | crate::sema::operation_graph::ArithmeticDomain::DurationScale { .. } | crate::sema::operation_graph::ArithmeticDomain::DurationRatio, .. }, .. } => {
+                    Self::verify_duration_operation_contract(pools, operation)?;
+                },
+                PreparedOperationAuthority::Sealed { operation: crate::sema::inference::SealedOperation::AddInt }
+                | PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::Arithmetic { domain: crate::sema::operation_graph::ArithmeticDomain::Integer { left: crate::sema::inference::Atom::Int | crate::sema::inference::Atom::UInt, right: crate::sema::inference::Atom::Int | crate::sema::inference::Atom::UInt }, .. }, .. } => {
+                    super::full::FullVerifier::verify_prepared_integer_arithmetic_contract(pools, operation)?;
+                },
                 PreparedOperationAuthority::Language { operation: selected, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. } => {
+                    if matches!(selected, crate::sema::operation_graph::PreparedLanguageOperation::Constructor { kind: crate::sema::operation_graph::ValueConstructor::Range, .. }) {
+                        self.verify_range_operation_contract(pools, operation)?;
+                        expected_operations.push((source.instruction, id));
+                        continue;
+                    }
+                    if super::full::FullVerifier::is_null_optional_equality(pools, operation)? {
+                        super::full::FullVerifier::verify_prepared_null_optional_equality_contract(pools, operation)?;
+                        expected_operations.push((source.instruction, id));
+                        continue;
+                    }
                     use crate::sema::inference::Atom;
                     use crate::sema::operation_graph::{ArithmeticDomain, PreparedLanguageOperation};
                     let (operand, result) = match selected {
                         PreparedLanguageOperation::Arithmetic { domain: ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int }, .. } => (TypeTag::Int, TypeTag::Int),
+                        PreparedLanguageOperation::Ordering { left: Atom::Int, right: Atom::Int, op: crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge } => (TypeTag::Int, TypeTag::Bool),
                         PreparedLanguageOperation::Ordering { left: Atom::Str, right: Atom::Str, .. }
                         | PreparedLanguageOperation::Equality { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne } => (TypeTag::Str, TypeTag::Bool),
                         _ => return Err(failure("selected operation authority is not prepared")),
@@ -1708,10 +2016,10 @@ mod tests {
             let mut types = SemanticPoolBuilder::default();
             let item = scalar(&mut pools, &mut types, Type::Str);
             let input = scalar(&mut pools, &mut types, Type::List(Box::new(Type::Str)));
-            let iteration = OriginalIterationBinding { statement, binding, iterator_origin, authority, instruction: 0, iterator: 1, slot: 1, body: super::super::IrBlockId::new(0).unwrap(), owner: InstructionOwner::Function(IrFunctionId::new(0).unwrap()), input, item, binding_type: item, iterator_parameter: Some((operation.caller.unwrap(), 0)) };
-            let value = ValueBindingSource { binding: marker, statement: StatementIdentity { source: marker.source, namespace: marker.namespace, statement: marker_statement }, initializer_source,
+            let iteration = OriginalIterationBinding { statement, binding, iterator_origin, authority, instruction: 0, iterator: 1, slot: 1, body: super::super::IrBlockId::new(0).unwrap(), owner: InstructionOwner::Function(IrFunctionId::new(0).unwrap()), input, item, binding_type: item, iterator_parameter: Some((operation.caller.unwrap(), 0)), iterator_carrier: None, producer: None };
+            let value = ValueBindingSource { binding: ValueBindingIdentity::Named(marker), statement: StatementIdentity { source: marker.source, namespace: marker.namespace, statement: marker_statement }, initializer_source,
                 source_type: ScopedRoot { ty: marker_type.ty, scope: marker_type.scheme }, initializer_type: ScopedRoot { ty: solved.expressions[&initializer_source], scope: solved.expression_scope(initializer_source, None).unwrap() },
-                expected: ValueBindingContract { instruction: 3, initializer: 4, initializer_source_instruction: 4, initializer_wrappers: Box::new([]), slot: 0, owner: InstructionOwner::Driver(0), binding_type: item, initializer_type: item, scope: None } };
+                expected: ValueBindingContract { allocation: ValueBindingAllocation::Value, instruction: 3, initializer: 4, initializer_source_instruction: 4, initializer_wrappers: Box::new([]), with_bindings: Box::new([]), slot: 0, owner: InstructionOwner::Driver(0), binding_type: item, initializer_type: item, scope: None } };
             let mut builder = GenericEvidenceBuilder::default();
             let empty = builder.checkpoint();
             let retired_value = builder.add_value_binding_source(value.clone()).unwrap();
@@ -1720,7 +2028,7 @@ mod tests {
             let replacement_value = builder.add_value_binding_source(value).unwrap();
             assert!(builder.store.value_binding_source(retired_value).is_err());
             let live_iteration = builder.add_iteration_binding(iteration.clone()).unwrap();
-            builder.add_iteration_use(OriginalIterationUse { origin: read_origin, binding: live_iteration, instruction: 2, owner: iteration.owner }).unwrap();
+            builder.add_iteration_use(OriginalIterationUse { origin: read_origin, binding: live_iteration, instruction: 2, owner: iteration.owner, tag: crate::runtime::eval::indexed::full::FullTag::ExprParam }).unwrap();
             let scope = builder.add_scope(identity(1)).unwrap();
             let template = builder.add_template(TypeTemplate::List(TypeRef::Rigid(0))).unwrap();
             builder.store.iterations.finish();
@@ -1871,14 +2179,14 @@ fn parameter_accepts(formal: &crate::sema::types::Type, actual: &crate::sema::ty
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::runtime::eval) struct GenericCheckpoint { callable_receivers: usize, native_callables: native_callables::NativeCallableCheckpoint, values: value_bindings::ValueBindingCheckpoint, operation_requirements: operation_requirements::OperationRequirementCheckpoint, iterations: iterations::IterationCheckpoint, scoped_invocation_sources: usize, scoped_invocation_witnesses: usize, original_argument_bindings: usize, pattern_nominals: usize, original_callable_bindings: usize, original_callable_uses: usize, native_call_sources: usize, ground_native_calls: usize, pattern_origins: usize, pattern_sources: usize, pattern_applications: usize, pattern_captures: usize, pattern_uses: usize, ground_projection_sources: usize, ground_projections: usize, callable_sources: usize, callable_values: usize, invocation_sources: usize, invocation_plans: usize, root: u64, serial_limit: u64, scopes: usize, layouts: usize, instances: usize, forwarding: usize, templates: usize, calls: usize, arguments: usize, uses: usize, constructors: usize, operation_sources: usize, operations: usize, checked_functions: usize, stage_call_sources: usize, ground_stage_calls: usize, instruction_origins: usize }
+pub(in crate::runtime::eval) struct GenericCheckpoint { eligibility: usize, callable_receivers: usize, native_callables: native_callables::NativeCallableCheckpoint, values: value_bindings::ValueBindingCheckpoint, operation_requirements: operation_requirements::OperationRequirementCheckpoint, iterations: iterations::IterationCheckpoint, records: records::RecordCheckpoint, comprehensions: comprehensions::ComprehensionCheckpoint, compiler_wrappers: usize, indices: usize, containers: containers::ContainerCheckpoint, record_constructors: record_constructors::RecordConstructorCheckpoint, mutables: mutable_bindings::MutableBindingCheckpoint, native_scalars: native_scalars::NativeScalarCheckpoint, try_captures: captures::TryCaptureCheckpoint, context_producers: context_producers::ContextProducerCheckpoint, stages: usize, error_constructors: usize, bridges: usize, mutable_paths: mutable_paths::MutablePathCheckpoint, host_bindings: host_bindings::HostBindingCheckpoint, lexical_captures: lexical_captures::LexicalCaptureCheckpoint, constants: constants::ConstantCheckpoint, record_updates: record_updates::RecordUpdateCheckpoint, conditionals: conditionals::ConditionalCheckpoint, paths: paths::PathCheckpoint, scoped_invocation_sources: usize, scoped_invocation_witnesses: usize, original_argument_bindings: usize, pattern_nominals: usize, original_callable_bindings: usize, original_callable_uses: usize, native_call_sources: usize, ground_native_calls: usize, pattern_origins: usize, pattern_sources: usize, pattern_applications: usize, pattern_captures: usize, pattern_uses: usize, ground_projection_sources: usize, ground_projections: usize, callable_sources: usize, callable_values: usize, invocation_sources: usize, invocation_plans: usize, root: u64, serial_limit: u64, scopes: usize, layouts: usize, instances: usize, forwarding: usize, templates: usize, calls: usize, arguments: usize, uses: usize, constructors: usize, operation_sources: usize, operations: usize, checked_functions: usize, stage_call_sources: usize, ground_stage_calls: usize, instruction_origins: usize }
 
 pub(in crate::runtime::eval) struct GenericEvidenceBuilder { canonical_pattern_nominals: std::collections::BTreeMap<crate::sema::check::QualifiedNominalIdentity, usize>, store: GenericEvidenceStore, next_serial: u64, canonical_templates: rustc_hash::FxHashMap<TypeTemplate, TypeTemplateId>, canonical_instances: rustc_hash::FxHashMap<Instantiation, InstantiationId> }
 
 impl Default for GenericEvidenceBuilder {
     fn default() -> Self {
         let root = NEXT_ROOT.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1)).expect("generic proof roots exhausted");
-        Self { canonical_pattern_nominals: std::collections::BTreeMap::new(), store: GenericEvidenceStore { callable_receivers: callable_receivers::CallableReceiverEvidence::default(), native_callables: native_callables::NativeCallableEvidence::default(), values: value_bindings::ValueBindingEvidence::default(), operation_requirements: operation_requirements::OperationRequirementEvidence::default(), iterations: iterations::IterationEvidence::default(), scoped_invocation_sources: Vec::new(), original_scoped_invocation_sources: Vec::new(), scoped_invocation_witnesses: Vec::new(), scoped_invocation_instructions: Vec::new(), original_argument_bindings: Vec::new(), argument_binding_receipts: Vec::new(), original_argument_wrappers: Vec::new(), pattern_nominals: Vec::new(), original_callable_bindings: Vec::new(), original_callable_uses: Vec::new(), native_call_sources: Vec::new(), original_native_call_sources: Vec::new(), ground_native_calls: Vec::new(), ground_native_call_instructions: Vec::new(), callable_sources: Vec::new(), callable_values: Vec::new(), invocation_sources: Vec::new(), invocation_plans: Vec::new(), callable_instructions: Vec::new(), invocation_instructions: Vec::new(), ground_projection_sources: Vec::new(), original_ground_projection_sources: Vec::new(), ground_projections: Vec::new(), ground_projection_instructions: Vec::new(), pattern_sources: Vec::new(), original_pattern_sources: Vec::new(), pattern_applications: Vec::new(), original_pattern_applications: Vec::new(), pattern_conditional_results: Vec::new(), pattern_captures: Vec::new(), pattern_uses: Vec::new(), original_pattern_uses: Vec::new(), root, instruction_origins: Vec::new(), pattern_origins: Vec::new(), scopes: Vec::new(), layouts: Vec::new(), instances: Vec::new(), forwarding: Vec::new(), templates: Vec::new(), calls: Vec::new(), arguments: Vec::new(), uses: Vec::new(), constructors: Vec::new(), function_scopes: Vec::new(), operation_sources: Vec::new(), operations: Vec::new(), operation_instructions: Vec::new(), checked_functions: Vec::new(), checked_function_index: Vec::new(), stage_call_sources: Vec::new(), ground_stage_calls: Vec::new(), ground_stage_call_instructions: Vec::new() }, next_serial: 1, canonical_templates: rustc_hash::FxHashMap::default(), canonical_instances: rustc_hash::FxHashMap::default() }
+        Self { canonical_pattern_nominals: std::collections::BTreeMap::new(), store: GenericEvidenceStore { eligibility: eligibility_requirements::EligibilityEvidence::default(), callable_receivers: callable_receivers::CallableReceiverEvidence::default(), native_callables: native_callables::NativeCallableEvidence::default(), values: value_bindings::ValueBindingEvidence::default(), operation_requirements: operation_requirements::OperationRequirementEvidence::default(), iterations: iterations::IterationEvidence::default(), records: records::RecordEvidence::default(), comprehensions: comprehensions::ComprehensionEvidence::default(), compiler_wrappers: compiler_wrappers::CompilerWrapperEvidence::default(), indices: indexing::IndexEvidence::default(), containers: containers::ContainerEvidence::default(), record_constructors: record_constructors::RecordConstructorEvidence::default(), mutables: mutable_bindings::MutableBindingEvidence::default(), native_scalars: native_scalars::NativeScalarEvidence::default(), try_captures: captures::TryCaptureEvidence::default(), context_producers: context_producers::ContextProducerEvidence::default(), stages: stages::StageEvidence::default(), error_constructors: error_constructors::ErrorConstructorEvidence::default(), bridges: bridges::BridgeEvidence::default(), mutable_paths: mutable_paths::MutablePathEvidence::default(), host_bindings: host_bindings::HostBindingEvidence::default(), lexical_captures: lexical_captures::LexicalCaptureEvidence::default(), constants: constants::ConstantEvidence::default(), record_updates: record_updates::RecordUpdateEvidence::default(), conditionals: conditionals::ConditionalEvidence::default(), paths: paths::PathEvidence::default(), scoped_invocation_sources: Vec::new(), original_scoped_invocation_sources: Vec::new(), scoped_invocation_witnesses: Vec::new(), scoped_invocation_instructions: Vec::new(), original_argument_bindings: Vec::new(), argument_binding_receipts: Vec::new(), original_argument_wrappers: Vec::new(), pattern_nominals: Vec::new(), original_callable_bindings: Vec::new(), original_callable_uses: Vec::new(), native_call_sources: Vec::new(), original_native_call_sources: Vec::new(), ground_native_calls: Vec::new(), ground_native_call_instructions: Vec::new(), callable_sources: Vec::new(), callable_values: Vec::new(), invocation_sources: Vec::new(), invocation_plans: Vec::new(), callable_instructions: Vec::new(), invocation_instructions: Vec::new(), ground_projection_sources: Vec::new(), original_ground_projection_sources: Vec::new(), ground_projections: Vec::new(), ground_projection_instructions: Vec::new(), pattern_sources: Vec::new(), original_pattern_sources: Vec::new(), pattern_applications: Vec::new(), original_pattern_applications: Vec::new(), pattern_conditional_results: Vec::new(), pattern_captures: Vec::new(), pattern_uses: Vec::new(), original_pattern_uses: Vec::new(), root, instruction_origins: Vec::new(), pattern_origins: Vec::new(), scopes: Vec::new(), layouts: Vec::new(), instances: Vec::new(), forwarding: Vec::new(), templates: Vec::new(), calls: Vec::new(), arguments: Vec::new(), uses: Vec::new(), constructors: Vec::new(), function_scopes: Vec::new(), operation_sources: Vec::new(), original_operation_sources: Vec::new(), operations: Vec::new(), original_operations: Vec::new(), operation_instructions: Vec::new(), checked_functions: Vec::new(), checked_function_index: Vec::new(), stage_call_sources: Vec::new(), ground_stage_calls: Vec::new(), ground_stage_call_instructions: Vec::new() }, next_serial: 1, canonical_templates: rustc_hash::FxHashMap::default(), canonical_instances: rustc_hash::FxHashMap::default() }
     }
 }
 
@@ -1981,8 +2289,24 @@ impl GenericEvidenceBuilder {
     insert_evidence!(pub add_checked_function, checked_functions, CheckedFunctionSource, CheckedFunctionId);
     insert_evidence!(pub add_stage_call_source, stage_call_sources, StageCallSource, StageCallSourceId);
     insert_evidence!(pub add_ground_stage_call, ground_stage_calls, PreparedGroundStageCall, GroundStageCallId);
-    insert_evidence!(pub add_operation_source, operation_sources, OperationSource, OperationSourceId);
-    insert_evidence!(pub add_operation, operations, PreparedOperation, OperationId);
+    pub fn add_operation_source(&mut self, value: OperationSource) -> Result<OperationSourceId, IrVerifyError> {
+        let index = u32::try_from(self.store.operation_sources.len()).map_err(|_| failure("generic evidence id overflow"))?;
+        let serial = self.next_serial;
+        self.next_serial = serial.checked_add(1).ok_or_else(|| failure("generic evidence serial overflow"))?;
+        let value = Arc::new(value);
+        self.store.original_operation_sources.push(Arc::clone(&value));
+        self.store.operation_sources.push(Entry { serial, value });
+        Ok(OperationSourceId { index, proof: OwnerProof { root: self.store.root, serial } })
+    }
+    pub fn add_operation(&mut self, value: PreparedOperation) -> Result<OperationId, IrVerifyError> {
+        let index = u32::try_from(self.store.operations.len()).map_err(|_| failure("generic evidence id overflow"))?;
+        let serial = self.next_serial;
+        self.next_serial = serial.checked_add(1).ok_or_else(|| failure("generic evidence serial overflow"))?;
+        let value = Arc::new(value);
+        self.store.original_operations.push(Arc::clone(&value));
+        self.store.operations.push(Entry { serial, value });
+        Ok(OperationId { index, proof: OwnerProof { root: self.store.root, serial } })
+    }
     insert_evidence!(pub add_scope, scopes, SchemeScope, SchemeScopeId);
     insert_evidence!(pub add_layout, layouts, PhysicalLayout, PhysicalLayoutId);
     insert_evidence!(add_instance_uncached, instances, Instantiation, InstantiationId);
@@ -2007,7 +2331,7 @@ impl GenericEvidenceBuilder {
     pub fn constructors(&self) -> &[SolvedRecordLayout] { &self.store.constructors }
     pub fn register_pattern_origin(&mut self, pattern: u32, origin: crate::sema::check::PatternIdentity, owner: InstructionOwner) { self.store.pattern_origins.push((pattern, origin, owner)); }
     pub fn add_constructor(&mut self, record: SolvedRecordLayout) { self.store.constructors.push(record); }
-    pub fn checkpoint(&self) -> GenericCheckpoint { GenericCheckpoint { callable_receivers: self.store.callable_receivers.checkpoint(), native_callables: self.store.native_callables.checkpoint(), values: self.store.values.checkpoint(), operation_requirements: self.store.operation_requirements.checkpoint(), iterations: self.store.iterations.checkpoint(), scoped_invocation_sources: self.store.scoped_invocation_sources.len(), scoped_invocation_witnesses: self.store.scoped_invocation_witnesses.len(), original_argument_bindings: self.store.original_argument_bindings.len(), pattern_nominals: self.store.pattern_nominals.len(), original_callable_bindings: self.store.original_callable_bindings.len(), original_callable_uses: self.store.original_callable_uses.len(), native_call_sources: self.store.native_call_sources.len(), ground_native_calls: self.store.ground_native_calls.len(), pattern_origins: self.store.pattern_origins.len(), pattern_sources: self.store.pattern_sources.len(), pattern_applications: self.store.pattern_applications.len(), pattern_captures: self.store.pattern_captures.len(), pattern_uses: self.store.pattern_uses.len(), ground_projection_sources: self.store.ground_projection_sources.len(), ground_projections: self.store.ground_projections.len(), callable_sources: self.store.callable_sources.len(), callable_values: self.store.callable_values.len(), invocation_sources: self.store.invocation_sources.len(), invocation_plans: self.store.invocation_plans.len(), root: self.store.root, serial_limit: self.next_serial, scopes: self.store.scopes.len(), layouts: self.store.layouts.len(), instances: self.store.instances.len(), forwarding: self.store.forwarding.len(), templates: self.store.templates.len(), calls: self.store.calls.len(), arguments: self.store.arguments.len(), uses: self.store.uses.len(), constructors: self.store.constructors.len(), operation_sources: self.store.operation_sources.len(), operations: self.store.operations.len(), checked_functions: self.store.checked_functions.len(), stage_call_sources: self.store.stage_call_sources.len(), ground_stage_calls: self.store.ground_stage_calls.len(), instruction_origins: self.store.instruction_origins.len() } }
+    pub fn checkpoint(&self) -> GenericCheckpoint { GenericCheckpoint { eligibility: self.store.eligibility.checkpoint(), callable_receivers: self.store.callable_receivers.checkpoint(), native_callables: self.store.native_callables.checkpoint(), values: self.store.values.checkpoint(), operation_requirements: self.store.operation_requirements.checkpoint(), iterations: self.store.iterations.checkpoint(), records: self.store.records.checkpoint(), comprehensions: self.store.comprehensions.checkpoint(), compiler_wrappers: self.store.compiler_wrappers.checkpoint(), indices: self.store.indices.checkpoint(), containers: self.store.containers.checkpoint(), record_constructors: self.store.record_constructors.checkpoint(), mutables: self.store.mutables.checkpoint(), native_scalars: self.store.native_scalars.checkpoint(), try_captures: self.store.try_captures.checkpoint(), context_producers: self.store.context_producers.checkpoint(), stages: self.store.stages.checkpoint(), error_constructors: self.store.error_constructors.checkpoint(), bridges: self.store.bridges.checkpoint(), mutable_paths: self.store.mutable_paths.checkpoint(), host_bindings: self.store.host_bindings.checkpoint(), lexical_captures: self.store.lexical_captures.checkpoint(), constants: self.store.constants.checkpoint(), record_updates: self.store.record_updates.checkpoint(), conditionals: self.store.conditionals.checkpoint(), paths: self.store.paths.checkpoint(), scoped_invocation_sources: self.store.scoped_invocation_sources.len(), scoped_invocation_witnesses: self.store.scoped_invocation_witnesses.len(), original_argument_bindings: self.store.original_argument_bindings.len(), pattern_nominals: self.store.pattern_nominals.len(), original_callable_bindings: self.store.original_callable_bindings.len(), original_callable_uses: self.store.original_callable_uses.len(), native_call_sources: self.store.native_call_sources.len(), ground_native_calls: self.store.ground_native_calls.len(), pattern_origins: self.store.pattern_origins.len(), pattern_sources: self.store.pattern_sources.len(), pattern_applications: self.store.pattern_applications.len(), pattern_captures: self.store.pattern_captures.len(), pattern_uses: self.store.pattern_uses.len(), ground_projection_sources: self.store.ground_projection_sources.len(), ground_projections: self.store.ground_projections.len(), callable_sources: self.store.callable_sources.len(), callable_values: self.store.callable_values.len(), invocation_sources: self.store.invocation_sources.len(), invocation_plans: self.store.invocation_plans.len(), root: self.store.root, serial_limit: self.next_serial, scopes: self.store.scopes.len(), layouts: self.store.layouts.len(), instances: self.store.instances.len(), forwarding: self.store.forwarding.len(), templates: self.store.templates.len(), calls: self.store.calls.len(), arguments: self.store.arguments.len(), uses: self.store.uses.len(), constructors: self.store.constructors.len(), operation_sources: self.store.operation_sources.len(), operations: self.store.operations.len(), checked_functions: self.store.checked_functions.len(), stage_call_sources: self.store.stage_call_sources.len(), ground_stage_calls: self.store.ground_stage_calls.len(), instruction_origins: self.store.instruction_origins.len() } }
     pub fn rewind(&mut self, checkpoint: GenericCheckpoint) -> Result<(), IrVerifyError> {
         if checkpoint.root != self.store.root { return Err(failure("generic checkpoint belongs to a foreign program")); }
         if checkpoint.scoped_invocation_sources > self.store.scoped_invocation_sources.len() || checkpoint.scoped_invocation_witnesses > self.store.scoped_invocation_witnesses.len() || checkpoint.original_argument_bindings > self.store.original_argument_bindings.len() || checkpoint.pattern_nominals > self.store.pattern_nominals.len() || checkpoint.original_callable_bindings > self.store.original_callable_bindings.len() || checkpoint.original_callable_uses > self.store.original_callable_uses.len() || checkpoint.native_call_sources > self.store.native_call_sources.len() || checkpoint.ground_native_calls > self.store.ground_native_calls.len() || checkpoint.pattern_origins > self.store.pattern_origins.len() || checkpoint.pattern_sources > self.store.pattern_sources.len() || checkpoint.pattern_applications > self.store.pattern_applications.len() || checkpoint.pattern_captures > self.store.pattern_captures.len() || checkpoint.pattern_uses > self.store.pattern_uses.len() || checkpoint.ground_projection_sources > self.store.ground_projection_sources.len() || checkpoint.ground_projections > self.store.ground_projections.len() || checkpoint.callable_sources > self.store.callable_sources.len() || checkpoint.callable_values > self.store.callable_values.len() || checkpoint.invocation_sources > self.store.invocation_sources.len() || checkpoint.invocation_plans > self.store.invocation_plans.len() || checkpoint.instruction_origins > self.store.instruction_origins.len() || checkpoint.checked_functions > self.store.checked_functions.len() || checkpoint.stage_call_sources > self.store.stage_call_sources.len() || checkpoint.ground_stage_calls > self.store.ground_stage_calls.len() || checkpoint.operation_sources > self.store.operation_sources.len() || checkpoint.operations > self.store.operations.len() || checkpoint.scopes > self.store.scopes.len() || checkpoint.layouts > self.store.layouts.len() || checkpoint.instances > self.store.instances.len() || checkpoint.forwarding > self.store.forwarding.len() || checkpoint.templates > self.store.templates.len() || checkpoint.calls > self.store.calls.len() || checkpoint.arguments > self.store.arguments.len() || checkpoint.uses > self.store.uses.len() || checkpoint.constructors > self.store.constructors.len() { return Err(failure("generic checkpoint references retired entries")); }
@@ -2035,20 +2359,62 @@ impl GenericEvidenceBuilder {
         for serial in [self.store.operation_sources.get(checkpoint.operation_sources.wrapping_sub(1)).map(|entry| entry.serial), self.store.operations.get(checkpoint.operations.wrapping_sub(1)).map(|entry| entry.serial), self.store.scopes.get(checkpoint.scopes.wrapping_sub(1)).map(|entry| entry.serial), self.store.layouts.get(checkpoint.layouts.wrapping_sub(1)).map(|entry| entry.serial), self.store.instances.get(checkpoint.instances.wrapping_sub(1)).map(|entry| entry.serial), self.store.forwarding.get(checkpoint.forwarding.wrapping_sub(1)).map(|entry| entry.serial), self.store.templates.get(checkpoint.templates.wrapping_sub(1)).map(|entry| entry.serial)].into_iter().flatten() {
             if serial >= checkpoint.serial_limit { return Err(failure("generic checkpoint references replacement entries")); }
         }
+        self.store.eligibility.validate_checkpoint(checkpoint.eligibility, checkpoint.serial_limit)?;
         self.store.iterations.validate_checkpoint(checkpoint.iterations, checkpoint.serial_limit)?;
+        self.store.records.validate_checkpoint(checkpoint.records, checkpoint.serial_limit)?;
+        self.store.comprehensions.validate_checkpoint(checkpoint.comprehensions, checkpoint.serial_limit)?;
+        self.store.compiler_wrappers.validate_checkpoint(checkpoint.compiler_wrappers, checkpoint.serial_limit)?;
+        self.store.indices.validate_checkpoint(checkpoint.indices, checkpoint.serial_limit)?;
+        self.store.containers.validate_checkpoint(checkpoint.containers, checkpoint.serial_limit)?;
+        self.store.record_constructors.validate_checkpoint(checkpoint.record_constructors, checkpoint.serial_limit)?;
+        self.store.mutables.validate_checkpoint(checkpoint.mutables, checkpoint.serial_limit)?;
+        self.store.native_scalars.validate_checkpoint(checkpoint.native_scalars, checkpoint.serial_limit)?;
+        self.store.try_captures.validate_checkpoint(checkpoint.try_captures, checkpoint.serial_limit)?;
+        self.store.context_producers.validate_checkpoint(checkpoint.context_producers, checkpoint.serial_limit)?;
+        self.store.stages.validate_checkpoint(checkpoint.stages, checkpoint.serial_limit)?;
+        self.store.error_constructors.validate_checkpoint(checkpoint.error_constructors, checkpoint.serial_limit)?;
+        self.store.bridges.validate_checkpoint(checkpoint.bridges, checkpoint.serial_limit)?;
+        self.store.mutable_paths.validate_checkpoint(checkpoint.mutable_paths, checkpoint.serial_limit)?;
+        self.store.host_bindings.validate_checkpoint(checkpoint.host_bindings, checkpoint.serial_limit)?;
+        self.store.lexical_captures.validate_checkpoint(checkpoint.lexical_captures, checkpoint.serial_limit)?;
+        self.store.constants.validate_checkpoint(checkpoint.constants, checkpoint.serial_limit)?;
+        self.store.record_updates.validate_checkpoint(checkpoint.record_updates, checkpoint.serial_limit)?;
+        self.store.conditionals.validate_checkpoint(checkpoint.conditionals, checkpoint.serial_limit)?;
+        self.store.paths.validate_checkpoint(checkpoint.paths, checkpoint.serial_limit)?;
         self.store.operation_requirements.validate_checkpoint(checkpoint.operation_requirements, checkpoint.serial_limit)?;
         self.store.values.validate_checkpoint(checkpoint.values, checkpoint.serial_limit)?;
         self.store.callable_receivers.validate_checkpoint(checkpoint.callable_receivers, checkpoint.serial_limit)?;
         self.store.native_callables.validate_checkpoint(checkpoint.native_callables, checkpoint.serial_limit)?;
         // Every collection must accept the checkpoint before any source receipt,
         // derived index, or serial-bearing entry can be retired.
+        self.store.eligibility.rewind_validated(checkpoint.eligibility);
         self.store.iterations.rewind_validated(checkpoint.iterations);
+        self.store.records.rewind_validated(checkpoint.records);
+        self.store.comprehensions.rewind_validated(checkpoint.comprehensions);
+        self.store.compiler_wrappers.rewind_validated(checkpoint.compiler_wrappers);
+        self.store.indices.rewind_validated(checkpoint.indices);
+        self.store.containers.rewind_validated(checkpoint.containers);
+        self.store.record_constructors.rewind_validated(checkpoint.record_constructors);
+        self.store.mutables.rewind_validated(checkpoint.mutables);
+        self.store.native_scalars.rewind_validated(checkpoint.native_scalars);
+        self.store.try_captures.rewind_validated(checkpoint.try_captures);
+        self.store.context_producers.rewind_validated(checkpoint.context_producers);
+        self.store.stages.rewind_validated(checkpoint.stages);
+        self.store.error_constructors.rewind_validated(checkpoint.error_constructors);
+        self.store.bridges.rewind_validated(checkpoint.bridges);
+        self.store.mutable_paths.rewind_validated(checkpoint.mutable_paths);
+        self.store.host_bindings.rewind_validated(checkpoint.host_bindings);
+        self.store.lexical_captures.rewind_validated(checkpoint.lexical_captures);
+        self.store.constants.rewind_validated(checkpoint.constants);
+        self.store.record_updates.rewind_validated(checkpoint.record_updates);
+        self.store.conditionals.rewind_validated(checkpoint.conditionals);
+        self.store.paths.rewind_validated(checkpoint.paths);
         self.store.operation_requirements.rewind_validated(checkpoint.operation_requirements);
         self.store.values.rewind_validated(checkpoint.values);
         self.store.callable_receivers.rewind_validated(checkpoint.callable_receivers);
         self.store.native_callables.rewind_validated(checkpoint.native_callables);
         self.store.scoped_invocation_sources.truncate(checkpoint.scoped_invocation_sources); self.store.original_scoped_invocation_sources.truncate(checkpoint.scoped_invocation_sources); self.store.scoped_invocation_witnesses.truncate(checkpoint.scoped_invocation_witnesses); self.store.scoped_invocation_instructions.clear();
-        self.store.original_argument_bindings.truncate(checkpoint.original_argument_bindings); self.store.argument_binding_receipts.truncate(checkpoint.original_argument_bindings); self.store.original_argument_wrappers.clear(); self.store.pattern_nominals.truncate(checkpoint.pattern_nominals); self.canonical_pattern_nominals.retain(|_, index| *index < checkpoint.pattern_nominals); self.store.original_callable_bindings.truncate(checkpoint.original_callable_bindings); self.store.original_callable_uses.truncate(checkpoint.original_callable_uses); self.store.native_call_sources.truncate(checkpoint.native_call_sources); self.store.original_native_call_sources.truncate(checkpoint.native_call_sources); self.store.ground_native_calls.truncate(checkpoint.ground_native_calls); self.store.ground_native_call_instructions.clear(); self.store.operation_sources.truncate(checkpoint.operation_sources); self.store.operations.truncate(checkpoint.operations); self.store.operation_instructions.clear(); self.store.scopes.truncate(checkpoint.scopes); self.store.layouts.truncate(checkpoint.layouts); self.store.instances.truncate(checkpoint.instances); self.store.forwarding.truncate(checkpoint.forwarding); self.store.templates.truncate(checkpoint.templates); self.store.calls.truncate(checkpoint.calls); self.store.arguments.truncate(checkpoint.arguments); self.store.uses.truncate(checkpoint.uses); self.store.constructors.truncate(checkpoint.constructors);
+        self.store.original_argument_bindings.truncate(checkpoint.original_argument_bindings); self.store.argument_binding_receipts.truncate(checkpoint.original_argument_bindings); self.store.original_argument_wrappers.clear(); self.store.pattern_nominals.truncate(checkpoint.pattern_nominals); self.canonical_pattern_nominals.retain(|_, index| *index < checkpoint.pattern_nominals); self.store.original_callable_bindings.truncate(checkpoint.original_callable_bindings); self.store.original_callable_uses.truncate(checkpoint.original_callable_uses); self.store.native_call_sources.truncate(checkpoint.native_call_sources); self.store.original_native_call_sources.truncate(checkpoint.native_call_sources); self.store.ground_native_calls.truncate(checkpoint.ground_native_calls); self.store.ground_native_call_instructions.clear(); self.store.operation_sources.truncate(checkpoint.operation_sources); self.store.original_operation_sources.truncate(checkpoint.operation_sources); self.store.operations.truncate(checkpoint.operations); self.store.original_operations.truncate(checkpoint.operations); self.store.operation_instructions.clear(); self.store.scopes.truncate(checkpoint.scopes); self.store.layouts.truncate(checkpoint.layouts); self.store.instances.truncate(checkpoint.instances); self.store.forwarding.truncate(checkpoint.forwarding); self.store.templates.truncate(checkpoint.templates); self.store.calls.truncate(checkpoint.calls); self.store.arguments.truncate(checkpoint.arguments); self.store.uses.truncate(checkpoint.uses); self.store.constructors.truncate(checkpoint.constructors);
         self.store.pattern_origins.truncate(checkpoint.pattern_origins); self.store.pattern_sources.truncate(checkpoint.pattern_sources); self.store.original_pattern_sources.truncate(checkpoint.pattern_sources); self.store.pattern_applications.truncate(checkpoint.pattern_applications); self.store.original_pattern_applications.truncate(checkpoint.pattern_applications); self.store.pattern_conditional_results.clear(); self.store.pattern_captures.truncate(checkpoint.pattern_captures); self.store.pattern_uses.truncate(checkpoint.pattern_uses); self.store.original_pattern_uses.truncate(checkpoint.pattern_uses); self.store.ground_projection_sources.truncate(checkpoint.ground_projection_sources); self.store.original_ground_projection_sources.truncate(checkpoint.ground_projection_sources); self.store.ground_projections.truncate(checkpoint.ground_projections); self.store.ground_projection_instructions.clear(); self.store.callable_sources.truncate(checkpoint.callable_sources); self.store.callable_values.truncate(checkpoint.callable_values); self.store.invocation_sources.truncate(checkpoint.invocation_sources); self.store.invocation_plans.truncate(checkpoint.invocation_plans); self.store.callable_instructions.clear(); self.store.invocation_instructions.clear(); self.store.instruction_origins.truncate(checkpoint.instruction_origins); self.store.checked_functions.truncate(checkpoint.checked_functions); self.store.checked_function_index.clear(); self.store.stage_call_sources.truncate(checkpoint.stage_call_sources); self.store.ground_stage_calls.truncate(checkpoint.ground_stage_calls); self.store.ground_stage_call_instructions.clear();
         self.canonical_templates.retain(|_, id| id.index < checkpoint.templates as u32);
         self.canonical_instances.retain(|_, id| id.index < checkpoint.instances as u32);
@@ -2056,6 +2422,26 @@ impl GenericEvidenceBuilder {
     }
     pub(super) fn finish(mut self, pools: &SemanticPools, function_count: usize, instruction_owners: &[Option<InstructionOwner>]) -> Result<GenericEvidenceStore, IrVerifyError> {
         self.store.iterations.finish();
+        self.store.records.finish(self.store.root);
+        self.store.comprehensions.finish();
+        self.store.compiler_wrappers.finish_indexes();
+        self.store.indices.finish_indexes();
+        self.store.containers.finish();
+        self.store.record_constructors.finish(self.store.root);
+        self.store.mutables.finish();
+        self.store.native_scalars.finish();
+        self.store.try_captures.finish(self.store.root);
+        self.store.context_producers.finish();
+        self.store.stages.finish_indexes();
+        self.store.error_constructors.finish_indexes();
+        self.store.bridges.finish();
+        self.store.mutable_paths.finish();
+        self.store.host_bindings.finish();
+        self.store.lexical_captures.finish();
+        self.store.constants.finish(self.store.root);
+        self.store.record_updates.finish(self.store.root);
+        self.store.conditionals.finish();
+        self.store.paths.finish();
         self.store.operation_requirements.finish(self.store.root);
         self.store.values.finish();
         self.store.callable_receivers.finish_indexes();
@@ -2164,7 +2550,7 @@ impl GenericEvidenceBuilder {
                         crate::sema::inference::CallableKind::Proc => CallableKind::Proc,
                         crate::sema::inference::CallableKind::Stream => return Err(failure("stream callable template requires its producer protocol")),
                     };
-                    let crate::sema::inference::EffectSummary::Closed(effects) = arrow.effects else { return Err(failure("callable template effects require an exact closed authority")); };
+                    let crate::sema::inference::EffectSummary::Closed(effects) = graph.closed_effect_summary(arrow.effects).map_err(|_| failure("callable template effects are foreign"))? else { return Err(failure("callable template effects require an exact closed authority")); };
                     let parameters = arrow.params.iter().map(|parameter| {
                         prepare(builder, graph, scheme, parameter.ty, pools, semantic, active).map(|ty| TemplateParameter {
                             label: parameter.label, ty, mode: ParameterMode::PositionalOrNamed, defaulted: parameter.defaulted, rest: parameter.rest,
@@ -2172,6 +2558,10 @@ impl GenericEvidenceBuilder {
                     }).collect::<Result<Vec<_>, _>>()?;
                     let result = prepare(builder, graph, scheme, arrow.result, pools, semantic, active)?;
                     TypeRef::Template(builder.add_template(TypeTemplate::Arrow { kind, parameters: parameters.into_boxed_slice(), result, effects: callable_types::effect_names(effects) })?)
+                }
+                TypeNode::NativeCallable(callable) if !callable.alternatives.is_empty()
+                    && callable.alternatives.iter().all(|authority| matches!(authority, crate::sema::inference::CallableAuthority::User { .. })) => {
+                    prepare(builder, graph, scheme, callable.signature, pools, semantic, active)?
                 }
                 TypeNode::Optional(inner) => { let inner = prepare(builder, graph, scheme, *inner, pools, semantic, active)?; TypeRef::Template(builder.add_template(TypeTemplate::Optional(inner))?) },
                 TypeNode::List(inner) => { let inner = prepare(builder, graph, scheme, *inner, pools, semantic, active)?; TypeRef::Template(builder.add_template(TypeTemplate::List(inner))?) },
@@ -2211,6 +2601,8 @@ impl GenericEvidenceBuilder {
         prepare(self, graph, scheme, id, pools, semantic, &mut Vec::new())
     }
     pub(super) fn scope(&self, id: SchemeScopeId) -> Result<&SchemeScope, IrVerifyError> { self.store.scope(id) }
+    pub(super) fn operations(&self) -> impl Iterator<Item = (OperationId, &PreparedOperation)> { self.store.operations() }
+    pub(super) fn operation_source(&self, id: OperationSourceId) -> Result<&OperationSource, IrVerifyError> { self.store.operation_source(id) }
     pub(super) fn instance(&self, id: InstantiationId) -> Result<&Instantiation, IrVerifyError> { self.store.instance(id) }
     pub(super) fn layout(&self, id: PhysicalLayoutId) -> Result<&PhysicalLayout, IrVerifyError> { self.store.layout(id) }
     pub(super) fn forwarding(&self, id: ForwardingId) -> Result<&ForwardingPlan, IrVerifyError> { self.store.forwarding(id) }
@@ -2334,6 +2726,7 @@ impl GenericEvidenceStore {
                             domain == source_domain && arguments.len() == source_arguments.len() && normalize(*callable)? == caller_type(*source_callable)? && normalize(*result)? == caller_type(*source_result)?
                                 && arguments.iter().zip(source_arguments).map(|(argument, source)| Ok(argument.kind == source.kind && normalize(argument.ty)? == caller_type(source.ty)?)).collect::<Result<Vec<_>, IrVerifyError>>()?.into_iter().all(|valid| valid)
                         },
+                        (Requirement::Eligibility { predicate, ty }, Requirement::Eligibility { predicate: source_predicate, ty: source_ty }) => predicate == source_predicate && normalize(*ty)? == caller_type(*source_ty)?,
                         (Requirement::Add { left, right, result }, Requirement::Add { left: source_left, right: source_right, result: source_result }) => normalize(*left)? == caller_type(*source_left)? && normalize(*right)? == caller_type(*source_right)? && normalize(*result)? == caller_type(*source_result)?,
                         (Requirement::Projection { receiver, field, result, .. }, Requirement::Projection { receiver: source_receiver, field: source_field, result: source_result, .. }) => field == source_field && normalize(*receiver)? == caller_type(*source_receiver)? && normalize(*result)? == caller_type(*source_result)?,
                         _ => false,
@@ -2341,6 +2734,11 @@ impl GenericEvidenceStore {
                     if !valid { return Err(failure("forwarded requirement disagrees with the symbolic declaration map")); }
                 }
                 ForwardedRequirement::Fixed(witness) => match (requirement, *witness) {
+                    (Requirement::Eligibility { predicate, ty }, RequirementWitness::Eligibility { predicate: actual_predicate, ty: actual }) => {
+                        if *predicate != actual_predicate || normalize(*ty)? != Self::normalized_ground_type(pools, actual)? || !predicate.accepts_closed_display(&pools.to_type(actual)?) {
+                            return Err(failure("fixed eligibility witness changes its scoped requirement"));
+                        }
+                    }
                     (Requirement::Add { left, right, result }, RequirementWitness::Add { operation, left: actual_left, right: actual_right, result: actual_result }) => {
                         if normalize(*left)? != normalize_ground(pools.to_type(actual_left)?) || normalize(*right)? != normalize_ground(pools.to_type(actual_right)?) || normalize(*result)? != normalize_ground(pools.to_type(actual_result)?) { return Err(failure("fixed operation evidence cannot discharge a varying symbolic requirement")); }
                         let valid = match operation { ConcreteOperationId::AddInt => matches!(pools.type_tag(actual_left)?, TypeTag::Int | TypeTag::UInt) && matches!(pools.type_tag(actual_right)?, TypeTag::Int | TypeTag::UInt) && pools.type_tag(actual_result)? == TypeTag::Int, ConcreteOperationId::AddFloat => pools.type_tag(actual_left)? == TypeTag::Float && pools.type_tag(actual_right)? == TypeTag::Float && pools.type_tag(actual_result)? == TypeTag::Float, ConcreteOperationId::AddStr => pools.type_tag(actual_left)? == TypeTag::Str && pools.type_tag(actual_right)? == TypeTag::Str && pools.type_tag(actual_result)? == TypeTag::Str };
@@ -2370,19 +2768,25 @@ impl GenericEvidenceStore {
     pub(super) fn reference_equals_ground(&self, pools: &SemanticPools, scope: SchemeScopeId, reference: TypeRef, ground: crate::sema::types::Type) -> Result<bool, IrVerifyError> {
         Ok(self.normalized(pools, self.scope(scope)?, reference, None, &mut Vec::new())? == normalize_ground(ground))
     }
-    pub(super) fn call_result_matches(&self, pools: &SemanticPools, scope: SchemeScopeId, instruction: u32, reference: TypeRef) -> Result<bool, IrVerifyError> {
+    fn normalized_call_result(&self, pools: &SemanticPools, scope: SchemeScopeId, instruction: u32) -> Result<NormalizedType, IrVerifyError> {
         let call = self.call(instruction).ok_or_else(|| failure("symbolic source call lacks prepared evidence"))?;
-        let expected = self.normalized(pools, self.scope(scope)?, reference, None, &mut Vec::new())?;
-        let actual = match call.evidence {
-            CallEvidence::Ground(id) => Self::normalized_ground_type(pools, self.instance(id)?.result_type)?,
+        match call.evidence {
+            CallEvidence::Ground(id) => Self::normalized_ground_type(pools, self.instance(id)?.result_type),
             CallEvidence::Forwarded(id) => {
                 let plan = self.forwarding(id)?;
                 if plan.caller != scope { return Err(failure("symbolic source call belongs to another scope")); }
                 let substitutions = plan.substitutions.iter().map(|&reference| self.normalized(pools, self.scope(scope)?, reference, None, &mut Vec::new())).collect::<Result<Vec<_>, _>>()?;
                 let target = self.scope(plan.callee)?;
-                self.normalized(pools, target, target.result, Some(&substitutions), &mut Vec::new())?
+                self.normalized(pools, target, target.result, Some(&substitutions), &mut Vec::new())
             }
-        };
-        Ok(expected == actual)
+        }
     }
+    pub(super) fn call_result_matches(&self, pools: &SemanticPools, scope: SchemeScopeId, instruction: u32, reference: TypeRef) -> Result<bool, IrVerifyError> {
+        let expected = self.normalized(pools, self.scope(scope)?, reference, None, &mut Vec::new())?;
+        Ok(expected == self.normalized_call_result(pools, scope, instruction)?)
+    }
+    pub(super) fn call_result_equals_ground(&self, pools: &SemanticPools, scope: SchemeScopeId, instruction: u32, ground: crate::sema::types::Type) -> Result<bool, IrVerifyError> {
+        Ok(normalize_ground(ground) == self.normalized_call_result(pools, scope, instruction)?)
+    }
+
 }

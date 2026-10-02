@@ -1,5 +1,19 @@
 use super::*;
 
+// Stage parameters belong to the authored callback block and ordinal. They
+// have no ordinary declaration binding target; retain their actual allocated
+// slots and source reads before the block's lexical names leave scope.
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildStageBlockCallbackOrigin {
+    pub stage: crate::sema::check::StageIdentity,
+    pub block: BlockId,
+    pub parameters: Box<[Option<(Name, Span)>]>,
+    pub slots: Box<[usize]>,
+    pub initial: Option<BuildExprId>,
+    pub value: BuildExprId,
+    pub reads: Box<[(BuildExprId, ExpressionIdentity, u32)]>,
+}
+
 impl CompactLowerConstructProbe<'_, '_> {
     // Legacy output-shape inspection can export only a closed declaration.
     // Callback lowering instead consumes the checked invocation instance.
@@ -161,7 +175,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::UniqueBy { slot, key });
                 }
                 let (slot, key) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::UniqueBy { slot, key })
             }
             StreamStageKind::GroupBy => {
@@ -171,7 +185,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::GroupBy { slot, key });
                 }
                 let (slot, key) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::GroupBy { slot, key })
             }
             StreamStageKind::Count => {
@@ -193,7 +207,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::Count);
                 }
                 let (slot, key) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::CountBy { slot, key })
             }
             StreamStageKind::Where => {
@@ -204,12 +218,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::Where { slot, predicate });
                 }
                 if let Some((slot, predicate)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)
                 {
                     return Some(LoweredPipelineStage::Where { slot, predicate });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::WhereBlock { slot, body, value })
             }
             StreamStageKind::Map => {
@@ -232,12 +246,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::Map { slot, value });
                 }
                 if let Some((slot, value)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)
                 {
                     return Some(LoweredPipelineStage::Map { slot, value });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::MapBlock { slot, body, value })
             }
             StreamStageKind::FlatMap => {
@@ -248,12 +262,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::FlatMap { slot, value });
                 }
                 if let Some((slot, value)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)
                 {
                     return Some(LoweredPipelineStage::FlatMap { slot, value });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::FlatMapBlock { slot, body, value })
             }
             StreamStageKind::Any => {
@@ -264,12 +278,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::Any { slot, predicate });
                 }
                 if let Some((slot, predicate)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)
                 {
                     return Some(LoweredPipelineStage::Any { slot, predicate });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::AnyBlock { slot, body, value })
             }
             StreamStageKind::All => {
@@ -280,12 +294,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(LoweredPipelineStage::All { slot, predicate });
                 }
                 if let Some((slot, predicate)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, identity)
                 {
                     return Some(LoweredPipelineStage::All { slot, predicate });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty, identity)?;
                 Some(LoweredPipelineStage::AllBlock { slot, body, value })
             }
             StreamStageKind::Take | StreamStageKind::Drop => None,
@@ -387,6 +401,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         item_ty: Option<&Type>,
         initial: BuildExprId,
         acc_ty: Option<Type>,
+        identity: Option<crate::sema::check::StageIdentity>,
     ) -> Option<LoweredPipelineStage> {
         let block = stage.block?;
         let saved = slots.enter();
@@ -418,11 +433,13 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             _ => slots.reserve("pipeline.item"),
         };
+        let first_callback_row = self.scratch.borrow().expressions.len();
         let body = Vec::new();
         let value = match self.lower_block_value_expr(block, slots, current_function, Some(item_slot)) {
             Some(value) => value,
             None => { slots.exit(saved); return None; }
         };
+        self.record_original_stage_block_callback(identity, block, &[acc_slot, item_slot], Some(initial), value, first_callback_row)?;
         slots.exit(saved);
         Some(LoweredPipelineStage::Fold {
             acc_slot,
@@ -433,17 +450,51 @@ impl CompactLowerConstructProbe<'_, '_> {
         })
     }
 
+    fn record_original_stage_block_callback(
+        &mut self, identity: Option<crate::sema::check::StageIdentity>, block: BlockId,
+        ports: &[usize], initial: Option<BuildExprId>, value: BuildExprId, first_row: usize,
+    ) -> Option<()> {
+        let Some(identity) = identity else { return Some(()); };
+        let params = self.program.arena.block_params(self.program.arena.block(block).params);
+        let parameters = if params.is_empty() && ports.len() == 1 {
+            vec![None]
+        } else if params.len() == ports.len() {
+            params.iter().map(|parameter| Some((parameter.name, self.program.arena.span(parameter.span)))).collect()
+        } else { return Some(()); };
+        let mut reads = Vec::new();
+        for (&row, &origin) in &self.expression_origins {
+            if row.index() < first_row { continue; }
+            let Some(BuildExprRow::Param(slot)) = self.scratch.borrow().expressions.get(row.index()).cloned() else { continue; };
+            let Some(port) = ports.iter().position(|&port| port == slot) else { continue; };
+            let belongs = match (parameters[port], self.program.arena.expr(origin.expression).kind) {
+                (Some((parameter, _)), ArenaExprKind::Ident(name)) => parameter == name,
+                (None, ArenaExprKind::Item) => true,
+                _ => false,
+            };
+            if !belongs { return None; }
+            reads.push((row, origin, port as u32));
+        }
+        reads.sort_by_key(|(row, _, _)| row.index());
+        self.scratch.borrow_mut().stage_block_callback_origins.insert(value, BuildStageBlockCallbackOrigin {
+            stage: identity, block, parameters: parameters.into_boxed_slice(), slots: ports.into(),
+            initial, value, reads: reads.into_boxed_slice(),
+        });
+        Some(())
+    }
+
     pub(super) fn lower_pipeline_stage_expr(
         &mut self,
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_ty: Option<&Type>,
+        identity: Option<crate::sema::check::StageIdentity>,
     ) -> Option<(usize, BuildExprId)> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
         let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
+        let first_callback_row = self.scratch.borrow().expressions.len();
         let lowered = match statements.as_slice() {
             [stmt] => self.lower_tail_stmt_as_expr(*stmt, slots, current_function, Some(slot))
                 .or_else(|| self.lower_block_value_expr(block, slots, current_function, Some(slot))),
@@ -456,6 +507,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 return None;
             }
         };
+        self.record_original_stage_block_callback(identity, block, &[slot], None, expr, first_callback_row)?;
         cleanup_pipeline_stage_item_slot(slots, cleanup, slot);
         Some((slot, expr))
     }
@@ -466,6 +518,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_ty: Option<&Type>,
+        identity: Option<crate::sema::check::StageIdentity>,
     ) -> Option<(usize, Vec<BuildStmtId>, BuildExprId)> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
@@ -479,6 +532,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 return None;
             }
         };
+        let first_callback_row = self.scratch.borrow().expressions.len();
         let mut body = Vec::with_capacity(prefix.len());
         for stmt in prefix {
             let Some(lowered) =
@@ -496,6 +550,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 return None;
             }
         };
+        self.record_original_stage_block_callback(identity, block, &[slot], None, value, first_callback_row)?;
         slots.exit(saved);
         Some((slot, body, value))
     }
@@ -579,15 +634,15 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if let Some((slot, value)) = callback {
                     return Some(LoweredPipelineStage::ParMap { slot, jobs, value });
                 }
-                if let Some((slot, value)) = self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty) {
+                if let Some((slot, value)) = self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, Some(identity)) {
                     return Some(LoweredPipelineStage::ParMap { slot, jobs, value });
                 }
-                let (slot, body, value) = self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                let (slot, body, value) = self.lower_pipeline_stage_block(stage, slots, current_function, item_ty, Some(identity))?;
                 Some(LoweredPipelineStage::ParMapBlock { slot, body, jobs, value })
             }
             StreamStageKind::Sort => Some(LoweredPipelineStage::Sort { descending: values[0].map(|value| wrap(self, value)) }),
             StreamStageKind::SortBy => {
-                let (slot, key) = callback.or_else(|| self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty))?;
+                let (slot, key) = callback.or_else(|| self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, Some(identity)))?;
                 Some(LoweredPipelineStage::SortBy { slot, key, descending: values[0].map(|value| wrap(self, value)) })
             }
             StreamStageKind::Batch => match values.as_slice() {
@@ -597,7 +652,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 _ => Some(LoweredPipelineStage::BatchLimits { configuration: record(self) }),
             },
             StreamStageKind::ReduceBy => {
-                let (item_slot, value) = callback.or_else(|| self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty))?;
+                let (item_slot, value) = callback.or_else(|| self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty, Some(identity)))?;
                 let body = Vec::new();
                 if booleans[..3].iter().all(Option::is_some) {
                     let op = match booleans[..3].iter().position(|value| *value == Some(true))? { 0 => ReduceByOp::Sum, 1 => ReduceByOp::Min, _ => ReduceByOp::Max };
@@ -615,7 +670,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             StreamStageKind::Zip => Some(LoweredPipelineStage::Zip { other: wrap(self, values[0]?) }),
             StreamStageKind::Fold | StreamStageKind::Reduce => {
                 let initial = wrap(self, values[0]?);
-                self.lower_pipeline_stage_fold(stage, slots, current_function, item_ty, initial, types[0].clone())
+                self.lower_pipeline_stage_fold(stage, slots, current_function, item_ty, initial, types[0].clone(), Some(identity))
             }
             StreamStageKind::Shuffle => Some(LoweredPipelineStage::Shuffle { seed: values[0].map(|value| wrap(self, value)) }),
             StreamStageKind::TablePrint => Some(match values[0] {

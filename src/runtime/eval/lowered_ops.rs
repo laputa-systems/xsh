@@ -1030,6 +1030,13 @@ fn lowered_result_from_runtime(value: &ResultValue) -> Option<LoweredValue> {
 }
 
 pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
+    // Shaped storage carries the physical slots of validated records through
+    // host calls and recursively through lists, maps, tags, and Results.
+    if matches!(value, RecordMap::Shaped { .. } | RecordMap::SparseShaped(_)) {
+        return Some(LoweredValue::RecordVec(Arc::new(value.owned_key_iter()
+            .map(|(key, value)| Some((Name::intern(key.as_str()), lowered_value_from_runtime_any(value)?)))
+            .collect::<Option<Vec<_>>>()?)));
+    }
     let mut record = BTreeMap::new();
     for (key, value) in value.owned_key_iter() {
         record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);

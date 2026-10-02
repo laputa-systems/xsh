@@ -252,9 +252,7 @@ impl Checker {
                 for (ty, contribution) in returns {
                     let ty = self.graph_type(&ty, contribution)?;
                     if let Some(previous) = payload {
-                        let mut state = self.generic.borrow_mut();
-                        let reason = state.facts.graph.reason(contribution, None)?;
-                        state.facts.graph.unify(previous, ty, reason)?;
+                        payload = Some(self.join_graph_return_types(previous, ty, contribution)?);
                     } else { payload = Some(ty); }
                 }
                 let payload = payload.ok_or(InferenceError::Unresolved(result))?;
@@ -377,6 +375,17 @@ impl Checker {
 
     pub(super) fn graph_call(&mut self, arena: &ArenaProgram, source: &str, callee: ExprId, args: &[ArenaCallArg], span: Span) -> Option<Type> {
         if self.stage_ground_call_adapter { return None; }
+        // A known declaration still evaluates its authored .call receiver.
+        // Retain that read's actual checked type and lexical owner before
+        // declaration invocation bypasses the computed-call path.
+        if self.graph_generation
+            && let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
+            && name == "call" && self.graph_callable_target(arena, base).is_some()
+            && self.current_expression.is_some_and(|expression| !self.generic.borrow().facts.calls.contains_key(&self.expression_identity(arena, expression))) {
+            let caller = self.current_generic;
+            let ty = self.check_expr_arena(arena, source, base, None);
+            if !matches!(ty, Type::Graph(_)) || !self.retain_graph_callable_receiver_owner(arena, base, caller) { return Some(Type::Invalid); }
+        }
         let target = self.graph_callable_target(arena, callee)?;
         let declaration = target.declaration?;
         let def = arena.arena.function_def(declaration.declaration);
@@ -945,8 +954,10 @@ impl Checker {
             || self.generic.borrow().facts.registry_boundaries.contains_key(&identity)
             || self.generic.borrow().facts.registry_references.contains_key(&identity)
             || self.generic.borrow().facts.record_updates.contains_key(&identity)
+            || self.generic.borrow().facts.projections.contains_key(&identity)
             || self.generic.borrow().facts.constructor_applications.contains_key(&identity)
-            || self.generic.borrow().facts.schema_validations.contains_key(&identity) { return; }
+            || self.generic.borrow().facts.schema_validations.contains_key(&identity)
+            || self.generic.borrow().facts.spawn_operations.contains_key(&identity) { return; }
         if self.constructor_group_depth > 0 && ty.contains_inference() {
             if !self.pending_constructor_expressions.contains_key(&identity) {
                 let charged = (|| {
@@ -1027,6 +1038,31 @@ impl Checker {
         }
     }
 
+    /// A fixed record selection uses the receiver's checked source root. When
+    /// the source needed no earlier graph consumer, that checked row is
+    /// published once before its field constraint is created.
+    pub(super) fn graph_checked_record_projection(&mut self, arena: &ArenaProgram, id: ExprId, base: ExprId, field: Name, checked: &Type) -> Type {
+        if !self.graph_generation {
+            let key = self.expression_identity(arena, id);
+            return self.generic.borrow().facts.projections.get(&key).map(|projection| self.graph_view(projection.result)).unwrap_or(Type::Invalid);
+        }
+        let origin = self.expression_identity(arena, base);
+        let existing = self.generic.borrow().facts.expressions.get(&origin).copied();
+        let receiver = match existing {
+            Some(receiver) => receiver,
+            None => match self.graph_type(checked, arena.arena.expr(base).span) {
+                Ok(receiver) => {
+                    let mut state = self.generic.borrow_mut();
+                    state.facts.expressions.insert(origin, receiver);
+                    if let Some(owner) = self.current_generic { state.facts.expression_owners.insert(origin, owner); }
+                    receiver
+                }
+                Err(error) => { self.graph_error(arena.arena.expr(base).span, error); return Type::Invalid; }
+            },
+        };
+        self.graph_projection(arena, id, receiver, field)
+    }
+
     pub(super) fn graph_projection(&mut self, arena: &ArenaProgram, id: ExprId, receiver: TypeId, field: Name) -> Type {
         let key = self.expression_identity(arena, id);
         if !self.graph_generation {
@@ -1039,6 +1075,8 @@ impl Checker {
             let reason = state.facts.graph.reason(span, None)?;
             let result = state.facts.graph.require_field(receiver, field, level, reason)?;
             state.facts.projections.insert(key, SolvedProjection { receiver, field, result });
+            state.facts.expressions.insert(key, result);
+            if let Some(owner) = self.current_generic { state.facts.expression_owners.insert(key, owner); }
             Ok::<_, InferenceError>(result)
         })();
         match result { Ok(ty) => self.graph_view(ty), Err(error) => { self.graph_error(span, error); Type::Invalid } }
@@ -1065,3 +1103,7 @@ impl Checker {
         match outcome { Ok(ty) => self.graph_view(ty), Err(error) => { self.graph_error(span, error); Type::Invalid } }
     }
 }
+
+#[cfg(test)]
+#[path = "generic/record_projection_tests.rs"]
+mod record_projection_tests;

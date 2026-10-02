@@ -139,6 +139,8 @@ pub(crate) const LANGUAGE_AUTHORITIES: &[LanguageAuthority] = &[
     LanguageAuthority { id: "language.yield_delegation.Stream", family: "delegation", disposition: LanguageDisposition::ParametricTemplate },
 ];
 
+const ERROR_FIELD_AUTHORITY: LanguageAuthority = LanguageAuthority { id: "language.projection.error_message", family: "error_field", disposition: LanguageDisposition::FixedBoundary };
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ArithmeticDomain { Integer { left: Atom, right: Atom }, Float, Text, List, DurationPair, DurationScale { duration_left: bool }, DurationRatio, PathJoin { right: Atom } }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -163,6 +165,7 @@ pub(crate) enum PreparedLanguageOperation {
     Iteration { domain: IterableDomain, outer_result: bool },
     Index { map: bool },
     ConstantKeyProjection { field: Name },
+    ErrorField { receiver: Atom, field: Name },
     Slice(SliceDomain),
     Constructor { kind: ValueConstructor, arity: usize },
     Declaration { authority: &'static str, identity: Name },
@@ -492,6 +495,18 @@ impl OperationGraph {
         })
     }
 
+    pub(crate) fn error_field_family(&mut self, graph: &mut InferenceContext, receiver: Atom, field: Name) -> Result<OperationFamilyId, InferenceError> {
+        if field != "message" || !matches!(receiver, Atom::Error | Atom::ProcessError | Atom::ErrorFamily(_) | Atom::ErrorVariant { .. } | Atom::ErrorFacet(_)) {
+            return Err(InferenceError::Boundary("error message selection requires an exact checked error receiver"));
+        }
+        self.family(graph, format!("error_field.{receiver:?}.{field}"), |catalog, graph| {
+            let input = graph.atom(receiver)?;
+            let output = graph.atom(Atom::Str)?;
+            let contract = LanguageContract::new("language.projection.error_message".into(), PreparedLanguageOperation::ErrorField { receiver, field }, vec![input], output);
+            Ok(vec![catalog.candidate(graph, contract)?])
+        })
+    }
+
     pub(crate) fn declaration_family(&mut self, graph: &mut InferenceContext, authority_id: &'static str, identity: Name, scheme: SchemeId) -> Result<OperationFamilyId,InferenceError> {
         let descriptor = authority(authority_id)?;
         if descriptor.disposition != LanguageDisposition::ParametricTemplate { return Err(InferenceError::Boundary("declaration authority is not relational")); }
@@ -573,7 +588,7 @@ impl LanguageContract {
         Self { authority,operation,parameters,result,receiver:false,statement:false,relations,requirements:Vec::new(),effects:EffectSummary::Closed(EffectSet::EMPTY) }
     }
 }
-fn authority(id:&str)->Result<&'static LanguageAuthority,InferenceError> { LANGUAGE_AUTHORITIES.iter().find(|authority|authority.id==id).ok_or(InferenceError::Boundary("unknown frozen language authority")) }
+fn authority(id:&str)->Result<&'static LanguageAuthority,InferenceError> { LANGUAGE_AUTHORITIES.iter().chain(std::iter::once(&ERROR_FIELD_AUTHORITY)).find(|authority|authority.id==id).ok_or(InferenceError::Boundary("unknown frozen language authority")) }
 
 fn arithmetic_domains(op:BinaryOp,compound:bool)->Vec<ArithmeticDomain> {
     let mut domains = Vec::new();
@@ -685,6 +700,16 @@ mod tests {
             assert!(observed.insert(authority.id,class).is_none()); assert!(!authority.family.is_empty());
         }
         assert_eq!(observed,expected);
+    }
+
+    #[test]
+    fn error_field_authority_is_canonical_without_rewriting_the_frozen_inventory() {
+        assert_eq!(LANGUAGE_AUTHORITIES.len(), 125);
+        assert!(!LANGUAGE_AUTHORITIES.iter().any(|entry| entry.id == ERROR_FIELD_AUTHORITY.id));
+        let selected = authority("language.projection.error_message").unwrap();
+        assert_eq!(selected.id, ERROR_FIELD_AUTHORITY.id);
+        assert_eq!(selected.family, "error_field");
+        assert_eq!(selected.disposition, LanguageDisposition::FixedBoundary);
     }
 
     #[test]

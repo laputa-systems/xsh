@@ -821,24 +821,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
                 return;
             }
         };
-        let namespace = self.arena.name(&crate::stdlib::namespace_text(identity));
-        let text = self
-            .sources
-            .get(source_id)
-            .expect("embedded source was just inserted")
-            .text();
-        let parsed = self.arena.with_internal_source(|arena| {
-            Parser::parse_source_into_arena_builder(source_id, text, arena)
-        });
-        if !parsed.diagnostics.is_empty() {
-            self.diagnostics.extend(parsed.diagnostics);
-            return;
-        }
-        self.arena.push_internal_arena_module(
-            module.label.to_string(),
-            namespace,
-            parsed.statements,
-        );
+        self.diagnostics.extend(self.arena.parse_catalog_arena_module(module, source_id));
     }
 
     fn load_module(&mut self, importer: &Path, path: &[Name], span: Span) -> Option<String> {

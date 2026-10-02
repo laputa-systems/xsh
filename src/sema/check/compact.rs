@@ -630,12 +630,13 @@ struct CompactBinding {
     mutable: bool,
     unrefined_ty: Option<Type>,
     proof: super::proof::BindingProof,
+    original_binding: Option<super::BindingIdentity>,
     boolean_proof: Option<std::sync::Arc<super::proof::ConditionNarrowings>>,
 }
 
 impl CompactBinding {
     fn new(ty: Type, mutable: bool) -> Self {
-        Self { ty, mutable, unrefined_ty: None, proof: super::proof::BindingProof::default(), boolean_proof: None }
+        Self { ty, mutable, unrefined_ty: None, proof: super::proof::BindingProof::default(), original_binding: None, boolean_proof: None }
     }
 }
 
@@ -726,7 +727,14 @@ impl CompactBodyProbe<'_> {
                     (_, ArenaExprKind::Null) => left, (ArenaExprKind::Null, _) => right, _ => return C::default(),
                 };
                 let Some((name, path, Type::Optional(inner))) = self.compact_subject(subject) else { return C::default(); };
-                let proof = true_fact(name, path, *inner);
+                let mut proof = true_fact(name, path, *inner);
+                if let Some(binding) = self.lookup_binding(name).and_then(|binding| binding.original_binding) {
+                    let predicate = super::ExpressionIdentity { source: self.program.arena.expr(expr).span.source_id, namespace: self.current_namespace, expression: expr };
+                    let subject = super::ExpressionIdentity { expression: subject, ..predicate };
+                    for fact in &mut proof.when_true { fact.source = Some(std::sync::Arc::new(super::proof::PredicateSource {
+                        binding, predicate, subject, nonnull_when_true: op == BinaryOp::Ne, aliases: Vec::new(), guard: None,
+                    })); }
+                }
                 if op == BinaryOp::Ne { proof } else { C { when_true: proof.when_false, when_false: proof.when_true } }
             }
             ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
@@ -952,9 +960,24 @@ impl CompactBodyProbe<'_> {
                         else { Some(std::sync::Arc::new(self.compact_condition_proof(expr))) }
                     } else { None }
                 } else { None };
+                let mut boolean_proof = boolean_proof;
+                let identity = super::BindingIdentity { source: stmt.span.source_id, namespace: self.current_namespace, target };
+                if let Some(proof) = &mut boolean_proof && let ArenaExprOrRun::Expr(expression) = initializer {
+                    let alias = super::SolvedRefinementAlias { binding: identity,
+                        statement: super::StatementIdentity { source: stmt.span.source_id, namespace: self.current_namespace, statement: id },
+                        initializer: super::ExpressionIdentity { source: self.program.arena.expr(expression).span.source_id, namespace: self.current_namespace, expression },
+                    };
+                    let facts = std::sync::Arc::make_mut(proof);
+                    for fact in facts.when_true.iter_mut().chain(facts.when_false.iter_mut()) {
+                        if let Some(source) = &mut fact.source {
+                            if source.aliases.len() < 128 { std::sync::Arc::make_mut(source).aliases.push(alias.clone()); }
+                            else { fact.source = None; }
+                        }
+                    }
+                }
                 self.define_binding_target(target, binding_ty, mutable);
                 if let ArenaBindingTargetKind::Name(name) = self.program.arena.binding_target(target).kind {
-                    if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.boolean_proof = boolean_proof; }
+                    if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.original_binding = Some(identity); binding.boolean_proof = boolean_proof; }
                 }
             }
             ArenaStmtKind::Assign { target, value, op } => {
@@ -1231,6 +1254,7 @@ impl CompactBodyProbe<'_> {
             source: self.program.arena.span(self.program.arena.block(def.body).span).source_id,
             namespace: self.current_namespace, declaration: id,
         };
+        if self.declarations.solved.embedded_bridge(identity).is_some() { return; }
         if let Some(callable) = self.declarations.solved.declarations.get(&identity) {
             if let Ok(TypeNode::Arrow(arrow)) = self.declarations.solved.graph.node(callable.signature) {
                 let result = self.declarations.solved.graph.export_type(arrow.result).unwrap_or(Type::Graph(arrow.result));

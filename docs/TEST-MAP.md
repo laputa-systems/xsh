@@ -63,6 +63,47 @@ selector checks original direct calls, multi-field spread evaluation once,
 source order, lexical defaults, frontend disposal, and both actual execution
 routes; this is separate from cold compiler-temporary proof activation.
 
+`cargo test -p xsh --lib direct_native_parse_int_` checks the selected integer
+parser producer through a typed call boundary on both workers, including cold
+refusal of missing, foreign and jointly rewritten method receipts.
+
+`cargo test -p xsh --lib direct_native_materialized_lines_` checks text and byte
+line item domains, empty input and line endings, and original List collection
+receipts on both workers after frontend disposal.
+
+`cargo test -p xsh --lib direct_native_stream_collect_` checks original range
+and suspended script carriers, collection after frontend disposal, lazy
+creation and cancellation, and cold refusal of missing, foreign and changed
+receiver carriers on both workers.
+
+`cargo test -p xsh --lib direct_native_text_` checks word and split producers,
+named source order, an omitted split limit and fully supplied limits, plus
+cold refusal of foreign receivers and jointly rewritten default packets.
+
+`cargo test -p xsh --lib direct_native_text_bytes_family_` checks representative
+nondefault Str and Bytes methods, trimmed views, named argument order, boolean,
+list, Digest and Result carriers, and refusal of missing, foreign and jointly
+rewritten numeric authority on both workers. It does not enumerate every
+canonical method row.
+
+`cargo test -p xsh --lib direct_native_text_byte_slice_` checks byte offsets,
+omitted and named lengths, UTF-8 boundaries, and cold refusal of missing,
+foreign and jointly rewritten default receipts on both workers.
+
+`cargo test -p xsh --lib direct_native_fs_children_` checks the specialized
+filesystem listing packet, omitted and named options, the original entry
+stream domain, and cold refusal of missing, foreign and changed operation or
+default receipts on both workers.
+
+`cargo test -p xsh --lib direct_native_digest_methods_` checks nominal Digest
+parameters and nested hash producers on both workers, including cold refusal
+of missing, foreign and jointly rewritten encoding receipts.
+
+`cargo test -p xsh --lib direct_native_record_arguments_` checks finite native
+spread fields after frontend disposal on both execution routes. It preserves
+record entry and formal ordinals and refuses changed fields, missing receipts,
+foreign saved records and removed compiler allocations before host writes.
+
 `cargo test -p xsh --lib module_reuse_tests` covers checked diamond reuse,
 private module capture owners, import order, nested imports and root shadows,
 fresh dependency bundles, frontend disposal, and both indexed call routes.
@@ -84,6 +125,51 @@ area touched. Agents do not run formatters or linters; leave gates that invoke
 them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
+
+## Declared JSON admission and inferred Result joins
+
+`target/debug/xsht test --jobs 1 tests/xsh/stdlib/json-inference-admission.xsh`
+checks heterogeneous declared JSON literals, finite splices, dynamic child
+validation, file preservation, and ordinary list refusals. Build the exact debug
+xsht product before running it. `cargo test -p xsh --lib dynamic_result` checks
+definition-owned error joins, unchanged success/error bounds, explicit dynamic
+validation, and independent effect permissions.
+
+`target/debug/xsht test --jobs 1 tests/xsh/stdlib/json-path-inference-admission.xsh`
+checks heterogeneous path segments and runtime segment validation independently
+of the line encoder. `target/debug/xsht test --jobs 1 tests/xsh/stdlib/json-write-lines-inference-admission.xsh`
+checks ordered heterogeneous writes and preserves the previous file on a
+non-JSON child failure. `embedded_bridge` and `original_native_bridge` library
+filters cover exact catalog declarations, genuine native invocations, and
+rewritten or foreign authority after frontend disposal.
+`cargo test -p xsh --lib original_lexical_capture` checks
+original capture allocation and read authority, both routes after frontend
+disposal, cold forgery refusals, and checkpoint retirement. The existing
+`runtime::eval::callable_value::tests` filter owns host value transport.
+
+`cargo test -p xsh --lib live_mutable_capture_` checks nested writes, deferred
+updates, reads after supplied argument evaluation, defaults, scalar reads
+within one expression and stored callable aliases on both workers after
+frontend disposal. `live_capture_cells::tests` checks original allocation
+sharing and refusal of missing, foreign or substituted cells.
+
+`target/debug/xsht test --jobs 1 tests/xsh/guard-success.xsh` checks lexical
+success bindings, shadows, typed continuations, and failure-handler visibility.
+`cargo test -p xsh --lib spawn_scopes_release_body_handles_before_defers_and_close_on_error_and_forced_abort_on_both_workers`
+checks process ownership through function defaults and lexical blocks after
+frontend disposal, including deferred observation, checked errors, and forced
+abort. The existing Spawn receipt tests separately force both indexed routes.
+
+`cargo test -p xsh --lib original_language_comparison` checks checked comparison
+results supplied to generic arguments after frontend disposal and refuses
+missing, foreign and changed result authority. `original_error_field` checks
+concrete Error message projections and preserves explicit Any field rejection.
+`checked_null_guard_reads` owns checker refinement provenance;
+`mutable_guarded_record_read` owns its cold transport and mutation controls.
+`prepared_program_refuses_missing_and_foreign_complete_evidence` checks removal
+or replacement of the complete evidence owner before verification and worker
+entry. `result_receiver_prepare::tests` checks generated Result postfix
+receivers independently of their authored carriers.
 
 ## Declaration inference and prepared generic execution
 
@@ -324,6 +410,13 @@ covers discovery, stable file/name IDs, isolation, legacy migration diagnostics,
 and rejection at the CLI boundary. Test bodies use `test NAME { ... }`, or
 `test NAME [effects] { |ctx| ... }` for context helpers. Maintain exact old names
 when migrating existing harness entrypoints; new declarations need no prefix.
+
+The native test host returns records with canonical field slots or sparse
+defaults. `native_test_host_record_` in
+`src/runtime/eval/lowered_run/native_test_host_record_tests.rs` checks that the
+host bridge retains every field, including nested extra payloads, and refuses
+nonrecord carriers. `target/debug/xsht test --jobs 1 tests/xsh/guard-success.xsh`
+also exercises this bridge through checker rejection scripts.
 
 ## Bare lexical blocks
 

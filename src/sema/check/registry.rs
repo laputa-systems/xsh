@@ -55,6 +55,7 @@ impl Checker {
                 Ok((Some(family), shapes))
             })()?;
             let Some(family) = family else { return Ok(Type::Invalid); };
+            let literal_contexts = self.graph_registry_list_literal_contexts(arena, module, name, args, span)?;
             let supplied_checked = checked.is_some();
             let mut checked = checked.unwrap_or_default();
             for arg in args {
@@ -68,7 +69,9 @@ impl Checker {
                 }
                 let previous_schema = self.expected_schema.take();
                 self.expected_schema = Some(crate::sema::constants::SchemaExpectation::default());
-                let actual = self.check_expr_arena(arena, source, value, None);
+                let expected_list = Type::List(Box::new(Type::Any));
+                let context = literal_contexts.declared_erasure.contains(&value).then_some(&expected_list);
+                let actual = self.check_expr_arena(arena, source, value, context);
                 self.expected_schema = previous_schema;
                 checked.insert(value, actual);
             }

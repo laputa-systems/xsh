@@ -11,13 +11,26 @@ impl Evaluator {
         let header = program.function_view_by_id(contract.target).map_err(|error| indexed_error(error, span))?.header().map_err(|error| indexed_error(error, span))?;
         let mut captures = Vec::with_capacity(header.captures.len());
         for capture in &header.captures {
+            if capture.mutable {
+                let cell = self.live_capture_cells.lock().expect("live capture registry is not poisoned")
+                    .capture_cell(&program, contract.target, capture.slot, span)?;
+                captures.push(RuntimeCallableCapture { slot: capture.slot, value: cell.value().into_value(), host_binding: None, live_cell: Some(cell) });
+                continue;
+            }
+            if let Some(binding) = capture.host_binding {
+                let (id, source) = evidence.host_binding_capture_for_slot(contract.target, capture.slot as u32).map_err(|error| indexed_error(error, span))?
+                    .ok_or_else(|| RuntimeError::new("indexed-ir", "callable host capture lost its original allocation").with_span(span))?;
+                if source.binding != binding { return Err(RuntimeError::new("indexed-ir", "callable host capture changed its original binding").with_span(span)); }
+                let host = super::super::super::host_environment::CapturedHostBinding::new(&self.host_environment, id);
+                captures.push(RuntimeCallableCapture { slot: capture.slot, value: host.value(), host_binding: Some(host), live_cell: None });
+                continue;
+            }
             let owner = contract.declaration.namespace;
-            let binding = if let Some(bindings) = owner.and_then(|owner| self.indexed_module_bindings.get(&owner))
-                && capture.name != Name::intern("args") {
+            let binding = if let Some(bindings) = owner.and_then(|owner| self.indexed_module_bindings.get(&owner)) {
                 bindings.get(&capture.name)
             } else { self.lookup(capture.name) };
             let binding = binding.ok_or_else(|| RuntimeError::new("unknown-name", "callable creation lost its original capture binding").with_span(span))?;
-            captures.push(RuntimeCallableCapture { slot: capture.slot, value: binding.value.clone() });
+            captures.push(RuntimeCallableCapture { slot: capture.slot, value: binding.value.clone(), host_binding: None, live_cell: None });
         }
         RuntimeCallableValue::new(program, id, captures).map(LoweredValue::Callable).map(Some).map_err(|error| error.with_span(span))
     }
@@ -80,7 +93,7 @@ impl Evaluator {
 
     pub(super) fn hydrate_indexed_callable_environment(captures: &[RuntimeCallableCapture], slots: &mut [LoweredValue], span: Span) -> Result<(), RuntimeError> {
         for capture in captures {
-            let value = lowered_value_from_runtime_any(&capture.value).ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable capture cannot cross the value boundary").with_span(span))?;
+            let value = lowered_value_from_runtime_any(&capture.captured_value()).ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable capture cannot cross the value boundary").with_span(span))?;
             let slot = slots.get_mut(capture.slot).ok_or_else(|| RuntimeError::new("indexed-ir", "prepared callable capture slot is out of bounds").with_span(span))?;
             *slot = value;
         }

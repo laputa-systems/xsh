@@ -24,10 +24,18 @@ fn same_arguments(graph: &crate::sema::inference::InferenceContext, original: &[
 
 fn authority(solved: &SolvedTypes, candidate: crate::sema::inference::CandidateId) -> Result<PreparedOperationAuthority, IrBuildError> {
     let crate::sema::check::SolvedOperationAuthority::Language(metadata) = solved.operation_catalog.candidate(&solved.graph, candidate).map_err(|_| unavailable("scoped_operation_candidate_authority"))? else { return Err(unavailable("scoped_operation_nonlanguage_authority")); };
-    if metadata.operation != (PreparedLanguageOperation::Constructor { kind: ValueConstructor::Ok, arity: 1 }) {
+    if !matches!(metadata.operation, PreparedLanguageOperation::Constructor { kind: ValueConstructor::Ok | ValueConstructor::Err, arity: 1 }) {
         return Err(unavailable("scoped_operation_constructor_not_prepared"));
     }
     Ok(PreparedOperationAuthority::Language { identity: metadata.identity, authority: metadata.authority, operation: metadata.operation, argument_order: metadata.argument_order, statement_result_is_unit: metadata.statement_result_is_unit })
+}
+
+fn constructor_operand(tag: FullTag, code: ScopedOperationCode, words: &[u32]) -> Option<u32> {
+    match (tag, code, words) {
+        (FullTag::ExprOk, ScopedOperationCode::ResultOk, [operand])
+        | (FullTag::ExprErr, ScopedOperationCode::ResultErr, [operand, 0]) => Some(*operand),
+        _ => None,
+    }
 }
 
 impl FullBuilder {
@@ -76,20 +84,21 @@ impl FullBuilder {
             let RequirementTemplate::Operation { family, call } = original_scheme.requirements[index] else { continue; };
             let Requirement::Operation(expected) = self.prepare_scoped_operation_requirement(solved, scheme, family, call)? else { unreachable!() };
             if self.generic.as_ref().unwrap().scope(scope).map_err(|_| unavailable("scoped_operation_source_scope"))?.requirements.get(index) != Some(&Requirement::Operation(expected.clone()))
-                || self.store.tags.get(instruction as usize) != Some(&FullTag::ExprOk) || owner != InstructionOwner::Function(self.generic.as_ref().unwrap().scope(scope).unwrap().owner)
+                || owner != InstructionOwner::Function(self.generic.as_ref().unwrap().scope(scope).unwrap().owner)
                 || operation.binding.supplied_slots != [0] || !operation.binding.default_slots.is_empty() || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some() || !operation.argument_coercions.is_empty() { return Err(unavailable("scoped_operation_original_instruction")); }
             let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| unavailable("scoped_operation_instruction_payload"))?;
-            let [operand] = words else { return Err(unavailable("scoped_operation_original_operand_count")); };
+            let operand = constructor_operand(self.store.tags[instruction as usize], expected.code().map_err(|_| unavailable("scoped_operation_original_code"))?, words)
+                .ok_or_else(|| unavailable("scoped_operation_original_operand_count"))?;
             let recipes = solved.argument_sources.get(&origin).ok_or_else(|| unavailable("scoped_operation_original_argument_source"))?;
             let [recipe] = recipes.as_slice() else { return Err(unavailable("scoped_operation_original_argument_count")); };
             let crate::sema::arguments::ArgumentValueSource::Expression(expression) = recipe.value else { return Err(unavailable("scoped_operation_original_argument_form")); };
-            let &(actual_origin, actual_owner) = origins.get(operand).ok_or_else(|| unavailable("scoped_operation_operand_origin"))?;
+            let &(actual_origin, actual_owner) = origins.get(&operand).ok_or_else(|| unavailable("scoped_operation_operand_origin"))?;
             if actual_origin.expression != expression || actual_origin.source != origin.source || actual_origin.namespace != origin.namespace || actual_owner != owner || recipe.name.is_some() {
                 return Err(unavailable("scoped_operation_original_operand"));
             }
             let obligations = self.scoped_operation_obligations(solved, operation.requirement, &mut work)?.into_boxed_slice();
             let source = ScopedOperationSource { origin, instruction, scope, requirement: index as u32, original_requirement: operation.requirement, obligations,
-                arguments: vec![PreparedInvocationArgument { original: recipe.clone(), instruction: *operand, ty: expected.arguments[0] }].into_boxed_slice(), expected };
+                arguments: vec![PreparedInvocationArgument { original: recipe.clone(), instruction: operand, ty: expected.arguments[0] }].into_boxed_slice(), expected };
             self.generic_evidence_mut().add_scoped_operation_source(source).map_err(|_| unavailable("scoped_operation_source_allocation"))?;
             self.generic_evidence_mut().add_requirement_use(super::super::generic::SolvedRequirementUse { instruction, scope, requirement: index as u32 });
         }
@@ -120,7 +129,7 @@ impl FullBuilder {
         let arguments = selected.actual_arguments.iter().map(|ty| closed(self, ty.ok_or_else(|| unavailable("scoped_operation_contextual_argument"))?)).collect::<Result<Vec<_>, _>>()?;
         let result = closed(self, selected.result)?;
         if closed(self, call.result)? != result { return Err(unavailable("scoped_operation_contextual_result")); }
-        let witness = ScopedOperationWitness { source: source_id, signature, arguments: arguments.into_boxed_slice(), result, operation: ScopedOperationCode::ResultOk,
+        let witness = ScopedOperationWitness { source: source_id, signature, arguments: arguments.into_boxed_slice(), result, operation: source.expected.code().map_err(|_| unavailable("scoped_operation_contextual_code"))?,
             authority: source.expected.authority, effects: PreparedOperationEffects { creation: empty_effects(graph, selected.effects)?, inputs: Box::new([]), outputs: Box::new([]) } };
         Ok(RequirementWitness::Operation(self.generic_evidence_mut().add_scoped_operation_witness(witness).map_err(|_| unavailable("scoped_operation_witness_allocation"))?))
     }
@@ -164,7 +173,8 @@ impl FullVerifier {
     pub(super) fn verify_scoped_operation_instruction(store: &FullStore, generic: &GenericEvidenceStore, instruction: u32) -> Result<(), IrVerifyError> {
         let id = generic.scoped_operation_source_at(instruction)?.ok_or_else(|| IrVerifyError::new("scoped operation source is missing"))?;
         let source = generic.scoped_operation_source(id)?;
-        if store.tags.get(instruction as usize) != Some(&FullTag::ExprOk) || source.arguments.len() != 1 || store.payload(store.data[instruction as usize].range())? != [source.arguments[0].instruction] {
+        let tag = *store.tags.get(instruction as usize).ok_or_else(|| IrVerifyError::new("scoped operation instruction is missing"))?;
+        if source.arguments.len() != 1 || constructor_operand(tag, source.expected.code()?, store.payload(store.data[instruction as usize].range())?) != Some(source.arguments[0].instruction) {
             return Err(IrVerifyError::new("scoped operation changes its original constructor instruction"));
         }
         Self::verify_generic_symbolic_source(store, generic, source.arguments[0].instruction, source.scope, source.arguments[0].ty, &mut Vec::new())
@@ -204,6 +214,94 @@ mod tests {
     }
 
     const FORWARDED: &str = "pure preserved(value, unused) { let observation = unused; match Ok(value) { Ok(original) => original, Err(_) => value } }\npure forwarded(value, unused) { preserved(value, unused) }\nprint ${forwarded(7, false)}\nprint ${forwarded(\"word\", 9)}\nprint ${forwarded(\"next\", true)}\nprint ${forwarded(11, \"other\")}\n";
+
+    const FORWARDED_ERR: &str = "pure preserved(value, unused) { let observation = unused; match Err(value) { Err(original) => original, Ok(original) => original } }\npure forwarded(value, unused) { preserved(value, unused) }\nprint ${forwarded(7, false)}\nprint ${forwarded(\"word\", 9)}\n";
+
+    #[test]
+    fn scoped_err_forwarding_preserves_error_payload_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            for recursive in [false, true] {
+                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                    "scoped-err-forwarding.xsh", crate::loader::entry_source_from_text("scoped-err-forwarding.xsh", FORWARDED_ERR.to_owned()), Vec::new());
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let source_id = SourceMap::files(&sources).first().unwrap().id();
+                let checked = Checker::check_arena(&parsed.arena, FORWARDED_ERR);
+                assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                let weak = Arc::downgrade(&checked.solved);
+                let counters = checked.solved.graph.counters().clone();
+                let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources);
+                let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked).unwrap();
+                assert_eq!(checked.solved.graph.counters(), &counters);
+                drop(checked); drop(parsed);
+                assert!(weak.upgrade().is_none());
+                let program = evaluator.indexed_program.as_ref().unwrap();
+                let generic = program.generic_evidence().unwrap();
+                let (source_id, source) = generic.scoped_operation_sources().next().unwrap();
+                assert_eq!(generic.scoped_operation_sources().count(), 1);
+                assert_eq!(program.store.tags[source.instruction as usize], FullTag::ExprErr);
+                for (_, instance) in generic.instances().filter(|(_, instance)| instance.scope == source.scope) {
+                    let RequirementWitness::Operation(witness) = instance.requirements[source.requirement as usize] else { panic!(); };
+                    let witness = generic.scoped_operation_witness(witness).unwrap();
+                    assert_eq!(witness.source, source_id);
+                    assert_eq!(witness.operation, ScopedOperationCode::ResultErr);
+                    assert_eq!(program.store.semantic.type_children(witness.result).unwrap().unwrap().1, Some(witness.arguments[0]));
+                }
+                let symbols = program.symbol_owner().clone();
+                let target = symbols.with_current(|| LoweredFunctionKey::Name(Name::intern("preserved")));
+                let execute = || symbols.with_current(|| evaluator.try_eval_installed_compact_indexed_only_inner(plan)
+                    .unwrap_or_else(|_| panic!("prepared error forwarding program remains installed")));
+                let output = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(target, recursive, execute);
+                assert_eq!(output.status, 0, "{:?}; {:?}", output.diagnostics, output.traceback);
+                assert_eq!(output.stdout, b"7\nword\n");
+                assert!(output.stderr.is_empty()); assert!(output.diagnostics.is_empty());
+            }
+        });
+    }
+
+    #[test]
+    fn scoped_err_rejects_changed_constructor_payload_and_active_owner() {
+        crate::runtime::eval::run_eval(|| {
+            let program = prepared(FORWARDED_ERR);
+            let _symbols = program.symbol_owner().enter();
+            let generic = program.generic_evidence().unwrap();
+            let (source_id, source) = generic.scoped_operation_sources().next().unwrap();
+            let scope = generic.scope(source.scope).unwrap();
+            let other = program.store.function_instruction_range(scope.owner.index()).unwrap().find(|&instruction| {
+                program.store.tags[instruction] == FullTag::ExprParam && program.store.payload(program.store.data[instruction].range()).unwrap() == [1]
+            }).unwrap();
+            let range = program.store.data[source.instruction as usize].range().bounds(program.store.extra.len()).unwrap();
+            let mut swapped = program.clone();
+            swapped.store.extra[range.start] = other as u32;
+            assert!(FullVerifier::verify(&swapped).is_err(), "Err retains the error operand's original binder");
+
+            let mut changed_kind = program.clone();
+            changed_kind.store.tags[source.instruction as usize] = FullTag::ExprOk;
+            assert!(FullVerifier::verify(&changed_kind).is_err(), "equal Result branches do not authorize another constructor");
+
+            let (instance_id, instance) = generic.instances().find(|(_, instance)| instance.scope == source.scope).unwrap();
+            let RequirementWitness::Operation(witness_id) = instance.requirements[source.requirement as usize] else { panic!() };
+            let mut changed_witness = program.clone();
+            changed_witness.store.generic.as_mut().unwrap().test_scoped_operation_witness_mut(witness_id).unwrap().operation = ScopedOperationCode::ResultOk;
+            assert!(FullVerifier::verify(&changed_witness).is_err(), "the witness must retain its selected error authority");
+            let foreign_frame = generic.instances().find(|(_, instance)| instance.scope != source.scope).unwrap().0;
+            assert_eq!(generic.scoped_operation_authority(source.instruction, Some(instance_id)).unwrap(), Some(ScopedOperationCode::ResultErr));
+            assert!(generic.scoped_operation_authority(source.instruction, Some(foreign_frame)).is_err());
+            assert!(generic.scoped_operation_authority(source.instruction, None).is_err());
+            let foreign = prepared(FORWARDED_ERR);
+            assert!(foreign.generic_evidence().unwrap().scoped_operation_source(source_id).is_err());
+
+            let unused = prepared("pure preserved(value, other) { match Err(value) { Err(original) => original, Ok(original) => original } }\npure forwarded(value, other) { preserved(value, other) }\n");
+            let _unused_symbols = unused.symbol_owner().enter();
+            let evidence = unused.generic_evidence().unwrap();
+            let (_, source) = evidence.scoped_operation_sources().next().unwrap();
+            let scope = evidence.scope(source.scope).unwrap();
+            assert_eq!(evidence.instances().count(), 0);
+            assert_eq!(source.expected.arguments[0], scope.parameters[0]);
+            assert!(matches!(source.expected.arguments[0], TypeRef::Rigid(_)));
+            assert_ne!(scope.parameters[0], scope.parameters[1]);
+            assert!(source.obligations.iter().any(|obligation| obligation.scope != source.scope));
+        });
+    }
 
     fn prepared(source: &str) -> FullProgram {
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
@@ -252,11 +350,11 @@ mod tests {
                     assert_eq!(witness.operation, ScopedOperationCode::ResultOk);
                 }
                 let symbols = program.symbol_owner().clone();
+                let target = symbols.with_current(|| LoweredFunctionKey::Name(Name::intern("preserved")));
                 let execute = || symbols.with_current(|| {
-                    assert_eq!(crate::runtime::eval::lowered_run::recursive_fast_path_forced(), recursive);
                     evaluator.try_eval_installed_compact_indexed_only_inner(plan).unwrap_or_else(|_| panic!("prepared program remains installed"))
                 });
-                let output = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) } else { execute() };
+                let output = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(target, recursive, execute);
                 assert_eq!(output.status, 0, "{:?}; {:?}", output.diagnostics, output.traceback);
                 assert_eq!(output.stdout, b"7\nword\nnext\n11\n");
                 assert!(output.stderr.is_empty()); assert!(output.diagnostics.is_empty());

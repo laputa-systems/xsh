@@ -3,6 +3,23 @@ use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type
 use crate::syntax::node::Effect;
 use std::collections::BTreeMap;
 
+impl Atom {
+    pub(crate) fn from_type(ty: &Type) -> Option<Self> {
+        Some(match ty {
+            Type::Any => Atom::Any, Type::ErasedRecord => Atom::ErasedRecord, Type::DynamicModule => Atom::DynamicModule,
+            Type::Null => Atom::Null, Type::Bool => Atom::Bool, Type::Int => Atom::Int, Type::UInt => Atom::UInt,
+            Type::Float => Atom::Float, Type::Duration => Atom::Duration, Type::Str => Atom::Str, Type::Bytes => Atom::Bytes,
+            Type::Digest => Atom::Digest, Type::Regex => Atom::Regex, Type::Path => Atom::Path, Type::Unit => Atom::Unit,
+            Type::Status => Atom::Status, Type::EnvPathList => Atom::EnvPathList, Type::Error => Atom::Error,
+            Type::ProcessError => Atom::ProcessError, Type::ProcessHandle => Atom::ProcessHandle, Type::NetJob => Atom::NetJob, Type::FsRoot => Atom::FsRoot,
+            Type::Pure => Atom::Pure, Type::Proc => Atom::Proc, Type::Command => Atom::Command,
+            Type::Tag(name) => Atom::Tag(*name), Type::ErrorFamily(name) => Atom::ErrorFamily(*name), Type::ErrorFacet(name) => Atom::ErrorFacet(*name),
+            Type::ErrorVariant { family, variant } => Atom::ErrorVariant { family: *family, variant: *variant },
+            _ => return None,
+        })
+    }
+}
+
 impl InferenceContext {
     /// Trees are bounded input/output views of the graph. They never decide
     /// compatibility, infer generic relationships, or manufacture dynamic types.
@@ -37,15 +54,6 @@ impl InferenceContext {
         self.work()?;
         if depth > self.limits.structural_depth { return Err(InferenceError::Limit("boundary view depth")); }
         let atom = match ty {
-            Type::Any => Atom::Any, Type::ErasedRecord => Atom::ErasedRecord, Type::DynamicModule => Atom::DynamicModule,
-            Type::Null => Atom::Null, Type::Bool => Atom::Bool, Type::Int => Atom::Int, Type::UInt => Atom::UInt,
-            Type::Float => Atom::Float, Type::Duration => Atom::Duration, Type::Str => Atom::Str, Type::Bytes => Atom::Bytes,
-            Type::Digest => Atom::Digest, Type::Regex => Atom::Regex, Type::Path => Atom::Path, Type::Unit => Atom::Unit,
-            Type::Status => Atom::Status, Type::EnvPathList => Atom::EnvPathList, Type::Error => Atom::Error,
-            Type::ProcessError => Atom::ProcessError, Type::ProcessHandle => Atom::ProcessHandle, Type::NetJob => Atom::NetJob, Type::FsRoot => Atom::FsRoot,
-            Type::Pure => Atom::Pure, Type::Proc => Atom::Proc, Type::Command => Atom::Command,
-            Type::Tag(name) => Atom::Tag(*name), Type::ErrorFamily(name) => Atom::ErrorFamily(*name), Type::ErrorFacet(name) => Atom::ErrorFacet(*name),
-            Type::ErrorVariant { family, variant } => Atom::ErrorVariant { family: *family, variant: *variant },
             Type::Graph(id) => { self.node(*id)?; return Ok(*id); }
             Type::Unknown | Type::Invalid => return self.poison(),
             Type::Inference(id) if shared => return self.shared_variable(*id, level, origin),
@@ -76,6 +84,7 @@ impl InferenceContext {
                 }
                 return self.module(fields);
             }
+            ty => Atom::from_type(ty).ok_or(InferenceError::Boundary("type view is not an atom"))?,
         };
         self.atom(atom)
     }

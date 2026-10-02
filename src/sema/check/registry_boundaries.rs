@@ -18,6 +18,21 @@ pub(crate) struct CommandArgvChild {
     pub requirement: RequirementId,
 }
 
+/// A declared JSON list carrier preserves each original child and its guard.
+/// Erasing the carrier does not authorize encoding an incompatible child.
+#[derive(Clone, Debug)]
+pub(crate) struct JsonListChild {
+    pub source: super::ExpressionIdentity,
+    pub actual: TypeId,
+    pub splice: bool,
+    pub requirement: RequirementId,
+}
+
+pub(super) struct RegistryListLiteralContexts {
+    pub declared_erasure: std::collections::BTreeSet<crate::syntax::arena::ExprId>,
+    pub json_compatible: std::collections::BTreeSet<crate::syntax::arena::ExprId>,
+}
+
 /// A source boundary refines a value only after its independent validation or
 /// descriptor contract. Its canonical operation certificate remains unchanged.
 #[derive(Clone, Debug)]
@@ -26,6 +41,7 @@ pub(crate) enum RegistryBoundaryKind {
     HashAlgorithm { algorithm: Name },
     SchemaValidation { schema: RegistrySchema, mode: RegistryValidationMode },
     CommandArguments { argv_children: Vec<CommandArgvChild> },
+    JsonArguments { children: Vec<JsonListChild> },
 }
 
 #[derive(Clone, Debug)]
@@ -41,11 +57,15 @@ impl SolvedRegistryBoundary {
     pub(crate) fn retained_bytes(&self) -> usize {
         match &self.kind {
             RegistryBoundaryKind::CommandArguments { argv_children } => argv_children.capacity() * std::mem::size_of::<CommandArgvChild>(),
+            RegistryBoundaryKind::JsonArguments { children } => children.capacity() * std::mem::size_of::<JsonListChild>(),
             _ => 0,
         }
     }
     pub(crate) fn shared_descriptor(&self) -> Option<&Arc<crate::modules::cli::CliDescriptorPlan>> {
         if let RegistryBoundaryKind::CliDescriptor { plan, .. } = &self.kind { Some(plan) } else { None }
+    }
+    pub(crate) fn descriptor_operation(&self) -> Option<RuntimeOp> {
+        if let RegistryBoundaryKind::CliDescriptor { operation, .. } = self.kind { Some(operation) } else { None }
     }
 }
 
@@ -125,7 +145,155 @@ impl RegistryArrowReference {
     }
 }
 
+impl<Graph> super::SolvedTypes<Graph> {
+    pub(super) fn validate_json_literal_boundaries(
+        &self, graph: &crate::sema::inference::InferenceContext,
+    ) -> Result<(), crate::sema::inference::InferenceError> {
+        use crate::sema::inference::InferenceError;
+        for &identity in self.operations.keys() {
+            if self.original_json_literal_children(identity, graph)?.is_some()
+                && !self.registry_boundaries.get(&identity).is_some_and(|boundary| matches!(boundary.kind, RegistryBoundaryKind::JsonArguments { .. })) {
+                return Err(InferenceError::InvalidScheme);
+            }
+        }
+        Ok(())
+    }
+
+    /// Canonical formals authorize literal erasure; the original aggregate
+    /// topology authenticates every child independently of its retained guard.
+    pub(super) fn validate_json_arguments(
+        &self, identity: super::ExpressionIdentity, boundary: &SolvedRegistryBoundary,
+        graph: &crate::sema::inference::InferenceContext,
+    ) -> Result<(), crate::sema::inference::InferenceError> {
+        use crate::sema::inference::{Eligibility, InferenceError, RequirementTemplate};
+        let RegistryBoundaryKind::JsonArguments { children } = &boundary.kind else { return Ok(()); };
+        let requirement = boundary.requirement.ok_or(InferenceError::InvalidScheme)?;
+        let operation = self.operations.get(&identity).ok_or(InferenceError::InvalidScheme)?;
+        if operation.requirement != requirement || operation.caller != boundary.caller { return Err(InferenceError::InvalidScheme); }
+        let expected = self.original_json_literal_children(identity, graph)?.ok_or(InferenceError::InvalidScheme)?;
+        if expected.len() != children.len() { return Err(InferenceError::InvalidScheme); }
+        for (child, (source, splice)) in children.iter().zip(expected) {
+            if child.source != source || child.splice != splice || self.expression_owners.get(&child.source).copied() != boundary.caller { return Err(InferenceError::InvalidScheme); }
+            let original = self.expressions.get(&child.source).ok_or(InferenceError::InvalidScheme)?;
+            let RequirementTemplate::Eligibility { predicate, ty } = graph.requirement_template(child.requirement)? else { return Err(InferenceError::InvalidScheme); };
+            if predicate != Eligibility::JsonCompatible || graph.resolved(ty)? != graph.resolved(child.actual)? || graph.resolved(*original)? != graph.resolved(child.actual)? { return Err(InferenceError::InvalidScheme); }
+        }
+        Ok(())
+    }
+
+    fn original_json_literal_children(
+        &self, identity: super::ExpressionIdentity, graph: &crate::sema::inference::InferenceContext,
+    ) -> Result<Option<Vec<(super::ExpressionIdentity, bool)>>, crate::sema::inference::InferenceError> {
+        use crate::sema::inference::{ArgumentRelation, Atom, Eligibility, InferenceError, RequirementTemplate, TypeNode};
+        use super::{ProducerFlowKind, ProducerFlowSource, ProducerPathComponent};
+        let operation = self.operations.get(&identity).ok_or(InferenceError::InvalidScheme)?;
+        let RequirementTemplate::Operation { family, call } = graph.requirement_template(operation.requirement)? else { return Err(InferenceError::InvalidScheme); };
+        let call = graph.operation_call(call)?;
+        if call.receiver.is_some() || !matches!(call.binding, crate::sema::inference::OperationBinding::Slots) { return Ok(None); }
+        let candidates = graph.family(family)?;
+        if candidates.is_empty() { return Err(InferenceError::InvalidScheme); }
+        let mut json_guard = false;
+        for &candidate in candidates { json_guard |= graph.candidate(candidate)?.actual_eligibility.iter().any(|(_, predicate)| *predicate == Eligibility::JsonCompatible); }
+        if !json_guard { return Ok(None); }
+        let arguments = self.argument_sources.get(&identity).ok_or(InferenceError::InvalidScheme)?;
+        if arguments.len() != operation.binding.supplied_slots.len() || arguments.len() != operation.actual_arguments.len() { return Err(InferenceError::InvalidScheme); }
+        let mut expected = Vec::new();
+        let mut literals = 0;
+        for (index, (argument, &slot)) in arguments.iter().zip(&operation.binding.supplied_slots).enumerate() {
+            let mut admitted = true;
+            for &candidate in candidates {
+                let super::SolvedOperationAuthority::Registry(authority) = self.operation_catalog.candidate(graph, candidate)? else { admitted = false; continue; };
+                let template = graph.candidate(candidate)?;
+                let TypeNode::Arrow(arrow) = graph.node(graph.scheme(authority.scheme)?.body)? else { return Err(InferenceError::InvalidScheme); };
+                let Some(parameter) = arrow.params.get(slot) else { return Err(InferenceError::InvalidScheme); };
+                let list_any = match graph.node(parameter.ty)? {
+                    TypeNode::List(item) => matches!(graph.node(*item)?, TypeNode::Atom(Atom::Any)),
+                    _ => false,
+                };
+                admitted &= list_any && template.actual_eligibility.contains(&(slot, Eligibility::JsonCompatible))
+                    && template.argument_relations.get(slot) == Some(&ArgumentRelation::DeclaredErasure);
+            }
+            if !admitted { continue; }
+            let crate::sema::arguments::ArgumentValueSource::Expression(expression) = argument.value else { continue; };
+            let literal = super::ExpressionIdentity { expression, ..identity };
+            let first = super::ComprehensionIdentity { expression: literal, qualifier: 0 };
+            let last = super::ComprehensionIdentity { expression: literal, qualifier: u32::MAX };
+            if self.comprehension_operations.range(first..=last).next().is_some() { continue; }
+            let flow = *self.expression_producer_flows.get(&literal).ok_or(InferenceError::InvalidScheme)?;
+            let original = self.producer_flows.node(flow)?;
+            if original.source != ProducerFlowSource::Expression(literal) { return Err(InferenceError::InvalidScheme); }
+            let ProducerFlowKind::Aggregate { entries } = &original.kind else { continue; };
+            let actual = self.expressions.get(&literal).ok_or(InferenceError::InvalidScheme)?;
+            if call.arguments.get(slot).copied().flatten().map(|actual| graph.resolved(actual)).transpose()? != Some(graph.resolved(operation.actual_arguments[index])?) {
+                return Err(InferenceError::InvalidScheme);
+            }
+            let TypeNode::List(item) = graph.node(graph.resolved(*actual)?)? else { return Err(InferenceError::InvalidScheme); };
+            if !matches!(graph.node(graph.resolved(*item)?)?, TypeNode::Atom(Atom::Any)) { continue; }
+            let TypeNode::List(item) = graph.node(graph.resolved(operation.actual_arguments[index])?)? else { return Err(InferenceError::InvalidScheme); };
+            if !matches!(graph.node(graph.resolved(*item)?)?, TypeNode::Atom(Atom::Any)) { return Err(InferenceError::InvalidScheme); }
+            literals += 1;
+            for entry in entries {
+                if entry.path.0.as_slice() != [ProducerPathComponent::ListItem] { return Err(InferenceError::InvalidScheme); }
+                let node = self.producer_flows.node(entry.input)?;
+                let (node, splice) = if node.source == ProducerFlowSource::Expression(literal) {
+                    let ProducerFlowKind::Project { input, path } = &node.kind else { return Err(InferenceError::InvalidScheme); };
+                    if path.0.as_slice() != [ProducerPathComponent::ListItem] { return Err(InferenceError::InvalidScheme); }
+                    (self.producer_flows.node(*input)?, true)
+                } else { (node, false) };
+                let ProducerFlowSource::Expression(source) = node.source else { return Err(InferenceError::InvalidScheme); };
+                expected.push((source, splice));
+            }
+        }
+        Ok((literals != 0).then_some(expected))
+    }
+}
+
 impl super::Checker {
+    /// Only unanimous declared list erasure formals provide literal context. The
+    /// ordinary argument binder owns labels, omitted slots, and occupancy.
+    pub(super) fn graph_registry_list_literal_contexts(
+        &mut self, arena: &crate::syntax::arena::ArenaProgram, module: &str, name: &str,
+        args: &[crate::syntax::arena::ArenaCallArg], span: crate::source::Span,
+    ) -> Result<RegistryListLiteralContexts, crate::sema::inference::InferenceError> {
+        use crate::sema::inference::{Atom, Eligibility, TypeNode};
+        let Ok(expanded) = crate::sema::arguments::expand_named_arguments(arena, args, |_| None) else {
+            return Ok(RegistryListLiteralContexts { declared_erasure: std::collections::BTreeSet::new(), json_compatible: std::collections::BTreeSet::new() });
+        };
+        let mut state = self.generic.borrow_mut();
+        let super::generic::GenericState { facts, registry, .. } = &mut *state;
+        let family = registry.module_family(&mut facts.graph, module, name, span)?;
+        let mut common: Option<RegistryListLiteralContexts> = None;
+        for &candidate in facts.graph.family(family)? {
+            let metadata = registry.metadata(&facts.graph, candidate)?;
+            if self.in_pure && metadata.kind != crate::sema::inference::CallableKind::Pure { continue; }
+            let parameters: Vec<_> = metadata.parameters.iter().map(|parameter| crate::sema::types::CallableParamType {
+                name: parameter.label, ty: Type::Invalid, defaulted: parameter.defaulted, rest: false,
+            }).collect();
+            let Ok(binding) = crate::sema::arguments::bind_static_arguments(&parameters, &expanded) else { continue; };
+            let template = facts.graph.candidate(candidate)?;
+            let TypeNode::Arrow(arrow) = facts.graph.node(facts.graph.scheme(template.scheme)?.body)? else {
+                return Err(crate::sema::inference::InferenceError::InvalidScheme);
+            };
+            let mut contextual = std::collections::BTreeSet::new();
+            let mut json = std::collections::BTreeSet::new();
+            for (argument, &slot) in expanded.iter().zip(&binding.argument_slots) {
+                if template.argument_relations.get(slot) != Some(&crate::sema::inference::ArgumentRelation::DeclaredErasure) { continue; }
+                let TypeNode::List(item) = facts.graph.node(arrow.params[slot].ty)? else { continue; };
+                if !matches!(facts.graph.node(*item)?, TypeNode::Atom(Atom::Any)) { continue; }
+                if let crate::sema::arguments::ArgumentValueSource::Expression(value) = argument.value
+                    && matches!(arena.arena.expr(value).kind, crate::syntax::arena::ArenaExprKind::List(_)) {
+                    contextual.insert(value);
+                    if template.actual_eligibility.contains(&(slot, Eligibility::JsonCompatible)) { json.insert(value); }
+                }
+            }
+            if let Some(common) = &mut common {
+                common.declared_erasure = common.declared_erasure.intersection(&contextual).copied().collect();
+                common.json_compatible = common.json_compatible.intersection(&json).copied().collect();
+            } else { common = Some(RegistryListLiteralContexts { declared_erasure: contextual, json_compatible: json }); }
+        }
+        Ok(common.unwrap_or_else(|| RegistryListLiteralContexts { declared_erasure: std::collections::BTreeSet::new(), json_compatible: std::collections::BTreeSet::new() }))
+    }
+
     pub(super) fn registry_json_guard_rejected(&mut self, error: &crate::sema::inference::InferenceError) -> Result<bool, crate::sema::inference::InferenceError> {
         use crate::sema::inference::{Eligibility, InferenceError, OperationBinding, RequirementTemplate, TypeNode};
         let InferenceError::UnsupportedOperation(requirement) = error else { return Ok(false); };
@@ -465,14 +633,29 @@ impl super::Checker {
             return self.graph_view(result);
         }
         let outcome = (|| {
+            let literal_contexts = self.graph_registry_list_literal_contexts(arena, module, name, args, span)?;
+            let mut json_children = Vec::new();
             let mut checked = std::collections::BTreeMap::new();
             for argument in args {
                 let value = match argument.kind { Argument::Positional(value) | Argument::Named { value, .. }
                     | Argument::NamedSpread { value, .. } | Argument::Splice { value, .. } => value };
                 let previous = self.expected_schema.take();
-                let actual = self.check_expr_arena(arena, source, value, None);
+                let contextual = literal_contexts.declared_erasure.contains(&value).then(|| Type::List(Box::new(Type::Any)));
+                let actual = self.check_expr_arena(arena, source, value, contextual.as_ref());
                 self.expected_schema = previous;
                 checked.insert(value, actual);
+                if literal_contexts.json_compatible.contains(&value) && let Expression::List(items) = arena.arena.expr(value).kind {
+                    for item in arena.arena.list_elements(items) {
+                        let child_source = self.expression_identity(arena, item.value);
+                        let mut state = self.generic.borrow_mut();
+                        let actual = *state.facts.expressions.get(&child_source).ok_or(InferenceError::Boundary("JSON list child has no original checked type"))?;
+                        let reason = state.facts.graph.reason(arena.arena.expr(item.value).span, None)?;
+                        let requirement = state.facts.graph.require_eligibility(crate::sema::inference::Eligibility::JsonCompatible, actual, reason)?;
+                        state.facts.graph.solve()?;
+                        if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).ok_or(InferenceError::InvalidScheme)?.requirements.push(requirement); }
+                        json_children.push(JsonListChild { source: child_source, actual, splice: item.splice_span.is_some(), requirement });
+                    }
+                }
             }
             let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |value| checked.get(&value).cloned()) {
                 Ok(expanded) => expanded,
@@ -597,6 +780,11 @@ impl super::Checker {
             } else if let Some(algorithm) = hash_algorithm {
                 state.facts.registry_boundaries.insert(identity, SolvedRegistryBoundary { requirement: Some(requirement), input: result,
                     result, caller: self.current_generic, kind: RegistryBoundaryKind::HashAlgorithm { algorithm } });
+            } else if !literal_contexts.json_compatible.is_empty() {
+                state.facts.graph.charge_source_fact_nodes(1)?;
+                state.facts.graph.charge_source_fact_work(json_children.len() as u64 * 4 + 3)?;
+                state.facts.registry_boundaries.insert(identity, SolvedRegistryBoundary { requirement: Some(requirement), input: result,
+                    result: expression_result, caller: self.current_generic, kind: RegistryBoundaryKind::JsonArguments { children: json_children } });
             }
             if let Some(owner) = self.current_generic { state.facts.expression_owners.insert(identity, owner); }
             drop(state);
@@ -1203,6 +1391,168 @@ mod tests {
             }
         }
         checked.solved.validate().unwrap();
+    }
+
+    #[test]
+    fn source_json_path_declared_list_erasure_preserves_mixed_literal_children() {
+        for source in [
+            "let output = json.set({rows: [{name: \"first\"}]}, [\"rows\", 0, \"name\"], \"second\")\n",
+            "let output = json.set(replacement: 2, path: [\"rows\", 0], value: {rows: [1]})\n",
+            "let output = json.set({rows: [1]}, [\"rows\", 1.5], 2)\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+            assert!(checked.solved.registry_boundaries.is_empty(), "the path's runtime validation contract supplies its segment checks");
+            checked.solved.validate().unwrap();
+        }
+        let source = "let path = [\"rows\", 0]\nlet output = json.set({rows: [1]}, path, 2)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn source_json_list_admission_preserves_original_children() {
+        let source = "let output = json.encode_lines([1, \"two\", null, true])\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let operation = checked.solved.operations.values().next().unwrap();
+        assert_eq!(checked.solved.graph.export_type(operation.actual_arguments[0]).unwrap(), Type::List(Box::new(Type::Any)));
+        let boundary = checked.solved.registry_boundaries.values().next().unwrap();
+        let super::RegistryBoundaryKind::JsonArguments { children } = &boundary.kind else { panic!("JSON literal retains its original child guards") };
+        assert_eq!(children.len(), 4);
+        for (child, expected) in children.iter().zip([Type::Int, Type::Str, Type::Null, Type::Bool]) {
+            assert_eq!(checked.solved.graph.export_type(child.actual).unwrap(), expected);
+            assert_eq!(checked.solved.expressions[&child.source], child.actual);
+            assert!(!child.splice);
+            assert!(checked.solved.graph.eligibility_satisfied(child.requirement).unwrap());
+        }
+        checked.solved.validate().unwrap();
+    }
+
+    #[test]
+    fn source_json_list_admission_retains_nested_and_spliced_child_guards() {
+        for source in [
+            "let output = json.encode_lines([])\n",
+            "let output = json.encode_lines(values: [1, {name: \"two\"}, [true], null])\n",
+            "let words = [\"two\", \"three\"]\nlet output = json.encode_lines([1, @words, true])\n",
+            "pure encoded(value) { json.encode_lines([1, value]) }\nlet output = encoded(\"two\")\n",
+            "pure encoded(values) { json.encode_lines(values) }\nlet output = encoded([{valid: true}])\n",
+            "let values: List[Any] = [1, \"two\"]\nlet output = json.encode_lines(values)\n",
+            "let values: List[Any] = [1, \"two\"]\nlet output = json.encode_lines([value for value in values])\n",
+            "let values: List[Int]? = [1, 2]\nlet output = json.encode_lines([values])\n",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+            checked.solved.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn source_json_list_admission_rejects_incompatible_original_children_and_ordinary_lists() {
+        for (source, expected_code) in [
+            ("let output = json.encode_lines([1, Path(\"item\")])\n", Some("check.json-compatible")),
+            ("let output = json.encode_lines([{item: Path(\"item\")}])\n", Some("check.json-compatible")),
+            ("let paths = [Path(\"item\")]\nlet output = json.encode_lines([1, @paths])\n", Some("check.json-compatible")),
+            ("let output = json.encode_lines([b\"item\"])\n", Some("check.json-compatible")),
+            ("stream values() [] -> Stream[Int] { yield 1 }\nlet output = json.encode_lines([values()])\n", Some("check.json-compatible")),
+            ("stream values() [] -> Stream[Int] { yield 1 }\nlet output = json.encode(values())\n", Some("check.json-compatible")),
+            ("stream values() [] -> Stream[Int] { yield 1 }\nlet output = json.encode_lines([{payload: values()}])\n", Some("check.json-compatible")),
+            ("enum State { Ready }\nlet value: State = Ready\nlet output = json.encode_lines([value])\n", Some("check.json-compatible")),
+            ("pure encoded(value) { json.encode_lines([1, value]) }\nlet output = encoded(Path(\"item\"))\n", None),
+            ("let values = [1, \"two\", null, true]\nlet output = json.encode_lines(values)\n", Some("check.type-mismatch")),
+            ("let values: List[Int] = [1, \"two\"]\nlet output = json.encode_lines(values)\n", Some("check.type-mismatch")),
+            ("pure ordinary(values: List[Int]) { values }\nlet output = ordinary([1, \"two\"])\n", Some("check.type-mismatch")),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check."))), "{source}: {:?}", checked.diagnostics);
+            if let Some(expected_code) = expected_code {
+                assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some(expected_code)), "{source}: {:?}", checked.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn published_json_list_admission_rejects_changed_child_types_guards_and_boundary_authority() {
+        #[derive(Clone, Copy, Debug)]
+        enum Mutation { ChildType, ChildGuard, MissingRequirement, ForeignRequirement }
+        for mutation in [Mutation::ChildType, Mutation::ChildGuard, Mutation::MissingRequirement, Mutation::ForeignRequirement] {
+            let source = "let first = json.encode_lines([1, \"two\"])\nlet second = json.encode(1)\n";
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let mut checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            checked.solved.validate().unwrap();
+            let solved = std::sync::Arc::get_mut(&mut checked.solved).unwrap();
+            let identity = *solved.registry_boundaries.keys().next().unwrap();
+            let foreign_requirement = solved.operations.iter().find(|(source, _)| **source != identity).unwrap().1.requirement;
+            let boundary = solved.registry_boundaries.get_mut(&identity).unwrap();
+            let super::RegistryBoundaryKind::JsonArguments { children } = &mut boundary.kind else { panic!() };
+            match mutation {
+                Mutation::ChildType => children[0].actual = children[1].actual,
+                Mutation::ChildGuard => children[0].requirement = boundary.requirement.unwrap(),
+                Mutation::MissingRequirement => boundary.requirement = None,
+                Mutation::ForeignRequirement => boundary.requirement = Some(foreign_requirement),
+            }
+            assert!(solved.validate().is_err(), "JSON publication must refuse {mutation:?} without changing the original source");
+        }
+    }
+
+    #[test]
+    fn published_json_list_admission_rejects_an_omitted_original_child() {
+        let source = "let output = json.encode_lines([1, \"two\", null, true])\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        checked.solved.validate().unwrap();
+        let solved = std::sync::Arc::get_mut(&mut checked.solved).unwrap();
+        let boundary = solved.registry_boundaries.values_mut().next().unwrap();
+        let super::RegistryBoundaryKind::JsonArguments { children } = &mut boundary.kind else { panic!() };
+        children.pop().unwrap();
+        assert!(solved.validate().is_err(), "JSON publication must retain every original child guard");
+    }
+
+    #[test]
+    fn published_json_list_admission_rejects_a_missing_literal_boundary() {
+        let source = "let output = json.encode_lines([1, \"two\", null, true])\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        checked.solved.validate().unwrap();
+        let solved = std::sync::Arc::get_mut(&mut checked.solved).unwrap();
+        solved.registry_boundaries.clear();
+        assert!(solved.validate().is_err(), "the original JSON literal still requires its child admission boundary");
+    }
+
+    #[test]
+    fn published_json_list_admission_rejects_authority_attached_to_scalar_json() {
+        let source = "let first = json.encode_lines([1, \"two\"])\nlet second = json.encode(1)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        checked.solved.validate().unwrap();
+        let solved = std::sync::Arc::get_mut(&mut checked.solved).unwrap();
+        let original = *solved.registry_boundaries.keys().next().unwrap();
+        let mut boundary = solved.registry_boundaries[&original].clone();
+        let (&foreign, operation) = solved.operations.iter().find(|(source, _)| **source != original).unwrap();
+        boundary.requirement = Some(operation.requirement);
+        boundary.input = operation.result;
+        boundary.result = operation.result;
+        boundary.caller = operation.caller;
+        solved.registry_boundaries.insert(foreign, boundary);
+        assert!(solved.validate().is_err(), "the scalar JSON operation does not own declared List[Any] literal admission");
     }
 
     #[test]

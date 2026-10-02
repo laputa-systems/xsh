@@ -1,5 +1,15 @@
 use super::*;
 
+/// The saved receiver reads an immutable binding from its receiving declaration's
+/// original capture allocation, before a compiler temporary saves that value.
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildCapturedCallableReceiver {
+    pub caller: crate::sema::check::DeclarationIdentity,
+    pub slot: usize,
+    pub name: Name,
+    pub source_type: crate::sema::inference::ScopedRoot,
+}
+
 impl CompactLowerConstructProbe<'_, '_> {
     pub(super) fn record_original_callable_binding(
         &self, statement: StmtId, initializer: ExprId, slot: usize,
@@ -47,6 +57,60 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots.callable_binding_authorities.insert(name, binding_identity);
         Some(())
     }
+    pub(super) fn record_original_callable_receiver(
+        &self, base: ExprId, initializer: BuildExprId, read: BuildExprId, slot: usize, slots: &SlotScope,
+    ) -> Option<()> {
+        let origin = self.expression_identity(base);
+        let mut scratch = self.scratch.borrow_mut();
+        if let ArenaExprKind::Ident(name) = self.program.arena.expr(base).kind
+            && slots.captures.contains(&name)
+            && let Some(binding_identity) = self.top_level_known.get(&name)?.lexical_binding {
+            let solved = self.solved();
+            let binding = solved.bindings.get(&binding_identity)?;
+            let caller = *solved.expression_owners.get(&origin)?;
+            let flow = *solved.expression_producer_flows.get(&origin)?;
+            let node = solved.producer_flows.node(flow).ok()?;
+            let crate::sema::check::ProducerFlowKind::CapturedBinding { identity, version, input } = node.kind else { return None; };
+            let capture_slot = slots.resolve(name)?;
+            if binding.mutable || binding.owner == Some(caller) || identity != binding_identity
+                || node.source != crate::sema::check::ProducerFlowSource::Expression(origin)
+                || solved.binding_producer_flows.get(&(identity, version)) != Some(&input)
+                || !matches!(scratch.expressions.get(initializer.index())?, BuildExprRow::Param(actual) if *actual == capture_slot)
+                || initializer.index() >= read.index() || slot == capture_slot
+                || !matches!(scratch.expressions.get(read.index())?, BuildExprRow::Param(actual) if *actual == slot) { return None; }
+            let ty = *solved.expressions.get(&origin)?;
+            let source_type = crate::sema::inference::ScopedRoot { ty, scope: solved.expression_scope(origin, Some(caller)).ok()? };
+            solved.graph.validate_scoped(source_type).ok()?;
+            let Some(callable) = solved.expression_callables.get(&origin) else { return Some(()); };
+            callable.declaration?;
+            scratch.callable_receiver_origins.insert(read, super::super::BuildCallableReceiverOrigin {
+                origin, binding: binding_identity, initializer, slot, wrapper: None,
+                capture: Some(BuildCapturedCallableReceiver { caller, slot: capture_slot, name, source_type }),
+            });
+            if scratch.callable_receiver_initializers.insert((initializer, slot), read).is_some() { return None; }
+            return Some(());
+        }
+        let Some(&binding_identity) = scratch.callable_binding_uses.get(&origin) else { return Some(()); };
+        let binding = self.solved().bindings.get(&binding_identity)?;
+        let definition = scratch.callable_binding_origins.get(&binding_identity)?;
+        if binding.mutable || definition.source_type.ty != binding.ty
+            || self.solved().expression_owners.get(&origin).copied() != binding.owner
+            || !matches!(scratch.expressions.get(initializer.index())?, BuildExprRow::Param(actual) if *actual == definition.slot)
+            || initializer.index() >= read.index()
+            || slot == definition.slot
+            || !matches!(scratch.expressions.get(read.index())?, BuildExprRow::Param(actual) if *actual == slot) { return None; }
+        let ty = *self.solved().expressions.get(&origin)?;
+        self.solved().graph.validate_scoped(crate::sema::inference::ScopedRoot {
+            ty, scope: self.solved().expression_scope(origin, binding.owner).ok()?,
+        }).ok()?;
+        scratch.callable_receiver_origins.insert(read, super::super::BuildCallableReceiverOrigin {
+            origin, binding: binding_identity, initializer, slot, wrapper: None, capture: None,
+        });
+        if scratch.callable_receiver_initializers.insert((initializer, slot), read).is_some() { return None; }
+        Some(())
+    }
+
+
 }
 
 #[cfg(test)]
@@ -54,6 +118,44 @@ mod tests {
     use super::*;
     use crate::sema::check::{BindingIdentity, Checker};
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn original_local_callable_receiver_requires_its_checked_lexical_owner() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure combine(left: Int = 5, right: Int = 2) -> Int { left + right }\npure selected() -> Int { let alias = combine; alias.call(right: 7) }\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("local-callable-receiver-owner.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+            let mut bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+            assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
+            let receiver = (0..parsed.arena.stats().expressions).find_map(|index| {
+                let expression = ExprId::from_index(index);
+                if let ArenaExprKind::Field { base, name } = parsed.arena.arena.expr(expression).kind
+                    && name == "call" {
+                    Some(ExpressionIdentity { source: source_id, namespace: None, expression: base })
+                } else { None }
+            }).unwrap();
+            let owner = *bodies.solved.expression_owners.get(&receiver).expect("the checked receiver retains its actual lexical owner");
+            declarations.solved = Default::default();
+            let symbols = parsed.arena.symbol_owner().clone(); let _symbols = symbols.enter();
+            let lower_selected = |bodies: &CompactBodyProbeOutput| {
+                let mut lowered = None;
+                lower_compact_function_units_into(&parsed.arena, &declarations, bodies, source, &sources,
+                    StdlibLowerLinkage::Local, |unit| {
+                        if unit.key == LoweredFunctionKey::Name(Name::intern("selected")) { lowered = Some(unit.is_lowered()); }
+                        Ok(())
+                    }).unwrap();
+                lowered.unwrap()
+            };
+            assert!(lower_selected(&bodies));
+            Arc::get_mut(&mut bodies.solved).unwrap().expression_owners.remove(&receiver);
+            assert!(!lower_selected(&bodies), "the original binding cannot replace a missing receiver owner fact");
+            Arc::get_mut(&mut bodies.solved).unwrap().expression_owners.insert(receiver, owner);
+            assert!(lower_selected(&bodies));
+        });
+    }
 
     #[test]
     fn original_local_callable_bindings_keep_initialization_rows_and_lexical_uses_after_source_disposal() {

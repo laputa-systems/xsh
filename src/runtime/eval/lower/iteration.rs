@@ -1,4 +1,5 @@
 use super::*;
+use super::super::LoweredCompQualifier;
 use crate::sema::check::{BindingIdentity, ComprehensionIdentity, ProducerFlowSource};
 use crate::sema::inference::{CandidateId, TypeId};
 use crate::sema::operation_graph::{IterableDomain, PreparedLanguageOperation};
@@ -29,6 +30,15 @@ struct CheckedIterationFact {
     outer_result: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum BuildIterationProducer {
+    Literal,
+    Parameter,
+    NativeStreamCall { selected: CandidateId },
+    UserStreamCall { declaration: crate::sema::check::DeclarationIdentity },
+    TopLevelBinding { identity: BindingIdentity, initializer: ExpressionIdentity, name: Name, slot: usize },
+}
+
 // The original operand endpoint and selected canonical member jointly
 // authorize item storage and failure transport. A pending family cannot
 // choose a carrier here; it needs a checked instance before preparation.
@@ -51,6 +61,18 @@ fn checked_iteration_fact(solved: &SolvedTypes, source: ProducerFlowSource, iter
 }
 
 impl super::super::BuildIterationBindingOrigin {
+    pub(in crate::runtime::eval) fn original_fs_children(solved: &SolvedTypes, iterator: ExpressionIdentity, caller: Option<crate::sema::check::DeclarationIdentity>) -> Option<CandidateId> {
+        let operation = solved.operations.get(&iterator)?;
+        if operation.caller != caller { return None; }
+        let selected = solved.graph.candidate_evidence(operation.requirement).ok()??;
+        let crate::sema::check::SolvedOperationAuthority::Registry(metadata) = solved.operation_catalog.candidate(&solved.graph, selected.candidate).ok()? else { return None; };
+        if metadata.owner != crate::sema::registry_graph::RegistryOwner::Module("fs") || metadata.operation != RuntimeOp::FsChildren
+            || metadata.binding != crate::modules::signature::ImplBinding::Native || metadata.semantic_rule != crate::modules::signature::SemanticRule::Standard { return None; }
+        let node = solved.producer_flows.node(*solved.expression_producer_flows.get(&iterator)?).ok()?;
+        if node.source != ProducerFlowSource::Expression(iterator) || !matches!(node.kind, crate::sema::check::ProducerFlowKind::Operation { requirement, .. } if requirement == operation.requirement) { return None; }
+        Some(selected.candidate)
+    }
+
     // A formal producer port identifies the original parameter independently
     // of the type shared by other parameters or their emitted slot words.
     pub(in crate::runtime::eval) fn original_parameter(solved: &SolvedTypes, iterator: ExpressionIdentity, caller: Option<crate::sema::check::DeclarationIdentity>) -> Option<Option<(crate::sema::check::DeclarationIdentity, u32)>> {
@@ -71,6 +93,39 @@ impl super::super::BuildIterationBindingOrigin {
         if index as usize >= arrow.params.len() { return None; }
         Some(Some((declaration, index)))
     }
+}
+
+pub(in crate::runtime::eval) fn original_user_stream_call(solved: &SolvedTypes, iterator: ExpressionIdentity, caller: Option<crate::sema::check::DeclarationIdentity>) -> Option<crate::sema::check::DeclarationIdentity> {
+    use crate::sema::check::ProducerFlowKind;
+    let call = solved.calls.get(&iterator)?;
+    if call.caller != caller { return None; }
+    let declaration = call.declaration?;
+    if solved.declarations.get(&declaration)?.kind != crate::sema::inference::CallableKind::Stream { return None; }
+    let flow = *solved.expression_producer_flows.get(&iterator)?;
+    let node = solved.producer_flows.node(flow).ok()?;
+    if node.source != ProducerFlowSource::Expression(iterator) { return None; }
+    let ProducerFlowKind::Apply { call, .. } = &node.kind else { return None; };
+    if *call != iterator { return None; }
+    Some(declaration)
+}
+
+// Immutable driver reads retain a canonical binding version and its authored
+// initializer; a named dense slot alone cannot identify that producer.
+pub(in crate::runtime::eval) fn original_top_level_iterator_binding(solved: &SolvedTypes, iterator: ExpressionIdentity) -> Option<(BindingIdentity, ExpressionIdentity)> {
+    use crate::sema::check::ProducerFlowKind;
+    let flow = *solved.expression_producer_flows.get(&iterator)?;
+    let node = solved.producer_flows.node(flow).ok()?;
+    if node.source != ProducerFlowSource::Expression(iterator) { return None; }
+    let ProducerFlowKind::CapturedBinding { identity, version: 0, input } = &node.kind else { return None; };
+    let binding = solved.bindings.get(identity)?;
+    if binding.mutable || binding.owner.is_some() || solved.binding_producer_flows.get(&(*identity, 0)) != Some(input) { return None; }
+    let node = solved.producer_flows.node(*input).ok()?;
+    if node.source != (ProducerFlowSource::Binding { identity: *identity, version: 0 }) { return None; }
+    let ProducerFlowKind::Join { inputs } = &node.kind else { return None; };
+    let [input] = inputs.as_slice() else { return None; };
+    let ProducerFlowSource::Expression(initializer) = solved.producer_flows.node(*input).ok()?.source else { return None; };
+    if solved.expression_producer_flows.get(&initializer) != Some(input) || solved.expression_owners.get(&initializer).copied().is_some() { return None; }
+    Some((*identity, initializer))
 }
 
 impl CompactLowerConstructProbe<'_, '_> {
@@ -117,8 +172,25 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     pub(super) fn checked_iteration_binding_supported(&self, projection: &CheckedIterationProjection) -> bool {
-        projection.domain == IterableDomain::List && !projection.outer_result
-            && self.solved().graph.export_type(projection.item_type) == Ok(Type::Str)
+        let protocol = matches!((projection.domain, projection.outer_result, self.solved().graph.export_type(projection.item_type)),
+            (IterableDomain::List, false, Ok(Type::Str | Type::Int | Type::Path | Type::Record(_))) | (IterableDomain::Str, false, Ok(Type::Str)) | (IterableDomain::Bytes, _, Ok(Type::Int)) | (IterableDomain::Stream, false, Ok(Type::Int)) | (IterableDomain::Stream, true, Ok(Type::Record(_))));
+        if !protocol { return false; }
+        let ProducerFlowSource::Statement(statement) = projection.source else { return false; };
+        let Some(operation) = self.solved().statement_operations.get(&statement) else { return true; };
+        if matches!(projection.item, Type::Record(_)) { return match (projection.domain, projection.outer_result) {
+            (IterableDomain::List, false) => original_top_level_iterator_binding(self.solved(), projection.iterator).is_some(),
+            (IterableDomain::Stream, true) => super::super::BuildIterationBindingOrigin::original_fs_children(self.solved(), projection.iterator, operation.caller).is_some(),
+            _ => false,
+        }; }
+        match super::super::BuildIterationBindingOrigin::original_parameter(self.solved(), projection.iterator, operation.caller) {
+            Some(Some(_)) | None => true,
+            Some(None) => {
+                let source = self.program.arena.expr(projection.iterator.expression).kind;
+                if projection.domain == IterableDomain::Stream { return original_user_stream_call(self.solved(), projection.iterator, operation.caller).is_some() || original_top_level_iterator_binding(self.solved(), projection.iterator).is_some(); }
+                if projection.outer_result { matches!(source, ArenaExprKind::Call { callee, .. } if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == Name::intern("Ok"))) }
+                else { matches!(source, ArenaExprKind::List(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_)) }
+            }
+        }
     }
 
     // Only the selected source operation authorizes the item. A storage kind
@@ -141,20 +213,41 @@ impl CompactLowerConstructProbe<'_, '_> {
         let item = crate::sema::inference::ScopedRoot { ty: operation.result, scope: solved.operation_scope(projection.source, operation).ok()? };
         let binding_type = crate::sema::inference::ScopedRoot { ty: original.ty, scope: original.scheme.or(item.scope) };
         for root in [input, item, binding_type] { graph.validate_scoped(root).ok()?; }
-        if graph.export_type(input.ty).ok()? != Type::List(Box::new(Type::Str))
-            || graph.export_type(item.ty).ok()? != Type::Str || graph.export_type(binding_type.ty).ok()? != Type::Str { return None; }
+        let expected_item = graph.export_type(projection.item_type).ok()?;
+        let expected_input = match projection.domain { IterableDomain::List => Type::List(Box::new(expected_item.clone())), IterableDomain::Str => Type::Str, IterableDomain::Bytes => Type::Bytes, IterableDomain::Stream => Type::Stream(Box::new(expected_item.clone())), _ => return None };
+        let checked_input = graph.export_type(input.ty).ok()?;
+        if if projection.outer_result { !matches!(&checked_input, Type::Result(success, _) if **success == expected_input) } else { checked_input != expected_input }
+            || graph.export_type(item.ty).ok()? != expected_item || graph.export_type(binding_type.ty).ok()? != expected_item { return None; }
         let iterator_parameter = super::super::BuildIterationBindingOrigin::original_parameter(solved, projection.iterator, operation.caller)?;
         let mut scratch = self.scratch.borrow_mut();
+        let carrier = if projection.outer_result && projection.domain != IterableDomain::Stream {
+            let Some(BuildExprRow::Try(carrier)) = scratch.expressions.get(iterator.index()) else { return None; };
+            Some(*carrier)
+        } else { None };
+        let authored_iterator = carrier.unwrap_or(iterator);
+        if self.expression_origins.get(&authored_iterator) != Some(&projection.iterator) { return None; }
+        let producer = if iterator_parameter.is_some() { BuildIterationProducer::Parameter }
+            else if let Some(selected) = super::super::BuildIterationBindingOrigin::original_fs_children(solved, projection.iterator, operation.caller) { BuildIterationProducer::NativeStreamCall { selected } }
+            else if let Some(declaration) = original_user_stream_call(solved, projection.iterator, operation.caller) { BuildIterationProducer::UserStreamCall { declaration } }
+            else if let Some((identity, initializer)) = original_top_level_iterator_binding(solved, projection.iterator) {
+                let ArenaExprKind::Ident(name) = self.program.arena.expr(projection.iterator.expression).kind else { return None; };
+                let Some(BuildExprRow::Param(slot)) = scratch.expressions.get(authored_iterator.index()) else { return None; };
+                BuildIterationProducer::TopLevelBinding { identity, initializer, name, slot: *slot }
+            } else { BuildIterationProducer::Literal };
         match iterator_parameter {
-            Some((_, index)) if matches!(scratch.expressions.get(iterator.index()), Some(BuildExprRow::Param(slot)) if *slot == index as usize) => {},
-            None if matches!(self.program.arena.expr(projection.iterator.expression).kind, ArenaExprKind::List(_))
-                && matches!(scratch.expressions.get(iterator.index()), Some(BuildExprRow::List(_))) => {},
+            Some((_, index)) if matches!(scratch.expressions.get(authored_iterator.index()), Some(BuildExprRow::Param(slot)) if *slot == index as usize) => {},
+            None if projection.outer_result && matches!(scratch.expressions.get(authored_iterator.index()), Some(BuildExprRow::Ok(_))) => {},
+            None if matches!((self.program.arena.expr(projection.iterator.expression).kind, scratch.expressions.get(authored_iterator.index())),
+                (ArenaExprKind::List(_), Some(BuildExprRow::List(_))) | (ArenaExprKind::Str(_), Some(BuildExprRow::Str(_))) | (ArenaExprKind::Bytes(_), Some(BuildExprRow::Bytes(_)))) => {},
+            None if matches!(producer, BuildIterationProducer::NativeStreamCall { .. }) && matches!(scratch.expressions.get(authored_iterator.index()), Some(BuildExprRow::ModuleCall { op: RuntimeOp::FsChildren, .. } | BuildExprRow::FsList { op: RuntimeOp::FsChildren, .. })) => {},
+            None if matches!(producer, BuildIterationProducer::UserStreamCall { .. }) && matches!(scratch.expressions.get(authored_iterator.index()), Some(BuildExprRow::Call { .. } | BuildExprRow::DirectPureCall { .. })) => {},
+            None if matches!(producer, BuildIterationProducer::TopLevelBinding { slot, .. } if matches!(scratch.expressions.get(authored_iterator.index()), Some(BuildExprRow::Param(actual)) if *actual == slot)) => {},
             _ => return None,
         }
         if scratch.iteration_binding_origins.contains_key(&binding) { return None; }
         scratch.iteration_binding_origins.insert(binding, super::super::BuildIterationBindingOrigin {
             statement, binding, iterator_source: projection.iterator, caller: operation.caller, selected: projection.candidate,
-            input, item, binding_type, iterator_parameter, row, iterator, slot,
+            input, item, binding_type, iterator_parameter, producer, row, iterator, carrier, slot,
         });
         Some(())
     }
@@ -229,8 +322,95 @@ mod tests {
     }
 
     #[test]
+    fn original_captured_stream_call_retains_its_declaration_and_producer_port() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "let factor = 3\nstream rows(value: Int) -> Stream[Int] { yield value * factor }\nfor row in rows(2) { print ${row.bit_and(1)} }\n";
+            let parsed = Parser::parse_source_arena_only(SourceId::new(51), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let _symbols = parsed.arena.symbol_owner().enter();
+            let (&statement, operation) = checked.solved.statement_operations.iter().find(|(identity, _)| matches!(parsed.arena.arena.stmt(identity.statement).kind, ArenaStmtKind::For { .. })).unwrap();
+            let ArenaStmtKind::For { iter, .. } = parsed.arena.arena.stmt(statement.statement).kind else { unreachable!() };
+            let iterator = ExpressionIdentity { source: statement.source, namespace: statement.namespace, expression: iter };
+            let flow = checked.solved.expression_producer_flows.get(&iterator).and_then(|flow| checked.solved.producer_flows.node(*flow).ok());
+            assert!(original_user_stream_call(&checked.solved, iterator, operation.caller).is_some(), "the original captured stream call must retain its declaration and producer: call {:?}, invocation {:?}, flow {:?}, caller {:?}", checked.solved.calls.get(&iterator), checked.solved.invocations.get(&iterator), flow, operation.caller);
+        });
+    }
+
+    #[test]
+    fn original_immutable_driver_record_list_items_execute_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("pure made() { [{name: \"one\", count: 2}] }\nlet rows = made()\nfor row in rows { print ${row.name} ${row.count.bit_and(1)} }\n", b"one 0\n", Some("made"));
+    }
+
+    #[test]
+    fn original_fs_children_record_item_executes_on_both_routes_after_frontend_drop() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let directory = std::env::temp_dir().join(format!("xsh-iteration-fs-{}-{nonce}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("one.txt"), b"one").unwrap();
+        let source = format!("proc shown() [io, fs, error] -> Result[Unit] {{ for entry in fs.children(p\"{}\") {{ print ${{entry.name}} }} }}\nshown()?\n", directory.display());
+        let result = std::panic::catch_unwind(|| execute_after_arena_disposal(&source, b"one.txt\n", Some("shown")));
+        std::fs::remove_dir_all(&directory).unwrap();
+        if let Err(panic) = result { std::panic::resume_unwind(panic); }
+    }
+
+    #[test]
+    fn original_stream_item_producers_execute_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("stream rows(value: Int) [] -> Stream[Int] { yield value }\nproc shown() [io] { for value in rows(2) { print ${value.bit_and(1)} } }\nshown()\nlet values = rows(1)\nfor value in values { print ${value.bit_and(1)} }\n", b"0\n1\n", Some("shown"));
+    }
+
+    #[test]
     fn original_list_item_native_operand_executes_on_both_routes_after_frontend_drop() {
-        execute_after_arena_disposal("proc quoted(values: List[Str]) [io] {\n for value in values { print ${shlex.quote(value)} }\n}\nquoted([\"one\", \"two\"])\n", b"one\ntwo\n");
+        execute_after_arena_disposal("proc quoted(values: List[Str]) [io] {\n for value in values { print ${shlex.quote(value)} }\n}\nquoted([\"one\", \"two\"])\n", b"one\ntwo\n", Some("quoted"));
+    }
+
+    #[test]
+    fn original_str_item_native_operand_executes_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc quoted(text: Str) [io] {\n for character in text { print ${shlex.quote(character)} }\n for character in \"ab\" { print ${character.byte_len()} }\n}\nquoted(\"xy\")\n", b"x\ny\n1\n1\n", Some("quoted"));
+    }
+
+    #[test]
+    fn original_scalar_comprehension_producer_executes_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc collected() [] -> List[Int] { [octet for character in \"ab\" for octet in b\"\\x01\\x02\" if character == \"a\"] }\nlet values = collected()\nprint ${values[0]} ${values[1]}\n", b"1 2\n", Some("collected"));
+    }
+
+    #[test]
+    fn original_int_comprehension_generator_continuation_executes_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc collected() [] -> List[Int] { [inner for outer in [1, 2] if outer > 0 for inner in [outer]] }\nlet values = collected()\nprint ${values[0]} ${values[1]}\n", b"1 2\n", Some("collected"));
+    }
+
+    #[test]
+    fn original_int_list_item_native_operand_executes_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc masked(values: List[Int]) [io] {\n for value in values { print ${value.bit_and(1)} }\n for value in [2, 3] { print ${value.bit_and(1)} }\n}\nmasked([4, 5])\n", b"0\n1\n0\n1\n", Some("masked"));
+    }
+
+    #[test]
+    fn original_int_list_item_arithmetic_operand_executes_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc shifted(values: List[Int]) [io] {\n for value in values { print ${value + 1} }\n}\nshifted([4, 5])\n", b"5\n6\n", Some("shifted"));
+        execute_after_arena_disposal("proc summed(values: List[Int]) [] -> Int {\n var sum: Int = 0\n for value in values { sum = sum + value }\n sum\n}\nprint ${summed([4, 5])}\n", b"9\n", Some("summed"));
+    }
+
+    #[test]
+    fn original_bytes_item_arithmetic_operand_executes_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc octets(values: Bytes) [io] {\n for octet in values { print ${octet.bit_and(255)} }\n for octet in b\"\\x00\\xff\" { print ${octet + 1} }\n}\noctets(b\"\\x01\\xfe\")\n", b"1\n254\n1\n256\n", Some("octets"));
+    }
+
+    #[test]
+    fn original_path_list_items_keep_opaque_native_operands_and_shadows_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc displayed(values: List[Path]) [io] {\n for destination in values {\n print ${destination.display()}\n for destination in [p\"nested\"] { print ${destination.display()} }\n if true { let destination = p\"shadow\"; print ${destination.display()} }\n print ${destination.display()}\n }\n for destination in [p\"literal\"] { print ${destination.display()} }\n}\ndisplayed([p\"first\"])\n", b"first\nnested\nshadow\nfirst\nliteral\n", Some("displayed"));
+        execute_after_arena_disposal("proc gathered(values: List[Path]) [] -> List[Path] {\n var entries: List[Path] = []\n for destination in values { entries += [destination] }\n entries\n}\nprint ${gathered([p\"first\"])[0].display()}\n", b"first\n", Some("gathered"));
+    }
+
+    #[test]
+    fn original_result_bytes_item_projection_executes_on_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc summed(values: Result[Bytes]) [error] -> Result[Int] {\n var sum: Int = 0\n for octet in values { sum = sum + octet }\n for octet in Ok(b\"\\x03\") { sum = sum + octet }\n sum\n}\nprint ${summed(Ok(b\"\\x01\\x02\"))?}\n", b"6\n", Some("summed"));
+    }
+
+    #[test]
+    fn original_map_comprehension_keys_values_and_projected_items_execute_both_routes_after_frontend_drop() {
+        execute_after_arena_disposal("proc mapped(values: Map[Str, Int]) [] -> Map[Str, Int] {\n {key: value for {key, value} in values if key != \"skip\"}\n}\nlet result = mapped({[\"keep\"]: 7, [\"skip\"]: 9})\nprint ${result[\"keep\"]}\n", b"7\n", Some("mapped"));
+        execute_after_arena_disposal("proc collected() [] -> Map[Str, Int] {\n {inner_key: inner_value for {key, value} in {[\"outer\"]: 1} if key == \"outer\" for {key: inner_key, value: inner_value} in {[key]: value}}\n}\nlet result = collected()\nprint ${result[\"outer\"]}\n", b"1\n", Some("collected"));
     }
 
     #[test]
@@ -452,7 +632,7 @@ let pairs = [left + right for left in [1, 2] if left > 0 for right in [3, 4]]
 let rows = {key: value for {key, value} in {["row"]: 9}}
 print ${pairs[0]} ${pairs[3]} ${rows["row"]}
 "#;
-        execute_after_arena_disposal(source, b"1\n1\n1\na\n65\n1\n1\n1\na\n65\n7\n4 6 9\n");
+        execute_after_arena_disposal(source, b"1\n1\n1\na\n65\n1\n1\n1\na\n65\n7\n4 6 9\n", None);
     }
 
     #[test]
@@ -468,17 +648,19 @@ print "created"
 for value in values { print ${value}; break }
 print "done"
 "#;
-        execute_after_arena_disposal(source, b"created\npull\n1\nclose\ndone\n");
+        execute_after_arena_disposal(source, b"created\npull\n1\nclose\ndone\n", None);
     }
 
-    fn execute_after_arena_disposal(source: &'static str, expected: &'static [u8]) {
+    fn execute_after_arena_disposal(source: &str, expected: &[u8], observed_function: Option<&'static str>) {
+        let source = source.to_owned();
+        let expected = expected.to_vec();
         crate::runtime::eval::run_eval(move || {
             for recursive in [false, true] {
                 let mut sources = SourceMap::new();
-                let source_id = sources.add_file("checked-iteration.xsh", source);
-                let parsed = Parser::parse_source_arena_only(source_id, source);
+                let source_id = sources.add_file("checked-iteration.xsh", source.as_str());
+                let parsed = Parser::parse_source_arena_only(source_id, &source);
                 assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-                let checked = Checker::check_arena(&parsed.arena, source);
+                let checked = Checker::check_arena(&parsed.arena, &source);
                 assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
                 let solved = Arc::downgrade(&checked.solved);
                 let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources);
@@ -493,7 +675,9 @@ print "done"
                         assert_eq!(crate::runtime::eval::lowered_run::recursive_fast_path_forced(), recursive);
                         evaluator.try_eval_installed_compact_indexed_only_inner(plan)
                     };
-                    if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) }
+                    if let Some(function) = observed_function {
+                        crate::runtime::eval::lowered_run::with_observed_indexed_call_route(crate::runtime::eval::LoweredFunctionKey::Name(Name::intern(function)), recursive, execute)
+                    } else if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) }
                     else { execute() }
                 }));
                 let output = match evaluated { Ok(output) => output, Err(_) => panic!("prepared iteration must execute after arena disposal") };
@@ -503,5 +687,193 @@ print "done"
                 assert!(output.traceback.is_none(), "{:?}", output.traceback);
             }
         });
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildComprehensionGenerator {
+    pub identity: ComprehensionIdentity,
+    pub iterator_source: ExpressionIdentity,
+    pub iterator: BuildExprId,
+    pub selected: CandidateId,
+    pub input: crate::sema::inference::ScopedRoot,
+    pub item: crate::sema::inference::ScopedRoot,
+    pub bindings: Vec<BuildComprehensionBinding>,
+    pub target: crate::runtime::eval::indexed::generic::ComprehensionTarget,
+    pub input_flow: crate::sema::check::ProducerFlowId,
+    pub item_flow: crate::sema::check::ProducerFlowId,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildComprehensionBinding {
+    pub identity: BindingIdentity,
+    pub ty: crate::sema::inference::ScopedRoot,
+    pub slot: usize,
+    pub path: Vec<Name>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildComprehensionRoot {
+    pub source: ExpressionIdentity,
+    pub row: BuildExprId,
+    pub ty: crate::sema::inference::ScopedRoot,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildComprehensionOrigin {
+    pub origin: ExpressionIdentity,
+    pub result: crate::sema::inference::ScopedRoot,
+    pub value: BuildComprehensionRoot,
+    pub key: Option<BuildComprehensionRoot>,
+    pub generators: Vec<BuildComprehensionGenerator>,
+    pub filters: Vec<(u32, BuildComprehensionRoot)>,
+    pub reads: Vec<(BuildComprehensionRoot, BindingIdentity)>,
+}
+
+// Original producer edges identify the lexical binding before names disappear.
+// A slot or an equal item type cannot substitute another generator's item.
+fn comprehension_read_binding(solved: &SolvedTypes, source: ExpressionIdentity) -> Option<BindingIdentity> {
+    use crate::sema::check::ProducerFlowKind;
+    let mut flow = *solved.expression_producer_flows.get(&source)?;
+    if solved.producer_flows.node(flow).ok()?.source != ProducerFlowSource::Expression(source) { return None; }
+    for _ in 0..=256 {
+        let node = solved.producer_flows.node(flow).ok()?;
+        if let ProducerFlowSource::Binding { identity, version: 0 } = node.source { return Some(identity); }
+        match &node.kind {
+            ProducerFlowKind::CapturedBinding { identity, version: 0, input } => {
+                if solved.producer_flows.node(*input).ok()?.source != (ProducerFlowSource::Binding { identity: *identity, version: 0 }) { return None; }
+                flow = *input;
+            }
+            ProducerFlowKind::Join { inputs } => { let [input] = inputs.as_slice() else { return None; }; flow = *input; }
+            _ => return None,
+        }
+    }
+    None
+}
+
+impl CompactLowerConstructProbe<'_, '_> {
+    fn checked_comprehension_target(&self, target: BindingTargetId, lowered: &LoweredCompTarget, source: SourceId, owner: Option<crate::sema::check::DeclarationIdentity>, scope: Option<crate::sema::inference::SchemeId>, path: &mut Vec<Name>, bindings: &mut Vec<BuildComprehensionBinding>) -> Option<crate::runtime::eval::indexed::generic::ComprehensionTarget> {
+        use crate::runtime::eval::indexed::generic::ComprehensionTarget;
+        match (&self.program.arena.binding_target(target).kind, lowered) {
+            (ArenaBindingTargetKind::Name(name), LoweredCompTarget::Discard) if is_discard_name(*name) => Some(ComprehensionTarget::Discard),
+            (ArenaBindingTargetKind::Name(name), LoweredCompTarget::Slot(slot)) if !is_discard_name(*name) => {
+                if self.program.arena.binding_target(target).span.is_some_and(|span| self.program.arena.span(span).source_id != source) { return None; }
+                let identity = BindingIdentity { source, namespace: self.current_namespace, target };
+                let definition = self.solved().bindings.get(&identity)?;
+                if definition.mutable || definition.owner != owner { return None; }
+                let ty = crate::sema::inference::ScopedRoot { ty: definition.ty, scope: definition.scheme.or(scope) };
+                self.solved().graph.validate_scoped(ty).ok()?;
+                self.solved().graph.export_type(ty.ty).ok()?;
+                let index = u32::try_from(bindings.len()).ok()?;
+                bindings.push(BuildComprehensionBinding { identity, ty, slot: *slot, path: path.clone() });
+                Some(ComprehensionTarget::Slot(index))
+            }
+            (ArenaBindingTargetKind::Record { fields, .. }, LoweredCompTarget::Record { fields: lowered }) => {
+                let source_fields = self.program.arena.destructure_fields(*fields);
+                if source_fields.len() != lowered.len() { return None; }
+                let mut result = Vec::new();
+                for (field, (name, target, span)) in source_fields.iter().zip(lowered) {
+                    if field.name != *name || self.program.arena.span(field.span) != *span || span.source_id != source { return None; }
+                    path.push(*name);
+                    let child = self.checked_comprehension_target(field.target, target, source, owner, scope, path, bindings)?;
+                    path.pop();
+                    result.push((*name, child));
+                }
+                Some(ComprehensionTarget::Record(result))
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn record_checked_comprehension(&self, expression: ExprId, row: BuildExprId) -> Option<()> {
+        use crate::sema::inference::ScopedRoot;
+        let (key_source, value_source, source_qualifiers) = match self.program.arena.expr(expression).kind {
+            ArenaExprKind::ListComp { expr, qualifiers } => (None, expr, qualifiers),
+            ArenaExprKind::MapComp { key, value, qualifiers } => (Some(key), value, qualifiers),
+            _ => return None,
+        };
+        let origin = self.expression_identity(expression);
+        let solved = self.solved();
+        let owner = solved.expression_owners.get(&origin).copied();
+        let root = |source: ExpressionIdentity, row| -> Option<BuildComprehensionRoot> {
+            let ty = ScopedRoot { ty: *solved.expressions.get(&source)?, scope: solved.expression_scope(source, owner).ok()? };
+            solved.graph.validate_scoped(ty).ok()?;
+            solved.graph.export_type(ty.ty).ok()?;
+            Some(BuildComprehensionRoot { source, row, ty })
+        };
+        let result = crate::sema::inference::ScopedRoot { ty: *solved.expressions.get(&origin)?, scope: solved.expression_scope(origin, owner).ok()? };
+        solved.graph.validate_scoped(result).ok()?;
+        if solved.graph.export_type(result.ty).is_err() { return Some(()); }
+        let mut scratch = self.scratch.borrow_mut();
+        let (key, value, qualifiers) = match scratch.expressions.get(row.index())? {
+            BuildExprRow::ListComp { value, qualifiers, .. } => (None, *value, qualifiers),
+            BuildExprRow::MapComp { key, value, qualifiers, .. } => (Some(*key), *value, qualifiers),
+            _ => return None,
+        };
+        let value = root(self.expression_identity(value_source), value)?;
+        let key = match (key_source, key) { (None, None) => None, (Some(source), Some(row)) => Some(root(self.expression_identity(source), row)?), _ => return None };
+        let source_qualifiers = self.program.arena.comp_qualifiers(source_qualifiers);
+        if source_qualifiers.len() != qualifiers.0.len() { return None; }
+        let mut generators = Vec::new();
+        let mut filters = Vec::new();
+        for (ordinal, (source, lowered)) in source_qualifiers.iter().zip(&qualifiers.0).enumerate() {
+            match (source, lowered) {
+                (crate::syntax::arena::ArenaCompQualifier::For { target, iter, .. }, LoweredCompQualifier::For { target: lowered_target, iter: iterator, .. }) => {
+                    let identity = ComprehensionIdentity { expression: origin, qualifier: ordinal as u32 };
+                    let projection = self.checked_iteration_projection(CheckedIterationOrigin::Comprehension { expression, qualifier: ordinal as u32 }, *iter)?;
+                    if projection.outer_result || !matches!(projection.domain, IterableDomain::List | IterableDomain::Str | IterableDomain::Bytes | IterableDomain::Map) { return Some(()); }
+                    let clause = solved.comprehension_operations.get(&identity)?;
+                    if clause.operation.caller != owner { return None; }
+                    let input = ScopedRoot { ty: *solved.expressions.get(&projection.iterator)?, scope: solved.expression_scope(projection.iterator, owner).ok()? };
+                    solved.graph.validate_scoped(input).ok()?;
+                    if solved.graph.export_type(input.ty).is_err() { return Some(()); }
+                    let item = ScopedRoot { ty: clause.operation.result, scope: solved.operation_scope(ProducerFlowSource::Comprehension(identity), &clause.operation).ok()? };
+                    solved.graph.validate_scoped(item).ok()?;
+                    if solved.graph.export_type(item.ty).is_err() { return Some(()); }
+                    let mut bindings = Vec::new();
+                    let target = self.checked_comprehension_target(*target, lowered_target, origin.source, owner, item.scope, &mut Vec::new(), &mut bindings)?;
+                    generators.push(BuildComprehensionGenerator { identity, iterator_source: projection.iterator, iterator: *iterator, selected: projection.candidate, input, item, bindings, target, input_flow: clause.input_producer_flow, item_flow: clause.item_producer_flow });
+                }
+                (crate::syntax::arena::ArenaCompQualifier::If { condition, .. }, LoweredCompQualifier::If { condition: lowered, .. }) => {
+                    let condition = root(self.expression_identity(*condition), *lowered)?;
+                    if solved.graph.export_type(condition.ty.ty).ok()? != Type::Bool { return None; }
+                    if matches!(scratch.expressions.get(lowered.index()), Some(BuildExprRow::Binary { .. })) {
+                        let Some(operation) = solved.operations.get(&condition.source) else {
+                            let ArenaExprKind::Binary { left, right, .. } = self.program.arena.expr(condition.source.expression).kind else { return None; };
+                            let left = *solved.expressions.get(&self.expression_identity(left))?;
+                            let right = *solved.expressions.get(&self.expression_identity(right))?;
+                            if [left, right].iter().any(|ty| solved.graph.export_type(*ty) == Ok(Type::Any)) { return Some(()); }
+                            return None;
+                        };
+                        let selected = solved.graph.candidate_evidence(operation.requirement).ok()??;
+                        let crate::sema::check::SolvedOperationAuthority::Language(metadata) = solved.operation_catalog.candidate(&solved.graph, selected.candidate).ok()? else { return Some(()); };
+                        let prepared = match metadata.operation {
+                            PreparedLanguageOperation::Equality { .. } => selected.actual_arguments.iter().all(|argument| argument.is_some_and(|ty| solved.graph.export_type(ty) == Ok(Type::Str))),
+                            PreparedLanguageOperation::Ordering { left: crate::sema::inference::Atom::Str, right: crate::sema::inference::Atom::Str, .. }
+                            | PreparedLanguageOperation::Ordering { left: crate::sema::inference::Atom::Int, right: crate::sema::inference::Atom::Int, .. } => true,
+                            _ => false,
+                        };
+                        if !prepared { return Some(()); }
+                    }
+                    filters.push((ordinal as u32, condition));
+                }
+                _ => return None,
+            }
+        }
+        let expected = match &key { Some(key) => Type::Map(Box::new(solved.graph.export_type(key.ty.ty).ok()?), Box::new(solved.graph.export_type(value.ty.ty).ok()?)), None => Type::List(Box::new(solved.graph.export_type(value.ty.ty).ok()?)) };
+        if solved.graph.export_type(result.ty).ok()? != expected { return None; }
+        let span = self.program.arena.expr(expression).span;
+        let mut reads = Vec::new();
+        for (&row, &source) in &self.expression_origins {
+            if source.source != origin.source || source.namespace != origin.namespace { continue; }
+            let original = self.program.arena.expr(source.expression);
+            if original.span.start() < span.start() || original.span.end() > span.end() || !matches!(original.kind, ArenaExprKind::Ident(_)) { continue; }
+            let Some(binding) = comprehension_read_binding(solved, source) else { continue; };
+            let Some(binding) = generators.iter().flat_map(|generator| &generator.bindings).find(|candidate| candidate.identity == binding) else { continue; };
+            if !matches!(scratch.expressions.get(row.index()), Some(BuildExprRow::Param(slot)) if *slot == binding.slot) { return None; }
+            reads.push((root(source, row)?, binding.identity));
+        }
+        if scratch.comprehension_origins.insert(row, BuildComprehensionOrigin { origin, result, value, key, generators, filters, reads }).is_some() { return None; }
+        Some(())
     }
 }

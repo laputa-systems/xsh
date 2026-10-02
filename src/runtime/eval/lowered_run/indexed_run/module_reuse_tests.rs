@@ -80,14 +80,23 @@ mod module_reuse_tests {
     }
 
     fn execute((evaluator, plan): (Evaluator, crate::runtime::eval::CompactIndexedRunPlan), recursive: bool) -> (u8, Vec<u8>, Vec<u8>) {
+        execute_observing((evaluator, plan), recursive, None)
+    }
+
+    fn execute_observing((evaluator, plan): (Evaluator, crate::runtime::eval::CompactIndexedRunPlan), recursive: bool, function: Option<LoweredFunctionKey>) -> (u8, Vec<u8>, Vec<u8>) {
         let symbols = evaluator.indexed_program.as_ref().unwrap().symbol_owner().clone();
         let output = crate::runtime::eval::run_eval(move || symbols.with_current(|| {
+            let source_checks = Checker::module_reuse_counters();
             let run = || {
                 assert_eq!(crate::runtime::eval::lowered_run::recursive_fast_path_forced(), recursive);
                 evaluator.try_eval_installed_compact_indexed_only_inner(plan)
                     .unwrap_or_else(|_| panic!("the prepared bundle remains installed after frontend disposal"))
             };
-            if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(run) } else { run() }
+            let output = if let Some(function) = function {
+                crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, run)
+            } else if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(run) } else { run() };
+            assert_eq!(Checker::module_reuse_counters(), source_checks, "the execution worker cannot check or solve imported source again");
+            output
         }));
         (output.status, output.stdout, output.stderr)
     }
@@ -215,6 +224,52 @@ mod module_reuse_tests {
                 assert_eq!(execute(old, recursive), (0, b"7 word\n".to_vec(), Vec::new()));
                 assert_eq!(execute(fresh, recursive), (0, b"8\n".to_vec(), Vec::new()));
             }
+        });
+    }
+
+    #[test]
+    fn repeated_import_aliases_share_schemes_and_private_nominals_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            let fixture = ModuleFixture::new("repeated-private-owner");
+            let module = "##! A private nominal and a reusable exported scheme.\nenum Hidden { Entry(Int) }\n## Export the private owner's public spelling.\nexport type Public = Hidden\n## Preserve each independent client's type.\nexport pure identity(value) { value }\n## Build a value in this module.\nexport pure make(value: Int) -> Hidden { Entry(value) }\n## Read this module's value.\nexport pure read(value: Hidden) -> Int { match value { Entry(number) => number } }\n";
+            fixture.write("alpha.xsh", module);
+            fixture.write("beta.xsh", module);
+            let source = "use alpha as first\nuse alpha as again\nuse beta as other\nlet number = first.identity(7)\nlet word = again.identity(\"word\")\nlet local: again.Public = first.make(number)\nlet foreign: other.Public = other.make(19)\nprint ${again.read(local)} ${other.read(foreign)} ${word}\n";
+            for recursive in [false, true] {
+                crate::loader::reset_module_load_counters();
+                let prepared = fixture.prepare(source, |program| {
+                    assert_eq!(program.function_count(), 6, "two aliases retain one body for each original exported definition");
+                    let evidence = program.generic_evidence().unwrap();
+                    let namespace = Name::intern(module_key(&fixture.root.join("alpha.xsh")));
+                    let key = LoweredFunctionKey::Qualified(QualifiedName::new(namespace, Name::intern("identity")));
+                    let view = program.function_view(key, LoweredFunctionKind::Pure).unwrap().unwrap();
+                    let scope = view.generic_scope().unwrap();
+                    assert_eq!(evidence.scopes().filter(|(id, _)| *id == scope).count(), 1);
+                });
+                let alpha = module_key(&fixture.root.join("alpha.xsh"));
+                let loads = crate::loader::module_load_counters();
+                assert_eq!(loads.successful_reads.get(&alpha), Some(&1));
+                assert_eq!(loads.parsed_modules.get(&alpha), Some(&1));
+                assert_eq!(loads.resolved_edges.get(&alpha), Some(&2));
+                let checks = Checker::module_reuse_counters();
+                assert!(checks.module_checks.values().all(|&count| count == 1));
+                assert_eq!(checks.module_checks.len(), 2);
+                assert_eq!(checks.module_check_completions, checks.module_checks);
+                assert_eq!(checks.interface_publications, checks.module_checks);
+                assert_eq!(checks.interface_imports[&alpha].len(), 2);
+                assert_eq!(checks.declaration_generations, checks.declaration_checks);
+                assert_eq!(checks.declaration_generalizations, checks.declaration_checks);
+                assert!(checks.declaration_checks.values().all(|&count| count == 1));
+                let read = prepared.0.indexed_program.as_ref().unwrap().symbol_owner().with_current(|| {
+                    LoweredFunctionKey::Qualified(QualifiedName::new(Name::intern(&alpha), Name::intern("read")))
+                });
+                assert_eq!(execute_observing(prepared, recursive, Some(read)), (0, b"7 19 word\n".to_vec(), Vec::new()));
+                assert_eq!(Checker::module_reuse_counters(), checks);
+            }
+            let rejected = "use alpha as first\nuse alpha as again\nuse beta as other\nlet value = again.read(other.make(19))\n";
+            let (_, parsed) = fixture.load(rejected);
+            let checked = Checker::check_arena(&parsed.arena, rejected);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")), "a repeated alias cannot admit another module's private owner: {:?}", checked.diagnostics);
         });
     }
 

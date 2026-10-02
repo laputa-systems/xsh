@@ -3,6 +3,14 @@ use crate::sema::check::{BindingIdentity, ExpressionIdentity, StatementIdentity}
 use crate::sema::operation_graph::{IterableDomain, PreparedLanguageOperation};
 use super::super::IrBlockId;
 
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct OriginalIterationProducer {
+    pub tag: super::super::full::FullTag,
+    pub words: Vec<u32>,
+    pub declaration: Option<crate::sema::check::DeclarationIdentity>,
+    pub initializer: Option<(ExpressionIdentity, u32, u32, Name)>,
+}
+
 /// The original selected iterable owns the item slot independently of its reads.
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct OriginalIterationBinding {
@@ -12,21 +20,28 @@ pub(in crate::runtime::eval) struct OriginalIterationBinding {
     pub authority: PreparedOperationAuthority,
     pub instruction: u32,
     pub iterator: u32,
+    // Result scalar iteration unwraps an authored carrier through a generated
+    // projection; the projection has no authored expression identity.
+    pub iterator_carrier: Option<u32>,
     pub slot: u32,
     pub body: IrBlockId,
     pub owner: InstructionOwner,
     pub input: GroundTypeId,
     pub item: GroundTypeId,
     pub binding_type: GroundTypeId,
+    pub producer: Option<OriginalIterationProducer>,
     pub iterator_parameter: Option<(crate::sema::check::DeclarationIdentity, u32)>,
 }
 
+/// A read retains the original binding and emitted storage operation; typed
+/// arithmetic may specialize an Int read without changing its producer.
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct OriginalIterationUse {
     pub origin: ExpressionIdentity,
     pub binding: IterationBindingId,
     pub instruction: u32,
     pub owner: InstructionOwner,
+    pub tag: super::super::full::FullTag,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -62,7 +77,7 @@ impl IterationEvidence {
         use std::mem::size_of;
         self.bindings.capacity() * size_of::<Entry<Arc<OriginalIterationBinding>>>() + self.original_bindings.capacity() * size_of::<Arc<OriginalIterationBinding>>()
             + self.bindings.len() * (size_of::<OriginalIterationBinding>() + 2 * size_of::<usize>())
-            + self.bindings.iter().map(|entry| entry.value.authority.retained_bytes()).sum::<usize>()
+            + self.bindings.iter().map(|entry| entry.value.authority.retained_bytes() + entry.value.producer.as_ref().map_or(0, |producer| producer.words.capacity() * size_of::<u32>())).sum::<usize>()
             + self.uses.capacity() * size_of::<Entry<Arc<OriginalIterationUse>>>() + self.original_uses.capacity() * size_of::<Arc<OriginalIterationUse>>()
             + self.uses.len() * (size_of::<OriginalIterationUse>() + 2 * size_of::<usize>()) + self.use_instructions.capacity() * size_of::<(u32, usize)>()
     }
@@ -95,13 +110,36 @@ impl GenericEvidenceStore {
                 || binding.iterator_origin.source != binding.statement.source || binding.iterator_origin.namespace != binding.statement.namespace
                 || owners.get(binding.instruction as usize) != Some(&Some(binding.owner)) || owners.get(binding.iterator as usize) != Some(&Some(binding.owner))
                 || self.registered_instruction_origin(binding.instruction, false) != Some((OperationSourceOrigin::Statement(binding.statement), binding.owner))
-                || self.registered_instruction_origin(binding.iterator, false) != Some((OperationSourceOrigin::Expression(binding.iterator_origin), binding.owner)) {
+                || self.registered_instruction_origin(binding.iterator_carrier.unwrap_or(binding.iterator), false) != Some((OperationSourceOrigin::Expression(binding.iterator_origin), binding.owner)) {
                 return Err(failure("iteration binding changes its original source or owner"));
             }
-            if !matches!(binding.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Iteration { domain: IterableDomain::List, outer_result: false }, .. })
-                || pools.to_type(binding.input)? != crate::sema::types::Type::List(Box::new(crate::sema::types::Type::Str))
-                || pools.to_type(binding.item)? != crate::sema::types::Type::Str || binding.binding_type != binding.item {
+            let item = pools.to_type(binding.item)?;
+            let actual_input = pools.to_type(binding.input)?;
+            let expected_input = match binding.authority {
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Iteration { domain: IterableDomain::List, outer_result: false }, .. } if matches!(item, crate::sema::types::Type::Str | crate::sema::types::Type::Int | crate::sema::types::Type::Path) || matches!(item, crate::sema::types::Type::Record(_)) && binding.producer.as_ref().is_some_and(|producer| producer.initializer.is_some()) => crate::sema::types::Type::List(Box::new(item.clone())),
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Iteration { domain: IterableDomain::Stream, outer_result: true }, .. } if matches!(item, crate::sema::types::Type::Record(_)) && binding.producer.as_ref().is_some_and(|producer| matches!(producer.tag, super::super::full::FullTag::ExprModuleCall | super::super::full::FullTag::ExprFsList) && producer.declaration.is_none() && producer.initializer.is_none()) => {
+                    let crate::sema::types::Type::Result(success, _) = &actual_input else { return Err(failure("native stream iterator loses its original Result type")); };
+                    if **success != crate::sema::types::Type::Stream(Box::new(item.clone())) || binding.iterator_carrier.is_some() { return Err(failure("native stream iterator changes its original item or transport")); }
+                    actual_input.clone()
+                }
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Iteration { domain: IterableDomain::Stream, outer_result: false }, .. } if item == crate::sema::types::Type::Int => crate::sema::types::Type::Stream(Box::new(item.clone())),
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Iteration { domain: IterableDomain::Str, outer_result: false }, .. } if item == crate::sema::types::Type::Str => crate::sema::types::Type::Str,
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Iteration { domain: IterableDomain::Bytes, outer_result: false }, .. } if item == crate::sema::types::Type::Int => crate::sema::types::Type::Bytes,
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Iteration { domain: IterableDomain::Bytes, outer_result: true }, .. } if item == crate::sema::types::Type::Int && binding.iterator_carrier.is_some() => {
+                    let crate::sema::types::Type::Result(success, _) = &actual_input else { return Err(failure("iteration carrier loses its original Result type")); };
+                    if **success != crate::sema::types::Type::Bytes { return Err(failure("iteration carrier changes its checked Bytes success type")); }
+                    actual_input.clone()
+                }
+                _ => return Err(failure("iteration binding has an unprepared iterable contract")),
+            };
+            if actual_input != expected_input
+                || binding.binding_type != binding.item {
                 return Err(failure("iteration binding has an unprepared item contract"));
+            }
+            if let Some(carrier) = binding.iterator_carrier
+                && (owners.get(carrier as usize) != Some(&Some(binding.owner))
+                    || self.registered_instruction_origin(carrier, false) != Some((OperationSourceOrigin::Expression(binding.iterator_origin), binding.owner))) {
+                return Err(failure("iteration carrier changes its original source or owner"));
             }
             if let Some((declaration, _)) = binding.iterator_parameter
                 && (declaration.source != binding.statement.source || declaration.namespace != binding.statement.namespace
@@ -114,6 +152,10 @@ impl GenericEvidenceStore {
             let use_ = self.iteration_use(entry.value.instruction)?.ok_or_else(|| failure("iteration use index is missing"))?;
             if !std::ptr::eq(use_, entry.value.as_ref()) { return Err(failure("iteration use index identifies another read")); }
             let binding = self.iteration_binding(use_.binding)?;
+            if !matches!((use_.tag, pools.to_type(binding.binding_type)?),
+                (super::super::full::FullTag::ExprParam, _) | (super::super::full::FullTag::IntSlot, crate::sema::types::Type::Int)) {
+                return Err(failure("iteration read changes its checked storage contract"));
+            }
             if use_.owner != binding.owner || owners.get(use_.instruction as usize) != Some(&Some(use_.owner))
                 || self.registered_instruction_origin(use_.instruction, false) != Some((OperationSourceOrigin::Expression(use_.origin), use_.owner)) {
                 return Err(failure("iteration read changes its original binding or owner"));

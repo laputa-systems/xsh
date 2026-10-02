@@ -624,6 +624,12 @@ An uncontextualized conditional checks its branches independently. Joining
 own type to Null. Already nullable payloads retain one Optional layer, including
 through generic forwarding. Unrelated scalar branch types still require an
 explicit common contract rather than widening to Any.
+An inferred Result return keeps one success type across its checked paths and
+joins their independently checked error families. Error joins do not relax the
+success type or a written error bound. A concrete return annotation still
+requires validation when a payload crosses from `Any`; wrapping a dynamic value
+in `Ok` does not validate it. `Checker::join_graph_return_types` owns the inferred
+join, and schema validation supplies the dynamic boundary proof.
 
 Local aliases share the same unresolved type; each use cannot choose a new
 instantiation. Incompatible concrete contributions are errors and never widen
@@ -2396,6 +2402,11 @@ and differing error families use `Error`. Bindings introduced by successful
 `with` initializers are visible to later initializers and the body, but not to
 the error handler. Handler names are local to that block, may shadow an outer
 binding, and cannot escape or be redeclared in that scope.
+
+Successful `guard let` bindings belong to the surrounding lexical continuation.
+Their original definitions remain distinct from bindings with the same name in
+nested or sibling scopes; assignment cannot turn an unrelated slot into that
+successful binding. The failure handler cannot read the success binding.
 
 ```xsh
 with result = fallible_op() {
@@ -4348,6 +4359,9 @@ buffer. `List.collect()` preserves that already materialized list; only
 **Integer sequences.** `range(n)` and `range(start, n)` are builtin call
 expressions that produce `Stream[Int]`, usable as pipeline sources or directly
 in `for` loops.
+The unary form starts at zero. Both directions exclude the end value. The
+producer retains a cursor; dropping it releases the unconsumed sequence without
+enumerating or allocating the remaining values.
 
 Accepted syntax:
 

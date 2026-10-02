@@ -5,8 +5,10 @@ use std::num::NonZeroU32;
 
 pub(super) mod full;
 pub(super) mod generic;
+pub(super) mod native_methods;
 mod semantic;
 pub(super) mod pattern;
+pub(in crate::runtime::eval) mod native_methods;
 
 const IR_NONE: u32 = u32::MAX;
 
@@ -124,6 +126,7 @@ pub struct IrBuildError {
     pub attempted_instructions: usize,
     pub committed_instructions: usize,
     pub source_lowering_stats: Option<super::FrontendLoweredStats>,
+    pub verification: Option<IrVerifyError>,
 }
 
 impl IrBuildError {
@@ -139,8 +142,13 @@ impl IrBuildError {
             attempted_instructions,
             committed_instructions,
             source_lowering_stats: None,
+            verification: None,
         }
     }
+    fn verification(construct: &'static str, cause: IrVerifyError) -> Self {
+        Self { verification: Some(cause), ..Self::format(construct, None, 0, 0) }
+    }
+
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

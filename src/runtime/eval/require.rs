@@ -13,6 +13,94 @@ pub(super) enum PreparedSchema {
 }
 
 impl PreparedSchema {
+    /// A checked literal owns its contextual scalar conversions. Preparation
+    /// installs numeric record prefixes before publishing the constant pool.
+    pub(super) fn materialize_constant_layout(&self, value: LoweredValue) -> Option<LoweredValue> {
+        match self {
+            Self::Record(fields) => {
+                if let LoweredValue::RecordVec(values) = &value
+                    && values.len() >= fields.len()
+                    && fields.iter().zip(values.iter()).all(|((expected, _), (name, _))| expected == name) {
+                    let LoweredValue::RecordVec(values) = value else { unreachable!() };
+                    let mut values = super::lower::take_shared(values);
+                    for (index, (_, schema)) in fields.iter().enumerate() {
+                        let field = std::mem::replace(&mut values[index].1, LoweredValue::Null);
+                        values[index].1 = schema.materialize_constant_layout(field)?;
+                    }
+                    return Some(LoweredValue::RecordVec(Arc::new(values)));
+                }
+                let mut converted = Vec::with_capacity(fields.len());
+                for (name, schema) in fields {
+                    let selected = super::lowered_run::lowered_record_field_value(&value, name.as_str().as_str())?;
+                    converted.push((*name, schema.materialize_constant_layout(selected)?));
+                }
+                let original = match value {
+                    LoweredValue::Record(values) => super::lower::take_shared(values).into_iter().map(|(name, value)| (Name::intern(name.as_ref()), value)).collect(),
+                    LoweredValue::RecordVec(values) => super::lower::take_shared(values),
+                    _ => return None,
+                };
+                let required = fields.iter().map(|(name, _)| *name).collect::<std::collections::BTreeSet<_>>();
+                converted.extend(original.into_iter().filter(|(name, _)| !required.contains(name)));
+                Some(LoweredValue::RecordVec(Arc::new(converted)))
+            }
+            Self::List(schema) => {
+                let values = match value { LoweredValue::List(values) => values, LoweredValue::SharedList(values) => super::lower::take_shared(values), _ => return None };
+                Some(LoweredValue::SharedList(Arc::new(values.into_iter().map(|value| schema.materialize_constant_layout(value)).collect::<Option<Vec<_>>>()?)))
+            }
+            Self::Map(key, schema) => {
+                let values = match value {
+                    LoweredValue::Map(values) => super::lower::take_shared(values),
+                    LoweredValue::Record(values) if *key == Type::Str => super::lower::take_shared(values).into_iter().map(|(name, value)| (crate::map_key::MapKey::Str(name), value)).collect(),
+                    LoweredValue::RecordVec(values) if *key == Type::Str => super::lower::take_shared(values).into_iter().map(|(name, value)| (crate::map_key::MapKey::from(name.as_str().as_str()), value)).collect(),
+                    _ => return None,
+                };
+                Some(LoweredValue::Map(Arc::new(values.into_iter().map(|(key, value)| Some((key, schema.materialize_constant_layout(value)?))).collect::<Option<std::collections::BTreeMap<_, _>>>()?)))
+            }
+            Self::Optional(schema) if !matches!(value, LoweredValue::Null) => schema.materialize_constant_layout(value),
+            Self::Validate(Type::Path) => match value {
+                LoweredValue::Str(value) => Some(LoweredValue::Path(crate::runtime::value::PathValue::from_text(value.as_ref()).ok()?)),
+                value => Some(value),
+            },
+            Self::WireEnum(mapping) => match value {
+                LoweredValue::Tag(tag) if tag.type_name == mapping.type_name && tag.fields.is_empty()
+                    && tag.wire.as_ref().is_some_and(|original| Arc::ptr_eq(original, mapping))
+                    && mapping.variants.contains_key(&Name::intern(tag.name.as_ref())) => Some(LoweredValue::Tag(tag)),
+                _ => None,
+            },
+            Self::Validate(_) | Self::Optional(_) => Some(value),
+        }
+    }
+
+    /// Counts the schema allocation and its owned heap. Shared child schemas
+    /// and wire mappings are counted once within this schema tree.
+    pub(super) fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        fn visit(schema: &PreparedSchema, schemas: &mut std::collections::BTreeSet<usize>, mappings: &mut std::collections::BTreeSet<usize>) -> usize {
+            if !schemas.insert(schema as *const PreparedSchema as usize) { return 0; }
+            let owned = match schema {
+                PreparedSchema::Validate(ty) => ty.retained_bytes().saturating_sub(size_of::<Type>()),
+                PreparedSchema::Record(fields) => fields.capacity() * size_of::<(Name, Arc<PreparedSchema>)>()
+                    + fields.iter().map(|(_, child)| visit(child, schemas, mappings)).sum::<usize>(),
+                PreparedSchema::Map(key, child) => key.retained_bytes().saturating_sub(size_of::<Type>()) + visit(child, schemas, mappings),
+                PreparedSchema::List(child) | PreparedSchema::Optional(child) => visit(child, schemas, mappings),
+                PreparedSchema::WireEnum(mapping) if mappings.insert(Arc::as_ptr(mapping) as usize) => {
+                    size_of::<WireEnumMapping>() + 2 * size_of::<usize>()
+                        + mapping.variants.len() * size_of::<(Name, Arc<str>)>()
+                        + mapping.variants.values().map(|value| value.len() + 2 * size_of::<usize>()).sum::<usize>()
+                }
+                PreparedSchema::WireEnum(_) => 0,
+            };
+            size_of::<PreparedSchema>() + 2 * size_of::<usize>() + owned
+        }
+        visit(self, &mut std::collections::BTreeSet::new(), &mut std::collections::BTreeSet::new())
+    }
+
+    pub(super) fn compile_record_layout(ty: &Type) -> Option<Arc<Self>> {
+        let Type::Record(fields) = ty else { return None; };
+        let enums = PreparedWireEnums::default();
+        Some(Arc::new(Self::Record(fields.iter().map(|(name, ty)| (*name, Self::compile(ty, &enums))).collect())))
+    }
+
     pub(super) fn compile(ty: &Type, enums: &PreparedWireEnums) -> Arc<Self> {
         Arc::new(match ty {
             Type::Record(fields) if !fields.is_empty() => Self::Record(fields.iter()
@@ -164,6 +252,17 @@ impl PreparedSchema {
     }
 }
 
+/// Construction has already proved the record's semantic type. This boundary
+/// installs its required physical prefix and retains any extra fields before
+/// numeric projection can consume the value; it performs no wire conversion.
+pub(super) fn materialize_record_layout(evaluator: &Evaluator, schema: &PreparedSchema, value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
+    if !matches!(schema, PreparedSchema::Record(_)) || schema.converts_wire() {
+        return Err(RuntimeError::new("indexed-ir", "record construction has no prepared physical schema").with_span(span));
+    }
+    schema.decode(evaluator, value, "$", span).map_err(|error|
+        RuntimeError::new("indexed-ir", format!("record construction disagrees with its prepared layout: {}", error.message)).with_span(span))
+}
+
 pub(super) fn require_value(evaluator: &Evaluator, value: LoweredValue, check: &LoweredTypeCheck, span: Span) -> LoweredValue {
     let result = if let Some(schema) = &check.schema {
         schema.decode(evaluator, value, "$", span)
@@ -177,6 +276,10 @@ pub(super) fn require_value(evaluator: &Evaluator, value: LoweredValue, check: &
         Err(error) => LoweredValue::ResultErr(Box::new(super::Value::Error(Box::new(error)))),
     }
 }
+
+#[cfg(test)]
+#[path = "require/record_layout_tests.rs"]
+mod record_layout_tests;
 
 #[cfg(test)]
 mod tests {

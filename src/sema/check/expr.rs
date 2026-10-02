@@ -292,6 +292,7 @@ impl Checker {
             let ty = ty.clone();
             self.record_graph_prepared_constructor(arena, id);
             self.record_graph_expression(arena, id, &ty);
+            self.record_checked_refined_read(arena, id);
             self.record_expression_producer_flow(arena, id, &ty);
             self.expr_types.insert(expr.span, ty.clone());
             return ty;
@@ -569,6 +570,7 @@ impl Checker {
         self.record_graph_zero_field_tag(arena, id, &ty);
         let ty = self.record_graph_module_projection(arena, id, &ty).unwrap_or(ty);
         self.record_graph_expression(arena, id, &ty);
+        self.record_checked_refined_read(arena, id);
             self.record_expression_producer_flow(arena, id, &ty);
         self.expr_types.insert(expr.span, ty.clone());
         if ty == Type::Bool {
@@ -1740,12 +1742,24 @@ impl Checker {
         }
         if let Some(reference) = self.check_graph_registry_reference(arena, id, base, name, span) { return reference; }
         let base_ty = self.check_expr_arena(arena, source, base, None);
-        if let Type::Graph(receiver) = base_ty { return self.graph_projection(arena, id, receiver, name); }
-        if self.current_generic.is_some() && matches!(base_ty, Type::Record(_)) {
-            return match self.graph_type(&base_ty, span) {
-                Ok(receiver) => self.graph_projection(arena, id, receiver, name),
-                Err(error) => { self.graph_error(span, error); Type::Invalid }
+        if name == "message" {
+            use crate::sema::inference::Atom;
+            let receiver = match &base_ty {
+                Type::Error => Some(Atom::Error),
+                Type::ProcessError => Some(Atom::ProcessError),
+                Type::ErrorFamily(family) => Some(Atom::ErrorFamily(*family)),
+                Type::ErrorVariant { family, variant } => Some(Atom::ErrorVariant { family: *family, variant: *variant }),
+                Type::ErrorFacet(facet) => Some(Atom::ErrorFacet(*facet)),
+                _ => None,
             };
+            if let Some(receiver) = receiver {
+                return self.check_graph_language_operation(arena, id, super::language_operation::LanguageOperator::ErrorField { receiver, field: name }, &[base_ty], None);
+            }
+        }
+        if let Type::Graph(receiver) = base_ty { return self.graph_projection(arena, id, receiver, name); }
+        if let Type::Record(fields) = &base_ty
+            && (self.current_generic.is_some() || fields.contains_key(&name)) {
+            return self.graph_checked_record_projection(arena, id, base, name, &base_ty);
         }
         match base_ty {
             Type::Any | Type::ErasedRecord | Type::DynamicModule => Type::Any,

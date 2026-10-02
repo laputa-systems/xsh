@@ -675,7 +675,7 @@ print $root
         .expect("compact runner attempt")
         .expect("path parse and print should be compact-covered");
 
-        assert_eq!(output.status, 0);
+        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(output.stdout, b"/tmp/xsh-compact\n");
         assert!(output.stderr.is_empty());
         let _ = fs::remove_file(&path);
@@ -701,12 +701,31 @@ print $child
         .expect("compact runner attempt")
         .expect("Path constructor binding should be compact-covered");
 
-        assert_eq!(output.status, 0);
+        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(output.stdout, b"/tmp/xsh-compact/child\n");
         assert!(output.stderr.is_empty());
         let _ = fs::remove_file(&path);
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);
+        }
+    }
+
+    #[test]
+    fn compact_indexed_runner_rejects_nul_paths_before_printing() {
+        for (name, source) in [
+            ("invalid-path-constructor", "let root = Path(args[0])\nprint $root\n"),
+            ("invalid-path-format", "let root = fp\"${args[0]}\"\nprint $root\n"),
+        ] {
+            let path = temp_script(name, source);
+            let output = try_run_compact_indexed_script(&RunOptions {
+                script: path.to_string_lossy().into_owned(),
+                args: vec!["/tmp/invalid\0path".to_string()],
+                coverage_trace_dir: None,
+            }).expect("compact runner attempt").expect("invalid path source remains covered");
+            let _ = fs::remove_dir_all(path.parent().unwrap());
+            assert_eq!(output.status, 3, "{}", String::from_utf8_lossy(&output.stderr));
+            assert!(output.stdout.is_empty(), "invalid paths must stop before the following print");
+            assert!(String::from_utf8_lossy(&output.stderr).contains("paths cannot contain NUL bytes"), "{}", String::from_utf8_lossy(&output.stderr));
         }
     }
 
@@ -1083,7 +1102,7 @@ for row in counts {
         .expect("compact runner attempt")
         .expect("extension-count shape should be compact-covered");
 
-        assert_eq!(output.status, 0);
+        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(output.stdout, b"1 md\n2 rs\n");
         assert!(output.stderr.is_empty());
         if let Some(parent) = path.parent() {
@@ -1265,7 +1284,7 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
         .expect("compact runner attempt")
         .expect("manifest-hash shape should be compact-covered");
 
-        assert_eq!(output.status, 0);
+        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(output.stdout, expected.as_bytes());
         assert!(output.stderr.is_empty());
         if let Some(parent) = path.parent() {
@@ -1325,7 +1344,7 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
         .expect("compact runner attempt")
         .expect("archive-package shape should be compact-covered");
 
-        assert_eq!(output.status, 0);
+        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(output.stdout, expected.as_bytes());
         assert!(output.stderr.is_empty());
         if let Some(parent) = path.parent() {

@@ -57,6 +57,7 @@ use xsh_root::Root;
 
 pub(in crate::runtime::eval) mod indexed_run;
 mod generic_run;
+mod fs_native_run;
 
 #[cfg(feature = "native-tests")]
 use super::display_value;
@@ -225,6 +226,10 @@ impl Evaluator {
         })?;
         match lowered_runtime_value(value, span)? {
             LoweredValue::Record(record) => Ok(take_shared(record)),
+            LoweredValue::RecordVec(fields) => Ok(take_shared(fields)
+                .into_iter()
+                .map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value))
+                .collect()),
             other => Err(RuntimeError::new(
                 error_kind,
                 format!(
@@ -242,6 +247,8 @@ thread_local! {
     static INDEXED_EXPLICIT_FRAMES: Cell<bool> = const { Cell::new(false) };
     #[cfg(test)]
     static FORCE_RECURSIVE_FAST_PATH: Cell<bool> = const { Cell::new(false) };
+    #[cfg(test)]
+    static OBSERVED_INDEXED_CALL_ROUTE: std::cell::RefCell<Option<(LoweredFunctionKey, bool, bool)>> = const { std::cell::RefCell::new(None) };
 }
 
 pub(super) fn indexed_explicit_frames_active() -> bool {
@@ -251,7 +258,7 @@ pub(super) fn indexed_explicit_frames_active() -> bool {
 pub(super) fn indexed_recursive_fast_path_allowed(return_kind: LoweredReturnKind) -> bool {
     // Result propagation adds wrapper and unwind work around a call. Keep it
     // on the heap-backed frame path even when shallow plain calls may recurse.
-    if matches!(return_kind, LoweredReturnKind::Result(_)) {
+    if matches!(return_kind, LoweredReturnKind::Result(_)) && !recursive_fast_path_forced() {
         return false;
     }
     if cfg!(debug_assertions) && !recursive_fast_path_forced() {
@@ -288,6 +295,29 @@ pub(in crate::runtime::eval) fn with_forced_recursive_fast_path<R>(work: impl Fn
         forced.set(previous);
         result
     })
+}
+
+/// Checks the selected call route inside the worker that executes the body.
+#[cfg(test)]
+pub(in crate::runtime::eval) fn with_observed_indexed_call_route<R>(function: LoweredFunctionKey, recursive: bool, work: impl FnOnce() -> R) -> R {
+    OBSERVED_INDEXED_CALL_ROUTE.with(|observation| {
+        let previous = observation.replace(Some((function, recursive, false)));
+        let result = if recursive { with_forced_recursive_fast_path(work) } else { work() };
+        let actual = observation.replace(previous).expect("route observation was installed");
+        assert!(actual.2, "the requested function did not execute in the observation worker");
+        result
+    })
+}
+
+#[cfg(test)]
+pub(super) fn observe_indexed_call_route(function: LoweredFunctionKey, recursive: bool) {
+    OBSERVED_INDEXED_CALL_ROUTE.with(|observation| {
+        if let Some((expected_function, expected_recursive, observed)) = observation.borrow_mut().as_mut()
+            && *expected_function == function {
+            assert_eq!(recursive, *expected_recursive, "execution selected the wrong indexed call route");
+            *observed = true;
+        }
+    });
 }
 
 pub(super) fn with_indexed_explicit_frames<R>(f: impl FnOnce() -> R) -> R {
@@ -4206,6 +4236,8 @@ impl Evaluator {
                     span,
                 )?
             }
+            RuntimeOp::FsFiles if (1..=5).contains(&values.len()) => self.eval_lowered_fs_walk_native(op, values, span)?,
+            RuntimeOp::FsWalk if (1..=4).contains(&values.len()) => self.eval_lowered_fs_walk_native(op, values, span)?,
             RuntimeOp::FsChildren if (1..=3).contains(&values.len()) => {
                 let operation = "fs.children";
                 let ordered = lowered_bool_arg_or(values.get(2).cloned(), true, operation, span)?;
@@ -9884,10 +9916,19 @@ impl Evaluator {
         namespace: Option<Name>,
     ) -> Result<(), RuntimeError> {
         for capture in &lowered.captures {
+            if capture.mutable && let Some(value) = self.live_capture_cells.lock()
+                .expect("live capture registry is not poisoned").read_slot(slots.as_ptr() as usize, capture.slot) {
+                slots[capture.slot] = value;
+                continue;
+            }
+            if let Some(binding) = capture.host_binding {
+                let value = self.host_environment.for_binding(binding);
+                slots[capture.slot] = lowered_value_from_runtime_any(&value).ok_or_else(|| RuntimeError::new("indexed-ir", "original host capture cannot cross the value boundary").with_span(call_span))?;
+                continue;
+            }
             let module_binding = namespace.and_then(|owner| self.indexed_module_bindings.get(&owner))
                 .and_then(|bindings| bindings.get(&capture.name));
-            let binding = if namespace.is_some_and(|owner| self.indexed_module_bindings.contains_key(&owner))
-                && capture.name != Name::intern("args") {
+            let binding = if namespace.is_some_and(|owner| self.indexed_module_bindings.contains_key(&owner)) {
                 module_binding
             } else { self.lookup(capture.name) };
             let Some(binding) = binding else {
@@ -9941,9 +9982,12 @@ impl Evaluator {
         slots: &[LoweredValue],
         call_span: Span,
         namespace: Option<Name>,
+        completed: Option<&indexed_run::live_capture_cells::CompletedLiveCaptureFrame>,
     ) -> Result<(), RuntimeError> {
+        if let Some(completed) = completed { completed.validate(lowered, slots, namespace, call_span)?; }
         for capture in &lowered.captures {
             if capture.mutable {
+                if completed.and_then(|frame| frame.local_capture(capture.slot)).is_some() { continue; }
                 if let Some(bindings) = namespace.and_then(|owner| self.indexed_module_bindings.get_mut(&owner)) {
                     let binding = bindings.get_mut(&capture.name).ok_or_else(||
                         RuntimeError::new("unknown-name", "mutable module capture lost its original binding").with_span(call_span))?;
@@ -11106,6 +11150,9 @@ mod record_binding_tests {
         });
     }
 }
+
+#[cfg(all(test, feature = "native-tests"))]
+mod native_test_host_record_tests;
 
 #[cfg(test)]
 mod fs_root_identity_tests {

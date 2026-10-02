@@ -1,6 +1,125 @@
 use super::*;
 
 impl CompactLowerConstructProbe<'_, '_> {
+    pub(super) fn record_fused_literal_comparison(&self, expression: BuildExprId, candidate: BuildBoolId) -> Option<()> {
+        use super::super::indexed::full::{BuildLiteralComparison, PreparedComparisonLiteral};
+        let scratch = self.scratch.borrow();
+        let BuildBoolRow::LiteralCompareSlot { value, slot, op } = scratch.bools.get(candidate.index())? else { return Some(()); };
+        if !matches!(op, BinaryOp::Eq | BinaryOp::Ne) { return Some(()); }
+        let literal = match value {
+            LoweredValue::Null => PreparedComparisonLiteral::Null,
+            LoweredValue::Int(value) => PreparedComparisonLiteral::Int(*value),
+            LoweredValue::Str(value) => PreparedComparisonLiteral::Str(value.as_ref().into()),
+            LoweredValue::StrView(value) => PreparedComparisonLiteral::Str(value.as_str().into()),
+            LoweredValue::Bool(value) => PreparedComparisonLiteral::Bool(*value),
+            _ => return Some(()),
+        };
+        let Some(&origin) = self.expression_origins.get(&expression) else { return Some(()); };
+        let solved = self.solved();
+        let Some(operation) = solved.operations.get(&origin) else { return Some(()); };
+        let selected = solved.graph.candidate_evidence(operation.requirement).ok()??;
+        let crate::sema::check::SolvedOperationAuthority::Language(metadata) = solved.operation_catalog.candidate(&solved.graph, selected.candidate).ok()? else { return Some(()); };
+        if !matches!(metadata.operation, crate::sema::operation_graph::PreparedLanguageOperation::Equality { op: actual } if actual == *op) { return Some(()); }
+        let types = selected.actual_arguments.iter().map(|ty| ty.and_then(|ty| solved.graph.export_type(ty).ok())).collect::<Vec<_>>();
+        if !matches!(types.as_slice(), [Some(Type::Optional(_)), Some(Type::Null)] | [Some(Type::Null), Some(Type::Optional(_))]
+            | [Some(Type::Int), Some(Type::Int)] | [Some(Type::Str), Some(Type::Str)] | [Some(Type::Bool), Some(Type::Bool)]) { return Some(()); }
+        let BuildExprRow::Binary { left, right, .. } = scratch.expressions.get(expression.index())? else { return None; };
+        let (argument, operand, literal_expression) = if matches!(scratch.expressions.get(left.index()), Some(BuildExprRow::Param(actual)) if actual == slot)
+            && self.lowered_literal_value(right).as_ref() == Some(value) { (0, left, right) }
+            else if matches!(scratch.expressions.get(right.index()), Some(BuildExprRow::Param(actual)) if actual == slot)
+                && self.lowered_literal_value(left).as_ref() == Some(value) { (1, right, left) } else { return None; };
+        if types[1 - argument].as_ref() != Some(&literal.ty()) { return None; }
+        let origin = *self.expression_origins.get(operand)?;
+        let literal_origin = *self.expression_origins.get(literal_expression)?;
+        let ArenaExprKind::Ident(name) = self.program.arena.expr(origin.expression).kind else { return None; };
+        let receiver = super::super::indexed::full::BuildFoldedNativeReceiver { origin, name, slot: u32::try_from(*slot).ok()?, binding: scratch.value_binding_uses.get(&origin).copied() };
+        if receiver.binding.is_none() {
+            let declaration = solved.declarations.get(&operation.caller?)?;
+            let crate::sema::inference::TypeNode::Arrow(signature) = solved.graph.node(solved.graph.resolved(declaration.signature).ok()?).ok()? else { return None; };
+            let parameter = signature.params.get(*slot)?;
+            if parameter.label != name || solved.graph.export_type(parameter.ty).ok()? != *types[argument].as_ref()? { return None; }
+        }
+        let original = BuildLiteralComparison { receiver, argument: argument as u8, literal_origin, literal };
+        drop(scratch);
+        self.scratch.borrow_mut().folded_literal_comparison.insert(candidate, original);
+        Some(())
+    }
+
+    pub(super) fn record_compiler_argument_wrapper(
+        &self, wrapper: BuildExprId, initializer: BuildExprId, pattern: BuildPatternId,
+        body: BuildExprId, slot: usize,
+    ) -> Option<()> {
+        let mut scratch = self.scratch.borrow_mut();
+        if initializer.index() >= wrapper.index() || body.index() >= wrapper.index()
+            || !matches!(scratch.patterns.get(pattern.index())?, BuildPatternRow::Bind { slot: actual } if *actual == slot)
+            || !matches!(scratch.expressions.get(wrapper.index())?, BuildExprRow::MatchExpr { value, arms, .. }
+                if *value == initializer && arms.as_slice() == [(pattern, None, body)]) { return None; }
+        if scratch.compiler_argument_wrappers.insert(wrapper, (initializer, pattern, body, slot)).is_some() { return None; }
+        Some(())
+    }
+
+    pub(super) fn begin_original_optional_receiver_guard(
+        &self, call: ExprId, base: ExprId, carrier: BuildExprId, read: BuildExprId, slot: usize,
+    ) -> Option<()> {
+        let Some((metadata, _, _)) = self.original_native_static_plan(call) else { return Some(()); };
+        if metadata.owner != crate::sema::registry_graph::RegistryOwner::Method(MethodReceiver::Map) || metadata.entry != "set" { return Some(()); }
+        let call = self.expression_identity(call);
+        let origin = self.expression_identity(base);
+        let solved = self.solved();
+        let operation = solved.operations.get(&call)?;
+        let graph = &solved.graph;
+        let scope = solved.expression_scope(origin, operation.caller).ok()?;
+        let source_type = crate::sema::inference::ScopedRoot { ty: *solved.expressions.get(&origin)?, scope };
+        let success_type = crate::sema::inference::ScopedRoot { ty: operation.receiver?, scope };
+        let call_scope = solved.expression_scope(call, operation.caller).ok()?;
+        let call_source_type = crate::sema::inference::ScopedRoot { ty: *solved.expressions.get(&call)?, scope: call_scope };
+        let call_result_type = crate::sema::inference::ScopedRoot { ty: operation.result, scope: call_scope };
+        for root in [source_type, success_type, call_source_type, call_result_type] { graph.validate_scoped(root).ok()?; }
+        let crate::sema::inference::TypeNode::Optional(inner) = graph.node(graph.resolved(source_type.ty).ok()?).ok()? else { return None; };
+        // The source carrier and selected receiver can own distinct constructor
+        // roots for the same closed type. Preserve both original scoped roots.
+        if graph.export_type(*inner).ok()? != graph.export_type(success_type.ty).ok()? { return None; }
+        let crate::sema::inference::TypeNode::Optional(result) = graph.node(graph.resolved(call_source_type.ty).ok()?).ok()? else { return None; };
+        if graph.export_type(*result).ok()? != graph.export_type(call_result_type.ty).ok()? { return None; }
+        let mut scratch = self.scratch.borrow_mut();
+        if carrier.index() >= read.index() || !matches!(scratch.expressions.get(read.index())?, BuildExprRow::Param(actual) if *actual == slot) { return None; }
+        if scratch.optional_receiver_guards.insert(read, super::super::indexed::full::BuildOptionalReceiverGuard {
+            call, origin, source_type, success_type, call_source_type, call_result_type, carrier, read, slot, wrapper: None,
+        }).is_some() { return None; }
+        Some(())
+    }
+
+    pub(super) fn finish_original_optional_receiver_guard(&self, read: BuildExprId, wrapper: BuildExprId) -> Option<()> {
+        let mut scratch = self.scratch.borrow_mut();
+        let Some(guard) = scratch.optional_receiver_guards.get(&read).cloned() else { return Some(()); };
+        let BuildExprRow::MatchExpr { value, arms, .. } = scratch.expressions.get(wrapper.index())? else { return None; };
+        let [(null_pattern, None, absent), (present_pattern, None, _)] = arms.as_slice() else { return None; };
+        if *value != guard.carrier || !matches!(scratch.patterns.get(null_pattern.index())?, BuildPatternRow::Literal(LoweredValue::Null))
+            || !matches!(scratch.expressions.get(absent.index())?, BuildExprRow::Null)
+            || !matches!(scratch.patterns.get(present_pattern.index())?, BuildPatternRow::Bind { slot } if *slot == guard.slot) { return None; }
+        scratch.optional_receiver_guards.get_mut(&read)?.wrapper = Some(wrapper);
+        Some(())
+    }
+
+    pub(super) fn record_original_guarded_native_receiver(
+        &self, call: ExprId, base: ExprId, initializer: BuildExprId, read: BuildExprId, slot: usize,
+    ) -> Option<()> {
+        let guard = self.scratch.borrow().optional_receiver_guards.get(&initializer).cloned();
+        let Some(guard) = guard else { return self.record_original_native_receiver(call, base, initializer, read, slot); };
+        let call = self.expression_identity(call);
+        if guard.call != call || guard.origin != self.expression_identity(base)
+            || initializer.index() >= read.index() { return None; }
+        let operation = self.solved().operations.get(&call)?;
+        if self.solved().graph.export_type(operation.receiver?).ok()? != self.solved().graph.export_type(guard.success_type.ty).ok()? { return None; }
+        let mut scratch = self.scratch.borrow_mut();
+        if !matches!(scratch.expressions.get(read.index())?, BuildExprRow::Param(actual) if *actual == slot) { return None; }
+        scratch.native_receiver_origins.insert(read, super::super::indexed::full::BuildSavedNativeReceiverOrigin {
+            call, origin: guard.origin, source_type: guard.source_type, initializer, slot, wrapper: None,
+        });
+        if scratch.native_receiver_initializers.insert((initializer, slot), read).is_some() { return None; }
+        Some(())
+    }
+
     pub(super) fn original_native_static_plan(&self, id: ExprId) -> Option<(crate::sema::registry_graph::RegistryCandidate, crate::sema::check::SolvedOperation, crate::sema::inference::Arrow)> {
         use crate::modules::signature::{ApiArgCheck, ImplBinding, SemanticRule};
         use crate::sema::registry_graph::RegistryOwner;
@@ -39,14 +158,16 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut bindings = Vec::new();
         let receiver = match metadata.owner {
             RegistryOwner::Method(_) if offset == 1 => {
-                let receiver = match self.program.arena.expr(callee).kind {
-                    ArenaExprKind::Field { base, .. } => self.lower_expr(base, slots, current_function, item_slot)?,
-                    ArenaExprKind::NullSafeField { base, .. } => self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
+                let (base, receiver) = match self.program.arena.expr(callee).kind {
+                    ArenaExprKind::Field { base, .. } => (base, self.lower_expr(base, slots, current_function, item_slot)?),
+                    ArenaExprKind::NullSafeField { base, .. } => (base, self.lower_postfix_receiver(base, slots, current_function, item_slot)?),
                     _ => return None,
                 };
                 let slot = slots.reserve("native call receiver");
                 bindings.push((receiver, slot));
-                Some(push_build_row!(self, expr, BuildExprRow::Param(slot)))
+                let read = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                self.record_original_guarded_native_receiver(id, base, receiver, read, slot)?;
+                Some(read)
             }
             RegistryOwner::Module(_) if offset == 0 => None,
             _ => return None,
@@ -85,40 +206,24 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(self.wrap_argument_bindings(value, bindings, span))
     }
 
-    pub(super) fn record_original_callable_receiver(
-        &self, base: ExprId, initializer: BuildExprId, read: BuildExprId, slot: usize,
-    ) -> Option<()> {
-        let origin = self.expression_identity(base);
-        let mut scratch = self.scratch.borrow_mut();
-        let Some(&binding_identity) = scratch.callable_binding_uses.get(&origin) else { return Some(()); };
-        let binding = self.solved().bindings.get(&binding_identity)?;
-        let definition = scratch.callable_binding_origins.get(&binding_identity)?;
-        if binding.mutable || definition.source_type.ty != binding.ty
-            || self.solved().expression_owners.get(&origin).copied() != binding.owner
-            || !matches!(scratch.expressions.get(read.index())?, BuildExprRow::Param(actual) if *actual == slot) { return None; }
-        let ty = *self.solved().expressions.get(&origin)?;
-        self.solved().graph.validate_scoped(crate::sema::inference::ScopedRoot {
-            ty, scope: self.solved().expression_scope(origin, binding.owner).ok()?,
-        }).ok()?;
-        scratch.callable_receiver_origins.insert(read, super::super::BuildCallableReceiverOrigin {
-            origin, binding: binding_identity, initializer, slot, wrapper: None,
-        });
-        if scratch.callable_receiver_initializers.insert((initializer, slot), read).is_some() { return None; }
-        Some(())
-    }
-
     pub(super) fn original_source_instruction(&self, mut instruction: BuildExprId) -> Option<BuildExprId> {
         loop {
             let next = {
                 let scratch = self.scratch.borrow();
                 match scratch.expressions.get(instruction.index())? {
                     BuildExprRow::CheckedValue { value, .. } => Some(*value),
-                    BuildExprRow::MatchExpr { arms, .. } if arms.len() == 1 && arms[0].1.is_none()
-                        && matches!(scratch.patterns.get(arms[0].0.index())?, BuildPatternRow::Bind { .. }) => Some(arms[0].2),
+                    BuildExprRow::MatchExpr { value, arms, .. } => {
+                        if let Some(&(initializer, pattern, body, slot)) = scratch.compiler_argument_wrappers.get(&instruction) {
+                            if *value != initializer || arms.as_slice() != [(pattern, None, body)]
+                                || !matches!(scratch.patterns.get(pattern.index())?, BuildPatternRow::Bind { slot: actual } if *actual == slot) { return None; }
+                            Some(body)
+                        } else { None }
+                    }
                     _ => None,
                 }
             };
-            let Some(next) = next.filter(|next| next.index() < instruction.index()) else { return Some(instruction); };
+            let Some(next) = next else { return Some(instruction); };
+            if next.index() >= instruction.index() { return None; }
             instruction = next;
         }
     }

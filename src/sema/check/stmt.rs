@@ -243,6 +243,8 @@ impl Checker {
                     },
                     span,
                 );
+                let identity = super::BindingIdentity { source: span.source_id, namespace: self.current_namespace, target };
+                if let Some(binding) = self.current_scope_mut().get_mut(name) { binding.original_binding = Some(identity); }
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 let record_fields = match ty {
@@ -355,6 +357,8 @@ impl Checker {
                 narrowed.unrefined_ty = Some(narrowed.ty.clone());
             }
             if !super::proof::replace_projection(&mut narrowed.ty, &narrowing.path, narrowing.ty.clone()) { continue; }
+            narrowed.refinements.retain(|fact| !super::proof::paths_overlap(&fact.path, &narrowing.path));
+            if narrowing.source.as_ref().is_some_and(|source| source.guard.is_some()) { narrowed.refinements.push(narrowing.clone()); }
             self.current_scope_mut().insert(narrowing.name, narrowed);
         }
     }
@@ -422,7 +426,9 @@ impl Checker {
                     self.error(arena.arena.span(arena.arena.block(else_block).span), "guard failure branch must leave the enclosing continuation on every reachable path", "check.guard-fallthrough");
                 }
                 self.scopes = success_scopes;
-                self.apply_narrowings(&narrowings.when_true);
+                if self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(else_block).span)) {
+                    self.apply_exiting_guard_refinements(arena, id, condition, &narrowings.when_true);
+                } else { self.apply_narrowings(&narrowings.when_true); }
             }
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = arena.arena.use_stmt(use_id);
@@ -820,7 +826,9 @@ impl Checker {
         else {
             return ConditionNarrowings::default();
         };
-        let narrowing = self.lookup(name).unwrap().proof.fact(name, path, inner);
+        let mut narrowing = self.lookup(name).unwrap().proof.fact(name, path, inner);
+        let subject = if matches!(arena.arena.expr(right).kind, ArenaExprKind::Null) { left } else { right };
+        narrowing.source = self.null_predicate_source(arena, condition, subject, name).map(std::sync::Arc::new);
         if matches!(
             arena.arena.expr(condition).kind,
             ArenaExprKind::Binary {
@@ -1030,7 +1038,7 @@ impl Checker {
     ) {
         self.push_scope();
         let mut error_ty = None;
-        for binding in arena.arena.with_bindings(bindings) {
+        for (ordinal, binding) in arena.arena.with_bindings(bindings).iter().enumerate() {
             let previous_errors = self.with_initializer_errors.replace(Vec::new());
             let ty = self.check_expr_arena(arena, source, binding.initializer, None);
             let mut errors = self.with_initializer_errors.take().unwrap_or_default();
@@ -1045,6 +1053,24 @@ impl Checker {
             }
             let value_ty = match ty { Type::Result(ok, _) => *ok, other => other };
             let binding_span = arena.arena.span(binding.span);
+            if self.graph_generation && !matches!(value_ty, Type::Unknown | Type::Invalid) {
+                let original = self.current_statement.map(|statement| super::WithBindingIdentity {
+                    statement: super::StatementIdentity { source: binding_span.source_id, namespace: self.current_namespace, statement },
+                    ordinal: ordinal as u32,
+                });
+                let initializer = super::ExpressionIdentity { source: binding_span.source_id, namespace: self.current_namespace, expression: binding.initializer };
+                match self.graph_type(&value_ty, binding_span) {
+                    Ok(binding_type) => {
+                        let initializer_type = self.generic.borrow().facts.expressions.get(&initializer).copied();
+                        if let Some((identity, initializer_type)) = original.zip(initializer_type) {
+                            self.generic.borrow_mut().facts.with_bindings.insert(identity, super::SolvedWithBinding {
+                                initializer, initializer_type, binding_type, owner: self.current_generic,
+                            });
+                        }
+                    }
+                    Err(error) => self.graph_error(binding_span, error),
+                }
+            }
             if self.current_scope().contains_key(&binding.name) {
                 self.error(binding_span, "duplicate name in scope", "check.duplicate-name");
             }
@@ -1087,8 +1113,28 @@ impl Checker {
             self.expect_type(&ann, &ok_ty, span);
             ann
         } else { ok_ty };
+        if self.graph_generation && let ArenaExprOrRun::Expr(initializer) = initializer
+            && let Some(param) = arena.arena.block_params(arena.arena.block(else_block).params).first()
+            && param.name.as_str() != "_" {
+            let original = self.current_statement.map(|statement| super::GuardErrorBindingIdentity {
+                statement: super::StatementIdentity { source: span.source_id, namespace: self.current_namespace, statement },
+            });
+            let initializer = super::ExpressionIdentity { source: span.source_id, namespace: self.current_namespace, expression: initializer };
+            match self.graph_type(&error_ty, arena.arena.span(param.span)) {
+                Ok(binding_type) => {
+                    let initializer_type = self.generic.borrow().facts.expressions.get(&initializer).copied();
+                    if let Some((identity, initializer_type)) = original.zip(initializer_type) {
+                        self.generic.borrow_mut().facts.guard_error_bindings.insert(identity, super::SolvedGuardErrorBinding {
+                            initializer, initializer_type, binding_type, owner: self.current_generic, block: else_block, name: param.name,
+                        });
+                    }
+                }
+                Err(error) => self.graph_error(span, error),
+            }
+        }
         self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
         self.define_binding_target_arena(arena, target, &bind_ty, false, span);
+        self.record_graph_binding(target, &bind_ty, false, span);
     }
 
     fn check_error_handler_block_arena(
@@ -1731,6 +1777,7 @@ impl Checker {
                 } else { Some(std::sync::Arc::new(self.infer_condition_narrowings_arena(arena, expr))) }
             } else { None }
         } else { None };
+        let boolean_proof = self.boolean_alias_source(arena, target, initializer, boolean_proof);
         let schema = schema.or_else(|| match initializer {
             ArenaExprOrRun::Expr(expression) => self.schema_expectation_for_expr(arena, expression),
             ArenaExprOrRun::Run(_) => None,
@@ -1857,7 +1904,9 @@ impl Checker {
         for scope in &mut self.scopes {
             for binding in scope.values_mut().filter(|binding| binding.proof.same_binding(&identity)) {
                 if !binding.mutable { continue; }
-                binding.proof.mutate(&path);
+                if let Some(statement) = self.current_statement {
+                    binding.proof.mutate_at(&path, super::StatementIdentity { source: arena.arena.stmt(statement).span.source_id, namespace: self.current_namespace, statement });
+                } else { binding.proof.mutate(&path); }
                 if let Some(original) = &binding.unrefined_ty {
                     super::proof::restore_projection(&mut binding.ty, original, &path);
                 }
@@ -1966,10 +2015,10 @@ impl Checker {
         if value.is_none() && expected.is_result_unit() {
             return;
         }
-        let context = match value {
+        let context = if self.current_generic.is_some() && self.inferred_returns.is_some() { None } else { match value {
             Some(ArenaExprOrRun::Expr(expr)) => tail_expr_context_arena(arena, expr, Some(&expected)),
             _ => None,
-        };
+        } };
         let actual = value
             .map(|value| {
                 let schema = self.return_schema.as_ref().map(|schema| {

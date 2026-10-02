@@ -65,7 +65,8 @@ impl FullBuilder {
             if self.store.string(field).map_err(|_| projection_problem("ground_projection_field"))? != projection.field.as_str().as_str() {
                 return Err(projection_problem("ground_projection_original_field"));
             }
-            let &(receiver_origin, receiver_owner) = origins.get(&receiver_instruction).ok_or_else(|| projection_problem("ground_projection_receiver_origin"))?;
+            let (receiver_source_instruction, receiver_wrappers) = self.argument_initializer_lineage(receiver_instruction, owner)?;
+            let &(receiver_origin, receiver_owner) = origins.get(&receiver_source_instruction).ok_or_else(|| projection_problem("ground_projection_receiver_origin"))?;
             if receiver_owner != owner { return Err(projection_problem("ground_projection_receiver_owner")); }
             let &original_receiver = solved.expressions.get(&receiver_origin).ok_or_else(|| projection_problem("ground_projection_receiver_type"))?;
             if graph_ground_type(&solved.graph, original_receiver).map_err(|_| projection_problem("ground_projection_receiver_type"))? != receiver {
@@ -84,7 +85,7 @@ impl FullBuilder {
             let field_slot = u32::try_from(field_slot).map_err(|_| projection_problem("ground_projection_slot_overflow"))?;
             let scope = solved.expression_owners.get(&expression).and_then(|declaration| self.generic_declarations.get(declaration).copied());
             let source = self.generic_evidence_mut().add_ground_projection_source(GroundProjectionSource {
-                origin: expression, instruction, owner, scope, receiver_origin, receiver_instruction,
+                origin: expression, instruction, owner, scope, receiver_origin, receiver_instruction, receiver_source_instruction, receiver_wrappers,
                 field: projection.field, receiver, result, layout, field_slot,
             }).map_err(|_| projection_problem("ground_projection_source_allocation"))?;
             self.generic_evidence_mut().add_ground_projection(PreparedGroundProjection {
@@ -94,7 +95,7 @@ impl FullBuilder {
         Ok(())
     }
 
-    fn ground_projection_layout(&mut self, ty: TypeId, layouts: &mut BTreeMap<TypeId, PhysicalLayoutId>) -> Result<PhysicalLayoutId, IrBuildError> {
+    pub(super) fn ground_projection_layout(&mut self, ty: TypeId, layouts: &mut BTreeMap<TypeId, PhysicalLayoutId>) -> Result<PhysicalLayoutId, IrBuildError> {
         if let Some(&layout) = layouts.get(&ty) { return Ok(layout); }
         let (names, types) = self.store.semantic.record_fields(ty).map_err(|_| projection_problem("ground_projection_closed_record"))?;
         let fields = names.iter().copied().zip(types.iter().copied()).map(|(name, ty)| {
@@ -124,14 +125,15 @@ impl FullVerifier {
         if source.instruction != instruction || source.owner != owner { return Err(IrVerifyError::new("ground projection proof belongs to another instruction owner")); }
         if store.tags.get(instruction as usize) != Some(&FullTag::ExprField) { return Err(IrVerifyError::new("ground projection proof is attached to another opcode")); }
         if generic.registered_instruction_origin(instruction, false) != Some((super::super::generic::OperationSourceOrigin::Expression(source.origin), owner))
-            || generic.registered_instruction_origin(source.receiver_instruction, false) != Some((super::super::generic::OperationSourceOrigin::Expression(source.receiver_origin), owner)) {
+            || generic.registered_instruction_origin(source.receiver_source_instruction, false) != Some((super::super::generic::OperationSourceOrigin::Expression(source.receiver_origin), owner)) {
             return Err(IrVerifyError::new("ground projection disagrees with its original instruction or receiver"));
         }
+        Self::verify_argument_initializer_lineage(store, generic, source.receiver_instruction, source.receiver_source_instruction, &source.receiver_wrappers, owner)?;
         let words = store.payload(store.data[instruction as usize].range())?;
         if words.first() != Some(&projection.receiver_instruction) || words.get(1).copied().and_then(|field| store.string(field).ok()) != Some(source.field.as_str().as_str()) {
             return Err(IrVerifyError::new("ground projection receiver or field differs from its original source"));
         }
-        if words.get(2).and_then(|&location| store.location_sources.get(location as usize)) != Some(&source.origin.source) {
+        if words.get(2).and_then(|&location| IrLocationId::from_raw(location)).and_then(|location| store.location_sources.get(location.index())) != Some(&source.origin.source) {
             return Err(IrVerifyError::new("ground projection differs from its original source location"));
         }
         let TypeRef::Ground(receiver) = projection.receiver else { return Err(IrVerifyError::new("ground projection receiver is not closed")); };
@@ -145,6 +147,10 @@ impl FullVerifier {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "projection_prepare/record_layout_tests.rs"]
+mod record_layout_tests;
 
 #[cfg(test)]
 mod tests {
@@ -179,6 +185,56 @@ mod tests {
         let source = "pure compare(value: Str) -> Bool { let copied = {...{text: value}}; value == \"yes\" }\nlet result = compare(\"yes\")\n";
         let program = source_fixture(source, PreparedLanguageOperation::Equality { op: BinaryOp::Eq });
         assert_eq!(program.generic_evidence().unwrap().ground_projections().count(), 0);
+    }
+
+    fn top_level_fixed_projection_fixture() -> FullProgram {
+        source_fixture("type Row = {left: Str, right: Str}\npure keep(value) { value }\npure compare(left: Str, right: Str) -> Bool { left == right }\nlet row: Row = {left: \"yes\", right: \"no\"}\nlet left = keep(row.left)\nlet right = keep(row.right)\nlet result = compare(left, right)\n", PreparedLanguageOperation::Equality { op: BinaryOp::Eq })
+    }
+
+    #[test]
+    fn top_level_fixed_record_projections_retain_the_original_checked_sources() {
+        let program = top_level_fixed_projection_fixture();
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            assert_eq!(generic.ground_projections().count(), 2);
+            for (_, proof) in generic.ground_projections() {
+                let source = generic.ground_projection_source(proof.source).unwrap();
+                assert!(matches!(source.owner, InstructionOwner::Driver(_)));
+                assert!(source.scope.is_none());
+                assert_eq!(source.origin.source, source.receiver_origin.source);
+                assert_eq!(source.origin.namespace, source.receiver_origin.namespace);
+                assert_eq!(generic.registered_instruction_origin(source.receiver_source_instruction, false), Some((super::super::super::generic::OperationSourceOrigin::Expression(source.receiver_origin), source.owner)));
+            }
+        });
+    }
+
+    #[test]
+    fn top_level_fixed_record_projections_reject_missing_foreign_and_coupled_field_substitution() {
+        let program = top_level_fixed_projection_fixture();
+        let foreign = top_level_fixed_projection_fixture();
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let (id, proof) = generic.ground_projections().find(|(_, proof)| generic.ground_projection_source(proof.source).unwrap().field == "left").unwrap();
+            let source = generic.ground_projection_source(proof.source).unwrap();
+            let (_, alternate) = generic.ground_projections().find(|(_, proof)| generic.ground_projection_source(proof.source).unwrap().field == "right").unwrap();
+            let alternate_source = generic.ground_projection_source(alternate.source).unwrap();
+            assert_eq!(proof.result, alternate.result, "the independent fields deliberately share a carrier");
+            let mut missing = program.store.clone();
+            missing.generic.as_deref_mut().unwrap().test_remove_ground_projections();
+            assert!(FullVerifier::verify_generic_evidence(&missing).is_err());
+            let mut foreign_source = program.store.clone();
+            foreign_source.generic.as_deref_mut().unwrap().test_ground_projection_mut(id).unwrap().source = foreign.generic_evidence().unwrap().ground_projections().next().unwrap().1.source;
+            assert!(FullVerifier::verify_generic_evidence(&foreign_source).is_err());
+            let mut coupled = program.store.clone();
+            let field = program.store.payload(program.store.data[alternate_source.instruction as usize].range()).unwrap()[1];
+            coupled.extra[program.store.data[source.instruction as usize].range().start as usize + 1] = field;
+            let evidence = coupled.generic.as_deref_mut().unwrap();
+            evidence.test_ground_projection_mut(id).unwrap().field_slot = alternate.field_slot;
+            let original = evidence.test_ground_projection_source_mut(proof.source).unwrap();
+            original.field = alternate_source.field;
+            original.field_slot = alternate.field_slot;
+            assert!(FullVerifier::verify_generic_evidence(&coupled).unwrap_err().message.contains("original receipt"));
+        });
     }
 
     #[test]

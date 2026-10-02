@@ -4,6 +4,18 @@ use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaP
 use crate::source::Span;
 
 impl Checker {
+    pub(super) fn retain_graph_callable_receiver_owner(&mut self, arena: &ArenaProgram, value: ExprId, caller: Option<super::DeclarationIdentity>) -> bool {
+        if !self.graph_generation { return true; }
+        let receiver = self.expression_identity(arena, value);
+        let previous = self.generic.borrow().facts.expression_owners.get(&receiver).copied();
+        if previous.is_some() && previous != caller {
+            self.error(arena.arena.expr(value).span, "callable receiver belongs to another lexical declaration", "check.callable-owner");
+            return false;
+        }
+        if let Some(owner) = caller { self.generic.borrow_mut().facts.expression_owners.insert(receiver, owner); }
+        true
+    }
+
     pub(super) fn graph_callable_value(&mut self, arena: &ArenaProgram, source: &str, expression: ExprId) -> Option<Type> {
         let target = self.graph_callable_target(arena, expression)?;
         self.prepare_graph_callable_value(arena, source, expression);
@@ -99,8 +111,10 @@ impl Checker {
                 self.graph_view(arrow.result)
             });
         }
+        let caller = self.current_generic;
         let ty = self.check_expr_arena(arena, source, value, None);
         let Type::Graph(signature) = ty else { return None; };
+        if !self.retain_graph_callable_receiver_owner(arena, value, caller) { return Some(Type::Invalid); }
         let arrow = {
             let state = self.generic.borrow();
             match state.facts.graph.resolved(signature).and_then(|id| state.facts.graph.node(id)) {

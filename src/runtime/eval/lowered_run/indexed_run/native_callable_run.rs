@@ -55,7 +55,7 @@ impl Evaluator {
         if values.next().is_some() {
             return Err(RuntimeError::new("indexed-ir", "native packet contains excess supplied arguments").with_span(span));
         }
-        self.eval_indexed_module_call_values(operation, super::super::NativeArgumentValues::new(packet), span, None)
+        self.eval_indexed_module_call_values(operation, super::super::NativeArgumentValues::new(packet), span, None, None)
     }
 }
 

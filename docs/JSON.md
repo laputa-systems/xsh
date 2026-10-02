@@ -79,6 +79,15 @@ json.write(log_path, event)?
 records. Serialization reads its values without converting the list to
 `List[Any]`; container assignments retain their invariant element domains.
 
+A list literal supplied directly to a declared JSON `List[Any]` parameter can
+contain heterogeneous values. Checking retains each child's original type and
+JSON eligibility instead of unifying the children into one inferred item type.
+Splices retain their own element domain. Dynamic children are validated during
+encoding; statically incompatible children fail checking. This admission belongs
+to the canonical JSON parameter contract and does not widen an ordinary local
+list or an explicit `List[Int]`. `check_graph_special_module_call` and
+`validate_json_literal_boundaries` own this distinction.
+
 The record is already typed in XSH. A separate `Event` type is useful only if
 the script will read the value back, accept it from another process, or pass it
 through an API that depends on that shape.

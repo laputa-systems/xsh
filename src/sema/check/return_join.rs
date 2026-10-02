@@ -13,6 +13,10 @@ impl Checker {
                 let graph = &mut state.facts.graph;
                 let left_node = graph.node(graph.resolved(left)?)?.clone();
                 let right_node = graph.node(graph.resolved(right)?)?.clone();
+                if matches!((&left_node, &right_node), (TypeNode::Result { .. }, TypeNode::Result { .. })) {
+                    drop(state);
+                    return self.join_graph_return_types(left, right, span);
+                }
                 // Absence belongs to the joined value, not to the other operand's payload type.
                 let joined = match (left_node, right_node) {
                     (TypeNode::Atom(Atom::UInt), TypeNode::Atom(Atom::Int))

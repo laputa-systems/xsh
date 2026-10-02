@@ -10,6 +10,9 @@ mod argument_source_tests;
 
 #[path = "solved/pattern_plan.rs"]
 mod pattern_plan;
+#[path = "solved/refinement_plan.rs"]
+mod refinement_plan;
+pub use refinement_plan::{SolvedRefinedRead, SolvedRefinementAlias, SolvedRefinementWrite};
 #[path = "solved/nominal_member_plan.rs"]
 mod nominal_member_plan;
 
@@ -76,6 +79,21 @@ pub struct BindingIdentity {
     pub source: SourceId,
     pub namespace: Option<Name>,
     pub target: BindingTargetId,
+}
+
+/// A sequential `with` binder is named by its authored statement and ordinal;
+/// it has no binding-target or pattern node in the syntax arena.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct WithBindingIdentity {
+    pub statement: StatementIdentity,
+    pub ordinal: u32,
+}
+
+/// A Guard failure parameter belongs to its authored statement; it has no
+/// binding-target or pattern node and is visible only inside the handler.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct GuardErrorBindingIdentity {
+    pub statement: StatementIdentity,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
@@ -185,6 +203,24 @@ pub struct SolvedBinding {
     pub scheme: Option<SchemeId>,
     pub owner: Option<DeclarationIdentity>,
     pub mutable: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SolvedWithBinding {
+    pub initializer: ExpressionIdentity,
+    pub initializer_type: TypeId,
+    pub binding_type: TypeId,
+    pub owner: Option<DeclarationIdentity>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SolvedGuardErrorBinding {
+    pub initializer: ExpressionIdentity,
+    pub initializer_type: TypeId,
+    pub binding_type: TypeId,
+    pub owner: Option<DeclarationIdentity>,
+    pub block: BlockId,
+    pub name: Name,
 }
 
 /// A callable contract can remain precise without naming one declaration.
@@ -363,6 +399,8 @@ pub struct SolvedTypes<Graph = SolvedGraph> {
     pub graph: Graph,
     pub producer_flows: super::ProducerFlowGraph,
     pub declarations: BTreeMap<DeclarationIdentity, SolvedCallable>,
+    pub(crate) embedded_bridges: BTreeMap<DeclarationIdentity, std::sync::Arc<super::CanonicalNativeBridge>>,
+    pub(in crate::sema::check) embedded_bridge_calls: BTreeMap<ExpressionIdentity, std::sync::Arc<super::NativeBridgeInvocation>>,
     pub nominals: BTreeMap<TypeId, QualifiedNominalIdentity>,
     pub nominal_members: BTreeMap<QualifiedNominalIdentity, std::sync::Arc<SolvedNominalMember>>,
     original_nominal_members: BTreeMap<QualifiedNominalIdentity, std::sync::Arc<SolvedNominalMember>>,
@@ -378,6 +416,10 @@ pub struct SolvedTypes<Graph = SolvedGraph> {
     pub statement_producer_flows: BTreeMap<StatementIdentity, super::ProducerFlowId>,
     pub statement_owners: BTreeMap<StatementIdentity, DeclarationIdentity>,
     pub bindings: BTreeMap<BindingIdentity, SolvedBinding>,
+    pub with_bindings: BTreeMap<WithBindingIdentity, SolvedWithBinding>,
+    pub guard_error_bindings: BTreeMap<GuardErrorBindingIdentity, SolvedGuardErrorBinding>,
+    pub refined_reads: BTreeMap<ExpressionIdentity, std::sync::Arc<SolvedRefinedRead>>,
+    original_refined_reads: BTreeMap<ExpressionIdentity, std::sync::Arc<SolvedRefinedRead>>,
     pub patterns: BTreeMap<PatternIdentity, std::sync::Arc<SolvedPattern>>,
     original_patterns: BTreeMap<PatternIdentity, (std::sync::Arc<SolvedPattern>, Option<SchemeId>)>,
     original_pattern_nominals: BTreeMap<PatternIdentity, (pattern_plan::PatternNominalReceipt, pattern_plan::PatternNominalReceipt)>,
@@ -506,8 +548,8 @@ impl<Graph> SolvedTypes<Graph> {
         Self {
             owner, graph, symbols: crate::symbol::SymbolOwner::current().unwrap_or_default(),
             producer_flows: super::ProducerFlowGraph::new(owner),
-            declarations: BTreeMap::new(), nominals: BTreeMap::new(), nominal_members: BTreeMap::new(), original_nominal_members: BTreeMap::new(), expressions: BTreeMap::new(), expression_schemes: BTreeMap::new(), non_completing_expressions: std::collections::BTreeSet::new(), expression_value_scopes: BTreeMap::new(),
-            expression_callables: BTreeMap::new(), expression_producers: BTreeMap::new(), bindings: BTreeMap::new(), binding_producers: BTreeMap::new(), patterns: BTreeMap::new(), original_patterns: BTreeMap::new(), original_pattern_nominals: BTreeMap::new(), pattern_value_scopes: BTreeMap::new(),
+            declarations: BTreeMap::new(), embedded_bridges: BTreeMap::new(), embedded_bridge_calls: BTreeMap::new(), nominals: BTreeMap::new(), nominal_members: BTreeMap::new(), original_nominal_members: BTreeMap::new(), expressions: BTreeMap::new(), expression_schemes: BTreeMap::new(), non_completing_expressions: std::collections::BTreeSet::new(), expression_value_scopes: BTreeMap::new(),
+            expression_callables: BTreeMap::new(), expression_producers: BTreeMap::new(), bindings: BTreeMap::new(), with_bindings: BTreeMap::new(), guard_error_bindings: BTreeMap::new(), refined_reads: BTreeMap::new(), original_refined_reads: BTreeMap::new(), binding_producers: BTreeMap::new(), patterns: BTreeMap::new(), original_patterns: BTreeMap::new(), original_pattern_nominals: BTreeMap::new(), pattern_value_scopes: BTreeMap::new(),
             expression_producer_flows: BTreeMap::new(), statement_producer_flows: BTreeMap::new(), statement_owners: BTreeMap::new(), binding_producer_flows: BTreeMap::new(),
             argument_sources: BTreeMap::new(), stage_argument_sources: BTreeMap::new(), calls: BTreeMap::new(), invocations: BTreeMap::new(), operations: BTreeMap::new(), statement_operations: BTreeMap::new(), comprehension_operations: BTreeMap::new(), stage_operations: BTreeMap::new(), projections: BTreeMap::new(), record_updates: BTreeMap::new(),
             operation_catalog: super::SolvedOperationCatalog::new(owner), registry_boundaries: BTreeMap::new(), additions: BTreeMap::new(), statements: BTreeMap::new(),
@@ -516,6 +558,9 @@ impl<Graph> SolvedTypes<Graph> {
             result_wrappings: BTreeMap::new(), result_statement_wrappings: BTreeMap::new(),
         }
     }
+
+    pub(crate) fn embedded_bridge(&self, identity: DeclarationIdentity) -> Option<&std::sync::Arc<super::CanonicalNativeBridge>> { self.embedded_bridges.get(&identity) }
+    pub(crate) fn embedded_bridge_call(&self, identity: ExpressionIdentity) -> Option<&std::sync::Arc<super::NativeBridgeInvocation>> { self.embedded_bridge_calls.get(&identity) }
 
     pub fn symbol_owner(&self) -> &crate::symbol::SymbolOwner { &self.symbols }
 
@@ -538,12 +583,12 @@ impl<Graph> SolvedTypes<Graph> {
             }).unwrap_or(0);
             (binding.supplied_slots.capacity() + binding.default_slots.capacity()) * size_of::<usize>() + dynamic
         }
-        let maps = map_bytes(&self.declarations) + map_bytes(&self.nominals) + map_bytes(&self.expressions)
+        let maps = map_bytes(&self.embedded_bridges) + map_bytes(&self.embedded_bridge_calls) + map_bytes(&self.declarations) + map_bytes(&self.nominals) + map_bytes(&self.expressions)
             + map_bytes(&self.nominal_members) + map_bytes(&self.original_nominal_members)
             + map_bytes(&self.expression_schemes) + map_bytes(&self.expression_value_scopes) + map_bytes(&self.expression_callables)
             + map_bytes(&self.expression_producers) + map_bytes(&self.expression_producer_flows)
             + map_bytes(&self.statement_producer_flows) + map_bytes(&self.statement_owners)
-            + map_bytes(&self.bindings) + map_bytes(&self.binding_producers) + map_bytes(&self.binding_producer_flows) + map_bytes(&self.patterns) + map_bytes(&self.original_patterns) + map_bytes(&self.original_pattern_nominals) + map_bytes(&self.pattern_value_scopes)
+            + map_bytes(&self.bindings) + map_bytes(&self.with_bindings) + map_bytes(&self.guard_error_bindings) + map_bytes(&self.refined_reads) + map_bytes(&self.original_refined_reads) + self.refined_read_payload_bytes() + map_bytes(&self.binding_producers) + map_bytes(&self.binding_producer_flows) + map_bytes(&self.patterns) + map_bytes(&self.original_patterns) + map_bytes(&self.original_pattern_nominals) + map_bytes(&self.pattern_value_scopes)
             + map_bytes(&self.argument_sources) + map_bytes(&self.stage_argument_sources) + map_bytes(&self.calls) + map_bytes(&self.invocations) + map_bytes(&self.operations) + map_bytes(&self.statement_operations) + map_bytes(&self.comprehension_operations) + map_bytes(&self.stage_operations) + map_bytes(&self.projections) + map_bytes(&self.record_updates) + map_bytes(&self.additions)
             + map_bytes(&self.statements) + map_bytes(&self.expression_owners) + map_bytes(&self.result_wrappings)
             + map_bytes(&self.result_statement_wrappings) + map_bytes(&self.registry_boundaries) + map_bytes(&self.module_projections) + map_bytes(&self.schema_validations) + map_bytes(&self.constructor_applications) + map_bytes(&self.constructor_defaults) + map_bytes(&self.constructor_nominals) + map_bytes(&self.registry_references) + map_bytes(&self.run_operations) + map_bytes(&self.spawn_operations);
@@ -577,6 +622,8 @@ impl<Graph> SolvedTypes<Graph> {
             + self.argument_sources.values().chain(self.stage_argument_sources.values()).map(|arguments| arguments.capacity() * size_of::<SolvedArgumentSource>()).sum::<usize>() + self.registry_references.values().map(|reference| reference.retained_bytes()).sum::<usize>() + self.schema_validation_payload_bytes() + self.constructor_application_payload_bytes() + self.producer_flows.retained_bytes() + self.operation_catalog.retained_bytes()
             + self.non_completing_expressions.len() * (size_of::<ExpressionIdentity>() + 3 * size_of::<usize>())
             + self.expression_producers.values().chain(self.binding_producers.values()).map(profile_bytes).sum::<usize>()
+            + self.embedded_bridges.values().map(|bridge| bridge.retained_bytes()).sum::<usize>()
+            + self.embedded_bridge_calls.values().map(|call| call.retained_bytes()).sum::<usize>()
     }
 
     fn source_operations(&self) -> impl Iterator<Item = (super::ProducerFlowSource, &SolvedOperation)> {
@@ -791,6 +838,7 @@ impl<Graph> SolvedTypes<Graph> {
     }
 
     fn validate_registry_boundaries(&self, graph: &InferenceContext) -> Result<(), InferenceError> {
+        self.validate_json_literal_boundaries(graph)?;
         for (identity, boundary) in &self.registry_boundaries {
             let expression = self.expressions.get(identity).ok_or(InferenceError::InvalidScheme)?;
             if graph.resolved(*expression)? != graph.resolved(boundary.result)? { return Err(InferenceError::InvalidScheme); }
@@ -802,6 +850,7 @@ impl<Graph> SolvedTypes<Graph> {
                 let retained = self.operation_catalog.schema(graph, schema.authority_id)?;
                 if retained.label != schema.label || graph.resolved(retained.shape)? != graph.resolved(schema.shape)? { return Err(InferenceError::InvalidScheme); }
             }
+            self.validate_json_arguments(*identity, boundary, graph)?;
             if let super::registry_boundaries::RegistryBoundaryKind::CommandArguments { argv_children } = &boundary.kind {
                 let requirement = boundary.requirement.ok_or(InferenceError::InvalidScheme)?;
                 let crate::sema::inference::RequirementTemplate::Operation { family, call } = graph.requirement_template(requirement)? else { return Err(InferenceError::InvalidScheme); };
@@ -1036,6 +1085,9 @@ impl<Graph> SolvedTypes<Graph> {
             if let super::registry_boundaries::RegistryBoundaryKind::CommandArguments { argv_children } = &boundary.kind {
                 for child in argv_children { roots.insert((child.requirement, self.expression_scope(child.source, boundary.caller)?)); }
             }
+            if let super::registry_boundaries::RegistryBoundaryKind::JsonArguments { children } = &boundary.kind {
+                for child in children { roots.insert((child.requirement, self.expression_scope(child.source, boundary.caller)?)); }
+            }
         }
         for (identity, stage) in &self.stage_operations {
             match stage.callback {
@@ -1069,6 +1121,7 @@ impl<Graph> SolvedTypes<Graph> {
     fn scoped_roots(&self, graph: &InferenceContext) -> Result<Vec<ScopedRoot>, InferenceError> {
         let mut roots = self.nominals.keys().map(|&ty| ScopedRoot { ty, scope: None }).collect::<Vec<_>>();
         roots.extend(self.pattern_roots()?);
+        roots.extend(self.refined_reads.values().flat_map(|read| [read.invariant, read.narrowed]));
         roots.extend(self.nominal_member_roots());
         for (argument, scope) in self.run_argument_roots()? { roots.extend([ScopedRoot { ty: argument.actual, scope }, ScopedRoot { ty: argument.operand, scope }]); }
         for (identity, reference) in &self.registry_references {
@@ -1095,6 +1148,22 @@ impl<Graph> SolvedTypes<Graph> {
             let lexical_scope = binding.owner.map(|owner| self.declarations.get(&owner).map(|declaration| declaration.scheme).ok_or(InferenceError::InvalidScheme)).transpose()?;
             roots.push(ScopedRoot { ty: binding.ty, scope: binding.scheme.or(lexical_scope) });
         }
+        for (identity, binding) in &self.with_bindings {
+            if identity.statement.source != binding.initializer.source || identity.statement.namespace != binding.initializer.namespace
+                || self.expressions.get(&binding.initializer) != Some(&binding.initializer_type)
+                || self.expression_owners.get(&binding.initializer).copied() != binding.owner { return Err(InferenceError::InvalidScheme); }
+            let scope = binding.owner.map(|owner| self.declarations.get(&owner).map(|declaration| declaration.scheme).ok_or(InferenceError::InvalidScheme)).transpose()?;
+            roots.push(ScopedRoot { ty: binding.binding_type, scope });
+            roots.push(ScopedRoot { ty: binding.initializer_type, scope: self.expression_scope(binding.initializer, binding.owner)? });
+        }
+        for (identity, binding) in &self.guard_error_bindings {
+            if identity.statement.source != binding.initializer.source || identity.statement.namespace != binding.initializer.namespace
+                || binding.name.as_str() == "_" || self.expressions.get(&binding.initializer) != Some(&binding.initializer_type)
+                || self.expression_owners.get(&binding.initializer).copied() != binding.owner { return Err(InferenceError::InvalidScheme); }
+            let scope = binding.owner.map(|owner| self.declarations.get(&owner).map(|declaration| declaration.scheme).ok_or(InferenceError::InvalidScheme)).transpose()?;
+            roots.push(ScopedRoot { ty: binding.binding_type, scope });
+            roots.push(ScopedRoot { ty: binding.initializer_type, scope: self.expression_scope(binding.initializer, binding.owner)? });
+        }
         for call in self.calls.values() {
             let scope = call.caller.map(|owner| self.declarations.get(&owner).map(|declaration| declaration.scheme).ok_or(InferenceError::InvalidScheme)).transpose()?;
             roots.push(ScopedRoot { ty: call.signature, scope });
@@ -1112,6 +1181,9 @@ impl<Graph> SolvedTypes<Graph> {
             if let super::registry_boundaries::RegistryBoundaryKind::SchemaValidation { schema, .. } = &boundary.kind { roots.push(ScopedRoot { ty: schema.shape, scope: None }); }
             if let super::registry_boundaries::RegistryBoundaryKind::CommandArguments { argv_children } = &boundary.kind {
                 for child in argv_children { roots.push(ScopedRoot { ty: child.actual, scope: self.expression_scope(child.source, boundary.caller)? }); }
+            }
+            if let super::registry_boundaries::RegistryBoundaryKind::JsonArguments { children } = &boundary.kind {
+                for child in children { roots.push(ScopedRoot { ty: child.actual, scope: self.expression_scope(child.source, boundary.caller)? }); }
             }
         }
         for (identity, projection) in &self.projections {
@@ -1142,6 +1214,8 @@ impl SolvedTypes {
     }
 
     pub fn validate(&self) -> Result<(), InferenceError> {
+        for &read in self.refined_reads.keys() { self.checked_refined_read(read)?; }
+        if self.refined_reads.len() != self.original_refined_reads.len() { return Err(InferenceError::InvalidScheme); }
         self.validate_patterns(&self.graph)?;
         self.validate_nominal_members(&self.graph)?;
         self.validate_argument_sources()?;
@@ -1158,6 +1232,7 @@ impl SolvedTypes {
         self.operation_catalog.validate(&self.graph)?;
         for root in self.operation_catalog.scoped_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
         validate_call_requirement_origins(&self.graph, &self.calls)?;
+        self.validate_embedded_bridges()?;
         self.validate_producer_flow_roots()?;
         self.validate_native_producer_flows(&self.graph)?;
         for root in self.scoped_requirement_roots(&self.graph)? { self.graph.validate_requirement_scoped(root)?; }
@@ -1202,6 +1277,8 @@ impl SolvedTypes<InferenceContext> {
     pub(crate) fn freeze_fixture(self) -> Result<SolvedTypes, InferenceError> { self.freeze() }
 
     pub(super) fn freeze(mut self) -> Result<SolvedTypes, InferenceError> {
+        self.seal_refined_reads()?;
+        self.seal_embedded_bridge_calls()?;
         self.capture_pattern_nominals()?;
         self.graph.charge_source_fact_work(self.nominal_member_source_work())?;
         self.validate_nominal_members(&self.graph)?;
@@ -1319,8 +1396,9 @@ impl SolvedTypes<InferenceContext> {
         Ok(SolvedTypes {
             owner: self.owner, graph, symbols: self.symbols, operation_catalog: self.operation_catalog, registry_boundaries: self.registry_boundaries, registry_references: self.registry_references, run_operations: self.run_operations, spawn_operations: self.spawn_operations, module_projections: self.module_projections, schema_validations: self.schema_validations, constructor_applications: self.constructor_applications, constructor_defaults: self.constructor_defaults, constructor_nominals: self.constructor_nominals,
             producer_flows: self.producer_flows,
+            embedded_bridges: self.embedded_bridges, embedded_bridge_calls: self.embedded_bridge_calls,
             declarations: self.declarations, nominals: self.nominals, nominal_members: self.nominal_members, original_nominal_members: self.original_nominal_members, expressions: self.expressions, expression_schemes: self.expression_schemes, non_completing_expressions: self.non_completing_expressions, expression_value_scopes: self.expression_value_scopes,
-            expression_callables: self.expression_callables, expression_producers: self.expression_producers, bindings: self.bindings, binding_producers: self.binding_producers, patterns: self.patterns, original_patterns: self.original_patterns, original_pattern_nominals: self.original_pattern_nominals, pattern_value_scopes: self.pattern_value_scopes,
+            expression_callables: self.expression_callables, expression_producers: self.expression_producers, bindings: self.bindings, with_bindings: self.with_bindings, guard_error_bindings: self.guard_error_bindings, refined_reads: self.refined_reads, original_refined_reads: self.original_refined_reads, binding_producers: self.binding_producers, patterns: self.patterns, original_patterns: self.original_patterns, original_pattern_nominals: self.original_pattern_nominals, pattern_value_scopes: self.pattern_value_scopes,
             expression_producer_flows: self.expression_producer_flows, statement_producer_flows: self.statement_producer_flows, statement_owners: self.statement_owners, binding_producer_flows: self.binding_producer_flows,
             argument_sources: self.argument_sources, stage_argument_sources: self.stage_argument_sources, calls: self.calls, invocations: self.invocations, operations: self.operations, statement_operations: self.statement_operations, comprehension_operations: self.comprehension_operations, stage_operations: self.stage_operations, projections: self.projections, record_updates: self.record_updates,
             additions: self.additions, statements: self.statements,

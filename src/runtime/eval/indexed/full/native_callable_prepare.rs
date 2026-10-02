@@ -1,4 +1,5 @@
 use super::*;
+mod scoped_methods;
 use super::super::generic::{NativeCallableContract, NativeCallableSource, PreparedNativeCallableValue, GroundNativeInvocationContract, NativeInvocationSource, PreparedNativeInvocationPlan, PreparedOperationAuthority, PreparedOperationEffects, GroundNativeCallContract, PreparedOperationBinding, PreparedInvocationArgument};
 use crate::sema::inference::{TypeNode, NativeAuthority, CallableAuthority, EffectSummary, EffectRoleReference, InvocationDefaultTiming, OperationBinding, RequirementTemplate};
 
@@ -121,7 +122,7 @@ impl FullBuilder {
                 if source.is_some() != binding.supplied_slots.contains(&slot) || source.is_none() != binding.default_slots.contains(&slot)
                     || source.is_some() != candidate.actual_arguments[slot].is_some() { return Err(problem("native_invocation_original_default_mask_changed")); }
             }
-            let call = GroundNativeCallContract { authority: value.contract.authority.clone(), registry_owner: value.contract.registry_owner,
+            let call = GroundNativeCallContract { receiver: None, cli_descriptor: None, process_command_argv: None, authority: value.contract.authority.clone(), registry_owner: value.contract.registry_owner,
                 signature: value.contract.signature, kind: value.contract.kind, result: TypeRef::Ground(self.store.semantic.signature_return_type(value.contract.signature).map_err(|_| problem("native_invocation_result"))?),
                 effects: value.contract.effects.clone(), argument_relations: value.contract.argument_relations.clone(), input_eligibility: value.contract.input_eligibility.clone(), arguments: arguments.into_boxed_slice(), argument_sources: argument_sources.into_boxed_slice(),
                 binding: PreparedOperationBinding { supplied_slots: binding.supplied_slots.iter().map(|&slot| slot as u32).collect(), default_slots: binding.default_slots.iter().map(|&slot| slot as u32).collect(), rest_slot: None, dynamic: None, operands: operands.into_boxed_slice() } };
@@ -153,6 +154,7 @@ fn encoded_arguments(store: &FullStore, instruction: u32, semantic: &SemanticPoo
 
 impl FullVerifier {
     pub(super) fn verify_native_callable_values(store: &FullStore, generic: &GenericEvidenceStore) -> Result<(), IrVerifyError> {
+        for (_, source) in generic.scoped_native_method_sources() { Self::verify_scoped_native_method_instruction(store, generic, source.instruction)?; }
         for (_, value) in generic.native_callable_values() {
             if store.tags.get(value.source.instruction as usize) != Some(&FullTag::ExprNativeCallableRef)
                 || !store.payload(store.data[value.source.instruction as usize].range())?.is_empty() { return Err(IrVerifyError::new("native callable creation changes its original opcode")); }
@@ -183,3 +185,7 @@ impl FullVerifier {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "native_callable_prepare/scoped_tests.rs"]
+mod scoped_tests;

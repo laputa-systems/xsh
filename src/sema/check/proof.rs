@@ -10,10 +10,11 @@ pub(super) struct BindingProof {
     revision: u64,
     floor: u64,
     mutations: Vec<(u64, Arc<[Name]>)>,
+    source_mutations: Vec<super::SolvedRefinementWrite>,
 }
 
 impl Default for BindingProof {
-    fn default() -> Self { Self { identity: Arc::new(()), revision: 0, floor: 0, mutations: Vec::new() } }
+    fn default() -> Self { Self { identity: Arc::new(()), revision: 0, floor: 0, mutations: Vec::new(), source_mutations: Vec::new() } }
 }
 
 impl PartialEq for BindingProof {
@@ -27,7 +28,7 @@ impl Eq for BindingProof {}
 impl BindingProof {
     pub(super) fn same_binding(&self, other: &Self) -> bool { Arc::ptr_eq(&self.identity, &other.identity) }
     pub(super) fn fact(&self, name: Name, path: Vec<Name>, ty: Type) -> Narrowing {
-        Narrowing { name, path: path.into(), identity: Arc::clone(&self.identity), revision: self.revision, ty }
+        Narrowing { name, path: path.into(), identity: Arc::clone(&self.identity), revision: self.revision, ty, source: None }
     }
     pub(super) fn accepts(&self, fact: &Narrowing) -> bool {
         Arc::ptr_eq(&self.identity, &fact.identity) && fact.revision >= self.floor && fact.revision <= self.revision
@@ -38,11 +39,32 @@ impl BindingProof {
         self.mutations.iter().filter(|(revision, _)| *revision > original.revision).map(|(_, path)| Arc::clone(path)).collect()
     }
 
+    pub(super) fn source_writes(&self, fact: &Narrowing) -> Option<Vec<super::SolvedRefinementWrite>> {
+        if !self.accepts(fact) { return None; }
+        let writes = self.source_mutations.iter().filter(|write| write.revision > fact.revision).cloned().collect::<Vec<_>>();
+        if self.mutations.iter().filter(|(revision, _)| *revision > fact.revision).any(|(revision, path)| !writes.iter().any(|write| write.revision == *revision && write.path == *path)) { return None; }
+        Some(writes)
+    }
+    pub(super) fn mutate_at(&mut self, path: &[Name], statement: super::StatementIdentity) {
+        self.mutate(path);
+        self.source_mutations.push(super::SolvedRefinementWrite { statement, revision: self.revision, path: Arc::from(path) });
+    }
+
     pub(super) fn mutate(&mut self, path: &[Name]) {
         self.revision = self.revision.saturating_add(1);
-        if self.mutations.len() == 128 { self.floor = self.revision; self.mutations.clear(); }
+        if self.mutations.len() == 128 { self.floor = self.revision; self.mutations.clear(); self.source_mutations.clear(); }
         self.mutations.push((self.revision, Arc::from(path)));
     }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PredicateSource {
+    pub(super) binding: super::BindingIdentity,
+    pub(super) predicate: super::ExpressionIdentity,
+    pub(super) subject: super::ExpressionIdentity,
+    pub(super) nonnull_when_true: bool,
+    pub(super) aliases: Vec<super::SolvedRefinementAlias>,
+    pub(super) guard: Option<(super::StatementIdentity, super::ExpressionIdentity)>,
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +74,11 @@ pub(super) struct Narrowing {
     identity: Arc<()>,
     revision: u64,
     pub(super) ty: Type,
+    pub(super) source: Option<Arc<PredicateSource>>,
+}
+
+impl Narrowing {
+    pub(super) fn revision(&self) -> u64 { self.revision }
 }
 
 impl PartialEq for Narrowing {

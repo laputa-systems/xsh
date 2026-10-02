@@ -4,7 +4,7 @@ use crate::syntax::arena::{ArenaProgram, ExprId};
 use crate::syntax::node::{BinaryOp, UnaryOp};
 
 #[derive(Clone, Copy)]
-pub(super) enum LanguageOperator { Binary(BinaryOp), Unary(UnaryOp), Index { field: Option<crate::symbol::Name> }, Slice { bounds: [bool; 2] } }
+pub(super) enum LanguageOperator { Binary(BinaryOp), Unary(UnaryOp), Index { field: Option<crate::symbol::Name> }, Slice { bounds: [bool; 2] }, ErrorField { receiver: crate::sema::inference::Atom, field: crate::symbol::Name } }
 
 impl Checker {
     pub(super) fn check_graph_language_operation(&mut self, arena: &ArenaProgram, expression: ExprId, operator: LanguageOperator, operands: &[Type], expected: Option<&Type>) -> Type {
@@ -26,6 +26,7 @@ impl Checker {
                     LanguageOperator::Index { field: Some(field) } => language_operations.constant_key_index_family(&mut facts.graph, field, span)?,
                     LanguageOperator::Index { field: None } => language_operations.index_family(&mut facts.graph, span)?,
                     LanguageOperator::Slice { .. } => language_operations.all_slice_family(&mut facts.graph, span)?,
+                    LanguageOperator::ErrorField { receiver, field } => language_operations.error_field_family(&mut facts.graph, receiver, field)?,
                 }
             };
             let (receiver, arguments) = if matches!(operator, LanguageOperator::Binary(BinaryOp::In | BinaryOp::NotIn)) {

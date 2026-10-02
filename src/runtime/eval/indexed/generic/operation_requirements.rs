@@ -41,7 +41,7 @@ pub(in crate::runtime::eval) struct ScopedOperationObligation {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(in crate::runtime::eval) enum ScopedOperationCode { ResultOk }
+pub(in crate::runtime::eval) enum ScopedOperationCode { ResultOk, ResultErr }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) struct ScopedOperationWitness {
@@ -99,13 +99,20 @@ fn effects_bytes(effects: &PreparedOperationEffects) -> usize {
 }
 
 impl ScopedOperationRequirement {
+    pub(in crate::runtime::eval) fn code(&self) -> Result<ScopedOperationCode, IrVerifyError> {
+        match self.authority {
+            PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Constructor { kind: ValueConstructor::Ok, arity: 1 }, .. } => Ok(ScopedOperationCode::ResultOk),
+            PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Constructor { kind: ValueConstructor::Err, arity: 1 }, .. } => Ok(ScopedOperationCode::ResultErr),
+            _ => Err(failure("scoped operation authority is not prepared")),
+        }
+    }
     pub(super) fn retained_bytes(&self) -> usize { self.arguments.len() * std::mem::size_of::<TypeRef>() + self.authority.retained_bytes() + effects_bytes(&self.effects) }
     pub(in crate::runtime::eval) fn references(&self) -> impl Iterator<Item = TypeRef> + '_ { [self.signature, self.result].into_iter().chain(self.arguments.iter().copied()) }
     pub(in crate::runtime::eval) fn rebase(&self, mut reference: impl FnMut(TypeRef) -> Result<TypeRef, super::super::IrBuildError>) -> Result<Self, super::super::IrBuildError> {
         Ok(Self { authority: self.authority.clone(), signature: reference(self.signature)?, result: reference(self.result)?, arguments: self.arguments.iter().map(|&ty| reference(ty)).collect::<Result<Vec<_>, _>>()?.into_boxed_slice(), effects: self.effects.clone() })
     }
     pub(super) fn verify_supported(&self) -> Result<(), IrVerifyError> {
-        if !matches!(self.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Constructor { kind: ValueConstructor::Ok, arity: 1 }, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. })
+        if !matches!(self.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Constructor { kind: ValueConstructor::Ok | ValueConstructor::Err, arity: 1 }, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. })
             || self.arguments.len() != 1 || self.effects.creation != EffectSet::EMPTY || !self.effects.inputs.is_empty() || !self.effects.outputs.is_empty() {
             return Err(failure("scoped operation authority is not prepared"));
         }
@@ -114,6 +121,27 @@ impl ScopedOperationRequirement {
 }
 
 impl GenericEvidenceStore {
+    // Unused declarations have no concrete witnesses. Their signature and
+    // constructor payload still have to preserve the same quantified binder.
+    fn verify_scoped_operation_relationship(&self, pools: &SemanticPools, scope: &SchemeScope, requirement: &ScopedOperationRequirement) -> Result<(), IrVerifyError> {
+        requirement.verify_supported()?;
+        let normalize = |reference| self.normalized(pools, scope, reference, None, &mut Vec::new());
+        let signature = normalize(requirement.signature)?;
+        let argument = normalize(requirement.arguments[0])?;
+        let result = normalize(requirement.result)?;
+        let NormalizedType::Arrow(kind, parameters, output, effects) = signature else {
+            return Err(failure("scoped operation symbolic signature is not callable"));
+        };
+        if kind != CallableKind::Pure || !effects.is_empty() || parameters.len() != 1
+            || parameters[0].2 || parameters[0].3 || parameters[0].4 != argument || *output != result
+            || !matches!(&result, NormalizedType::Result(ok, error) if match requirement.code()? {
+                ScopedOperationCode::ResultOk => **ok == argument,
+                ScopedOperationCode::ResultErr => **error == argument,
+            }) {
+            return Err(failure("scoped operation symbolic signature changes its constructor relation"));
+        }
+        Ok(())
+    }
     pub fn scoped_operation_source(&self, id: ScopedOperationSourceId) -> Result<&ScopedOperationSource, IrVerifyError> {
         let source = owned(self.root, &self.operation_requirements.sources, id.index, id.proof)?;
         if !self.operation_requirements.originals.get(id.index as usize).is_some_and(|original| Arc::ptr_eq(source, original)) { return Err(failure("scoped operation differs from its original receipt")); }
@@ -146,7 +174,7 @@ impl GenericEvidenceStore {
         for (id, _) in self.scoped_operation_sources() {
             let source = self.scoped_operation_source(id)?;
             let scope = self.scope(source.scope)?;
-            source.expected.verify_supported()?;
+            self.verify_scoped_operation_relationship(pools, scope, &source.expected)?;
             if scope.requirements.get(source.requirement as usize) != Some(&Requirement::Operation(source.expected.clone()))
                 || owners.get(source.instruction as usize) != Some(&Some(InstructionOwner::Function(scope.owner)))
                 || self.registered_instruction_origin(source.instruction, false) != Some((OperationSourceOrigin::Expression(source.origin), InstructionOwner::Function(scope.owner)))
@@ -160,7 +188,7 @@ impl GenericEvidenceStore {
             let mut has_original = false;
             for obligation in &source.obligations {
                 let member = self.scope(obligation.scope)?;
-                obligation.expected.verify_supported()?;
+                self.verify_scoped_operation_relationship(pools, member, &obligation.expected)?;
                 if !obligations.insert((member.owner.raw(), obligation.requirement)) || member.requirements.get(obligation.requirement as usize) != Some(&Requirement::Operation(obligation.expected.clone()))
                     || obligation.ancestry.is_empty() || obligation.ancestry.len() > 256 || obligation.ancestry.first() != Some(&obligation.immediate_original) || obligation.ancestry.last() != Some(&source.original_requirement)
                     || obligation.ancestry.iter().collect::<std::collections::HashSet<_>>().len() != obligation.ancestry.len() { return Err(failure("scoped operation forwarding changes its original obligation ancestry")); }
@@ -181,14 +209,17 @@ impl GenericEvidenceStore {
         let obligation = source.obligations.iter().find(|obligation| self.scope(obligation.scope).is_ok_and(|member| member.owner == scope.owner) && obligation.requirement as usize == requirement_index).ok_or_else(|| failure("scoped operation witness has no original obligation in this scope"))?;
         if obligation.expected != *requirement || witness.authority != requirement.authority || witness.effects != requirement.effects
             || scope.requirements.get(requirement_index) != Some(&Requirement::Operation(requirement.clone()))
-            || witness.operation != ScopedOperationCode::ResultOk || witness.arguments.len() != requirement.arguments.len() { return Err(failure("scoped operation witness changes its original authority")); }
+            || witness.operation != requirement.code()? || witness.arguments.len() != requirement.arguments.len() { return Err(failure("scoped operation witness changes its original authority")); }
         for (reference, actual) in requirement.references().zip([witness.signature, witness.result].into_iter().chain(witness.arguments.iter().copied())) {
             if self.instantiated_normalized_type(pools, scope, reference, substitutions)? != Self::normalized_ground_type(pools, actual)? { return Err(failure("scoped operation witness changes a declaration binder")); }
         }
         let (kind, signature) = pools.callable_descriptor(witness.signature)?.ok_or_else(|| failure("scoped operation signature is not callable"))?;
         if kind != CallableKind::Pure || pools.signature_closed_effects(signature)? != EffectSet::EMPTY || pools.signature_param_count(signature)? != 1
             || pools.signature_param(signature, 0)?.1 != witness.arguments[0] || pools.signature_return_type(signature)? != witness.result
-            || pools.type_tag(witness.result)? != TypeTag::Result || pools.type_children(witness.result)?.map(|children| children.0) != Some(witness.arguments[0]) { return Err(failure("scoped operation concrete signature changes its constructor relation")); }
+            || pools.type_tag(witness.result)? != TypeTag::Result || pools.type_children(witness.result)?.and_then(|children| match witness.operation {
+                ScopedOperationCode::ResultOk => Some(children.0),
+                ScopedOperationCode::ResultErr => children.1,
+            }) != Some(witness.arguments[0]) { return Err(failure("scoped operation concrete signature changes its constructor relation")); }
         Ok(())
     }
 }

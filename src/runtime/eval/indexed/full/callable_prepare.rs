@@ -67,13 +67,27 @@ impl FullBuilder {
                 TypeNode::Arrow(_) => return self.intern_checked_callable_type(&solved.graph, ty),
                 TypeNode::NativeCallable(_) => return self.intern_checked_native_callable_type(&solved.graph, ty),
                 TypeNode::CallableChoice(_) => return Err(problem("storage_callable_authority_not_prepared")),
-                _ => {}
+                _ => {
+                    if let Ok(ty) = super::super::generic::graph_ground_type(&solved.graph, ty) { return self.intern_generic_ground_type(&ty); }
+                }
             }
         }
         self.intern_lowered_type(slot.kind)
     }
     pub(in crate::runtime::eval) fn intern_checked_callable_type(&mut self, graph: &SolvedGraph, ty: crate::sema::inference::TypeId) -> Result<TypeId, IrBuildError> {
-        let ty = graph.resolved(ty).map_err(|_| problem("callable_type_owner"))?;
+        let (kind, signature) = self.intern_checked_callable_signature(graph, ty)?;
+        self.semantic.intern_callable_descriptor(&mut self.store.semantic, kind, signature)
+    }
+
+    // Operation signatures can include the effects of consuming a producer.
+    // A callable value adds its own kind constraints to this shared signature.
+    pub(in crate::runtime::eval) fn intern_checked_callable_signature(&mut self, graph: &SolvedGraph, ty: crate::sema::inference::TypeId) -> Result<(CallableKind, SignatureId), IrBuildError> {
+        let mut ty = graph.resolved(ty).map_err(|_| problem("callable_type_owner"))?;
+        if let TypeNode::NativeCallable(callable) = graph.node(ty).map_err(|_| problem("callable_type_owner"))?
+            && !callable.alternatives.is_empty()
+            && callable.alternatives.iter().all(|authority| matches!(authority, crate::sema::inference::CallableAuthority::User { .. })) {
+            ty = graph.resolved(callable.signature).map_err(|_| problem("callable_type_owner"))?;
+        }
         let TypeNode::Arrow(arrow) = graph.node(ty).map_err(|_| problem("callable_type_owner"))? else { return Err(problem("callable_type_protocol_not_prepared")); };
         let kind = match arrow.kind { crate::sema::inference::CallableKind::Pure => CallableKind::Pure, crate::sema::inference::CallableKind::Proc => CallableKind::Proc, _ => return Err(problem("callable_value_kind_not_prepared")) };
         let EffectSummary::Closed(effects) = graph.closed_effect_summary(arrow.effects).map_err(|_| problem("callable_effect_owner"))? else { return Err(problem("callable_value_requires_effect_scope")); };
@@ -87,7 +101,7 @@ impl FullBuilder {
         let result = self.semantic.intern_type(&mut self.store.semantic, &result)?;
         let effects = closed_effect_names(effects);
         let signature = self.semantic.intern_signature_parts(&mut self.store.semantic, &parameters, result, Some(&effects))?;
-        self.semantic.intern_callable_descriptor(&mut self.store.semantic, kind, signature)
+        Ok((kind, signature))
     }
 
     fn checked_user_callable(&mut self, solved: &crate::sema::check::SolvedTypes, expression: crate::sema::check::ExpressionIdentity) -> Result<UserCallableContract, IrBuildError> {
@@ -115,11 +129,16 @@ impl FullBuilder {
         for (binding, original, instruction, initializer, owner) in self.callable_binding_rows.clone() {
             let initializer_type = solved.expressions.get(&original.initializer_source).copied().ok_or_else(|| problem("callable_binding_original_initializer_missing"))?;
             let initializer_type = solved.graph.resolved(initializer_type).map_err(|_| problem("callable_binding_original_initializer_owner"))?;
-            if matches!(solved.graph.node(initializer_type).map_err(|_| problem("callable_binding_original_initializer_owner"))?, TypeNode::NativeCallable(_)) { continue; }
+            if let TypeNode::NativeCallable(callable) = solved.graph.node(initializer_type).map_err(|_| problem("callable_binding_original_initializer_owner"))?
+                && (callable.alternatives.is_empty() || callable.alternatives.iter().any(|authority| !matches!(authority, crate::sema::inference::CallableAuthority::User { .. }))) { continue; }
             solved.graph.validate_scoped(original.source_type).map_err(|_| problem("callable_binding_type_scope"))?;
             let source_binding = solved.bindings.get(&binding).ok_or_else(|| problem("callable_binding_original_missing"))?;
             if source_binding.ty != original.source_type.ty { return Err(problem("callable_binding_original_type_changed")); }
-            let contract = self.checked_user_callable(&solved, original.initializer_source)?;
+            let (material, _) = self.argument_initializer_lineage(initializer, owner)?;
+            let contract = match self.original_conditional_callable_contract(material, original.initializer_source, owner)? {
+                Some(contract) => contract,
+                None => self.checked_user_callable(&solved, original.initializer_source)?,
+            };
             let descriptor = self.intern_checked_callable_type(&solved.graph, original.source_type.ty)?;
             if self.store.semantic.callable_descriptor(descriptor).map_err(|_| problem("callable_binding_descriptor_owner"))? != Some((contract.kind, contract.signature)) {
                 return Err(problem("callable_binding_signature_changed"));
@@ -142,7 +161,9 @@ impl FullBuilder {
             if self.generic.as_ref().is_some_and(|generic| generic.scoped_invocation_sources().any(|(_, source)| source.instruction == instruction)) { continue; }
             let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| problem("invocation_payload"))?;
             let callee_instruction = *words.first().ok_or_else(|| problem("invocation_callee_missing"))?;
-            let &(callee_origin, callee_owner) = origins.get(&callee_instruction).ok_or_else(|| problem("invocation_original_callee_missing"))?;
+            let (callee_origin, callee_owner) = if let Some(&(origin, owner)) = origins.get(&callee_instruction) { (origin, owner) }
+                else if let Some((receiver, _, owner, _)) = self.callable_receiver_rows.iter().find(|(_, instruction, _, _)| *instruction == callee_instruction) { (receiver.origin, *owner) }
+                else { return Err(problem("invocation_original_callee_missing")); };
             if callee_owner != owner { return Err(problem("invocation_callee_owner")); }
             // A method invocation can retain its promise on the method field
             // while the lowered callee reads the original local binding.
@@ -228,6 +249,7 @@ impl FullVerifier {
             initializer = *store.payload(store.data[initializer as usize].range())?.first().ok_or_else(|| IrVerifyError::new("local callable initializer wrapper is empty"))?;
         }
         if !range.contains(&(initializer as usize)) { return Err(IrVerifyError::new("local callable creation belongs to another body")); }
+        if Self::verify_conditional_callable_initializer(store, generic, initializer, binding.initializer_source, binding.owner, binding.contract)? { return Ok(()); }
         let value = generic.callable_value_at(initializer)?.ok_or_else(|| IrVerifyError::new("local callable initializer lacks its original creation proof"))?;
         let proof = generic.callable_value(value)?;
         let source = generic.callable_source(proof.source)?;
@@ -270,7 +292,15 @@ impl FullVerifier {
             let callee = contract.callee_instruction as usize;
             if store.tags.get(callee) != Some(&FullTag::ExprParam) { return Err(IrVerifyError::new("ground user invocation callee carrier is not prepared")); }
             let slot = *store.payload(store.data[callee].range())?.first().ok_or_else(|| IrVerifyError::new("invocation callee slot is missing"))?;
-            let ty = match source.owner {
+            let ty = if let Some(receiver) = generic.original_callable_receiver(contract.callee_instruction)? {
+                let use_ = generic.original_callable_use(contract.callee_instruction).ok_or_else(|| IrVerifyError::new("saved callable receiver lost its original use"))?;
+                let binding = generic.original_callable_binding(receiver.binding).ok_or_else(|| IrVerifyError::new("saved callable receiver lost its original binding"))?;
+                if use_.binding != receiver.binding || use_.origin != contract.callee_origin || receiver.origin != contract.callee_origin
+                    || use_.owner != source.owner || receiver.owner != source.owner || receiver.slot != slot || binding.contract != contract.callable {
+                    return Err(IrVerifyError::new("saved callable receiver changes its original binding or authority"));
+                }
+                None
+            } else { match source.owner {
                 InstructionOwner::Driver(step) => {
                     let step = store.driver_steps.get(step as usize).ok_or_else(|| IrVerifyError::new("invocation driver is missing"))?;
                     let slots = step.slots.bounds(store.driver_slots.len()).ok_or_else(|| IrVerifyError::new("invocation driver slots are invalid"))?;
@@ -293,7 +323,7 @@ impl FullVerifier {
                         Some(binding.type_id)
                     }
                 }
-            };
+            } };
             if let Some(ty) = ty && store.semantic.callable_descriptor(ty)? != Some((contract.callable.kind, contract.callable.signature)) { return Err(IrVerifyError::new("invocation callee storage changes its original signature")); }
             let block = words.get(1).copied().and_then(IrBlockId::from_raw).and_then(|block| store.blocks.get(block.index())).ok_or_else(|| IrVerifyError::new("invocation argument block is missing"))?;
             let args = store.payload(block.instructions)?;

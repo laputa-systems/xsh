@@ -296,3 +296,221 @@ fn original_stage_item_proof_rejects_changed_slot_input_owner_and_callback() {
         assert!(FullVerifier::verify_generic_evidence(&callback_value).is_err());
     });
 }
+
+#[test]
+fn stage_pipeline_rejects_missing_foreign_and_jointly_rewritten_receipts() {
+    let build = || {
+        let (builder, sources) = ground_builder();
+        let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+        symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap()
+    };
+    let program = build();
+    let foreign = build();
+    program.symbol_owner().with_current(|| {
+        let source = program.generic_evidence().unwrap().stage_pipelines().next().unwrap();
+        FullVerifier::verify(&program).unwrap();
+        let mut missing = program.store.clone();
+        missing.generic.as_deref_mut().unwrap().test_remove_stage_pipelines();
+        assert!(FullVerifier::verify_generic_evidence(&missing).is_err(), "original pipeline lost its independent receipt");
+        let mut substituted = program.store.clone();
+        substituted.generic.as_deref_mut().unwrap().test_replace_stage_pipelines(foreign.generic_evidence().unwrap());
+        assert!(FullVerifier::verify_generic_evidence(&substituted).unwrap_err().message.contains("foreign program"));
+        let mut rewritten = program.store.clone();
+        let stage = &source.stages[0];
+        rewritten.stages[stage.stage as usize] = FullStageTag::Where;
+        let changed = rewritten.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(source.instruction).unwrap();
+        changed.stages[0].tag = FullStageTag::Where;
+        changed.result = source.input_type;
+        assert!(FullVerifier::verify_generic_evidence(&rewritten).is_err(), "coordinated stage and receipt edits replaced the original creation");
+    });
+}
+
+#[test]
+fn stage_pipeline_rejects_same_typed_foreign_input_before_publication() {
+    let source = "pure identity(value: Int) -> Int { value }\npure observed() -> List[Int] { let first = [1, 2] |> map(identity); [3, 4] |> map(identity) }\n";
+    let (mut builder, sources) = ground_builder_with_source(source);
+    let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+    symbols.clone().with_current(|| {
+        let pipelines = builder.store.tags.iter().enumerate().filter_map(|(row, tag)| (*tag == FullTag::ExprPipeline).then_some(row)).collect::<Vec<_>>();
+        assert_eq!(pipelines.len(), 2);
+        let first = builder.store.data[pipelines[0]].range().bounds(builder.store.extra.len()).unwrap();
+        let other = builder.store.data[pipelines[1]].range().bounds(builder.store.extra.len()).unwrap();
+        builder.store.extra[first.start] = builder.store.extra[other.start];
+        let error = builder.finish(sources, symbols).unwrap_err();
+        assert_eq!(error.construct, "stage_pipeline_original_input_replaced");
+    });
+}
+
+#[test]
+fn stage_pipeline_requires_original_input_producer_relationship() {
+    let (mut builder, sources) = ground_builder();
+    let solved = Arc::get_mut(builder.solved.as_mut().unwrap()).expect("fixture retains one solved owner");
+    solved.stage_operations.values_mut().next().unwrap().input_producer_flow = None;
+    let symbols = solved.symbol_owner().clone();
+    let error = symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap_err();
+    assert_eq!(error.construct, "stage_pipeline_original_input_flow_missing");
+}
+
+#[test]
+fn stage_pipeline_retains_original_native_producer_beneath_saved_configuration_arguments() {
+    let source = "proc observed(root: Path) [fs, error] -> Int { fs.walk(root, gitignore: false) |> count() }\n";
+    let (builder, sources) = ground_builder_with_source(source);
+    let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+    let program = symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap();
+    program.symbol_owner().with_current(|| {
+        let pipeline = program.generic_evidence().unwrap().stage_pipelines().next().unwrap();
+        assert_ne!(pipeline.input, pipeline.input_source);
+        assert!(!pipeline.input_wrappers.is_empty());
+        assert_eq!(program.store.tags[pipeline.input as usize], FullTag::ExprMatch);
+        FullVerifier::verify(&program).unwrap();
+        let mut missing = program.store.clone();
+        missing.generic.as_deref_mut().unwrap().test_remove_original_compiler_argument_wrappers();
+        assert!(FullVerifier::verify_generic_evidence(&missing).is_err(), "pipeline input lost its original saved-argument authority");
+    });
+}
+
+fn fold_callback_fixture() -> FullProgram {
+    let source = "pure observed() -> Int { let counts = [\"one\", \"two\", \"one\"] |> fold(map.empty()) { |acc, item| acc.set(item, (acc.get(item) ?? 0) + 1) }; counts.get(\"one\") ?? 0 }\n";
+    let (builder, sources) = ground_builder_with_source(source);
+    let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+    symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap()
+}
+
+#[test]
+fn fold_callback_accumulator_and_item_ports_execute_after_frontend_disposal_on_both_routes() {
+    super::super::tests::run_with_large_stack(|| {
+        let program = Arc::new(fold_callback_fixture());
+        program.symbol_owner().with_current(|| {
+            let pipeline = program.generic_evidence().unwrap().stage_pipelines().next().unwrap();
+            let fold = pipeline.stages[0].callback.as_ref().expect("original fold callback ports");
+            assert_eq!(program.store.semantic.to_type(fold.types[0]).unwrap(), Type::Map(Box::new(Type::Str), Box::new(Type::Int)));
+            assert_eq!(program.store.semantic.to_type(fold.types[1]).unwrap(), Type::Str);
+            assert!(fold.reads.iter().any(|read| read.2 == 0));
+            assert!(fold.reads.iter().any(|read| read.2 == 1));
+            FullVerifier::verify(&program).unwrap();
+        });
+        for recursive in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let name = program.symbol_owner().with_current(|| Name::intern("observed"));
+            let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure, &[], Span::at(program.store.source_id, 0)).expect("fold function exists");
+            let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+            assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(2));
+        }
+    });
+}
+
+#[test]
+fn fold_callback_ports_refuse_changed_slots_callback_and_jointly_rewritten_receipts() {
+    super::super::tests::run_with_large_stack(|| {
+        let program = fold_callback_fixture();
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let pipeline = generic.stage_pipelines().next().unwrap();
+            let stage = &pipeline.stages[0];
+            let fold = stage.callback.as_ref().unwrap();
+            let &(read, _, port) = fold.reads.iter().find(|read| read.2 == 0).unwrap();
+            let mut slot = program.store.clone();
+            let words = slot.data[read as usize].range().bounds(slot.extra.len()).unwrap();
+            slot.extra[words.start] = fold.slots[1];
+            assert!(FullVerifier::verify_generic_evidence(&slot).is_err(), "accumulator read crossed into the item port");
+            let foreign_slot = generic.value_bindings().find(|(_, binding)| binding.contract.binding_type == fold.types[0] && binding.contract.slot != fold.slots[0]).expect("same typed outer map binding").1.contract.slot;
+            let mut foreign = program.store.clone();
+            let words = foreign.data[read as usize].range().bounds(foreign.extra.len()).unwrap();
+            foreign.extra[words.start] = foreign_slot;
+            assert!(FullVerifier::verify_generic_evidence(&foreign).is_err(), "same typed outer slot replaced the original accumulator port");
+            let mut callback = program.store.clone();
+            let words = callback.stage_data[stage.stage as usize].range().bounds(callback.extra.len()).unwrap();
+            callback.extra[words.start + 4] = read;
+            assert!(FullVerifier::verify_generic_evidence(&callback).is_err(), "another callback row replaced the original body");
+            let mut rewritten = program.store.clone();
+            let changed = rewritten.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            changed.stages[0].callback.as_mut().unwrap().slots[port as usize] = fold.slots[1];
+            assert!(FullVerifier::verify_generic_evidence(&rewritten).is_err(), "joint source port edits bypassed the original allocation");
+            let mut missing = program.store.clone();
+            let changed = missing.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            changed.stages[0].callback = None;
+            assert!(FullVerifier::verify_generic_evidence(&missing).is_err(), "fold callback port proof disappeared");
+        });
+    });
+}
+
+fn native_item_callback_fixture(other: bool) -> FullProgram {
+    let source = if other {
+        "proc observed(root: Path, other: FsEntry) [fs, error] -> Int { let rows = fs.files(root, gitignore: false) |> map { |entry| let data = entry.path.read_bytes()?; data.len() }; rows |> sum }\n"
+    } else {
+        "proc observed(root: Path) [fs, error] -> Int { let rows = fs.files(root, gitignore: false) |> map { |entry| let data = entry.path.read_bytes()?; data.len() }; rows |> sum }\n"
+    };
+    let (builder, sources) = ground_builder_with_source(source);
+    let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+    symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap()
+}
+
+#[test]
+fn native_fs_entry_callback_port_executes_after_frontend_disposal_on_both_routes() {
+    super::super::tests::run_with_large_stack(|| {
+        use std::os::unix::ffi::OsStrExt;
+        let program = Arc::new(native_item_callback_fixture(false));
+        program.symbol_owner().with_current(|| {
+            let pipeline = program.generic_evidence().unwrap().stage_pipelines().find(|pipeline| pipeline.stages[0].callback.is_some()).unwrap();
+            let callback = pipeline.stages[0].callback.as_ref().unwrap();
+            assert_eq!(callback.slots.len(), 1);
+            assert_eq!(program.store.semantic.to_type(callback.types[0]).unwrap(), crate::sema::records::standard_record_type("FsEntry").unwrap());
+            assert_eq!(callback.parameters[0].unwrap().0, Name::intern("entry"));
+            assert!(!callback.reads.is_empty());
+            FullVerifier::verify(&program).unwrap();
+        });
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("first"), b"one").unwrap();
+        std::fs::write(directory.path().join("second"), b"four").unwrap();
+        let argument = crate::runtime::value::Value::Path(crate::runtime::value::PathValue::new(directory.path().as_os_str().as_bytes().to_vec()).unwrap());
+        for recursive in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let name = program.symbol_owner().with_current(|| Name::intern("observed"));
+            let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc, std::slice::from_ref(&argument), Span::at(program.store.source_id, 0)).expect("native callback function exists");
+            let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+            assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(7));
+        }
+    });
+}
+
+#[test]
+fn native_fs_entry_callback_port_refuses_missing_foreign_and_same_typed_slot_rewrites() {
+    super::super::tests::run_with_large_stack(|| {
+        let program = native_item_callback_fixture(true);
+        let foreign_program = native_item_callback_fixture(true);
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let pipeline = generic.stage_pipelines().find(|pipeline| pipeline.stages[0].callback.is_some()).unwrap();
+            let callback = pipeline.stages[0].callback.as_ref().unwrap();
+            let &(read, _, _) = callback.reads.first().unwrap();
+            let view = program.function_view(LoweredFunctionKey::Name(Name::intern("observed")), LoweredFunctionKind::Proc).unwrap().unwrap();
+            let params = program.store.functions[view.index].params.bounds(program.store.params.len()).unwrap();
+            assert_eq!(program.store.params[params.start + 1].type_id, callback.types[0].raw());
+            let mut slot = program.store.clone();
+            let words = slot.data[read as usize].range().bounds(slot.extra.len()).unwrap();
+            slot.extra[words.start] = 1;
+            assert!(FullVerifier::verify_generic_evidence(&slot).is_err(), "same typed outer FsEntry parameter replaced the original input port");
+            let mut missing = program.store.clone();
+            missing.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap().stages[0].callback = None;
+            assert!(FullVerifier::verify_generic_evidence(&missing).is_err(), "original item callback receipt disappeared");
+            let mut foreign = program.store.clone();
+            foreign.generic.as_deref_mut().unwrap().test_replace_stage_pipelines(foreign_program.generic_evidence().unwrap());
+            assert!(FullVerifier::verify_generic_evidence(&foreign).is_err(), "another program supplied the callback binding authority");
+            let mut rewritten = program.store.clone();
+            let changed = rewritten.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            changed.stages[0].callback.as_mut().unwrap().slots[0] = 1;
+            changed.stages[0].payload[0] = 1;
+            let words = rewritten.stage_data[pipeline.stages[0].stage as usize].range().bounds(rewritten.extra.len()).unwrap();
+            rewritten.extra[words.start] = 1;
+            let words = rewritten.data[read as usize].range().bounds(rewritten.extra.len()).unwrap();
+            rewritten.extra[words.start] = 1;
+            assert!(FullVerifier::verify_generic_evidence(&rewritten).is_err(), "coordinated callback port rewrite changed its original allocation");
+            let mut input = program.store.clone();
+            let words = input.data[pipeline.instruction as usize].range().bounds(input.extra.len()).unwrap();
+            input.extra[words.start] = read;
+            assert!(FullVerifier::verify_generic_evidence(&input).is_err(), "an item read replaced the original native producer input");
+        });
+    });
+}

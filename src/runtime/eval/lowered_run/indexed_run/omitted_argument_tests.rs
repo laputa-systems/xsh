@@ -58,6 +58,76 @@ print ${caller()}
     }
 
     #[test]
+    fn live_mutable_capture_keeps_nested_defer_writes_after_frontend_disposal() {
+        assert_both_routes(r#"var observed = 0
+proc record() [] -> Unit { observed = 1 }
+proc completed() [error] -> Result[Int] { defer record(); 7 }
+print ${completed()?}
+print $observed
+"#, b"7\n1\n");
+    }
+
+    #[test]
+    fn live_mutable_capture_reads_nested_writes_and_preserves_original_binding_under_shadowing() {
+        assert_both_routes(r#"var observed = 0
+proc record() [] -> Unit { observed += 1 }
+proc completed() [] -> Int { record(); observed }
+proc shadowed() [] -> Int { let observed = 100; completed() }
+print ${shadowed()}
+print ${completed()}
+print $observed
+"#, b"1\n2\n2\n");
+    }
+
+    #[test]
+    fn live_mutable_capture_default_reads_the_cell_after_supplied_argument_mutation() {
+        assert_both_routes(r#"var observed = 0
+proc mutate() [] -> Int { observed = 4; 7 }
+proc combine(left: Int = observed, right: Int = 0) [] -> Int { left + right }
+proc caller() [] -> Int { combine(right: mutate()) }
+print ${caller()}
+print $observed
+"#, b"11\n4\n");
+    }
+
+    #[test]
+    fn live_mutable_capture_scalar_reads_observe_nested_writes_within_one_expression() {
+        assert_both_routes(r#"var observed = 0
+var enabled = false
+proc number() [] -> Int { observed = 4; 7 }
+proc flag() [] -> Bool { enabled = true; true }
+proc completed() [] -> Int { number() + observed }
+proc ready() [] -> Bool { flag() and enabled }
+print ${completed()}
+print ${ready()}
+"#, b"11\ntrue\n");
+    }
+
+    #[test]
+    fn live_mutable_capture_stored_callable_reads_and_writes_its_original_cell() {
+        assert_both_routes(r#"var observed = 0
+proc update() [] -> Int { observed += 1; observed }
+let alias = update
+observed = 4
+proc caller() [] -> Int { let observed = 100; alias.call() }
+print ${caller()}
+print $observed
+"#, b"5\n5\n");
+    }
+
+    #[test]
+    fn live_mutable_capture_stored_default_observes_supplied_mutation_in_original_environment() {
+        assert_both_routes(r#"var observed = 0
+proc mutate() [] -> Int { observed = 4; 7 }
+proc combine(left: Int = observed, right: Int = 0) [] -> Int { left + right }
+let alias = combine
+proc caller() [] -> Int { let observed = 100; alias.call(right: mutate()) }
+print ${caller()}
+print $observed
+"#, b"11\n4\n");
+    }
+
+    #[test]
     fn recursive_interior_omission_executes_the_declaration_expression_once_after_supplied_arguments() {
         assert_interior_expression_default(true);
     }
@@ -92,6 +162,42 @@ proc caller() [io] -> Unit {
 caller()
 "#;
         assert_both_routes(source, b"12\n");
+    }
+
+    #[test]
+    fn saved_callable_receiver_keeps_captured_defaults_after_supplied_argument_effects() {
+        let source = r#"pure initial() -> Int { 4 }
+let lexical = initial()
+proc marker(label: Str, value: Int) [io] -> Int { print $label; value }
+proc combine(left: Int = marker("default", lexical), right: Int = 2) [io] -> Int { left + right }
+proc caller() [io] -> Unit {
+    let alias = combine
+    let lexical = 100
+    let _ = lexical
+    print ${alias.call(right: marker("supplied", 7))}
+}
+caller()
+"#;
+        assert_both_routes(source, b"supplied\ndefault\n11\n");
+    }
+
+    #[test]
+    fn saved_conditional_callable_receiver_keeps_original_captured_default_authority() {
+        let source = r#"pure initial() -> Int { 4 }
+let lexical = initial()
+proc marker(label: Str, value: Int) [io] -> Int { print $label; value }
+proc combine(left: Int = marker("default", lexical), right: Int = 2) [io] -> Int { left + right }
+proc caller(choice: Bool, nested: Bool) [io] -> Unit {
+    let alias = if choice { (if nested { (combine) } else { (combine) }) } else { (combine) }
+    let lexical = 100
+    let _ = lexical
+    print ${alias.call(right: marker("supplied", 7))}
+}
+caller(true, true)
+caller(true, false)
+caller(false, true)
+"#;
+        assert_both_routes(source, b"supplied\ndefault\n11\nsupplied\ndefault\n11\nsupplied\ndefault\n11\n");
     }
 
     #[test]

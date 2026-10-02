@@ -240,7 +240,13 @@ impl Checker {
                         "check.effect-violation",
                     );
                 }
-                self.check_run_arena(arena, source, *run_id)
+                // Tail commands are checked directly, so the ambient statement
+                // can still belong to the enclosing declaration or initializer.
+                // The process observation belongs to this authored command.
+                let previous = self.current_statement.replace(statement);
+                let result = self.check_run_arena(arena, source, *run_id);
+                self.current_statement = previous;
+                result
             }
         }
     }

@@ -46,6 +46,7 @@ use xsh_root::Root;
 
 mod indexed;
 mod callable_value;
+mod host_environment;
 pub use callable_value::RuntimeCallableValue;
 mod native_callable_value;
 pub use native_callable_value::RuntimeNativeCallableValue;
@@ -511,11 +512,17 @@ struct BuildPatternResultSource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+enum BuildPatternResultTerminalSource {
+    Expression(BuildPatternResultSource),
+    PatternCapture(crate::sema::check::PatternCaptureIdentity),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct BuildPatternResultBody {
     instruction: BuildExprId,
     source: BuildPatternResultSource,
     condition: Option<(BuildExprId, BuildPatternResultSource)>,
-    terminal: Option<(BuildStmtId, BuildExprId, BuildPatternResultSource, crate::sema::check::StatementIdentity)>,
+    terminal: Option<(BuildStmtId, BuildExprId, BuildPatternResultTerminalSource, crate::sema::check::StatementIdentity)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -555,10 +562,58 @@ struct BuildScratch {
     callable_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
     value_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildValueBindingOrigin>,
     value_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
+    with_value_binding_origins: BTreeMap<crate::sema::check::WithBindingIdentity, BuildValueBindingOrigin>,
+    guard_error_binding_origins: BTreeMap<crate::sema::check::GuardErrorBindingIdentity, BuildValueBindingOrigin>,
+    with_value_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::WithBindingIdentity>,
+    guard_error_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::GuardErrorBindingIdentity>,
     iteration_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildIterationBindingOrigin>,
     iteration_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
     callable_receiver_origins: FxHashMap<BuildExprId, BuildCallableReceiverOrigin>,
     callable_receiver_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
+    native_receiver_origins: FxHashMap<BuildExprId, indexed::full::BuildSavedNativeReceiverOrigin>,
+    native_receiver_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
+    comprehension_origins: FxHashMap<BuildExprId, lower::BuildComprehensionOrigin>,
+    named_map_key_origins: FxHashMap<BuildExprId, indexed::full::BuildNamedMapKeyOrigin>,
+    folded_native_receivers: FxHashMap<BuildIntId, indexed::full::BuildFoldedNativeReceiver>,
+    folded_literal_comparison: FxHashMap<BuildBoolId, indexed::full::BuildLiteralComparison>,
+    stage_block_callback_origins: FxHashMap<BuildExprId, lower::BuildStageBlockCallbackOrigin>,
+    byte_at_fallback_origins: FxHashMap<BuildIntId, indexed::full::BuildByteAtFallbackOriginal>,
+    record_constructor_sources: FxHashMap<BuildExprId, lower::constructor_prepare::OriginalRecordConstructorSource>,
+    constant_sources: FxHashMap<BuildExprId, indexed::generic::OriginalConstantSource>,
+    record_update_sources: FxHashMap<BuildExprId, lower::record_update::OriginalRecordUpdate>,
+    conditional_result_origins: BTreeMap<crate::sema::check::ExpressionIdentity, indexed::full::BuildConditionalResult>,
+    error_constructor_sources: FxHashMap<BuildExprId, lower::error_constructor::OriginalErrorConstructorSource>,
+    host_binding_reads: BTreeMap<crate::sema::check::ExpressionIdentity, lower::host_bindings::BuildHostBindingRead>,
+    lexical_capture_reads: BTreeMap<crate::sema::check::ExpressionIdentity, lower::lexical_captures::BuildLexicalCaptureRead>,
+    formatted_paths: FxHashMap<BuildExprId, lower::paths::OriginalFormattedPath>,
+    container_creation_checks: FxHashMap<BuildExprId, indexed::full::BuildContainerCreationCheck>,
+    mutable_path_writes: FxHashMap<BuildStmtId, lower::mutable_path::BuildMutablePathWrite>,
+    mutable_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, lower::mutable_binding::BuildMutableBindingOrigin>,
+    mutable_driver_bindings: BTreeMap<crate::sema::check::BindingIdentity, lower::mutable_binding::BuildMutableDriverBinding>,
+    mutable_driver_writes: FxHashMap<BuildTopStmtId, lower::mutable_binding::BuildMutableDriverWrite>,
+    mutable_binding_writes: FxHashMap<BuildStmtId, lower::mutable_binding::BuildMutableBindingWrite>,
+    mutable_refinement_guards: FxHashMap<BuildStmtId, crate::sema::check::StatementIdentity>,
+    result_receiver_origins: FxHashMap<BuildExprId, lower::BuildResultReceiver>,
+    mutable_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
+    mutable_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
+    int_mutable_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
+    bool_mutable_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
+    index_origins: FxHashMap<BuildExprId, indexed::full::BuildIndexOrigin>,
+    context_scope_origins: FxHashMap<BuildExprId, indexed::full::BuildContextScopeOrigin>,
+    run_producer_origins: FxHashMap<BuildExprId, indexed::full::BuildRunProducerOrigin>,
+    try_capture_origins: FxHashMap<BuildExprId, indexed::full::BuildTryCaptureOrigin>,
+    value_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
+    int_value_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
+    bool_value_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
+    with_value_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::WithBindingIdentity)>,
+    guard_error_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::GuardErrorBindingIdentity)>,
+    int_with_value_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::WithBindingIdentity)>,
+    int_guard_error_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::GuardErrorBindingIdentity)>,
+    bool_with_value_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::WithBindingIdentity)>,
+    bool_guard_error_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::GuardErrorBindingIdentity)>,
+    record_sources: FxHashMap<BuildExprId, lower::record_binding::OriginalRecordSource>,
+    compiler_argument_wrappers: FxHashMap<BuildExprId, (BuildExprId, BuildPatternId, BuildExprId, usize)>,
+    optional_receiver_guards: FxHashMap<BuildExprId, indexed::full::BuildOptionalReceiverGuard>,
     argument_binding_origins: FxHashMap<BuildExprId, BuildArgumentBindingOrigin>,
     argument_binding_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
     argument_record_binding_origins: FxHashMap<BuildExprId, BuildArgumentRecordBindingOrigin>,
@@ -615,8 +670,10 @@ struct BuildIterationBindingOrigin {
     item: crate::sema::inference::ScopedRoot,
     binding_type: crate::sema::inference::ScopedRoot,
     iterator_parameter: Option<(crate::sema::check::DeclarationIdentity, u32)>,
+    producer: lower::BuildIterationProducer,
     row: BuildStmtId,
     iterator: BuildExprId,
+    carrier: Option<BuildExprId>,
     slot: usize,
 }
 
@@ -1050,6 +1107,8 @@ struct LoweredModuleExport {
 
 #[derive(Clone, Debug)]
 struct LoweredTopLevelSlot {
+    host_binding: Option<lower::host_bindings::HostBinding>,
+    lexical_binding: Option<crate::sema::check::BindingIdentity>,
     name: Name,
     slot: usize,
     kind: LoweredType,
@@ -1076,6 +1135,8 @@ struct IndexedRootRecord {
 
 #[derive(Clone, Debug)]
 struct LoweredTopLevelBinding {
+    host_binding: Option<lower::host_bindings::HostBinding>,
+    lexical_binding: Option<crate::sema::check::BindingIdentity>,
     kind: LoweredType,
     result_ok: Option<LoweredType>,
     checked: Option<Type>,
@@ -2773,12 +2834,13 @@ impl LoweredValue {
                     .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
                     .collect(),
             )),
-            Self::RecordVec(value) => Value::Record(RecordMap::from_name_values(
-                crate::runtime::eval::lower::take_shared(value)
-                    .into_iter()
-                    .map(|(key, value)| (key, value.into_value()))
-                    .collect(),
-            )),
+            Self::RecordVec(value) => {
+                // Numeric projections depend on this field order, including
+                // the required prefix before any retained extra fields.
+                let (names, values): (Vec<_>, Vec<_>) = crate::runtime::eval::lower::take_shared(value)
+                    .into_iter().map(|(key, value)| (Arc::from(key.as_str().as_str()), value.into_value())).unzip();
+                Value::Record(RecordMap::shaped(&crate::runtime::value::RecordShape::new(names), values))
+            }
             Self::Stats {
                 blanks,
                 code,
@@ -3047,6 +3109,7 @@ pub(super) struct ModuleExportSignature {
 }
 
 pub struct Evaluator {
+    host_environment: host_environment::HostBindingEnvironment,
     sources: Arc<SourceMap>,
     command_name: String,
     exe_path: String,
@@ -3060,6 +3123,7 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
+    live_capture_cells: Arc<std::sync::Mutex<lowered_run::indexed_run::live_capture_cells::LiveCaptureCells>>,
     last_lowering_stats: Option<FrontendLoweredStats>,
     indexed_root_slots: Option<IndexedRootSlots>,
     indexed_root_records: FxHashMap<(usize, usize), IndexedRootRecord>,
@@ -3160,6 +3224,7 @@ impl Drop for Evaluator {
 }
 
 struct LoweredSharedState {
+    host_environment: host_environment::HostBindingEnvironment,
     sources: Arc<SourceMap>,
     command_name: String,
     exe_path: String,
@@ -3169,6 +3234,7 @@ struct LoweredSharedState {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
+    live_capture_cells: Arc<std::sync::Mutex<lowered_run::indexed_run::live_capture_cells::LiveCaptureCells>>,
     indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
@@ -3295,6 +3361,7 @@ impl Evaluator {
         let cwd =
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         let mut evaluator = Self {
+            host_environment: host_environment::HostBindingEnvironment::new(argv.clone()),
             sources,
             command_name,
             // The invocation name is available without reading process metadata.
@@ -3307,6 +3374,7 @@ impl Evaluator {
             indexed_module_owners: Vec::new(),
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
+            live_capture_cells: Arc::new(std::sync::Mutex::new(Default::default())),
             last_lowering_stats: None,
             indexed_root_slots: None,
             indexed_root_records: FxHashMap::default(),
@@ -3445,6 +3513,7 @@ impl Evaluator {
 
     fn lowered_shared_state(&self) -> Arc<LoweredSharedState> {
         Arc::new(LoweredSharedState {
+            host_environment: self.host_environment.clone(),
             sources: self.sources.clone(),
             command_name: self.command_name.clone(),
             exe_path: self.exe_path.clone(),
@@ -3453,6 +3522,7 @@ impl Evaluator {
             indexed_module_owners: self.indexed_module_owners.clone(),
             module_export_signatures: self.module_export_signatures.clone(),
             indexed_program: self.indexed_program.clone(),
+            live_capture_cells: self.live_capture_cells.clone(),
             indexed_dynamic_functions: self.indexed_dynamic_functions.clone(),
             tag_variants: self.tag_variants.clone(),
             error_families: self.error_families.clone(),
@@ -3469,6 +3539,7 @@ impl Evaluator {
 
     fn new_lowered_worker(shared: &LoweredSharedState) -> Self {
         Self {
+            host_environment: shared.host_environment.clone(),
             sources: shared.sources.clone(),
             command_name: shared.command_name.clone(),
             exe_path: shared.exe_path.clone(),
@@ -3477,6 +3548,7 @@ impl Evaluator {
             indexed_module_owners: shared.indexed_module_owners.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
+            live_capture_cells: shared.live_capture_cells.clone(),
             last_lowering_stats: None,
             indexed_root_slots: None,
             indexed_root_records: FxHashMap::default(),
@@ -3984,7 +4056,9 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map(|_| ())
-        .map_err(|error| match error.span {
+        .map_err(|error| {
+            if let Some(cause) = error.verification.as_ref() { return format!("{}: {}", error.construct, cause.message); }
+            match error.span {
             Some(span) => format!(
                 "{} at bytes {}..{}",
                 error.construct,
@@ -3992,6 +4066,7 @@ impl Evaluator {
                 span.end()
             ),
             None => error.construct.to_string(),
+            }
         })
     }
 
@@ -4190,11 +4265,15 @@ impl Evaluator {
             stats.blocker_events = stats.blocker_events.max(1);
             self.last_lowering_stats = Some(stats);
             let span = error.span.unwrap_or_else(zero_span);
-            compact_lowerability_diagnostic(
+            let mut diagnostic = compact_lowerability_diagnostic(
                 span,
                 &format!("indexed IR could not encode `{}`", error.construct),
                 "compact.indexed-build",
-            )
+            );
+            if let Some(verification) = error.verification {
+                diagnostic.notes.push(verification.message);
+            }
+            diagnostic
         })?;
         self.last_lowering_stats = Some(indexed.source_lowering_stats());
         let root = program.statement_ids().collect::<Vec<_>>();
@@ -7339,7 +7418,7 @@ fn zero_span() -> Span {
     Span::new(crate::source::SourceId::new(0), 0, 0)
 }
 
-fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
+pub(crate) fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     const EVAL_STACK_SIZE: usize = 12 * 1024 * 1024;
     std::thread::scope(|scope| {
         std::thread::Builder::new()

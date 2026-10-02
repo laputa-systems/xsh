@@ -1,5 +1,5 @@
 use super::*;
-use crate::sema::check::{BindingIdentity, ExpressionIdentity, StatementIdentity};
+use crate::sema::check::{BindingIdentity, ExpressionIdentity, StatementIdentity, WithBindingIdentity, GuardErrorBindingIdentity};
 use crate::sema::inference::ScopedRoot;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -9,7 +9,7 @@ pub(in crate::runtime::eval) struct ValueBindingSourceId { index: u32, proof: Ow
 pub(in crate::runtime::eval) struct ValueBindingId { index: u32, proof: OwnerProof }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// A checked wrapper executes before the material source value. Its complete
+/// An initializer wrapper executes before the material source value. Its complete
 /// payload retains the original child and validation selection independently.
 pub(in crate::runtime::eval) struct ValueInitializerWrapper {
     pub instruction: u32,
@@ -20,17 +20,40 @@ pub(in crate::runtime::eval) struct ValueInitializerWrapper {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum ValueInitializerWrapperKind {
     CheckedValue,
+    CheckedBindingTry,
+    CheckedBindingRequire,
+    FsRootReceiverTry,
+    CompilerArgument { initializer: u32, pattern: u32, body: u32, slot: u32 },
     SavedArgument { call: ExpressionIdentity, initializer: u32, pattern: u32, body: u32 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(in crate::runtime::eval) enum ValueBindingIdentity { Named(BindingIdentity), With(WithBindingIdentity), GuardError(GuardErrorBindingIdentity) }
+
+impl ValueBindingIdentity {
+    pub(in crate::runtime::eval) fn source(self) -> crate::source::SourceId { match self { Self::Named(binding) => binding.source, Self::With(binding) => binding.statement.source, Self::GuardError(binding) => binding.statement.source } }
+    pub(in crate::runtime::eval) fn namespace(self) -> Option<Name> { match self { Self::Named(binding) => binding.namespace, Self::With(binding) => binding.statement.namespace, Self::GuardError(binding) => binding.statement.namespace } }
+    pub(in crate::runtime::eval) fn named(self) -> Option<BindingIdentity> { match self { Self::Named(binding) => Some(binding), Self::With(_) | Self::GuardError(_) => None } }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum ValueBindingAllocation {
+    Value, Integer, Boolean,
+    Guard { error_slot: Option<u32>, failure_body: u32, location: u32 },
+    GuardError { success_slot: u32, failure_body: u32, location: u32 },
+    With { ordinal: u32, bindings: u32, body: u32, error_slot: Option<u32>, failure_body: u32, captures: u32, location: u32 },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) struct ValueBindingContract {
     pub instruction: u32,
+    pub allocation: ValueBindingAllocation,
     pub owner: InstructionOwner,
     pub slot: u32,
     pub initializer: u32,
     pub initializer_source_instruction: u32,
     pub initializer_wrappers: Box<[ValueInitializerWrapper]>,
+    pub with_bindings: Box<[u32]>,
     pub binding_type: GroundTypeId,
     pub initializer_type: GroundTypeId,
     pub scope: Option<SchemeScopeId>,
@@ -40,7 +63,7 @@ pub(in crate::runtime::eval) struct ValueBindingContract {
 /// encoded allocation and later reads, including definitions with equal types.
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct ValueBindingSource {
-    pub binding: BindingIdentity,
+    pub binding: ValueBindingIdentity,
     pub statement: StatementIdentity,
     pub initializer_source: ExpressionIdentity,
     pub source_type: ScopedRoot,
@@ -56,7 +79,7 @@ pub(in crate::runtime::eval) struct PreparedValueBinding {
 
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct ValueBindingUse {
-    pub origin: ExpressionIdentity,
+    pub origin: OperationSourceOrigin,
     pub application: ValueBindingId,
     pub instruction: u32,
     pub owner: InstructionOwner,
@@ -111,6 +134,7 @@ impl ValueBindingEvidence {
 fn wrapper_bytes(contract: &ValueBindingContract) -> usize {
     contract.initializer_wrappers.len() * std::mem::size_of::<ValueInitializerWrapper>()
         + contract.initializer_wrappers.iter().map(|wrapper| wrapper.payload.len() * std::mem::size_of::<u32>()).sum::<usize>()
+        + contract.with_bindings.len() * std::mem::size_of::<u32>()
 }
 
 impl GenericEvidenceStore {
@@ -147,12 +171,21 @@ impl GenericEvidenceStore {
             let source = self.value_binding_source(application.source)?;
             let contract = &application.contract;
             if !sources.insert(application.source.index) || !definitions.insert(source.binding) || source.expected != *contract
-                || source.binding.source != source.statement.source || source.binding.namespace != source.statement.namespace
+                || source.binding.source() != source.statement.source || source.binding.namespace() != source.statement.namespace
                 || source.initializer_source.source != source.statement.source || source.initializer_source.namespace != source.statement.namespace
                 || owners.get(contract.instruction as usize) != Some(&Some(contract.owner)) || owners.get(contract.initializer as usize) != Some(&Some(contract.owner))
                 || owners.get(contract.initializer_source_instruction as usize) != Some(&Some(contract.owner))
                 || contract.initializer_wrappers.len() > 256 || contract.initializer_wrappers.iter().any(|wrapper| owners.get(wrapper.instruction as usize) != Some(&Some(contract.owner))) {
                 return Err(failure("value binding changes its original definition, initializer, or owner"));
+            }
+            match (source.binding, contract.allocation) {
+                (ValueBindingIdentity::With(binding), ValueBindingAllocation::With { ordinal, .. }) if binding.statement == source.statement
+                    && binding.ordinal == ordinal && !contract.with_bindings.is_empty() => {}
+                (ValueBindingIdentity::Named(_), ValueBindingAllocation::Value | ValueBindingAllocation::Integer | ValueBindingAllocation::Boolean | ValueBindingAllocation::Guard { .. })
+                    if contract.with_bindings.is_empty() => {}
+                (ValueBindingIdentity::GuardError(binding), ValueBindingAllocation::GuardError { .. })
+                    if binding.statement == source.statement && contract.with_bindings.is_empty() => {}
+                _ => return Err(failure("value binding changes its original binding domain or ordinal")),
             }
             if self.registered_instruction_origin(contract.instruction, false) != Some((OperationSourceOrigin::Statement(source.statement), contract.owner)) { return Err(failure("value binding changes its original allocation source")); }
             if self.registered_instruction_origin(contract.initializer_source_instruction, false) != Some((OperationSourceOrigin::Expression(source.initializer_source), contract.owner)) {
@@ -169,9 +202,14 @@ impl GenericEvidenceStore {
             let use_ = self.value_binding_use(entry.value.instruction)?.ok_or_else(|| failure("value binding use is missing from its index"))?;
             let application = self.value_binding(use_.application)?;
             let source = self.value_binding_source(application.source)?;
+            let (read_source, read_namespace) = match use_.origin {
+                OperationSourceOrigin::Expression(origin) => (origin.source, origin.namespace),
+                OperationSourceOrigin::Statement(origin) => (origin.source, origin.namespace),
+                _ => return Err(failure("value binding read has no authored value or statement identity")),
+            };
             if use_.owner != application.contract.owner || owners.get(use_.instruction as usize) != Some(&Some(use_.owner))
-                || use_.origin.source != source.binding.source || use_.origin.namespace != source.binding.namespace
-                || self.registered_instruction_origin(use_.instruction, false) != Some((OperationSourceOrigin::Expression(use_.origin), use_.owner)) {
+                || read_source != source.binding.source() || read_namespace != source.binding.namespace()
+                || self.registered_instruction_origin(use_.instruction, false) != Some((use_.origin, use_.owner)) {
                 return Err(failure("value binding read changes its original source or owner"));
             }
             expected.push((use_.instruction, index));

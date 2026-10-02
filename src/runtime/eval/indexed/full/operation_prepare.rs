@@ -1,9 +1,73 @@
 use super::*;
-use super::super::generic::{OperationSource, OperationSourceOrigin, PreparedOperation, PreparedOperationAuthority, PreparedOperationBinding, PreparedOperationEffects, graph_ground_type};
-use crate::sema::inference::{Atom, EffectSummary, OperationBinding, RequirementTemplate};
+mod literal_comparison;
+mod error_field;
+mod membership;
+pub(in crate::runtime::eval) use membership::PreparedMembershipLowering;
+pub(in crate::runtime::eval::indexed) use error_field::error_field_receiver_type;
+#[cfg(test)]
+mod literal_comparison_tests;
+pub(in crate::runtime::eval) use literal_comparison::{BuildLiteralComparison, PreparedLiteralComparisonSlot, PreparedComparisonLiteral};
+use super::super::generic::{OperationSource, OperationSourceOrigin, PreparedFallbackLowering, PreparedOperation, PreparedOperationAuthority, PreparedOperationBinding, PreparedOperationEffects, graph_ground_type};
+use crate::sema::inference::{Atom, EffectSummary, OperationBinding, RequirementTemplate, ScopedRoot, ScopedRequirementRoot, SealedOperation};
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct PreparedIntegerAddition {
+    pub requirement: ScopedRequirementRoot,
+    pub left: ScopedRoot,
+    pub right: ScopedRoot,
+    pub result: ScopedRoot,
+}
 use crate::sema::operation_graph::{ArithmeticDomain, PreparedLanguageOperation};
 
 fn unprepared(construct: &'static str) -> IrBuildError { IrBuildError::format(construct, None, 0, 0) }
+
+fn fallback_operands(store: &FullStore, instruction: u32, result: bool) -> Result<[u32; 2], IrVerifyError> {
+    let words = store.payload(store.data.get(instruction as usize).ok_or_else(|| IrVerifyError::new("fallback instruction is missing"))?.range())?;
+    if result {
+        if store.tags.get(instruction as usize) != Some(&FullTag::ExprResultFallback) || words.len() != 2 {
+            return Err(IrVerifyError::new("Result fallback changes its original lazy instruction"));
+        }
+        return Ok([words[0], words[1]]);
+    }
+    if store.tags.get(instruction as usize) != Some(&FullTag::ExprMatch) || words.len() != 3 {
+        return Err(IrVerifyError::new("Optional fallback changes its original lazy selection"));
+    }
+    let block = IrBlockId::from_raw(words[1]).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("Optional fallback arms are missing"))?;
+    let arms = store.payload(block.instructions)?;
+    if block.flags & BLOCK_SEQUENCE_KIND_MASK != BLOCK_LIST || arms.len() != 7 || arms[0] != 2 || arms[2] != 0 || arms[5] != 0 {
+        return Err(IrVerifyError::new("Optional fallback changes its lazy branch order"));
+    }
+    let null = arms[1] as usize;
+    let present = arms[4] as usize;
+    let literal = store.payload(store.pattern_data.get(null).ok_or_else(|| IrVerifyError::new("Optional fallback null pattern is missing"))?.range())?;
+    let slot = store.payload(store.pattern_data.get(present).ok_or_else(|| IrVerifyError::new("Optional fallback binding pattern is missing"))?.range())?;
+    if store.patterns.get(null) != Some(&FullPatternTag::Literal) || literal.len() != 1
+        || store.values.get(literal[0] as usize) != Some(&FullValueTag::Null)
+        || !store.payload(store.value_data.get(literal[0] as usize).ok_or_else(|| IrVerifyError::new("Optional fallback null value is missing"))?.range())?.is_empty()
+        || store.patterns.get(present) != Some(&FullPatternTag::Bind) || slot.len() != 1
+        || store.tags.get(arms[6] as usize) != Some(&FullTag::ExprParam)
+        || store.payload(store.data.get(arms[6] as usize).ok_or_else(|| IrVerifyError::new("Optional fallback present read is missing"))?.range())? != slot {
+        return Err(IrVerifyError::new("Optional fallback changes its original null or present branch"));
+    }
+    Ok([words[0], arms[3]])
+}
+
+// A matching bind/read pair can still overwrite another live slot. Retain the
+// original physical selection independently of its operand and result types.
+fn fallback_lowering(store: &FullStore, instruction: u32, result: bool) -> Result<PreparedFallbackLowering, IrVerifyError> {
+    fallback_operands(store, instruction, result)?;
+    let words = store.payload(store.data[instruction as usize].range())?;
+    let instruction_payload = words.to_vec().into_boxed_slice();
+    if result { return Ok(PreparedFallbackLowering::Result { instruction_payload }); }
+    let block = &store.blocks[IrBlockId::from_raw(words[1]).ok_or_else(|| IrVerifyError::new("Optional fallback arms are missing"))?.index()];
+    let arms = store.payload(block.instructions)?;
+    Ok(PreparedFallbackLowering::Optional {
+        instruction_payload, arms_flags: block.flags, arms_payload: arms.to_vec().into_boxed_slice(),
+        null_pattern_payload: store.payload(store.pattern_data[arms[1] as usize].range())?.to_vec().into_boxed_slice(),
+        present_pattern_payload: store.payload(store.pattern_data[arms[4] as usize].range())?.to_vec().into_boxed_slice(),
+        present_payload: store.payload(store.data[arms[6] as usize].range())?.to_vec().into_boxed_slice(),
+    })
+}
 
 type IntegerSlotKey = (bool, u32, u32);
 
@@ -68,10 +132,44 @@ impl FullBuilder {
             let Some(selected) = graph.candidate_evidence(operation.requirement).map_err(|_| unprepared("operation_candidate_owner"))? else { continue; };
             let crate::sema::check::SolvedOperationAuthority::Language(metadata) = solved.operation_catalog.candidate(graph, selected.candidate).map_err(|_| unprepared("operation_candidate_authority"))? else { continue; };
             let supported = match metadata.operation {
+                PreparedLanguageOperation::ErrorField { receiver, field } => field == "message"
+                    && self.store.tags.get(instruction as usize) == Some(&FullTag::ExprField)
+                    && selected.actual_arguments.len() == 1
+                    && selected.actual_arguments[0].is_some_and(|ty| graph_ground_type(graph, ty).ok() == error_field_receiver_type(receiver))
+                    && graph_ground_type(graph, selected.result).is_ok_and(|ty| ty == Type::Str),
+                PreparedLanguageOperation::Index { map } => self.store.tags.get(instruction as usize) == Some(&FullTag::ExprIndex)
+                    && selected.actual_arguments.len() == 2
+                    && selected.actual_arguments[0].zip(selected.actual_arguments[1]).is_some_and(|(base, index)| {
+                        match (graph_ground_type(graph, base), graph_ground_type(graph, index), graph_ground_type(graph, selected.result)) {
+                            (Ok(base), Ok(index), Ok(result)) => GenericEvidenceStore::supports_ground_index(map, &base, &index, &result),
+                            _ => false,
+                        }
+                    }),
+                PreparedLanguageOperation::Fallback { result } => self.store.tags.get(instruction as usize) == Some(&if result { FullTag::ExprResultFallback } else { FullTag::ExprMatch })
+                    && selected.actual_arguments.len() == 2
+                    && selected.actual_arguments.iter().all(|argument| argument.is_some_and(|ty| graph_ground_type(graph, ty).is_ok()))
+                    && graph_ground_type(graph, selected.result).is_ok(),
                 PreparedLanguageOperation::Arithmetic { domain: ArithmeticDomain::Float | ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int }, .. }
                 | PreparedLanguageOperation::Ordering { left: Atom::Str, right: Atom::Str, .. } => true,
-                PreparedLanguageOperation::Equality { op: BinaryOp::Eq | BinaryOp::Ne } => selected.actual_arguments.len() == 2
-                    && selected.actual_arguments.iter().all(|argument| argument.is_some_and(|ty| graph_ground_type(graph, ty).is_ok_and(|ty| ty == Type::Str))),
+                PreparedLanguageOperation::Arithmetic { op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
+                    domain: ArithmeticDomain::Integer { left, right } } if matches!(left, Atom::Int | Atom::UInt) && matches!(right, Atom::Int | Atom::UInt) =>
+                    selected.actual_arguments.len() == 2
+                    && selected.actual_arguments.iter().zip([left, right]).all(|(argument, atom)| argument.is_some_and(|ty|
+                        graph_ground_type(graph, ty).is_ok_and(|ty| ty == if atom == Atom::UInt { Type::UInt } else { Type::Int })))
+                    && graph_ground_type(graph, selected.result).is_ok_and(|ty| ty == Type::Int),
+                PreparedLanguageOperation::Ordering { op: BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge, left: Atom::Int, right: Atom::Int } =>
+                    self.store.tags.get(instruction as usize) == Some(&FullTag::ExprBinary)
+                    && selected.actual_arguments.len() == 2
+                    && selected.actual_arguments.iter().all(|argument| argument.is_some_and(|ty| graph_ground_type(graph, ty).is_ok_and(|ty| ty == Type::Int)))
+                    && graph_ground_type(graph, selected.result).is_ok_and(|ty| ty == Type::Bool),
+                PreparedLanguageOperation::Equality { op: BinaryOp::Eq | BinaryOp::Ne } => {
+                    let types = selected.actual_arguments.iter().map(|argument| argument.and_then(|ty| graph_ground_type(graph, ty).ok())).collect::<Vec<_>>();
+                    (matches!(types.as_slice(), [Some(Type::Str), Some(Type::Str)]
+                        | [Some(Type::Null), Some(Type::Optional(_))] | [Some(Type::Optional(_)), Some(Type::Null)])
+                        || self.store.tags.get(instruction as usize) == Some(&FullTag::BoolLiteralCompareSlot)
+                            && matches!(types.as_slice(), [Some(Type::Int), Some(Type::Int)] | [Some(Type::Bool), Some(Type::Bool)]))
+                        && graph_ground_type(graph, selected.result).is_ok_and(|ty| ty == Type::Bool)
+                },
                 _ => false,
             };
             if !supported { continue; }
@@ -101,32 +199,336 @@ impl FullBuilder {
                 inputs: call.effect_bindings.iter().map(|&(role, summary)| closed(summary).map(|bits| (role, bits))).collect::<Result<Vec<_>, _>>()?.into_boxed_slice(),
                 outputs: call.output_effect_bindings.iter().map(|&(role, summary)| closed(summary).map(|bits| (role, bits))).collect::<Result<Vec<_>, _>>()?.into_boxed_slice(),
             };
-            let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| unprepared("operation_instruction_payload"))?;
+            let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| unprepared("operation_instruction_payload"))?.to_vec();
             let tag = self.store.tags[instruction as usize];
-            if (tag != FullTag::ExprBinary && !(tag == FullTag::IntBinary && matches!(metadata.operation, PreparedLanguageOperation::Arithmetic { domain: ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int }, .. }))) || words.len() < 3 { return Err(unprepared("operation_instruction_not_prepared")); }
-            let operands = Box::new([words[1], words[2]]);
+            let literal_comparison_slot = if tag == FullTag::BoolLiteralCompareSlot { Some(self.prepare_literal_comparison_slot(instruction, expression, owner, &selected.actual_arguments)?) } else { None };
+            let operands: Box<[u32]> = if literal_comparison_slot.is_some() { Box::new([]) } else if let PreparedLanguageOperation::ErrorField { field, .. } = metadata.operation {
+                if tag != FullTag::ExprField || words.len() != 3 || self.store.string(words[1]).ok() != Some(field.as_str().as_str()) { return Err(unprepared("error_field_instruction_not_prepared")); }
+                Box::new([words[0]])
+            } else if let PreparedLanguageOperation::Fallback { result } = metadata.operation {
+                Box::new(fallback_operands(&self.store, instruction, result).map_err(|_| unprepared("fallback_instruction_not_prepared"))?)
+            } else if matches!(metadata.operation, PreparedLanguageOperation::Index { .. }) {
+                if tag != FullTag::ExprIndex || words.len() != 3 { return Err(unprepared("index_instruction_not_prepared")); }
+                Box::new([words[0], words[1]])
+            } else {
+                if (tag != FullTag::ExprBinary && !(tag == FullTag::IntBinary && matches!(metadata.operation, PreparedLanguageOperation::Arithmetic { domain: ArithmeticDomain::Integer { left: Atom::Int | Atom::UInt, right: Atom::Int | Atom::UInt }, .. }))) || words.len() < 3 { return Err(IrBuildError::verification("operation_instruction_not_prepared", IrVerifyError::new(format!("selected {:?} has physical {tag:?} with {} payload words", metadata.operation, words.len())))); }
+                Box::new([words[1], words[2]])
+            };
+            let fallback_lowering = if let PreparedLanguageOperation::Fallback { result } = metadata.operation {
+                Some(fallback_lowering(&self.store, instruction, result).map_err(|_| unprepared("fallback_lowering_not_prepared"))?)
+            } else { None };
             let slots = |slots: &[usize]| slots.iter().map(|&slot| u32::try_from(slot).map_err(|_| unprepared("operation_binding_slot_overflow"))).collect::<Result<Vec<_>, _>>().map(Vec::into_boxed_slice);
             self.generic_evidence_mut().add_operation(PreparedOperation {
                 source,
                 authority,
-                receiver, arguments: arguments.into_boxed_slice(), result, effects,
+                receiver, arguments: arguments.into_boxed_slice(), result, effects, fallback_lowering, original_integer_addition: None, range_lowering: None, literal_comparison_slot, membership_lowering: None,
                 binding: PreparedOperationBinding { supplied_slots: slots(&operation.binding.supplied_slots)?,
                     default_slots: slots(&operation.binding.default_slots)?, rest_slot: None, dynamic: None, operands },
             }).map_err(|_| unprepared("operation_proof_allocation"))?;
+        }
+        for (instruction, expression, owner) in self.generic_expression_rows.clone() {
+            let Some(&requirement) = solved.additions.get(&expression) else { continue; };
+            let graph = &solved.graph;
+            let Some(evidence) = graph.discharge(requirement).map_err(|_| unprepared("integer_add_original_requirement"))? else { continue; };
+            if evidence.operation != SealedOperation::AddInt { continue; }
+            let RequirementTemplate::Add { left, right, result } = graph.requirement_template(requirement).map_err(|_| unprepared("integer_add_original_requirement"))? else {
+                return Err(unprepared("integer_add_original_requirement"));
+            };
+            let declaration = solved.expression_owners.get(&expression).copied();
+            let lexical = declaration.and_then(|owner| solved.declarations.get(&owner).map(|declaration| declaration.scheme));
+            let original_scope = solved.expression_schemes.get(&expression).copied().or_else(|| solved.expression_value_scopes.get(&expression).copied()).or(lexical);
+            let original_integer_addition = PreparedIntegerAddition {
+                requirement: ScopedRequirementRoot { requirement, scope: original_scope },
+                left: ScopedRoot { ty: left, scope: original_scope },
+                right: ScopedRoot { ty: right, scope: original_scope },
+                result: ScopedRoot { ty: result, scope: original_scope },
+            };
+            graph.validate_requirement_scoped(original_integer_addition.requirement).map_err(|_| unprepared("integer_add_original_scope"))?;
+            if solved.owner != graph.owner() || evidence.requirement != requirement
+                || solved.expressions.get(&expression).is_none_or(|&source| graph.resolved(source).ok() != graph.resolved(result).ok()) {
+                return Err(unprepared("integer_add_original_source"));
+            }
+            for (source, checked) in [(original_integer_addition.left, evidence.left), (original_integer_addition.right, evidence.right), (original_integer_addition.result, evidence.result)] {
+                graph.validate_scoped(source).map_err(|_| unprepared("integer_add_original_scope"))?;
+                if graph.resolved(source.ty).map_err(|_| unprepared("integer_add_original_relationship"))?
+                    != graph.resolved(checked).map_err(|_| unprepared("integer_add_original_relationship"))? {
+                    return Err(unprepared("integer_add_original_relationship"));
+                }
+            }
+            let left_type = graph_ground_type(graph, left).map_err(|_| unprepared("integer_add_original_domain"))?;
+            let right_type = graph_ground_type(graph, right).map_err(|_| unprepared("integer_add_original_domain"))?;
+            if !matches!(left_type, Type::Int | Type::UInt) || !matches!(right_type, Type::Int | Type::UInt)
+                || graph_ground_type(graph, result).map_err(|_| unprepared("integer_add_original_domain"))? != Type::Int {
+                return Err(unprepared("integer_add_original_domain"));
+            }
+            if declaration.is_some_and(|declaration| self.declaration_functions.get(&declaration).copied().map(InstructionOwner::Function) != Some(owner))
+                || (declaration.is_none() && !matches!(owner, InstructionOwner::Driver(_))) {
+                return Err(unprepared("integer_add_original_owner"));
+            }
+            let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| unprepared("integer_add_original_payload"))?;
+            if !matches!(self.store.tags[instruction as usize], FullTag::ExprBinary | FullTag::IntBinary) || words.len() < 3
+                || words.first().and_then(|&index| self.store.binary_ops.get(index as usize)) != Some(&BinaryOp::Add) {
+                return Err(unprepared("integer_add_original_instruction"));
+            }
+            let operands = Box::new([words[1], words[2]]);
+            let arguments = Box::new([Some(TypeRef::Ground(self.intern_generic_ground_type(&left_type)?)), Some(TypeRef::Ground(self.intern_generic_ground_type(&right_type)?))]);
+            let result = TypeRef::Ground(self.intern_generic_ground_type(&Type::Int)?);
+            let scope = declaration.and_then(|declaration| self.generic_declarations.get(&declaration).copied());
+            let authority = PreparedOperationAuthority::Sealed { operation: evidence.operation };
+            let source = self.generic_evidence_mut().add_operation_source(OperationSource {
+                origin: OperationSourceOrigin::Expression(expression), identity: authority.identity(), expected: authority.clone(), instruction, owner, scope,
+            }).map_err(|_| unprepared("integer_add_source_allocation"))?;
+            self.generic_evidence_mut().add_operation(PreparedOperation {
+                source, authority, receiver: None, arguments, result,
+                effects: PreparedOperationEffects { creation: crate::sema::inference::EffectSet::EMPTY, inputs: Box::new([]), outputs: Box::new([]) },
+                binding: PreparedOperationBinding { supplied_slots: Box::new([0, 1]), default_slots: Box::new([]), rest_slot: None, dynamic: None, operands },
+                fallback_lowering: None, original_integer_addition: Some(original_integer_addition), range_lowering: None, literal_comparison_slot: None, membership_lowering: None,
+            }).map_err(|_| unprepared("integer_add_proof_allocation"))?;
         }
         Ok(())
     }
 }
 
 impl FullVerifier {
+    pub(in crate::runtime::eval::indexed) fn is_uint_integer_arithmetic(pools: &SemanticPools, operation: &PreparedOperation) -> Result<bool, IrVerifyError> {
+        if matches!(operation.authority, PreparedOperationAuthority::Sealed { operation: SealedOperation::AddInt }) { return Ok(true); }
+        if !matches!(operation.authority, PreparedOperationAuthority::Language {
+            operation: PreparedLanguageOperation::Arithmetic { domain: ArithmeticDomain::Integer { left: Atom::Int | Atom::UInt, right: Atom::Int | Atom::UInt }, .. }, ..
+        }) { return Ok(false); }
+        for reference in &operation.arguments {
+            if let Some(TypeRef::Ground(ty)) = reference && pools.to_type(*ty)? == Type::UInt { return Ok(true); }
+        }
+        Ok(false)
+    }
+
+    // Each original operand retains its checked descriptor and unsigned bounds,
+    // independently of the selected integer implementation.
+    pub(in crate::runtime::eval::indexed) fn verify_prepared_integer_arithmetic_contract(pools: &SemanticPools, operation: &PreparedOperation) -> Result<(), IrVerifyError> {
+        match operation.authority {
+            PreparedOperationAuthority::Sealed { operation: SealedOperation::AddInt } if operation.original_integer_addition.is_some() => {},
+            PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Arithmetic {
+                op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
+                domain: ArithmeticDomain::Integer { left: Atom::Int | Atom::UInt, right: Atom::Int | Atom::UInt } },
+                argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, ..
+            } if operation.original_integer_addition.is_none() => {},
+            _ => return Err(IrVerifyError::new("integer arithmetic lacks its selected original authority")),
+        }
+        if operation.receiver.is_some() || operation.arguments.len() != 2 || operation.binding.supplied_slots.as_ref() != [0, 1]
+            || !operation.binding.default_slots.is_empty() || operation.binding.operands.len() != if operation.literal_comparison_slot.is_some() { 0 } else { 2 }
+            || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some() || operation.fallback_lowering.is_some()
+            || operation.effects.creation != crate::sema::inference::EffectSet::EMPTY
+            || !operation.effects.inputs.is_empty() || !operation.effects.outputs.is_empty() {
+            return Err(IrVerifyError::new("integer arithmetic changes its original operand, binding or effect contract"));
+        }
+        for reference in &operation.arguments {
+            let Some(TypeRef::Ground(ty)) = reference else { return Err(IrVerifyError::new("integer arithmetic operand proof is not ground")); };
+            if !matches!(pools.to_type(*ty)?, Type::Int | Type::UInt) {
+                return Err(IrVerifyError::new("integer arithmetic changes its original signed or unsigned operand domain"));
+            }
+        }
+        let TypeRef::Ground(result) = operation.result else { return Err(IrVerifyError::new("integer arithmetic result proof is not ground")); };
+        if pools.to_type(result)? != Type::Int { return Err(IrVerifyError::new("integer arithmetic result differs from its selected Int domain")); }
+        Ok(())
+    }
+
+    pub(super) fn verify_uint_integer_arithmetic_operand(store: &FullStore, generic: &GenericEvidenceStore, instruction: u32,
+        owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(operation) = generic.operation_at(instruction)? else { return Ok(false); };
+        if !Self::is_uint_integer_arithmetic(&store.semantic, operation)? { return Ok(false); }
+        Self::verify_prepared_integer_arithmetic_contract(&store.semantic, operation)?;
+        let source = generic.operation_source(operation.source)?;
+        let op = match operation.authority {
+            PreparedOperationAuthority::Sealed { operation: SealedOperation::AddInt } => BinaryOp::Add,
+            PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Arithmetic { op, .. }, .. } => op,
+            _ => return Err(IrVerifyError::new("integer arithmetic has another selected authority")),
+        };
+        let tag = store.tags.get(instruction as usize).copied();
+        if source.instruction != instruction || source.owner != owner || operation.authority != source.expected
+            || generic.registered_instruction_origin(instruction, false) != Some((source.origin, owner))
+            || !matches!(tag, Some(FullTag::ExprBinary | FullTag::IntBinary)) || *expected != Type::Int {
+            return Err(IrVerifyError::new("unsigned integer arithmetic changes its original source, owner or result domain"));
+        }
+        let OperationSourceOrigin::Expression(origin) = source.origin else { return Err(IrVerifyError::new("unsigned integer arithmetic has another source identity kind")); };
+        let words = store.payload(store.data[instruction as usize].range())?;
+        if words.first().and_then(|&index| store.binary_ops.get(index as usize)) != Some(&op)
+            || words.get(1..3) != Some(operation.binding.operands.as_ref())
+            || tag == Some(FullTag::ExprBinary) && words.get(3).and_then(|&location| IrLocationId::from_raw(location)).and_then(|location| store.location_sources.get(location.index())) != Some(&origin.source) {
+            return Err(IrVerifyError::new("unsigned integer arithmetic changes its original encoded operator or operands"));
+        }
+        for (&operand, reference) in operation.binding.operands.iter().zip(operation.arguments.iter()) {
+            let Some(TypeRef::Ground(ty)) = reference else { return Err(IrVerifyError::new("unsigned integer arithmetic operand proof is not ground")); };
+            Self::verify_generic_source(store, generic, operand, owner, &store.semantic.to_type(*ty)?, instance, active)?;
+        }
+        Ok(true)
+    }
+
+    pub(in crate::runtime::eval::indexed) fn is_null_optional_equality(pools: &SemanticPools, operation: &PreparedOperation) -> Result<bool, IrVerifyError> {
+        if !matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Equality { op: BinaryOp::Eq | BinaryOp::Ne }, .. })
+            || operation.arguments.len() != 2 { return Ok(false); }
+        let mut types = Vec::with_capacity(2);
+        for reference in &operation.arguments {
+            let Some(TypeRef::Ground(ty)) = reference else { return Ok(false); };
+            types.push(pools.to_type(*ty)?);
+        }
+        Ok(matches!(types.as_slice(), [Type::Null, Type::Optional(_)] | [Type::Optional(_), Type::Null]))
+    }
+
+    pub(in crate::runtime::eval::indexed) fn verify_prepared_null_optional_equality_contract(pools: &SemanticPools, operation: &PreparedOperation) -> Result<(), IrVerifyError> {
+        if !Self::is_null_optional_equality(pools, operation)? || !matches!(operation.authority,
+            PreparedOperationAuthority::Language { argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. })
+            || operation.receiver.is_some() || operation.binding.supplied_slots.as_ref() != [0, 1]
+            || !operation.binding.default_slots.is_empty() || operation.binding.operands.len() != 2
+            || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some() || operation.fallback_lowering.is_some()
+            || operation.original_integer_addition.is_some() || operation.range_lowering.is_some()
+            || operation.effects.creation != crate::sema::inference::EffectSet::EMPTY
+            || !operation.effects.inputs.is_empty() || !operation.effects.outputs.is_empty() {
+            return Err(IrVerifyError::new("null and optional equality changes its original domains, binding or effects"));
+        }
+        let TypeRef::Ground(result) = operation.result else { return Err(IrVerifyError::new("null and optional equality result is not ground")); };
+        if pools.to_type(result)? != Type::Bool { return Err(IrVerifyError::new("null and optional equality changes its original Bool result")); }
+        Ok(())
+    }
+
+    pub(super) fn verify_null_optional_equality_operand(store: &FullStore, generic: &GenericEvidenceStore,
+        instruction: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(operation) = generic.operation_at(instruction)? else { return Ok(false); };
+        if !Self::is_null_optional_equality(&store.semantic, operation)? { return Ok(false); }
+        Self::verify_prepared_null_optional_equality_contract(&store.semantic, operation)?;
+        let source = generic.operation_source(operation.source)?;
+        let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Equality { op }, .. } = operation.authority else { unreachable!() };
+        let OperationSourceOrigin::Expression(origin) = source.origin else { return Err(IrVerifyError::new("null and optional equality has another original identity kind")); };
+        if operation.literal_comparison_slot.is_some() { return Self::verify_literal_comparison_slot(store, generic, operation, instruction, owner, expected); }
+        let words = store.payload(store.data.get(instruction as usize).ok_or_else(|| IrVerifyError::new("null and optional equality instruction is missing"))?.range())?;
+        if source.instruction != instruction || source.owner != owner || operation.authority != source.expected
+            || generic.registered_instruction_origin(instruction, false) != Some((source.origin, owner))
+            || store.tags.get(instruction as usize) != Some(&FullTag::ExprBinary) || *expected != Type::Bool || words.len() != 4
+            || words.first().and_then(|&index| store.binary_ops.get(index as usize)) != Some(&op)
+            || words.get(1..3) != Some(operation.binding.operands.as_ref())
+            || IrLocationId::from_raw(words[3]).and_then(|location| store.location_sources.get(location.index())) != Some(&origin.source) {
+            return Err(IrVerifyError::new("null and optional equality changes its original instruction, operands or source"));
+        }
+        for (&operand, reference) in operation.binding.operands.iter().zip(operation.arguments.iter()) {
+            let Some(TypeRef::Ground(ty)) = reference else { return Err(IrVerifyError::new("null and optional equality operand is not ground")); };
+            Self::verify_generic_source(store, generic, operand, owner, &store.semantic.to_type(*ty)?, instance, active)?;
+        }
+        Ok(true)
+    }
+
+    pub(in crate::runtime::eval::indexed) fn verify_prepared_fallback_contract(pools: &SemanticPools, operation: &PreparedOperation) -> Result<(), IrVerifyError> {
+        let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Fallback { result }, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. } = operation.authority else {
+            return Err(IrVerifyError::new("fallback lacks its selected language authority"));
+        };
+        if operation.receiver.is_some() || operation.arguments.len() != 2 || operation.binding.supplied_slots.as_ref() != [0, 1]
+            || !operation.binding.default_slots.is_empty() || operation.binding.operands.len() != 2
+            || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some()
+            || operation.effects.creation != crate::sema::inference::EffectSet::EMPTY
+            || !operation.effects.inputs.is_empty() || !operation.effects.outputs.is_empty() {
+            return Err(IrVerifyError::new("fallback changes its original operand, default or effect contract"));
+        }
+        if !matches!((&operation.fallback_lowering, result), (Some(PreparedFallbackLowering::Result { .. }), true) | (Some(PreparedFallbackLowering::Optional { .. }), false)) {
+            return Err(IrVerifyError::new("fallback lacks its original physical selection receipt"));
+        }
+        let ground = |reference| match reference { TypeRef::Ground(ty) => pools.to_type(ty), _ => Err(IrVerifyError::new("fallback lacks a ground type proof")) };
+        let carrier = ground(operation.arguments[0].ok_or_else(|| IrVerifyError::new("fallback carrier proof is missing"))?)?;
+        let output = ground(operation.result)?;
+        let success = match (&carrier, result) { (Type::Result(success, _), true) | (Type::Optional(success), false) => success.as_ref(), _ => return Err(IrVerifyError::new("fallback changes its selected carrier kind")) };
+        if success != &output { return Err(IrVerifyError::new("fallback result differs from its original carrier success type")); }
+        let right = ground(operation.arguments[1].ok_or_else(|| IrVerifyError::new("fallback right operand proof is missing"))?)?;
+        if !right.matches_expected(&output) || matches!((&right, &output), (Type::Int, Type::UInt)) {
+            return Err(IrVerifyError::new("fallback right operand differs from its checked result domain"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn verify_fallback_operand(store: &FullStore, generic: &GenericEvidenceStore, instruction: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>) -> Result<bool, IrVerifyError> {
+        let Some(operation) = generic.operation_at(instruction)? else { return Ok(false); };
+        let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Fallback { result }, .. } = operation.authority else { return Ok(false); };
+        Self::verify_prepared_fallback_contract(&store.semantic, operation)?;
+        let source = generic.operation_source(operation.source)?;
+        if source.instruction != instruction || source.owner != owner || operation.authority != source.expected
+            || generic.registered_instruction_origin(instruction, false) != Some((source.origin, owner))
+            || fallback_operands(store, instruction, result)?.as_slice() != operation.binding.operands.as_ref()
+            || operation.fallback_lowering.as_ref() != Some(&fallback_lowering(store, instruction, result)?) {
+            return Err(IrVerifyError::new("fallback changes its original source, owner or lazy operands"));
+        }
+        if !result {
+            let OperationSourceOrigin::Expression(origin) = source.origin else { return Err(IrVerifyError::new("fallback source has another original identity kind")); };
+            let words = store.payload(store.data[instruction as usize].range())?;
+            if words.get(2).and_then(|&location| IrLocationId::from_raw(location)).and_then(|location| store.location_sources.get(location.index())) != Some(&origin.source) {
+                return Err(IrVerifyError::new("Optional fallback changes its original encoded source location"));
+            }
+        }
+        let TypeRef::Ground(output) = operation.result else { return Err(IrVerifyError::new("fallback result is not ground")); };
+        if store.semantic.to_type(output)? != *expected { return Err(IrVerifyError::new("fallback operand changes its checked result type")); }
+        for (&operand, reference) in operation.binding.operands.iter().zip(operation.arguments.iter()) {
+            let Some(TypeRef::Ground(ty)) = reference else { return Err(IrVerifyError::new("fallback operand is not ground")); };
+            Self::verify_generic_source(store, generic, operand, owner, &store.semantic.to_type(*ty)?, instance, active)?;
+        }
+        Ok(true)
+    }
+
     pub(super) fn verify_source_operations(store: &FullStore, generic: &GenericEvidenceStore) -> Result<(), IrVerifyError> {
         let mut storage = IntegerStorageIndex::build(store)?;
         for (_, operation) in generic.operations() {
             let source = generic.operation_source(operation.source)?;
+            if matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::ErrorField { .. }, .. }) {
+                if !Self::verify_error_field_operand(store, generic, source.instruction, source.owner, &Type::Str, None, &mut vec![source.instruction])? { return Err(IrVerifyError::new("error field loses its original prepared authority")); }
+                continue;
+            }
+            if matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Constructor { kind: crate::sema::operation_graph::ValueConstructor::Range, .. }, .. }) {
+                if !Self::verify_range_operand(store, generic, source.instruction, source.owner, &Type::Stream(Box::new(Type::Int)), None, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("range constructor loses its original prepared authority"));
+                }
+                continue;
+            }
+            if GenericEvidenceStore::is_duration_operation(operation) {
+                let TypeRef::Ground(result) = operation.result else { return Err(IrVerifyError::new("Duration result is not ground")); };
+                if !Self::verify_duration_operand(store, generic, source.instruction, source.owner,
+                    &store.semantic.to_type(result)?, None, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("Duration operation is missing its original prepared proof"));
+                }
+                continue;
+            }
+            if operation.literal_comparison_slot.is_some() {
+                if !Self::verify_literal_comparison_operand(store, generic, source.instruction, source.owner, &Type::Bool, None, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("literal comparison is missing its original prepared proof"));
+                }
+                continue;
+            }
+            if Self::is_null_optional_equality(&store.semantic, operation)? {
+                if !Self::verify_null_optional_equality_operand(store, generic, source.instruction, source.owner, &Type::Bool, None, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("null and optional equality is missing its original prepared proof"));
+                }
+                continue;
+            }
+            if Self::is_uint_integer_arithmetic(&store.semantic, operation)? {
+                if !Self::verify_uint_integer_arithmetic_operand(store, generic, source.instruction, source.owner,
+                    &Type::Int, None, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("unsigned integer arithmetic is missing its original prepared proof"));
+                }
+                continue;
+            }
             let PreparedOperationAuthority::Language { operation: language_operation, .. } = &operation.authority else { return Err(IrVerifyError::new("operation authority lacks an instruction verifier")); };
+            if matches!(language_operation, PreparedLanguageOperation::Index { .. }) {
+                let TypeRef::Ground(ty) = operation.result else { return Err(IrVerifyError::new("index result is not ground")); };
+                if !Self::verify_index_operand(store, generic, source.instruction, source.owner, &store.semantic.to_type(ty)?, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("index is missing its original prepared proof"));
+                }
+                continue;
+            }
+            if matches!(language_operation, PreparedLanguageOperation::Fallback { .. }) {
+                let TypeRef::Ground(ty) = operation.result else { return Err(IrVerifyError::new("fallback result is not ground")); };
+                if !Self::verify_fallback_operand(store, generic, source.instruction, source.owner, &store.semantic.to_type(ty)?, None, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("fallback is missing its original prepared proof"));
+                }
+                continue;
+            }
             let op = match language_operation {
                 PreparedLanguageOperation::Arithmetic { op, domain: ArithmeticDomain::Float | ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int } }
                 | PreparedLanguageOperation::Ordering { op, left: Atom::Str, right: Atom::Str }
+                | PreparedLanguageOperation::Ordering { op: op @ (BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge), left: Atom::Int, right: Atom::Int }
                 | PreparedLanguageOperation::Equality { op } => op,
                 _ => return Err(IrVerifyError::new("operation authority lacks an instruction verifier")),
             };
@@ -136,7 +538,7 @@ impl FullVerifier {
             let words = store.payload(store.data[source.instruction as usize].range())?;
             let OperationSourceOrigin::Expression(expression) = source.origin else { return Err(IrVerifyError::new("source operation origin has another kind")); };
             if generic.registered_instruction_origin(source.instruction, false) != Some((source.origin, source.owner)) { return Err(IrVerifyError::new("source operation origin disagrees with its registered instruction")); }
-            if tag == Some(FullTag::ExprBinary) && words.get(3).and_then(|&location| store.location_sources.get(location as usize)) != Some(&expression.source) { return Err(IrVerifyError::new("source operation origin disagrees with encoded source location")); }
+            if tag == Some(FullTag::ExprBinary) && words.get(3).and_then(|&location| IrLocationId::from_raw(location)).and_then(|location| store.location_sources.get(location.index())) != Some(&expression.source) { return Err(IrVerifyError::new("source operation origin disagrees with encoded source location")); }
             if words.first().and_then(|&index| store.binary_ops.get(index as usize)) != Some(op) { return Err(IrVerifyError::new("source operation proof disagrees with encoded operator")); }
             if words.get(1..3) != Some(operation.binding.operands.as_ref()) { return Err(IrVerifyError::new("source operation operand origins disagree with instruction")); }
             for (&operand, expected) in operation.binding.operands.iter().zip(operation.arguments.iter()) {
@@ -172,7 +574,9 @@ impl FullVerifier {
         match store.tags[instruction as usize] {
             FullTag::IntInt => {},
             FullTag::IntSlot => {
-                if Self::verify_pattern_operand(store, generic, instruction, owner, &Type::Int)? {
+                if Self::verify_pattern_operand(store, generic, instruction, owner, &Type::Int)?
+                    || Self::verify_value_binding_operand(store, generic, instruction, owner, &Type::Int, active)?
+                    || matches!(owner, InstructionOwner::Driver(_)) && Self::verify_mutable_binding_operand(store, generic, instruction, owner, &Type::Int, active)? {
                     active.pop();
                     storage.verified_operands.insert(instruction);
                     return Ok(());
@@ -223,6 +627,10 @@ impl FullVerifier {
 }
 
 #[cfg(test)]
+#[path = "operation_prepare/fallback_tests.rs"]
+mod fallback_tests;
+
+#[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use crate::sema::check::Checker;
@@ -242,13 +650,22 @@ pub(super) mod tests {
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
         assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
-        assert!(bodies.solved.operations.values().any(|operation| {
+        let sealed_integer_addition = matches!(expected, PreparedLanguageOperation::Arithmetic { op: BinaryOp::Add, domain: ArithmeticDomain::Integer { .. } })
+            && bodies.solved.additions.values().any(|&requirement| bodies.solved.graph.discharge(requirement).unwrap().is_some_and(|evidence| evidence.operation == SealedOperation::AddInt));
+        assert!(sealed_integer_addition || bodies.solved.operations.values().any(|operation| {
             let graph = &bodies.solved.graph;
             let Some(evidence) = graph.candidate_evidence(operation.requirement).unwrap() else { return false; };
             matches!(bodies.solved.operation_catalog.candidate(graph, evidence.candidate).unwrap(),
                 crate::sema::check::SolvedOperationAuthority::Language(metadata)
                     if metadata.operation == expected)
-        }), "the original source must supply the selected operation {expected:?}");
+        }), "the original source must supply the selected operation {expected:?}; selected operations: {:?}",
+            bodies.solved.operations.values().map(|operation| {
+                let graph = &bodies.solved.graph;
+                graph.candidate_evidence(operation.requirement).unwrap().map(|evidence| (
+                    bodies.solved.operation_catalog.candidate(graph, evidence.candidate).unwrap(),
+                    evidence.actual_arguments.iter().map(|argument| argument.map(|ty| graph_ground_type(graph, ty))).collect::<Vec<_>>(),
+                ))
+            }).collect::<Vec<_>>());
         let prepared = FullBuilder::build_compact(&parsed.arena, &declarations, &bodies, source, Arc::new(sources), source_id);
         drop(parsed); drop(declarations); drop(bodies);
         let program = prepared.unwrap();
@@ -384,7 +801,7 @@ pub(super) mod tests {
             cyclic.extra[range.start as usize + 1] = source.instruction;
             let (id, _) = generic.operations().find(|(_, operation)| generic.operation_source(operation.source).unwrap().instruction == source.instruction).unwrap();
             cyclic.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().binding.operands[0] = source.instruction;
-            assert!(FullVerifier::verify_generic_evidence(&cyclic).unwrap_err().message.contains("foreign, cyclic, or too deep"));
+            assert!(FullVerifier::verify_generic_evidence(&cyclic).unwrap_err().message.contains("original receipt"));
         });
     }
 
@@ -401,13 +818,13 @@ pub(super) mod tests {
             let OperationSourceOrigin::Expression(mut expression) = source.origin else { unreachable!() };
             expression.expression = crate::syntax::arena::ExprId::from_index(expression.expression.index() + 1);
             wrong_origin.generic.as_deref_mut().unwrap().test_operation_source_mut(operation.source).unwrap().origin = OperationSourceOrigin::Expression(expression);
-            assert!(FullVerifier::verify_generic_evidence(&wrong_origin).unwrap_err().message.contains("original instruction"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_origin).unwrap_err().message.contains("original receipt"));
             let mut wrong_slot = program.store.clone();
             let operand = operation.binding.operands[0] as usize;
             assert_eq!(wrong_slot.tags[operand], FullTag::IntSlot);
             let range = wrong_slot.data[operand].range();
             wrong_slot.extra[range.start as usize] = 2;
-            assert!(FullVerifier::verify_generic_evidence(&wrong_slot).unwrap_err().message.contains("parameter contract"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_slot).is_err(), "a Str parameter slot cannot replace the checked Int operand");
             let mut wrong_codec = program.store.clone();
             wrong_codec.tags[operand] = FullTag::ExprParam;
             assert!(FullVerifier::verify_generic_evidence(&wrong_codec).unwrap_err().message.contains("prepared type contract"));
@@ -415,7 +832,222 @@ pub(super) mod tests {
             let words = wrong_operator.payload(wrong_operator.data[source.instruction as usize].range()).unwrap();
             let opcode = words[0] as usize;
             wrong_operator.binary_ops[opcode] = BinaryOp::Lt;
-            assert!(FullVerifier::verify_generic_evidence(&wrong_operator).unwrap_err().message.contains("encoded operator"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_operator).is_err(), "the encoded opcode cannot replace the originally selected operation");
+        });
+    }
+
+    #[test]
+    fn original_null_optional_equality_preserves_domains_and_decisions_on_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            for (operator, opcode) in [("==", BinaryOp::Eq), ("!=", BinaryOp::Ne)] {
+                for reversed in [false, true] {
+                    let expression = if reversed { format!("null {operator} value") } else { format!("value {operator} null") };
+                    let saved_expression = expression.replace("value", "held");
+                    let source = format!("pure compare(value: Int?) -> Bool {{ {expression} }}\npure guarded(value: Int?) -> Int {{ if {expression} {{ 1 }} else {{ 2 }} }}\npure preserve(value: Int?) -> Int? {{ value }}\npure saved(value: Int?) -> Bool {{ let held: Int? = preserve(value); if {saved_expression} {{ true }} else {{ false }} }}\npure control() -> Int {{ 3 }}\n");
+                    let expected = PreparedLanguageOperation::Equality { op: opcode };
+                    let program = Arc::new(source_fixture(&source, expected));
+                    let foreign = source_fixture(&source, expected);
+                    program.symbol_owner().with_current(|| {
+                        let generic = program.generic_evidence().unwrap();
+                        assert!(generic.operations().any(|(_, operation)| operation.literal_comparison_slot.as_ref().is_some_and(|recipe|
+                            matches!(recipe.receiver, super::super::super::generic::NativeScalarReceiver::Binding { .. }))), "saved nullable comparison retains its original immutable binding authority");
+                        let (id, operation) = generic.operations().find(|(_, operation)| operation.literal_comparison_slot.is_some()
+                            && FullVerifier::is_null_optional_equality(&program.store.semantic, operation).unwrap()).expect("the fused original equality retains a prepared operation");
+                        let original = generic.operation_source(operation.source).unwrap();
+                        assert_eq!(program.store.tags[original.instruction as usize], FullTag::BoolLiteralCompareSlot);
+                        assert!(operation.binding.operands.is_empty(), "fused operands are represented by an original slot proof");
+                        assert_eq!(operation.literal_comparison_slot.as_ref().unwrap().argument, if reversed { 1 } else { 0 });
+                        let mut changed_slot = (*program).clone();
+                        let range = changed_slot.store.data[original.instruction as usize].range();
+                        changed_slot.store.extra[range.start as usize + 1] += 1;
+                        assert!(FullVerifier::verify(&changed_slot).is_err());
+                        let mut missing_recipe = (*program).clone();
+                        missing_recipe.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().literal_comparison_slot = None;
+                        assert!(FullVerifier::verify(&missing_recipe).is_err(), "a fused slot cannot use the ordinary two-operand proof");
+                        let mut changed_literal = (*program).clone();
+                        let payload = changed_literal.store.payload(changed_literal.store.data[original.instruction as usize].range()).unwrap();
+                        let literal = payload[2] as usize;
+                        changed_literal.store.values[literal] = FullValueTag::Bool;
+                        assert!(FullVerifier::verify(&changed_literal).is_err(), "the fused comparison retains the original Null literal domain");
+                        let mut missing = (*program).clone();
+                        missing.store.generic.as_deref_mut().unwrap().test_remove_operations();
+                        assert!(FullVerifier::verify(&missing).is_err());
+                        let mut other = (*program).clone();
+                        other.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().source = foreign.generic_evidence().unwrap().operations().next().unwrap().1.source;
+                        assert!(FullVerifier::verify(&other).is_err());
+                        let mut changed_domains = (*program).clone();
+                        changed_domains.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().arguments.swap(0, 1);
+                        assert!(FullVerifier::verify(&changed_domains).is_err(), "equal runtime outcomes cannot exchange original Null and Optional operand domains");
+                        let mut changed_result = (*program).clone();
+                        let integer = SemanticPoolBuilder::default().intern_type(&mut changed_result.store.semantic, &Type::Int).unwrap();
+                        changed_result.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().result = TypeRef::Ground(integer);
+                        assert!(FullVerifier::verify(&changed_result).is_err());
+                        let mut joint_operator = (*program).clone();
+                        let replacement = if opcode == BinaryOp::Eq { BinaryOp::Ne } else { BinaryOp::Eq };
+                        let range = joint_operator.store.data[original.instruction as usize].range();
+                        let index = joint_operator.store.extra[range.start as usize] as usize;
+                        joint_operator.store.binary_ops[index] = replacement;
+                        let proof = joint_operator.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap();
+                        let PreparedOperationAuthority::Language { operation, .. } = &mut proof.authority else { unreachable!() };
+                        *operation = PreparedLanguageOperation::Equality { op: replacement };
+                        let source_id = proof.source;
+                        let source = joint_operator.store.generic.as_deref_mut().unwrap().test_operation_source_mut(source_id).unwrap();
+                        let PreparedOperationAuthority::Language { operation, .. } = &mut source.expected else { unreachable!() };
+                        *operation = PreparedLanguageOperation::Equality { op: replacement };
+                        assert!(FullVerifier::verify(&joint_operator).is_err(), "rewriting source, proof and encoded opcode cannot change the original null decision");
+                        for recursive in [false, true] {
+                            for value in [crate::runtime::value::Value::Null, crate::runtime::value::Value::Int(7)] {
+                                let decision = (value == crate::runtime::value::Value::Null) == (opcode == BinaryOp::Eq);
+                                for name in ["compare", "guarded", "saved", "control"] {
+                                    let function = LoweredFunctionKey::Name(Name::intern(name));
+                                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                                    evaluator.indexed_program = Some(Arc::clone(&program));
+                                    let arguments = if name == "control" { vec![] } else { vec![value.clone()] };
+                                    let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure, &arguments, Span::new(program.store.source_id, 0, 0)).expect("null equality fixture function exists");
+                                    let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call).unwrap();
+                                    let expected = match name { "compare" | "saved" => crate::runtime::value::Value::Bool(decision), "guarded" => crate::runtime::value::Value::Int(if decision { 1 } else { 2 }), _ => crate::runtime::value::Value::Int(3) };
+                                    assert_eq!(result, expected);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn original_signed_addition_retains_its_sealed_discharge_on_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let expected = PreparedLanguageOperation::Arithmetic { op: BinaryOp::Add, domain: ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int } };
+            let program = Arc::new(source_fixture("pure calculate(left: Int, right: Int) -> Int { left + right }\n", expected));
+            program.symbol_owner().with_current(|| {
+                let (_, operation) = program.generic_evidence().unwrap().operations().next().unwrap();
+                assert!(matches!(operation.authority, PreparedOperationAuthority::Sealed { operation: SealedOperation::AddInt }));
+                assert!(operation.original_integer_addition.is_some());
+                let function = LoweredFunctionKey::Name(Name::intern("calculate"));
+                for recursive in [false, true] {
+                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure,
+                        &[crate::runtime::value::Value::Int(-7), crate::runtime::value::Value::Int(2)], Span::new(program.store.source_id, 0, 0)).expect("calculate function exists");
+                    assert_eq!(crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call).unwrap(), crate::runtime::value::Value::Int(-5));
+                }
+            });
+        });
+    }
+
+    #[test]
+    fn selected_unsigned_integer_arithmetic_keeps_operand_domains_and_signed_results_on_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            for (left, right) in [(Atom::UInt, Atom::Int), (Atom::Int, Atom::UInt), (Atom::UInt, Atom::UInt)] {
+                for (operator, opcode, answer) in [("+", BinaryOp::Add, 9), ("-", BinaryOp::Sub, 5), ("*", BinaryOp::Mul, 14), ("/", BinaryOp::Div, 3), ("%", BinaryOp::Rem, 1)] {
+                    let spelling = |atom| if atom == Atom::UInt { "UInt" } else { "Int" };
+                    let source = format!("pure calculate(left: {}, right: {}) -> Int {{ let value = left {operator} right; value }}\n", spelling(left), spelling(right));
+                    let expected = PreparedLanguageOperation::Arithmetic { op: opcode, domain: ArithmeticDomain::Integer { left, right } };
+                    let program = Arc::new(source_fixture(&source, expected));
+                    let foreign = source_fixture(&source, expected);
+                    program.symbol_owner().with_current(|| {
+                        let generic = program.generic_evidence().unwrap();
+                        let (id, operation) = generic.operations().next().unwrap();
+                        let original = generic.operation_source(operation.source).unwrap();
+                        assert!(FullVerifier::is_uint_integer_arithmetic(&program.store.semantic, operation).unwrap());
+                        for (reference, atom) in operation.arguments.iter().zip([left, right]) {
+                            let Some(TypeRef::Ground(ty)) = reference else { panic!("original arithmetic operand must be ground") };
+                            assert_eq!(program.store.semantic.to_type(*ty).unwrap(), if atom == Atom::UInt { Type::UInt } else { Type::Int });
+                        }
+                        let mut missing = (*program).clone();
+                        missing.store.generic.as_deref_mut().unwrap().test_remove_operations();
+                        assert!(FullVerifier::verify(&missing).is_err());
+                        let mut foreign_source = (*program).clone();
+                        foreign_source.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().source = foreign.generic_evidence().unwrap().operations().next().unwrap().1.source;
+                        assert!(FullVerifier::verify(&foreign_source).is_err());
+                        let mut changed_domain = (*program).clone();
+                        let integer = SemanticPoolBuilder::default().intern_type(&mut changed_domain.store.semantic, &Type::Int).unwrap();
+                        let proof = changed_domain.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap();
+                        proof.arguments = Box::new([Some(TypeRef::Ground(integer)), Some(TypeRef::Ground(integer))]);
+                        if let PreparedOperationAuthority::Language { operation, .. } = &mut proof.authority {
+                            *operation = PreparedLanguageOperation::Arithmetic { op: opcode, domain: ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int } };
+                        }
+                        assert!(FullVerifier::verify(&changed_domain).is_err(), "rewriting both operands and authority cannot remove their original UInt constraints");
+                        if opcode == BinaryOp::Add {
+                            let mut missing_discharge = (*program).clone();
+                            missing_discharge.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().original_integer_addition = None;
+                            assert!(FullVerifier::verify(&missing_discharge).is_err(), "a sealed addition requires its genuine original discharge roots");
+                            let mut rewritten_roots = (*program).clone();
+                            let roots = rewritten_roots.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().original_integer_addition.as_mut().unwrap();
+                            std::mem::swap(&mut roots.left, &mut roots.right);
+                            if left != right {
+                                assert!(FullVerifier::verify(&rewritten_roots).is_err(), "rewritten original scoped roots cannot replace the sealed discharge");
+                            }
+                        }
+                        let mut wrong_opcode = (*program).clone();
+                        let payload = wrong_opcode.store.data[original.instruction as usize].range();
+                        let index = wrong_opcode.store.extra[payload.start as usize] as usize;
+                        wrong_opcode.store.binary_ops[index] = BinaryOp::Eq;
+                        assert!(FullVerifier::verify(&wrong_opcode).is_err());
+                        let function = LoweredFunctionKey::Name(Name::intern("calculate"));
+                        for recursive in [false, true] {
+                            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                            evaluator.indexed_program = Some(Arc::clone(&program));
+                            let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure,
+                                &[crate::runtime::value::Value::Int(7), crate::runtime::value::Value::Int(2)], Span::new(program.store.source_id, 0, 0)).expect("calculate function exists");
+                            let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call);
+                            assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(answer));
+                            if opcode == BinaryOp::Sub {
+                                let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure,
+                                    &[crate::runtime::value::Value::Int(2), crate::runtime::value::Value::Int(7)], Span::new(program.store.source_id, 0, 0)).unwrap();
+                                let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call);
+                                assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(-5), "unsigned operands retain the selected signed arithmetic result");
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn selected_integer_ordering_keeps_original_authority_after_frontend_disposal_on_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            for (operator, opcode) in [("<", BinaryOp::Lt), ("<=", BinaryOp::Le), (">", BinaryOp::Gt), (">=", BinaryOp::Ge)] {
+                let source = format!("pure compare(left: Int, right: Int) -> Bool {{ left {operator} right }}\n");
+                let expected = PreparedLanguageOperation::Ordering { op: opcode, left: Atom::Int, right: Atom::Int };
+                let program = Arc::new(source_fixture(&source, expected));
+                let foreign = source_fixture(&source, expected);
+                program.symbol_owner().with_current(|| {
+                    let generic = program.generic_evidence().unwrap();
+                    let (id, operation) = generic.operations().next().unwrap();
+                    let original = generic.operation_source(operation.source).unwrap();
+                    assert_eq!(program.store.tags[original.instruction as usize], FullTag::ExprBinary);
+                    let mut missing = (*program).clone();
+                    missing.store.generic.as_deref_mut().unwrap().test_remove_operations();
+                    assert!(FullVerifier::verify(&missing).is_err());
+                    let mut foreign_source = (*program).clone();
+                    foreign_source.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().source = foreign.generic_evidence().unwrap().operations().next().unwrap().1.source;
+                    assert!(FullVerifier::verify(&foreign_source).is_err());
+                    let mut rewritten = (*program).clone();
+                    let range = rewritten.store.data[original.instruction as usize].range();
+                    let index = rewritten.store.extra[range.start as usize] as usize;
+                    rewritten.store.binary_ops[index] = BinaryOp::Eq;
+                    let authority = &mut rewritten.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().authority;
+                    let PreparedOperationAuthority::Language { operation, .. } = authority else { unreachable!() };
+                    *operation = PreparedLanguageOperation::Equality { op: BinaryOp::Eq };
+                    assert!(FullVerifier::verify(&rewritten).is_err(), "an equality cannot replace the original integer ordering and its opcode together");
+                    let function = LoweredFunctionKey::Name(Name::intern("compare"));
+                    for recursive in [false, true] {
+                        for (left, right) in [(2, 7), (7, 2), (2, 2)] {
+                            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                            evaluator.indexed_program = Some(Arc::clone(&program));
+                            let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure,
+                                &[crate::runtime::value::Value::Int(left), crate::runtime::value::Value::Int(right)], Span::new(program.store.source_id, 0, 0)).expect("compare function exists");
+                            let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call);
+                            let selected = match opcode { BinaryOp::Lt => left < right, BinaryOp::Le => left <= right, BinaryOp::Gt => left > right, BinaryOp::Ge => left >= right, _ => unreachable!() };
+                            assert_eq!(result.unwrap(), crate::runtime::value::Value::Bool(selected));
+                        }
+                    }
+                });
+            }
         });
     }
 
@@ -445,28 +1077,28 @@ pub(super) mod tests {
                 let instruction = generic.operation_source(operation.source).unwrap().instruction;
                 let mut missing = program.store.clone();
                 missing.generic.as_deref_mut().unwrap().test_remove_operations();
-                assert!(FullVerifier::verify_generic_evidence(&missing).unwrap_err().message.contains("missing its prepared proof"));
+                assert!(FullVerifier::verify_generic_evidence(&missing).is_err(), "removing the operation proof cannot preserve its selected source authority");
                 let mut swapped = program.store.clone();
                 swapped.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().binding.operands.swap(0, 1);
-                assert!(FullVerifier::verify_generic_evidence(&swapped).unwrap_err().message.contains("operand origins"));
+                assert!(FullVerifier::verify_generic_evidence(&swapped).unwrap_err().message.contains("original receipt"));
                 let mut wrong_result = program.store.clone();
                 let result = SemanticPoolBuilder::default().intern_type(&mut wrong_result.semantic, &Type::Str).unwrap();
                 wrong_result.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().result = TypeRef::Ground(result);
-                assert!(FullVerifier::verify_generic_evidence(&wrong_result).unwrap_err().message.contains("result domain"));
+                assert!(FullVerifier::verify_generic_evidence(&wrong_result).is_err(), "the originally selected result domain cannot be rewritten");
                 let mut wrong_argument = program.store.clone();
                 let argument = SemanticPoolBuilder::default().intern_type(&mut wrong_argument.semantic, &Type::Bool).unwrap();
                 wrong_argument.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().arguments[0] = Some(TypeRef::Ground(argument));
-                assert!(FullVerifier::verify_generic_evidence(&wrong_argument).unwrap_err().message.contains("operand domain"));
+                assert!(FullVerifier::verify_generic_evidence(&wrong_argument).is_err(), "a Bool cannot replace the original numeric or text operand domain");
                 let mut wrong_effects = program.store.clone();
                 wrong_effects.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().effects.creation = crate::sema::inference::EffectSet::TIME;
-                assert!(FullVerifier::verify_generic_evidence(&wrong_effects).unwrap_err().message.contains("contract is inconsistent"));
+                assert!(FullVerifier::verify_generic_evidence(&wrong_effects).unwrap_err().message.contains("original receipt"));
                 let mut rewritten = program.store.clone();
                 let words = rewritten.payload(rewritten.data[instruction as usize].range()).unwrap();
                 let opcode = words[0] as usize;
                 rewritten.binary_ops[opcode] = BinaryOp::Add;
                 let PreparedOperationAuthority::Language { operation, .. } = &mut rewritten.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().authority else { unreachable!() };
                 *operation = PreparedLanguageOperation::Arithmetic { op: BinaryOp::Add, domain: ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int } };
-                assert!(FullVerifier::verify_generic_evidence(&rewritten).unwrap_err().message.contains("rewrites its original selected source contract"));
+                assert!(FullVerifier::verify_generic_evidence(&rewritten).unwrap_err().message.contains("original receipt"));
             });
         }
     }
@@ -485,7 +1117,7 @@ pub(super) mod tests {
             assert!(generic.operation_at(source.instruction).unwrap().is_some());
             let mut missing = program.store.clone();
             missing.generic.as_deref_mut().unwrap().test_remove_operations();
-            assert!(FullVerifier::verify_generic_evidence(&missing).unwrap_err().message.contains("missing its prepared proof"));
+            assert!(FullVerifier::verify_generic_evidence(&missing).is_err(), "removing the operation proof cannot preserve its selected source authority");
         });
     }
 
@@ -503,17 +1135,17 @@ pub(super) mod tests {
             let words = wrong_operator.payload(wrong_operator.data[source.instruction as usize].range()).unwrap();
             let opcode = words[0] as usize;
             wrong_operator.binary_ops[opcode] = BinaryOp::Add;
-            assert!(FullVerifier::verify_generic_evidence(&wrong_operator).unwrap_err().message.contains("encoded operator"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_operator).is_err(), "the encoded opcode cannot replace the originally selected operation");
             let mut wrong_operand = program.store.clone();
             let proof = wrong_operand.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap();
             proof.binding.operands[0] = proof.binding.operands[1];
-            assert!(FullVerifier::verify_generic_evidence(&wrong_operand).unwrap_err().message.contains("operand origins"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_operand).unwrap_err().message.contains("original receipt"));
             let mut wrong_binding = program.store.clone();
             wrong_binding.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().binding.supplied_slots.swap(0, 1);
-            assert!(FullVerifier::verify_generic_evidence(&wrong_binding).unwrap_err().message.contains("contract is inconsistent"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_binding).unwrap_err().message.contains("original receipt"));
             let mut wrong_owner = program.store.clone();
             wrong_owner.generic.as_deref_mut().unwrap().test_operation_source_mut(operation.source).unwrap().owner = InstructionOwner::Driver(0);
-            assert!(FullVerifier::verify_generic_evidence(&wrong_owner).unwrap_err().message.contains("original instruction"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_owner).unwrap_err().message.contains("original receipt"));
             let mut outsider = GenericEvidenceBuilder::default();
             let foreign_scope = outsider.add_scope(super::super::super::generic::SchemeScope {
                 owner: IrFunctionId::new(0).unwrap(), quantifiers: Box::new([]), parameters: Box::new([]),
@@ -522,10 +1154,10 @@ pub(super) mod tests {
             }).unwrap();
             let mut wrong_scope = program.store.clone();
             wrong_scope.generic.as_deref_mut().unwrap().test_operation_source_mut(operation.source).unwrap().scope = Some(foreign_scope);
-            assert!(FullVerifier::verify_generic_evidence(&wrong_scope).unwrap_err().message.contains("scope disagrees"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_scope).unwrap_err().message.contains("original receipt"));
             let mut wrong_effects = program.store.clone();
             wrong_effects.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().effects.creation = crate::sema::inference::EffectSet(1);
-            assert!(FullVerifier::verify_generic_evidence(&wrong_effects).unwrap_err().message.contains("contract is inconsistent"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_effects).unwrap_err().message.contains("original receipt"));
             let mut misplaced = program.store.clone();
             misplaced.generic.as_deref_mut().unwrap().test_operation_source_mut(operation.source).unwrap().instruction = operation.binding.operands[0];
             assert!(FullVerifier::verify_generic_evidence(&misplaced).is_err());
@@ -533,10 +1165,10 @@ pub(super) mod tests {
             let OperationSourceOrigin::Expression(mut expression) = source.origin else { unreachable!() };
             expression.source = SourceId::new(123);
             wrong_origin.generic.as_deref_mut().unwrap().test_operation_source_mut(operation.source).unwrap().origin = OperationSourceOrigin::Expression(expression);
-            assert!(FullVerifier::verify_generic_evidence(&wrong_origin).unwrap_err().message.contains("original instruction"));
+            assert!(FullVerifier::verify_generic_evidence(&wrong_origin).unwrap_err().message.contains("original receipt"));
             let mut wrong_location = program.store.clone();
             let words = wrong_location.payload(wrong_location.data[source.instruction as usize].range()).unwrap();
-            let location = words[3] as usize;
+            let location = IrLocationId::from_raw(words[3]).unwrap().index();
             wrong_location.location_sources[location] = SourceId::new(123);
             assert!(FullVerifier::verify_generic_evidence(&wrong_location).unwrap_err().message.contains("encoded source location"));
         });
@@ -587,7 +1219,7 @@ pub(super) mod tests {
             let mut foreign = program.store.clone();
             let id = generic.operations().next().unwrap().0;
             foreign.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().source = current_source;
-            assert!(FullVerifier::verify_generic_evidence(&foreign).unwrap_err().message.contains("foreign program"));
+            assert!(FullVerifier::verify_generic_evidence(&foreign).unwrap_err().message.contains("original receipt"));
             let mut stale_builder = GenericEvidenceBuilder::default();
             stale_builder.register_instruction_origin(source.instruction, source.origin, source.owner).unwrap();
             let checkpoint = stale_builder.checkpoint();

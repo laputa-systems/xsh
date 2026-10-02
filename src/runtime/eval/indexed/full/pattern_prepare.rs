@@ -125,9 +125,22 @@ impl FullBuilder {
                 Ok::<_, IrBuildError>((*self.active_encoded_expressions.get(value).ok_or_else(pattern_problem)?, expected))
             }).transpose()?;
             let terminal = original.terminal.as_ref().map(|(statement, value, original, identity)| {
-                let expected = self.prepare_pattern_result_source(&solved, caller, scope, original)?;
+                let instruction = *self.active_encoded_expressions.get(value).ok_or_else(pattern_problem)?;
+                let expected = match original {
+                    super::super::super::BuildPatternResultTerminalSource::Expression(original) =>
+                        PreparedPatternResultTerminalSource::Expression(self.prepare_pattern_result_source(&solved, caller, scope, original)?),
+                    super::super::super::BuildPatternResultTerminalSource::PatternCapture(capture) => {
+                        let pattern = solved.checked_pattern(capture.pattern).map_err(|_| pattern_problem())?;
+                        let original = pattern.captures.iter().find(|original| original.identity == *capture).ok_or_else(pattern_problem)?;
+                        if pattern.caller != caller || !self.generic_pattern_statement_use_rows.iter().any(|&(row, statement, actual, actual_owner)|
+                            (row, statement, actual, actual_owner) == (instruction, *identity, *capture, owner)) { return Err(pattern_problem()); }
+                        let original_scope = solved.checked_pattern_scope(capture.pattern).map_err(|_| pattern_problem())?;
+                        solved.graph.validate_scoped(crate::sema::inference::ScopedRoot { ty: original.ty, scope: original_scope }).map_err(|_| pattern_problem())?;
+                        PreparedPatternResultTerminalSource::PatternCapture { identity: *capture, expected: self.call_reference(&solved, scope, original.ty, false)? }
+                    }
+                };
                 Ok::<_, IrBuildError>((*self.active_pattern_statements.get(statement).ok_or_else(pattern_problem)?,
-                    *self.active_encoded_expressions.get(value).ok_or_else(pattern_problem)?, expected, *identity))
+                    instruction, expected, *identity))
             }).transpose()?;
             bodies.push(PreparedPatternResultBody { instruction: *self.active_encoded_expressions.get(&original.instruction).ok_or_else(pattern_problem)?, source: expected, condition, terminal });
         }
@@ -241,7 +254,11 @@ impl FullBuilder {
                     self.generic_evidence_mut().register_instruction_origin(body.instruction, super::super::generic::OperationSourceOrigin::Expression(body.source.origin), owner).map_err(|_| pattern_problem())?;
                     if let Some((statement, value, source, identity)) = &body.terminal {
                         self.generic_evidence_mut().register_instruction_origin(*statement, super::super::generic::OperationSourceOrigin::Statement(*identity), owner).map_err(|_| pattern_problem())?;
-                        self.generic_evidence_mut().register_instruction_origin(*value, super::super::generic::OperationSourceOrigin::Expression(source.origin), owner).map_err(|_| pattern_problem())?;
+                        let origin = match source {
+                            PreparedPatternResultTerminalSource::Expression(source) => super::super::generic::OperationSourceOrigin::Expression(source.origin),
+                            PreparedPatternResultTerminalSource::PatternCapture { .. } => super::super::generic::OperationSourceOrigin::Statement(*identity),
+                        };
+                        self.generic_evidence_mut().register_instruction_origin(*value, origin, owner).map_err(|_| pattern_problem())?;
                     }
                     if let Some((condition, source)) = &body.condition {
                         self.generic_evidence_mut().register_instruction_origin(*condition, super::super::generic::OperationSourceOrigin::Expression(source.origin), owner).map_err(|_| pattern_problem())?;
@@ -250,9 +267,11 @@ impl FullBuilder {
             }
             if admissions.insert(matcher, (admission, owner, result)).is_some() { return Err(pattern_problem()); }
         }
+        let retry_patterns = self.generic_evidence_mut().retry_selection_origins();
         let mut needed = std::collections::BTreeSet::new();
         let mut visited = std::collections::BTreeSet::new();
         let mut pending: Vec<_> = self.generic_pattern_rows.iter().map(|&(_, identity, _)| (identity, 0usize)).collect();
+        pending.extend(retry_patterns.iter().copied().map(|identity| (identity, 0)));
         while let Some((identity, depth)) = pending.pop() {
             if depth >= 512 { return Err(pattern_problem()); }
             if !visited.insert(identity) { continue; }
@@ -273,6 +292,9 @@ impl FullBuilder {
         let patterns: BTreeMap<_, _> = self.generic_pattern_rows.iter().map(|&(row, identity, owner)| (row, (identity, owner))).collect();
         let expressions: BTreeMap<_, _> = self.generic_expression_rows.iter().map(|&(row, identity, owner)| (row, (identity, owner))).collect();
         let mut sources = BTreeMap::new();
+        for identity in retry_patterns {
+            self.pattern_source(&solved, identity, &mut sources, 0)?;
+        }
         let mut captures: BTreeMap<PatternCaptureIdentity, (PatternCaptureId, InstructionOwner)> = BTreeMap::new();
         for matcher in 0..self.store.tags.len() {
             if !matches!(self.store.tags[matcher], FullTag::ExprMatch | FullTag::StmtMatch) { continue; }
@@ -281,14 +303,15 @@ impl FullBuilder {
             for (arm, (pattern, guard, body)) in arms.into_iter().enumerate() {
                 let Some(&(identity, owner)) = patterns.get(&pattern) else { continue; };
                 let source = self.pattern_source(&solved, identity, &mut sources, 0)?;
-                let &(subject_origin, subject_owner) = expressions.get(&subject).ok_or_else(|| pattern_problem())?;
+                let (subject_source, subject_wrappers) = self.argument_initializer_lineage(subject, owner)?;
+                let &(subject_origin, subject_owner) = expressions.get(&subject_source).ok_or_else(|| pattern_problem())?;
                 if owner != subject_owner { return Err(pattern_problem()); }
                 let original = solved.checked_pattern(identity).map_err(|_| pattern_problem())?;
                 let scope = original.caller.and_then(|caller| self.generic_declarations.get(&caller).copied());
                 let actual = *solved.expressions.get(&subject_origin).ok_or_else(|| pattern_problem())?;
                 if self.call_reference(&solved, scope, actual, false)? != self.call_reference(&solved, scope, original.input, false)? { return Err(pattern_problem()); }
                 let application = self.generic_evidence_mut().add_pattern_application(PreparedPatternApplication {
-                    source, owner, matcher: matcher as u32, subject, subject_origin, pattern, arm: arm as u32, guard, body,
+                    source, owner, matcher: matcher as u32, subject, subject_source, subject_wrappers, subject_origin, pattern, arm: arm as u32, guard, body,
                     admission: match admissions.get(&(matcher as u32)) { Some((admission, admission_owner, _)) if *admission_owner == owner && arm == 0 => *admission,
                         Some(_) => return Err(pattern_problem()), None => PreparedPatternAdmission::MatchArm },
                     result: admissions.get(&(matcher as u32)).and_then(|(_, _, result)| result.clone()),
@@ -355,14 +378,24 @@ impl FullVerifier {
         }
         for body in result.branches.iter().chain(std::iter::once(&result.fallback)) {
             let body_type = original_type(body.source.expected)?;
-            if let Some((statement, value, source, _)) = &body.terminal {
+            if let Some((statement, value, source, identity)) = &body.terminal {
                 if store.tags.get(body.instruction as usize) != Some(&FullTag::ExprValueBlock) { return Err(pattern_invalid()); }
                 let body_words = store.payload(store.data[body.instruction as usize].range())?;
                 let statements = pattern_block(store, *body_words.first().ok_or_else(pattern_invalid)?)?;
                 if statements.first().copied().map(|count| count as usize) != Some(statements.len() - 1)
                     || statements.last() != Some(statement) || store.tags.get(*statement as usize) != Some(&FullTag::StmtValue)
                     || store.payload(store.data[*statement as usize].range())? != [*value] { return Err(pattern_invalid()); }
-                Self::verify_pattern_result_value(store, generic, *value, owner, &original_type(source.expected)?, instance, active)?;
+                let expected = match source {
+                    PreparedPatternResultTerminalSource::Expression(source) => source.expected,
+                    PreparedPatternResultTerminalSource::PatternCapture { identity: expected_identity, expected } => {
+                        let original = generic.pattern_use(*value).ok_or_else(pattern_invalid)?;
+                        let capture = generic.pattern_capture(original.capture)?;
+                        if original.origin != SourceUseIdentity::Statement(*identity) || original.owner != owner
+                            || capture.identity != *expected_identity || capture.expected != *expected { return Err(pattern_invalid()); }
+                        *expected
+                    }
+                };
+                Self::verify_pattern_result_value(store, generic, *value, owner, &original_type(expected)?, instance, active)?;
             } else {
                 Self::verify_pattern_result_value(store, generic, body.instruction, owner, &body_type, instance, active)?;
             }
@@ -421,7 +454,7 @@ impl FullVerifier {
         }
     }
 
-    fn verify_pattern_shape(store: &FullStore, generic: &GenericEvidenceStore, source: PatternSourceId, row: u32, depth: usize) -> Result<(), IrVerifyError> {
+    pub(super) fn verify_pattern_shape(store: &FullStore, generic: &GenericEvidenceStore, source: PatternSourceId, row: u32, depth: usize) -> Result<(), IrVerifyError> {
         if depth >= 512 { return Err(pattern_invalid()); }
         let source = generic.pattern_source(source)?;
         if matches!(source.shape, PreparedPatternShape::Group) { return Self::verify_pattern_shape(store, generic, *source.children.first().ok_or_else(pattern_invalid)?, row, depth + 1); }
@@ -573,6 +606,8 @@ impl FullVerifier {
             let arms = match_arms(store, application.matcher)?;
             if words.first() != Some(&application.subject) || arms.get(application.arm as usize) != Some(&(application.pattern, application.guard, application.body))
                 || generic.registered_pattern_origin(application.pattern) != Some((generic.pattern_source(application.source)?.origin, application.owner)) { return Err(pattern_invalid()); }
+            Self::verify_argument_initializer_lineage(store, generic, application.subject, application.subject_source,
+                &application.subject_wrappers, application.owner)?;
             Self::verify_pattern_shape(store, generic, application.source, application.pattern, 0)?;
             if let PreparedPatternAdmission::Conditional { control, branch, body, .. } = application.admission {
                 let (condition, actual_body, slots) = conditional_branch(store, control, branch)?;
@@ -643,6 +678,28 @@ mod tests {
         drop(checked); drop(parsed);
         assert!(weak.upgrade().is_none());
         evaluator.indexed_program.as_ref().unwrap().as_ref().clone()
+    }
+
+    #[test]
+    fn retry_selection_roots_remain_reachable_without_match_applications_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            let program = prepared_pattern_program("error RetryError = Busy(message: Str) | Fatal(message: Str)\nproc attempt() -> Result[Int, RetryError] { 7 }\nproc selected() [time] -> Result[Int, RetryError] { retry [0ms] on (RetryError.Busy) { attempt()? } }\n");
+            let _symbols = program.symbol_owner().enter();
+            let generic = program.store.generic.as_ref().unwrap();
+            assert_eq!(generic.pattern_applications().count(), 0);
+            let (_, capture) = generic.try_capture_sources().find(|(_, source)| source.retry.is_some()).unwrap();
+            let (origin, _, pattern) = capture.retry.as_ref().unwrap().selection.unwrap();
+            let (id, source) = generic.pattern_sources().find(|(_, source)| source.origin == origin).unwrap();
+            assert_eq!(generic.registered_pattern_origin(pattern), Some((origin, capture.owner)));
+            assert_eq!(super::super::super::pattern::pattern_ground_type(&program.store.semantic, source.input).unwrap(), Type::ErrorFamily(Name::intern("RetryError")));
+            assert!(FullVerifier::verify(&program).is_ok());
+            let mut removed = program.clone();
+            removed.store.generic.as_mut().unwrap().test_remove_pattern_evidence();
+            assert!(FullVerifier::verify(&removed).is_err(), "the original retry selection still requires its checked pattern tree");
+            let mut changed = program.clone();
+            changed.store.generic.as_mut().unwrap().test_pattern_source_mut(id).unwrap().origin.namespace = Some(Name::intern("outside"));
+            assert!(FullVerifier::verify(&changed).is_err(), "a same-shaped selection from another lexical owner is foreign");
+        });
     }
 
     #[test]
@@ -903,6 +960,78 @@ mod tests {
         crate::runtime::eval::run_eval(|| {
             let source = "pure selected(value) { match value { original => original } }\npure forwarded(value) { selected(value) }\nprint ${forwarded(7)}\nprint ${forwarded(\"word\")}\nprint ${forwarded(\"next\")}\nprint ${forwarded(9)}\n";
             assert_pattern_runtime_after_frontend_drop(source, b"7\nword\nnext\n9\n");
+        });
+    }
+
+    #[test]
+    fn fs_root_result_patterns_keep_original_subject_receipts_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            let source = include_str!("../../../../../tests/fixtures/frontend-indexed/fs-root-methods.xsh");
+            let program = prepared_pattern_program(source);
+            let _symbols = program.symbol_owner().enter();
+            let generic = program.store.generic.as_ref().unwrap();
+            let (source_id, original) = generic.pattern_sources().find(|(_, source)| matches!(source.decision,
+                PreparedPatternDecision::Result { success: false, .. })).unwrap();
+            assert!(original.caller.is_some());
+            let (application_id, application) = generic.pattern_applications().find(|(_, application)| application.source == source_id).unwrap();
+            assert_ne!(application.subject, application.subject_source);
+            assert!(!application.subject_wrappers.is_empty());
+            assert_eq!(generic.registered_instruction_origin(application.subject_source, false),
+                Some((crate::runtime::eval::indexed::generic::OperationSourceOrigin::Expression(application.subject_origin), application.owner)));
+            assert!(generic.registered_instruction_origin(application.subject, false).is_none(), "saving a receiver does not create another authored result expression");
+            assert!(FullVerifier::verify(&program).is_ok());
+            let mut removed = program.clone();
+            removed.store.generic.as_mut().unwrap().test_remove_pattern_evidence();
+            assert!(FullVerifier::verify(&removed).is_err(), "the FsRoot result operation cannot supply a missing independent pattern receipt");
+            let mut foreign = program.clone();
+            foreign.store.generic.as_mut().unwrap().test_pattern_source_mut(source_id).unwrap().origin.namespace = Some(Name::intern("unrelated"));
+            assert!(FullVerifier::verify(&foreign).is_err(), "another namespace cannot authorize the FsRoot result pattern with the same local pattern number");
+            let mut forged_source = program.clone();
+            let changed = forged_source.store.generic.as_mut().unwrap().test_pattern_application_mut(application_id).unwrap();
+            changed.subject_source = changed.subject;
+            changed.subject_wrappers = Box::new([]);
+            assert!(FullVerifier::verify(&forged_source).is_err(), "removing receiver wrappers cannot turn the saved binding into the original authored result source");
+        });
+    }
+
+    #[test]
+    fn scoped_pattern_capture_reads_reject_another_declarations_equal_storage() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure selected(value) { match value { original => original } }\npure unrelated(value) { match value { original => original } }\nprint ${selected(7)}\nprint ${selected(\"word\")}\n";
+            let program = prepared_pattern_program(source);
+            let _symbols = program.symbol_owner().enter();
+            let generic = program.store.generic.as_ref().unwrap();
+            let original = generic.pattern_uses().first().unwrap();
+            let capture = generic.pattern_capture(original.capture).unwrap();
+            let application = generic.pattern_application(capture.application).unwrap();
+            let scope = generic.pattern_source(application.source).unwrap().scope.unwrap();
+            let foreign = generic.scopes().find(|(id, _)| *id != scope).unwrap().0;
+            assert!(FullVerifier::verify_pattern_symbolic_operand(&program.store, generic, original.instruction, scope, capture.expected).unwrap());
+            assert!(FullVerifier::verify_pattern_symbolic_operand(&program.store, generic, original.instruction, foreign, capture.expected).is_err(), "a generic capture read belongs to its original lexical declaration even when another declaration allocates identical storage");
+            assert_pattern_runtime_after_frontend_drop(source, b"7\nword\n");
+        });
+    }
+
+    #[test]
+    fn conditional_bare_capture_tails_keep_original_statement_authority_for_typed_calls() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure identity(value) { value }\npure selected(value: Result[Str, Str]) -> Str { identity(if let Ok(original) = value { original } else { \"missing\" }) }\nprint ${selected(Ok(\"word\"))}\nprint ${selected(Err(\"quiet\"))}\n";
+            let program = prepared_pattern_program(source);
+            let _symbols = program.symbol_owner().enter();
+            let generic = program.store.generic.as_ref().unwrap();
+            let result = generic.pattern_applications().find_map(|(_, application)| application.result.as_ref()).unwrap();
+            let (statement, value, original, identity) = result.branches[0].terminal.as_ref().unwrap();
+            let PreparedPatternResultTerminalSource::PatternCapture { identity: capture, .. } = original else { panic!("a bare capture tail retains capture authority instead of an invented expression origin"); };
+            let use_ = generic.pattern_use(*value).unwrap();
+            assert_eq!(use_.origin, SourceUseIdentity::Statement(*identity));
+            assert_eq!(generic.pattern_capture(use_.capture).unwrap().identity, *capture);
+            assert_eq!(generic.registered_instruction_origin(*value, false), Some((crate::runtime::eval::indexed::generic::OperationSourceOrigin::Statement(*identity), result.owner)));
+            let (_, fallback, _, _) = result.fallback.terminal.as_ref().unwrap();
+            let mut changed = program.clone();
+            let words = changed.store.data[*statement as usize].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[words.start] = *fallback;
+            assert!(FullVerifier::verify(&changed).is_err(), "another Str-valued tail cannot replace the original successful capture statement");
+            assert_pattern_runtime_after_frontend_drop(source, b"word\nmissing\n");
         });
     }
 

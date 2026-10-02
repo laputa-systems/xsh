@@ -15,6 +15,11 @@ use crate::syntax::arena::{
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
+#[path = "decl/embedded_bridge.rs"]
+pub(crate) mod embedded_bridge;
+#[path = "decl/catalog_binding.rs"]
+pub(crate) mod catalog_binding;
+
 #[cfg(test)]
 /// Source checks and interface imports are separate events. Generalization
 /// records actual component membership, so one component may finish several
@@ -73,19 +78,10 @@ impl Checker {
     ) {
         for module in &program.modules {
             if module.internal {
-                if program.module_statements(module).any(|id| {
-                    let kind = match program.arena.stmt(id).kind {
-                        ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
-                        other => other,
-                    };
-                    matches!(kind, ArenaStmtKind::PureDef(id) if program.arena.function_def(id).return_ty_defaulted)
-                }) {
-                    self.check_user_module_arena(program, type_program.clone(), source, module);
-                }
-                // Embedded implementations are not user modules: they have no
-                // `use` path, no module contract, and no public documentation
-                // obligations. Their bodies are checked with the program and
-                // validated against the registry by `script_impls`.
+                // Embedded declarations own checked body identities even when
+                // their return types are explicit. Check the bundle once in its
+                // declaring namespace without publishing a user import interface.
+                self.check_user_module_arena(program, type_program.clone(), source, module);
                 continue;
             }
             let sig = self.check_user_module_arena(program, type_program.clone(), source, module);
@@ -343,6 +339,8 @@ impl Checker {
         let saved_exported = self.current_exported;
         let saved_module_depth = self.module_depth;
         let saved_namespace = self.current_namespace;
+        let saved_catalog_parameter_bindings = std::mem::replace(&mut self.catalog_parameter_bindings,
+            catalog_binding::CatalogParameterBindings::for_module(program, module));
         self.current_namespace = Some(module.name);
         let saved_scopes = self.scopes.clone();
         self.scopes = vec![FxHashMap::default()];
@@ -621,6 +619,7 @@ impl Checker {
         self.current_exported = saved_exported;
         self.module_depth = saved_module_depth;
         self.current_namespace = saved_namespace;
+        self.catalog_parameter_bindings = saved_catalog_parameter_bindings;
         self.scopes = saved_scopes;
         #[cfg(test)]
         if !module.internal {
@@ -639,6 +638,7 @@ impl Checker {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
         self.register_graph_declaration(program, def_id, kind, false);
+        self.register_embedded_bridge(program, def_id, kind);
         let graph_parameters = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].params.clone());
         let graph_return = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].result);
         FunctionSig {

@@ -35,6 +35,7 @@ mod command;
 mod compact;
 #[path = "check/decl.rs"]
 mod decl;
+pub(crate) use decl::embedded_bridge::{CanonicalNativeBridge, NativeBridgeInvocation};
 #[path = "check/expr.rs"]
 mod expr;
 #[path = "check/expected.rs"]
@@ -44,6 +45,8 @@ pub use expected::RequirementTarget;
 mod infer_effects;
 #[path = "check/return_join.rs"]
 mod return_join;
+#[path = "check/dynamic_result.rs"]
+mod dynamic_result;
 #[path = "check/infer_param.rs"]
 mod infer_param;
 #[path = "check/local_inference.rs"]
@@ -58,6 +61,7 @@ mod pattern_plan;
 mod nominal_member_plan;
 #[path = "check/proof.rs"]
 mod proof;
+mod refinement;
 #[path = "check/stmt.rs"]
 mod stmt;
 #[path = "check/stream.rs"]
@@ -78,6 +82,7 @@ mod language_operation;
 mod command_operation;
 mod wait_operation;
 mod run_operation;
+pub(crate) use run_operation::{RunIdentity, SpawnTarget, RunArgumentGuard, RunArgumentMode, RunArgumentSource};
 mod operation_catalog;
 pub(crate) use operation_catalog::{SolvedOperationAuthority, SolvedOperationCatalog};
 mod iteration_operation;
@@ -92,6 +97,8 @@ pub(crate) mod producer_eval;
 pub use producer::{ProducerFlowField, ProducerFlowGraph, ProducerFlowId, ProducerFlowKind, ProducerFlowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
 pub use solved::{NominalDeclaration, QualifiedNominalIdentity, BindingIdentity, CallBinding, ComprehensionIdentity, DeclarationIdentity, ExpressionIdentity, StageIdentity, StageCallback, SolvedStage, SolvedComprehensionClause, ProducerEffects, ProducerPath, ProducerPathComponent, ProducerProfile, ReturnElaboration, SolvedBinding, SolvedCall, SolvedCallable, SolvedExpressionCallable, SolvedInvocation, SolvedOperation, SolvedArgumentSource, SolvedProjection, SolvedRecordUpdate, SolvedRecordUpdateReplacement, RecordUpdateValueSource, SolvedTypes, StatementIdentity};
 pub use solved::RegistryArgumentCoercion;
+pub use solved::{WithBindingIdentity, SolvedWithBinding, SolvedRefinedRead, SolvedRefinementAlias, SolvedRefinementWrite};
+pub use solved::{GuardErrorBindingIdentity, SolvedGuardErrorBinding};
 pub use solved::{PatternIdentity, PatternCaptureIdentity, SolvedPattern, SolvedPatternCapture, SolvedPatternDecision, SolvedPatternShape};
 pub use solved::{NominalMemberKind, SolvedNominalMember};
 pub use solved::PatternTypePosition;
@@ -249,6 +256,8 @@ pub(super) struct Binding {
     pure_local_mutation: bool,
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
+    original_binding: Option<BindingIdentity>,
+    refinements: Vec<proof::Narrowing>,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
     schema_expectation: Option<super::constants::SchemaExpectation>,
 }
@@ -266,6 +275,7 @@ impl Binding {
             pure_local_mutation: false,
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
+            original_binding: None, refinements: Vec::new(),
             boolean_proof: None,
             schema_expectation: None,
         }
@@ -283,6 +293,7 @@ impl Binding {
             pure_local_mutation: true,
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
+            original_binding: None, refinements: Vec::new(),
             boolean_proof: None,
             schema_expectation: None,
         }
@@ -440,6 +451,7 @@ struct LoopValueBoundary {
 
 #[derive(Clone)]
 pub struct Checker {
+    catalog_parameter_bindings: decl::catalog_binding::CatalogParameterBindings,
     generic: std::rc::Rc<std::cell::RefCell<generic::GenericState>>,
     graph_generation: bool,
     current_generic: Option<DeclarationIdentity>,
@@ -724,6 +736,7 @@ impl Checker {
 
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
+            catalog_parameter_bindings: decl::catalog_binding::CatalogParameterBindings::default(),
             generic: std::rc::Rc::new(std::cell::RefCell::new(generic::GenericState::default())),
             graph_generation: true,
             current_generic: None,
@@ -1086,6 +1099,7 @@ impl Checker {
     }
 
     pub(crate) fn check_standard_module_shadow(&mut self, name: &str, span: Span) {
+        if self.catalog_parameter_bindings.contains(name, span) { return; }
         if name == "args" {
             if self.scopes.len() == 1 {
                 self.error(

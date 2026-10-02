@@ -1,4 +1,6 @@
 use super::*;
+mod scoped_methods;
+pub(in crate::runtime::eval) use scoped_methods::{ScopedNativeMethodRequirement, ScopedNativeMethodSource, ScopedNativeMethodObligation, ScopedNativeMethodReceiver, ScopedNativeMethodWitness, ScopedNativeMethodSourceId, ScopedNativeMethodWitnessId};
 use crate::sema::check::ExpressionIdentity;
 use crate::sema::inference::InvocationDefaultTiming;
 use std::mem::size_of;
@@ -59,16 +61,17 @@ pub(super) struct NativeCallableEvidence {
     original_values: Vec<Arc<PreparedNativeCallableValue>>,
     plans: Vec<Entry<Arc<PreparedNativeInvocationPlan>>>,
     original_plans: Vec<Arc<PreparedNativeInvocationPlan>>,
+    methods: scoped_methods::ScopedNativeMethodEvidence,
     value_instructions: Vec<(u32, NativeCallableValueId)>,
     plan_instructions: Vec<(u32, NativeInvocationPlanId)>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(super) struct NativeCallableCheckpoint { values: usize, plans: usize }
+pub(super) struct NativeCallableCheckpoint { values: usize, plans: usize, methods: scoped_methods::ScopedNativeMethodCheckpoint }
 
 impl NativeCallableEvidence {
     pub(super) fn retained_bytes(&self) -> usize {
-        self.values.capacity() * size_of::<Entry<Arc<PreparedNativeCallableValue>>>()
+        self.methods.retained_bytes() + self.values.capacity() * size_of::<Entry<Arc<PreparedNativeCallableValue>>>()
             + self.original_values.capacity() * size_of::<Arc<PreparedNativeCallableValue>>()
             + self.plans.capacity() * size_of::<Entry<Arc<PreparedNativeInvocationPlan>>>()
             + self.original_plans.capacity() * size_of::<Arc<PreparedNativeInvocationPlan>>()
@@ -79,23 +82,27 @@ impl NativeCallableEvidence {
             + self.plans.iter().map(|entry| size_of::<PreparedNativeInvocationPlan>() + 2 * size_of::<usize>() + entry.value.contract.call.retained_bytes()).sum::<usize>()
     }
     pub(super) fn shrink_to_fit(&mut self) {
+        self.methods.shrink_to_fit();
         self.values.shrink_to_fit(); self.original_values.shrink_to_fit();
         self.plans.shrink_to_fit(); self.original_plans.shrink_to_fit();
         self.value_instructions.shrink_to_fit(); self.plan_instructions.shrink_to_fit();
     }
-    pub(super) fn checkpoint(&self) -> NativeCallableCheckpoint { NativeCallableCheckpoint { values: self.values.len(), plans: self.plans.len() } }
+    pub(super) fn checkpoint(&self) -> NativeCallableCheckpoint { NativeCallableCheckpoint { values: self.values.len(), plans: self.plans.len(), methods: self.methods.checkpoint() } }
     pub(super) fn validate_checkpoint(&self, checkpoint: NativeCallableCheckpoint, serial: u64) -> Result<(), IrVerifyError> {
+        self.methods.validate_checkpoint(checkpoint.methods, serial)?;
         if checkpoint.values > self.values.len() || checkpoint.plans > self.plans.len()
             || self.values.get(checkpoint.values.wrapping_sub(1)).is_some_and(|entry| entry.serial >= serial)
             || self.plans.get(checkpoint.plans.wrapping_sub(1)).is_some_and(|entry| entry.serial >= serial) { return Err(failure("native callable checkpoint references retired entries")); }
         Ok(())
     }
     pub(super) fn rewind_validated(&mut self, checkpoint: NativeCallableCheckpoint) {
+        self.methods.rewind_validated(checkpoint.methods);
         self.values.truncate(checkpoint.values); self.original_values.truncate(checkpoint.values);
         self.plans.truncate(checkpoint.plans); self.original_plans.truncate(checkpoint.plans);
         self.value_instructions.clear(); self.plan_instructions.clear();
     }
     pub(super) fn finish_indexes(&mut self, root: u64) {
+        self.methods.finish_indexes(root);
         self.value_instructions = self.values.iter().enumerate().map(|(index, entry)| (entry.value.source.instruction, NativeCallableValueId { index: index as u32, proof: OwnerProof { root, serial: entry.serial } })).collect();
         self.plan_instructions = self.plans.iter().enumerate().map(|(index, entry)| (entry.value.source.instruction, NativeInvocationPlanId { index: index as u32, proof: OwnerProof { root, serial: entry.serial } })).collect();
         self.value_instructions.sort_unstable_by_key(|entry| entry.0); self.plan_instructions.sort_unstable_by_key(|entry| entry.0);
@@ -142,6 +149,7 @@ impl GenericEvidenceStore {
         Ok(())
     }
     pub(super) fn verify_native_callable_evidence(&self, pools: &SemanticPools, owners: &[Option<InstructionOwner>]) -> Result<(), IrVerifyError> {
+        self.verify_scoped_native_method_evidence(pools, owners)?;
         if self.native_callables.values.len() != self.native_callables.original_values.len() || self.native_callables.plans.len() != self.native_callables.original_plans.len() { return Err(failure("native callable original ledger is incomplete")); }
         let source = |origin, instruction, owner, scope| -> Result<(), IrVerifyError> {
             if owners.get(instruction as usize) != Some(&Some(owner)) || self.registered_instruction_origin(instruction, false) != Some((OperationSourceOrigin::Expression(origin), owner)) { return Err(failure("native callable changes its original source or owner")); }
@@ -202,6 +210,7 @@ pub(super) fn native_parameter_accepts(relation: crate::sema::inference::Argumen
     if formal == &Type::Any { return Ok(true); }
     if relation != ArgumentRelation::DeclaredErasure { return Ok(parameter_accepts(formal, actual)); }
     Ok(match (formal, actual) {
+        (Type::ErasedRecord, Type::Record(_) | Type::ErasedRecord) => true,
         (Type::List(a), Type::List(b)) | (Type::Stream(a), Type::Stream(b)) | (Type::Optional(a), Type::Optional(b)) => native_parameter_accepts(relation, a, b, true, depth + 1)?,
         (Type::Map(a, b), Type::Map(c, d)) | (Type::Result(a, b), Type::Result(c, d)) => native_parameter_accepts(relation, a, c, true, depth + 1)? && native_parameter_accepts(relation, b, d, true, depth + 1)?,
         (Type::Record(a), Type::Record(b)) => {
@@ -264,4 +273,33 @@ impl GenericEvidenceStore {
         Ok(Arc::make_mut(&mut self.native_callables.plans[id.index as usize].value))
     }
     pub(in crate::runtime::eval) fn test_remove_native_invocation_plans(&mut self) { self.native_callables.plans.clear(); }
+}
+
+#[cfg(test)]
+mod declared_record_erasure_tests {
+    use super::*;
+    use crate::sema::inference::ArgumentRelation;
+    use crate::sema::types::Type;
+
+    #[test]
+    fn canonical_record_erasure_admits_checked_records_without_erasing_their_fields() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let actual = Type::Record(std::collections::BTreeMap::from([(Name::intern("jobs"), Type::Int)]));
+            assert!(native_parameter_accepts(ArgumentRelation::DeclaredErasure, &Type::ErasedRecord, &actual, false, 0).unwrap());
+            assert!(native_parameter_accepts(ArgumentRelation::DeclaredErasure, &Type::ErasedRecord, &Type::ErasedRecord, false, 0).unwrap());
+        });
+    }
+
+    #[test]
+    fn canonical_record_erasure_refuses_exact_concrete_records_and_dynamic_laundering() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let actual = Type::Record(std::collections::BTreeMap::from([(Name::intern("jobs"), Type::Int)]));
+            assert!(!native_parameter_accepts(ArgumentRelation::Exact, &Type::ErasedRecord, &actual, false, 0).unwrap());
+            assert!(!native_parameter_accepts(ArgumentRelation::Assignable, &Type::ErasedRecord, &actual, false, 0).unwrap());
+            for relation in [ArgumentRelation::Exact, ArgumentRelation::Assignable, ArgumentRelation::DeclaredErasure] {
+                assert!(!native_parameter_accepts(relation, &Type::ErasedRecord, &Type::Any, false, 0).unwrap());
+                assert!(!native_parameter_accepts(relation, &Type::ErasedRecord, &Type::Str, false, 0).unwrap());
+            }
+        });
+    }
 }

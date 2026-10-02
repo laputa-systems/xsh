@@ -7,6 +7,8 @@ use super::super::generic::{
 use crate::sema::check::{ReturnElaboration, SolvedTypes};
 use crate::sema::inference::{InferenceContext, RequirementTemplate, SchemeId, TypeId as GraphTypeId, TypeNode, VariableKind};
 
+mod eligibility_prepare;
+
 #[cfg(test)]
 mod stage_prepare_tests;
 
@@ -69,6 +71,9 @@ impl FullBuilder {
                 RequirementTemplate::Add { left, right, result } => Requirement::Add {
                     left: self.reference(graph, declaration.scheme, left)?, right: self.reference(graph, declaration.scheme, right)?, result: self.reference(graph, declaration.scheme, result)?,
                 },
+                RequirementTemplate::Eligibility { predicate: crate::sema::inference::Eligibility::Display, ty } => Requirement::Eligibility {
+                    predicate: crate::sema::inference::Eligibility::Display, ty: self.reference(graph, declaration.scheme, ty)?,
+                },
                 RequirementTemplate::CallableInvocation { call } => self.prepare_scoped_invocation_requirement(graph, declaration.scheme, call)?,
                 RequirementTemplate::Operation { family, call } => self.prepare_scoped_operation_requirement(&solved, declaration.scheme, family, call)?,
                 _ => return Err(problem("generic_runtime_requirement_not_prepared")),
@@ -104,6 +109,7 @@ impl FullBuilder {
         }
         for requirement in &requirements {
             match *requirement {
+                Requirement::Eligibility { ty, .. } => self.collect_row_prefixes(ty, &mut row_prefixes, &mut seen, 0)?,
                 Requirement::Operation(ref operation) => for reference in operation.references() { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
                 Requirement::Invocation { callable, ref arguments, result, .. } => for reference in [callable, result].into_iter().chain(arguments.iter().map(|argument| argument.ty)) { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
                 Requirement::Add { left, right, result } => for reference in [left, right, result] { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
@@ -143,6 +149,7 @@ impl FullBuilder {
         }).map_err(|_| problem("generic_scope_allocation"))?;
         self.generic_declarations.insert(identity, scope);
         self.generic_schemes.insert(scope, declaration.scheme);
+        self.prepare_original_eligibility(&solved, declaration.scheme, scope)?;
         let original = self.generic.as_ref().unwrap().scope(scope).map_err(|_| problem("generic_scope_allocation"))?.clone();
         for (expression, projection) in &solved.projections {
             if solved.expression_owners.get(expression) != Some(&identity) { continue; }
@@ -237,7 +244,7 @@ impl FullBuilder {
                             let evidence = solved.graph.discharge(requirement).map_err(|_| problem("generic_add_requirement"))?
                                 .ok_or_else(|| problem("generic_add_body_requirement"))?;
                             if solved.owner != solved.graph.owner() || evidence.requirement != requirement
-                                || !matches!(evidence.operation, crate::sema::inference::SealedOperation::AddInt | crate::sema::inference::SealedOperation::AddFloat | crate::sema::inference::SealedOperation::AddStr) {
+                                || !matches!(evidence.operation, crate::sema::inference::SealedOperation::AddInt | crate::sema::inference::SealedOperation::AddFloat | crate::sema::inference::SealedOperation::AddStr | crate::sema::inference::SealedOperation::AddDuration) {
                                 return Err(problem("generic_add_body_requirement"));
                             }
                             for (source, checked) in [(left, evidence.left), (right, evidence.right), (result, evidence.result)] {
@@ -394,6 +401,7 @@ impl FullBuilder {
         let mut mapping = Vec::with_capacity(callee.requirements.len());
         for requirement in &callee.requirements {
             let rebased = match *requirement {
+                Requirement::Eligibility { predicate, ty } => Requirement::Eligibility { predicate, ty: self.compose_reference(ty, &call.substitutions, &mut cache, 0)? },
                 Requirement::Operation(ref operation) => Requirement::Operation(operation.rebase(|reference| self.compose_reference(reference, &call.substitutions, &mut cache, 0))?),
                 Requirement::Invocation { callable, ref arguments, result, domain } => Requirement::Invocation {
                     callable: self.compose_reference(callable, &call.substitutions, &mut cache, 0)?,
@@ -420,6 +428,7 @@ impl FullBuilder {
                 continue;
             }
             let witness = match rebased {
+                Requirement::Eligibility { predicate, ty: TypeRef::Ground(ty) } => self.prepare_display_witness(predicate, ty)?,
                 Requirement::Projection { receiver: TypeRef::Ground(receiver), field, result: TypeRef::Ground(result), .. } => {
                     let layout = self.layout(receiver, layouts)?;
                     let physical = self.generic.as_ref().unwrap().layout(layout).map_err(|_| problem("generic_forwarding_projection_layout"))?;
@@ -443,6 +452,12 @@ impl FullBuilder {
         Ok(mapping)
     }
 
+    fn prepare_display_witness(&self, predicate: crate::sema::inference::Eligibility, ty: TypeId) -> Result<RequirementWitness, IrBuildError> {
+        let concrete = self.store.semantic.to_type(ty).map_err(|_| problem("generic_eligibility_operand"))?;
+        if !predicate.accepts_closed_display(&concrete) { return Err(problem("generic_display_unsupported_domain")); }
+        Ok(RequirementWitness::Eligibility { predicate, ty })
+    }
+
     fn instantiate_prepared_call(&mut self, call: &PreparedCall, caller_substitutions: &[TypeId], contextual: &FxHashMap<crate::sema::inference::RequirementId, crate::sema::inference::RequirementId>, layouts: &mut BTreeMap<TypeId, PhysicalLayoutId>) -> Result<InstantiationId, IrBuildError> {
         let substitutions = call.substitutions.iter().map(|&reference| self.materialize(reference, caller_substitutions)).collect::<Result<Vec<_>, _>>()?;
         let parameters = call.parameters.iter().map(|&reference| self.materialize(reference, caller_substitutions)).collect::<Result<Vec<_>, _>>()?;
@@ -452,6 +467,10 @@ impl FullBuilder {
         let mut requirements = Vec::with_capacity(scope.requirements.len());
         for (index, requirement) in scope.requirements.iter().enumerate() {
             requirements.push(match *requirement {
+                Requirement::Eligibility { predicate, ty } => {
+                    let ty = self.materialize(ty, &substitutions)?;
+                    self.prepare_display_witness(predicate, ty)?
+                }
                 Requirement::Invocation { .. } => self.prepare_scoped_invocation_witness(call.target, index, contextual)?,
                 Requirement::Operation(_) => self.prepare_scoped_operation_witness(call.target, index, contextual)?,
                 Requirement::Projection { receiver_parameter, field, result, .. } => {

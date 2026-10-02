@@ -95,6 +95,61 @@ pure narrow(value: Any) -> Int {
 }
 
 #[test]
+fn fs_root_result_pattern_keeps_original_checker_and_subject_authority() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "proc selected(root: FsRoot) [fs, error] -> Bool { root.host_path() is Err(_) }\n";
+        let (checked, functions, _) = lower_checked_functions(source);
+        let _symbols = checked.solved.symbol_owner().enter();
+        let function = &functions[0];
+        let scratch = function.scratch.borrow();
+        for (row, identity) in &scratch.pattern_origins {
+            let original = checked.solved.checked_pattern(*identity).expect("the represented result pattern retains its original checked fact");
+            let source_scope = checked.solved.checked_pattern_scope(*identity).expect("the result pattern retains its original source scope");
+            let subject = scratch.expressions.iter().find_map(|expression| match expression {
+                BuildExprRow::MatchExpr { value, arms, .. } if arms.iter().any(|(pattern, _, _)| pattern == row) => Some(*value),
+                _ => None,
+            }).expect("the original pattern remains attached to its represented matcher");
+            let mut material = subject;
+            for _ in 0..256 {
+                let Some((_, _, body, _)) = scratch.compiler_argument_wrappers.get(&material) else { break; };
+                assert!(!function.expression_origins.contains_key(&material), "a saved receiver wrapper must not impersonate its authored result expression");
+                assert!(body.index() < material.index());
+                material = *body;
+            }
+            let origin = function.expression_origins.get(&material).expect("the FsRoot result subject retains its authored expression identity independently of saved receiver wrappers");
+            assert_eq!(checked.solved.expression_owners.get(origin).copied(), original.caller);
+            let subject_type = *checked.solved.expressions.get(origin).unwrap();
+            assert_eq!(super::super::indexed::generic::graph_ground_type(&checked.solved.graph, subject_type).unwrap(),
+                super::super::indexed::generic::graph_ground_type(&checked.solved.graph, original.input).unwrap());
+            assert_eq!(source_scope, checked.solved.expression_scope(*origin, original.caller).unwrap());
+        }
+        assert_eq!(scratch.pattern_origins.len(), 2);
+    });
+}
+
+#[test]
+fn annotated_nominal_pattern_alias_keeps_the_capture_read_separate_from_validation() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "enum Event { Added(Str), Changed(Str), Count(Int) }\npure render(event: Event) -> Str {\n match event {\n  (Added(file) | Changed(file)) as original => {\n   let typed: Event = original\n   file\n  }\n  Count(_) => \"other\"\n }\n}\n";
+        let (checked, functions, uses) = lower_checked_functions(source);
+        let _symbols = checked.solved.symbol_owner().enter();
+        let function = &functions[0];
+        let scratch = function.scratch.borrow();
+        let offset = source.find("= original").unwrap() + 2;
+        let origin = uses.identifiers[&offset];
+        let capture = scratch.pattern_use_origins[&origin];
+        assert_eq!(capture.name.as_str().as_str(), "original");
+        let binding = scratch.value_binding_origins.values().next().unwrap();
+        let BuildExprRow::Try(validation) = scratch.expressions[binding.initializer.index()] else { panic!("the nominal annotation retains its actual validation wrapper"); };
+        let BuildExprRow::Require { value: read, .. } = scratch.expressions[validation.index()] else { panic!("the wrapper must validate the original capture read"); };
+        assert!(matches!(scratch.expressions[read.index()], BuildExprRow::Param(slot) if slot == scratch.pattern_capture_slots[&capture]));
+        assert_eq!(function.expression_origins.get(&read), Some(&origin));
+        assert!(!function.expression_origins.contains_key(&binding.initializer), "a compiler validation wrapper must not impersonate the authored capture read");
+        assert!(!function.expression_origins.contains_key(&validation), "the compiler validation operation has its own identity domain");
+    });
+}
+
+#[test]
 fn original_pattern_capture_reads_survive_local_shadowing_and_scalar_specialization() {
     crate::runtime::eval::run_eval(|| {
         let source = r#"pure selected(values: List[Int]) -> Int {

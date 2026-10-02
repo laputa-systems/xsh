@@ -113,11 +113,17 @@ pub(in crate::runtime::eval) struct PreparedPatternResultSource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum PreparedPatternResultTerminalSource {
+    Expression(PreparedPatternResultSource),
+    PatternCapture { identity: PatternCaptureIdentity, expected: TypeRef },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) struct PreparedPatternResultBody {
     pub instruction: u32,
     pub source: PreparedPatternResultSource,
     pub condition: Option<(u32, PreparedPatternResultSource)>,
-    pub terminal: Option<(u32, u32, PreparedPatternResultSource, StatementIdentity)>,
+    pub terminal: Option<(u32, u32, PreparedPatternResultTerminalSource, StatementIdentity)>,
 }
 
 /// Branch roots belong to the original value expression, independently of the
@@ -138,6 +144,8 @@ pub(in crate::runtime::eval) struct PreparedPatternApplication {
     pub owner: InstructionOwner,
     pub matcher: u32,
     pub subject: u32,
+    pub subject_source: u32,
+    pub subject_wrappers: Box<[super::generic::ValueInitializerWrapper]>,
     pub subject_origin: ExpressionIdentity,
     pub pattern: u32,
     pub arm: u32,
@@ -149,7 +157,9 @@ pub(in crate::runtime::eval) struct PreparedPatternApplication {
 
 impl PreparedPatternApplication {
     pub fn retained_bytes(&self) -> usize {
-        self.result.as_ref().map_or(0, |result| std::mem::size_of::<PreparedPatternConditionalResult>()
+        self.subject_wrappers.len() * std::mem::size_of::<super::generic::ValueInitializerWrapper>()
+            + self.subject_wrappers.iter().map(|wrapper| wrapper.payload.len() * std::mem::size_of::<u32>()).sum::<usize>()
+            + self.result.as_ref().map_or(0, |result| std::mem::size_of::<PreparedPatternConditionalResult>()
             + result.branches.len() * std::mem::size_of::<PreparedPatternResultBody>())
     }
 }
@@ -432,7 +442,8 @@ pub(super) fn verify_pattern_store(
             || !applications.insert((application.matcher, application.arm))
             || owners.get(application.matcher as usize) != Some(&Some(application.owner))
             || owners.get(application.subject as usize) != Some(&Some(application.owner))
-            || store.registered_instruction_origin(application.subject, false) != Some((OperationSourceOrigin::Expression(application.subject_origin), application.owner)) { return Err(failure()); }
+            || owners.get(application.subject_source as usize) != Some(&Some(application.owner))
+            || store.registered_instruction_origin(application.subject_source, false) != Some((OperationSourceOrigin::Expression(application.subject_origin), application.owner)) { return Err(failure()); }
         if let PreparedPatternAdmission::Conditional { control, control_origin, condition_origin, .. } = application.admission {
             let qualification = match control_origin {
                 OperationSourceOrigin::Expression(identity) => (identity.source, identity.namespace),
@@ -466,11 +477,28 @@ pub(super) fn verify_pattern_store(
                     if store.normalized_reference(pools, result.scope, expected.expected)? != N::Scalar(Type::Bool) { return Err(failure()); }
                 }
                 if let Some((statement, value, original, identity)) = &body.terminal {
-                    check(*value, original)?;
+                    let expected = match original {
+                        PreparedPatternResultTerminalSource::Expression(original) => {
+                            check(*value, original)?;
+                            original.expected
+                        }
+                        PreparedPatternResultTerminalSource::PatternCapture { identity: capture_identity, expected } => {
+                            let use_ = store.pattern_use(*value).ok_or_else(failure)?;
+                            let capture = store.pattern_capture(use_.capture)?;
+                            let application = store.pattern_application(capture.application)?;
+                            let source = store.pattern_source(application.source)?;
+                            if use_.owner != result.owner || application.owner != result.owner
+                                || use_.origin != SourceUseIdentity::Statement(*identity)
+                                || capture.identity != *capture_identity || capture.expected != *expected
+                                || source.scope != result.scope { return Err(failure()); }
+                            store.normalized_reference(pools, result.scope, *expected)?;
+                            *expected
+                        }
+                    };
                     if owners.get(*statement as usize) != Some(&Some(result.owner))
                         || (identity.source, identity.namespace) != (origin.source, origin.namespace)
                         || store.registered_instruction_origin(*statement, false) != Some((OperationSourceOrigin::Statement(*identity), result.owner)) { return Err(failure()); }
-                    pattern_result_relation(store, pools, result.scope, original.expected, body.source.expected)?;
+                    pattern_result_relation(store, pools, result.scope, expected, body.source.expected)?;
                 }
             }
         }
@@ -480,6 +508,29 @@ pub(super) fn verify_pattern_store(
         let mut names = BTreeSet::new();
         if captures.iter().any(|capture| !names.insert(capture.identity.name)) { return Err(failure()); }
         visible.insert(id, captures);
+    }
+    // Retry selection is an independent consumer of its original pattern tree.
+    for (id, _) in store.try_capture_sources() {
+        let capture = store.try_capture_source(id)?;
+        let Some((origin, _, pattern)) = capture.retry.as_ref().and_then(|policy| policy.selection) else { continue; };
+        let source = *sources.get(&origin).ok_or_else(failure)?;
+        let selected = store.pattern_source(source)?;
+        let owner_matches = match selected.caller {
+            Some(_) if selected.scope.is_some() => capture.owner == InstructionOwner::Function(store.scope(selected.scope.unwrap())?.owner),
+            Some(caller) => capture.owner == InstructionOwner::Function(store.checked_function(caller)?.target),
+            None => matches!(capture.owner, InstructionOwner::Driver(_)),
+        };
+        let Type::Result(_, error) = &capture.original_carrier else { return Err(failure()); };
+        if !owner_matches
+            || (origin.source, origin.namespace) != (capture.origin.source, capture.origin.namespace)
+            || store.registered_pattern_origin(pattern) != Some((origin, capture.owner))
+            || owners.get(capture.instruction as usize) != Some(&Some(capture.owner))
+            || pattern_ground_type(pools, selected.input)? != **error
+            || !visible_pattern_captures(store, source)?.is_empty() { return Err(failure()); }
+        let mut pending = vec![source];
+        while let Some(source) = pending.pop() {
+            if reached.insert(source) { pending.extend(store.pattern_source(source)?.children.iter().copied()); }
+        }
     }
     if reached.len() != sources.len() { return Err(failure()); }
     let mut published_captures = rustc_hash::FxHashSet::default();

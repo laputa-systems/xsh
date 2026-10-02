@@ -6,6 +6,15 @@ use crate::sema::inference::CallableKind;
 pub(in crate::runtime::eval) struct RuntimeCallableCapture {
     pub slot: usize,
     pub value: Value,
+    pub host_binding: Option<super::host_environment::CapturedHostBinding>,
+    pub live_cell: Option<super::lowered_run::indexed_run::live_capture_cells::LiveCaptureCell>,
+}
+
+impl RuntimeCallableCapture {
+    pub(in crate::runtime::eval) fn captured_value(&self) -> Value {
+        if let Some(cell) = &self.live_cell { return cell.value().into_value(); }
+        self.host_binding.as_ref().map_or_else(|| self.value.clone(), |host| host.value())
+    }
 }
 
 // The program owns the callable proof and symbols. Captures belong to this
@@ -28,9 +37,6 @@ impl RuntimeCallableValue {
         let header = program.function_view_by_id(contract.target).map_err(invalid)?.header().map_err(invalid)?;
         // Mutable bindings require a shared live cell. An immutable snapshot
         // would change what the callable observes after its creation.
-        if header.captures.iter().any(|capture|capture.mutable) {
-            return Err(RuntimeError::new("unsupported-callable-value","mutable callable captures require a live binding environment"));
-        }
         if captures.len()!=header.captures.len() {
             return Err(RuntimeError::new("invalid-callable-value","callable creation captures do not match the prepared header"));
         }
@@ -38,7 +44,27 @@ impl RuntimeCallableValue {
             if actual.slot!=expected.slot {
                 return Err(RuntimeError::new("invalid-callable-value","callable creation capture slots differ from the prepared header"));
             }
-            let value = lowered_value_from_runtime_any(&actual.value).ok_or_else(|| RuntimeError::new("invalid-callable-value","callable capture cannot cross the runtime value boundary"))?;
+            match (expected.mutable, &actual.live_cell) {
+                (true, Some(cell)) => {
+                    if expected.host_binding.is_some() || actual.host_binding.is_some() { return Err(RuntimeError::new("invalid-callable-value", "mutable lexical capture cannot substitute a host binding")); }
+                    cell.validate_capture(&program, contract.target, actual.slot, Span::new(crate::source::SourceId::new(0), 0, 0))?;
+                }
+                (true, None) => return Err(RuntimeError::new("unsupported-callable-value","mutable callable captures require a live binding environment")),
+                (false, Some(_)) => return Err(RuntimeError::new("invalid-callable-value", "immutable callable capture cannot substitute a live binding")),
+                (false, None) => {},
+            }
+            match (expected.host_binding, &actual.host_binding) {
+                (Some(binding), Some(host)) => {
+                    let (id, source) = proof.host_binding_capture_for_slot(contract.target, expected.slot as u32).map_err(invalid)?
+                        .ok_or_else(|| RuntimeError::new("invalid-callable-value", "host capture lacks its original allocation receipt"))?;
+                    if id != host.capture_id() || source.binding != binding || actual.value != host.value() {
+                        return Err(RuntimeError::new("invalid-callable-value", "host capture changes its original creation environment or allocation"));
+                    }
+                }
+                (None, None) => {},
+                _ => return Err(RuntimeError::new("invalid-callable-value", "host capture requires its authenticated creation environment")),
+            }
+            let value = lowered_value_from_runtime_any(&actual.captured_value()).ok_or_else(|| RuntimeError::new("invalid-callable-value","callable capture cannot cross the runtime value boundary"))?;
             if !lowered_ops::lowered_value_matches(expected.kind,&value) {
                 return Err(RuntimeError::new("invalid-callable-value",format!("callable capture slot {} requires {}, found {}",actual.slot,lowered_ops::lowered_type_name(expected.kind),actual.value.type_name())));
             }
@@ -78,8 +104,14 @@ mod tests {
 
     fn captures(program:&FullProgram,id:CallableValueId)->Vec<RuntimeCallableCapture> {
         let target=program.generic_evidence().unwrap().callable_value(id).unwrap().contract.target;
+        let environment = super::super::host_environment::HostBindingEnvironment::new(Vec::new());
         program.function_view_by_id(target).unwrap().header().unwrap().captures.iter().map(|capture|RuntimeCallableCapture {
             slot:capture.slot,
+            live_cell: None,
+            host_binding: capture.host_binding.map(|_| {
+                let (id, _) = program.generic_evidence().unwrap().host_binding_capture_for_slot(target, capture.slot as u32).unwrap().unwrap();
+                super::super::host_environment::CapturedHostBinding::new(&environment, id)
+            }),
             value:match capture.name.as_str().as_str() {
                 "base"=>Value::Int(3),
                 "args"=>Value::List(Vec::new()),
