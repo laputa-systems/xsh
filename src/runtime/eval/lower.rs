@@ -3101,6 +3101,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut captures: LoweredTopLevelSlots = Default::default();
         for (name, kind, mutable, source_type, host_binding, lexical_binding) in bindings {
             let slot = slots.declare_capture(name);
+            if mutable && let (Some(binding), Some(root)) = (lexical_binding, source_type) {
+                self.seed_original_mutable_capture(name, slot, binding, root, slots)?;
+            }
             if let Some(binding) = host_binding {
                 slots.host_bindings_by_slot.insert(slot, binding);
                 slots.types.insert(name, binding.ty());
@@ -3115,7 +3118,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 source_type,
             });
         }
-        captures
+        Some(captures)
     }
 
     fn lower_top_level_program(&mut self, statements: &[StmtId]) {
