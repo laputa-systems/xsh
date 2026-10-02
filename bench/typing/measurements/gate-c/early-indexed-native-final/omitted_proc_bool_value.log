@@ -1,3 +1,0 @@
-running 1 tests
-tests/xsh/typing-inference-targets.xsh::omitted_proc_bool_value ... ok 85ms
-test result: ok. 1 passed; 0 failed; 0 skipped

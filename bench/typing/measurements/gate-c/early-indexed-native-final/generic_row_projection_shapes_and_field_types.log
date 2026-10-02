@@ -1,3 +1,0 @@
-running 1 tests
-tests/xsh/typing-inference-rows.xsh::generic_row_projection_shapes_and_field_types ... ok 87ms
-test result: ok. 1 passed; 0 failed; 0 skipped

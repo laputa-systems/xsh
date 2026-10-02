@@ -1,4 +1,0 @@
-err[parse.rest-default]: rest parameters cannot have default values
-  /tmp/xsh-gate-b-default-rest-compat/anchor-negative-5.xsh:1:23
-  pure choose(...values = [1]) -> Int { 1 }
-                        ^ rest parameters cannot have default values

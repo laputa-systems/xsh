@@ -1,4 +1,0 @@
-err[parse.expected-param-type]: expected `:` or default value after parameter name
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/generic-identity-payloads.xsh:1:20
-  pure identity(value) { value }
-                     ^ expected `:` or default value after parameter name

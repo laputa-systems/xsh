@@ -1,9 +1,0 @@
-err[check.effect-violation]: callable effect contract cannot be established: EffectViolation
-  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-8-producer_creation_keeps_body_and_cleanup_latent/producer-contract.xsh-1:6:36
-  proc create() [] -> Unit { let _ = delayed() }
-                                     ^^^^^^^^^ callable effect contract cannot be established: EffectViolation
-
-err[check.effect-violation]: callable body exceeds its declared effect boundary
-  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-8-producer_creation_keeps_body_and_cleanup_latent/producer-contract.xsh-1:6:26
-  proc create() [] -> Unit { let _ = delayed() }
-                           ^^^^^^^^^^^^^^^^^^^^^ callable body exceeds its declared effect boundary

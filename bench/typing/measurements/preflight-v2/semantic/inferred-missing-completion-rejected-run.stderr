@@ -1,4 +1,0 @@
-err[parse.expected-param-type]: expected `:` or default value after parameter name
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/inferred-missing-completion-rejected.xsh:1:18
-  pure missing(flag) { if flag { return 1 } }
-                   ^ expected `:` or default value after parameter name

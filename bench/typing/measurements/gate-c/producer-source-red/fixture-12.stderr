@@ -1,4 +1,0 @@
-err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`
-  /var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-test-25512-1790822608052954000-4-generic_producer_identity_keeps_result_payload_profile/producer-contract.xsh-2:1:1
-  stream quiet() [] -> Stream[Int] { yield 1 }
-  ^ indexed IR could not encode `full_ir_verification`

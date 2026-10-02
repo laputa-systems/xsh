@@ -1,17 +1,128 @@
 # XSH typing inference: remaining work
 
-Paused at the user's request on 2026-10-01. Resume only when requested. This is
-an outstanding-work contract; completed implementation and historical evidence
-belong in the canonical documentation and `bench/typing/`.
+Implementation remains paused until requested. This document lists the remaining
+functional work. Fix existing-program regressions first, complete runtime
+integration and annotation removal, then consolidate the implementation.
+Benchmark only after all functional work and migration are complete.
 
-The immediate blocker is runtime integration, not a new solver kernel. The
-frozen integration run has 56 failing library tests. Exact failures, commands,
-source fingerprints, and logs are recorded in `bench/typing/wind-down.json`.
-Fix these before annotation migration or declaring full inference acceptance.
-The primary checkout uses the existing `master` branch. Historical worktree
-paths in archived measurements describe past runs and are not live dependencies.
+The latest library run has 56 failing tests. The command, test names, and failure
+diagnostics are in `bench/typing/wind-down-failures.json`. The primary checkout
+uses the existing `master` branch.
 
-## 1. Finish runtime integration (remaining Gate D)
+Keep bookkeeping minimal: ordinary regression tests and one concise status
+update are enough. Keep a failure diagnostic only while it helps resolve an
+outstanding problem. Do not create checkpoint ledgers, hash manifests, source
+snapshots, build archives, historical plans, or per-run evidence directories.
+Git and the test suite preserve implementation history.
+
+## Campaign-specific lane orchestration
+
+This strategy supersedes general orchestration guidance for this campaign.
+Every campaign agent, including the integrator, uses `gpt-6.1-sol` with
+`medium` reasoning. Do not substitute another model or reasoning level.
+The primary agent remains the integrator and is the only agent that starts,
+reassigns, or integrates lane work. This plan does not resume implementation.
+
+### Keep independent work running
+
+On resume, start eight bounded implementation lanes where their write sets are
+independent. Use up to 15 worker lanes when there are additional difficult tasks
+with disjoint files and settled interfaces. Refill a finished lane immediately;
+do not wait for a whole wave to finish. Occupied agents are not progress if they
+are waiting on the same interface or repeating the same investigation. Use slots nine through fifteen for ready
+CLI, UInt, stage, producer/default, loader, diagnostics, and tooling slices
+with exclusive owners; replace these choices as dependencies change.
+
+For each assignment, send only the concrete failing behavior or missing
+protocol, exclusive files, relevant tests, required invariants, and a clear stop
+condition. A task should deliver one complete source-to-runtime slice, not
+"finish callables", an inventory audit, or a report. Use existing failing tests
+first; add a small regression and an independent refusal test when needed.
+
+Keep one short ownership list in the integrator's working context: task,
+agent, exclusive files, and current dependency. No tracking files, checkpoint
+ledgers, separate acceptance reports, or agent-written planning documents.
+
+### Initial bounded lanes
+
+Paths below are relative to `src/`. They identify starting owners, not permission
+to edit all nearby files. Confirm the exact write set before starting each lane.
+Each lane owns its bug diagnosis, implementation, and focused regression tests;
+do not assign another agent to independently solve or test the same slice.
+
+| Lane | Bounded task and stop condition | Exclusive starting owners |
+|---|---|---|
+| JSON admission | Restore heterogeneous declared `List[Any]` JSON inputs while retaining child types and rejecting ordinary incompatible lists; stop when the source regression and refusal tests pass. | `sema/check/registry_boundaries.rs`; a dedicated checker/native regression module |
+| Saved receiver | Make saved `.call` aliases preserve original receiver identity and captured defaults through preparation and both execution routes; stop at the existing omitted-default regression plus foreign/missing receiver refusal. | `runtime/eval/lower/callable_binding.rs`; `runtime/eval/indexed/generic/callable_receivers.rs`; `runtime/eval/indexed/full/callable_receiver_prepare.rs`; `runtime/eval/lowered_run/indexed_run/omitted_argument_tests.rs` |
+| Direct native call | Complete one wire-enum direct-native admission/preparation path without overload rediscovery or erased evidence; stop at the wire regression and invalid argument refusal before host effects. | `runtime/eval/indexed/full/native_prepare.rs`; a dedicated native preparation regression module |
+| Initializer wrappers | Repair the builtin-template cold initializer lineage through actual argument wrappers without fabricated source IDs; stop at the builtin regression and altered-wrapper refusal. | `runtime/eval/lower/argument_binding.rs`; `runtime/eval/indexed/full/argument_prepare.rs`; a dedicated initializer regression module |
+| Validated record layout | Preserve nested validated record layout and extra fields through a host round trip and prepared projection; stop at both-route execution and schema rejection tests. | `runtime/eval/require.rs`; `runtime/eval/indexed/full/projection_prepare.rs`; a dedicated record-layout regression module |
+| Ordinary value bindings | Activate one missing scalar Let or Guard-success binding form with lexical dominance; stop at execution, shadow/write/failure-body refusal, and frontend-disposal tests. | `runtime/eval/lower/value_binding.rs`; `runtime/eval/indexed/generic/value_bindings.rs`; `runtime/eval/indexed/full/value_prepare.rs` |
+| Pattern transport | Repair one failing enum alias/alternation or nominal pattern transport path while retaining original owner and lexical capture identity; stop at its existing regression and cross-scope refusal. | `runtime/eval/lower/pattern_admission.rs`; `runtime/eval/indexed/full/pattern_prepare.rs`; `runtime/eval/lower/pattern_transport_tests.rs` |
+| Iteration proof | Repair the scalar iteration regression and reject an item read attributed to its own iterator; stop at both-route execution and the existing ancestry refusal. | `runtime/eval/lower/iteration.rs`; `runtime/eval/indexed/generic/iterations.rs`; `runtime/eval/indexed/full/iteration_prepare.rs` and its tests |
+
+The native-call and record-layout lanes share a behavior boundary, not files.
+The integrator settles their admission/layout interface first. If two failures
+share one root cause, combine them under one owner and refill the freed lane.
+If diagnosis shows an initial task depends on an unsettled shared contract,
+replace it with another independent regression task rather than launching
+competing fixes.
+
+### Shared interfaces and integration stay with the primary agent
+
+The integrator exclusively owns shared facades and registrations, especially
+`runtime/eval/indexed/full.rs`, `runtime/eval/indexed/generic.rs`,
+`runtime/eval/lower.rs`, and the common checker and execution dispatch files.
+This includes shared IDs, receipt fields, store/checkpoint registration, module
+wiring, broad test runners, canonical docs, and the campaign document.
+Agents may read these files and request a concrete signature or small wiring
+change; they do not edit them concurrently. The integrator publishes that change
+once and moves dependent lanes forward. Do not duplicate a missing helper or
+weaken a contract to avoid a dependency.
+
+Use a shared checkout for disjoint files. Create a temporary isolated worktree
+only when a task needs an independently compiling intermediate state. After
+merging into `master`, the integrator verifies that all useful work is integrated,
+removes the worktree from disk, and deletes its merged task branch before closing
+the lane. Preserve any useful uncommitted changes before removal; do not leave
+merged worktrees or build caches behind. Do not recreate baseline repositories
+or archived worktrees. Lane commits contain code and tests, not generated logs.
+
+A lane returns a short message: changed behavior, focused test result, relevant
+contract decision, and any remaining blocker. The integrator reviews and
+integrates each complete patch, resolves shared wiring, and runs the affected
+cross-lane tests. Only the integrator runs broad suites or shared product builds;
+lanes run narrow checks without overlapping build storms. Keep at most one
+Cargo build/test process per target directory. A queued compiler does not
+justify more rebuilds, extra targets, or new evidence machinery.
+
+### Refill by dependencies, then migrate
+
+After a root cause is fixed, assign remaining failures by owning mechanism:
+CLI descriptors, run/context, UInt assignment, stages, producer/default/defer,
+embedded stdlib, and loader/interface reuse. A lane stops after one named
+protocol and its positive/negative observations; split larger categories.
+
+Then feed independent protocol slices from the remaining operation inventory:
+conditional user calls, native families, scoped calls, stream callbacks,
+live mutable captures, record constructors, and nominal constructors. Allocate
+disjoint files before dispatch. Conditional calls and captures wait for the
+shared call protocol; native families wait for direct-native authority;
+constructors wait for the canonical layout/default interface. Keep ready
+refinement, loader, diagnostics, and tooling tasks running beside those chains.
+
+Once runtime compatibility passes, run separate annotation-removal lanes for
+`core/`, `dev/`, and relevant `examples/`, preserving protected sites. The
+integrator checks the jointly reduced graph. Adapter retirement, canonical docs,
+and tooling can run in parallel only after their final interfaces settle, with
+one owner per file. Fix cross-lane failures under the existing responsible owner;
+do not start duplicate repair agents.
+
+Functional acceptance and consolidation precede all benchmarking. At the end,
+the integrator assigns bounded performance investigations only for actual
+repeatable regressions, using the same model and reasoning setting.
+
+## 1. Finish runtime integration
 
 ### Existing-program regressions
 
@@ -88,7 +199,7 @@ paths in archived measurements describe past runs and are not live dependencies.
   schemes, private owners remain distinct, and a changed dependency in a fresh
   bundle yields fresh answers. Across-edit caches remain outside this task.
 
-### Integration evidence required before proceeding
+### Verify runtime integration
 
 Run the complete frozen annotated compatibility cohort, native stdlib and loader
 owners, both indexed routes, ordinary xshi execution, tooling/registry/API gates,
@@ -97,11 +208,11 @@ which route ran. Dispose of the AST/checker/inference bundle before execution;
 retain only the immutable authority needed by prepared artifacts. Reject altered,
 missing, foreign, stale, rewound, cross-scope, and jointly rewritten proof data.
 
-Record exact source/product identities, independent CLI rejection witnesses,
-output/default/defer/pull/cancellation/resource observations, and counted module
-reuse. Re-run affected earlier route claims whose forcing flag did not originally
-reach the execution worker. Gate D requires all applicable runtime obligations
-and existing-program regressions to pass; a focused green slice is insufficient.
+Check output, default ordering, defer/pull/cancellation behavior, resource
+cleanup, and module reuse in ordinary regression tests. Correct any affected
+route tests whose forcing flag did not reach the execution worker. Runtime
+integration is complete only when the affected existing programs and supported
+protocols pass; a focused green slice is insufficient.
 
 ## 2. Simplify the architecture and language contracts while closing these gaps
 
@@ -141,10 +252,10 @@ second unrelated redesign or add dependencies.
   `full_ir_verification` without the failing obligation forced repeated temporary
   instrumentation and obscured whether a failure was source, codec, or runtime.
 - **Reusable phase/lifetime test fixtures.** Standardize checked-source creation,
-  route forcing in the worker, frontend disposal, prepared execution, mutation
-  controls, and exact product provenance. Keep fixtures isolated from unrelated
-  module failures. Native language tests remain the default; host verifier,
-  byte/process, and lifetime boundaries justify Rust tests.
+  route forcing in the worker, frontend disposal, prepared execution, and mutation
+  controls. Keep fixtures isolated from unrelated module failures. Native language
+  tests remain the default; host verifier, byte/process, and lifetime boundaries
+  justify Rust tests.
 - **Clarify language inference boundaries.** Keep Boolean assertion versus data,
   discarded Result versus propagation, omitted proc return inference, nullable
   joins, and schema reifiability fixed before generalization. Improve local
@@ -155,10 +266,10 @@ second unrelated redesign or add dependencies.
 - **Reduce integration contention and evidence overhead.** Assign shared header
   mutation to one owner, keep child interfaces coherent before parallel edits,
   and validate representative real programs after each vertical slice. Preserve
-  concise reproducible evidence; quiet-machine timing, exhaustive sampling,
-  redundant product rebuilding, and precise percentile gates are not required.
+  useful regression tests and current failure diagnostics. Do not maintain
+  historical evidence archives or benchmark during implementation.
 
-## 3. Joint annotation removal and soundness (remaining Gate E)
+## 3. Joint annotation removal and soundness
 
 Use the frozen original/stabilized cohort, site correspondence, and
 `bench/typing/annotations.json`. Do not change eligibility because a hard site
@@ -186,40 +297,9 @@ before forbidden host effects. Compare the supported fragment with the
 independent reference. Tooling must reveal honest schemes, preserve comments,
 refuse unsafe/partial edits, and converge on repeat application.
 
-## 4. Lightweight performance and deterministic resource gates (remaining Gate F)
+## 4. Consolidation, scoped migration, and functional acceptance
 
-Use `bench/typing/benchmark-amendment.json` and the frozen resource/scaling policy.
-Recreate a baseline checkout only when a comparison needs it, from immutable
-revision `d6f09bc54305515b4c34d3b872d7f9f13b874061`; historical cohort identity
-remains `877a114d6dc403db32c50f035b38aab7f193147a`.
-
-- Compare identical stabilized annotated baseline/candidate programs, candidate
-  annotated/reduced programs, unchanged monomorphic runtime, and generic helpers
-  against equivalent monomorphic helpers. Use one warmup and five fresh-process
-  observations with ordinary median/range. Investigate material repeatable
-  regressions; no quiet-machine requirement, mandatory p95, or exhaustive sampling.
-- Count parse/load, generation/solving, finalization, lowering/verification,
-  execution, allocation, unique retained graph/interface/evidence bytes, RSS,
-  and code size honestly. Do not move work outside the measured interval.
-- Finish fixed-seed 1k/2k/4k/8k scaling for aliases, instantiation/forwarding,
-  wide rows, nested containers, recursive components/effects, module diamonds,
-  and overload probes. For the final two doublings, work grows at most 2.6x and
-  retained type/constraint memory at most 2.5x; investigate wall growth above
-  2.8x. Include unavoidable output size, failed probes, and diagnostic work.
-- Finish deterministic adversarial termination under frozen node/work/depth/
-  output limits. Reject pathological ambiguity/expansion/equations/fanout with
-  local diagnostics, no stack exhaustion, unbounded retry, or Any acceptance.
-- Preserve the requested whole-repository read-only `xsht lint` gate through
-  `make check`: no diagnostics and less than 60 seconds, never `--fix`. Repair
-  remaining diagnostics without weakening types or changing exclusions/budget.
-
-No invocation may infer, parse, specialize a body, search overloads, allocate a
-new metadata graph per item/call, or fall back to an AST evaluator. Share generic
-bodies; any optional specialization needs bounded measured preparation.
-
-## 5. Consolidation, scoped migration, and final acceptance (remaining Gate G)
-
-After the preceding gates pass:
+After runtime integration and annotation-removal tests pass:
 
 - Apply proven semantics-preserving removals/stabilizers only under `core/`,
   `dev/`, and relevant existing `examples/`. Keep showcase and protected
@@ -235,17 +315,42 @@ After the preceding gates pass:
   release products only for justified profiling. Linux/Docker, cross-compilation,
   release packaging, remote publishing, daemons, new dependencies, and
   across-edit caching remain outside this campaign.
-- Reconcile frozen inventories, jointly removed/protected sites, runtime and
-  negative observations, deterministic counters, lightweight measurements,
-  source/product identities, and honest platform/exclusion limits. Commit local
-  completed work with hooks disabled; never push without explicit instruction.
+- Check operation coverage, jointly removed/protected annotations, existing
+  program behavior, and negative tests. Keep one concise account of remaining
+  failures or limitations. Commit completed work with hooks disabled; never
+  push without explicit instruction.
 
 Keep definition-owned rank-1 inference: callers do not train declarations;
 mutable/captured/resource state does not gain unsound generalization; pure/proc/
 stream kinds and closed versus unknown effects remain distinct. Preserve exact
 schema/nominal/UInt/ownership boundaries and lexical return/defer/cancellation.
 
-Do not declare completion from a solver, catalog audit, annotation percentage,
-or focused test pass alone. If the same mandatory condition has three complete
-attempts without meaningful progress, leave a reproducible incomplete checkpoint
-instead of expanding indefinitely or relaxing the contract.
+Functional completion requires existing-program compatibility, sound inferred
+programs, annotation-removal targets, and the affected test suites to pass.
+Do not relax types or execution contracts to make a test pass.
+
+Prepared execution must consume solved decisions without runtime inference,
+parsing, overload search, body specialization, or AST fallback. Share generic
+bodies and authority metadata across calls. Pathological equations, ambiguity,
+and expansion must reject within bounded work and depth with local diagnostics;
+termination and soundness remain correctness requirements. Large scaling and
+memory measurements wait until the final performance check.
+
+## 5. Performance checks at the very end
+
+Do not benchmark, profile, collect performance counters, rebuild baseline
+products, or maintain measurement reports during functional implementation.
+Only begin this work after runtime integration, annotation removal, migration,
+and consolidation are complete and the relevant correctness tests pass.
+
+Then compare representative real programs with the pre-inference baseline
+`d6f09bc54305515b4c34d3b872d7f9f13b874061` and investigate repeatable regressions.
+Include startup/preparation, unchanged monomorphic programs, inferred generic
+helpers, module-heavy programs, and memory use. The retained scaling generator
+is available if a suspected complexity problem needs an isolated reproduction.
+Keep measurements practical; do not require quiet machines, fixed sample counts,
+percentile targets, hash manifests, or exhaustive workload matrices.
+
+Finally verify the requested whole-repository read-only `xsht lint` gate through
+`make check`: no diagnostics and less than 60 seconds, never `--fix`. Preserve
+types and the whole-repository scope.

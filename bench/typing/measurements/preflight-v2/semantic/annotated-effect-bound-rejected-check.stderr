@@ -1,4 +1,0 @@
-err[check.effect-violation]: `time.now` requires the `time` effect
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/preserved/annotated-effect-bound-rejected.xsh:1:33
-  proc bad() [] -> Unit { let _ = time.now() }
-                                  ^^^^^^^^^^ `time.now` requires the `time` effect

@@ -1,3 +1,0 @@
-running 1 tests
-tests/xsh/result-contexts.xsh::test_result_return_match_preserves_constructor_context ... ok 13ms
-test result: ok. 1 passed; 0 failed; 0 skipped

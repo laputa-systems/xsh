@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "draft_manifest_sha256": "f75e934cf40e9122edbde858ef115e3b1223b0f508160a882123fa0274892f82",
-  "reason": "Draft incorporated supplemental proposed90s timeout despite authoritative frozen60s guard. No observation, pilot or final measurement used this draft. Correct templates to60 before refreezing; raw supplemental preflights remain recorded with actual90s timeout.",
-  "frozen_resource_limits_changed": false,
-  "source_or_eligibility_changed": false
-}

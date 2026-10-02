@@ -1,9 +1,0 @@
-err[parse.expected-param-type]: expected `:` or default value after parameter name
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-result-tail-and-early.xsh:1:16
-  pure tail(value) { value.parse_int()? }
-                 ^ expected `:` or default value after parameter name
-
-err[parse.expected-param-type]: expected `:` or default value after parameter name
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-result-tail-and-early.xsh:2:17
-  pure early(value) { let parsed = value.parse_int()?; return parsed }
-                  ^ expected `:` or default value after parameter name

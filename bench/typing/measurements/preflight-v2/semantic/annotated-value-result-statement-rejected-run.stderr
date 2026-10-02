@@ -1,9 +1,0 @@
-err[check.ignored-result]: ignored Result value
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/preserved/annotated-value-result-statement-rejected.xsh:2:29
-  proc bad() [error] -> Int { leaf(); 2 }
-                              ^^^^^^ ignored Result value
-
-err[check.non-tail-expression]: expression statement must be last to produce a value: expression has type `Result[Int, Error]`; use `let _ = ...` to discard it
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/preserved/annotated-value-result-statement-rejected.xsh:2:29
-  proc bad() [error] -> Int { leaf(); 2 }
-                              ^^^^^^ expression statement must be last to produce a value: expression has type `Result[Int, Error]`; use `let _ = ...` to discard it

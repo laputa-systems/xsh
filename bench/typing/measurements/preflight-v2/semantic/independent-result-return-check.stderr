@@ -1,4 +1,0 @@
-err[parse.expected-param-type]: expected `:` or default value after parameter name
-  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/independent-result-return.xsh:1:18
-  pure parsed(value) { let parsed = value.parse_int()?; Ok(parsed) }
-                   ^ expected `:` or default value after parameter name

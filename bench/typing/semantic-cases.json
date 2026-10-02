@@ -21,15 +21,7 @@
         "status": 0,
         "stdout": "false false 0 9 11\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "false false 0 9 11\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "07bf8e2701718ce5b97ef0772f87e92bc74c39def5025c6218a0818e3b165bcc",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "07bf8e2701718ce5b97ef0772f87e92bc74c39def5025c6218a0818e3b165bcc"
     },
     {
       "id": "omitted-private-pure-payloads",
@@ -44,15 +36,7 @@
         "status": 0,
         "stdout": "false false 0 9\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "false false 0 9\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "a41dc234dd0945719a711074fea16b2753fca83cf281445ab01a3d81f2339114",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "a41dc234dd0945719a711074fea16b2753fca83cf281445ab01a3d81f2339114"
     },
     {
       "id": "unit-consuming-assertions",
@@ -67,15 +51,7 @@
         "status": 0,
         "stdout": "true true true\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "true true true\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "f6a1ae62750afd2a504b139fd7c789d73ecab5fc78faec1b9e1470fab13d29d7",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "f6a1ae62750afd2a504b139fd7c789d73ecab5fc78faec1b9e1470fab13d29d7"
     },
     {
       "id": "non-tail-concrete-bool",
@@ -90,15 +66,7 @@
         "status": 0,
         "stdout": "true 3\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "true 3\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "45a5ecae83dfc18b367b52de16f5a5be154997799d81438929e336c24f53efa2",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "45a5ecae83dfc18b367b52de16f5a5be154997799d81438929e336c24f53efa2"
     },
     {
       "id": "discard-bool-result",
@@ -113,15 +81,7 @@
         "status": 0,
         "stdout": "done\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "done\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "a28903b5f57f2712d2ac6aebf1afcd42fd1cea5a7ff215b23be1924bae367669",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "a28903b5f57f2712d2ac6aebf1afcd42fd1cea5a7ff215b23be1924bae367669"
     },
     {
       "id": "discard-initializer-propagation",
@@ -136,15 +96,7 @@
         "status": 0,
         "stdout": "cleanup\ntrue\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "cleanup\ntrue\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "35fd2cb4aed20d16e1567af76a2665adf73ad29ebca4f07bc06207cf17ce772d",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "35fd2cb4aed20d16e1567af76a2665adf73ad29ebca4f07bc06207cf17ce772d"
     },
     {
       "id": "statement-result-unit-proc",
@@ -159,15 +111,7 @@
         "status": 0,
         "stdout": "true\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "true\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "cea10c80ed77e9ce3e3fb400fe0e1921a2a5a55a2cdf6def8a76529f899f0674",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "cea10c80ed77e9ce3e3fb400fe0e1921a2a5a55a2cdf6def8a76529f899f0674"
     },
     {
       "id": "explicit-data-proc-outward-propagation",
@@ -182,15 +126,7 @@
         "status": 0,
         "stdout": "7\ntrue\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "7\ntrue\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "71c8e633578538a58715ff776a781e4338a719fd9d30bd60b428b465b3ec3919",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "71c8e633578538a58715ff776a781e4338a719fd9d30bd60b428b465b3ec3919"
     },
     {
       "id": "try-one-layer-and-nesting",
@@ -205,15 +141,7 @@
         "status": 0,
         "stdout": "true true\nfalse\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "true true\nfalse\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "38cb7cacec3d1c68184de56d479dd234a415332aca8c10e7cdcebabb74b2e881",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "38cb7cacec3d1c68184de56d479dd234a415332aca8c10e7cdcebabb74b2e881"
     },
     {
       "id": "retry-lexical-return-and-cleanup",
@@ -228,15 +156,7 @@
         "status": 0,
         "stdout": "cleanup\nouter\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "cleanup\nouter\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "62a34bad81a5e007dc45aa186f4372a2a29bf42ee593155fca0c674fe38a85ce",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "62a34bad81a5e007dc45aa186f4372a2a29bf42ee593155fca0c674fe38a85ce"
     },
     {
       "id": "try-loop-transfers-and-cleanup",
@@ -251,15 +171,7 @@
         "status": 0,
         "stdout": "cleanup\ncleanup\ncleanup\n3\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "cleanup\ncleanup\ncleanup\n3\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "2ad9c52c617a0e3847c0621eeff11442a53f40a5f0e0b9198b4fe1f36974892c",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "2ad9c52c617a0e3847c0621eeff11442a53f40a5f0e0b9198b4fe1f36974892c"
     },
     {
       "id": "callback-bool-and-result-data",
@@ -274,15 +186,7 @@
         "status": 0,
         "stdout": "0 1 2\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "0 1 2\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "5ce505a43ed7440a77cd257886d0f1d648053f84f9278a1bd3195beab8cc7d2b",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "5ce505a43ed7440a77cd257886d0f1d648053f84f9278a1bd3195beab8cc7d2b"
     },
     {
       "id": "default-order-and-outer-scope",
@@ -297,15 +201,7 @@
         "status": 0,
         "stdout": "left\nright\n8\nsupplied\nleft\n15\n6\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "left\nright\n8\nsupplied\nleft\n15\n6\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "468f0249f7444a4537d5329151ca0e3f962cccd36620d9e9b40bd2847594e5a1",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "468f0249f7444a4537d5329151ca0e3f962cccd36620d9e9b40bd2847594e5a1"
     },
     {
       "id": "producer-lazy-default-delegation-cancellation",
@@ -320,15 +216,7 @@
         "status": 0,
         "stdout": "supplied\ncreated\ndefault\n7\nchild-close\nparent-close\nafter\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "supplied\ncreated\ndefault\n7\nchild-close\nparent-close\nafter\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "db5046ac8b30698cd69a5f1df58f1ebc7b9b0a6da61414b5182f819b1902aa57",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "db5046ac8b30698cd69a5f1df58f1ebc7b9b0a6da61414b5182f819b1902aa57"
     },
     {
       "id": "status-as-data",
@@ -343,15 +231,7 @@
         "status": 0,
         "stdout": "1\ndone\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "1\ndone\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "218fecc5aa711cbac534fbfa3cf5a858fdd7688ac30de94a74c022d576e27bbc",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "218fecc5aa711cbac534fbfa3cf5a858fdd7688ac30de94a74c022d576e27bbc"
     },
     {
       "id": "explicit-nested-error",
@@ -366,15 +246,7 @@
         "status": 0,
         "stdout": "true\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "true\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "78ec1773b7814f2dcef717792cc46230584692d43d40d41cfe81a13dbffd60fc",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "78ec1773b7814f2dcef717792cc46230584692d43d40d41cfe81a13dbffd60fc"
     },
     {
       "id": "empty-proc-success",
@@ -389,15 +261,7 @@
         "status": 0,
         "stdout": "true\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "true\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "e49fcdfc390a6a49108117a24f4224ab27e1dce3cd400572bf5f2346ce6f13a7",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "e49fcdfc390a6a49108117a24f4224ab27e1dce3cd400572bf5f2346ce6f13a7"
     },
     {
       "id": "explicit-propagation-failure",
@@ -418,15 +282,7 @@
           "parse-int"
         ]
       },
-      "baseline_observed": {
-        "status": 3,
-        "stdout": "",
-        "stderr": "err[runtime.error]: invalid integer `bad`\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/explicit-propagation-failure.xsh:1:42\n  proc parsed(value: Str) [error] -> Int { value.parse_int()? }\n                                           ^^^^^^^^^^^^^^^^^\nruntime traceback\nexecutable: /Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh\noperation: result.propagate\nerror: parse-int: invalid integer `bad`\nat /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/explicit-propagation-failure.xsh:2:9-2:22\ncall path:\n  1. proc parsed at /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/explicit-propagation-failure.xsh:2:9-2:22\n",
-        "check_status": 0,
-        "check_stderr": ""
-      },
-      "source_sha256": "bb41e7baa9f3e439753b849e9a46f45e05e99ec0e68b7be711a326b60b3857ba",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "bb41e7baa9f3e439753b849e9a46f45e05e99ec0e68b7be711a326b60b3857ba"
     },
     {
       "id": "annotated-value-result-statement-rejected",
@@ -447,15 +303,7 @@
           "Result"
         ]
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[check.ignored-result]: ignored Result value\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-value-result-statement-rejected.xsh:2:29\n  proc bad() [error] -> Int { leaf(); 2 }\n                              ^^^^^^ ignored Result value\n\nerr[check.non-tail-expression]: expression statement must be last to produce a value: expression has type `Result[Int, Error]`; use `let _ = ...` to discard it\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-value-result-statement-rejected.xsh:2:29\n  proc bad() [error] -> Int { leaf(); 2 }\n                              ^^^^^^ expression statement must be last to produce a value: expression has type `Result[Int, Error]`; use `let _ = ...` to discard it\n",
-        "check_status": 2,
-        "check_stderr": "err[check.ignored-result]: ignored Result value\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-value-result-statement-rejected.xsh:2:29\n  proc bad() [error] -> Int { leaf(); 2 }\n                              ^^^^^^ ignored Result value\n\nerr[check.non-tail-expression]: expression statement must be last to produce a value: expression has type `Result[Int, Error]`; use `let _ = ...` to discard it\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-value-result-statement-rejected.xsh:2:29\n  proc bad() [error] -> Int { leaf(); 2 }\n                              ^^^^^^ expression statement must be last to produce a value: expression has type `Result[Int, Error]`; use `let _ = ...` to discard it\n"
-      },
-      "source_sha256": "e35dc5d82b420180465f9a746aeac23901a86c3b06ad0f35b388305040407ecb",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "e35dc5d82b420180465f9a746aeac23901a86c3b06ad0f35b388305040407ecb"
     },
     {
       "id": "annotated-effect-bound-rejected",
@@ -476,15 +324,7 @@
           "check.effect-violation"
         ]
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[check.effect-violation]: `time.now` requires the `time` effect\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-effect-bound-rejected.xsh:1:33\n  proc bad() [] -> Unit { let _ = time.now() }\n                                  ^^^^^^^^^^ `time.now` requires the `time` effect\n",
-        "check_status": 2,
-        "check_stderr": "err[check.effect-violation]: `time.now` requires the `time` effect\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-effect-bound-rejected.xsh:1:33\n  proc bad() [] -> Unit { let _ = time.now() }\n                                  ^^^^^^^^^^ `time.now` requires the `time` effect\n"
-      },
-      "source_sha256": "75a1c97d9e769a215566605024fe0b1df2767d4f937924dfe044c5ca427e1340",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "75a1c97d9e769a215566605024fe0b1df2767d4f937924dfe044c5ca427e1340"
     },
     {
       "id": "annotated-default-parameter-scope-rejected",
@@ -505,15 +345,7 @@
           "left"
         ]
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[check.unresolved-name]: unresolved name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-default-parameter-scope-rejected.xsh:1:38\n  pure bad(left: Int = 1, right: Int = left) -> Int { right }\n                                       ^^^^ unresolved name\n",
-        "check_status": 2,
-        "check_stderr": "err[check.unresolved-name]: unresolved name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/annotated-default-parameter-scope-rejected.xsh:1:38\n  pure bad(left: Int = 1, right: Int = left) -> Int { right }\n                                       ^^^^ unresolved name\n"
-      },
-      "source_sha256": "9e7ef9611ecb2ca6b67a9f96379c19e46a2e50e4d13094207ef83a7d721b5674",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "9e7ef9611ecb2ca6b67a9f96379c19e46a2e50e4d13094207ef83a7d721b5674"
     },
     {
       "id": "try-error-only-rejected",
@@ -534,15 +366,7 @@
           "check.try-success-type"
         ]
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[check.try-success-type]: cannot infer try success type; annotate Result success type\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/try-error-only-rejected.xsh:2:14\n  let result = try { Err(LocalError.Bad(\"unknown\"))? }\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot infer try success type; annotate Result success type\n",
-        "check_status": 2,
-        "check_stderr": "err[check.try-success-type]: cannot infer try success type; annotate Result success type\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/preserved/try-error-only-rejected.xsh:2:14\n  let result = try { Err(LocalError.Bad(\"unknown\"))? }\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot infer try success type; annotate Result success type\n"
-      },
-      "source_sha256": "6dd70ec70de9f8067c55b93c5400f326ed0c52ea1791b73f7054d64682acb805",
-      "verification_status": "baseline-preserved-pass"
+      "source_sha256": "6dd70ec70de9f8067c55b93c5400f326ed0c52ea1791b73f7054d64682acb805"
     },
     {
       "id": "generic-identity-payloads",
@@ -557,15 +381,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-identity-payloads.xsh:1:20\n  pure identity(value) { value }\n                     ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-identity-payloads.xsh:1:20\n  pure identity(value) { value }\n                     ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "313b9c088bb7b16f0d72cdffaa0e9264265f2b367201f425bf6d92dda6e7239c",
-      "verification_status": "candidate-pending"
+      "source_sha256": "313b9c088bb7b16f0d72cdffaa0e9264265f2b367201f425bf6d92dda6e7239c"
     },
     {
       "id": "generic-discard-fixed",
@@ -580,15 +396,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-discard-fixed.xsh:1:19\n  pure discard(value) { let _ = value; 1 }\n                    ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-discard-fixed.xsh:1:19\n  pure discard(value) { let _ = value; 1 }\n                    ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "6eb421d95c3ecb0ba34423701b6206dbfacc24b366f74872869ae0745c0d745a",
-      "verification_status": "candidate-pending"
+      "source_sha256": "6eb421d95c3ecb0ba34423701b6206dbfacc24b366f74872869ae0745c0d745a"
     },
     {
       "id": "omitted-proc-bool-value",
@@ -603,15 +411,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[check.type-mismatch]: type mismatch\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/omitted-proc-bool-value.xsh:2:31\n  proc early() [error] { return false }\n                                ^^^^^ expected Result[Unit, Error], found Bool\n\nerr[check.display-conversion]: value cannot be displayed by print\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/omitted-proc-bool-value.xsh:3:7\n  print ${boolean()} ${early()}\n        ^^^^^^^^^^^^ value cannot be displayed by print\n\nerr[check.display-conversion]: value cannot be displayed by print\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/omitted-proc-bool-value.xsh:3:20\n  print ${boolean()} ${early()}\n                     ^^^^^^^^^^ value cannot be displayed by print\n",
-        "check_status": 2,
-        "check_stderr": "err[check.type-mismatch]: type mismatch\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/omitted-proc-bool-value.xsh:2:31\n  proc early() [error] { return false }\n                                ^^^^^ expected Result[Unit, Error], found Bool\n\nerr[check.display-conversion]: value cannot be displayed by print\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/omitted-proc-bool-value.xsh:3:7\n  print ${boolean()} ${early()}\n        ^^^^^^^^^^^^ value cannot be displayed by print\n\nerr[check.display-conversion]: value cannot be displayed by print\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/omitted-proc-bool-value.xsh:3:20\n  print ${boolean()} ${early()}\n                     ^^^^^^^^^^ value cannot be displayed by print\n"
-      },
-      "source_sha256": "29aa294f05ffd3fbdc969d0f0088dc432a24f2fdbe93512a329702a934a1cefe",
-      "verification_status": "candidate-pending"
+      "source_sha256": "29aa294f05ffd3fbdc969d0f0088dc432a24f2fdbe93512a329702a934a1cefe"
     },
     {
       "id": "inferred-result-tail-and-early",
@@ -626,15 +426,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-result-tail-and-early.xsh:1:16\n  pure tail(value) { value.parse_int()? }\n                 ^ expected `:` or default value after parameter name\n\nerr[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-result-tail-and-early.xsh:2:17\n  pure early(value) { let parsed = value.parse_int()?; return parsed }\n                  ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-result-tail-and-early.xsh:1:16\n  pure tail(value) { value.parse_int()? }\n                 ^ expected `:` or default value after parameter name\n\nerr[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-result-tail-and-early.xsh:2:17\n  pure early(value) { let parsed = value.parse_int()?; return parsed }\n                  ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "066c4b772abf0ce4bc899016a242efd82c79c9552f95fee38c4034e8661a2f89",
-      "verification_status": "candidate-pending"
+      "source_sha256": "066c4b772abf0ce4bc899016a242efd82c79c9552f95fee38c4034e8661a2f89"
     },
     {
       "id": "generic-result-payload-nesting",
@@ -649,15 +441,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:16\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                 ^ expected `:` or default value after parameter name\n\nerr[parse.expected-token]: expected `)` after parameters\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:16\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                 ^ expected `)` after parameters\n\nerr[parse.expected-token]: expected `{` to start block\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:16\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                 ^ expected `{` to start block\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:53\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                                                      ^ expected expression\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:16\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                 ^ expected `:` or default value after parameter name\n\nerr[parse.expected-token]: expected `)` after parameters\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:16\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                 ^ expected `)` after parameters\n\nerr[parse.expected-token]: expected `{` to start block\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:16\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                 ^ expected `{` to start block\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/generic-result-payload-nesting.xsh:2:53\n  pure wrap(value, gate: Result[Unit]) { gate?; value }\n                                                      ^ expected expression\n"
-      },
-      "source_sha256": "85175769d0f8bbf2edc3e484e250b4a1f4327febbf9fa4cd910d257d5aaabadc",
-      "verification_status": "candidate-pending"
+      "source_sha256": "85175769d0f8bbf2edc3e484e250b4a1f4327febbf9fa4cd910d257d5aaabadc"
     },
     {
       "id": "independent-result-return",
@@ -672,15 +456,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/independent-result-return.xsh:1:18\n  pure parsed(value) { let parsed = value.parse_int()?; Ok(parsed) }\n                   ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/independent-result-return.xsh:1:18\n  pure parsed(value) { let parsed = value.parse_int()?; Ok(parsed) }\n                   ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "757f056441c8c01ed8bc374f55a0f46de845e4539775736201e30e3e597103a6",
-      "verification_status": "candidate-pending"
+      "source_sha256": "757f056441c8c01ed8bc374f55a0f46de845e4539775736201e30e3e597103a6"
     },
     {
       "id": "inferred-producer-lifecycle",
@@ -695,15 +471,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                 ^ expected `:` or default value after parameter name\n\nerr[parse.expected-token]: expected `)` after parameters\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                 ^ expected `)` after parameters\n\nerr[parse.expected-token]: expected `{` to start block\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                 ^ expected `{` to start block\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:67\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                                                                    ^ expected expression\n\nerr[parse.required-return]: stream producer return annotations are required\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:2:41\n  stream child(item = mark(\"default\", 7)) {\n                                          ^ stream producer return annotations are required\n\nerr[parse.required-return]: stream producer return annotations are required\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:7:17\n  stream parent() { defer { print \"parent-close\" }; yield @child() }\n                  ^ stream producer return annotations are required\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                 ^ expected `:` or default value after parameter name\n\nerr[parse.expected-token]: expected `)` after parameters\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                 ^ expected `)` after parameters\n\nerr[parse.expected-token]: expected `{` to start block\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                 ^ expected `{` to start block\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:67\n  proc mark(label, value) { let _ = time.now(); print $label; value }\n                                                                    ^ expected expression\n\nerr[parse.required-return]: stream producer return annotations are required\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:2:41\n  stream child(item = mark(\"default\", 7)) {\n                                          ^ stream producer return annotations are required\n\nerr[parse.required-return]: stream producer return annotations are required\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:7:17\n  stream parent() { defer { print \"parent-close\" }; yield @child() }\n                  ^ stream producer return annotations are required\n"
-      },
-      "source_sha256": "1d9b2aa3ea00aed2af5b66c2a258e1409bb62f58ed5bd213ae7cd275720b3f42",
-      "verification_status": "candidate-pending"
+      "source_sha256": "1d9b2aa3ea00aed2af5b66c2a258e1409bb62f58ed5bd213ae7cd275720b3f42"
     },
     {
       "id": "generic-statement-rejected",
@@ -721,15 +489,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-statement-rejected.xsh:1:15\n  pure bad(value) { value; 1 }\n                ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-statement-rejected.xsh:1:15\n  pure bad(value) { value; 1 }\n                ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "6643f388511736c97402b58ec398b76aedf09b3d603256378a527be89caa97eb",
-      "verification_status": "candidate-pending"
+      "source_sha256": "6643f388511736c97402b58ec398b76aedf09b3d603256378a527be89caa97eb"
     },
     {
       "id": "inferred-error-only-rejected",
@@ -747,15 +507,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[check.infer-return]: pure `failed` needs a return annotation: its return shape is underdetermined\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-error-only-rejected.xsh:2:1\n  pure failed() { Err(LocalError.Bad(\"unknown success\")) }\n  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ pure `failed` needs a return annotation: its return shape is underdetermined\n",
-        "check_status": 2,
-        "check_stderr": "err[check.infer-return]: pure `failed` needs a return annotation: its return shape is underdetermined\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-error-only-rejected.xsh:2:1\n  pure failed() { Err(LocalError.Bad(\"unknown success\")) }\n  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ pure `failed` needs a return annotation: its return shape is underdetermined\n"
-      },
-      "source_sha256": "bf177905216b28003b45a3566febfd3f9b12e3bbf6f5f69edd9f149818593589",
-      "verification_status": "candidate-pending"
+      "source_sha256": "bf177905216b28003b45a3566febfd3f9b12e3bbf6f5f69edd9f149818593589"
     },
     {
       "id": "inferred-missing-completion-rejected",
@@ -773,15 +525,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-missing-completion-rejected.xsh:1:18\n  pure missing(flag) { if flag { return 1 } }\n                   ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-missing-completion-rejected.xsh:1:18\n  pure missing(flag) { if flag { return 1 } }\n                   ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "8b6b2446ee532b0841dd128e3ccd0ff808a52853304568de303e020ea4cd8b3e",
-      "verification_status": "candidate-pending"
+      "source_sha256": "8b6b2446ee532b0841dd128e3ccd0ff808a52853304568de303e020ea4cd8b3e"
     },
     {
       "id": "generic-effect-bound-rejected",
@@ -799,15 +543,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-effect-bound-rejected.xsh:1:15\n  proc bad(value) [] { let _ = time.now(); value }\n                ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-effect-bound-rejected.xsh:1:15\n  proc bad(value) [] { let _ = time.now(); value }\n                ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "52c7a32e6363b4193d4226f9416586e30bf58aa15c3004822f4745a18b92f6f7",
-      "verification_status": "candidate-pending"
+      "source_sha256": "52c7a32e6363b4193d4226f9416586e30bf58aa15c3004822f4745a18b92f6f7"
     },
     {
       "id": "generic-proc-kind-rejected",
@@ -825,15 +561,7 @@
         "status": 2,
         "stdout": ""
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-proc-kind-rejected.xsh:1:18\n  proc silent(value) { value }\n                   ^ expected `:` or default value after parameter name\n\nerr[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-proc-kind-rejected.xsh:2:15\n  pure bad(value) { silent(value) }\n                ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-proc-kind-rejected.xsh:1:18\n  proc silent(value) { value }\n                   ^ expected `:` or default value after parameter name\n\nerr[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/generic-proc-kind-rejected.xsh:2:15\n  pure bad(value) { silent(value) }\n                ^ expected `:` or default value after parameter name\n"
-      },
-      "source_sha256": "66d9ed527e4759a8de55db574b5f0c3a81516bd3ded60e64b4432a3402def7a9",
-      "verification_status": "candidate-pending"
+      "source_sha256": "66d9ed527e4759a8de55db574b5f0c3a81516bd3ded60e64b4432a3402def7a9"
     },
     {
       "id": "unreachable-does-not-add-unit",
@@ -844,19 +572,11 @@
         "status": 0,
         "stdout": "7 8 9\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "7 8 9\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
       "source_sha256": "0322ecff35740b6e954411e674cab6ee79d71691c04ac01e3bb9d4f80d31e692",
       "baseline": {
         "status": 0,
         "stdout": "7 8 9\n"
-      },
-      "verification_status": "baseline-preserved-pass"
+      }
     },
     {
       "id": "discard-keeps-control-transfer",
@@ -867,19 +587,11 @@
         "status": 0,
         "stdout": "cleanup\n7\n"
       },
-      "baseline_observed": {
-        "status": 0,
-        "stdout": "cleanup\n7\n",
-        "stderr": "",
-        "check_status": 0,
-        "check_stderr": ""
-      },
       "source_sha256": "540a772bbb8b6ff9bf8adf4c03c1f87b26ccc96fc457518d20332bd7eb5bb2f0",
       "baseline": {
         "status": 0,
         "stdout": "cleanup\n7\n"
-      },
-      "verification_status": "baseline-preserved-pass"
+      }
     },
     {
       "id": "inferred-default-rest-context",
@@ -890,19 +602,11 @@
         "status": 0,
         "stdout": "6 9 2 0\n"
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-default-rest-context.xsh:3:21\n  pure count(...values) { values.len() }\n                      ^ expected `:` or default value after parameter name\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-acceptance/inferred-default-rest-context.xsh:3:21\n  pure count(...values) { values.len() }\n                      ^ expected `:` or default value after parameter name\n"
-      },
       "source_sha256": "7f97c24d74954cc34d4e449e19de6efb2f87b2c7772ccc0288ef942e0f042624",
       "baseline": {
         "status": 2,
         "stdout": ""
-      },
-      "verification_status": "candidate-pending"
+      }
     },
     {
       "id": "inferred-result-payload-versus-boundary-rejected",
@@ -916,31 +620,11 @@
           "annotation"
         ]
       },
-      "baseline_observed": {
-        "status": 2,
-        "stdout": "",
-        "stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                      ^ expected `:` or default value after parameter name\n\nerr[parse.expected-token]: expected `)` after parameters\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                      ^ expected `)` after parameters\n\nerr[parse.expected-token]: expected `{` to start block\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                      ^ expected `{` to start block\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:55\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                                                        ^^^^ expected expression\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:74\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                                                                           ^ expected expression\n",
-        "check_status": 2,
-        "check_stderr": "err[parse.expected-param-type]: expected `:` or default value after parameter name\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                      ^ expected `:` or default value after parameter name\n\nerr[parse.expected-token]: expected `)` after parameters\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                      ^ expected `)` after parameters\n\nerr[parse.expected-token]: expected `{` to start block\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                      ^ expected `{` to start block\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:55\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                                                        ^^^^ expected expression\n\nerr[parse.expected-expression]: expected expression\n  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:74\n  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }\n                                                                           ^ expected expression\n"
-      },
       "source_sha256": "b2d95db4295ecdf15c5ec3f3d0de66b73b1996d6a53ae1dbe0983fc78489d734",
       "baseline": {
         "status": 2,
         "stdout": ""
-      },
-      "verification_status": "candidate-pending"
+      }
     }
-  ],
-  "baseline_products": {
-    "xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
-    "xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
-    "profile": "release",
-    "features": [
-      "native-tests",
-      "net",
-      "tools"
-    ],
-    "toolchain": "nightly-2026-09-15"
-  },
-  "verification_note": "Preserved sources were executed and checked individually. All future inference targets remain pending candidate verification. Baseline annotation/parser rejections are historical observations, not candidate semantic passes."
+  ]
 }

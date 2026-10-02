@@ -1,51 +1,7 @@
 {
   "schema_version": 1,
   "settled_source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
-  "freeze_provenance": {
-    "original_source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
-    "original_inventory": "bench/typing/history/877a114d/operations.json",
-    "original_inventory_sha256": "f3704071c065ba0ce0fa42320c2a75f936084f0527ecb0f81e449eb0d445e5bb",
-    "current_source_authority": "bench/typing/baseline-build.json::build.source_revision",
-    "reconciliation": "Source hashes and authority line locations updated after corrected ergonomics handoff; every operation contract, stable ID, classification, relationship, effect, evidence need, coverage owner and denominator is unchanged.",
-    "operation_contract_sha256": "ca258ced301b0ce9fcc8f70da009abf11d45a5d3cf0bd625b95ee16e4cd9080a",
-    "operation_contract_comparison": "equal excluding authority line locations only",
-    "registry_authority_comparison": "all registry Rust source files byte-identical, including RuntimeOp and default/core signatures",
-    "registry_authority_paths": [
-      "crates/xsh-registry/src/api_docs.rs",
-      "crates/xsh-registry/src/errors.rs",
-      "crates/xsh-registry/src/examples.rs",
-      "crates/xsh-registry/src/lib.rs",
-      "crates/xsh-registry/src/records.rs",
-      "crates/xsh-registry/src/reference.rs",
-      "crates/xsh-registry/src/runtime_op.rs",
-      "crates/xsh-registry/src/signature/builders.rs",
-      "crates/xsh-registry/src/signature/docs.rs",
-      "crates/xsh-registry/src/signature/methods.rs",
-      "crates/xsh-registry/src/signature/mod.rs",
-      "crates/xsh-registry/src/signature/modules.rs",
-      "crates/xsh-registry/src/signature/streams.rs",
-      "crates/xsh-registry/src/stream_parameters.rs",
-      "crates/xsh-registry/src/symbols.rs",
-      "crates/xsh-registry/src/types.rs"
-    ],
-    "changed_authorities": {
-      "src/sema/check/command.rs": {
-        "original_sha256": "f2745ef88a69e9fc068d581324e1b78922e019fc6557cf1d4505f64f42425e3a",
-        "current_sha256": "248f464c627c61083b919eaa11515890f59aa11d1a7952e5b28b25ea62099452"
-      },
-      "src/sema/check/stmt.rs": {
-        "original_sha256": "1d8658468430298aa5ffcb5957f9444be23d34e5d1d6dbf8885dfe592d0ee1d2",
-        "current_sha256": "231a1851c97f854a7cce5927861d8fcd5240085950ede38fa7cbe5fe58a198bb"
-      }
-    }
-  },
   "scope": "exhaustive public registry overloads, builtin schemas/errors, every syntax operator/assignment/stage/run/core-command variant, and finite language relationship families",
-  "generation": {
-    "command": "python3 bench/typing/inventory_operations.py",
-    "check_command": "python3 bench/typing/inventory_operations.py --check",
-    "dependencies": "Python standard library, rustc, git; temporary dependency-free registry builds only",
-    "identity": "registry callable IDs contain RuntimeOp and canonical signature SHA256 prefix, never table position"
-  },
   "configurations": {
     "default": {
       "product_features": [
@@ -230,44 +186,6 @@
       "Unknown/Invalid/poison recovery states do not certify executable operations",
       "unknown/user-defined receiver search, unrestricted conversion ranking and higher-rank instantiation are outside the fixed language contract"
     ]
-  },
-  "source_sha256": {
-    "crates/xsh-registry/src/api_docs.rs": "732496aa10bc88dffb186eb8f78f26c570403e66c23aa22774475c83759d47b2",
-    "crates/xsh-registry/src/errors.rs": "8e97954ba8796ba65f5a106afdc9707d2f2f18188d5d23e728f95e8e6deb452d",
-    "crates/xsh-registry/src/examples.rs": "4d78e5e0484821a28d45727feecb816e08063ce93d6da41d9eb193a2fc1dd11d",
-    "crates/xsh-registry/src/lib.rs": "5f1fcb43dd9c889c8331dc488ab8c3f11b9f3eab9a6e2d10f201d9302ff81eaa",
-    "crates/xsh-registry/src/records.rs": "a12348d3c1efd8b85aacb6bd192aa3b247a91272c97bb2245b42863963bb12a2",
-    "crates/xsh-registry/src/reference.rs": "75bf9863748e7eeea1baf1b11307a870efe206bc356ac6cb0a4230399843f690",
-    "crates/xsh-registry/src/runtime_op.rs": "0f965ccdc85b3a03077c501b6a6bc167dc3d6a8762da168d624ceff54b8b442b",
-    "crates/xsh-registry/src/signature/builders.rs": "574a020c7a4cdcad7ab0b00ec6f8489c51490991b0dcfb37f04773233182d42c",
-    "crates/xsh-registry/src/signature/docs.rs": "20a1c43a5a7d18ee8321fed8bdc3bd271da5f52a60050cef62ffb536ea26d286",
-    "crates/xsh-registry/src/signature/methods.rs": "802c3bd477a0b90a990784f26216f49edbd352bf25acb7a4e3ddb428cc74d231",
-    "crates/xsh-registry/src/signature/mod.rs": "7ed7c54a3cb64669ef313dc41846e1292a19f5b6a24251eeff19ff94fb610eab",
-    "crates/xsh-registry/src/signature/modules.rs": "f6b61c6b213ff9ef586b5719abb2965cb800635168e19b2f8a0f11f6a7106d95",
-    "crates/xsh-registry/src/signature/streams.rs": "8d2cca4c4ebd5d54200c32d2ed213923f8b4a0c69190fb28ada365396e4ef137",
-    "crates/xsh-registry/src/stream_parameters.rs": "22a5760186a6c3b75a1203c2455c52c951442e1944f728faa39425b5911abbc4",
-    "crates/xsh-registry/src/symbols.rs": "5a52b9e90df283452fedf3a7a03df4b976a4cbe06f8c41a1ca0e231f0ab003a6",
-    "crates/xsh-registry/src/types.rs": "2fec655eecc4185cdae34f6b8f6c3c1e696df31e317174dfb1ef1e6649b9f165",
-    "src/map_key.rs": "9dcf83e99a1249acf8109d87decd6a594206fcf30a5e42d7c27e6390f5907095",
-    "src/modules/net.rs": "8cb242d1a312098ba8dee8cb80d3dd2f9cc31285be30d7a66b15bef6e844d567",
-    "src/modules/signature.rs": "9d43979e08789f8f065a831918aa45517ebbe836586b37be71b8b3b9c0b3a9a3",
-    "src/runtime/eval/lowered_ops.rs": "f14ee68b2efe03308083a11868fbbb9af760c756ef533874645193e1e346532a",
-    "src/runtime/eval/lowered_run.rs": "e4443c16dafd686b20ad52fa69b229979c22cf77cc55ac2dfdd4bafded0ef9b6",
-    "src/sema/arguments.rs": "8fc99c7147c8115863f00a3b63d4e07632df215cb93f6d767783fa79b68c2a38",
-    "src/sema/builtin_templates.rs": "9e35c7b074159fc7f942c11c384c5f0af4ab2602cbe4c4c17b7dcc983e69e147",
-    "src/sema/check/call.rs": "1666842f0078b364f249766e847ae8003a68045544d3fa24861bc814da1329b6",
-    "src/sema/check/command.rs": "248f464c627c61083b919eaa11515890f59aa11d1a7952e5b28b25ea62099452",
-    "src/sema/check/expected.rs": "5e96c6236565fd066f18d33f069c6eb213f81c66e981db2fe6b94bf22a4e385f",
-    "src/sema/check/expr.rs": "eebe4531ff34f0a243bd3feeb6e70156689d41762e7a21c932aeeb8425c4ea26",
-    "src/sema/check/method.rs": "652cf90020b23d5d21208da742e3acd06cf6934b5874b75aa3cf95f086e2778e",
-    "src/sema/check/stmt.rs": "231a1851c97f854a7cce5927861d8fcd5240085950ede38fa7cbe5fe58a198bb",
-    "src/sema/check/stream.rs": "67db41d83174c32fad42b042d74f94a7ac9b6f3bdf30c4889c2ba5a13af56e3a",
-    "src/sema/check/types.rs": "efcd7fb821c8429b03368de7c1e851d99f0012fdcee89a3a1c1cb037560a6133",
-    "src/sema/constants.rs": "be2b79f3a20b9450cc892e2ff15948a9e60bfcb62f98aa90cbb1cd125fce2c93",
-    "src/sema/projection.rs": "702c1a7df4ce9865782595522b9a746d1a03b3cc0a89a0ff7a0178f996c81019",
-    "src/sema/stage_arguments.rs": "b5b4adcb66655c3b1f2b5a78627b4e6704ed50dc4d3e1ee97b6d32c679172072",
-    "src/sema/types.rs": "7c6b9c1bee6bd2ecffac17e098a800b6a4d02b19c7a81123f7c38a09d6a3a766",
-    "src/syntax/node.rs": "5d6118f0763ec74c1e6c879d0ad60640903c4dfcbf8f4eca451cbf3248588cc2"
   },
   "operations": [
     {

@@ -1,3 +1,0 @@
-running 1 tests
-tests/xsh/typing-inference-producers.xsh::record_constructor_fields_keep_stored_producer_permissions ... ok 157ms
-test result: ok. 1 passed; 0 failed; 0 skipped

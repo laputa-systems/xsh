@@ -1,3 +1,0 @@
-running 1 tests
-tests/xsh/typing-inference-operations.xsh::generic_sealed_add_two_domains ... ok 85ms
-test result: ok. 1 passed; 0 failed; 0 skipped
