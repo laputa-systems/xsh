@@ -34,6 +34,47 @@ fn prepared() -> FullProgram {
 }
 
 #[test]
+fn original_list_path_argv_guard_uses_the_checked_expression_port_before_lowering() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "proc expanded(values: List[Path]) [process] -> Result[Str, ProcessError] { run.text printf \"<%s>\" $values }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(51), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let run = checked.solved.run_operations.values().next().unwrap();
+        assert_eq!(run.arguments.len(), 1);
+        let argument = &run.arguments[0];
+        let crate::sema::check::RunArgumentSource::Expression(origin) = argument.source else { panic!("the authored interpolation owns its expression") };
+        assert_eq!(checked.solved.expressions.get(&origin), Some(&argument.actual), "rendering authority uses the original expression port");
+        assert_eq!(argument.mode, crate::sema::check::RunArgumentMode::Expansion);
+        checked.solved.validate().unwrap();
+    });
+}
+
+#[test]
+fn original_result_command_capture_tail_lowers_without_inserting_a_success_wrapper() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "proc captured() [process] -> Result[Str, ProcessError] { run.text printf \"tail\" }\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("capture-tail-proof.xsh", crate::loader::entry_source_from_text("capture-tail-proof.xsh", source.to_owned()), Vec::new());
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = SourceMap::files(&sources).first().unwrap().id();
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(checked.solved.result_statement_wrappings.is_empty(), "the command already produces its checked Result");
+        let run = checked.solved.run_operations.values().next().unwrap();
+        let ProducerFlowSource::Statement(statement) = run.parent else { panic!("the authored command is the result producer") };
+        assert_eq!(checked.solved.statements.get(&statement), Some(&crate::sema::check::StatementPosition::Value));
+        let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &checked);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        let program = FullBuilder::build_compact(&parsed.arena, &declarations, &bodies, source, Arc::new(sources), source_id).unwrap();
+        FullVerifier::verify(&program).unwrap();
+        let run = program.generic_evidence().unwrap().run_producers().next().unwrap();
+        assert_eq!(run.capture, run.continuation);
+        assert_eq!(run.original_carrier, Type::Result(Box::new(Type::Str), Box::new(Type::ProcessError)));
+    });
+}
+
+#[test]
 fn checked_dynamic_path_argv_preserves_word_boundaries_and_expansion_after_disposal_on_both_workers() {
     crate::runtime::eval::run_eval(|| {
         let program = Arc::new(prepared());

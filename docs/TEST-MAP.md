@@ -157,6 +157,11 @@ checks ordered heterogeneous writes and preserves the previous file on a
 non-JSON child failure. `embedded_bridge` and `original_native_bridge` library
 filters cover exact catalog declarations, genuine native invocations, and
 rewritten or foreign authority after frontend disposal.
+`cargo test -p xsh --lib run_prepare::dynamic_tests` checks original List[Path]
+argv ports, word boundaries and expansion, captured Result command tails,
+Spawn transport, and forged source refusals after frontend disposal on both
+execution workers.
+
 `cargo test -p xsh --lib original_lexical_capture` checks
 original capture allocation and read authority, both routes after frontend
 disposal, cold forgery refusals, and checkpoint retirement. The existing

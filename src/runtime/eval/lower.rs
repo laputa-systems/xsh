@@ -5800,7 +5800,19 @@ impl CompactLowerConstructProbe<'_, '_> {
                 } else { value };
                 push_build_row!(self, stmt, BuildStmtRow::Return { value })
             },
-            ArenaStmtKind::Command(_) if self.solved().result_statement_wrappings.contains_key(&self.statement_identity(tail)) => {
+            ArenaStmtKind::Command(command) if self.solved().result_statement_wrappings.contains_key(&self.statement_identity(tail)) || {
+                let identity = self.statement_identity(tail);
+                if self.statement_position(tail) != Some(&crate::sema::check::StatementPosition::Value) { false }
+                else if let ArenaCommand::Run(run) = self.program.arena.command_stmt(command).command {
+                    let form = self.program.arena.run_form(run);
+                    let source = crate::sema::check::RunIdentity { source: self.program.arena.span(form.span).source_id, namespace: self.current_namespace, run };
+                    self.solved().run_operations.get(&source).is_some_and(|original| {
+                        original.parent == crate::sema::check::ProducerFlowSource::Statement(identity)
+                            && lowered_run_capture_type(original.kind).is_some()
+                            && self.program.arena.run_segments(form.segments).first().is_some_and(|segment| segment.kind == original.kind)
+                    })
+                } else { false }
+            } => {
                 let value = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)?;
                 push_build_row!(self, stmt, BuildStmtRow::Return { value })
             },

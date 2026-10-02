@@ -67,7 +67,22 @@ impl Checker {
         if !self.graph_generation || matches!(actual, Type::Unknown | Type::Invalid) { return false; }
         let mut own_requirement = None;
         let outcome = (|| {
-            let actual = self.graph_type(actual, span)?;
+            // Expression checking has already published the source port. A
+            // closed composite view would allocate another port if imported
+            // here, disconnecting rendering authority from that expression.
+            let actual = match source {
+                RunArgumentSource::Expression(identity) => {
+                    let state = self.generic.borrow();
+                    if identity.source != span.source_id || identity.namespace != self.current_namespace
+                        || state.facts.expression_owners.get(&identity).copied() != self.current_generic {
+                        return Err(InferenceError::InvalidScheme);
+                    }
+                    let original = *state.facts.expressions.get(&identity).ok_or(InferenceError::InvalidScheme)?;
+                    state.facts.graph.node(state.facts.graph.resolved(original)?)?;
+                    original
+                }
+                RunArgumentSource::NamedSplice { .. } => self.graph_type(actual, span)?,
+            };
             let mut state = self.generic.borrow_mut();
             let reason = state.facts.graph.reason(span, None)?;
             let operand = if mode == RunArgumentMode::Splice {

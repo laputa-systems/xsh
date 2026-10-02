@@ -662,6 +662,12 @@ and lexical cleanup ownership.
 The parser retains ungrouped run argv boundaries; grouped expressions own their
 closing delimiter so a run-valued payload can precede a postfix guard.
 
+`sema/check/run_operation.rs` retains each interpolated argv expression's
+original checked type port for rendering authority. Named splices own separate
+ports. A captured run command in a value tail already produces a Result;
+`CompactLowerConstructProbe::lower_tail_block` uses its original `SolvedRun`
+and statement identity to preserve that Result without adding a success wrapper.
+
 There is no JIT, green-thread scheduler, or async task runtime in the execution
 path. The checked arena is lowered into a compact verified indexed store before
 execution. `src/runner.rs` shares the owned parsed arena between the full
