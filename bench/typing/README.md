@@ -29,7 +29,7 @@ formatter/autofixer, dependency addition, or Linux execution is authorized.
 ## Frozen scope and historical evidence
 
 The following observations describe the original handoff unless an artifact
-explicitly records the corrected revision. Fresh verification is in progress;
+explicitly records the corrected revision. Frozen wind-down verification is recorded;
 `results.json` records current gate status without carrying historical passes
 forward as new acceptance.
 
@@ -81,7 +81,7 @@ forward as new acceptance.
 | A — semantic freeze and baseline | Passed at corrected handoff; exhaustive timing waived by user |
 | B — shared inference and early indexed execution | Passed; exact commands and source identities in `gate-b-verification.json` |
 | C — declaration inference and solved consumers | Passed; coherent source/product verification in `gate-c-verification.json` |
-| D — full indexed integration and module reuse | In progress; exhaustive execution obligations remain |
+| D — full indexed integration and module reuse | Paused incomplete; runtime integration obligations remain |
 | E — joint annotation removal and adversarial witnesses | Not run |
 | F — paired time, memory and scaling acceptance | Not run |
 | G — consolidation and maintained-source migration | Not run |

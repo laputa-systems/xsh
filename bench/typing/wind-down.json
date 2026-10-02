@@ -90,5 +90,44 @@
     "final performance/scaling acceptance",
     "a clean whole-repository lint gate for this typing checkpoint"
   ],
-  "primary_debug_build": "pending integration build"
+  "primary_debug_build": {
+    "status": "passed",
+    "command": "cargo build -p xsh --bin xsh -p xsht --bin xsht -p xshi --bin xshi --offline",
+    "source_revision": "e5004ea5b52423edd965ca492567edeac702265e",
+    "source_code_fingerprint": "6cea1d1d937d1ffcb769f2278dd7d47d99bd261af4292ea833d516429fb97491",
+    "exit_code": 0,
+    "reported_seconds": 33.97,
+    "products": [
+      {
+        "path": "target/debug/xsh",
+        "sha256": "e2dec858a5776979e7aa53a10d8059079ff648065d90092c25c92733efc7c2e8"
+      },
+      {
+        "path": "target/debug/xsht",
+        "sha256": "f5874a9447383fe5a9d97090f70c251afe217b942a0db22b5378278cf829a6a7"
+      },
+      {
+        "path": "target/debug/xshi",
+        "sha256": "a3419286b91a3b45f1d49984024cd35b2bdd2f5eaebf86d11f1d73157fb1530b"
+      }
+    ],
+    "log": "bench/typing/logs/wind-down/primary-debug-build.log",
+    "log_sha256": "dff4b0c527051496fb930851a55663ca4cae2e9df3eb4c08db90eb492df4c9a1"
+  },
+  "primary_branch": "master",
+  "cleanup": {
+    "status": "complete",
+    "removed_sibling_directories": [
+      "xsh-typing-baseline",
+      "xsh-typing-baseline-v2",
+      "xsh-typing-campaign",
+      "xsh-typing-campaign-v2",
+      "xsh-ergonomics-worktrees"
+    ],
+    "remaining_worktrees": [
+      "/Users/josh/d/laputa-systems/xsh"
+    ],
+    "preservation_manifest": "bench/typing/history/wind-down/legacy-preservation.json",
+    "all_retired_worktree_heads_integrated": true
+  }
 }
