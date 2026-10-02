@@ -196,6 +196,10 @@ impl GenericEvidenceStore {
                 };
                 let admitted = expected == &crate::sema::types::Type::Any || parameter_accepts(expected, &actual)
                     || matches!(expected, crate::sema::types::Type::Optional(inner) if actual == crate::sema::types::Type::Null || parameter_accepts(inner, &actual));
+                // Splicing into a declared erased list admits the finite producer's
+                // elements while retaining its original concrete list type.
+                let admitted = admitted || matches!((&result, operand.role, &actual),
+                    (crate::sema::types::Type::List(item), ContainerOperandRole::ListSplice(_), crate::sema::types::Type::List(_)) if item.as_ref() == &crate::sema::types::Type::Any);
                 let admitted = admitted || source.creation_check.is_some() && checked_container_boundary_accepts(expected, &actual);
                 if !roles.insert(role) || !admitted { return Err(failure("container operand changes its checked type relationship")); }
             }

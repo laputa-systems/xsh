@@ -74,3 +74,22 @@ print lines
   "check.type-mismatch" in output.stderr
   output.stdout == ""
 }
+
+test test_json_inference_admission_keeps_finite_splice_source_contracts [error] { |ctx|
+  let ordinary = test.run_script(ctx, r"""
+let words = ["two"]
+print "executed"
+let values = [1, @words]
+""")?
+  ordinary.status == 2
+  "check.type-mismatch" in ordinary.stderr
+  ordinary.stdout == ""
+  let dynamic = test.run_script(ctx, r"""
+let values: Any = 1
+print "executed"
+let items: List[Any] = [@values]
+""")?
+  dynamic.status == 2
+  "check.list-splice-type" in dynamic.stderr
+  dynamic.stdout == ""
+}

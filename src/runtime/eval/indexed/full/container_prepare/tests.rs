@@ -27,6 +27,38 @@ fn list_build_fixture() -> FullProgram {
 }
 
 #[test]
+fn list_build_declared_erasure_retains_original_finite_splice_on_both_routes() {
+    on_large_stack(|| {
+        let program = Arc::new(super::super::operation_prepare::tests::source_fixture(
+            "pure erased(middle: List[Str]) -> List[Any] { [1, @middle, true] }\npure comparison(left: Int, right: Int) -> Bool { left == right }\n",
+            PreparedLanguageOperation::Equality { op: BinaryOp::Eq }));
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let (id, source) = generic.ground_containers().find(|(_, source)| source.operands.len() == 3).unwrap();
+            assert_eq!(program.store.semantic.to_type(source.result).unwrap(), crate::sema::types::Type::List(Box::new(crate::sema::types::Type::Any)));
+            let splice = &source.operands[1];
+            assert_eq!(splice.role, ContainerOperandRole::ListSplice(1));
+            assert_eq!(program.store.semantic.to_type(splice.source_type).unwrap(), crate::sema::types::Type::List(Box::new(crate::sema::types::Type::Str)));
+            assert_eq!(splice.ty, splice.source_type);
+            let mut changed = program.store.clone();
+            changed.generic.as_deref_mut().unwrap().test_ground_container_mut(id).unwrap().operands[1].source_type = source.result;
+            assert!(FullVerifier::verify_generic_evidence(&changed).is_err(), "erasure cannot replace the original finite producer type");
+        });
+        for recursive in [false, true] {
+            program.symbol_owner().with_current(|| {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(program.clone());
+                let key = LoweredFunctionKey::Name(Name::intern("erased"));
+                let arguments = [Value::List(vec![Value::Str(Arc::from("middle"))])];
+                let execute = || evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::new(program.store.source_id, 0, 0)).unwrap();
+                let actual = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(key, recursive, execute);
+                assert_eq!(actual.unwrap(), Value::List(vec![Value::Int(1), Value::Str(Arc::from("middle")), Value::Bool(true)]));
+            });
+        }
+    });
+}
+
+#[test]
 fn list_build_original_scalar_and_finite_splice_producers_execute_both_routes_after_frontend_disposal() {
     on_large_stack(|| {
         let program = Arc::new(list_build_fixture());
