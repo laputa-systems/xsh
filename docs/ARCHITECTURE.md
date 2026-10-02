@@ -177,15 +177,22 @@ The split packet records an omitted trailing limit as absence, checked against
 the original default slot; its backend receives that absence directly. Named
 arguments retain authored evaluation order separately from formal slots.
 
+`List.join` retains its concrete string-list receiver and an omitted separator
+as absence in the original two-formal method packet. The selected default slot
+authorizes the existing backend's empty separator behavior; preparation does
+not synthesize a string operand. A named separator retains its authored source
+recipe and formal destination separately.
+
 `Str.byte_slice` retains its byte offset and an omitted trailing length as
 absence in the original method packet. Its selected backend preserves UTF-8
 boundary errors and does not reinterpret those bounds as character offsets.
 
-`fs.children` retains its specialized `ExprFsList` operand packet, selected
-`FsChildren` authority, omitted stat/order markers and original
-`Result[Stream[FsEntry], Error]` producer. Both workers validate that authority
-before evaluating its operands and preserve the existing filesystem stream
-lifecycle.
+`fs.children` retains its selected `FsChildren` authority, omitted stat/order
+markers and original `Result[Stream[FsEntry], Error]` producer. Specialized
+`ExprFsList` and module call packets each retain an exact operand decoder;
+named source order and omitted defaults remain part of the original call
+receipt. Both workers validate native authority before evaluating its operands
+and preserve the existing filesystem stream lifecycle.
 
 `Digest.hex` and `Digest.base64` retain the nominal Digest producer and selected
 encoding operation. Their native receipts admit that closed receiver directly
@@ -202,6 +209,13 @@ Native `Result` success records retain their canonical selected schema in the
 sealed native source receipt. `FullExecution::materialize_native_result_record`
 uses that schema on `Ok` values before numeric projection. The existing `Err`
 value and opaque capability identity remain intact through the host bridge.
+
+Native List and Stream record items retain their selected carrier and record
+layout in the same receipt. Materialized items receive that layout immediately;
+live streams apply it only to reached items. `lowered_run/native_record_items.rs`
+preserves buffering, cancellation and producer ownership without draining the
+stream. Filesystem entries retain canonical numeric field slots while metadata
+reads remain lazy; prepared layout does not change their logical equality.
 
 Scoped Display eligibility retains its original published requirement and exact
 `TypeRef` in the declaring scheme. Concrete witnesses use the checker’s Display

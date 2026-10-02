@@ -19,7 +19,7 @@ mod native_record_arguments;
 pub(in crate::runtime::eval) use native_record_arguments::PreparedNativeRecordFieldArgument;
 mod ranges;
 pub(in crate::runtime::eval) use ranges::PreparedRangeLowering;
-pub(in crate::runtime::eval) use native_results::PreparedNativeResultRecord;
+pub(in crate::runtime::eval) use native_results::{PreparedNativeResultRecord, PreparedNativeRecordCarrier};
 mod constants;
 mod record_updates;
 mod conditionals;

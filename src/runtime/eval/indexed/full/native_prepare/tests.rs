@@ -808,7 +808,7 @@ fn direct_native_text_bytes_family_preserves_numeric_receiver_domains_and_result
         program.symbol_owner().with_current(|| {
             let calls = program.generic_evidence().unwrap().ground_native_calls().collect::<Vec<_>>();
             for operation in [RuntimeOp::TextUpper, RuntimeOp::TextTrim, RuntimeOp::TextReplace, RuntimeOp::TextStartsWith, RuntimeOp::BytesStartsWith, RuntimeOp::TextParseIntDecimal, RuntimeOp::BytesUtf8, RuntimeOp::HashSha256, RuntimeOp::BytesChunks, RuntimeOp::BytesTrim, RuntimeOp::BytesCompare] {
-                assert!(calls.iter().any(|(_, proof)| matches!(proof.contract.authority, PreparedOperationAuthority::Registry { operation: actual, .. } if actual == operation)));
+                assert!(calls.iter().any(|(_, proof)| matches!(proof.contract.authority, PreparedOperationAuthority::Registry { operation: actual, .. } if actual == operation)), "selected {operation:?} lacks its original ground native receipt");
             }
             let replace = calls.iter().find(|(_, proof)| matches!(proof.contract.authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::TextReplace, .. })).unwrap().1;
             assert_eq!(replace.contract.binding.supplied_slots.as_ref(), &[2, 1]);
@@ -882,12 +882,121 @@ fn direct_native_text_bytes_family_refuses_missing_foreign_and_jointly_rewritten
     });
 }
 
+fn list_join_program() -> FullProgram {
+    source_fixture("pure join(items: List[Str]) -> Str { items.join() }\npure supplied(items: List[Str], separator: Str) -> Str { items.join(separator: separator) }\npure other_join(items: List[Str]) -> Str { items.join() }\npure length(items: List[Str]) -> Int { items.len() }\npure comparison(left: Int, right: Int) -> Bool { left == right }\n", PreparedLanguageOperation::Equality { op: BinaryOp::Eq })
+}
+
+#[test]
+fn direct_native_list_join_keeps_original_string_list_and_absent_separator_on_both_routes() {
+    on_large_stack(|| {
+        let program = Arc::new(list_join_program());
+        program.symbol_owner().with_current(|| {
+            let calls = program.generic_evidence().unwrap().ground_native_calls().filter(|(_, proof)| matches!(proof.contract.authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::TextJoin, .. })).collect::<Vec<_>>();
+            assert_eq!(calls.len(), 3, "original selected joins retain native receipts");
+            for (_, proof) in calls {
+                assert_eq!(proof.contract.registry_owner, RegistryOwner::Method(crate::modules::signature::MethodReceiver::List));
+                let TypeRef::Ground(receiver) = proof.contract.receiver.as_ref().unwrap().ty else { panic!("original join receiver is closed") };
+                assert_eq!(program.store.semantic.to_type(receiver).unwrap(), Type::List(Box::new(Type::Str)));
+                let TypeRef::Ground(result) = proof.contract.result else { panic!("original join result is closed") };
+                assert_eq!(program.store.semantic.to_type(result).unwrap(), Type::Str);
+                if proof.contract.binding.default_slots.is_empty() {
+                    assert_eq!(proof.contract.binding.supplied_slots.as_ref(), &[1]);
+                    assert_eq!(proof.contract.arguments[0].original.name, Some(Name::intern("separator")));
+                } else {
+                    assert_eq!(proof.contract.binding.default_slots.as_ref(), &[1]);
+                    assert!(proof.contract.arguments.is_empty());
+                    assert_eq!(proof.contract.argument_sources[1], None);
+                }
+            }
+            for recursive in [false, true] {
+                for (name, arguments, expected) in [
+                    ("join", vec![Value::List(vec![])], ""),
+                    ("join", vec![Value::List(vec![Value::Str(Arc::from("a")), Value::Str(Arc::from("β"))])], "aβ"),
+                    ("supplied", vec![Value::List(vec![Value::Str(Arc::from("a")), Value::Str(Arc::from("")), Value::Str(Arc::from("β"))]), Value::Str(Arc::from("::"))], "a::::β"),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(program.clone());
+                    let key = LoweredFunctionKey::Name(Name::intern(name));
+                    let call = || evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::new(program.store.source_id, 0, 0)).unwrap();
+                    assert_eq!(crate::runtime::eval::lowered_run::with_observed_indexed_call_route(key, recursive, call).unwrap(), Value::Str(Arc::from(expected)));
+                }
+            }
+        });
+    });
+}
+
+#[test]
+fn direct_native_list_join_refuses_missing_foreign_default_and_selected_operation_rewrites() {
+    on_large_stack(|| {
+        let program = list_join_program();
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let calls = generic.ground_native_calls().filter(|(_, proof)| matches!(proof.contract.authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::TextJoin, .. })).collect::<Vec<_>>();
+            let defaults = calls.iter().filter(|(_, proof)| !proof.contract.binding.default_slots.is_empty()).copied().collect::<Vec<_>>();
+            let (id, proof) = defaults[0];
+            let source = generic.native_call_source(proof.source).unwrap();
+            let foreign = defaults[1].1.contract.receiver.as_ref().unwrap();
+            let supplied = calls.iter().find(|(_, proof)| proof.contract.binding.default_slots.is_empty()).unwrap().1;
+            let supplied_source = generic.native_call_source(supplied.source).unwrap();
+            let range = program.store.data[source.instruction as usize].range();
+            let supplied_words = program.store.payload(program.store.data[supplied_source.instruction as usize].range()).unwrap();
+            let len = generic.ground_native_calls().find(|(_, proof)| matches!(proof.contract.authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::ListLen, .. })).unwrap().1;
+            let mut missing = program.clone();
+            missing.store.generic.as_deref_mut().unwrap().test_remove_ground_native_calls();
+            let mut other = program.clone();
+            other.store.extra[range.start as usize] = foreign.instruction;
+            let evidence = other.store.generic.as_deref_mut().unwrap();
+            evidence.test_ground_native_call_mut(id).unwrap().contract.receiver = Some(foreign.clone());
+            evidence.test_ground_native_call_mut(id).unwrap().contract.argument_sources[0] = Some(foreign.instruction);
+            let rewritten = evidence.ground_native_call(id).unwrap().contract.clone();
+            evidence.test_native_call_source_mut(proof.source).unwrap().expected = rewritten;
+            let mut separator = program.clone();
+            separator.store.extra[range.start as usize + 2] = supplied_words[2];
+            let evidence = separator.store.generic.as_deref_mut().unwrap();
+            let altered = &mut evidence.test_ground_native_call_mut(id).unwrap().contract;
+            altered.binding = supplied.contract.binding.clone();
+            altered.arguments = supplied.contract.arguments.clone();
+            altered.argument_sources[1] = supplied.contract.argument_sources[1];
+            let rewritten = evidence.ground_native_call(id).unwrap().contract.clone();
+            evidence.test_native_call_source_mut(proof.source).unwrap().expected = rewritten;
+            let mut operation = program.clone();
+            operation.store.extra[range.start as usize + 1] = (0..operation.store.strings.len() as u32).find(|&word| operation.store.string(word).ok() == Some("len")).unwrap();
+            let evidence = operation.store.generic.as_deref_mut().unwrap();
+            let altered = &mut evidence.test_ground_native_call_mut(id).unwrap().contract;
+            altered.authority = len.contract.authority.clone();
+            altered.signature = len.contract.signature;
+            altered.kind = len.contract.kind;
+            altered.result = len.contract.result;
+            altered.effects = len.contract.effects.clone();
+            altered.argument_relations = len.contract.argument_relations.clone();
+            altered.input_eligibility = len.contract.input_eligibility.clone();
+            altered.binding = len.contract.binding.clone();
+            altered.argument_sources = vec![Some(altered.receiver.as_ref().unwrap().instruction)].into_boxed_slice();
+            altered.receiver.as_mut().unwrap().method_name = Name::intern("len");
+            let rewritten = evidence.ground_native_call(id).unwrap().contract.clone();
+            evidence.test_native_call_source_mut(proof.source).unwrap().expected = rewritten;
+            for changed in [missing, other, separator, operation] {
+                assert!(FullVerifier::verify(&changed).is_err());
+                for recursive in [false, true] {
+                    let changed = Arc::new(changed.clone());
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*changed.sources).clone());
+                    evaluator.indexed_program = Some(changed.clone());
+                    let key = LoweredFunctionKey::Name(Name::intern("join"));
+                    let arguments = [Value::List(vec![Value::Str(Arc::from("a")), Value::Str(Arc::from("β"))])];
+                    let call = || evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::new(changed.store.source_id, 0, 0)).unwrap();
+                    assert_eq!(crate::runtime::eval::lowered_run::with_observed_indexed_call_route(key, recursive, call).unwrap_err().kind, "indexed-ir");
+                }
+            }
+        });
+    });
+}
+
 fn fs_children_program() -> FullProgram {
     source_fixture("proc defaults(path: Path) [fs, error] -> Int { fs.children(path)?.collect().len() }\nproc other_defaults(path: Path) [fs, error] -> Int { fs.children(path)?.collect().len() }\nproc configured(path: Path) [fs, error] -> Int { fs.children(path, ordered: false, stat: false)?.collect().len() }\npure comparison(left: Int, right: Int) -> Bool { left == right }\n", PreparedLanguageOperation::Equality { op: BinaryOp::Eq })
 }
 
 #[test]
-fn direct_native_fs_children_keeps_original_specialized_carrier_defaults_and_named_sources_on_both_routes() {
+fn direct_native_fs_children_keeps_original_carrier_defaults_and_named_sources_on_both_routes() {
     on_large_stack(|| {
         use std::os::unix::ffi::OsStrExt;
         let program = Arc::new(fs_children_program());
@@ -896,7 +1005,8 @@ fn direct_native_fs_children_keeps_original_specialized_carrier_defaults_and_nam
             assert_eq!(calls.len(), 3);
             for (_, proof) in calls {
                 let source = program.generic_evidence().unwrap().native_call_source(proof.source).unwrap();
-                assert_eq!(program.store.tags[source.instruction as usize], FullTag::ExprFsList);
+                let expected_tag = if proof.contract.binding.default_slots.is_empty() { FullTag::ExprModuleCall } else { FullTag::ExprFsList };
+                assert_eq!(program.store.tags[source.instruction as usize], expected_tag);
                 assert_eq!(proof.contract.registry_owner, RegistryOwner::Module("fs"));
                 let TypeRef::Ground(result) = proof.contract.result else { panic!("selected filesystem stream result is closed") };
                 let Type::Result(success, _) = program.store.semantic.to_type(result).unwrap() else { panic!("filesystem children keeps its Result carrier") };

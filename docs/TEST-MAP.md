@@ -90,14 +90,25 @@ list, Digest and Result carriers, and refusal of missing, foreign and jointly
 rewritten numeric authority on both workers. It does not enumerate every
 canonical method row.
 
+`cargo test -p xsh --lib direct_native_list_join_` checks the original
+string-list receiver, empty lists, omitted and named separators, and refusal of
+missing, foreign, rewritten default packets and selected operation receipts
+on both workers after frontend disposal.
+
 `cargo test -p xsh --lib direct_native_text_byte_slice_` checks byte offsets,
 omitted and named lengths, UTF-8 boundaries, and cold refusal of missing,
 foreign and jointly rewritten default receipts on both workers.
 
-`cargo test -p xsh --lib direct_native_fs_children_` checks the specialized
+`cargo test -p xsh --lib direct_native_fs_children_` checks the original
 filesystem listing packet, omitted and named options, the original entry
 stream domain, and cold refusal of missing, foreign and changed operation or
 default receipts on both workers.
+
+`cargo test -p xsh --lib original_native_record_items_` checks filesystem record
+projection after frontend disposal on both workers, selected carrier and schema
+refusals, live pull timing, buffered items, cancellation, lazy metadata failures
+and logical entry equality. The unchanged extension-count fixture exercises
+the same record layout through a stage callback.
 
 `cargo test -p xsh --lib direct_native_digest_methods_` checks nominal Digest
 parameters and nested hash producers on both workers, including cold refusal

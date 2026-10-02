@@ -66,6 +66,15 @@ impl RecordShape {
             .iter()
             .position(|field| field.as_str() == key)
     }
+
+    pub(crate) fn field_names(&self) -> &[Name] { &self.data.names }
+
+    pub(crate) fn field_text(&self, slot: u32) -> Option<&str> { self.data.texts.get(slot as usize).map(|name| name.as_str()) }
+
+    pub(crate) fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<RecordShapeData>() + 2 * std::mem::size_of::<usize>()
+            + self.data.names.len() * std::mem::size_of::<Name>() + self.data.texts.len() * std::mem::size_of::<NameText>()
+    }
 }
 
 fn runtime_record_shapes() -> &'static RwLock<RuntimeRecordShapes> {
@@ -207,11 +216,18 @@ pub enum FsEntryKind {
     Other,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct FsEntryValue {
     path: Arc<PathBuf>,
     kind: FsEntryKind,
+    prepared_shape: Option<RecordShape>,
 }
+
+impl PartialEq for FsEntryValue {
+    fn eq(&self, other: &Self) -> bool { self.path == other.path && self.kind == other.kind }
+}
+
+impl Eq for FsEntryValue {}
 
 impl FsEntryValue {
     pub fn new(path: PathBuf, file_type: std::fs::FileType) -> Self {
@@ -227,7 +243,16 @@ impl FsEntryValue {
         Self {
             path: Arc::new(path),
             kind,
+            prepared_shape: None,
         }
+    }
+
+    pub(crate) fn with_prepared_shape(mut self, shape: RecordShape) -> Self { self.prepared_shape = Some(shape); self }
+
+    /// A native producer's canonical slot selects one lazy field. Metadata
+    /// remains unavailable until the caller reaches a field requiring it.
+    pub(crate) fn prepared_field_value(&self, slot: u32) -> Option<Result<Value, RuntimeError>> {
+        self.field_value(self.prepared_shape.as_ref()?.field_text(slot)?)
     }
 
     /// Presence does not fetch metadata or construct the field's value.

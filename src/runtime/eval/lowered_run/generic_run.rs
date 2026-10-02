@@ -5,13 +5,19 @@ use crate::runtime::value::{FloatValue, RuntimeError};
 use crate::source::Span;
 use crate::syntax::node::BinaryOp;
 
-/// The verifier connects this numeric slot to the argument's constructor layout.
-/// Execution reads existing storage without looking up a field name.
+/// The verifier connects this numeric slot to the argument's original layout.
+/// A lazy filesystem entry resolves only the selected canonical field.
 pub(super) fn project_record_slot(
     receiver: &LoweredValue,
     slot: u32,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
+    if let LoweredValue::FsEntry(entry) = receiver {
+        let value = entry.prepared_field_value(slot).ok_or_else(|| RuntimeError::new("indexed-ir", "filesystem projection requires its prepared record slot").with_span(span))?
+            .map_err(|error| error.with_span(span))?;
+        return super::super::lowered_ops::lowered_value_from_runtime_any(&value)
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "filesystem projection returned an unsupported field value").with_span(span));
+    }
     project_record_slot_ref(receiver, slot, span).cloned()
 }
 

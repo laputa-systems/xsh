@@ -58,6 +58,8 @@ use xsh_root::Root;
 pub(in crate::runtime::eval) mod indexed_run;
 mod generic_run;
 mod fs_native_run;
+mod native_record_items;
+pub(super) use native_record_items::wrap_native_record_items_stream;
 
 #[cfg(feature = "native-tests")]
 use super::display_value;

@@ -427,9 +427,10 @@ impl Evaluator {
                     map.insert(key, values[1].clone());
                     Ok(ControlFlow::Continue(LoweredValue::Map(Arc::new(map))))
                 }
-                (crate::modules::RuntimeOp::ListGet | crate::modules::RuntimeOp::ListPush | crate::modules::RuntimeOp::ListLen | crate::modules::RuntimeOp::StreamCollect, list @ (LoweredValue::List(_) | LoweredValue::SharedList(_))) => {
+                (crate::modules::RuntimeOp::ListGet | crate::modules::RuntimeOp::ListPush | crate::modules::RuntimeOp::ListLen | crate::modules::RuntimeOp::StreamCollect | crate::modules::RuntimeOp::TextJoin, list @ (LoweredValue::List(_) | LoweredValue::SharedList(_))) => {
                     let mut items = match list { LoweredValue::List(items) => items, LoweredValue::SharedList(items) => super::super::lower::take_shared(items), _ => unreachable!() };
                     let value = match (operation, values.as_slice()) {
+                        (crate::modules::RuntimeOp::TextJoin, arguments) if arguments.len() <= 1 => super::super::lowered_ops::lowered_join_list(&items, arguments, *span)?,
                         (crate::modules::RuntimeOp::StreamCollect, []) => LoweredValue::List(items),
                         (crate::modules::RuntimeOp::ListLen, []) => LoweredValue::Int(items.len() as i64),
                         (crate::modules::RuntimeOp::ListGet, [LoweredValue::Int(index)]) => match usize::try_from(*index).ok().and_then(|index| items.get(index)) {
@@ -2862,6 +2863,7 @@ impl Evaluator {
                     let RequirementWitness::Projection { field_slot, .. } = witness else {
                         return Err(RuntimeError::new("indexed-ir", "field instruction has operation evidence").with_span(field_span));
                     };
+                    if matches!(base, LoweredValue::FsEntry(_)) { return Ok(None); }
                     return super::generic_run::project_record_slot_ref(base, field_slot, field_span).map(Some);
                 }
                 match base {
@@ -6502,10 +6504,11 @@ impl Evaluator {
                         }
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
-                ControlFlow::Continue(self.lowered_stream_list_result(
+                let value = self.lowered_stream_list_result(
                     fs_module::list_filesystem(self.host_path(&path), stat, ordered, span),
                     span,
-                )?)
+                )?;
+                ControlFlow::Continue(execution.materialize_native_result_record(instruction, self, value, span)?)
             }
             FullTag::ExprFsTempDir => {
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;

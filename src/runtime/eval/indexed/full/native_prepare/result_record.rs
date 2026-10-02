@@ -1,13 +1,14 @@
 use super::*;
-use super::super::super::generic::PreparedNativeResultRecord;
+use super::super::super::generic::{PreparedNativeResultRecord, PreparedNativeRecordCarrier};
 
 impl FullBuilder {
     pub(in crate::runtime::eval::indexed::full) fn prepare_native_result_record(&mut self, result: &Type) -> Result<Option<PreparedNativeResultRecord>, IrBuildError> {
-        let Type::Result(success, _) = result else { return Ok(None); };
-        if !matches!(success.as_ref(), Type::Record(_)) { return Ok(None); }
-        let schema = crate::runtime::eval::require::PreparedSchema::compile_record_layout(success).ok_or_else(|| native_problem("native_result_record_canonical_layout"))?;
-        let success = self.intern_generic_ground_type(success)?;
-        Ok(Some(PreparedNativeResultRecord { success, schema }))
+        let Some((carrier, record)) = PreparedNativeRecordCarrier::select(result) else { return Ok(None); };
+        let Type::Record(fields) = record else { unreachable!() };
+        let shape = crate::runtime::value::RecordShape::new(fields.keys().map(|name| Arc::from(name.as_str().as_str())).collect());
+        let schema = crate::runtime::eval::require::PreparedSchema::compile_record_layout(record).ok_or_else(|| native_problem("native_result_record_canonical_layout"))?;
+        let record = self.intern_generic_ground_type(record)?;
+        Ok(Some(PreparedNativeResultRecord { record, carrier, schema, shape }))
     }
 }
 

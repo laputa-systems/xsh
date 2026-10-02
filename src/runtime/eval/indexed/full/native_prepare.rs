@@ -7,7 +7,10 @@ mod result_record;
 mod path_methods;
 mod record_arguments;
 mod text_methods;
+mod list_methods;
 mod fs_children;
+#[cfg(test)]
+mod record_items_tests;
 
 fn native_problem(construct: &'static str) -> IrBuildError { IrBuildError::format(construct, None, 0, 0) }
 
@@ -120,11 +123,12 @@ impl FullBuilder {
             let fs_root = super::super::generic::is_fs_root_method_owner(metadata.owner);
             let path_method = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Path);
             let text_optional_tail = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str) && matches!(metadata.operation, RuntimeOp::TextSplit | RuntimeOp::TextByteSlice);
+            let list_join = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) && metadata.operation == RuntimeOp::TextJoin;
             let method = method || fs_root || path_method;
             if !(matches!(metadata.owner, RegistryOwner::Module(_)) && !method
                 || method && match metadata.owner {
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Map) => matches!(metadata.operation, RuntimeOp::MapKeys | RuntimeOp::MapValues | RuntimeOp::MapGet | RuntimeOp::MapSet | RuntimeOp::MapLen),
-                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) => matches!(metadata.operation, RuntimeOp::ListGet | RuntimeOp::ListPush | RuntimeOp::ListLen | RuntimeOp::StreamCollect),
+                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) => matches!(metadata.operation, RuntimeOp::ListGet | RuntimeOp::ListPush | RuntimeOp::ListLen | RuntimeOp::StreamCollect | RuntimeOp::TextJoin),
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str) => text_optional_tail || super::super::native_methods::nondefault_method_spelling(crate::modules::signature::MethodReceiver::Str, metadata.operation).is_some(),
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Bytes) => super::super::native_methods::nondefault_method_spelling(crate::modules::signature::MethodReceiver::Bytes, metadata.operation).is_some(),
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Stream) => metadata.operation == RuntimeOp::StreamCollect,
@@ -154,7 +158,7 @@ impl FullBuilder {
             let TypeNode::Arrow(arrow) = graph.node(signature).map_err(|_| native_problem("native_signature_owner"))? else { return Err(native_problem("native_signature_kind")); };
             let offset = usize::from(method);
             if arrow.kind != metadata.kind || arrow.params.len() != metadata.parameters.len() + offset
-                || method && ((!fs_root && !path_method && !text_optional_tail && arrow.params.iter().any(|parameter| parameter.defaulted || parameter.rest))
+                || method && ((!fs_root && !path_method && !text_optional_tail && !list_join && arrow.params.iter().any(|parameter| parameter.defaulted || parameter.rest))
                     || arrow.params[0].defaulted || arrow.params[0].rest || arrow.params[0].label != Name::intern("<receiver>"))
                 || arrow.params[offset..].iter().zip(&metadata.parameters).any(|(formal, original)| formal.label != original.label || formal.defaulted != original.defaulted || formal.rest) {
                 return Err(native_problem("native_original_parameter_contract"));
@@ -189,6 +193,8 @@ impl FullBuilder {
                 path_methods::encoded_path_method_arguments(&self.store, instruction, arrow.params.len(), Name::intern(metadata.entry), metadata.operation).map_err(|cause| IrBuildError::verification("native_encoded_path_method_arguments", cause))?
             } else if text_optional_tail {
                 text_methods::encoded_text_method_arguments(&self.store, instruction, arrow.params.len(), metadata.operation).map_err(|cause| IrBuildError::verification("native_encoded_text_method_arguments", cause))?
+            } else if list_join {
+                list_methods::encoded_list_join_arguments(&self.store, instruction, arrow.params.len()).map_err(|cause| IrBuildError::verification("native_encoded_list_join_arguments", cause))?
             } else if method {
                 let (arguments, location) = encoded_native_method_arguments(&self.store, instruction, arrow.params.len(), Name::intern(metadata.entry)).map_err(|_| native_problem("native_encoded_method_arguments"))?;
                 (metadata.operation, arguments, location)
@@ -443,6 +449,8 @@ impl FullVerifier {
                 path_methods::encoded_path_method_arguments(store, instruction, count, receiver.method_name, operation)?
             } else if proof.contract.registry_owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str) && matches!(operation, RuntimeOp::TextSplit | RuntimeOp::TextByteSlice) {
                 text_methods::encoded_text_method_arguments(store, instruction, count, operation)?
+            } else if proof.contract.registry_owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) && operation == RuntimeOp::TextJoin {
+                list_methods::encoded_list_join_arguments(store, instruction, count)?
             } else {
                 let (arguments, location) = encoded_native_method_arguments(store, instruction, count, receiver.method_name)?;
                 (operation, arguments, location)
