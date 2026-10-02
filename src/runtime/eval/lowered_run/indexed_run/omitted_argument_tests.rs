@@ -128,6 +128,46 @@ print $observed
     }
 
     #[test]
+    fn live_mutable_producer_capture_preserves_shared_cell_across_pulls_after_frontend_disposal() {
+        assert_both_routes(r#"var observed = 0
+stream rows() [] -> Stream[Int] {
+    yield observed
+    observed = observed + 1
+    yield observed
+}
+let pending = rows()
+observed = 4
+for item in pending {
+    print $item
+    observed = observed + 10
+}
+print $observed
+"#, b"4\n15\n25\n");
+    }
+
+    #[test]
+    fn live_mutable_producer_capture_cancellation_keeps_deferred_writes_after_frontend_disposal() {
+        assert_both_routes(r#"var observed = 0
+proc record() [] -> Unit { observed = observed + 1 }
+stream rows() [error] -> Stream[Int] {
+    defer record()
+    yield observed
+    observed = 100
+    yield observed
+}
+proc caller() [io, error] -> Unit {
+    for item in rows() {
+        print $item
+        observed = 4
+        break
+    }
+}
+caller()
+print $observed
+"#, b"0\n5\n");
+    }
+
+    #[test]
     fn recursive_interior_omission_executes_the_declaration_expression_once_after_supplied_arguments() {
         assert_interior_expression_default(true);
     }

@@ -172,6 +172,14 @@ within one expression and stored callable aliases on both workers after
 frontend disposal. `live_capture_cells::tests` checks original allocation
 sharing and refusal of missing, foreign or substituted cells.
 
+`cargo test -p xsh --lib live_mutable_producer_capture_` checks shared writes
+across pulls and cancellation defers. `suspended_live_capture_frame_` checks
+detached frame ownership and refusal of changed receiving allocations.
+`original_lexical_capture_typed_ports_` and
+`original_lexical_capture_pure_typed_uint_` check authentic scalar encodings and
+live UInt reads after frontend disposal. `zero_slot_import_driver_` checks
+nested imports without physical slots alongside real loaded mutable captures.
+
 `target/debug/xsht test --jobs 1 tests/xsh/guard-success.xsh` checks lexical
 success bindings, shadows, typed continuations, and failure-handler visibility.
 `cargo test -p xsh --lib spawn_scopes_release_body_handles_before_defers_and_close_on_error_and_forced_abort_on_both_workers`

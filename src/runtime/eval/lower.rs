@@ -3088,7 +3088,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         self.record_top_level_blocker_detail(statement, CompactTopLevelBlocker::BindingType);
     }
 
-    fn append_immutable_top_level_captures(&self, slots: &mut SlotScope) -> LoweredTopLevelSlots {
+    fn append_immutable_top_level_captures(&self, slots: &mut SlotScope) -> Option<LoweredTopLevelSlots> {
         let mut bindings = self
             .top_level_known
             .iter()
@@ -3491,7 +3491,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         // lowering defaults so every default resolves in the outer environment.
         let mut slots = SlotScope::from_names([]);
         for _ in &params { slots.reserve("parameter"); }
-        let captures = self.append_immutable_top_level_captures(&mut slots);
+        let captures = self.append_immutable_top_level_captures(&mut slots).ok_or(CompactFunctionBlocker::Body)?;
         let blockers_before = self.output.blocker_events;
         let mut default_prefix = Vec::new();
         for (slot, expr, kind, check) in expression_defaults {

@@ -1776,7 +1776,9 @@ impl Evaluator {
             slots[slot.slot] = Self::share_indexed_root_value(value);
         }
         let program = Arc::clone(self.indexed_program.as_ref().expect("indexed driver retains its program"));
-        let live_driver = program.generic_evidence().is_some();
+        // Empty vectors share a dangling pointer and cannot identify an active
+        // slot allocation when an import runs another driver step.
+        let live_driver = program.generic_evidence().is_some() && !slots.is_empty();
         let original_driver_binding = program.generic_evidence()
             .map(|evidence| evidence.mutable_driver_receipt(view.index() as u32))
             .transpose().map_err(|error| indexed_error(error, call_span))?.flatten().is_some();

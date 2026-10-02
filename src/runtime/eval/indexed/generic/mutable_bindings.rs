@@ -45,6 +45,9 @@ impl MutableReadRefinement {
 pub(in crate::runtime::eval) struct MutableBindingReceipt {
     pub binding: BindingIdentity,
     pub capture: Option<LexicalCaptureId>,
+    // A captured path write refers to the original protected path receipt at
+    // this instruction. It has no whole-binding producer version or allocation.
+    pub captured_path: Option<u32>,
     pub statement: Option<StatementIdentity>,
     pub read_origin: Option<OperationSourceOrigin>,
     pub refinement: Option<MutableReadRefinement>,
@@ -180,13 +183,29 @@ impl GenericEvidenceStore {
         for receipt in self.mutable_binding_receipts() {
             self.mutable_binding_receipt(receipt.instruction)?;
             if !instructions.insert(receipt.instruction) || owners.get(receipt.instruction as usize) != Some(&Some(receipt.owner)) { return Err(failure("mutable binding changes its original owner or allocation")); }
+            if let Some(capture) = receipt.capture {
+                let allocation = self.lexical_capture(capture)?;
+                if !allocation.mutable || receipt.binding != allocation.binding || receipt.owner != InstructionOwner::Function(allocation.target) || receipt.binding_type != allocation.ty
+                    || receipt.binding_root.ty != allocation.source_type.ty || receipt.binding_root.scope != allocation.source_type.scope || receipt.payload.first() != Some(&allocation.slot)
+                    || receipt.refinement.is_some() || (receipt.read_origin.is_none() && receipt.ordinal == 0 && receipt.captured_path.is_none()) { return Err(failure("mutable capture changes its original source allocation")); }
+            }
+            if let Some(instruction) = receipt.captured_path {
+                let path = self.mutable_path_at(instruction)?.ok_or_else(|| failure("captured path loses its original selected storage receipt"))?;
+                if receipt.capture.is_none() || instruction != receipt.instruction || path.binding != receipt.binding || path.owner != receipt.owner || path.payload != receipt.payload
+                    || path.binding_type != receipt.binding_type || path.binding_root.ty != receipt.binding_root.ty || path.binding_root.scope != receipt.binding_root.scope
+                    || receipt.statement != Some(path.statement) || receipt.value != Some(path.value) || receipt.value_source != Some(path.value_source) || receipt.value_type != Some(path.value_type)
+                    || receipt.value_root.is_none_or(|root| root.ty != path.value_root.ty || root.scope != path.value_root.scope) || receipt.compound.is_some() || receipt.ordinal != 0 || !receipt.value_wrappers.is_empty() || receipt.read_origin.is_some()
+                    || !matches!(receipt.tag, FullTag::StmtAssignPath | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt) { return Err(failure("captured path changes its original cell or selected storage relationship")); }
+                let op = match path.compound.as_ref().map(|compound| compound.operation) { Some(crate::sema::operation_graph::PreparedLanguageOperation::Compound { op, .. }) => op, None => crate::syntax::node::AssignOp::Set, _ => return Err(failure("captured path changes its original selected operation")) };
+                if receipt.assignment != Some(op) { return Err(failure("captured path changes its original assignment operator")); }
+            }
             let origin = receipt.read_origin.or(receipt.statement.map(OperationSourceOrigin::Statement)).ok_or_else(|| failure("mutable binding lacks its original source"))?;
             if self.registered_instruction_origin(receipt.instruction, false) != Some((origin, receipt.owner)) { return Err(failure("mutable binding changes its original source identity")); }
             if receipt.read_origin.is_some() {
                 if receipt.statement.is_some() || receipt.value.is_some() || receipt.value_source.is_some() || receipt.value_type.is_some() || receipt.value_root.is_some() || !receipt.value_wrappers.is_empty() || receipt.ordinal != 0
                     || receipt.assignment.is_some() || receipt.compound.is_some()
                     || !matches!(receipt.tag, FullTag::ExprParam | FullTag::IntSlot | FullTag::BoolSlot) { return Err(failure("mutable read changes its original role")); }
-            } else {
+            } else if receipt.captured_path.is_none() {
                 let statement = receipt.statement.ok_or_else(|| failure("mutable write lacks its original statement"))?;
                 let value_source = receipt.value_source.ok_or_else(|| failure("mutable write lacks its original value source"))?;
                 if receipt.value.is_none() || receipt.value_type.is_none() || receipt.value_root.is_none()
@@ -211,7 +230,7 @@ impl GenericEvidenceStore {
                     || !matches!(compound.operation, crate::sema::operation_graph::PreparedLanguageOperation::Compound { op, .. } if Some(op) == receipt.assignment) { return Err(failure("mutable compound changes its original selected relationship")); }
                 for ty in [compound.left, compound.right, compound.result] { Self::verify_type(pools, ty)?; }
             }
-            if receipt.assignment.is_some_and(|op| op != crate::syntax::node::AssignOp::Set) != receipt.compound.is_some() { return Err(failure("mutable compound loses its original selection")); }
+            if receipt.captured_path.is_none() && (receipt.assignment.is_some_and(|op| op != crate::syntax::node::AssignOp::Set) != receipt.compound.is_some()) { return Err(failure("mutable compound loses its original selection")); }
         }
         let mut expected: Vec<_> = self.mutables.entries.iter().enumerate().map(|(index, entry)| (entry.value.instruction, index)).collect();
         expected.sort_unstable_by_key(|entry| entry.0);

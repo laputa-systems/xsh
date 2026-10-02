@@ -8,7 +8,7 @@ fn path_problem(reason: &'static str) -> IrBuildError { IrBuildError::format(rea
 impl FullBuilder {
     pub(super) fn stage_mutable_path_statement(&mut self, row: BuildStmtId, instruction: u32, scratch: &BuildScratch) -> Result<(), IrBuildError> {
         let Some(original) = scratch.mutable_path_writes.get(&row) else { return Ok(()); };
-        let binding_root = scratch.mutable_binding_origins.get(&original.binding).map(|definition| definition.source_type).or_else(|| scratch.mutable_driver_bindings.get(&original.binding).map(|definition| definition.source_type)).ok_or_else(|| path_problem("mutable_path_original_binding"))?;
+        let binding_root = original.capture.as_ref().map(|capture| capture.binding_root).or_else(|| scratch.mutable_binding_origins.get(&original.binding).map(|definition| definition.source_type)).or_else(|| scratch.mutable_driver_bindings.get(&original.binding).map(|definition| definition.source_type)).ok_or_else(|| path_problem("mutable_path_original_binding"))?;
         let (slot, path, op, value, check, field_encoding) = match scratch.statements.get(row.index()).ok_or_else(|| path_problem("mutable_path_original_row"))? {
             BuildStmtRow::AssignPath { slot, path, op, value, check, .. } => (*slot, path.0.clone(), *op, BuildMutablePathValue::Value(*value), check.as_ref().map(|check| &check.ty), None),
             BuildStmtRow::AssignField { slot, field, op, value, .. } => (*slot, vec![LoweredAssignStep::Field(Name::intern(field))], *op, BuildMutablePathValue::Value(*value), None, Some((Name::intern(field), false))),
@@ -23,7 +23,9 @@ impl FullBuilder {
         let owner = if let Some(driver) = driver_owner_index(raw) { InstructionOwner::Driver(driver as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| path_problem("mutable_path_owner"))?) };
         let solved = self.solved.clone().ok_or_else(|| path_problem("mutable_path_solved"))?;
         let binding = solved.bindings.get(&original.binding).ok_or_else(|| path_problem("mutable_path_binding"))?;
-        if !binding.mutable || binding.ty != binding_root.ty || solved.expressions.get(&original.value_source) != Some(&original.value_type.ty) || solved.expression_owners.get(&original.value_source).copied() != binding.owner { return Err(path_problem("mutable_path_original_checked_value")); }
+        let caller = original.capture.as_ref().map(|capture| capture.caller).or(binding.owner);
+        if original.capture.as_ref().is_some_and(|capture| capture.definition_owner != binding.owner || solved.statement_owners.get(&original.statement).copied() != Some(capture.caller)) { return Err(path_problem("mutable_path_capture_caller")); }
+        if !binding.mutable || binding.ty != binding_root.ty || solved.expressions.get(&original.value_source) != Some(&original.value_type.ty) || solved.expression_owners.get(&original.value_source).copied() != caller { return Err(path_problem("mutable_path_original_checked_value")); }
         let mut roots = vec![binding_root, original.selected_type, original.value_type];
         for step in original.steps.iter() {
             match step { BuildMutablePathStep::Field { input, output, .. } => roots.extend([*input, *output]), BuildMutablePathStep::Index { checked, input, output, .. } => roots.extend([*checked, *input, *output]) }
@@ -31,6 +33,13 @@ impl FullBuilder {
         for root in roots { solved.graph.validate_scoped(root).map_err(|_| path_problem("mutable_path_scope"))?; }
         let intern = |builder: &mut Self, root: crate::sema::inference::ScopedRoot| builder.intern_generic_ground_type(&graph_ground_type(&solved.graph, root.ty).map_err(|_| path_problem("mutable_path_ground_root"))?);
         let binding_type = intern(self, binding_root)?;
+        let capture = if let Some(captured) = &original.capture {
+            let InstructionOwner::Function(target) = owner else { return Err(path_problem("mutable_path_capture_owner")); };
+            let (id, allocation) = self.generic_evidence_mut().lexical_capture_for_slot(target, original.slot as u32).map_err(|_| path_problem("mutable_path_capture_allocation"))?.ok_or_else(|| path_problem("mutable_path_capture_allocation_missing"))?;
+            if !allocation.mutable || allocation.binding != original.binding || allocation.declaration != captured.caller || allocation.definition_owner != captured.definition_owner || allocation.slot != captured.slot as u32 || allocation.ty != binding_type
+                || allocation.source_type.ty != binding_root.ty || allocation.source_type.scope != binding_root.scope { return Err(path_problem("mutable_path_capture_allocation_changed")); }
+            Some(id)
+        } else { None };
         let selected_ground = graph_ground_type(&solved.graph, original.selected_type.ty).map_err(|_| path_problem("mutable_path_selected_root"))?;
         if original.check.as_ref() != selected_ground.has_unsigned_constraint().then_some(&selected_ground) { return Err(path_problem("mutable_path_storage_constraint_changed")); }
         let selected_type = intern(self, original.selected_type)?;
@@ -68,7 +77,7 @@ impl FullBuilder {
                     MutablePathStep::Field { name: *name, input, output, input_root, output_root }
                 }
                 BuildMutablePathStep::Index { source, checked, .. } => {
-                    if encoded[0] != 1 || solved.expressions.get(source) != Some(&checked.ty) || solved.expression_owners.get(source).copied() != binding.owner || solved.expression_scope(*source, binding.owner).ok() != Some(checked.scope) { return Err(path_problem("mutable_path_index_changed")); }
+                    if encoded[0] != 1 || solved.expressions.get(source) != Some(&checked.ty) || solved.expression_owners.get(source).copied() != caller || solved.expression_scope(*source, caller).ok() != Some(checked.scope) { return Err(path_problem("mutable_path_index_changed")); }
                     let checked_type = intern(self, *checked)?;
                     let selector = encoded[1];
                     let tag = *self.store.tags.get(selector as usize).ok_or_else(|| path_problem("mutable_selector_instruction"))?;
@@ -81,7 +90,15 @@ impl FullBuilder {
         }
         self.generic_evidence_mut().register_instruction_origin(value, OperationSourceOrigin::Expression(original.value_source), owner).map_err(|_| path_problem("mutable_path_rhs_source"))?;
         self.generic_evidence_mut().register_instruction_origin(instruction, OperationSourceOrigin::Statement(original.statement), owner).map_err(|_| path_problem("mutable_path_statement_source"))?;
-        self.generic_evidence_mut().add_mutable_path(MutablePathReceipt { binding: original.binding, statement: original.statement, target: original.target, instruction, owner, slot: original.slot as u32, payload, encoding, steps: steps.into_boxed_slice(), binding_type, binding_root, selected_type, selected_root: original.selected_type, value, value_tag, value_payload, value_source: original.value_source, value_type, value_root: original.value_type, compound }).map_err(|_| path_problem("mutable_path_receipt"))
+        self.generic_evidence_mut().add_mutable_path(MutablePathReceipt { binding: original.binding, statement: original.statement, target: original.target, instruction, owner, slot: original.slot as u32, payload: payload.clone(), encoding, steps: steps.into_boxed_slice(), binding_type, binding_root, selected_type, selected_root: original.selected_type, value, value_tag, value_payload, value_source: original.value_source, value_type, value_root: original.value_type, compound }).map_err(|_| path_problem("mutable_path_receipt"))?;
+        if let Some(capture) = capture {
+            self.generic_evidence_mut().add_mutable_binding_receipt(super::super::generic::MutableBindingReceipt {
+                binding: original.binding, capture: Some(capture), captured_path: Some(instruction), statement: Some(original.statement), read_origin: None, refinement: None, instruction, owner,
+                tag: expected_tag, payload, binding_type, binding_root, value: Some(value), value_wrappers: Box::new([]), value_source: Some(original.value_source), value_type: Some(value_type), value_root: Some(original.value_type),
+                ordinal: 0, assignment: Some(original.op), compound: None,
+            }).map_err(|_| path_problem("mutable_path_original_cell_receipt"))?;
+        }
+        Ok(())
     }
 }
 
@@ -188,6 +205,69 @@ mod tests {
                 assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
             });
         }
+    }
+
+    #[test]
+    fn mutable_captured_uint_record_path_executes_both_routes_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            execute("type Row = {count: UInt}\nvar report: Row = {count: 1}\nproc updated() [] -> UInt { report.count = 2; report.count }\nprint updated()\nprint $report.count\n", b"2\n2\n");
+        });
+    }
+
+    #[test]
+    fn mutable_captured_unsigned_writes_stop_before_forbidden_effect_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            for source in [
+                "var count: UInt = 1\nproc updated() [] -> UInt { count = -1; print \"forbidden\"; count }\nprint updated()\n",
+                "type Row = {count: UInt}\nvar report: Row = {count: 1}\nproc updated() [] -> UInt { report.count = -1; print \"forbidden\"; report.count }\nprint updated()\n",
+                "type Row = {count: UInt}\nvar report: Row = {count: 1}\nproc updated() [] -> UInt { report.count -= 2; print \"forbidden\"; report.count }\nprint updated()\n",
+            ] {
+                for recursive in [false, true] {
+                    let mut sources = SourceMap::new();
+                    let source_id = sources.add_file("captured-unsigned-fault.xsh", source);
+                    let parsed = Parser::parse_source_arena_only(source_id, source);
+                    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                    let symbols = parsed.arena.symbol_owner().clone();
+                    symbols.with_current(|| {
+                        let checked = Checker::check_arena(&parsed.arena, source);
+                        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                        let solved = Arc::downgrade(&checked.solved);
+                        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                        let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked).unwrap_or_else(|error| panic!("{source}\n{error:?}"));
+                        drop(checked); drop(parsed);
+                        assert!(solved.upgrade().is_none());
+                        let work = || evaluator.try_eval_installed_compact_indexed_only_inner(plan).unwrap_or_else(|_| panic!("captured unsigned program remains installed"));
+                        let output = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(LoweredFunctionKey::Name(Name::intern("updated")), recursive, work);
+                        assert!(output.stdout.is_empty(), "{:?}", output.diagnostics);
+                        assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.message.contains("UInt")), "{:?}", output.diagnostics);
+                    });
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn mutable_captured_record_path_refuses_missing_and_foreign_cell_authority() {
+        crate::runtime::eval::run_eval(|| {
+            let program = fixture("type Row = {count: UInt}\nvar first: Row = {count: 1}\nvar second: Row = {count: 7}\nproc updated() [] -> UInt { first.count = 2; second.count = 9; first.count }\n");
+            program.symbol_owner().with_current(|| {
+                FullVerifier::verify(&program).unwrap();
+                let generic = program.generic_evidence().unwrap();
+                let path = generic.mutable_paths().next().expect("captured field assignment retains its original checked path");
+                let receipt = generic.mutable_binding_receipt(path.instruction).unwrap().expect("captured field assignment retains its original cell allocation authority");
+                let capture = receipt.capture.expect("captured assignment names its protected receiving allocation");
+                let allocation = generic.lexical_capture(capture).unwrap();
+                let (_, foreign) = generic.lexical_captures().find(|(_, other)| other.target == allocation.target && other.binding != allocation.binding).unwrap();
+                assert_eq!(allocation.ty, foreign.ty);
+                let mut missing = program.clone();
+                missing.store.generic.as_deref_mut().unwrap().test_remove_mutable_binding_receipt(path.instruction);
+                assert!(FullVerifier::verify(&missing).is_err());
+                let mut swapped = program.clone();
+                let range = swapped.store.data[path.instruction as usize].range();
+                swapped.store.extra[range.start as usize] = foreign.slot;
+                assert!(FullVerifier::verify(&swapped).is_err());
+            });
+        });
     }
 
     #[test]

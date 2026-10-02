@@ -41,7 +41,8 @@ impl FullBuilder {
 
     pub(super) fn stage_lexical_capture_read(&mut self, instruction: u32, origin: crate::sema::check::ExpressionIdentity, owner: InstructionOwner, scratch: &BuildScratch) -> Result<(), IrBuildError> {
         let Some(original) = scratch.lexical_capture_reads.get(&origin) else { return Ok(()); };
-        if self.store.tags.get(instruction as usize) != Some(&FullTag::ExprParam)
+        if !matches!(self.store.tags.get(instruction as usize), Some(FullTag::ExprParam | FullTag::IntSlot | FullTag::BoolSlot))
+            || self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| problem("lexical_capture_original_read_payload"))? != [original.slot as u32]
             || !matches!(scratch.expressions.get(original.expression.index()), Some(BuildExprRow::Param(slot)) if *slot == original.slot) {
             return Err(problem("lexical_capture_original_read_changed"));
         }
@@ -75,9 +76,16 @@ impl FullBuilder {
             if ty != allocation.ty || original_type != allocation.original_type { return Err(problem("lexical_capture_read_original_type_changed")); }
             let payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| problem("lexical_capture_read_payload"))?.to_vec().into_boxed_slice();
             if payload.as_ref() != [allocation.slot] { return Err(problem("lexical_capture_read_slot_changed")); }
+            let tag = self.store.tags[instruction as usize];
+            if !match tag {
+                FullTag::ExprParam => true,
+                FullTag::IntSlot => matches!(original_type, Type::Int | Type::UInt),
+                FullTag::BoolSlot => original_type == Type::Bool,
+                _ => false,
+            } { return Err(problem("lexical_capture_read_original_port_type_changed")); }
             self.generic_evidence_mut().add_lexical_capture_source(LexicalCaptureSource {
                 capture, binding: original.binding, declaration: original.caller, origin: original.origin,
-                owner, instruction, slot: allocation.slot, source_type: original.source_type, original_type, ty, payload,
+                owner, instruction, tag, slot: allocation.slot, source_type: original.source_type, original_type, ty, payload,
             }).map_err(|_| problem("lexical_capture_read_original_allocation"))?;
         }
         Ok(())
@@ -106,7 +114,13 @@ impl FullVerifier {
         let range = store.function_instruction_range(capture.target.index())?;
         if source.owner != InstructionOwner::Function(capture.target) || source.declaration != capture.declaration || source.binding != capture.binding
             || source.slot != capture.slot || source.ty != capture.ty || source.original_type != capture.original_type
-            || store.tags.get(source.instruction as usize) != Some(&FullTag::ExprParam)
+            || store.tags.get(source.instruction as usize) != Some(&source.tag)
+            || !match source.tag {
+                FullTag::ExprParam => true,
+                FullTag::IntSlot => matches!(source.original_type, Type::Int | Type::UInt),
+                FullTag::BoolSlot => source.original_type == Type::Bool,
+                _ => false,
+            }
             || !range.contains(&(source.instruction as usize))
             || store.payload(store.data[source.instruction as usize].range())? != source.payload.as_ref() || source.payload.as_ref() != [source.slot]
             || generic.registered_instruction_origin(source.instruction, false) != Some((OperationSourceOrigin::Expression(source.origin), source.owner)) {

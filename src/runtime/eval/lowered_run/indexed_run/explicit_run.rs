@@ -1,5 +1,6 @@
 use crate::runtime::eval::lowered_run::validate_parameter_default;
 use crate::runtime::eval::callable_value::RuntimeCallableValue;
+use super::live_capture_cells::SuspendedLiveCaptureFrame;
 use crate::runtime::eval::indexed::generic::{ConcreteOperationId, InstantiationId, UserInvocationAuthority, NativeInvocationPlanId, PhysicalLayoutId, RequirementWitness};
 use super::super::generic_run::{execute_operation, project_record_slot, finish_return};
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
@@ -506,6 +507,7 @@ pub(super) struct CallFrame<'p> {
     pub(super) scope_id: u64,
     pub(super) execution: FullExecution<'p>,
     pub(super) slots: Vec<LoweredValue>,
+    live_capture: Option<SuspendedLiveCaptureFrame>,
     pending_defaults: PendingParameterDefaults,
     pub(super) slot_scopes: Vec<u64>,
     pub(super) call_span: Span,
@@ -784,6 +786,7 @@ pub(super) struct ProducerFrameState {
     instantiation: Option<InstantiationId>,
     work: Vec<FrameWork>,
     slots: Vec<LoweredValue>,
+    live_capture: Option<SuspendedLiveCaptureFrame>,
     pending_defaults: PendingParameterDefaults,
     slot_scopes: Vec<u64>,
     defers: Vec<u32>,
@@ -799,6 +802,7 @@ impl ProducerFrameState {
         slots: Vec<LoweredValue>,
         pending_defaults: PendingParameterDefaults,
         instantiation: Option<InstantiationId>,
+        live_capture: Option<SuspendedLiveCaptureFrame>,
     ) -> Self {
         Self {
             instantiation,
@@ -808,6 +812,7 @@ impl ProducerFrameState {
                 scope_id: None,
             }],
             slots,
+            live_capture,
             pending_defaults,
             slot_scopes: Vec::new(),
             defers: Vec::new(),
@@ -860,6 +865,7 @@ impl<'p> CallFrame<'p> {
             instantiation: self.execution.active_instantiation(),
             work: self.work,
             slots: self.slots,
+            live_capture: self.live_capture,
             pending_defaults: self.pending_defaults,
             slot_scopes: self.slot_scopes,
             defers: self.defers,
@@ -892,6 +898,7 @@ impl<'p> CallFrame<'p> {
             scope_id: state.scope_id,
             execution,
             slots: state.slots,
+            live_capture: state.live_capture,
             pending_defaults: state.pending_defaults,
             slot_scopes: state.slot_scopes,
             call_span,
@@ -948,27 +955,42 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     /// Runs a producer frame until it yields or finishes.
-    pub(super) fn run_producer(&mut self, call: CallFrame<'p>) -> ProducerStep {
+    pub(super) fn run_producer(&mut self, mut call: CallFrame<'p>) -> ProducerStep {
+        let resumed = self.program.function_view(call.function, call.kind)
+            .map_err(|error| indexed_error(error, call.call_span))
+            .and_then(|view| view.ok_or_else(|| RuntimeError::new("unresolved-lowered-call", call.function.display_name()).with_span(call.call_span)))
+            .and_then(|view| instantiated_view(view, call.execution.active_instantiation()).map_err(|error| indexed_error(error, call.call_span)))
+            .and_then(|view| self.evaluator.resume_indexed_live_frame(view, &mut call.slots, call.live_capture.take(), call.call_span));
         self.calls.push(call);
-        while self.result.is_none() && self.suspended.is_none() {
-            let index = self
-                .calls
-                .len()
-                .checked_sub(1)
-                .expect("active indexed frame");
-            let work = self.calls[index].work.pop().expect("indexed frame work");
-            if let Err(error) = self.step(index, work) {
-                self.begin_error_unwind(error);
+        if let Err(error) = resumed { self.begin_error_unwind(error); }
+        loop {
+            while self.result.is_none() && self.suspended.is_none() {
+                let index = self.calls.len().checked_sub(1).expect("active indexed frame");
+                let work = self.calls[index].work.pop().expect("indexed frame work");
+                if let Err(error) = self.step(index, work) { self.begin_error_unwind(error); }
             }
+            if let Some(suspension) = self.suspended.take() {
+                let call = self.calls.last_mut().expect("suspended producer frame");
+                match self.evaluator.suspend_indexed_live_frame(&mut call.slots, call.call_span) {
+                    Ok(live_capture) => call.live_capture = live_capture,
+                    Err(error) => { self.begin_error_unwind(error); continue; }
+                }
+                let state = self.calls.pop().expect("suspended producer frame").into_state();
+                return match suspension {
+                    ProducerSuspension::Yielded(value) => ProducerStep::Yielded { value, state },
+                    ProducerSuspension::Delegated { value, span } => ProducerStep::Delegated { value, span, state },
+                };
+            }
+            return ProducerStep::Finished(self.result.take().expect("indexed frame result"));
         }
-        if let Some(suspension) = self.suspended.take() {
-            let state = self.calls.pop().expect("suspended producer frame").into_state();
-            return match suspension {
-                ProducerSuspension::Yielded(value) => ProducerStep::Yielded { value, state },
-                ProducerSuspension::Delegated { value, span } => ProducerStep::Delegated { value, span, state },
-            };
-        }
-        ProducerStep::Finished(self.result.take().expect("indexed frame result"))
+    }
+
+    fn finish_live_call_frame(&self, call: &mut CallFrame<'p>) -> Result<Option<super::live_capture_cells::CompletedLiveCaptureFrame>, RuntimeError> {
+        if !call.producer { return self.evaluator.finish_indexed_live_frame(&mut call.slots, call.call_span); }
+        let view = self.program.function_view(call.function, call.kind).map_err(|error| indexed_error(error, call.call_span))?
+            .ok_or_else(|| RuntimeError::new("unresolved-lowered-call", call.function.display_name()).with_span(call.call_span))?;
+        let view = instantiated_view(view, call.execution.active_instantiation()).map_err(|error| indexed_error(error, call.call_span))?;
+        self.evaluator.finish_indexed_live_producer_frame(view, &mut call.slots, call.call_span)
     }
 
     fn begin_error_unwind(&mut self, error: RuntimeError) {
@@ -1056,7 +1078,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn discard_calls(&mut self) {
         while let Some(mut call) = self.calls.pop() {
-            let completed = if call.producer { None } else { self.evaluator.finish_indexed_live_frame(&mut call.slots, call.call_span).ok().flatten() };
+            let completed = self.finish_live_call_frame(&mut call);
             if let Ok(header) = self
                 .program
                 .function_view(call.function, call.kind)
@@ -1073,13 +1095,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .map_err(|error| indexed_error(error, call.call_span))
                 })
             {
-                let _ = self.evaluator.write_back_lowered_captures(
-                    &header,
-                    &call.slots,
-                    call.call_span,
-                    call.function.namespace(),
-                    completed.as_ref(),
-                );
+                let _ = completed.and_then(|completed| self.evaluator.write_back_lowered_captures(
+                    &header, &call.slots, call.call_span, call.function.namespace(), completed.as_ref(),
+                ));
             }
             // Forced discard skips user defers but still closes inner owned
             // scopes before restoring each evaluator context in lexical order.
@@ -1378,6 +1396,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             scope_id,
             execution,
             slots,
+            live_capture: None,
             pending_defaults,
             slot_scopes,
             call_span,
@@ -3916,7 +3935,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
         let mut call = self.calls.pop().expect("active indexed frame");
-        let completed = if call.producer { None } else { self.evaluator.finish_indexed_live_frame(&mut call.slots, call.call_span).ok().flatten() };
+        let completed = self.finish_live_call_frame(&mut call);
         if let Ok(header) = self
             .program
             .function_view(call.function, call.kind)
@@ -3933,9 +3952,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .map_err(|error| indexed_error(error, call.call_span))
             })
         {
-            let _ =
-                self.evaluator
-                    .write_back_lowered_captures(&header, &call.slots, call.call_span, call.function.namespace(), completed.as_ref());
+            let _ = completed.and_then(|completed| self.evaluator.write_back_lowered_captures(
+                &header, &call.slots, call.call_span, call.function.namespace(), completed.as_ref(),
+            ));
         }
         if let Some(error) = self.pending_error.as_ref()
             && error.abort.is_none() && error.propagated {
@@ -4023,7 +4042,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             StmtFlow::Continue => Err(RuntimeError::new("control-flow", "continue outside loop")
                 .with_span(call.call_span)),
         }};
-        let completed = if call.producer { Ok(None) } else { self.evaluator.finish_indexed_live_frame(&mut call.slots, call.call_span) };
+        let completed = if call.producer { self.evaluator.finish_indexed_live_producer_frame(view, &mut call.slots, call.call_span) }
+            else { self.evaluator.finish_indexed_live_frame(&mut call.slots, call.call_span) };
         let write_back = completed.and_then(|completed| self.evaluator
             .write_back_lowered_captures(&header, &call.slots, call.call_span, call.function.namespace(), completed.as_ref()));
         if let Ok(value) = &value {

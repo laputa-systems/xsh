@@ -45,6 +45,19 @@ local captures keep their defining cells. Resource and callable captures need
 their own ownership transport; the plain ground cell protocol does not retain
 those values.
 
+Captured scalar and aggregate writes retain the receiving declaration's
+`LexicalCaptureId` separately from the defining binding and its real versioned
+producer flow. Aggregate writes also authenticate their original path selectors
+and checked UInt boundaries. Specialized scalar reads preserve their actual
+`IntSlot` or `BoolSlot` encoding in the lexical capture receipt.
+
+Producer suspension detaches the physical slot registration while retaining an
+opaque `SuspendedLiveCaptureFrame` for the original cells and receiving frame.
+Resume authenticates that frame and refreshes slots before defaults, body work
+or cancellation defers. Completion retires the activation before publication or
+slot reuse. Empty Driver slot vectors do not register an allocation: nested
+imports may share their dangling pointer without sharing any binding cells.
+
 A scoped native method keeps its original pending candidate family in the
 definition and forwarding declarations. Each ground instantiation retains a
 separate selected witness; unused definitions retain the family without

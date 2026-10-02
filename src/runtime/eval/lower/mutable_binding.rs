@@ -1,5 +1,5 @@
 use super::*;
-use crate::sema::check::{BindingIdentity, ExpressionIdentity, StatementIdentity};
+use crate::sema::check::{BindingIdentity, ExpressionIdentity, StatementIdentity, ProducerFlowKind, ProducerFlowSource};
 use crate::sema::inference::ScopedRoot;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,6 +35,8 @@ pub(in crate::runtime::eval) struct BuildMutableBindingOrigin {
     pub emitted: BuildMutableStatement,
 }
 
+// The definition keeps its original owner and storage root. The receiving
+// function contributes its own checked RHS and physical capture header slot.
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct BuildMutableCaptureWrite {
     pub caller: crate::sema::check::DeclarationIdentity,
@@ -99,7 +101,12 @@ impl CompactLowerConstructProbe<'_, '_> {
         if !definition.mutable || definition.ty != source_type.ty || scope != source_type.scope { return None; }
         solved.graph.validate_scoped(source_type).ok()?;
         let Ok(ground) = super::super::indexed::generic::graph_ground_type(&solved.graph, source_type.ty) else { return Some(()); };
-        if supports_mutable_binding_type(&ground) { slots.mutable_binding_authorities.insert(name, binding); }
+        if supports_mutable_binding_type(&ground) {
+            slots.mutable_binding_authorities.insert(name, binding);
+            // Assignment constraints come from the checked original root,
+            // including UInt children in captured records and collections.
+            slots.types.insert(name, ground);
+        }
         Some(())
     }
 
@@ -185,19 +192,47 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let Some(&binding) = slots.mutable_binding_authorities.get(&name) else { return Some(()); };
                 let solved = self.solved();
                 let definition = solved.bindings.get(&binding)?;
+                let caller = solved.statement_owners.get(&origin).copied();
                 let value_source = self.expression_identity(value);
-                let value_type = ScopedRoot { ty: *solved.expressions.get(&value_source)?, scope: solved.expression_scope(value_source, definition.owner).ok()? };
+                if solved.expression_owners.get(&value_source).copied() != caller { return None; }
+                let value_type = ScopedRoot { ty: *solved.expressions.get(&value_source)?, scope: solved.expression_scope(value_source, caller).ok()? };
                 solved.graph.validate_scoped(value_type).ok()?;
+                let capture = if slots.captures.contains(&name) && caller != definition.owner {
+                    let caller = caller?;
+                    let slot = slots.resolve(name)?;
+                    let binding_root = ScopedRoot { ty: definition.ty, scope: definition.scheme.or_else(|| definition.owner.and_then(|owner| solved.declarations.get(&owner).map(|declaration| declaration.scheme))) };
+                    self.seed_original_mutable_capture(name, slot, binding, binding_root, slots)?;
+                    Some(BuildMutableCaptureWrite { caller, definition_owner: definition.owner, binding_root, slot })
+                } else { None };
+                // Captured functions can be lowered before the declaration row.
+                // Their write version comes from the checked binding flow itself.
+                let captured_version = if capture.is_some() {
+                    let input = *solved.expression_producer_flows.get(&value_source)?;
+                    let mut version = None;
+                    for (&(identity, ordinal), &flow) in &solved.binding_producer_flows {
+                        if identity != binding || ordinal == 0 { continue; }
+                        let node = solved.producer_flows.node(flow).ok()?;
+                        if node.source != (ProducerFlowSource::Binding { identity, version: ordinal }) { continue; }
+                        let ProducerFlowKind::Join { inputs } = &node.kind else { continue; };
+                        let authentic = if op == AssignOp::Set { inputs.as_slice() == [input] } else if let [result] = inputs.as_slice() {
+                            let result = solved.producer_flows.node(*result).ok()?;
+                            let operation = solved.statement_operations.get(&origin)?;
+                            result.source == ProducerFlowSource::Statement(origin) && matches!(&result.kind, ProducerFlowKind::Operation { requirement, .. } if *requirement == operation.requirement)
+                        } else { false };
+                        if authentic && version.replace(ordinal).is_some() { return None; }
+                    }
+                    Some(version?)
+                } else { None };
                 let compound = if op == AssignOp::Set { None } else { Some(solved.statement_operations.get(&origin)?.clone()) };
                 let mut scratch = self.scratch.borrow_mut();
-                let ordinal = if let Some(original) = scratch.mutable_binding_origins.get_mut(&binding) {
+                let ordinal = if let Some(version) = captured_version { version } else if let Some(original) = scratch.mutable_binding_origins.get_mut(&binding) {
                     original.write_count = original.write_count.checked_add(1)?; original.write_count
                 } else {
                     let original = scratch.mutable_driver_bindings.get_mut(&binding)?;
                     original.write_count = original.write_count.checked_add(1)?; original.write_count
                 };
                 let emitted = BuildMutableStatement::from_row(scratch.statements.get(row.index())?)?;
-                scratch.mutable_binding_writes.insert(row, BuildMutableBindingWrite { binding, statement: origin, value_source, value_type, ordinal, emitted, capture: None, compound });
+                scratch.mutable_binding_writes.insert(row, BuildMutableBindingWrite { binding, statement: origin, value_source, value_type, ordinal, emitted, capture, compound });
             }
             _ => {}
         }

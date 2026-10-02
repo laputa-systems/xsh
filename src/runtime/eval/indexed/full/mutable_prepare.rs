@@ -79,14 +79,17 @@ impl FullBuilder {
         if crate::runtime::eval::lower::mutable_binding::BuildMutableStatement::from_row(scratch.statements.get(row.index()).ok_or_else(|| mutable_problem("mutable_binding_physical_row"))?).as_ref() != Some(emitted) { return Err(mutable_problem("mutable_binding_physical_row_changed")); }
         let original = scratch.mutable_binding_origins.get(&binding);
         let driver = scratch.mutable_driver_bindings.get(&binding);
-        let source_type = original.map(|original| original.source_type).or_else(|| driver.map(|original| original.source_type)).ok_or_else(|| mutable_problem("mutable_binding_original_missing"))?;
+        let captured = write.and_then(|write| write.capture.as_ref());
+        let source_type = captured.map(|capture| capture.binding_root).or_else(|| original.map(|original| original.source_type)).or_else(|| driver.map(|original| original.source_type)).ok_or_else(|| mutable_problem("mutable_binding_original_missing"))?;
         let solved = self.solved.clone().ok_or_else(|| mutable_problem("mutable_binding_solved_missing"))?;
         let definition = solved.bindings.get(&binding).ok_or_else(|| mutable_problem("mutable_binding_definition_missing"))?;
         let scope = definition.scheme.or_else(|| definition.owner.and_then(|owner| solved.declarations.get(&owner).map(|declaration| declaration.scheme)));
+        let caller = captured.map(|capture| capture.caller).or(definition.owner);
+        if captured.is_some_and(|capture| capture.definition_owner != definition.owner || solved.statement_owners.get(&statement).copied() != Some(capture.caller)) { return Err(mutable_problem("mutable_capture_original_caller")); }
         if !definition.mutable || definition.ty != source_type.ty || scope != source_type.scope
             || solved.expressions.get(&value_source) != Some(&value_root.ty)
-            || solved.expression_owners.get(&value_source).copied() != definition.owner
-            || solved.expression_scope(value_source, definition.owner).ok() != Some(value_root.scope) { return Err(mutable_problem("mutable_binding_original_changed")); }
+            || solved.expression_owners.get(&value_source).copied() != caller
+            || solved.expression_scope(value_source, caller).ok() != Some(value_root.scope) { return Err(mutable_problem("mutable_binding_original_changed")); }
         solved.graph.validate_scoped(source_type).map_err(|_| mutable_problem("mutable_binding_scope"))?;
         solved.graph.validate_scoped(value_root).map_err(|_| mutable_problem("mutable_write_scope"))?;
         let binding_type = self.intern_generic_ground_type(&graph_ground_type(&solved.graph, source_type.ty).map_err(|_| mutable_problem("mutable_binding_requires_scope"))?)?;
@@ -104,13 +107,20 @@ impl FullBuilder {
         let payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| mutable_problem("mutable_binding_payload"))?.to_vec().into_boxed_slice();
         let offset = if ordinal == 0 { 1 } else { match tag { FullTag::StmtAssignBool => 1, FullTag::StmtAssign | FullTag::StmtAssignInt => 2, _ => return Err(mutable_problem("mutable_write_kind")) } };
         let slot = match emitted { crate::runtime::eval::lower::mutable_binding::BuildMutableStatement::Value { slot, .. } | crate::runtime::eval::lower::mutable_binding::BuildMutableStatement::Integer { slot, .. } | crate::runtime::eval::lower::mutable_binding::BuildMutableStatement::Boolean { slot, .. } => *slot };
-        if payload.first().copied() != Some(slot as u32) || original.is_some_and(|original| original.slot != slot) { return Err(mutable_problem("mutable_binding_slot")); }
+        if payload.first().copied() != Some(slot as u32) || (captured.is_none() && original.is_some_and(|original| original.slot != slot)) { return Err(mutable_problem("mutable_binding_slot")); }
+        let capture = if let Some(original) = captured {
+            let InstructionOwner::Function(target) = owner else { return Err(mutable_problem("mutable_capture_receiving_owner")); };
+            let (id, allocation) = self.generic_evidence_mut().lexical_capture_for_slot(target, slot as u32).map_err(|_| mutable_problem("mutable_capture_allocation"))?.ok_or_else(|| mutable_problem("mutable_capture_allocation_missing"))?;
+            if !allocation.mutable || allocation.binding != binding || allocation.definition_owner != original.definition_owner || allocation.declaration != original.caller || original.slot != slot
+                || allocation.source_type.ty != source_type.ty || allocation.source_type.scope != source_type.scope || allocation.ty != binding_type { return Err(mutable_problem("mutable_capture_allocation_changed")); }
+            Some(id)
+        } else { None };
         let value = *payload.get(offset).ok_or_else(|| mutable_problem("mutable_binding_value"))?;
         let (value, value_wrappers) = self.mutable_value_lineage(value, owner)?;
         self.generic_evidence_mut().register_instruction_origin(value, OperationSourceOrigin::Expression(value_source), owner).map_err(|_| mutable_problem("mutable_initializer_original_source"))?;
         self.generic_evidence_mut().register_instruction_origin(instruction, OperationSourceOrigin::Statement(statement), owner).map_err(|_| mutable_problem("mutable_binding_origin"))?;
         self.generic_evidence_mut().add_mutable_binding_receipt(MutableBindingReceipt {
-            binding, capture: None, statement: Some(statement), read_origin: None, refinement: None, instruction, owner, tag, payload, binding_type,
+            binding, capture, captured_path: None, statement: Some(statement), read_origin: None, refinement: None, instruction, owner, tag, payload, binding_type,
             binding_root: source_type, value: Some(value), value_wrappers: value_wrappers.into_boxed_slice(), value_source: Some(value_source), value_type: Some(value_type), value_root: Some(value_root), ordinal, assignment, compound,
         }).map_err(|_| mutable_problem("mutable_binding_receipt"))
     }
@@ -184,6 +194,7 @@ impl FullBuilder {
     }
 
     pub(super) fn stage_mutable_use(&mut self, instruction: u32, origin: crate::sema::check::ExpressionIdentity, owner: InstructionOwner, scratch: &BuildScratch) -> Result<(), IrBuildError> {
+        if scratch.lexical_capture_reads.contains_key(&origin) { return Ok(()); }
         let Some(&binding) = scratch.mutable_binding_uses.get(&origin) else { return Ok(()); };
         self.stage_mutable_read(instruction, OperationSourceOrigin::Expression(origin), binding, owner, scratch)
     }
@@ -191,8 +202,25 @@ impl FullBuilder {
     pub(super) fn stage_mutable_read(&mut self, instruction: u32, origin: OperationSourceOrigin, binding: crate::sema::check::BindingIdentity, owner: InstructionOwner, scratch: &BuildScratch) -> Result<(), IrBuildError> {
         let tag = self.store.tags[instruction as usize];
         if !matches!(tag, FullTag::ExprParam | FullTag::IntSlot | FullTag::BoolSlot) { return Ok(()); }
-        let source_type = scratch.mutable_binding_origins.get(&binding).map(|original| original.source_type).or_else(|| scratch.mutable_driver_bindings.get(&binding).map(|original| original.source_type)).ok_or_else(|| mutable_problem("mutable_read_original_missing"))?;
         let solved = self.solved.clone().ok_or_else(|| mutable_problem("mutable_read_solved_missing"))?;
+        let payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| mutable_problem("mutable_read_payload"))?.to_vec().into_boxed_slice();
+        let capture = if let InstructionOwner::Function(target) = owner {
+            self.generic_evidence_mut().lexical_capture_for_slot(target, *payload.first().ok_or_else(|| mutable_problem("mutable_read_slot"))?).map_err(|_| mutable_problem("mutable_read_capture"))?.map(|(id, allocation)| (id, allocation.clone()))
+        } else { None };
+        if let Some((_, allocation)) = &capture {
+            let caller = match origin { OperationSourceOrigin::Statement(statement) => solved.statement_owners.get(&statement).copied(), OperationSourceOrigin::Expression(expression) => solved.expression_owners.get(&expression).copied(), _ => return Err(mutable_problem("mutable_read_capture_source_kind")) };
+            if !allocation.mutable || allocation.binding != binding || caller != Some(allocation.declaration) { return Err(mutable_problem("mutable_read_capture_source")); }
+            if let OperationSourceOrigin::Statement(statement) = origin {
+                let flow = *solved.statement_producer_flows.get(&statement).ok_or_else(|| mutable_problem("mutable_read_capture_original_flow"))?;
+                let node = solved.producer_flows.node(flow).map_err(|_| mutable_problem("mutable_read_capture_original_flow"))?;
+                let crate::sema::check::ProducerFlowKind::Join { inputs } = &node.kind else { return Err(mutable_problem("mutable_read_capture_original_flow_kind")); };
+                let [input] = inputs.as_slice() else { return Err(mutable_problem("mutable_read_capture_original_flow_arity")); };
+                let original = solved.producer_flows.node(*input).map_err(|_| mutable_problem("mutable_read_capture_original_binding"))?;
+                let crate::sema::check::ProducerFlowSource::Binding { identity, version } = original.source else { return Err(mutable_problem("mutable_read_capture_original_binding")); };
+                if node.source != crate::sema::check::ProducerFlowSource::Statement(statement) || identity != binding || solved.binding_producer_flows.get(&(identity, version)) != Some(input) { return Err(mutable_problem("mutable_read_capture_original_binding_changed")); }
+            }
+        }
+        let source_type = capture.as_ref().map(|(_, allocation)| allocation.source_type).or_else(|| scratch.mutable_binding_origins.get(&binding).map(|original| original.source_type)).or_else(|| scratch.mutable_driver_bindings.get(&binding).map(|original| original.source_type)).ok_or_else(|| mutable_problem("mutable_read_original_missing"))?;
         let binding_type = self.intern_generic_ground_type(&graph_ground_type(&solved.graph, source_type.ty).map_err(|_| mutable_problem("mutable_read_requires_scope"))?)?;
         let refinement = if let OperationSourceOrigin::Expression(read) = origin {
             if solved.refined_reads.contains_key(&read) {
@@ -205,7 +233,7 @@ impl FullBuilder {
         } else { None };
         let payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| mutable_problem("mutable_read_payload"))?.to_vec().into_boxed_slice();
         self.generic_evidence_mut().register_instruction_origin(instruction, origin, owner).map_err(|_| mutable_problem("mutable_read_origin"))?;
-        self.generic_evidence_mut().add_mutable_binding_receipt(MutableBindingReceipt { binding, capture: None, statement: None, read_origin: Some(origin), refinement, instruction, owner, tag, payload, binding_type, binding_root: source_type, value: None, value_wrappers: Box::new([]), value_source: None, value_type: None, value_root: None, ordinal: 0, assignment: None, compound: None }).map_err(|_| mutable_problem("mutable_read_receipt"))
+        self.generic_evidence_mut().add_mutable_binding_receipt(MutableBindingReceipt { binding, capture: capture.map(|(id, _)| id), captured_path: None, statement: None, read_origin: Some(origin), refinement, instruction, owner, tag, payload, binding_type, binding_root: source_type, value: None, value_wrappers: Box::new([]), value_source: None, value_type: None, value_root: None, ordinal: 0, assignment: None, compound: None }).map_err(|_| mutable_problem("mutable_read_receipt"))
     }
 }
 
@@ -307,12 +335,15 @@ impl FullVerifier {
         let mut definitions = BTreeMap::new();
         let mut mutable_slots = std::collections::BTreeSet::new();
         let owner_key = |owner| match owner { InstructionOwner::Function(function) => (false, function.raw()), InstructionOwner::Driver(driver) => (true, driver) };
-        for receipt in generic.mutable_binding_receipts().filter(|receipt| receipt.read_origin.is_none() && receipt.ordinal == 0) {
+        for receipt in generic.mutable_binding_receipts().filter(|receipt| receipt.read_origin.is_none() && receipt.ordinal == 0 && receipt.captured_path.is_none()) {
             if !matches!(receipt.tag, FullTag::StmtLet | FullTag::StmtLetInt | FullTag::StmtLetBool) || definitions.insert(receipt.binding, receipt).is_some() { return Err(IrVerifyError::new("mutable binding changes its original declaration")); }
         }
         for definition in definitions.values() {
             let slot = *definition.payload.first().ok_or_else(|| IrVerifyError::new("mutable binding slot is missing"))?;
             if !mutable_slots.insert((owner_key(definition.owner), slot)) { return Err(IrVerifyError::new("mutable binding has multiple original storage definitions")); }
+        }
+        for (_, allocation) in generic.lexical_captures().filter(|(_, allocation)| allocation.mutable) {
+            mutable_slots.insert((owner_key(InstructionOwner::Function(allocation.target)), allocation.slot));
         }
         for receipt in generic.mutable_binding_receipts() {
             generic.mutable_binding_receipt(receipt.instruction)?;
@@ -320,12 +351,17 @@ impl FullVerifier {
             if let Some(op) = receipt.assignment {
                 if receipt.tag == FullTag::StmtAssignBool {
                     if op != AssignOp::Set { return Err(IrVerifyError::new("mutable Boolean assignment changes its original operator")); }
-                } else { Self::verify_mutable_assignment_operator(store, receipt.instruction, op, 1)?; }
+                } else { Self::verify_mutable_assignment_operator(store, receipt.instruction, op, if receipt.captured_path.is_some() { 2 } else { 1 })?; }
             }
             if let Some(refinement) = &receipt.refinement {
                 Self::verify_mutable_read_refinement(store, generic, tree, &index, receipt, refinement)?;
             }
-            if let Some(definition) = definitions.get(&receipt.binding) {
+            if let Some(capture) = receipt.capture {
+                let allocation = generic.lexical_capture(capture)?;
+                if !allocation.mutable || receipt.owner != InstructionOwner::Function(allocation.target) || receipt.binding != allocation.binding || receipt.binding_type != allocation.ty
+                    || receipt.binding_root.ty != allocation.source_type.ty || receipt.binding_root.scope != allocation.source_type.scope || receipt.payload.first() != Some(&allocation.slot)
+                    || receipt.refinement.is_some() || (receipt.read_origin.is_none() && receipt.ordinal == 0 && receipt.captured_path.is_none()) { return Err(IrVerifyError::new("mutable capture changes its original allocation or invariant type")); }
+            } else if let Some(definition) = definitions.get(&receipt.binding) {
                 if definition.owner != receipt.owner || definition.binding_type != receipt.binding_type || (definition.binding_root.ty != receipt.binding_root.ty || definition.binding_root.scope != receipt.binding_root.scope) || definition.payload.first() != receipt.payload.first() { return Err(IrVerifyError::new("mutable binding changes its invariant storage type or slot")); }
                 if definition.instruction != receipt.instruction && !index.dominates(tree, definition.instruction, receipt.instruction)? { return Err(IrVerifyError::new("mutable read or write is outside its original binding scope")); }
             } else {
@@ -342,7 +378,9 @@ impl FullVerifier {
             }
         }
         for path in generic.mutable_paths() {
-            if let Some(definition) = definitions.get(&path.binding) {
+            if let Some(receipt) = generic.mutable_binding_receipt(path.instruction)?.filter(|receipt| receipt.captured_path == Some(path.instruction)) {
+                if receipt.capture.is_none() || receipt.binding != path.binding || receipt.owner != path.owner || receipt.binding_type != path.binding_type || receipt.payload.first() != Some(&path.slot) { return Err(IrVerifyError::new("captured path changes its original receiving cell")); }
+            } else if let Some(definition) = definitions.get(&path.binding) {
                 if path.owner != definition.owner || path.binding_type != definition.binding_type || path.binding_root.ty != definition.binding_root.ty || path.binding_root.scope != definition.binding_root.scope || definition.payload.first() != Some(&path.slot)
                     || !index.dominates(tree, definition.instruction, path.instruction)? { return Err(IrVerifyError::new("mutable path is outside its original binding scope")); }
             } else {
@@ -355,6 +393,9 @@ impl FullVerifier {
         for (instruction, tag) in store.tags.iter().enumerate() {
             if !matches!(tag, FullTag::StmtAssign | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath) { continue; }
             let slot = store.payload(store.data[instruction].range())?.first().copied();
+            if let Some((InstructionOwner::Function(target), slot)) = owners[instruction].zip(slot) {
+                if generic.lexical_capture_for_slot(target, slot)?.is_some_and(|(_, capture)| capture.mutable) && generic.mutable_binding_receipt(instruction as u32)?.is_none() { return Err(IrVerifyError::new("captured mutable write lacks its original receiving cell authority")); }
+            }
             if owners[instruction].zip(slot).is_some_and(|(owner, slot)| mutable_slots.contains(&(owner_key(owner), slot))) && generic.mutable_binding_receipt(instruction as u32)?.is_none() && generic.mutable_path_at(instruction as u32)?.is_none() { return Err(IrVerifyError::new("mutable binding has a write without its original checked assignment")); }
             if let Some((InstructionOwner::Driver(step), slot)) = owners[instruction].zip(slot) {
                 let current = &store.driver_steps[step as usize];
@@ -596,6 +637,7 @@ mod tests {
                 let instruction = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| (matches!(tag, FullTag::StmtAssign | FullTag::StmtAssignInt | FullTag::StmtAssignBool) && program.store.payload(program.store.data[instruction].range()).unwrap().first() == Some(&allocation.slot)).then_some(instruction as u32)).unwrap();
                 let write = generic.mutable_binding_receipt(instruction).unwrap().expect("an original captured write requires its independent authored assignment receipt");
                 assert_eq!(write.binding, allocation.binding);
+                assert_eq!(write.capture, Some(capture));
                 assert_eq!(write.owner, InstructionOwner::Function(allocation.target));
                 assert!(write.assignment.is_some());
                 let mut swapped = program.clone();

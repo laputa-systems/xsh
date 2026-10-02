@@ -188,6 +188,30 @@ mod tests {
     }
 
     #[test]
+    fn compound_captured_assignment_versions_the_checked_result_operation() {
+        let source = "var observed = 0\nproc updated() [] -> Int { observed += 1; observed + 0 }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let checked = super::super::Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let solved = &checked.solved;
+            let (&statement, operation) = solved.statement_operations.iter().next().unwrap();
+            let (binding, version, binding_flow, result) = solved.binding_producer_flows.iter().find_map(|(&(binding, version), &flow)| {
+                if version == 0 { return None; }
+                let ProducerFlowKind::Join { inputs } = &solved.producer_flows.node(flow).unwrap().kind else { return None; };
+                let [result] = inputs.as_slice() else { return None; };
+                (solved.producer_flows.node(*result).unwrap().source == ProducerFlowSource::Statement(statement)).then_some((binding, version, flow, *result))
+            }).expect("result operation owns a real binding write version");
+            let node = solved.producer_flows.node(result).unwrap();
+            assert!(matches!(&node.kind, ProducerFlowKind::Operation { requirement, .. } if *requirement == operation.requirement));
+            assert!(!solved.statement_producer_flows.contains_key(&statement), "the replacement is stored in the binding; the assignment statement does not return it");
+            assert_eq!(solved.producer_flows.node(binding_flow).unwrap().source, ProducerFlowSource::Binding { identity: binding, version });
+            assert!(solved.expression_producer_flows.values().any(|flow| matches!(&solved.producer_flows.node(*flow).unwrap().kind, ProducerFlowKind::CapturedBinding { identity, version: read_version, input } if *identity == binding && *read_version == version && *input == binding_flow)));
+        });
+    }
+
+    #[test]
     fn producer_flow_edges_reject_foreign_graph_nodes() {
         let mut original = InferenceContext::default();
         let mut original_flows = ProducerFlowGraph::new(original.owner());
@@ -966,6 +990,51 @@ impl super::Checker {
             }
             state.facts.binding_producers.insert(identity, value.profile);
         }
+    }
+
+    pub(super) fn record_compound_assignment_producer_flow(&mut self, arena: &crate::syntax::arena::ArenaProgram, statement: crate::syntax::arena::StmtId, target: crate::syntax::arena::AssignTargetId, op: crate::syntax::node::AssignOp, value: crate::syntax::arena::ArenaExprOrRun, span: crate::source::Span) {
+        if !self.graph_generation { return; }
+        let crate::syntax::arena::ArenaAssignTargetKind::Name(name) = arena.arena.assign_target(target).kind else { return; };
+        let Some(binding) = self.lookup(name).cloned() else { return; };
+        if !binding.mutable { return; }
+        let (Some((identity, _)), Some(left)) = (binding.producer_binding, binding.producer_flow) else { return; };
+        let right = match value {
+            crate::syntax::arena::ArenaExprOrRun::Expr(expression) => self.generic.borrow().facts.expression_producer_flows.get(&self.expression_identity(arena, expression)).copied(),
+            crate::syntax::arena::ArenaExprOrRun::Run(run) => self.graph_run_flow(arena, run),
+        };
+        let Some(right) = right else { return; };
+        let statement = StatementIdentity { source: span.source_id, namespace: self.current_namespace, statement };
+        let Some(operation) = self.generic.borrow().facts.statement_operations.get(&statement).cloned() else { return; };
+        let alternatives = (|| {
+            let state = self.generic.borrow();
+            let crate::sema::inference::RequirementTemplate::Operation { family, .. } = state.facts.graph.requirement_template(operation.requirement)? else { return Err(InferenceError::InvalidScheme); };
+            state.facts.graph.family(family)?.iter().map(|&candidate| {
+                let crate::sema::operation_graph::PreparedLanguageOperation::Compound { op: selected, domain } = state.language_operations.metadata(&state.facts.graph, candidate)?.operation else { return Err(InferenceError::InvalidScheme); };
+                if selected != op { return Err(InferenceError::InvalidScheme); }
+                // List addition preserves both producer profiles. Scalar
+                // arithmetic replaces the value with an inert scalar result.
+                let transfers = if domain == crate::sema::operation_graph::ArithmeticDomain::List {
+                    vec![left, right].into_iter().map(|input| ProducerFlowOperationTransfer { input, input_path: ProducerPath::default(), output_path: ProducerPath::default() }).collect()
+                } else { Vec::new() };
+                Ok(ProducerFlowOperationAlternative { candidate, path: None, opaque: false, transfers })
+            }).collect::<Result<Vec<_>, InferenceError>>()
+        })();
+        let alternatives = match alternatives { Ok(alternatives) => alternatives, Err(error) => { self.graph_error(span, error); return; } };
+        let kind = ProducerFlowKind::Operation { requirement: operation.requirement, alternatives, outputs: super::ProducerEffects { pull: crate::sema::inference::EffectSummary::Closed(crate::sema::inference::EffectSet::EMPTY), close: crate::sema::inference::EffectSummary::Closed(crate::sema::inference::EffectSet::EMPTY) } };
+        // This operation produces the replacement stored in the binding. It
+        // does not make the Unit assignment statement return that replacement.
+        let Some(result) = self.push_source_producer_flow(ProducerFlowSource::Statement(statement), kind, span) else { return; };
+        let version = {
+            let mut state = self.generic.borrow_mut();
+            let next = state.producer_binding_versions.entry(identity).or_insert(1);
+            let version = *next;
+            let Some(after) = next.checked_add(1) else { drop(state); self.graph_error(span, InferenceError::Limit("producer binding versions")); return; };
+            *next = after;
+            version
+        };
+        let Some(flow) = self.push_source_producer_flow(ProducerFlowSource::Binding { identity, version }, ProducerFlowKind::Join { inputs: vec![result] }, span) else { return; };
+        self.generic.borrow_mut().facts.binding_producer_flows.insert((identity, version), flow);
+        if let Some(binding) = self.scopes.iter_mut().rev().find_map(|scope| scope.get_mut(&name)) { binding.producer_flow = Some(flow); binding.producer_binding = Some((identity, version)); }
     }
 
     pub(super) fn record_assignment_producer_flow(&mut self, arena: &crate::syntax::arena::ArenaProgram, target: crate::syntax::arena::AssignTargetId, value: crate::syntax::arena::ArenaExprOrRun, span: crate::source::Span) {

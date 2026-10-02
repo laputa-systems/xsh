@@ -52,6 +52,60 @@ fn original_lexical_capture_executes_pure_and_proc_values_after_frontend_drop_on
 }
 
 #[test]
+fn original_lexical_capture_typed_ports_keep_original_tag_and_binding_after_frontend_drop() {
+    run_eval(|| {
+        let (evaluator, _) = prepare("var observed = 0\nvar unrelated = 9\nvar enabled = false\npure number(value: Int) -> Int { let answer: Int = value + observed; let ready: Bool = enabled and true; if ready { answer } else { 0 } }\nproc write() [] -> Unit { observed = 4 }\n");
+        let program = evaluator.indexed_program.as_ref().unwrap();
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            for tag in [FullTag::IntSlot, FullTag::BoolSlot] {
+                let (id, source) = generic.lexical_capture_sources().find(|(_, source)| source.tag == tag).expect("the original typed capture read retains its own physical port");
+                let source = source.clone();
+                let allocation = generic.lexical_capture(source.capture).unwrap().clone();
+                let mut changed_tag = (**program).clone();
+                changed_tag.store.tags[source.instruction as usize] = FullTag::ExprParam;
+                assert!(FullVerifier::verify_lexical_capture_source(&changed_tag.store, generic, &source).is_err(), "a compatible storage shape cannot replace the original typed port");
+                let mut coforged_tag = (**program).clone();
+                coforged_tag.store.tags[source.instruction as usize] = FullTag::ExprParam;
+                coforged_tag.store.generic.as_deref_mut().unwrap().test_lexical_capture_source_mut(id).unwrap().tag = FullTag::ExprParam;
+                assert!(FullVerifier::verify(&coforged_tag).is_err(), "rewriting a port and its dependent receipt cannot change the original emission authority");
+                let mut wrong_payload = (**program).clone();
+                let range = wrong_payload.store.data[source.instruction as usize].range();
+                wrong_payload.store.extra[range.start as usize] = source.slot + 1;
+                assert!(FullVerifier::verify_lexical_capture_source(&wrong_payload.store, generic, &source).is_err());
+                let mut coforged_type = (**program).clone();
+                let other = generic.lexical_captures().find(|(_, other)| other.target == allocation.target && other.original_type != allocation.original_type).unwrap().1;
+                let rewritten = coforged_type.store.generic.as_deref_mut().unwrap().test_lexical_capture_source_mut(id).unwrap();
+                rewritten.ty = other.ty;
+                rewritten.original_type = other.original_type.clone();
+                let rewritten = coforged_type.store.generic.as_deref_mut().unwrap().test_lexical_capture_mut(source.capture).unwrap();
+                rewritten.ty = other.ty;
+                rewritten.original_type = other.original_type.clone();
+                coforged_type.store.captures[allocation.header_index as usize].type_id = other.ty;
+                assert!(FullVerifier::verify(&coforged_type).is_err(), "coforged scalar types cannot replace the original capture definition and read roots");
+            }
+        });
+    });
+}
+
+#[test]
+fn original_lexical_capture_pure_typed_uint_reads_live_binding_after_frontend_drop_on_both_routes() {
+    run_eval(|| {
+        for recursive in [false, true] {
+            let (evaluator, plan) = prepare("var observed: UInt = 0\npure number() -> Int { let answer: Int = observed - 0; answer + 1 }\nprint ${number()}\nobserved = 4\nprint ${number()}\n");
+            let program = evaluator.indexed_program.as_ref().unwrap();
+            let symbols = program.symbol_owner().clone();
+            assert!(program.generic_evidence().unwrap().lexical_capture_sources().any(|(_, source)| source.tag == FullTag::IntSlot && source.original_type == Type::UInt));
+            let evaluate = || symbols.with_current(|| evaluator.try_eval_installed_compact_indexed_only_inner(plan).unwrap_or_else(|_| panic!("the original typed UInt capture remains installed")));
+            let output = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(evaluate) } else { evaluate() };
+            assert!(output.diagnostics.is_empty(), "recursive={recursive}: {:?}", output.diagnostics);
+            assert_eq!(output.status, 0);
+            assert_eq!(output.stdout, b"1\n5\n");
+        }
+    });
+}
+
+#[test]
 fn original_lexical_capture_refuses_missing_foreign_and_coforged_binding_slot_owner_receipts() {
     run_eval(|| {
         let source = "let base: Int = 3\nlet decoy: Int = 9\npure plus(value: Int) -> Int { value + base }\nlet alias = plus\n";

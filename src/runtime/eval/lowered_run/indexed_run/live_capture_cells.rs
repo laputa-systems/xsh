@@ -73,6 +73,10 @@ struct LiveCaptureFrame {
     slots: Vec<(usize, LiveCaptureCell)>,
 }
 
+/// A yielded body owns its original activation without keeping the slot pointer
+/// registered while its consumer runs. Moving this token transfers that authority.
+pub(in crate::runtime::eval) struct SuspendedLiveCaptureFrame(LiveCaptureFrame);
+
 pub(in crate::runtime::eval) struct CompletedLiveCaptureFrame {
     address: usize,
     program: Weak<FullProgram>,
@@ -108,7 +112,75 @@ fn supports_live_capture_type(ty: &Type) -> bool {
     crate::runtime::eval::lower::mutable_binding::supports_mutable_binding_type(ty)
 }
 
+fn requires_live_frame(program: &FullProgram, target: IrFunctionId) -> bool {
+    let Some(evidence) = program.generic_evidence() else { return false; };
+    let declaration = evidence.checked_functions().find_map(|(_, source)| (source.target == target).then_some(source.declaration))
+        .or_else(|| evidence.lexical_captures().find_map(|(_, source)| (source.target == target).then_some(source.declaration)));
+    evidence.lexical_captures().any(|(_, capture)| capture.mutable && supports_live_capture_type(&capture.original_type)
+        && (capture.target == target || declaration.is_some_and(|declaration| capture.definition_owner == Some(declaration))))
+}
+
 impl LiveCaptureCells {
+    fn validate_suspended_frame(program: &Arc<FullProgram>, target: IrFunctionId, slots: &[LoweredValue], frame: &LiveCaptureFrame, span: Span) -> Result<(), RuntimeError> {
+        if !frame.program.ptr_eq(&Arc::downgrade(program)) || frame.target != target || frame.address != slots.as_ptr() as usize {
+            return Err(failure("suspended live frame changes its original program, target or activation", span));
+        }
+        let evidence = program.generic_evidence().ok_or_else(|| failure("suspended live frame has no original evidence", span))?;
+        let declaration = evidence.checked_functions().find_map(|(_, source)| (source.target == target).then_some(source.declaration))
+            .or_else(|| evidence.lexical_captures().find_map(|(_, source)| (source.target == target).then_some(source.declaration)))
+            .ok_or_else(|| failure("suspended live frame loses its original declaration", span))?;
+        if declaration != frame.declaration { return Err(failure("suspended live frame changes its original declaration", span)); }
+        for (_, original) in evidence.lexical_captures().filter(|(_, original)| original.target == target && original.mutable && supports_live_capture_type(&original.original_type)) {
+            let mut receiving = frame.slots.iter().filter(|(slot, _)| *slot == original.slot as usize);
+            let (_, cell) = receiving.next().ok_or_else(|| failure("suspended live frame loses an original receiving capture", span))?;
+            if receiving.next().is_some() { return Err(failure("suspended live frame repeats an original receiving capture", span)); }
+            cell.validate_capture(program, target, original.slot as usize, span)?;
+        }
+        let mut original_slots = Vec::with_capacity(frame.slots.len());
+        for (slot, cell) in &frame.slots {
+            if *slot >= slots.len() || !cell.matches_program(program) || original_slots.contains(slot) { return Err(failure("suspended live frame changes its original slot allocations", span)); }
+            original_slots.push(*slot);
+            if cell.0.definition_owner != Some(declaration) {
+                cell.validate_capture(program, target, *slot, span)?;
+                continue;
+            }
+            let allocation = evidence.mutable_binding_receipts().find(|source| source.binding == cell.0.binding
+                && source.owner == crate::runtime::eval::indexed::generic::InstructionOwner::Function(target)
+                && source.assignment.is_none() && matches!(source.tag, FullTag::StmtLet | FullTag::StmtLetInt | FullTag::StmtLetBool)
+                && source.payload.first() == Some(&(*slot as u32)))
+                .ok_or_else(|| failure("suspended live local loses its original defining allocation", span))?;
+            let allocation = evidence.mutable_binding_receipt(allocation.instruction).map_err(|error| indexed_error(error, span))?
+                .ok_or_else(|| failure("suspended live local loses its original allocation receipt", span))?;
+            let (id, _) = evidence.lexical_captures().find(|(_, original)| original.binding == cell.0.binding && original.definition_owner == Some(declaration))
+                .ok_or_else(|| failure("suspended live local loses its original captured binding", span))?;
+            let original = evidence.lexical_capture(id).map_err(|error| indexed_error(error, span))?;
+            if allocation.binding_type != cell.0.ty || original.ty != cell.0.ty || !supports_live_capture_type(&original.original_type)
+                || !super::super::super::lowered_value_matches_static_type(&cell.value(), &original.original_type) {
+                return Err(failure("suspended live local changes its original binding type", span));
+            }
+        }
+        Ok(())
+    }
+
+    pub(in crate::runtime::eval) fn suspend_frame(&mut self, slots: &mut [LoweredValue], span: Span) -> Result<SuspendedLiveCaptureFrame, RuntimeError> {
+        let address = slots.as_ptr() as usize;
+        let index = self.frames.iter().rposition(|frame| frame.address == address).ok_or_else(|| failure("live frame suspension has no original active allocation", span))?;
+        let frame = &self.frames[index];
+        let program = frame.program.upgrade().ok_or_else(|| failure("live frame suspension loses its original program", span))?;
+        Self::validate_suspended_frame(&program, frame.target, slots, frame, span)?;
+        self.refresh_slots(slots);
+        Ok(SuspendedLiveCaptureFrame(self.frames.remove(index)))
+    }
+
+    pub(in crate::runtime::eval) fn resume_frame(&mut self, program: &Arc<FullProgram>, target: IrFunctionId, slots: &mut [LoweredValue], suspended: SuspendedLiveCaptureFrame, span: Span) -> Result<(), RuntimeError> {
+        Self::validate_suspended_frame(program, target, slots, &suspended.0, span)?;
+        if self.has_frame(slots.as_ptr() as usize) || self.drivers.iter().any(|driver| driver.address == slots.as_ptr() as usize) {
+            return Err(failure("live frame resume reuses an active slot allocation", span));
+        }
+        self.frames.push(suspended.0);
+        self.refresh_slots(slots);
+        Ok(())
+    }
     pub(in crate::runtime::eval) fn begin_driver(&mut self, program: &Arc<FullProgram>, step: u32, address: usize, span: Span) -> Result<(), RuntimeError> {
         let evidence = program.generic_evidence().ok_or_else(|| failure("live driver frame has no original evidence", span))?;
         if self.drivers.iter().any(|driver| driver.address == address) { return Err(failure("live driver reuses an active slot allocation", span)); }
@@ -319,7 +391,15 @@ impl Evaluator {
 
     pub(super) fn publish_indexed_live_slot(&self, execution: &FullExecution<'_>, instruction: u32, slots: &[LoweredValue], slot: usize, span: Span) -> Result<(), RuntimeError> {
         let registry = self.live_capture_cells.lock().expect("live capture registry is not poisoned");
-        if registry.cell_for_slot(slots.as_ptr() as usize, slot).is_none() { return Ok(()); }
+        if registry.cell_for_slot(slots.as_ptr() as usize, slot).is_none() {
+            if let Some(evidence) = execution.generic_evidence()
+                && let Some(original) = evidence.mutable_binding_receipt(instruction).map_err(|error| indexed_error(error, span))?
+                && let Some(capture) = original.capture {
+                let allocation = evidence.lexical_capture(capture).map_err(|error| indexed_error(error, span))?;
+                if supports_live_capture_type(&allocation.original_type) { return Err(failure("live mutable write has no original active receiving cell", span)); }
+            }
+            return Ok(());
+        }
         let program = self.indexed_program.as_ref().ok_or_else(|| failure("live mutable write has no installed program", span))?;
         registry.publish_slot(program, execution, instruction, slots, slot, span)
     }
@@ -347,19 +427,49 @@ impl Evaluator {
         let program = self.indexed_program.as_ref().ok_or_else(|| failure("live capture frame has no installed program", span))?;
         if !view.belongs_to_program(program.as_ref()) { return Err(failure("live capture frame belongs to another program", span)); }
         let target = view.function_id();
-        let Some(evidence) = program.generic_evidence() else {
+        let Some(_) = program.generic_evidence() else {
             if header.captures.iter().any(|capture| capture.mutable) { return Err(failure("live capture frame has no original evidence", span)); }
             return Ok(());
         };
-        let declaration = evidence.checked_functions().find_map(|(_, source)| (source.target == target).then_some(source.declaration));
-        let receives_mutable = evidence.lexical_captures().any(|(_, capture)| capture.target == target && capture.mutable && supports_live_capture_type(&capture.original_type));
-        let defines_captured_mutable = declaration.is_some_and(|declaration| evidence.lexical_captures().any(|(_, capture)| capture.mutable && capture.definition_owner == Some(declaration) && supports_live_capture_type(&capture.original_type)));
-        if !receives_mutable && !defines_captured_mutable { return Ok(()); }
+        if !requires_live_frame(program, target) { return Ok(()); }
         let cells = captures.map(|captures| captures.iter().filter_map(|capture| capture.live_cell.clone().map(|cell| (capture.slot, cell))).collect::<Vec<_>>());
         let mut registry = self.live_capture_cells.lock().expect("live capture registry is not poisoned");
         registry.begin_frame_with_cells(program, target, slots.as_ptr() as usize, header, cells.as_deref(), span)?;
         registry.refresh_slots(slots);
         Ok(())
+    }
+
+    pub(super) fn suspend_indexed_live_frame(&self, slots: &mut [LoweredValue], span: Span) -> Result<Option<SuspendedLiveCaptureFrame>, RuntimeError> {
+        let mut registry = self.live_capture_cells.lock().expect("live capture registry is not poisoned");
+        if !registry.has_frame(slots.as_ptr() as usize) { return Ok(None); }
+        let program = self.indexed_program.as_ref().ok_or_else(|| failure("live frame suspension has no installed program", span))?;
+        if !registry.frames.iter().any(|frame| frame.address == slots.as_ptr() as usize && frame.program.ptr_eq(&Arc::downgrade(program))) {
+            return Err(failure("live frame suspension belongs to another installed program", span));
+        }
+        registry.suspend_frame(slots, span).map(Some)
+    }
+
+    pub(super) fn resume_indexed_live_frame(&self, view: FullFunctionView<'_>, slots: &mut [LoweredValue], suspended: Option<SuspendedLiveCaptureFrame>, span: Span) -> Result<(), RuntimeError> {
+        let program = self.indexed_program.as_ref().ok_or_else(|| failure("live frame resumption has no installed program", span))?;
+        if !view.belongs_to_program(program.as_ref()) { return Err(failure("live frame resumption belongs to another program", span)); }
+        let target = view.function_id();
+        let Some(suspended) = suspended else {
+            if requires_live_frame(program, target) { return Err(failure("live producer resumption has no original suspended activation", span)); }
+            return Ok(());
+        };
+        self.live_capture_cells.lock().expect("live capture registry is not poisoned").resume_frame(program, target, slots, suspended, span)
+    }
+
+    pub(super) fn finish_indexed_live_producer_frame(&self, view: FullFunctionView<'_>, slots: &mut [LoweredValue], span: Span) -> Result<Option<CompletedLiveCaptureFrame>, RuntimeError> {
+        let program = self.indexed_program.as_ref().ok_or_else(|| failure("live producer completion has no installed program", span))?;
+        if !view.belongs_to_program(program.as_ref()) { return Err(failure("live producer completion belongs to another program", span)); }
+        let mut registry = self.live_capture_cells.lock().expect("live capture registry is not poisoned");
+        let Some(frame) = registry.frames.iter().rev().find(|frame| frame.address == slots.as_ptr() as usize) else {
+            if requires_live_frame(program, view.function_id()) { return Err(failure("live producer completion has no original active activation", span)); }
+            return Ok(None);
+        };
+        if !frame.program.ptr_eq(&Arc::downgrade(program)) || frame.target != view.function_id() { return Err(failure("live producer completion changes its original program or target", span)); }
+        registry.finish_frame(slots, span).map(Some)
     }
 
     pub(super) fn finish_indexed_live_frame(&self, slots: &mut [LoweredValue], span: Span) -> Result<Option<CompletedLiveCaptureFrame>, RuntimeError> {
@@ -464,5 +574,76 @@ mod tests {
             let error = evaluator.begin_indexed_live_frame(view, &header, &mut slots, None, Span::new(crate::source::SourceId::new(0), 0, 0)).unwrap_err();
             assert!(error.message.contains("another program"), "{}", error.message);
         }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn suspended_live_capture_frame_detaches_and_refreshes_its_original_cells() {
+        crate::runtime::eval::run_eval(|| {
+            let program = fixture();
+            let _symbols = program.symbol_owner().enter();
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let evidence = program.generic_evidence().unwrap();
+            let allocation = evidence.mutable_driver_receipts().find(|source| source.assignment.is_none()).unwrap();
+            let target = evidence.checked_functions().next().unwrap().1.target;
+            let header = program.function_view_by_id(target).unwrap().header().unwrap();
+            let slot = evidence.lexical_captures().find(|(_, source)| source.target == target && source.binding == allocation.binding).unwrap().1.slot as usize;
+            let mut registry = LiveCaptureCells::default();
+            for source in evidence.mutable_driver_receipts().filter(|source| source.assignment.is_none()) {
+                registry.register_driver(&program, source.step, Some(LoweredValue::Int(0)), span).unwrap();
+            }
+            let mut slots = vec![LoweredValue::Int(0); header.slot_count];
+            registry.begin_frame(&program, target, slots.as_ptr() as usize, &header, span).unwrap();
+            let suspended = registry.suspend_frame(&mut slots, span).unwrap();
+            assert!(registry.read_slot(slots.as_ptr() as usize, slot).is_none(), "the consumer cannot use the producer's suspended slot pointer");
+            let mut consumer = vec![LoweredValue::Int(0); header.slot_count];
+            registry.begin_frame(&program, target, consumer.as_ptr() as usize, &header, span).unwrap();
+            assert!(registry.write_slot(consumer.as_ptr() as usize, slot, LoweredValue::Int(4)));
+            registry.finish_frame(&mut consumer, span).unwrap();
+            registry.resume_frame(&program, target, &mut slots, suspended, span).unwrap();
+            assert_eq!(slots[slot], LoweredValue::Int(4), "resumption reads the current original cell rather than the yielded snapshot");
+            let completion = registry.finish_frame(&mut slots, span).unwrap();
+            completion.validate(&header, &slots, None, span).unwrap();
+            assert!(registry.frames.is_empty());
+        });
+    }
+
+    #[test]
+    fn suspended_live_capture_frame_refuses_foreign_and_rewritten_activation_authority() {
+        crate::runtime::eval::run_eval(|| {
+            let program = fixture();
+            let _symbols = program.symbol_owner().enter();
+            let foreign = fixture();
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let evidence = program.generic_evidence().unwrap();
+            let target = evidence.checked_functions().next().unwrap().1.target;
+            let other = evidence.checked_functions().find(|(_, source)| source.target != target).unwrap().1.target;
+            let header = program.function_view_by_id(target).unwrap().header().unwrap();
+            for mutation in 0..5 {
+                let mut registry = LiveCaptureCells::default();
+                for allocation in evidence.mutable_driver_receipts().filter(|source| source.assignment.is_none()) {
+                    registry.register_driver(&program, allocation.step, Some(LoweredValue::Int(0)), span).unwrap();
+                }
+                let mut slots = vec![LoweredValue::Int(0); header.slot_count];
+                registry.begin_frame(&program, target, slots.as_ptr() as usize, &header, span).unwrap();
+                let mut suspended = registry.suspend_frame(&mut slots, span).unwrap();
+                match mutation {
+                    0 => assert!(registry.resume_frame(&foreign, target, &mut slots, suspended, span).is_err()),
+                    1 => assert!(registry.resume_frame(&program, other, &mut slots, suspended, span).is_err()),
+                    2 => {
+                        let mut other_slots = slots.clone();
+                        assert!(registry.resume_frame(&program, target, &mut other_slots, suspended, span).is_err());
+                    }
+                    3 => {
+                        suspended.0.slots[0].1 = suspended.0.slots[1].1.clone();
+                        assert!(registry.resume_frame(&program, target, &mut slots, suspended, span).is_err());
+                    }
+                    _ => {
+                        suspended.0.slots.pop();
+                        assert!(registry.resume_frame(&program, target, &mut slots, suspended, span).is_err());
+                    }
+                }
+                assert!(registry.frames.is_empty(), "a refused token cannot leave an active pointer mapping");
+            }
+        });
     }
 }

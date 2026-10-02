@@ -102,6 +102,23 @@ mod module_reuse_tests {
     }
 
     #[test]
+    fn zero_slot_import_driver_keeps_loaded_values_and_original_live_captures_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            let fixture = ModuleFixture::new("zero-slot-live-import");
+            fixture.write("leaf.xsh", "##! A private module binding.\nlet selected: Int = 7\n## Read the original module binding.\nexport pure chosen() -> Int { selected }\n");
+            for recursive in [false, true] {
+                let prepared = fixture.prepare("use leaf as shared\nvar observed: Int = 0\nproc advance() [] -> Int { observed += shared.chosen(); observed }\nprint ${advance()} ${advance()}\n", |program| {
+                    let import = program.driver_step_view(0).unwrap();
+                    assert_eq!(import.tag(), FullDriverTag::Use);
+                    assert_eq!(import.slot_count(), 0, "an import without prior root bindings owns no slot allocation");
+                    assert!(program.generic_evidence().unwrap().lexical_captures().any(|(_, capture)| capture.mutable));
+                });
+                assert_eq!(execute(prepared, recursive), (0, b"7 14\n".to_vec(), Vec::new()));
+            }
+        });
+    }
+
+    #[test]
     fn private_module_captures_keep_their_original_namespace_after_frontend_drop() {
         crate::runtime::eval::run_eval(|| {
             let fixture = ModuleFixture::new("private-capture-owners");

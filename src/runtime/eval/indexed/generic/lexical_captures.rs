@@ -1,6 +1,7 @@
 use super::*;
 use crate::sema::check::{BindingIdentity, DeclarationIdentity, ExpressionIdentity};
 use crate::sema::inference::ScopedRoot;
+use super::super::full::FullTag;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::runtime::eval) struct LexicalCaptureId { index: u32, proof: OwnerProof }
@@ -34,6 +35,7 @@ pub(in crate::runtime::eval) struct LexicalCaptureSource {
     pub origin: ExpressionIdentity,
     pub owner: InstructionOwner,
     pub instruction: u32,
+    pub tag: FullTag,
     pub slot: u32,
     pub source_type: ScopedRoot,
     pub original_type: crate::sema::types::Type,
@@ -141,6 +143,12 @@ impl GenericEvidenceStore {
             if source.owner != InstructionOwner::Function(capture.target) || source.declaration != capture.declaration || source.binding != capture.binding
                 || source.slot != capture.slot || source.ty != capture.ty || source.original_type != capture.original_type
                 || pools.to_type(source.ty)? != source.original_type || source.payload.as_ref() != [source.slot]
+                || !match source.tag {
+                    FullTag::ExprParam => true,
+                    FullTag::IntSlot => matches!(source.original_type, Type::Int | Type::UInt),
+                    FullTag::BoolSlot => source.original_type == Type::Bool,
+                    _ => false,
+                }
                 || owners.get(source.instruction as usize) != Some(&Some(source.owner))
                 || self.registered_instruction_origin(source.instruction, false) != Some((OperationSourceOrigin::Expression(source.origin), source.owner)) {
                 return Err(failure("lexical capture read changes its original allocation, owner or type"));

@@ -17,6 +17,7 @@ pub(in crate::runtime::eval) enum BuildMutablePathValue {
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct BuildMutablePathWrite {
     pub binding: BindingIdentity,
+    pub capture: Option<super::mutable_binding::BuildMutableCaptureWrite>,
     pub statement: StatementIdentity,
     pub target: crate::syntax::arena::AssignTargetId,
     pub slot: usize,
@@ -53,14 +54,26 @@ impl CompactLowerConstructProbe<'_, '_> {
         let scratch = self.scratch.borrow();
         let local = scratch.mutable_binding_origins.get(&binding);
         let driver = scratch.mutable_driver_bindings.get(&binding);
-        let source_type = local.map(|original| original.source_type).or_else(|| driver.map(|original| original.source_type))?;
+        let solved = self.solved();
+        let statement_origin = self.statement_identity(statement);
+        let definition = solved.bindings.get(&binding)?;
+        let owner = solved.statement_owners.get(&statement_origin).copied();
+        let capture = if slots.captures.contains(&name) && owner != definition.owner {
+            let caller = owner?;
+            let slot = slots.resolve(name)?;
+            let binding_root = ScopedRoot { ty: definition.ty, scope: definition.scheme.or_else(|| definition.owner.and_then(|owner| solved.declarations.get(&owner).map(|declaration| declaration.scheme))) };
+            let known = self.top_level_known.get(&name)?;
+            if !definition.mutable || !known.mutable || known.lexical_binding != Some(binding) || !known.source_type.is_some_and(|root| root.ty == binding_root.ty && root.scope == binding_root.scope) { return None; }
+            Some(super::mutable_binding::BuildMutableCaptureWrite { caller, definition_owner: definition.owner, binding_root, slot })
+        } else { None };
+        let source_type = capture.as_ref().map(|capture| capture.binding_root).or_else(|| local.map(|original| original.source_type)).or_else(|| driver.map(|original| original.source_type))?;
         let (slot, path, emitted_op, value, check) = match scratch.statements.get(row.index())? {
             BuildStmtRow::AssignPath { slot, path, op, value, check, .. } => (*slot, path.0.clone(), *op, BuildMutablePathValue::Value(*value), check.as_ref().map(|check| check.ty.clone())),
             BuildStmtRow::AssignField { slot, field, op, value, .. } => (*slot, vec![LoweredAssignStep::Field(Name::intern(field))], *op, BuildMutablePathValue::Value(*value), None),
             BuildStmtRow::AssignFieldInt { slot, field, op, value, .. } => (*slot, vec![LoweredAssignStep::Field(Name::intern(field))], *op, BuildMutablePathValue::Integer(*value), None),
             _ => return None,
         };
-        if local.is_some_and(|original| original.slot != slot) || driver.is_some_and(|original| original.name != name) || slots.resolve(name) != Some(slot) || emitted_op != op || path.is_empty() || path.len() > 128 { return None; }
+        if (capture.is_none() && local.is_some_and(|original| original.slot != slot)) || driver.is_some_and(|original| original.name != name) || slots.resolve(name) != Some(slot) || emitted_op != op || path.is_empty() || path.len() > 128 { return None; }
         let mut targets = Vec::new();
         let mut current = target;
         loop {
@@ -74,8 +87,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         targets.reverse();
         if targets.len() != path.len() { return None; }
-        let solved = self.solved();
-        let owner = solved.bindings.get(&binding)?.owner;
         let mut selected_type = source_type;
         let mut steps = Vec::new();
         for (authored, emitted) in targets.into_iter().zip(&path) {
@@ -117,7 +128,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         solved.graph.validate_scoped(value_type).ok()?;
         if solved.expression_owners.get(&value_source).copied() != owner { return None; }
         let compound = if op == AssignOp::Set { None } else { Some(solved.statement_operations.get(&self.statement_identity(statement))?.clone()) };
-        let receipt = BuildMutablePathWrite { binding, statement: self.statement_identity(statement), target, slot, op, value, value_source, value_type, selected_type, check, compound, steps: steps.into_boxed_slice() };
+        let receipt = BuildMutablePathWrite { binding, capture, statement: self.statement_identity(statement), target, slot, op, value, value_source, value_type, selected_type, check, compound, steps: steps.into_boxed_slice() };
         drop(scratch);
         self.scratch.borrow_mut().mutable_path_writes.insert(row, receipt);
         Some(())

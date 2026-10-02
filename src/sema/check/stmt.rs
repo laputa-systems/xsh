@@ -1888,6 +1888,7 @@ impl Checker {
         let rhs = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
         let value_span = expr_or_run_span_arena(arena, value);
         self.check_compound_assignment_op(arena, statement, op, &target_ty, &rhs, span, value_span);
+        self.record_compound_assignment_producer_flow(arena, statement, target, op, value, span);
         self.invalidate_binding_projection_arena(arena, target, name);
     }
 

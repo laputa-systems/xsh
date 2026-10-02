@@ -7360,6 +7360,7 @@ macro_rules! impl_build_id_codec {
                     builder.stage_iteration_expression_use(instruction, origin, owner, &scratch)?;
                     builder.stage_value_typed_use(instruction, origin, owner, &scratch)?;
                     builder.stage_mutable_use(instruction, origin, owner, &scratch)?;
+                    builder.stage_lexical_capture_read(instruction, origin, owner, &scratch)?;
                     if stringify!($rows) == "bools" && let Some(original) = scratch.folded_literal_comparison.get(&BuildBoolId::new(self.index())) { builder.literal_comparison_rows.push((instruction, original.clone(), owner)); }
                     if stringify!($rows) == "ints" && let Some(original) = scratch.folded_native_receivers.get(&BuildIntId::new(self.index())) { builder.stage_folded_native_receiver(instruction, original.clone(), owner); }
                     if stringify!($rows) == "ints" && let Some(original) = scratch.byte_at_fallback_origins.get(&BuildIntId::new(self.index())) { builder.stage_original_byte_at_fallback(instruction, original.clone(), owner); }
