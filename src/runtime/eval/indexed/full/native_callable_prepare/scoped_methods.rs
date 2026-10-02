@@ -21,7 +21,7 @@ fn canonical_family(solved: &SolvedTypes, family: OperationFamilyId) -> Result<O
         let scheme = graph.scheme(template.scheme).map_err(|_| problem("scoped_native_method_candidate_scheme"))?;
         if !template.has_receiver || !template.actual_eligibility.is_empty() || !template.effect_roles.is_empty() || !template.output_effect_roles.is_empty() || template.failure_projection.is_some()
             || !scheme.requirements.is_empty() || !scheme.quantifiers.is_empty() || !scheme.effect_quantifiers.is_empty() { return Err(problem("scoped_native_method_candidate_not_closed")); }
-        metadata.push(member);
+        metadata.push(member.clone());
     }
     if metadata[0].owner == metadata[1].owner { return Err(problem("scoped_native_method_duplicate_family_member")); }
     Ok(Some(metadata))
@@ -76,7 +76,7 @@ impl FullBuilder {
             if owner != InstructionOwner::Function(self.generic.as_ref().unwrap().scope(scope).unwrap().owner) || operation.binding.supplied_slots != [0] || !operation.binding.default_slots.is_empty()
                 || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some() || !operation.argument_coercions.is_empty() || operation.actual_arguments.len() != 1 { return Err(problem("scoped_native_method_original_source_binding")); }
             let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| problem("scoped_native_method_source_payload"))?.to_vec();
-            if self.store.tags[instruction as usize] != FullTag::ExprMethod || words.len() != 4 || self.store.string(words[1]).map_err(|_| problem("scoped_native_method_source_name"))? != "starts_with" { return Err(problem("scoped_native_method_source_opcode")); }
+            if self.store.tags[instruction as usize] != FullTag::ExprMethod || words.len() != 4 || self.store.string(words[1]).map_err(|_| problem("scoped_native_method_source_name"))? != "starts_with" { return Err(IrBuildError::verification("scoped_native_method_source_opcode", IrVerifyError::new(format!("scoped native method source {instruction} has tag {:?} and {} payload words", self.store.tags[instruction as usize], words.len())))); }
             let block_id = IrBlockId::from_raw(words[2]).ok_or_else(|| problem("scoped_native_method_source_arguments"))?;
             let block = self.store.blocks.get(block_id.index()).ok_or_else(|| problem("scoped_native_method_source_arguments"))?;
             let argument_payload = self.store.payload(block.instructions).map_err(|_| problem("scoped_native_method_source_arguments"))?.to_vec();

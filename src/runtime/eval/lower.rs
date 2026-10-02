@@ -4483,6 +4483,26 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(values.into_iter().flatten().collect())
     }
 
+    // An unresolved method family keeps its authored receiver and argument rows.
+    // Preparation must retain the original family and select its runtime witness.
+    fn original_pending_method_arguments(&self, id: ExprId, base: ExprId, args: &[ArenaCallArg]) -> Option<Vec<ExprId>> {
+        let solved = self.solved();
+        let origin = self.expression_identity(id);
+        let operation = solved.operations.get(&origin)?;
+        if operation.caller.is_none() || operation.receiver.is_none()
+            || solved.graph.candidate_evidence(operation.requirement).ok()?.is_some()
+            || operation.binding.supplied_slots != [0] || !operation.binding.default_slots.is_empty()
+            || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some() || !operation.argument_coercions.is_empty() { return None; }
+        let scope = solved.operation_scope(crate::sema::check::ProducerFlowSource::Expression(origin), operation).ok()?;
+        solved.graph.validate_requirement_scoped(crate::sema::inference::ScopedRequirementRoot { requirement: operation.requirement, scope }).ok()?;
+        if solved.expressions.get(&self.expression_identity(base)) != operation.receiver.as_ref() { return None; }
+        let arguments = positional_call_args(args)?;
+        let [argument] = arguments.as_slice() else { return None; };
+        let [recipe] = solved.argument_sources.get(&origin)?.as_slice() else { return None; };
+        if recipe.name.is_some() || !matches!(recipe.value, crate::sema::arguments::ArgumentValueSource::Expression(expression) if expression == *argument) { return None; }
+        Some(arguments)
+    }
+
     fn lowered_method_supported_for_receiver(
         &self,
         base: ExprId,
@@ -10553,33 +10573,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     ));
                 }
-                // Recognize `<text>.starts_with(n)` / `.ends_with(n)` and lower to the
-                // direct StrPredicate node (the bool-condition path then specializes it
-                // into StrPredicateSlot/TrimStrPredicateSlot for slot/trim receivers).
-                let str_predicate = match name.as_str().as_str() {
-                    "starts_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::StartsWith),
-                    "ends_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::EndsWith),
-                    _ => None,
-                };
-                if let Some(predicate) = str_predicate
-                    && let Some(positional) = positional_call_args(&args_vec)
-                    && positional.len() == 1
-                {
-                    return Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::StrPredicate {
-                            receiver: self.lower_expr(base, slots, current_function, item_slot,)?,
-                            predicate,
-                            needle: self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?,
-                            span,
-                        }
-                    ));
+                let pending_method_arguments = self.original_pending_method_arguments(id, base, &args_vec);
+                if let Some(arguments) = pending_method_arguments {
+                    let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
+                    let arguments = self.lower_expr_ids(&arguments, slots, current_function, item_slot)?;
+                    return Some(push_build_row!(self, expr, BuildExprRow::Method { receiver, name: name.as_str(), args: arguments, span }));
                 }
                 if let Some(script_call) = self.lower_script_method_call(
                     id,

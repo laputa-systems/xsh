@@ -70,7 +70,7 @@ mod value_bindings;
 mod native_callables;
 mod callable_receivers;
 pub(in crate::runtime::eval) use callable_receivers::{OriginalCallableReceiver, CapturedCallableReceiver};
-pub(in crate::runtime::eval) use native_callables::{NativeCallableContract, NativeCallableSource, PreparedNativeCallableValue, GroundNativeInvocationContract, NativeInvocationSource, PreparedNativeInvocationPlan};
+pub(in crate::runtime::eval) use native_callables::{ScopedNativeMethodRequirement, ScopedNativeMethodSource, ScopedNativeMethodObligation, ScopedNativeMethodReceiver, ScopedNativeMethodWitness, ScopedNativeMethodSourceId, ScopedNativeMethodWitnessId, NativeCallableContract, NativeCallableSource, PreparedNativeCallableValue, GroundNativeInvocationContract, NativeInvocationSource, PreparedNativeInvocationPlan};
 pub(in crate::runtime::eval) use value_bindings::{ValueBindingIdentity, ValueBindingAllocation, ValueBindingSourceId, ValueBindingId, ValueBindingContract, ValueInitializerWrapper, ValueInitializerWrapperKind, ValueBindingSource, PreparedValueBinding, ValueBindingUse};
 pub(in crate::runtime::eval) use operation_requirements::{ScopedOperationRequirement, ScopedOperationSource, ScopedOperationObligation, ScopedOperationWitness, ScopedOperationCode, ScopedOperationSourceId, ScopedOperationWitnessId};
 pub(in crate::runtime::eval) use iterations::{OriginalIterationBinding, OriginalIterationUse, OriginalIterationProducer};
@@ -166,6 +166,7 @@ pub(in crate::runtime::eval) enum GenericReturnPlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum Requirement {
     Operation(ScopedOperationRequirement),
+    NativeMethod(ScopedNativeMethodRequirement),
     Eligibility { predicate: crate::sema::inference::Eligibility, ty: TypeRef },
     Projection { receiver: TypeRef, receiver_parameter: u32, field: Name, result: TypeRef },
     Add { left: TypeRef, right: TypeRef, result: TypeRef },
@@ -202,6 +203,7 @@ pub(in crate::runtime::eval) enum ConcreteOperationId {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::runtime::eval) enum RequirementWitness {
     Operation(ScopedOperationWitnessId),
+    NativeMethod(ScopedNativeMethodWitnessId),
     Eligibility { predicate: crate::sema::inference::Eligibility, ty: GroundTypeId },
     Invocation(ScopedInvocationWitnessId),
     Projection { layout: PhysicalLayoutId, field_slot: u32, result: GroundTypeId },
@@ -1031,7 +1033,7 @@ impl GenericEvidenceStore {
             + self.scoped_invocation_instructions.capacity() * size_of::<(u32, ScopedInvocationSourceId)>()
             + self.scoped_invocation_sources.iter().map(|entry| entry.value.retained_bytes()).sum::<usize>()
             + self.scoped_invocation_witnesses.iter().map(|entry| (entry.value.binding.supplied_slots.len() + entry.value.binding.default_slots.len() + entry.value.binding.operands.len()) * size_of::<u32>()).sum::<usize>()
-            + self.scopes.iter().flat_map(|entry| &entry.value.requirements).map(|requirement| match requirement { Requirement::Operation(operation) => operation.retained_bytes(), Requirement::Invocation { arguments, .. } => arguments.len() * size_of::<TemplateInvocationArgument>(), _ => 0 }).sum::<usize>()
+            + self.scopes.iter().flat_map(|entry| &entry.value.requirements).map(|requirement| match requirement { Requirement::Operation(operation) => operation.retained_bytes(), Requirement::NativeMethod(method) => method.retained_bytes(), Requirement::Invocation { arguments, .. } => arguments.len() * size_of::<TemplateInvocationArgument>(), _ => 0 }).sum::<usize>()
             + self.invocation_sources.capacity() * size_of::<Entry<InvocationSource>>()
             + self.invocation_plans.capacity() * size_of::<Entry<PreparedInvocationPlan>>()
             + self.invocation_instructions.capacity() * size_of::<(u32, InvocationPlanId)>()
@@ -1404,6 +1406,7 @@ impl GenericEvidenceStore {
                     return Err(failure("eligibility witness disagrees with its scoped requirement"));
                 }
             }
+            (Requirement::NativeMethod(method), RequirementWitness::NativeMethod(id)) => self.verify_scoped_native_method_witness(pools, scope, method, requirement_index, substitutions, id)?,
             (Requirement::Operation(operation), RequirementWitness::Operation(id)) => self.verify_scoped_operation_witness(pools, scope, operation, requirement_index, substitutions, id)?,
             (Requirement::Invocation { .. }, RequirementWitness::Invocation(id)) => self.verify_scoped_invocation_witness(pools, scope, requirement, requirement_index, substitutions, parameter_types, id)?,
             (Requirement::Projection { receiver, receiver_parameter, field, result }, RequirementWitness::Projection { layout, field_slot, result: actual }) => {
@@ -1547,6 +1550,7 @@ impl GenericEvidenceStore {
                         if *predicate != crate::sema::inference::Eligibility::Display { return Err(failure("generic eligibility predicate is not prepared")); }
                         self.verify_reference(pools, scope, *ty)?;
                     }
+                    Requirement::NativeMethod(method) => self.verify_scoped_native_method_requirement(pools, scope, method)?,
                     Requirement::Operation(operation) => { operation.verify_supported()?; for reference in operation.references() { self.verify_reference(pools, scope, reference)?; } },
                     Requirement::Invocation { callable, arguments, result, .. } => {
                         for reference in [*callable, *result].into_iter().chain(arguments.iter().map(|argument| argument.ty)) { self.verify_reference(pools, scope, reference)?; }
@@ -2722,6 +2726,7 @@ impl GenericEvidenceStore {
                     let source = caller.requirements.get(*index as usize).ok_or_else(|| failure("symbolic forwarded requirement is out of scope"))?;
                     let caller_type = |reference| self.normalized(pools, caller, reference, None, &mut Vec::new());
                     let valid = match (requirement, source) {
+                        (Requirement::NativeMethod(method), Requirement::NativeMethod(source)) => method.candidates == source.candidates && method.parameter_labels == source.parameter_labels && method.arguments.len() == source.arguments.len() && method.references().zip(source.references()).map(|(left, right)| Ok(normalize(left)? == caller_type(right)?)).collect::<Result<Vec<_>, IrVerifyError>>()?.into_iter().all(|valid| valid),
                         (Requirement::Operation(operation), Requirement::Operation(source)) => operation.authority == source.authority && operation.effects == source.effects && operation.arguments.len() == source.arguments.len() && operation.references().zip(source.references()).map(|(left, right)| Ok(normalize(left)? == caller_type(right)?)).collect::<Result<Vec<_>, IrVerifyError>>()?.into_iter().all(|valid| valid),
                         (Requirement::Invocation { callable, arguments, result, domain }, Requirement::Invocation { callable: source_callable, arguments: source_arguments, result: source_result, domain: source_domain }) => {
                             domain == source_domain && arguments.len() == source_arguments.len() && normalize(*callable)? == caller_type(*source_callable)? && normalize(*result)? == caller_type(*source_result)?

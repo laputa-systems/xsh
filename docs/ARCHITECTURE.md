@@ -45,6 +45,14 @@ local captures keep their defining cells. Resource and callable captures need
 their own ownership transport; the plain ground cell protocol does not retain
 those values.
 
+A scoped native method keeps its original pending candidate family in the
+definition and forwarding declarations. Each ground instantiation retains a
+separate selected witness; unused definitions retain the family without
+instances. `generic/native_callables/scoped_methods.rs` validates the original
+Str/Bytes `starts_with` family, source ancestry, and declaration frame.
+`full/native_callable_prepare/scoped_methods.rs` seals the authored receiver and
+argument packets before frontend disposal. Execution selects the stored witness.
+
 `RuntimeNativeCallableValue` retains a separate `NativeCallableValueId` and
 owning `Arc<FullProgram>`. `NativeCallableRef` encodes no registry name or
 frontend ID; its original checked expression supplies the sealed registry

@@ -82,6 +82,7 @@ impl FullBuilder {
             let original_scheme = solved.graph.scheme(scheme).map_err(|_| unavailable("scoped_operation_source_scheme"))?;
             let Some(index) = original_scheme.requirement_origins.iter().position(|&requirement| requirement == operation.requirement) else { continue; };
             let RequirementTemplate::Operation { family, call } = original_scheme.requirements[index] else { continue; };
+            if matches!(self.generic.as_ref().unwrap().scope(scope).map_err(|_| unavailable("scoped_operation_source_scope"))?.requirements.get(index), Some(Requirement::NativeMethod(_))) { continue; }
             let Requirement::Operation(expected) = self.prepare_scoped_operation_requirement(solved, scheme, family, call)? else { unreachable!() };
             if self.generic.as_ref().unwrap().scope(scope).map_err(|_| unavailable("scoped_operation_source_scope"))?.requirements.get(index) != Some(&Requirement::Operation(expected.clone()))
                 || owner != InstructionOwner::Function(self.generic.as_ref().unwrap().scope(scope).unwrap().owner)

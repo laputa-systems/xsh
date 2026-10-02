@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::eval::indexed::IrBlockId;
 use crate::modules::signature::MethodReceiver;
 use crate::sema::inference::{RequirementId, EffectSet};
 use crate::sema::registry_graph::RegistryOwner;
@@ -196,6 +197,7 @@ impl GenericEvidenceStore {
     }
 }
 impl GenericEvidenceBuilder {
+    pub(in crate::runtime::eval) fn scoped_native_method_sources(&self) -> impl Iterator<Item = (ScopedNativeMethodSourceId, &ScopedNativeMethodSource)> { self.store.scoped_native_method_sources() }
     pub(in crate::runtime::eval) fn add_scoped_native_method_source(&mut self, value: ScopedNativeMethodSource) -> Result<ScopedNativeMethodSourceId, IrVerifyError> {
         if self.store.native_callables.methods.sources.len() >= 2_000_000 || value.obligations.len() > 2_000_000 || value.payload.len() != 4 || value.arguments.len() != 1 || value.argument_payload.len() != 2 || value.expected.arguments.len() != 1 || value.expected.candidates.len() != 2 { return Err(failure("native method source exceeds its evidence bound")); }
         let index = self.store.native_callables.methods.sources.len() as u32;

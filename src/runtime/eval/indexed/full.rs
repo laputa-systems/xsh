@@ -1984,8 +1984,8 @@ impl FullBuilder {
         self.prepare_constant_sources()?;
         self.prepare_host_bindings()?;
         self.prepare_lexical_captures()?;
-        self.prepare_generic_expressions()?;
         self.prepare_original_argument_bindings()?;
+        self.prepare_generic_expressions()?;
         self.prepare_original_iteration_bindings()?;
         self.prepare_native_callable_values()?;
         self.prepare_callable_values()?;
@@ -3578,6 +3578,12 @@ impl<'a> FullExecution<'a> {
     pub(in crate::runtime::eval) fn ground_native_method(&self, instruction: u32) -> Result<Option<RuntimeOp>, IrVerifyError> {
         if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("native method belongs to another body")); }
         let Some(generic) = self.generic_evidence() else { return Ok(None); };
+        if let Some(operation) = generic.scoped_native_method_operation(&self.decoder.store.semantic, instruction, self.instantiation)? {
+            let source = generic.scoped_native_method_source(generic.scoped_native_method_source_at(instruction)?.ok_or_else(|| IrVerifyError::new("scoped native method lacks its original source"))?)?;
+            if generic.scope(source.scope)?.owner.raw() != self.decoder.owner { return Err(IrVerifyError::new("scoped native method belongs to another execution owner")); }
+            FullVerifier::verify_scoped_native_method_instruction(self.decoder.store, generic, instruction)?;
+            return Ok(Some(operation));
+        }
         let Some(id) = generic.ground_native_call_at(instruction)? else {
             if generic.native_call_originally_prepared(instruction) { return Err(IrVerifyError::new("native method lacks its original prepared authority")); }
             return Ok(None);
@@ -4567,6 +4573,7 @@ impl FullVerifier {
             return Ok(());
         }
         active.push(source);
+        if Self::verify_scoped_native_method_symbolic_operand(store, generic, source, scope_id, expected, active)? { active.pop(); return Ok(()); }
         if Self::verify_formatted_path_symbolic_operand(store, generic, source, scope_id, expected, active)? { active.pop(); return Ok(()); }
         if let TypeRef::Ground(ty) = expected
             && Self::verify_error_field_operand(store, generic, source, InstructionOwner::Function(scope.owner), &store.semantic.to_type(ty)?, None, active)? { active.pop(); return Ok(()); }
@@ -4645,7 +4652,7 @@ impl FullVerifier {
             FullTag::ExprField | FullTag::ExprBinary => {
                 let use_ = generic.requirement_use(source).ok_or_else(|| IrVerifyError::new("symbolic computed operand lacks requirement evidence"))?;
                 if use_.scope != scope_id { return Err(IrVerifyError::new("symbolic operand requirement has another scope")); }
-                let result = match &scope.requirements[use_.requirement as usize] { Requirement::Add { result, .. } | Requirement::Projection { result, .. } | Requirement::Invocation { result, .. } => *result, Requirement::Operation(requirement) => requirement.result, Requirement::Eligibility { .. } => return Err(IrVerifyError::new("eligibility requirement cannot produce a symbolic operation value")) };
+                let result = match &scope.requirements[use_.requirement as usize] { Requirement::Add { result, .. } | Requirement::Projection { result, .. } | Requirement::Invocation { result, .. } => *result, Requirement::Operation(requirement) => requirement.result, Requirement::NativeMethod(requirement) => requirement.result, Requirement::Eligibility { .. } => return Err(IrVerifyError::new("eligibility requirement cannot produce a symbolic operation value")) };
                 generic.references_equal(&store.semantic, scope_id, expected, result)?
             }
             FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall if generic.call(source).is_some() => generic.call_result_matches(&store.semantic, scope_id, source, expected)?,
@@ -4745,6 +4752,7 @@ impl FullVerifier {
         if Self::verify_null_optional_equality_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
         if Self::verify_conditional_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
         if Self::verify_uint_integer_arithmetic_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
+        if Self::verify_scoped_native_method_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
         if Self::verify_duration_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
         if Self::verify_range_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
         if Self::verify_language_result_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
@@ -5017,7 +5025,7 @@ impl FullVerifier {
                 let use_ = generic.requirement_use(source).ok_or_else(|| IrVerifyError::new(format!("generic computed argument {source} ({tag:?}) lacks solved operation evidence; original {:?}, payload {words:?}, expected {expected:?}", generic.registered_instruction_origin(source, false))))?;
                 let instance = generic.instance(instance.ok_or_else(|| IrVerifyError::new("generic computed argument lacks a frame proof"))?)?;
                 if instance.scope != use_.scope { return Err(IrVerifyError::new("generic computed argument proof is foreign")); }
-                let result = match instance.requirements[use_.requirement as usize] { RequirementWitness::Projection { result, .. } | RequirementWitness::Add { result, .. } => result, RequirementWitness::Invocation(id) => store.semantic.signature_return_type(generic.scoped_invocation_witness(id)?.signature)?, RequirementWitness::Operation(id) => generic.scoped_operation_witness(id)?.result, RequirementWitness::Eligibility { .. } => return Err(IrVerifyError::new("eligibility witness cannot produce an operation value")) };
+                let result = match instance.requirements[use_.requirement as usize] { RequirementWitness::Projection { result, .. } | RequirementWitness::Add { result, .. } => result, RequirementWitness::Invocation(id) => store.semantic.signature_return_type(generic.scoped_invocation_witness(id)?.signature)?, RequirementWitness::Operation(id) => generic.scoped_operation_witness(id)?.result, RequirementWitness::NativeMethod(id) => generic.scoped_native_method_witness(id)?.result, RequirementWitness::Eligibility { .. } => return Err(IrVerifyError::new("eligibility witness cannot produce an operation value")) };
                 if store.semantic.to_type(result)? != *expected { return Err(IrVerifyError::new("generic computed argument disagrees with operation result type")); }
             }
             _ => return Err(IrVerifyError::new(format!("generic argument source {source} ({tag:?}) requires an independently prepared type proof; original {:?}, payload {words:?}, expected {expected:?}", generic.registered_instruction_origin(source, false)))),
@@ -5259,6 +5267,7 @@ impl FullVerifier {
             let words = store.payload(store.data[instruction].range())?;
             let requirement = &generic.scope(use_.scope)?.requirements[use_.requirement as usize];
             match (store.tags[instruction], requirement) {
+                (FullTag::ExprMethod, Requirement::NativeMethod(_)) => Self::verify_scoped_native_method_instruction(store, generic, use_.instruction)?,
                 (FullTag::ExprOk | FullTag::ExprErr, Requirement::Operation(_)) => Self::verify_scoped_operation_instruction(store, generic, use_.instruction)?,
                 (FullTag::ExprDynamicCall, Requirement::Invocation { .. }) => Self::verify_scoped_invocation_instruction(store, generic, use_.instruction)?,
                 (FullTag::ExprField, Requirement::Projection { receiver_parameter, field, .. }) => {

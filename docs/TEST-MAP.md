@@ -63,6 +63,10 @@ selector checks original direct calls, multi-field spread evaluation once,
 source order, lexical defaults, frontend disposal, and both actual execution
 routes; this is separate from cold compiler-temporary proof activation.
 
+`cargo test -p xsh --lib native_callable_prepare::scoped_tests` checks pending
+Str/Bytes method families, forwarding and unused definitions, both workers after
+frontend disposal, and refusal of rewritten source packets or declaration frames.
+
 `cargo test -p xsh --lib direct_native_parse_int_` checks the selected integer
 parser producer through a typed call boundary on both workers, including cold
 refusal of missing, foreign and jointly rewritten method receipts.
