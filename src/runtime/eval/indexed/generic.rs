@@ -38,7 +38,7 @@ mod process_producers;
 pub(in crate::runtime::eval) use process_producers::{PreparedProcessCommandArgv, PreparedProcessArgvRow};
 pub(in crate::runtime::eval) use fs_root_methods::is_fs_root_method_owner;
 pub(in crate::runtime::eval) use native_receivers::PreparedNativeReceiverTransport;
-pub(in crate::runtime::eval) use stages::{OriginalPreparedStage, OriginalStagePipeline, OriginalStageBlockCallback};
+pub(in crate::runtime::eval) use stages::{OriginalPreparedStage, OriginalStagePipeline, OriginalStageBlockCallback, PreparedStageResultRecord};
 pub(in crate::runtime::eval) use constants::{OriginalConstantSource, PreparedConstantSource, ConstantSourceId};
 pub(in crate::runtime::eval) use host_bindings::{HostBindingSourceId, HostBindingSource, HostBindingCaptureId, HostBindingCapture};
 pub(in crate::runtime::eval) use lexical_captures::{LexicalCaptureId, LexicalCapture, LexicalCaptureSourceId, LexicalCaptureSource};

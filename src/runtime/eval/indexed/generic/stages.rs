@@ -1,6 +1,34 @@
 use super::*;
 use crate::source::Span;
 
+/// A structured stage creates the outer row. Its existing children retain
+/// their original layouts and lazy producer ownership when that row is ordered.
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct PreparedStageResultRecord {
+    pub record: GroundTypeId,
+    pub schema: Arc<crate::runtime::eval::require::PreparedSchema>,
+}
+
+impl PreparedStageResultRecord {
+    pub(in crate::runtime::eval) fn materialize_item(&self, value: crate::runtime::eval::LoweredValue, span: Span) -> Result<crate::runtime::eval::LoweredValue, crate::runtime::value::RuntimeError> {
+        use crate::runtime::eval::LoweredValue;
+        let failure = || crate::runtime::value::RuntimeError::new("indexed-ir", "structured stage item differs from its original record row").with_span(span);
+        let crate::runtime::eval::require::PreparedSchema::Record(fields) = self.schema.as_ref() else { return Err(failure()); };
+        let mut original = match value {
+            LoweredValue::Record(values) => crate::runtime::eval::lower::take_shared(values).into_iter().map(|(name, value)| (Name::intern(name.as_ref()), value)).collect::<Vec<_>>(),
+            LoweredValue::RecordVec(values) => crate::runtime::eval::lower::take_shared(values),
+            _ => return Err(failure()),
+        };
+        if original.len() != fields.len() { return Err(failure()); }
+        let mut ordered = Vec::with_capacity(fields.len());
+        for (name, _) in fields {
+            let position = original.iter().position(|(field, _)| field == name).ok_or_else(failure)?;
+            ordered.push(original.remove(position));
+        }
+        Ok(LoweredValue::RecordVec(Arc::new(ordered)))
+    }
+}
+
 // Callback parameters are distinct source ports even when their types
 // coincide. The sealed callback creation owns the slots and each original
 // read, independently of the surrounding function or driver environment.
@@ -30,6 +58,26 @@ pub(in crate::runtime::eval) struct OriginalPreparedStage {
     pub tag: super::super::full::FullStageTag,
     pub payload: Box<[u32]>,
     pub callback: Option<OriginalStageBlockCallback>,
+    pub result_record_layout: Option<PreparedStageResultRecord>,
+}
+
+impl OriginalPreparedStage {
+    pub(in crate::runtime::eval) fn verify_result_record_layout(&self, pools: &SemanticPools) -> Result<(), IrVerifyError> {
+        use super::super::full::FullStageTag;
+        use crate::runtime::eval::require::PreparedSchema;
+        if self.tag != FullStageTag::GroupBy {
+            return if self.result_record_layout.is_none() { Ok(()) } else { Err(failure("stage borrows another operation's record result layout")) };
+        }
+        let Type::Stream(record) = pools.to_type(self.result)? else { return Err(failure("group-by changes its original stream result")); };
+        let Type::Record(types) = record.as_ref() else { return Err(failure("group-by loses its original structured item row")); };
+        let layout = self.result_record_layout.as_ref().ok_or_else(|| failure("group-by loses its original result row layout"))?;
+        let PreparedSchema::Record(fields) = layout.schema.as_ref() else { return Err(failure("group-by result row has another physical schema kind")); };
+        if pools.to_type(layout.record)? != *record || !layout.schema.valid() || !layout.schema.matches_type(&record)
+            || !layout.schema.visit_wire_mappings(&mut |_| false) || fields.iter().map(|(name, _)| *name).ne(types.keys().copied()) {
+            return Err(failure("group-by changes its original result item row or canonical schema"));
+        }
+        Ok(())
+    }
 }
 
 /// The checked pipeline and its emitted stage sequence form one creation.
@@ -83,7 +131,7 @@ impl StageEvidence {
     pub(super) fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         self.receipts.capacity() * size_of::<Entry<Arc<OriginalStagePipeline>>>() + self.originals.capacity() * size_of::<Arc<OriginalStagePipeline>>() + self.instructions.capacity() * size_of::<(u32, usize)>() + self.callback_reads.capacity() * size_of::<(u32, usize, usize, usize)>()
-            + self.receipts.iter().map(|entry| size_of::<OriginalStagePipeline>() + 2 * size_of::<usize>() + (entry.value.instruction_payload.len() + entry.value.block_payload.len()) * size_of::<u32>() + entry.value.input_wrappers.len() * size_of::<ValueInitializerWrapper>() + entry.value.input_wrappers.iter().map(|wrapper| wrapper.payload.len() * size_of::<u32>()).sum::<usize>() + entry.value.stages.iter().map(|stage| size_of::<OriginalPreparedStage>() + stage.authority.retained_bytes() + (stage.effects.inputs.len() * size_of::<(crate::sema::inference::EffectRole, crate::sema::inference::EffectSet)>() + stage.effects.outputs.len() * size_of::<(crate::sema::inference::ProducerRole, crate::sema::inference::EffectSet)>()) + stage.callback.as_ref().map_or(0, |callback| size_of::<OriginalStageBlockCallback>() + callback.parameters.len() * size_of::<Option<(Name, Span)>>() + callback.slots.len() * size_of::<u32>() + callback.types.len() * size_of::<GroundTypeId>() + callback.reads.len() * size_of::<(u32, crate::sema::check::ExpressionIdentity, u32)>()) + stage.arguments.len() * size_of::<crate::sema::check::SolvedArgumentSource>() + (stage.payload.len() + stage.supplied_slots.len() + stage.default_slots.len()) * size_of::<u32>()).sum::<usize>()).sum::<usize>()
+            + self.receipts.iter().map(|entry| size_of::<OriginalStagePipeline>() + 2 * size_of::<usize>() + (entry.value.instruction_payload.len() + entry.value.block_payload.len()) * size_of::<u32>() + entry.value.input_wrappers.len() * size_of::<ValueInitializerWrapper>() + entry.value.input_wrappers.iter().map(|wrapper| wrapper.payload.len() * size_of::<u32>()).sum::<usize>() + entry.value.stages.iter().map(|stage| size_of::<OriginalPreparedStage>() + stage.result_record_layout.as_ref().map_or(0, |layout| layout.schema.retained_bytes()) + stage.authority.retained_bytes() + (stage.effects.inputs.len() * size_of::<(crate::sema::inference::EffectRole, crate::sema::inference::EffectSet)>() + stage.effects.outputs.len() * size_of::<(crate::sema::inference::ProducerRole, crate::sema::inference::EffectSet)>()) + stage.callback.as_ref().map_or(0, |callback| size_of::<OriginalStageBlockCallback>() + callback.parameters.len() * size_of::<Option<(Name, Span)>>() + callback.slots.len() * size_of::<u32>() + callback.types.len() * size_of::<GroundTypeId>() + callback.reads.len() * size_of::<(u32, crate::sema::check::ExpressionIdentity, u32)>()) + stage.arguments.len() * size_of::<crate::sema::check::SolvedArgumentSource>() + (stage.payload.len() + stage.supplied_slots.len() + stage.default_slots.len()) * size_of::<u32>()).sum::<usize>()).sum::<usize>()
     }
     pub(super) fn shrink_to_fit(&mut self) { self.receipts.shrink_to_fit(); self.originals.shrink_to_fit(); self.instructions.shrink_to_fit(); self.callback_reads.shrink_to_fit(); }
     fn receipt(&self, index: usize) -> Result<&OriginalStagePipeline, IrVerifyError> {

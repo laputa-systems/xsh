@@ -1,5 +1,5 @@
 use super::*;
-use super::super::generic::{graph_ground_type, OriginalStageBlockCallback, OriginalPreparedStage, OriginalStagePipeline, PreparedOperationAuthority, PreparedOperationEffects};
+use super::super::generic::{graph_ground_type, OriginalStageBlockCallback, OriginalPreparedStage, OriginalStagePipeline, PreparedOperationAuthority, PreparedOperationEffects, PreparedStageResultRecord};
 use crate::sema::check::{ProducerFlowSource, SolvedOperationAuthority};
 use crate::sema::inference::{EffectSummary, ScopedRequirementRoot, ScopedRoot};
 use crate::syntax::node::StreamStageKind;
@@ -118,6 +118,7 @@ impl FullBuilder {
                 graph.validate_scoped(ScopedRoot { ty: receiver, scope: stage_scope }).map_err(|_| problem("stage_pipeline_receiver_certificate"))?;
                 let stage_input = graph_ground_type(graph, receiver).map_err(|_| problem("stage_pipeline_receiver_requires_scope"))?;
                 if stage_input != previous { return Err(problem("stage_pipeline_original_sequence_changed")); }
+                graph.validate_scoped(ScopedRoot { ty: selected.result, scope: stage_scope }).map_err(|_| problem("stage_pipeline_result_certificate"))?;
                 let stage_result = graph_ground_type(graph, selected.result).map_err(|_| problem("stage_pipeline_result_requires_scope"))?;
                 previous = stage_result.clone();
                 let crate::sema::inference::RequirementTemplate::Operation { call, .. } = graph.requirement_template(operation.requirement).map_err(|_| problem("stage_pipeline_operation_template"))? else { return Err(problem("stage_pipeline_operation_template")); };
@@ -128,12 +129,17 @@ impl FullBuilder {
                 for &actual in &operation.actual_arguments { graph.validate_scoped(ScopedRoot { ty: actual, scope: stage_scope }).map_err(|_| problem("stage_pipeline_argument_certificate"))?; }
                 let input = self.intern_generic_ground_type(&stage_input)?;
                 let result = self.intern_generic_ground_type(&stage_result)?;
+                let result_record_layout = if tag == FullStageTag::GroupBy {
+                    let Type::Stream(record) = &stage_result else { return Err(problem("stage_group_by_original_result_carrier")); };
+                    let schema = crate::runtime::eval::require::PreparedSchema::compile_record_layout(record).ok_or_else(|| problem("stage_group_by_original_result_row"))?;
+                    Some(PreparedStageResultRecord { record: self.intern_generic_ground_type(record)?, schema })
+                } else { None };
                 let payload: Box<[u32]> = self.store.payload(self.store.stage_data[stage as usize].range()).map_err(|_| problem("stage_pipeline_stage_payload"))?.into();
                 let callback = self.stage_block_callback_rows.iter().find(|callback| callback.stage == identity).cloned();
                 if let Some(callback) = &callback {
                     if !block_callback_matches(tag, &payload, callback) { return Err(problem("stage_block_callback_original_stage_rows_changed")); }
                 }
-                stages.push(OriginalPreparedStage { origin: identity, authority: PreparedOperationAuthority::Stage { identity: metadata.identity, stage: metadata.stage.clone(), source: metadata.source, form: metadata.form, variant: metadata.variant, callback_slot: metadata.callback_slot, additional_producer: metadata.additional_producer }, input, result, effects, arguments, supplied_slots: operation.binding.supplied_slots.iter().map(|&slot| slot as u32).collect(), default_slots: operation.binding.default_slots.iter().map(|&slot| slot as u32).collect(), stage, tag, payload, callback });
+                stages.push(OriginalPreparedStage { origin: identity, authority: PreparedOperationAuthority::Stage { identity: metadata.identity, stage: metadata.stage.clone(), source: metadata.source, form: metadata.form, variant: metadata.variant, callback_slot: metadata.callback_slot, additional_producer: metadata.additional_producer }, input, result, effects, arguments, supplied_slots: operation.binding.supplied_slots.iter().map(|&slot| slot as u32).collect(), default_slots: operation.binding.default_slots.iter().map(|&slot| slot as u32).collect(), stage, tag, payload, callback, result_record_layout });
             }
             // The expression consumes the final stage stream into a List.
             let materialized = match previous { Type::Stream(item) => Type::List(item), other => other };
@@ -164,6 +170,7 @@ impl FullVerifier {
         let block = IrBlockId::from_raw(source.instruction_payload[1]).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("stage pipeline block is invalid"))?;
         if block.flags != source.block_flags || store.payload(block.instructions)? != source.block_payload.as_ref() { return Err(IrVerifyError::new("stage pipeline changes its original stage order")); }
         for stage in &source.stages {
+            stage.verify_result_record_layout(&store.semantic)?;
             let data = store.stage_data.get(stage.stage as usize).ok_or_else(|| IrVerifyError::new("stage pipeline row is missing"))?;
             let payload = store.payload(data.range())?;
             if matches!(stage.tag, FullStageTag::Map | FullStageTag::Where | FullStageTag::FlatMap | FullStageTag::GroupBy | FullStageTag::UniqueBy | FullStageTag::CountBy | FullStageTag::Any | FullStageTag::All | FullStageTag::SortBy | FullStageTag::ParMap)
@@ -191,6 +198,20 @@ impl FullVerifier {
 }
 
 impl FullExecution<'_> {
+    pub(in crate::runtime::eval) fn materialize_stage_result_record(&self, pipeline_instruction: u32, stage_row: u32, value: LoweredValue, span: Span) -> Result<LoweredValue, crate::runtime::value::RuntimeError> {
+        let layout = || -> Result<&PreparedStageResultRecord, IrVerifyError> {
+            let pipeline = self.stage_pipeline(pipeline_instruction)?.ok_or_else(|| IrVerifyError::new("structured stage result has no original pipeline authority"))?;
+            let stage = pipeline.stages.iter().find(|stage| stage.stage == stage_row).ok_or_else(|| IrVerifyError::new("structured stage result belongs to another pipeline"))?;
+            stage.verify_result_record_layout(&self.decoder.store.semantic)?;
+            stage.result_record_layout.as_ref().ok_or_else(|| IrVerifyError::new("structured stage result has no original record row layout"))
+        };
+        let layout = layout().map_err(|error| crate::runtime::value::RuntimeError::new("indexed-ir", error.message).with_span(span))?;
+        match value {
+            LoweredValue::List(items) => items.into_iter().map(|item| layout.materialize_item(item, span)).collect::<Result<Vec<_>, _>>().map(LoweredValue::List),
+            _ => Err(crate::runtime::value::RuntimeError::new("indexed-ir", "group-by changes its original physical list result").with_span(span)),
+        }
+    }
+
     pub(in crate::runtime::eval) fn stage_pipeline(&self, instruction: u32) -> Result<Option<&OriginalStagePipeline>, IrVerifyError> {
         if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("stage pipeline belongs to another body")); }
         let Some(generic) = self.generic_evidence() else { return Ok(None); };
@@ -204,6 +225,7 @@ impl FullExecution<'_> {
         let block = IrBlockId::from_raw(source.instruction_payload[1]).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("stage pipeline execution block is invalid"))?;
         if block.flags != source.block_flags || store.payload(block.instructions)? != source.block_payload.as_ref() { return Err(IrVerifyError::new("stage pipeline changes its original execution order")); }
         for stage in &source.stages {
+            stage.verify_result_record_layout(&store.semantic)?;
             if store.stages.get(stage.stage as usize) != Some(&stage.tag) || store.payload(store.stage_data[stage.stage as usize].range())? != stage.payload.as_ref() { return Err(IrVerifyError::new("stage pipeline changes its original execution configuration")); }
         }
         FullVerifier::verify_argument_initializer_lineage(store, generic, source.input, source.input_source, &source.input_wrappers, owner)?;

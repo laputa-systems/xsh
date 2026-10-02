@@ -514,3 +514,79 @@ fn native_fs_entry_callback_port_refuses_missing_foreign_and_same_typed_slot_rew
         });
     });
 }
+
+fn structured_group_by_fixture() -> FullProgram {
+    let (builder, sources) = ground_builder_with_source("pure observed() -> Int { [1, 2, 1] |> group-by { |item| item } |> map { |bucket| bucket.key + bucket.items.len() } |> sum }\n");
+    let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+    symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap()
+}
+
+#[test]
+fn structured_group_by_bucket_projects_after_frontend_disposal_on_both_routes() {
+    super::super::tests::run_with_large_stack(|| {
+        let program = Arc::new(structured_group_by_fixture());
+        program.symbol_owner().with_current(|| FullVerifier::verify(&program).unwrap());
+        for recursive in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let name = program.symbol_owner().with_current(|| Name::intern("observed"));
+            let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure, &[], Span::at(program.store.source_id, 0)).expect("grouped function exists");
+            let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+            assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(6));
+        }
+    });
+}
+
+#[test]
+fn structured_group_by_result_row_refuses_missing_foreign_and_rewritten_stage_layouts() {
+    super::super::tests::run_with_large_stack(|| {
+        let program = structured_group_by_fixture();
+        let foreign_program = structured_group_by_fixture();
+        program.symbol_owner().with_current(|| {
+            let pipeline = program.generic_evidence().unwrap().stage_pipelines().next().unwrap();
+            let stage = &pipeline.stages[0];
+            let layout = stage.result_record_layout.as_ref().expect("original selected structured result row");
+            stage.verify_result_record_layout(&program.store.semantic).unwrap();
+            let mut missing = stage.clone();
+            missing.result_record_layout = None;
+            assert!(missing.verify_result_record_layout(&program.store.semantic).is_err());
+            let mut row = stage.clone();
+            row.result_record_layout.as_mut().unwrap().record = stage.input;
+            assert!(row.verify_result_record_layout(&program.store.semantic).is_err());
+            let mut schema = stage.clone();
+            schema.result_record_layout.as_mut().unwrap().schema = Arc::new(crate::runtime::eval::require::PreparedSchema::Validate(Type::Bool));
+            assert!(schema.verify_result_record_layout(&program.store.semantic).is_err());
+            let mut order = stage.clone();
+            let crate::runtime::eval::require::PreparedSchema::Record(fields) = Arc::make_mut(&mut order.result_record_layout.as_mut().unwrap().schema) else { unreachable!() };
+            fields.reverse();
+            assert!(order.verify_result_record_layout(&program.store.semantic).is_err());
+            let mut result = stage.clone();
+            result.result = stage.input;
+            assert!(result.verify_result_record_layout(&program.store.semantic).is_err());
+            let mut lost = program.store.clone();
+            lost.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap().stages[0].result_record_layout = None;
+            assert!(FullVerifier::verify_generic_evidence(&lost).is_err());
+            let mut foreign = program.store.clone();
+            foreign.generic.as_deref_mut().unwrap().test_replace_stage_pipelines(foreign_program.generic_evidence().unwrap());
+            assert!(FullVerifier::verify_generic_evidence(&foreign).is_err());
+            let mut rewritten = program.store.clone();
+            let changed = rewritten.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            changed.stages[0].result = stage.input;
+            changed.stages[0].result_record_layout.as_mut().unwrap().record = stage.callback.as_ref().unwrap().types[0];
+            changed.stages[0].result_record_layout.as_mut().unwrap().schema = Arc::new(crate::runtime::eval::require::PreparedSchema::Validate(Type::Int));
+            assert!(FullVerifier::verify_generic_evidence(&rewritten).is_err(), "coordinated result row edits bypassed original stage authority");
+            let mut source = program.store.clone();
+            source.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap().stages[0].origin = pipeline.stages[1].origin;
+            assert!(FullVerifier::verify_generic_evidence(&source).is_err(), "another stage supplied the structured result row");
+            let children = Arc::new(vec![crate::runtime::eval::LoweredValue::Int(1)]);
+            let value = layout.materialize_item(crate::runtime::eval::LoweredValue::Record(Arc::new(BTreeMap::from([
+                (Arc::from("items"), crate::runtime::eval::LoweredValue::SharedList(Arc::clone(&children))),
+                (Arc::from("key"), crate::runtime::eval::LoweredValue::Int(1)),
+            ]))), Span::at(program.store.source_id, 0)).unwrap();
+            let crate::runtime::eval::LoweredValue::RecordVec(fields) = value else { panic!("generated stage row remains unordered"); };
+            assert_eq!(fields.iter().map(|(name, _)| *name).collect::<Vec<_>>(), vec![Name::intern("items"), Name::intern("key")]);
+            let crate::runtime::eval::LoweredValue::SharedList(retained) = &fields[0].1 else { panic!("stage ordering rebuilt the original item collection"); };
+            assert!(Arc::ptr_eq(&children, retained));
+        });
+    });
+}

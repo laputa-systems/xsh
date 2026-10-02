@@ -180,6 +180,13 @@ detached frame ownership and refusal of changed receiving allocations.
 live UInt reads after frontend disposal. `zero_slot_import_driver_` checks
 nested imports without physical slots alongside real loaded mutable captures.
 
+`cargo test -p xsh --lib both_call_routes_` checks the same prepared programs
+through both workers. `both_call_routes_complete_eight_mutual_calls_without_host_resources`
+isolates bounded mutual recursion with the ordinary worker stack size.
+`structured_group_by_` checks canonical bucket projection after frontend
+disposal, exact result row and schema refusals, and nested collection identity.
+The frozen JSON rollup exercises those buckets in a multi-stage program.
+
 `target/debug/xsht test --jobs 1 tests/xsh/guard-success.xsh` checks lexical
 success bindings, shadows, typed continuations, and failure-handler visibility.
 `cargo test -p xsh --lib spawn_scopes_release_body_handles_before_defers_and_close_on_error_and_forced_abort_on_both_workers`

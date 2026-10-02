@@ -84,6 +84,12 @@ before constructing the formal native argument packet. Saved bindings evaluate
 named operands in source order; absent default slots stay absent for the
 existing numeric native backend, including its trace and error handling.
 
+The recursive expression dispatcher keeps scalar operations and user calls in
+`indexed_run/scalar_call_expr.rs`. Compound expressions use a separate handler,
+so each recursive call reserves only the scratch space for its own operation
+family. Both handlers consume the same decoded instruction and prepared
+execution authority; worker stack limits and recursion policy remain unchanged.
+
 Framed user invocation keeps the prepared `InvocationPlanId` through callee and
 argument continuations. A typed value must match that plan's owning program and
 callable contract before entry by numeric function target. Its retained captures
@@ -229,6 +235,13 @@ live streams apply it only to reached items. `lowered_run/native_record_items.rs
 preserves buffering, cancellation and producer ownership without draining the
 stream. Filesystem entries retain canonical numeric field slots while metadata
 reads remain lazy; prepared layout does not change their logical equality.
+
+Structured group-by stages retain their original selected record result row in
+`generic/stages.rs::PreparedStageResultRecord`. The semantic result remains a
+Stream of buckets; the existing backend materializes those buckets as a List.
+`FullExecution::materialize_stage_result_record` applies canonical field order
+only to each generated outer bucket. Nested item collections keep their storage
+identity, and subsequent callbacks use prepared numeric projections.
 
 Scoped Display eligibility retains its original published requirement and exact
 `TypeRef` in the declaring scheme. Concrete witnesses use the checker’s Display
