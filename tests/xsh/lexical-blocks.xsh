@@ -364,7 +364,8 @@ test test_bare_block_grep_and_refactor_preserve_literal_distinctions { |ctx|
   let reference_failure_details = reference.stderr
   assert reference_succeeded, reference_failure_details
   assert "Bool values may be false" in reference.stdout
-  assert "let grouped = { (selected) }" in reference.stdout
+  assert "(selected)" in reference.stdout
+  assert "let shorthand = {selected}" in reference.stdout
   let source = r"""pure calculate() -> Int { 9 }
 let answer = { calculate() }
 let row = {answer}
