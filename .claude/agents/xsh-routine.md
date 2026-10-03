@@ -16,6 +16,9 @@ You perform one precisely specified routine task in the XSH repository.
   `xsht lint --fix` without a rule filter.
 - Verify with the narrowest relevant command (`target/release/xsht test <file>` (build release `xsh` and `xsht` first),
   read-only `xsht lint`). Do not start Cargo builds unless the task says to.
+- Run ad-hoc `xsh` probes with a wall-clock limit (e.g.
+  `perl -e 'alarm 60; exec @ARGV' target/release/xsh probe.xsh`) and make sure
+  nothing you started is still running when you finish.
 - Do not commit unless told to.
 - Report in under 150 words: what changed, the verification results, and anything
   you could not do.

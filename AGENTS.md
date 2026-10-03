@@ -80,8 +80,9 @@ user-facing binaries, while the root package also owns the `xsh-test-*`
 helper binaries and the `xsh-frontend-stats` profiling tool. Do not use the
 `dist` profile for agent work; it is reserved for CI release packaging.
 
-Bound machine load: run one full native suite at a time, and never leave test
-processes running after a lane finishes.
+Bound machine load: run one full native suite at a time, run ad-hoc `xsh`
+probes with a wall-clock limit, and never leave processes running after a lane
+finishes.
 
 All Linux support goes through the `Dockerfile.test` environment. Linux builds,
 tests, and verification run in the image that file defines (`xsh-test`), driven

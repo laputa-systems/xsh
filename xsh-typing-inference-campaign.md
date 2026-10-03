@@ -118,6 +118,12 @@ Lowering still computes representation-level types (37 `infer_*` uses in
   parenthesized. The diagnostic carries a fix, and this repo and the siblings
   are migrated.
 
+## Tooling (remaining)
+
+- **Per-test timeout for `xsht test`.** Add a default per-test timeout,
+  overridable per run and per test, that kills the test's process group and
+  reports a timeout failure. Today a hung test runs forever.
+
 ## Docs refresh (remaining)
 
 Landed so far: `README.md`, `docs/user-tour.md` (it absorbs CHAPTER-01), one

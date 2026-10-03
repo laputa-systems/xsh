@@ -18,6 +18,9 @@ You implement one bounded slice of the plan in `xsh-typing-inference-campaign.md
 - Respect the item's size budget. When you add a path for an existing decision,
   delete the old path in the same slice. Stop and report if you reach twice the
   budget.
+- Run ad-hoc `xsh` probes with a wall-clock limit (e.g.
+  `perl -e 'alarm 60; exec @ARGV' target/release/xsh probe.xsh`) and make sure
+  nothing you started is still running when you finish.
 - Do not commit unless told to, and do not add dependencies.
 - Report in under 200 words: changed behavior, tests run and their results,
   contract decisions, and remaining blockers.
