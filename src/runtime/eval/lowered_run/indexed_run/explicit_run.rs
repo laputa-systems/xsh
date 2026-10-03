@@ -564,6 +564,18 @@ impl Evaluator {
         self.eval_indexed_statements_with_frames(execution, statements, false, slots, span)
     }
 
+    /// Closes a frame or block scope. Frames open and close a scope for every
+    /// block they run, and most own no host handles: those leave without
+    /// building and dropping a cleanup result.
+    fn exit_frame_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
+        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+            let popped = self.scope_ids.pop();
+            debug_assert_eq!(popped, Some(scope_id));
+            return Ok(());
+        }
+        self.exit_owned_host_scope(scope_id)
+    }
+
     /// Statements have one implementation, on the frames, whoever runs them.
     fn eval_indexed_statements_with_frames(
         &mut self,
@@ -676,6 +688,9 @@ pub(in crate::runtime::eval) struct FrameScratch {
     statements: Vec<Vec<u32>>,
     call_args: Vec<Vec<(u32, u32)>>,
     if_branches: Vec<Vec<(u32, u32)>>,
+    /// A frame's block scopes and their defer offsets, taken when the frame
+    /// opens its first block.
+    block_stacks: Vec<(Vec<u64>, Vec<usize>)>,
     /// How many statement lists were handed out fresh, and how many came back
     /// from the pool. A loop that reuses its body's list moves only the second:
     /// that is the claim `loop_iterations_reuse_their_statement_list` reads, and
@@ -709,6 +724,10 @@ impl FrameScratch {
                 Vec::new()
             }
         }
+    }
+
+    fn take_block_stacks(&mut self) -> (Vec<u64>, Vec<usize>) {
+        self.block_stacks.pop().unwrap_or_default()
     }
 
     fn take_call_args(&mut self) -> Vec<(u32, u32)> {
@@ -766,6 +785,16 @@ impl FrameScratch {
         if self.slot_scopes.len() < Self::POOL_CAP {
             self.slot_scopes.push(std::mem::take(&mut call.slot_scopes));
         }
+    }
+
+    /// Returns a frame's block stacks once its block scopes have exited.
+    fn recycle_block_stacks(&mut self, call: &mut CallFrame<'_>) {
+        if call.block_scopes.capacity() == 0 || self.block_stacks.len() >= Self::POOL_CAP {
+            return;
+        }
+        call.block_scopes.clear();
+        call.block_defer_offsets.clear();
+        self.block_stacks.push((std::mem::take(&mut call.block_scopes), std::mem::take(&mut call.block_defer_offsets)));
     }
 }
 
@@ -938,8 +967,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .len()
                 .checked_sub(1)
                 .expect("active indexed frame");
-            let work = self.calls[index].work.pop().expect("indexed frame work");
-            if let Err(error) = self.step(index, work) {
+            if let Err(error) = self.step(index) {
                 self.begin_error_unwind(error);
             }
         }
@@ -955,8 +983,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .len()
                 .checked_sub(1)
                 .expect("active indexed frame");
-            let work = self.calls[index].work.pop().expect("indexed frame work");
-            if let Err(error) = self.step(index, work) {
+            if let Err(error) = self.step(index) {
                 self.begin_error_unwind(error);
             }
         }
@@ -1074,7 +1101,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     _ => {}
                 }
             }
-            let _ = self.cleanup_call_scopes(&mut call);
+            let _ = cleanup_call_scopes(self.evaluator, &mut call);
             let FrameOwner::Function(function, kind) = call.owner else { continue };
             self.release_slots(call.slots);
             self.evaluator.call_stack.pop();
@@ -1279,7 +1306,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn step(&mut self, index: usize, work: FrameWork) -> Result<(), RuntimeError> {
+    fn step(&mut self, index: usize) -> Result<(), RuntimeError> {
+        if let Some(FrameWork::Statements { .. }) = self.calls[index].work.last() {
+            return self.step_statements(index);
+        }
+        let work = self.calls[index].work.pop().expect("indexed frame work");
         match work {
             FrameWork::ClearSlots(slots) => {
                 for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
@@ -1299,56 +1330,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
-            FrameWork::Statements {
-                mut statements,
-                complete_call,
-                scope_id,
-            } => {
-                let signal = self
-                    .evaluator
-                    .service_pending_signal(self.calls[index].call_span);
-                if signal.is_err() || self.evaluator.shutting_down() {
-                    // Keep this block on the work stack so error unwinding
-                    // closes its owned scope before running function defers.
-                    self.calls[index].work.push(FrameWork::Statements {
-                        statements,
-                        complete_call,
-                        scope_id,
-                    });
-                    signal?;
-                    return Err(RuntimeError::abort(
-                        self.evaluator.signal_state.shutdown_status.unwrap_or(3),
-                        self.evaluator.signal_state.shutdown_force,
-                    )
-                    .with_span(self.calls[index].call_span));
-                }
-                let Some(statement) = statements.pop() else {
-                    // A list that ran to its end goes back to the pool here:
-                    // its entries are done with, and a loop body would
-                    // otherwise allocate a fresh list on every iteration.
-                    self.evaluator.frame_scratch.recycle_statements(statements);
-                    return if complete_call {
-                        self.complete_call(index, StmtFlow::None)
-                    } else {
-                        if let Some(scope_id) = scope_id {
-                            self.exit_block_scope(index, scope_id, true, CleanupFailureResources::Retain)?;
-                        }
-                        Ok(())
-                    };
-                };
-                self.calls[index].work.push(FrameWork::Statements {
-                    statements,
-                    complete_call,
-                    scope_id,
-                });
-                // A block frame running top-level statements publishes script
-                // bindings between them, as the statements' own reads expect.
-                if let FrameOwner::Block { .. } = self.calls[index].owner {
-                    let call = &mut self.calls[index];
-                    self.evaluator.sync_indexed_root_slots(&mut call.slots, call.call_span)?;
-                }
-                self.eval_statement(index, statement)
-            }
+            FrameWork::Statements { .. } => unreachable!("statement lists step in place"),
             FrameWork::Expr {
                 instruction,
                 span,
@@ -1415,6 +1397,51 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::Finish(flow) => self.finish_deferred_call(index, flow),
             FrameWork::FinishError => self.finish_error_deferred_call(index),
         }
+    }
+
+    /// Runs the next statement of the list on top of the work stack. The list
+    /// stays in place and comes off the stack once it is exhausted.
+    fn step_statements(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let signal = self
+            .evaluator
+            .service_pending_signal(self.calls[index].call_span);
+        if signal.is_err() || self.evaluator.shutting_down() {
+            // The block stays on the work stack so error unwinding closes its
+            // owned scope before running function defers.
+            signal?;
+            return Err(RuntimeError::abort(
+                self.evaluator.signal_state.shutdown_status.unwrap_or(3),
+                self.evaluator.signal_state.shutdown_force,
+            )
+            .with_span(self.calls[index].call_span));
+        }
+        let Some(FrameWork::Statements { statements, .. }) = self.calls[index].work.last_mut() else {
+            unreachable!("step_statements runs a statement list");
+        };
+        let Some(statement) = statements.pop() else {
+            let Some(FrameWork::Statements { statements, complete_call, scope_id }) = self.calls[index].work.pop() else {
+                unreachable!("step_statements runs a statement list");
+            };
+            // A list that ran to its end goes back to the pool here: its
+            // entries are done with, and a loop body would otherwise allocate a
+            // fresh list on every iteration.
+            self.evaluator.frame_scratch.recycle_statements(statements);
+            return if complete_call {
+                self.complete_call(index, StmtFlow::None)
+            } else {
+                if let Some(scope_id) = scope_id {
+                    self.exit_block_scope(index, scope_id, true, CleanupFailureResources::Retain)?;
+                }
+                Ok(())
+            };
+        };
+        // A block frame running top-level statements publishes script
+        // bindings between them, as the statements' own reads expect.
+        if let FrameOwner::Block { .. } = self.calls[index].owner {
+            let call = &mut self.calls[index];
+            self.evaluator.sync_indexed_root_slots(&mut call.slots, call.call_span)?;
+        }
+        self.eval_statement(index, statement)
     }
 
     fn eval_statement(&mut self, index: usize, instruction: u32) -> Result<(), RuntimeError> {
@@ -3302,6 +3329,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
+        // A body that ran to its end, or returned with nothing left on its work
+        // stack, has no boundaries, contexts, or block scopes to unwind.
+        if self.calls[index].work.is_empty() && !matches!(flow, StmtFlow::Propagate(_)) {
+            if self.calls[index].defers.is_empty() {
+                return self.finish_call(index, flow);
+            }
+            self.calls[index].work.push(FrameWork::Finish(flow));
+            return Ok(());
+        }
         if let StmtFlow::Propagate(value) = &flow
             && let Some(boundary) = self.capture_boundary(index) {
             if self.crosses_context_scope(index, boundary + 1)
@@ -3365,24 +3401,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].work.push(FrameWork::Finish(flow));
             Ok(())
         }
-    }
-
-    fn cleanup_call_scopes(&mut self, call: &mut CallFrame<'p>) -> Result<(), RuntimeError> {
-        let mut first_error = None;
-        while let Some(scope_id) = call.block_scopes.pop() {
-            if let Err(error) = self.evaluator.exit_owned_host_scope(scope_id)
-                && first_error.is_none()
-            {
-                first_error = Some(error);
-            }
-        }
-        if call.owns_scope()
-            && let Err(error) = self.evaluator.exit_owned_host_scope(call.scope_id)
-            && first_error.is_none()
-        {
-            first_error = Some(error);
-        }
-        first_error.map_or(Ok(()), Err)
     }
 
     fn cleanup_comp_streams(&mut self, streams: CompStreams) -> Result<(), RuntimeError> {
@@ -3599,7 +3617,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         // An active error remains primary; cleanup failure is intentionally
         // secondary, but the scope still must release its owned resources.
-        let _ = self.cleanup_call_scopes(&mut call);
+        let _ = cleanup_call_scopes(self.evaluator, &mut call);
         if let FrameOwner::Function(function, kind) = call.owner {
             self.release_slots(call.slots);
             self.evaluator.call_stack.pop();
@@ -3631,13 +3649,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn finish_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
+        let FrameOwner::Function(function, kind) = self.calls[index].owner else {
+            return self.finish_block(index, flow);
+        };
         let mut call = self.calls.pop().expect("active indexed frame");
         // The frame's own vectors are done with; the returned value has already
         // been taken out of `slots`.
         self.evaluator.frame_scratch.recycle(&mut call);
-        let FrameOwner::Function(function, kind) = call.owner else {
-            return self.finish_block(call, flow);
-        };
         let header = self.function_header(function, kind, call.call_span)?;
         // Producer failures leave the stream boundary as runtime errors. Keep
         // the original propagation location when converting the Result value.
@@ -3683,7 +3701,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let parent = self.evaluator.parent_owned_host_scope();
             self.evaluator.transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
         }
-        let cleanup = self.cleanup_call_scopes(&mut call);
+        let cleanup = cleanup_call_scopes(self.evaluator, &mut call);
+        self.evaluator.frame_scratch.recycle_block_stacks(&mut call);
         self.release_slots(call.slots);
         let exit_kind = match kind {
             LoweredFunctionKind::Pure => TraceKind::PureExit,
@@ -3739,18 +3758,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     /// Hands a finished block's flow back to the recursive evaluator. Outgoing
     /// values and checked failures keep their resources in the parent scope;
     /// a cleanup failure after a checked failure is reported, not raised.
-    fn finish_block(&mut self, mut call: CallFrame<'p>, flow: StmtFlow) -> Result<(), RuntimeError> {
+    /// The frame is finished where it lies on the stack and dropped there.
+    fn finish_block(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
+        let call = &mut self.calls[index];
+        self.evaluator.frame_scratch.recycle(call);
         if call.owns_scope()
             && let StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) | StmtFlow::Break(Some(value)) = &flow
         {
             let parent = self.evaluator.parent_owned_host_scope();
             self.evaluator.transfer_owned_host_resources_in_lowered_value(value, call.scope_id, parent);
         }
-        let cleanup = self.cleanup_call_scopes(&mut call);
+        let cleanup = cleanup_call_scopes(self.evaluator, call);
+        self.evaluator.frame_scratch.recycle_block_stacks(call);
+        let call_span = call.call_span;
+        self.calls.truncate(index);
         self.result = Some(match cleanup {
             Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
             Err(error) if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) => {
-                self.evaluator.report_cleanup_error(&error, call.call_span);
+                self.evaluator.report_cleanup_error(&error, call_span);
                 Ok(LoweredValue::Unit)
             }
             Err(error) => Err(error),
@@ -4181,6 +4206,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         decode_statement_block_into(&self.calls[index].execution, body, span, &mut statements)?;
         let scope_id = self.evaluator.enter_owned_host_scope();
         let defer_offset = self.calls[index].defers.len();
+        if self.calls[index].block_scopes.capacity() == 0 {
+            let call = &mut self.calls[index];
+            (call.block_scopes, call.block_defer_offsets) = self.evaluator.frame_scratch.take_block_stacks();
+        }
         self.calls[index].block_scopes.push(scope_id);
         self.calls[index].block_defer_offsets.push(defer_offset);
         self.calls[index].work.push(FrameWork::Statements {
@@ -4193,6 +4222,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn exit_block_scope(&mut self, index: usize, scope_id: u64, include_work_contexts: bool, mut disposition: CleanupFailureResources) -> Result<(), RuntimeError> {
         let defer_offset = self.calls[index].block_defer_offsets.pop().expect("live block owns a defer boundary");
+        if self.calls[index].defers.len() == defer_offset {
+            let popped = self.calls[index].block_scopes.pop();
+            debug_assert_eq!(popped, Some(scope_id));
+            return self.evaluator.exit_frame_host_scope(scope_id);
+        }
         let defers = self.calls[index].defers.split_off(defer_offset);
         let previous_contexts = (include_work_contexts && !defers.is_empty()).then(|| self.install_cleanup_contexts());
         let call = &mut self.calls[index];
@@ -4214,7 +4248,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         let popped = self.calls[index].block_scopes.pop();
         debug_assert_eq!(popped, Some(scope_id));
-        let host_cleanup = self.evaluator.exit_owned_host_scope(scope_id);
+        let host_cleanup = self.evaluator.exit_frame_host_scope(scope_id);
         let result = match (cleanup, host_cleanup) {
             (Err(error), Err(secondary)) => {
                 self.evaluator.report_cleanup_error(&secondary, self.calls[index].call_span);
@@ -4327,6 +4361,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         first_error.map_or(Ok(()), Err)
     }
 
+}
+
+fn cleanup_call_scopes(evaluator: &mut Evaluator, call: &mut CallFrame<'_>) -> Result<(), RuntimeError> {
+    let mut first_error = None;
+    while let Some(scope_id) = call.block_scopes.pop() {
+        if let Err(error) = evaluator.exit_frame_host_scope(scope_id)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+    }
+    if call.owns_scope()
+        && let Err(error) = evaluator.exit_frame_host_scope(call.scope_id)
+        && first_error.is_none()
+    {
+        first_error = Some(error);
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 fn contextualize_propagation(value: LoweredValue, context: crate::runtime::value::ErrorContext) -> LoweredValue {
