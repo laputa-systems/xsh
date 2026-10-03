@@ -31,8 +31,9 @@ pub(crate) fn apply_cst_guarded_edits(
     apply_cst_edits(file, text, edits, Some(line_width))
 }
 
-/// Removed vocabulary changes exact tokens. Preserve unrelated literal bytes,
-/// line endings and layout while the caller rechecks the complete import graph.
+/// Removed vocabulary and `xsht lint --only` fixes change exact tokens.
+/// Preserve unrelated literal bytes, line endings and layout while the caller
+/// rechecks the result.
 pub(crate) fn apply_cst_guarded_migration_edits(
     file: &str,
     text: &str,

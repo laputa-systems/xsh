@@ -815,6 +815,26 @@ fn lint_only_bool_statement_applies_only_its_assert_fix() {
     assert_eq!(fs::read_to_string(&script).expect("read fixed script"), "let name: Str = \"x\"\nassert name == \"x\"\n");
 }
 
+/// A scoped fix rewrites only its diagnosed spans; unformatted code elsewhere
+/// keeps its exact bytes.
+#[test]
+fn lint_only_fix_leaves_bytes_outside_edited_spans() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    let source = "let xs = [1,2,3]\nlet total: Int = xs.len()\nprint   f\"${total}\"  \nlet ys=[1, 2]\r\nprint f\"${ys.len()}\"\n";
+    for (rule, expected) in [
+        ("lint.needless-annotation", source.replace("let total: Int =", "let total =")),
+        ("lint.prefer-const", source.replace("let xs", "const xs").replace("let ys", "const ys")),
+    ] {
+        fs::write(&script, source).expect("write script");
+        let fixed = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .args(["lint", "--only", rule, "--fix", "main.xsh"])
+            .current_dir(root.path()).output().expect("run xsht lint");
+        assert_eq!(fixed.status.code(), Some(0), "{rule}: {}", String::from_utf8_lossy(&fixed.stderr));
+        assert_eq!(fs::read_to_string(&script).expect("read fixed script"), expected, "{rule}");
+    }
+}
+
 #[test]
 fn lint_only_rejects_unknown_codes() {
     for args in [&["lint", "--only", "lint.prefer-const,lint.no-such-rule", "."][..], &["lint", "--only"][..]] {

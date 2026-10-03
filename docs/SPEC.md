@@ -2051,8 +2051,9 @@ optionally local bindings), only when checking reports no diagnostics.
 `xsht lint` reports `lint.*` findings and the checker findings that carry fixes
 (such as `check.bool-statement`). `--fix` applies only fixes that preserve
 behavior and comments; a rewritten file must parse and check with no new
-diagnostics. `--only RULE,...` limits reporting and fixing to the named codes,
-so `xsht lint --fix --only check.bool-statement` inserts `assert` where Bool
+diagnostics. `--only RULE,...` limits reporting and fixing to the named codes
+and applies exactly their edits, leaving every other byte unformatted, so
+`xsht lint --fix --only check.bool-statement` inserts `assert` where Bool
 statements appear. `xsht lint --list [--format text|jsonl]` prints every
 selectable code with a one-line summary; the generated
 `docs/reference/lints.md` is that catalog. Each finding names its rule, and a fix is withheld (with an

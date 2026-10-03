@@ -55,7 +55,9 @@ types or effects from syntax. Every code and its one-line summary are in
 `lint::FIXABLE_CHECK_CODES` with summaries in `lint::FIXABLE_CHECK_SUMMARIES`.
 `xsht lint --list [--format text|jsonl]` prints that catalog, which
 `make docs` renders into `docs/reference/lints.md`. `--only` restricts both
-reports and fixes; an unknown code is a usage error.
+reports and fixes; an unknown code is a usage error. A scoped fix splices its
+exact edits with no formatting pass (`apply_cst_fixes`), while unrestricted
+`--fix` formats the rewritten file.
 
 Lint selects true entry roots during directory discovery (files with no inbound
 import; one deterministic root per import cycle; explicitly named files always),

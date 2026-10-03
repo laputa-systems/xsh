@@ -1477,6 +1477,9 @@ fn apply_cst_fixes(
 ) -> Result<Option<ValidatedFixedText>, String> {
     let migrating_syntax = Parser::parse_source_arena_only(SourceId::new(0), text)
         .diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_some());
+    // An `--only` selection applies exactly the selected edits; formatting the
+    // whole file would rewrite unrelated code.
+    let only = config.lint_options.only.as_deref();
     let mut candidate = text.to_owned();
     let mut fixes = fixes.to_vec();
     let mut seen = FxHashSet::default();
@@ -1490,7 +1493,12 @@ fn apply_cst_fixes(
             end: *end,
             replacement: replacement.clone(),
         }).collect::<Vec<_>>();
-        let Some(next) = apply_cst_guarded_edits(file, &candidate, &edits, config.line_width)? else {
+        let next = if only.is_some() {
+            apply_cst_guarded_migration_edits(file, &candidate, &edits)?
+        } else {
+            apply_cst_guarded_edits(file, &candidate, &edits, config.line_width)?
+        };
+        let Some(next) = next else {
             return Ok(None);
         };
         if next == candidate {
@@ -1550,7 +1558,11 @@ fn apply_cst_fixes(
             Linter::lint(&program.parsed.arena, &candidate, options)
         };
         fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
-        fixes.extend(collect_fix_spans_for_source(&checked.diagnostics, SourceId::new(0)));
+        let selected_checks = checked.diagnostics.iter()
+            .filter(|diagnostic| lint_code_selected(only, diagnostic.code.as_deref()))
+            .cloned()
+            .collect::<Vec<_>>();
+        fixes.extend(collect_fix_spans_for_source(&selected_checks, SourceId::new(0)));
         if fixes.is_empty() {
             return Ok(Some(ValidatedFixedText {
                 text: candidate,
