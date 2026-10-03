@@ -69,8 +69,8 @@
 |completion.term_cols: 80
 |completion.dir_prefix: ""
 |completion.in_quote: false
-|completion.names: "abaa"
-|completion.entries: [CompletionEntry { mtime: 1700000000, name_start: 2, name_len: 2, name_display_width: 2, flags: 0 }, CompletionEntry { mtime: 1700000000, name_start: 0, name_len: 2, name_display_width: 2, flags: 0 }]
+|completion.names: "aaab"
+|completion.entries: [CompletionEntry { mtime: 1700000000, name_start: 0, name_len: 2, name_display_width: 2, flags: 0 }, CompletionEntry { mtime: 1700000000, name_start: 2, name_len: 2, name_display_width: 2, flags: 0 }]
 |completion_grid_layout: CompletionGridLayout { visible_rows: 1, scroll_start: 0, col_widths: [2, 2, 0, 0, 0, 0] }
 |history_cache.header: None
 |history_cache.rows: []
