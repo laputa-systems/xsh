@@ -1324,6 +1324,15 @@ Operators:
 - `.` accesses record fields and standard methods.
 - A newline immediately before a `.` postfix operator continues the same
   expression, so long method chains may use one method per line.
+- An expression continues onto a line that begins with `.name`, `|>`, `??`,
+  `or`, `and`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not in`, `+`, `*`, or
+  `%`, after any blank or comment lines. No other token continues a line, and
+  none of these can begin a statement, so a line never silently extends the
+  previous one: a line beginning with `-` (negation), `/` (absolute path), `is`,
+  `./`, or `../` starts a new statement. The only exception is an item
+  expression, which cannot begin such a line: `.name` there is always
+  postfix. A binary operator or `is` at the end of a line also continues the
+  expression.
 - `.require(Type)` validates the receiver against a type expression and returns
   `Result[Type]`. The type argument is syntax, not a runtime identifier. Named
   record fields are validated recursively inside lists, maps, and optional

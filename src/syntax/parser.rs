@@ -49,7 +49,6 @@ pub struct Parser<'a> {
     trailing_statement_try: bool,
     command_arg_expr: bool,
     condition_expr: bool,
-    unbraced_match_arm_depth: Option<(usize, usize)>,
     block_depth: usize,
     parenthesized_expr_depth: usize,
     diagnostics: Vec<Diagnostic>,
@@ -144,7 +143,6 @@ impl<'a> Parser<'a> {
             trailing_statement_try: true,
             command_arg_expr: false,
             condition_expr: false,
-            unbraced_match_arm_depth: None,
             block_depth: 0,
             parenthesized_expr_depth: 0,
             diagnostics: Vec::new(),
@@ -206,9 +204,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// If the current token is a newline/comment and the next non-newline token
-    /// is a binary operator, return the binary op info. This lets expression
-    /// parsing continue across newlines when a binary operator follows.
+    /// If the current token is a newline/comment and the next line starts with
+    /// a binary operator that cannot also begin a statement, return the binary
+    /// op info, so the expression continues across the line break. `-` (unary
+    /// negation) and `/` (absolute bare path) begin a new statement instead.
     pub(in crate::syntax::parser) fn continuation_binary_op(
         &self,
     ) -> Option<(BinaryOp, u8, usize)> {
@@ -219,10 +218,11 @@ impl<'a> Parser<'a> {
         ) {
             offset += 1;
         }
-        if offset == 0 {
+        let tag = self.peek_tag(offset)?;
+        if offset == 0 || matches!(tag, TokenTag::Minus | TokenTag::Slash) {
             return None;
         }
-        binary_op_for_token(self.peek_tag(offset)?, self.peek_keyword(offset), |n| {
+        binary_op_for_token(tag, self.peek_keyword(offset), |n| {
             self.peek_keyword(offset + n)
         })
     }
@@ -539,16 +539,28 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(in crate::syntax::parser) fn skip_postfix_newlines(&mut self) {
-        if self.current_tag() != TokenTag::Newline {
-            return;
+    /// Skips the newlines and comment lines between an expression and the
+    /// line that continues it.
+    pub(in crate::syntax::parser) fn skip_line_breaks(&mut self) {
+        while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+            self.bump();
         }
+    }
+
+    pub(in crate::syntax::parser) fn skip_postfix_newlines(&mut self) {
         let mut index = self.index;
-        while self.token_table.tag_at(index) == Some(TokenTag::Newline) {
+        while matches!(self.token_table.tag_at(index), Some(TokenTag::Newline | TokenTag::Comment)) {
             index += 1;
         }
+        if index == self.index {
+            return;
+        }
+        // Only `.name` continues: `./path` and `../path` begin bare paths.
         if self.token_table.tag_at(index) == Some(TokenTag::Dot)
-            && self.token_table.tag_at(index + 1) != Some(TokenTag::Dot)
+            && matches!(
+                self.token_table.tag_at(index + 1),
+                Some(TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword)
+            )
         {
             self.index = index;
         }

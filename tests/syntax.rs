@@ -2959,6 +2959,60 @@ fn parser_continues_binary_op_with_leading_operator_on_next_line() {
     }));
 }
 
+/// A line break never silently joins two statements: no spelling that
+/// continues an expression onto the next line can also begin a statement.
+/// Both sets come from running the parser over a spelling of every token
+/// kind, not from a list kept beside it.
+#[test]
+fn line_continuation_tokens_cannot_begin_a_statement() {
+    use xsh::frontend::syntax::lexer::representative_token_texts;
+    let mut candidates: Vec<String> = representative_token_texts()
+        .into_iter()
+        .filter(|(tag, _)| !matches!(tag, TokenTag::Newline | TokenTag::Comment))
+        .map(|(_, text)| text)
+        .collect();
+    // Two-token operator and the contextual pattern-test word.
+    candidates.extend(["not in".to_string(), "is".to_string()]);
+    let starts_at_zero = |diagnostic: &xsh::diagnostic::Diagnostic| {
+        diagnostic.span.or(diagnostic.labels.first().map(|label| label.span)).is_some_and(|span| span.start() == 0)
+    };
+    let mut continuing = Vec::new();
+    let mut overlap = Vec::new();
+    for text in &candidates {
+        let source = format!("f()\n{text} x\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        let first_end = parsed.arena.statement_ids().next().map(|id| parsed.arena.arena.stmt(id).span.end());
+        if !first_end.is_some_and(|end| end > "f()\n".len()) {
+            continue;
+        }
+        continuing.push(text.clone());
+        let source = format!("{text} x\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        if !parsed.diagnostics.iter().any(starts_at_zero) {
+            overlap.push(text.clone());
+        }
+    }
+    continuing.sort();
+    let mut documented: Vec<String> = ["!=", "%", "*", "+", ".", "<", "<=", "==", ">", ">=", "??", "and", "in", "not in", "or", "|>"]
+        .map(str::to_string)
+        .to_vec();
+    documented.sort();
+    assert_eq!(continuing, documented, "continuation set differs from docs/SPEC.md");
+    // An item expression `.name` cannot begin a line after an expression; the
+    // line is always postfix (docs/SPEC.md).
+    assert_eq!(overlap, ["."], "continuation tokens that also begin a statement");
+}
+
+#[test]
+fn line_starting_with_a_statement_token_starts_a_new_statement() {
+    for line in ["-1", "/tmp/x", "./x", "is_ok(1)"] {
+        let source = format!("let value = 1\n{line}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{line}: {:?}", parsed.diagnostics);
+        assert_eq!(parsed.arena.statement_ids().count(), 2, "{line}");
+    }
+}
+
 #[test]
 fn parser_continues_binary_op_with_trailing_operator_on_previous_line() {
     let source = "let x = 1 +\n2\n";
@@ -3306,7 +3360,7 @@ print ${all.base64()} ${prefix.base64()} ${suffix.base64()} ${middle.base64()} $
     assert_parse_and_check(source_id, source);
     let formatted = Formatter::new().format_source(source_id, source);
     assert!(formatted.diagnostics.is_empty());
-    let canonical = source.replace("é🦀", r"\u{e9}\u{1f980}");
+    let canonical = source;
     assert_eq!(formatted.formatted, canonical);
     assert_parse_and_check(source_id, &formatted.formatted);
     assert_eq!(Formatter::new().format_source(source_id, &formatted.formatted).formatted, canonical);

@@ -90,6 +90,108 @@ pub enum TokenTag {
     Eof,
 }
 
+impl TokenTag {
+    pub const ALL: [TokenTag; 53] = [
+        TokenTag::Ident,
+        TokenTag::ProcIdent,
+        TokenTag::Keyword,
+        TokenTag::Int,
+        TokenTag::Float,
+        TokenTag::Duration,
+        TokenTag::String,
+        TokenTag::PathString,
+        TokenTag::GlobString,
+        TokenTag::FmtString,
+        TokenTag::PathFmtString,
+        TokenTag::Bytes,
+        TokenTag::Regex,
+        TokenTag::Comment,
+        TokenTag::Newline,
+        TokenTag::LParen,
+        TokenTag::RParen,
+        TokenTag::LBrace,
+        TokenTag::RBrace,
+        TokenTag::LBracket,
+        TokenTag::RBracket,
+        TokenTag::Comma,
+        TokenTag::Colon,
+        TokenTag::Semicolon,
+        TokenTag::Dot,
+        TokenTag::At,
+        TokenTag::Question,
+        TokenTag::QuestionQuestion,
+        TokenTag::LastStatus,
+        TokenTag::DollarLBrace,
+        TokenTag::DollarIdent,
+        TokenTag::Arrow,
+        TokenTag::FatArrow,
+        TokenTag::Equals,
+        TokenTag::EqEq,
+        TokenTag::Bang,
+        TokenTag::BangEq,
+        TokenTag::Lt,
+        TokenTag::Le,
+        TokenTag::Gt,
+        TokenTag::Ge,
+        TokenTag::Plus,
+        TokenTag::Minus,
+        TokenTag::Star,
+        TokenTag::Slash,
+        TokenTag::Percent,
+        TokenTag::Pipe,
+        TokenTag::PipeGt,
+        TokenTag::Amp,
+        TokenTag::GtGt,
+        TokenTag::ErrorGt,
+        TokenTag::ErrorGtGt,
+        TokenTag::Eof,
+    ];
+
+    /// The spelling of a token whose text is fixed by its kind.
+    pub const fn fixed_text(self) -> Option<&'static str> {
+        Some(match self {
+            Self::LParen => "(",
+            Self::RParen => ")",
+            Self::LBrace => "{",
+            Self::RBrace => "}",
+            Self::LBracket => "[",
+            Self::RBracket => "]",
+            Self::Comma => ",",
+            Self::Colon => ":",
+            Self::Semicolon => ";",
+            Self::Dot => ".",
+            Self::At => "@",
+            Self::Question => "?",
+            Self::QuestionQuestion => "??",
+            Self::LastStatus => "$?",
+            Self::DollarLBrace => "${",
+            Self::Arrow => "->",
+            Self::FatArrow => "=>",
+            Self::Equals => "=",
+            Self::EqEq => "==",
+            Self::Bang => "!",
+            Self::BangEq => "!=",
+            Self::Lt => "<",
+            Self::Le => "<=",
+            Self::Gt => ">",
+            Self::Ge => ">=",
+            Self::Plus => "+",
+            Self::Minus => "-",
+            Self::Star => "*",
+            Self::Slash => "/",
+            Self::Percent => "%",
+            Self::Pipe => "|",
+            Self::PipeGt => "|>",
+            Self::Amp => "&",
+            Self::GtGt => ">>",
+            Self::ErrorGt => "E>",
+            Self::ErrorGtGt => "E>>",
+            Self::Eof => "",
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(transparent)]
 pub struct TokenPayload(pub u32);
@@ -389,22 +491,7 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
 }
 
 fn fixed_width(tag: TokenTag) -> usize {
-    match tag {
-        TokenTag::QuestionQuestion
-        | TokenTag::LastStatus
-        | TokenTag::DollarLBrace
-        | TokenTag::Arrow
-        | TokenTag::FatArrow
-        | TokenTag::EqEq
-        | TokenTag::BangEq
-        | TokenTag::Le
-        | TokenTag::Ge
-        | TokenTag::PipeGt
-        | TokenTag::GtGt
-        | TokenTag::ErrorGt => 2,
-        TokenTag::ErrorGtGt => 3,
-        _ => 1,
-    }
+    tag.fixed_text().map_or(1, str::len)
 }
 
 fn scan_number_end(source: &str, start: usize) -> usize {
@@ -688,6 +775,47 @@ pub enum Keyword {
 }
 
 impl Keyword {
+    pub const ALL: [Keyword; 38] = [
+        Keyword::And,
+        Keyword::Assert,
+        Keyword::Break,
+        Keyword::Continue,
+        Keyword::Defer,
+        Keyword::Else,
+        Keyword::Enum,
+        Keyword::Export,
+        Keyword::False,
+        Keyword::For,
+        Keyword::Guard,
+        Keyword::If,
+        Keyword::In,
+        Keyword::Let,
+        Keyword::Const,
+        Keyword::Loop,
+        Keyword::Match,
+        Keyword::Not,
+        Keyword::Null,
+        Keyword::Or,
+        Keyword::Proc,
+        Keyword::Pure,
+        Keyword::Retry,
+        Keyword::Try,
+        Keyword::Return,
+        Keyword::Run,
+        Keyword::Spawn,
+        Keyword::Stream,
+        Keyword::True,
+        Keyword::Type,
+        Keyword::Unless,
+        Keyword::Use,
+        Keyword::Var,
+        Keyword::Wait,
+        Keyword::When,
+        Keyword::While,
+        Keyword::With,
+        Keyword::Yield,
+    ];
+
     pub const fn from_payload(payload: u32) -> Option<Self> {
         Some(match payload {
             value if value == Self::And as u32 => Self::And,

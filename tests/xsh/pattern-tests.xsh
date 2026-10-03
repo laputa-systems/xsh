@@ -287,8 +287,8 @@ test test_pattern_predicates_resolve_parameterized_types_and_multiline_tests { |
     ctx,
     r"""pure subject() -> Any { [1, 2] }
 let value = subject()
-let matched = value
-  is List[Int]
+let matched = value is
+  List[Int]
 print ${matched}
 """,
   )?

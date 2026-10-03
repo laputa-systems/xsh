@@ -40,3 +40,33 @@ index
   assert calls.len() == 2, traced.stderr
   assert results.len() == 2, traced.stderr
 }
+
+pure continuation_sign(positive: Bool) -> Int {
+  return 1 when positive
+  -1
+}
+
+pure continuation_root(scratch: Bool) -> Path {
+  return /tmp/scratch when scratch
+  /tmp/continuation
+}
+
+test test_leading_operators_continue_only_when_they_cannot_start_a_statement {
+  assert continuation_sign(false) == -1
+  assert continuation_root(false) == /tmp/continuation
+  let total = 1
+    + 2
+    * 3
+  assert total == 7
+  let missing: Str? = null
+  let label = missing
+    # a comment line does not end the expression
+    ?? "fallback"
+  assert label == "fallback"
+  let bounded = total > 0
+    and total < 10
+  assert bounded
+  let trimmed = " x "
+    .trim()
+  assert trimmed == "x"
+}
