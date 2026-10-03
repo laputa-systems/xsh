@@ -683,6 +683,9 @@ value matches require a catchall.
 `break` and `continue` affect the nearest `while` or `for`. They are checker
 errors inside structured stream stage blocks.
 
+`return` outside a callable body is `check.return-outside-callable`; a script
+selects its exit status with a final top-level `Int` or `abort` instead.
+
 `defer` registers a block-scoped cleanup expression, run command, or statement
 block. Registration does not execute the action. Actions run in last-in-first-out
 order when control leaves their registering block through success, `Err`
