@@ -931,3 +931,61 @@ type Invalid = module {
     assert assertion_condition, assertion_message
   }
 }
+
+test test_module_load_reports_module_path_and_parse_cause { |ctx|
+  let root = test.temp_dir(ctx, name: "unparsable-module")?
+  let broken = fp"${root}/broken.xsh"
+  fs.write(
+    broken,
+    """## Broken export.
+export pure answer() -> Int {
+  1 +
+""",
+  )?
+
+  let output = test.run_script(
+    ctx,
+    f"""let _ = module.load(p"${broken.display()}")?
+""",
+  )?
+
+  assert ! output.success
+  assert f"module `${broken.display()}` failed to parse" in output.stderr, output.stderr
+  assert f"${broken.display()}:4:1: parse.expected-expression" in output.stderr, output.stderr
+}
+
+test test_module_load_resolves_uses_with_configured_test_module_roots { |ctx|
+  let project = test.temp_dir(ctx, name: "module-roots-project")?
+  fp"${project}/lib/shared".mkdir()?
+  fp"${project}/plugins".mkdir()?
+  fp"${project}/tests".mkdir()?
+  fp"${project}/xsht-config.ini".write("""module_path = lib
+""")?
+  fp"${project}/lib/shared/answers.xsh".write("""##! Shared answers.
+
+## The shared answer.
+export pure answer() -> Int {
+  42
+}
+""")?
+  fp"${project}/plugins/plugin.xsh".write("""##! A plugin importing through a configured root.
+use shared.answers as answers
+
+## The answer resolved through the configured root.
+export let value: Int = answers.answer()
+""")?
+  fp"${project}/tests/loader.xsh".write("""type AnswerPlugin = module {
+  export let value: Int
+}
+
+test loads_plugin_with_configured_roots {
+  let plugin = module.load(p"plugins/plugin.xsh")?.require(AnswerPlugin)?
+  assert plugin.value == 42
+}
+""")?
+
+  cd project {
+    let output = run.capture --text "xsht" test tests/loader.xsh ?
+    assert output.status.exited_with(0), f"${output.stdout}${output.stderr}"
+  } ?
+}
