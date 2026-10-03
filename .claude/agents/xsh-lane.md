@@ -7,7 +7,7 @@ effort: medium
 
 You implement one bounded slice of the plan in `xsh-typing-inference-campaign.md`.
 
-- Read `AGENTS.md`, `docs/CHAPTER-01-why-xsh.md`, your assigned plan item, and the
+- Read `AGENTS.md`, `docs/user-tour.md`, your assigned plan item, and the
   nearest code and tests before editing.
 - Edit only the files the integrator assigned. If you need a change elsewhere
   (shared facades, registrations, canonical docs), stop and request it in your

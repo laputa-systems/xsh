@@ -7,7 +7,7 @@ first or in the same change.
 
 Related documents:
 
-- `docs/CHAPTER-01-why-xsh.md` explains why XSH exists.
+- `docs/user-tour.md` explains why XSH exists and teaches it by example; read it first.
 - `docs/SPEC-INTERACTIVE.md` is the complete contract for the interactive
   shell `xshi`. Nothing in `xshi` changes how `.xsh` files parse, check, or run.
 - `docs/reference/stdlib.md` is the generated index of standard modules,
