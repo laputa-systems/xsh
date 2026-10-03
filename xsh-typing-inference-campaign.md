@@ -104,6 +104,20 @@ Lowering still computes representation-level types (37 `infer_*` uses in
   must agree with the checker's published facts for the same expression.
 - Delete any remaining computation the checker already publishes.
 
+## Diagnostics and grouping (remaining)
+
+- **Typed diagnostic codes.** Replace string codes (`LINT_CODES`,
+  `FIXABLE_CHECK_CODES`, and about 390 scattered `parse.*`/`check.*`/
+  `lint.*`/`run.*` literals) with one `DiagnosticCode` enum. Each variant
+  carries its summary, severity and fix kind as properties.
+  - Diagnostics carry the enum.
+  - `--only` parses into it.
+  - `lint --list` and `make docs` iterate it.
+- **Required grouping for two more forms.** An `if`/`match` expression used as
+  an operand, and a pipeline followed by a suffix or operator, must be
+  parenthesized. The diagnostic carries a fix, and this repo and the siblings
+  are migrated.
+
 ## Docs refresh (remaining)
 
 Landed so far: `README.md`, `docs/user-tour.md` (it absorbs CHAPTER-01), one
