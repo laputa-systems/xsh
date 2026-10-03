@@ -5201,3 +5201,117 @@ fn local_inference_annotation_fix_requires_identical_material_contract_and_prese
         assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation") && !diagnostic.fix_hints.is_empty()), "{source}: {:?}", output.diagnostics);
     }
 }
+
+fn explicit_assert_lints(source: &str, only: Option<&str>) -> Vec<Diagnostic> {
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+    Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        statement_positions: checked.statement_positions,
+        statement_expression_spans: checked.statement_expression_spans,
+        assertion_effect_spans: checked.assertion_effect_spans,
+        assertion_spans: checked.assertion_spans,
+        standard_call_spans: checked.standard_call_spans,
+        only: only.map(|code| vec![code.to_owned()]),
+        ..LintOptions::default()
+    }).diagnostics
+}
+
+fn explicit_assert_fixed(source: &str) -> String {
+    let diagnostics = explicit_assert_lints(source, Some("lint.explicit-assert"));
+    let mut fixed = source.to_owned();
+    for hint in diagnostics.iter().rev().flat_map(|diagnostic| &diagnostic.fix_hints) {
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    fixed
+}
+
+#[test]
+fn explicit_assert_prefixes_every_checked_assertion_statement() {
+    let source = r#"let flag = true
+let xs = [1, 2]
+# a comment before
+xs == [1, 2] # a trailing comment
+(flag)
+xs.len() ==
+    2
+pure positive(n: Int) -> Bool { n > 0 }
+proc check(n: Int) {
+    if n > 0 {
+        n > 0
+    }
+    for item in xs {
+        item > 0
+    }
+    match n {
+        1 => n == 1,
+        _ => n >= 0,
+    }
+    let _ = n == 3
+    assert n < 9, "bounded"
+    positive(n)
+}
+check(1)?
+flag
+assert flag
+"#;
+    assert!(explicit_assert_lints(source, None).iter().all(|diagnostic| diagnostic.code.as_deref() != Some("lint.explicit-assert")),
+        "the rule waits for the tree migration before it is enabled by default");
+    let fixed = explicit_assert_fixed(source);
+    assert_eq!(fixed, r#"let flag = true
+let xs = [1, 2]
+# a comment before
+assert xs == [1, 2] # a trailing comment
+assert (flag)
+assert xs.len() ==
+    2
+pure positive(n: Int) -> Bool { n > 0 }
+proc check(n: Int) {
+    if n > 0 {
+        assert n > 0
+    }
+    for item in xs {
+        assert item > 0
+    }
+    match n {
+        1 => { assert n == 1 },
+        _ => { assert n >= 0 },
+    }
+    let _ = n == 3
+    assert n < 9, "bounded"
+    assert positive(n)
+}
+check(1)?
+assert flag
+assert flag
+"#);
+    assert_parse_check_standalone("explicit assert", &fixed);
+    assert!(explicit_assert_lints(&fixed, Some("lint.explicit-assert")).is_empty(), "explicit assert fix should converge: {fixed}");
+}
+
+#[test]
+fn explicit_assert_covers_tail_and_test_declaration_assertions() {
+    let source = "proc ready(flag: Bool) {\n    flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    n == 1\n}\ntest arithmetic {\n    1 + 1 == 2\n}\nready(true)?\ndone(1)?\n";
+    let fixed = explicit_assert_fixed(source);
+    assert_eq!(fixed, "proc ready(flag: Bool) {\n    assert flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    assert n == 1\n}\ntest arithmetic {\n    assert 1 + 1 == 2\n}\nready(true)?\ndone(1)?\n");
+    assert_parse_check_standalone("explicit tail assert", &fixed);
+    assert!(explicit_assert_lints(&fixed, Some("lint.explicit-assert")).is_empty());
+}
+
+#[test]
+fn assertion_helper_migration_targets_explicit_assert() {
+    let source = "proc compare(actual: Int) {\n    test.eq(actual, 3)?\n    match actual {\n        3 => test.ok(actual > 2)?,\n        _ => {},\n    }\n}\n";
+    let diagnostics = explicit_assert_lints(source, None);
+    let hints = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-bare-assertion"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
+    assert_eq!(hints.iter().filter_map(|hint| hint.replacement.as_deref()).collect::<Vec<_>>(),
+        ["assert (actual) == (3)", "{ assert (actual > 2) }"], "{diagnostics:?}");
+    let mut fixed = source.to_owned();
+    for hint in hints.iter().rev() {
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    assert_parse_check_standalone("assertion helper migration", &fixed);
+    assert!(explicit_assert_lints(&fixed, Some("lint.explicit-assert")).is_empty(), "{fixed}");
+}

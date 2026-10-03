@@ -4,7 +4,7 @@ use crate::xsht::cli::{
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
 use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code};
-use crate::xsht::lint::{LintOptions, Linter, lint_code_selected};
+use crate::xsht::lint::{LintOptions, Linter, lint_code_selected, layout_preserving_selection};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -647,6 +647,7 @@ fn set_checked_lint_facts_for_source(
     options.function_effect_facts_checked = true;
     options.terminating_call_spans = source_checked_set(&checked.terminating_call_spans, source_id);
     options.assertion_effect_spans = source_checked_set(&checked.assertion_effect_spans, source_id);
+    options.assertion_spans = source_checked_set(&checked.assertion_spans, source_id);
     options.statement_expression_spans = source_checked_set(&checked.statement_expression_spans, source_id);
     options.membership_migration_spans = source_checked_set(&checked.membership_migration_spans, source_id);
     options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
@@ -1238,6 +1239,7 @@ fn lint_config_for_file(
         function_effect_facts_checked: false,
         terminating_call_spans: Default::default(),
         assertion_effect_spans: Default::default(),
+        assertion_spans: Default::default(),
         statement_expression_spans: Default::default(),
         membership_migration_spans: Default::default(),
         standard_call_spans: Default::default(),
@@ -1313,6 +1315,7 @@ fn lint_one_file_with_fixes(
     lint_options.function_effect_facts_checked = true;
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
+    lint_options.assertion_spans = checked.assertion_spans.clone();
     lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
@@ -1490,7 +1493,12 @@ fn apply_cst_fixes(
             end: *end,
             replacement: replacement.clone(),
         }).collect::<Vec<_>>();
-        let Some(next) = apply_cst_guarded_edits(file, &candidate, &edits, config.line_width)? else {
+        let next = if layout_preserving_selection(config.lint_options.only.as_deref()) {
+            apply_cst_guarded_migration_edits(file, &candidate, &edits)?
+        } else {
+            apply_cst_guarded_edits(file, &candidate, &edits, config.line_width)?
+        };
+        let Some(next) = next else {
             return Ok(None);
         };
         if next == candidate {
@@ -1539,6 +1547,7 @@ fn apply_cst_fixes(
         options.function_effect_facts_checked = true;
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.assertion_effect_spans = checked.assertion_effect_spans.clone();
+        options.assertion_spans = checked.assertion_spans.clone();
         options.statement_expression_spans = checked.statement_expression_spans.clone();
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();

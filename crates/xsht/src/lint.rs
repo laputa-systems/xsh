@@ -14,6 +14,9 @@ mod context_scope;
 #[path = "lint_block_strings.rs"]
 mod block_strings;
 
+#[path = "lint_explicit_assert.rs"]
+mod explicit_assert;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -101,6 +104,8 @@ pub struct LintOptions {
     pub function_effect_facts_checked: bool,
     pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
+    /// `CheckOutput::assertion_spans`, for `lint.explicit-assert`.
+    pub assertion_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
@@ -119,7 +124,7 @@ pub const LINT_CODES: &[&str] = &[
     "lint.block-header", "lint.boolean-guard", "lint.boolean-pattern-test", "lint.command-value",
     "lint.compatibility-vocabulary", "lint.core-assert", "lint.dead-code", "lint.default-param-type",
     "lint.dollar-in-expression-string", "lint.duration-arithmetic", "lint.enum-declaration", "lint.env-scope",
-    "lint.error-fallback-block", "lint.fs-root-receiver", "lint.identical-match-arms",
+    "lint.error-fallback-block", "lint.explicit-assert", "lint.fs-root-receiver", "lint.identical-match-arms",
     "lint.inferred-require-target", "lint.interactive-command", "lint.json-roundtrip", "lint.legacy-test-proc",
     "lint.lexical-block", "lint.lookup-absence", "lint.lookup-fallback", "lint.missing-effects",
     "lint.multiline-tag-union", "lint.needless-annotation", "lint.organize-top-level-consts",
@@ -149,6 +154,12 @@ pub const LINT_CODES: &[&str] = &[
     "lint.unused-type",
 ];
 
+/// Whether `--only` selects just the rules whose fixes are applied without
+/// reformatting the file, so a repository-wide migration leaves layout intact.
+pub fn layout_preserving_selection(only: Option<&[String]>) -> bool {
+    only.is_some_and(|only| !only.is_empty() && only.iter().all(|code| code == explicit_assert::CODE))
+}
+
 /// Whether `only` (the `--only` selection, if any) admits a diagnostic code.
 pub fn lint_code_selected(only: Option<&[String]>, code: Option<&str>) -> bool {
     only.is_none_or(|only| code.is_some_and(|code| only.iter().any(|selected| selected == code)))
@@ -173,6 +184,7 @@ impl Default for LintOptions {
             function_effect_facts_checked: false,
             terminating_call_spans: BTreeSet::default(),
             assertion_effect_spans: BTreeSet::default(),
+            assertion_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
@@ -331,6 +343,7 @@ impl<'a> Linter<'a> {
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
         let only = options.only;
+        let assertion_spans = options.assertion_spans;
         let checked_effects = if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
             check_effects().function_effect_facts
         } else { options.function_effect_facts };
@@ -400,6 +413,10 @@ impl<'a> Linter<'a> {
         if include_reachability {
             linter.lint_declaration_reachability(program);
             linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
+        }
+        // Off by default until the tree migrates; `--only lint.explicit-assert` runs it.
+        if only.as_deref().is_some_and(|only| only.iter().any(|code| code == explicit_assert::CODE)) {
+            linter.diagnostics.extend(explicit_assert::lint_explicit_asserts(program, source, &assertion_spans));
         }
         linter.diagnostics.retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code.as_deref()));
         LintOutput {
@@ -5760,7 +5777,7 @@ impl<'a> Linter<'a> {
                 _ => false,
             }
         };
-        let mut diagnostic = Diagnostic::new(Severity::Warning, if membership { "use canonical membership syntax" } else { "use a boolean assertion statement" })
+        let mut diagnostic = Diagnostic::new(Severity::Warning, if membership { "use canonical membership syntax" } else { "use an `assert` statement" })
             .with_code(if membership { "lint.prefer-in" } else { "lint.prefer-bare-assertion" })
             .with_label(Label::secondary(span, "preserve custom messages, consumed Results, and argument evaluation order"));
         let source_order: Vec<ExprId> = self.arena.call_args(args).iter().map(|arg| match arg.kind { ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value, _ => unreachable!() }).collect();
@@ -5779,7 +5796,8 @@ impl<'a> Linter<'a> {
                 let Some(message) = self.expression_text(message) else { return; };
                 (span, format!("test.ok({predicate}, message: {message})"))
             } else if let Some(bare_span) = bare_span {
-                (self.expression_source_span(bare_span), predicate)
+                let fix_span = self.expression_source_span(bare_span);
+                (fix_span, explicit_assert::assert_statement(&predicate, explicit_assert::comma_terminated(self.source, fix_span.end())))
             } else {
                 (span, format!("test.ok({predicate})"))
             };
@@ -5808,7 +5826,7 @@ impl<'a> Linter<'a> {
                 let assertion = if let Some(message) = custom_message {
                     let suffix = if statement == span { "" } else { "?" };
                     format!("test.ok({predicate}, message: {}){suffix}", names[&message])
-                } else { predicate };
+                } else { explicit_assert::assert_statement(&predicate, false) };
                 bindings.push_str(&assertion);
                 // Inline match arms accept one expression. A lexical block also
                 // keeps operand snapshots local to the original assertion.

@@ -687,6 +687,49 @@ fn lint_only_restricts_diagnostics_and_fixes_to_named_codes() {
 }
 
 #[test]
+fn lint_explicit_assert_fix_preserves_layout_failure_detail_and_evaluation_order() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    let source = "proc note(value: Int) -> Int {\n    print \"eval ${value}\"\n    value\n}\nlet xs = [1, 2]\nxs ==   [1, 2] # spacing and comment stay\nproc check(n: Int) {\n    match n {\n        1 => note(0) < note(n),\n        _ => {},\n    }\n    note(0) < note(n) < note(3)\n}\ncheck(1)?\ncheck(5)?\n";
+    fs::write(&script, source).expect("write script");
+    let xsht = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(args).current_dir(root.path()).output().expect("run xsht");
+    let failure_detail = |output: &std::process::Output| {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.lines().skip_while(|line| !line.starts_with("error: AssertionError.Failed"))
+            .take_while(|line| !line.starts_with("at ")).collect::<Vec<_>>().join("\n");
+        (output.status.code(), String::from_utf8_lossy(&output.stdout).into_owned(), detail)
+    };
+    let before = failure_detail(&xsht(&["trace", "main.xsh"]));
+    assert_eq!(before.0, Some(3));
+    assert!(before.2.contains("5 < 3"), "{before:?}");
+
+    assert!(!String::from_utf8_lossy(&xsht(&["lint", "main.xsh"]).stderr).contains("lint.explicit-assert"),
+        "the rule is selected explicitly until the tree migrates");
+    let listed = xsht(&["lint", "--only", "lint.explicit-assert", "main.xsh"]);
+    assert_eq!(listed.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&listed.stderr).matches("warn[lint.explicit-assert]").count(), 3);
+
+    let fixed = xsht(&["lint", "--only", "lint.explicit-assert", "--fix", "main.xsh"]);
+    assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
+    let migrated = fs::read_to_string(&script).expect("read fixed script");
+    assert_eq!(migrated, source
+        .replace("xs ==   [1, 2]", "assert xs ==   [1, 2]")
+        .replace("1 => note(0) < note(n),", "1 => { assert note(0) < note(n) },")
+        .replace("    note(0) < note(n) < note(3)", "    assert note(0) < note(n) < note(3)"));
+    assert_eq!(xsht(&["lint", "--only", "lint.explicit-assert", "--fix", "main.xsh"]).status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&script).expect("reread fixed script"), migrated, "a second fix makes no change");
+
+    let after = failure_detail(&xsht(&["trace", "main.xsh"]));
+    assert_eq!(after.0, before.0);
+    assert_eq!(after.1, before.1, "operands evaluate in the same order");
+    for line in before.2.lines().skip(1) {
+        assert!(after.2.contains(line), "missing failure detail {line:?}: {after:?}");
+    }
+    assert!(after.2.contains("5 < 3"), "{after:?}");
+}
+
+#[test]
 fn lint_only_rejects_unknown_codes() {
     for args in [&["lint", "--only", "lint.prefer-const,lint.no-such-rule", "."][..], &["lint", "--only"][..]] {
         let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(args).output().expect("run xsht lint");
