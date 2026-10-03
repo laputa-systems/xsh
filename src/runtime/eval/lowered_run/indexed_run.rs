@@ -1677,7 +1677,7 @@ impl Evaluator {
                 let fields = Self::decode_indexed_pattern_fields(&mut payload, execution, span)?;
                 if let LoweredValue::Error(value) = value {
                     let error_fields = match value.as_ref() {
-                        Value::Error(error) if error.family_name() == family && error.variant_name() == variant => Some(error.payload.clone()),
+                        Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), family) && error.variant_name() == variant => Some(error.payload.clone()),
                         Value::RunError(error) if family == Name::PROCESS_ERROR && error.variant_name() == variant.as_str() => Some(error.payload()),
                         _ => None,
                     };

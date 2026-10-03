@@ -1682,6 +1682,13 @@ impl RunError {
     }
 }
 
+/// Whether a runtime error of `actual` family belongs to the checked family
+/// `expected`. Errors carry their family's declared name; an importer spells a
+/// module's family through its namespace (`mod.E`), which names the same family.
+pub fn error_family_matches(actual: Name, expected: Name) -> bool {
+    actual == expected || expected.as_str().rsplit_once('.').is_some_and(|(_, member)| member == actual.as_str().as_str())
+}
+
 /// An OS error source that maps onto the `ProcessError` facet vocabulary.
 pub trait HostErrorFacet {
     fn host_facet(&self) -> Option<&'static str>;

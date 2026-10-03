@@ -2431,7 +2431,8 @@ fn compact_error_family_key(program: &ArenaProgram, id: ExprId) -> Option<Compac
 fn compact_error_family_display(key: CompactErrorFamilyKey) -> String {
     match key {
         CompactErrorFamilyKey::Local(name) => name.to_string(),
-        CompactErrorFamilyKey::Qualified(name) => name.to_string(),
+        // An error carries its family's declared name wherever it is built.
+        CompactErrorFamilyKey::Qualified(name) => name.member.to_string(),
     }
 }
 
@@ -13521,7 +13522,7 @@ pub(super) fn lowered_error_variant_matches(
 ) -> bool {
     match value {
         Value::Error(error) => {
-            error.family_name() == *family
+            crate::runtime::value::error_family_matches(error.family_name(), *family)
                 && error.variant_name() == *variant
                 && lowered_error_pattern_fields_match(&error.payload, fields, slots, bind)
         }

@@ -6667,10 +6667,10 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::EnvPathList => matches!(value, Value::EnvPathList),
         Type::Error => matches!(value, Value::Error(_) | Value::RunError(_)),
         Type::ErrorFamily(family) => {
-            matches!(value, Value::Error(error) if error.family_name() == *family)
+            matches!(value, Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family))
         }
         Type::ErrorVariant { family, variant } => {
-            matches!(value, Value::Error(error) if error.family_name() == *family && error.variant_name() == *variant)
+            matches!(value, Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family) && error.variant_name() == *variant)
         }
         Type::ErrorFacet(facet) => {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
@@ -6786,10 +6786,10 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::EnvPathList => false,
         Type::Error => matches!(value, LoweredValue::Error(_)),
         Type::ErrorFamily(family) => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.family_name() == *family))
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family)))
         }
         Type::ErrorVariant { family, variant } => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.family_name() == *family && error.variant_name() == *variant))
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family) && error.variant_name() == *variant))
         }
         Type::ErrorFacet(facet) => {
             matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.facets.iter().any(|value| value == facet)))

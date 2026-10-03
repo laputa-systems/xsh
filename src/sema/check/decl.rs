@@ -597,6 +597,44 @@ pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super:
     }
 }
 
+/// A module names its own error families bare, while its importer spells
+/// them through the namespace (`mod.E`), as constructors and patterns do.
+fn qualify_imported_error_types(mut module: UserModuleSig, namespace: Name) -> UserModuleSig {
+    let families = module.error_families.keys().copied().collect::<FxHashSet<_>>();
+    if families.is_empty() {
+        return module;
+    }
+    for ty in module.values.values_mut() {
+        qualify_error_type(ty, namespace, &families);
+    }
+    for sig in module.procs.values_mut().chain(module.pures.values_mut()).chain(module.streams.values_mut()) {
+        for param in &mut sig.params {
+            qualify_error_type(&mut param.ty, namespace, &families);
+        }
+        qualify_error_type(&mut sig.return_ty, namespace, &families);
+    }
+    module
+}
+
+fn qualify_error_type(ty: &mut Type, namespace: Name, families: &FxHashSet<Name>) {
+    match ty {
+        Type::ErrorFamily(family) | Type::ErrorVariant { family, .. } if families.contains(family) => {
+            *family = Name::intern(format!("{namespace}.{family}"));
+        }
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => qualify_error_type(inner, namespace, families),
+        Type::Map(left, right) | Type::Result(left, right) => {
+            qualify_error_type(left, namespace, families);
+            qualify_error_type(right, namespace, families);
+        }
+        Type::Record(fields) => {
+            for field in fields.values_mut() {
+                qualify_error_type(field, namespace, families);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
     let mut exports = std::collections::BTreeMap::new();
     for (name, ty) in &module.values {
@@ -646,6 +684,7 @@ impl Checker {
             self.error(span, "empty module path", "check.unknown-module");
             return;
         };
+        let module = qualify_imported_error_types(module, namespace);
         self.import_user_module_types(key, Some(namespace), span, false);
         let mut binding = Binding::new(module_type_from_user_signature(&module), false);
         binding.static_namespace = true;

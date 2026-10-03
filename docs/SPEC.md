@@ -523,6 +523,8 @@ pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
 ```
 
 Constructors are qualified by family (and by module namespace when imported).
+An imported `mod.E` names the same family as `E` inside its module, so an
+error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in

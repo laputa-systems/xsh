@@ -502,3 +502,47 @@ test test_match_arm_captures_end_with_their_arm {
   assert arm_capture_then_let(1) == 19
   assert arm_capture_shadows_outer(1) == 102
 }
+
+test test_error_variant_patterns_match_errors_raised_in_another_module { |ctx|
+  let root = test.temp_dir(ctx, name: "error-identity-module")?
+  fp"${root}/raiser.xsh".write(r"""
+##! Error identity fixture module.
+## Fixture errors.
+export error Failure = Missing(detail: Str) | Busy
+## Fails with a declared family.
+export pure fail_typed() -> Result[Int, Failure] { return Err(Failure.Missing(detail: "typed")) }
+## Fails through the broad Error carrier.
+export pure fail_broad() -> Result[Int] { return Err(Failure.Missing(detail: "broad")) }
+## Matches inside the module.
+export pure describe(result: Result[Int, Failure]) -> Str {
+  match result {
+    Err(Failure.Missing {detail}) => f"missing ${detail}"
+    _ => "other"
+  }
+}
+""")?
+  let output = test.run_script(
+    ctx,
+    r"""
+use raiser as r
+match r.fail_typed() {
+  Ok(_) => print "ok"
+  Err(r.Failure.Missing {detail}) => print $detail
+  Err(r.Failure.Busy) => print "busy"
+}
+match r.fail_broad() {
+  Err(r.Failure.Missing {detail}) => print $detail
+  _ => print "other"
+}
+let local: Result[Int, r.Failure] = Err(r.Failure.Missing(detail: "local"))
+print (r.fail_typed() is Err(r.Failure.Missing)) (r.describe(local))
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """typed
+broad
+true missing local
+"""
+}
