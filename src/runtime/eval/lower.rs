@@ -1,9 +1,8 @@
 //! AST -> lowered-IR lowering pass, split out of `eval.rs`.
 
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
-use xsh_registry::signature::MethodReceiver;
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
-use crate::sema::check::{CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo};
+use crate::sema::check::{CheckedApiCall, CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo};
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
 use crate::source::{SourceMap, Span};
@@ -341,6 +340,7 @@ fn lowered_module_call_args(
     module: Name,
     name: Name,
     args: &[ArenaCallArg],
+    plan: Option<&CheckedApiCall>,
 ) -> Option<LoweredModuleCallArgs> {
     if module == "fs" && name == "hardlink" {
         let positional = positional_call_args(args)?;
@@ -372,28 +372,18 @@ fn lowered_module_call_args(
             });
         }
     }
-    let overloads = api_spec().module_overloads(&module.as_str(), &name.as_str())?;
-    let mut matched = None;
-    for sig in overloads {
-        // A script-backed entry must use its prepared implementation rather
-        // than the native operation slot carried by the same signature. The
-        // script route runs first and reports an unprepared module as a
-        // missing-target diagnostic.
-        if sig.script_impl().is_some() {
-            continue;
-        }
-        if lowered_module_sig_type(sig).is_none() {
-            continue;
-        }
-        if let Some(bindings) = compact_module_bindings(args, sig) {
-            matched = Some((sig, bindings));
-            break;
-        }
+    // A script-backed entry must use its prepared implementation rather than
+    // the native operation slot carried by the same signature. The script
+    // route runs first and reports an unprepared module as a missing-target
+    // diagnostic.
+    let plan = plan?;
+    let sig = plan.sig;
+    if sig.script_impl().is_some() || lowered_module_sig_type(sig).is_none() {
+        return None;
     }
-    let (sig, bindings) = matched?;
-    let mut lowered_args = Vec::new();
-    for binding in bindings {
-        lowered_args.push(match binding { Some(index) => Some(compact_call_arg_expr(&args[index])?), None => None });
+    let mut lowered_args = vec![None; sig.params.len()];
+    for (arg, &slot) in args.iter().zip(&plan.argument_slots) {
+        lowered_args[slot] = Some(compact_call_arg_expr(arg)?);
     }
     while lowered_args.last().is_some_and(Option::is_none) { lowered_args.pop(); }
     Some(LoweredModuleCallArgs {
@@ -429,42 +419,6 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
         algorithm,
         expected: value,
     })
-}
-
-fn compact_module_bindings(args: &[ArenaCallArg], sig: &ModuleFnSig) -> Option<Vec<Option<usize>>> {
-    let mut bindings = vec![None; sig.params.len()];
-    let mut next_positional = 0usize;
-    for (arg_index, arg) in args.iter().enumerate() {
-        match arg.kind {
-            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-            ArenaCallArgKind::Positional(_) => {
-                while next_positional < bindings.len() && bindings[next_positional].is_some() {
-                    next_positional += 1;
-                }
-                let binding = bindings.get_mut(next_positional)?;
-                *binding = Some(arg_index);
-            }
-            ArenaCallArgKind::Named { name, .. } => {
-                let param_index = sig
-                    .params
-                    .iter()
-                    .position(|param| param.name == name.as_str())?;
-                if bindings[param_index].is_some() {
-                    return None;
-                }
-                bindings[param_index] = Some(arg_index);
-            }
-        }
-    }
-    if sig
-        .params
-        .iter()
-        .zip(&bindings)
-        .any(|(param, binding)| !param.defaulted && binding.is_none())
-    {
-        return None;
-    }
-    Some(bindings)
 }
 
 fn compact_call_arg_expr(arg: &ArenaCallArg) -> Option<ExprId> {
@@ -4499,22 +4453,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ArenaExprKind::Ident(name) => {
                     known.get(&name).and_then(|binding| binding.checked.clone())
                 }
-                ArenaExprKind::Field { base, name }
-                | ArenaExprKind::NullSafeField { base, name } => {
-                    self.infer_checked_field_type(base, name, known)
-                }
                 ArenaExprKind::Call { .. } => self.checked_expr_type(value),
-                ArenaExprKind::Try(expr) => self.infer_checked_try_type(expr, known),
-                ArenaExprKind::Spawn(_) => Some(Type::Result(
-                    Box::new(Type::ProcessHandle),
-                    Box::new(Type::ProcessError),
-                )),
-                ArenaExprKind::EnvGet { kind, .. } => Some(Type::Result(Box::new(match kind {
-                    EnvGetKind::Str => Type::Str,
-                    EnvGetKind::Path => Type::Path,
-                    EnvGetKind::PathList => Type::EnvPathList,
-                }), Box::new(Type::Error))),
-                ArenaExprKind::EnvPathList => Some(Type::EnvPathList),
                 _ => None,
             })
     }
@@ -4632,46 +4571,19 @@ impl CompactLowerConstructProbe<'_, '_> {
         }).collect()
     }
 
-    fn checked_method_call_args(&self, base: ExprId, name: Name, args: &[ArenaCallArg]) -> Option<Vec<(ExprId, Type)>> {
-        let ty = self.checked_expr_type(base)
-            .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known));
-        let ty = match ty? {
-            Type::Optional(inner) => *inner,
-            Type::Result(inner, _) if name != "context" => *inner,
-            other => other,
-        };
-        let receiver = match &ty {
-            Type::Str => MethodReceiver::Str,
-            Type::Bytes => MethodReceiver::Bytes,
-            Type::Int | Type::UInt => MethodReceiver::Int,
-            Type::Float => MethodReceiver::Float,
-            Type::List(_) => MethodReceiver::List,
-            Type::Stream(_) => MethodReceiver::Stream,
-            Type::Map(_, _) => MethodReceiver::Map,
-            Type::ErasedRecord | Type::Record(_) => MethodReceiver::Record,
-            Type::Result(_, _) => MethodReceiver::Result,
-            Type::Path => MethodReceiver::Path,
-            Type::EnvPathList => MethodReceiver::EnvPathList,
-            Type::Status => MethodReceiver::Status,
-            Type::ProcessHandle => MethodReceiver::ProcessHandle,
-            Type::NetJob => MethodReceiver::NetJob,
-            Type::Digest => MethodReceiver::Digest,
-            Type::Regex => MethodReceiver::Regex,
-            _ => return None,
-        };
-        use crate::sema::arguments::{bind_static_arguments, expand_named_arguments, ArgumentValueSource};
-        let expanded = expand_named_arguments(self.program, args, |id| self.bodies.expr_types.get(&id).cloned()).ok()?;
-        api_spec().method_overloads(receiver, &name.as_str())?.iter().find_map(|method| {
-            let signature = crate::sema::builtin_templates::concrete_method_signature(method, &ty)?;
-            let params = crate::sema::builtin_templates::callable_parameters(&signature);
-            let binding = bind_static_arguments(&params, &expanded).ok()?;
-            let mut values = vec![None; params.len()];
-            for (argument, slot) in expanded.iter().zip(binding.argument_slots) {
-                let ArgumentValueSource::Expression(value) = argument.value else { return None; };
-                values[slot] = Some((value, params[slot].ty.clone()));
-            }
-            Some(values.into_iter().flatten().collect())
-        })
+    /// The checker's selected overload, with argument expressions in parameter
+    /// slot order and their concrete parameter types.
+    fn checked_method_call_args(&self, call: ExprId, args: &[ArenaCallArg]) -> Option<Vec<(ExprId, Type)>> {
+        let plan = self.bodies.api_calls.get(&call).filter(|plan| plan.receiver.is_some())?;
+        let mut values = vec![None; plan.params.len()];
+        for (arg, &slot) in args.iter().zip(&plan.argument_slots) {
+            values[slot] = Some((compact_call_arg_expr(arg)?, plan.params[slot].clone()));
+        }
+        Some(values.into_iter().flatten().collect())
+    }
+
+    fn module_call_plan(&self, call: ExprId) -> Option<&CheckedApiCall> {
+        self.bodies.api_calls.get(&call).filter(|plan| plan.receiver.is_none())
     }
 
     fn lowered_method_supported_for_receiver(
@@ -4733,109 +4645,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
-    fn infer_checked_try_type(
-        &self,
-        expr: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<Type> {
-        self.bodies
-            .expr_types
-            .get(&expr)
-            .and_then(|ty| ty.result_ok())
-            .filter(|ty| compact_checked_type_is_concrete(ty))
-            .cloned()
-            .or_else(|| {
-                self.infer_checked_expr_type(expr, known).and_then(|ty| {
-                    ty.result_ok()
-                        .filter(|ok| compact_checked_type_is_concrete(ok))
-                        .cloned()
-                })
-            })
-            .or_else(|| match self.program.arena.expr(expr).kind {
-                ArenaExprKind::EnvGet { kind, .. } => match kind {
-                    EnvGetKind::Str => Some(Type::Str),
-                    EnvGetKind::Path => Some(Type::Path),
-                    EnvGetKind::PathList => Some(Type::EnvPathList),
-                },
-                ArenaExprKind::EnvPathList => Some(Type::EnvPathList),
-                ArenaExprKind::Call { .. } => self.checked_call_ok_type(expr).and_then(type_for_lowered_type),
-                ArenaExprKind::Spawn(_) => Some(Type::ProcessHandle),
-                _ => None,
-            })
-    }
-
     /// The checker's published type for `value`.
     fn checked_expr_type(&self, value: ExprId) -> Option<Type> {
         self.bodies.expr_types.get(&value).filter(|ty| checked_fact_is_resolved(ty)).cloned()
-    }
-
-    fn infer_checked_field_type(
-        &self,
-        base: ExprId,
-        name: Name,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<Type> {
-        if let Some(ty) = self.infer_checked_env_field_type(base, name) {
-            return Some(ty);
-        }
-        self.infer_checked_field_type_from_type(&self.infer_checked_expr_type(base, known)?, name)
-    }
-
-    fn infer_checked_field_type_from_type(&self, base_ty: &Type, name: Name) -> Option<Type> {
-        match base_ty {
-            Type::Optional(inner) | Type::Result(inner, _) => {
-                self.infer_checked_field_type_from_type(inner, name)
-            }
-            Type::Record(fields) => fields.get(&name).cloned(),
-            Type::Module(exports) => exports.get(&name).map(ModuleExportType::field_type),
-            Type::DynamicModule => Some(Type::Any),
-            Type::ProcessHandle => match name.as_str().as_str() {
-                "pid" => Some(Type::Int),
-                "command" => Some(Type::Str),
-                "argv" => Some(Type::List(Box::new(Type::Str))),
-                "detached" => Some(Type::Bool),
-                _ => None,
-            },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError
-                if name == "message" => Some(Type::Str),
-            Type::Path => match name.as_str().as_str() {
-                "display" | "name" | "ext" => Some(Type::Str),
-                "normalize" | "parent" => Some(Type::Path),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-
-    fn infer_checked_env_field_type(&self, base: ExprId, name: Name) -> Option<Type> {
-        match self.program.arena.expr(base).kind {
-            ArenaExprKind::Ident(base_name) if base_name == "env" => {
-                if name == "PATH" {
-                    Some(Type::EnvPathList)
-                } else {
-                    Some(Type::Result(Box::new(Type::Str), Box::new(Type::Error)))
-                }
-            }
-            ArenaExprKind::Field {
-                base: inner_base,
-                name: type_name,
-            } => {
-                let ArenaExprKind::Ident(inner_name) = self.program.arena.expr(inner_base).kind
-                else {
-                    return None;
-                };
-                if inner_name != "env" {
-                    return None;
-                }
-                let value = match type_name.as_str().as_str() {
-                    "Path" => Type::Path,
-                    "PathList" => Type::EnvPathList,
-                    _ => Type::Str,
-                };
-                Some(Type::Result(Box::new(value), Box::new(Type::Error)))
-            }
-            _ => None,
-        }
     }
 
     fn top_level_run_binding_kind(
@@ -4950,17 +4762,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 .and_then(lowered_checked_type)
                 .or_else(|| self.infer_lowered_try_type(expr, known)),
             ArenaExprKind::Run(run) => self.infer_lowered_run_binding_type(run),
-            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
-                self.bodies
-                    .expr_types
-                    .get(&value)
-                    .and_then(lowered_checked_type)
-                    .or_else(|| {
-                        self.infer_checked_field_type(base, name, known)
-                            .as_ref()
-                            .and_then(lowered_checked_type)
-                    })
-            }
             ArenaExprKind::Slice { base, .. } => match self.infer_lowered_expr_type(base, known)? {
                 kind @ (LoweredType::List | LoweredType::Str | LoweredType::Bytes) => Some(kind),
                 _ => self
@@ -4997,32 +4798,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             .and_then(|ty| ty.result_ok())
             .filter(|ty| compact_checked_type_is_concrete(ty))
             .and_then(lowered_checked_type)
-            .or_else(|| {
-                self.infer_checked_expr_type(expr, known)
-                    .as_ref()
-                    .and_then(|ty| ty.result_ok())
-                    .filter(|ty| compact_checked_type_is_concrete(ty))
-                    .and_then(lowered_checked_type)
-            })
             .or_else(|| match self.program.arena.expr(expr).kind {
                 ArenaExprKind::Ident(name) => {
                     known.get(&name).and_then(|binding| binding.result_ok)
                 }
-                ArenaExprKind::Call { .. } => self.checked_call_ok_type(expr),
-                ArenaExprKind::Require { schema, .. } => {
-                    match schema {
-                        Some(schema) => lowered_arena_type(&self.program.arena, schema, self.declarations),
-                        None => self.bodies.requirement_targets.get(&expr).and_then(|target| lowered_checked_type(&target.ty)),
-                    }
-                }
-                ArenaExprKind::Run(run) => lowered_arena_run_capture_type(&self.program.arena, run),
-                ArenaExprKind::Spawn(_) => Some(LoweredType::ProcessHandle),
-                ArenaExprKind::EnvGet { kind, .. } => match kind {
-                    EnvGetKind::Str => Some(LoweredType::Str),
-                    EnvGetKind::Path => Some(LoweredType::Path),
-                    EnvGetKind::PathList => Some(LoweredType::List),
-                },
-                ArenaExprKind::EnvPathList => Some(LoweredType::List),
                 _ => self.infer_lowered_expr_type(expr, known),
             })
     }
@@ -8235,23 +8014,16 @@ impl CompactLowerConstructProbe<'_, '_> {
     /// diagnostic rather than as a silent fallback to a deleted native body.
     fn lower_script_module_call(
         &mut self,
-        module: Name,
-        name: Name,
+        call: ExprId,
         args: &[ArenaCallArg],
         span: Span,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        // Select the overload whose parameters this call actually binds, so a
-        // public name with several overloads routes each form to its own
-        // implementation function. Falling back to the first script binding
-        // would send a three-argument call to a two-parameter implementation.
-        let script = api_spec()
-            .module_overloads(&module.as_str(), &name.as_str())?
-            .iter()
-            .find(|sig| sig.script_impl().is_some() && compact_module_bindings(args, sig).is_some())
-            .and_then(|sig| sig.script_impl())?;
+        // The checker's selected overload routes each form of a public name to
+        // its own implementation function.
+        let script = self.module_call_plan(call)?.sig.script_impl()?;
         let namespace = self.internal_namespace(script.module)?;
         let function = Name::intern(script.function);
         let qualified = QualifiedName::new(namespace, function);
@@ -8585,7 +8357,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
             return Some(push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args, span }));
         }
-        if let ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } = self.program.arena.expr(callee).kind
+        if let ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } = self.program.arena.expr(callee).kind
             && self.checked_expr_type(base)
                 .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known)).is_some_and(|ty| {
                 ty == Type::FsRoot
@@ -8593,10 +8365,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     || matches!(ty, Type::Optional(ref inner) if **inner == Type::FsRoot && slots.postfix_receivers.contains_key(&base))
             })
         {
-            let methods = api_spec().method_overloads(crate::modules::MethodReceiver::FsRoot, &name.as_str())?;
-            let (method, order) = methods.iter().find_map(|method| {
-                compact_module_bindings(&args_vec, &method.sig).map(|order| (method, order))
-            })?;
+            let plan = self.bodies.api_calls.get(&id).filter(|plan| plan.receiver.is_some())?;
+            let mut order = vec![None; plan.params.len()];
+            for (index, &slot) in plan.argument_slots.iter().enumerate() { order[slot] = Some(index); }
             let receiver = if matches!(self.checked_expr_type(base), Some(Type::Result(_, _))) {
                 self.lower_postfix_receiver(base, slots, current_function, item_slot)?
             } else { self.lower_expr(base, slots, current_function, item_slot)? };
@@ -8613,7 +8384,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             let mut arguments = vec![Some(push_build_row!(self, expr, BuildExprRow::Param(receiver_slot)))];
             arguments.extend(order.into_iter().map(|argument| argument.map(|index| evaluated[index])));
-            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { cli_plan: None, op: method.sig.op, args: arguments, span });
+            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { cli_plan: None, op: plan.sig.op, args: arguments, span });
             return Some(self.wrap_argument_bindings(call, bindings, span));
         }
         if let Some(definition) = self.declarations.record_constructors.resolve_call(
@@ -9145,8 +8916,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if let Some(script_call) = self.lower_script_module_call(
-                        module,
-                        name,
+                        id,
                         &args_vec,
                         span,
                         slots,
@@ -9155,7 +8925,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ) {
                         return Some(script_call);
                     }
-                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
+                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec, self.module_call_plan(id)) {
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -9326,7 +9096,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     );
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && let Some(module_call) = lowered_module_call_args(module, name, &args_vec)
+                    && let Some(module_call) = lowered_module_call_args(module, name, &args_vec, self.module_call_plan(id))
                 {
                     return Some(push_build_row!(
                         self,
@@ -9462,8 +9232,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         );
                     }
                     if let Some(script_call) = self.lower_script_module_call(
-                        module,
-                        name,
+                        id,
                         &args_vec,
                         span,
                         slots,
@@ -9472,7 +9241,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ) {
                         return Some(script_call);
                     }
-                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
+                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec, self.module_call_plan(id)) {
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -9538,7 +9307,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                        && let Some(call_args) = lowered_module_call_args(module, name, &args_vec)
+                        && let Some(call_args) = lowered_module_call_args(module, name, &args_vec, self.module_call_plan(id))
                     {
                         let mut lowered = Vec::with_capacity(call_args.args.len());
                         for arg in call_args.args {
@@ -9609,7 +9378,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ) {
                     return Some(script_call);
                 }
-                let method_args = self.checked_method_call_args(base, name, &args_vec)
+                let method_args = self.checked_method_call_args(id, &args_vec)
                     .or_else(|| lowered_method_call_args(name, &args_vec).map(|args| args.into_iter().map(|arg| (arg, Type::Any)).collect()))?;
                 if !self.lowered_method_supported_for_receiver(base, name, method_args.len(), slots)
                 {
@@ -9797,11 +9566,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     ));
                 }
-                let method_args = self.checked_method_call_args(base, name, &args_vec)
+                let method_args = self.checked_method_call_args(id, &args_vec)
                     .or_else(|| lowered_method_call_args(name, &args_vec).map(|args| args.into_iter().map(|arg| (arg, Type::Any)).collect()))?;
                 if !lowered_method_name(&name.as_str()) {
                     if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                        && let Some(call_args) = lowered_module_call_args(module, name, &args_vec)
+                        && let Some(call_args) = lowered_module_call_args(module, name, &args_vec, self.module_call_plan(id))
                     {
                         let mut lowered = Vec::with_capacity(call_args.args.len());
                         for arg in call_args.args {
@@ -10549,6 +10318,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             bodies.expr_types.insert(item, item_ty.cloned().unwrap_or(Type::Any));
             // The checker types the synthetic one-item call at the callee's span.
             bodies.expr_types.insert(call, self.bodies.expr_types.get(&callee)?.clone());
+            if let Some(plan) = self.bodies.api_calls.get(&callee) { bodies.api_calls.insert(call, plan.clone()); }
             let unit = matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee);
             bodies.statement_positions.insert(stmt, if unit { crate::sema::check::StatementPosition::Statement } else { crate::sema::check::StatementPosition::Value });
             let mut child = CompactLowerConstructProbe {

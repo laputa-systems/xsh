@@ -99,8 +99,14 @@ APIs should name the compact form they create and keep rare staging state cold.
 contains the information needed to build module/type/error metadata, and
 `CompactBodyFacts` re-keys the full checker's published body facts by arena
 identity for lowering. Embedded standard-library modules are checked with the
-program, so their bodies have the same facts. Runtime registration derives
-declaration metadata from those compact results.
+program, so their bodies have the same facts. Lowering reads checked types
+and `CompactBodyFacts::api_calls` (`CheckedApiCall`): the checker's selected
+registry overload for each method and module function call, its concrete
+parameter types, and each argument entry's parameter slot. Lowering never
+selects an overload or rebinds those arguments; it still chooses row
+representations and lowers untyped `Any` receivers through positional or named
+method tables. Runtime registration derives declaration metadata from those
+compact results.
 
 Checking must not depend on an alternate syntax representation. When a compact
 row gains behavior-bearing data, update every applicable checker, lowerer, and

@@ -190,6 +190,7 @@ impl Checker {
         let membership_migration_spans = std::mem::take(&mut self.membership_migration_spans);
         let standard_call_spans = std::mem::take(&mut self.standard_call_spans);
         let statically_resolved_call_spans = std::mem::take(&mut self.statically_resolved_call_spans);
+        let api_calls = std::mem::take(&mut self.api_calls);
         let definitely_exiting_block_spans = std::mem::take(&mut self.definitely_exiting_block_spans);
         let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
         let probe = self.clone();
@@ -214,6 +215,7 @@ impl Checker {
         self.membership_migration_spans = membership_migration_spans;
         self.standard_call_spans = standard_call_spans;
         self.statically_resolved_call_spans = statically_resolved_call_spans;
+        self.api_calls = api_calls;
         self.definitely_exiting_block_spans = definitely_exiting_block_spans;
         self.local_inference.checked_bindings = checked_bindings;
         probe

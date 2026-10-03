@@ -977,6 +977,7 @@ impl Checker {
                 true,
             )
         };
+        let registered = module_sig.function_overloads(name).and_then(|registered| registered.iter().find(|candidate| std::ptr::eq(*candidate, sig)));
         let mut instance = crate::sema::builtin_templates::BuiltinInstantiation::new(sig, None, None, &mut self.type_constraints, span)
             .expect("a module signature has no receiver constraint");
         let descriptor_result = matches!(sig.semantic_rule, crate::modules::signature::SemanticRule::CliDescriptor | crate::modules::signature::SemanticRule::CliCommands);
@@ -1013,6 +1014,7 @@ impl Checker {
             }
         }
         instance.resolve(&self.type_constraints);
+        if let Some(registered) = registered { self.publish_api_call(arena, args, span, None, registered, &instance.signature); }
         let sig = &instance.signature;
         let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliCommands {
             let parameters = crate::sema::builtin_templates::callable_parameters(sig);
