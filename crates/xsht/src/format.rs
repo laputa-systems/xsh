@@ -3844,13 +3844,21 @@ fn write_quoted_with_dollar(value: &str, command_shorthand: bool, output: &mut S
             '\r' => output.push_str("\\r"),
             '\t' => output.push_str("\\t"),
             '\0' => output.push_str("\\0"),
-            ch if ch.is_ascii_graphic() || ch == ' ' => output.push(ch),
+            ch if ch == ' ' || !(ch.is_control() || ch.is_whitespace() || is_invisible_format_char(ch)) => {
+                output.push(ch)
+            }
             ch => {
                 let _ = write!(output, "\\u{{{:x}}}", ch as u32);
             }
         }
     }
     output.push('"');
+}
+
+/// Zero-width and bidirectional formatting characters stay escaped so a
+/// formatted string literal never hides or reorders its visible text.
+fn is_invisible_format_char(ch: char) -> bool {
+    matches!(ch, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
 }
 
 fn write_triple_text(value: &str, trailing: bool, output: &mut String) {
@@ -4039,5 +4047,14 @@ mod tests {
         assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
         assert_eq!(formatted.formatted, expected);
         assert_eq!(Formatter::new().format_source(SourceId::new(0), expected).formatted, expected);
+    }
+
+    #[test]
+    fn string_literals_keep_printable_unicode_and_escape_invisible_characters() {
+        let source = "let word = \"caf\\u{e9} \u{1f600}\"\nlet hidden = \"a\\u{200b}b\\u{202e}c\"\nprint ${word} ${hidden}\n";
+        let expected = "let word = \"caf\u{e9} \u{1f600}\"\nlet hidden = \"a\\u{200b}b\\u{202e}c\"\nprint ${word} ${hidden}\n";
+        let formatted = Formatter::new().format_source(SourceId::new(0), source);
+        assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+        assert_eq!(formatted.formatted, expected);
     }
 }
