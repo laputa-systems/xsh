@@ -5,6 +5,10 @@
 //! and the ordinal of the first significant token at the reported location.
 //! Grouping delimiters, separators, comments, and newlines are not significant, so the
 //! anchor survives the layout changes the formatter is allowed to make.
+//!
+//! `check.redundant-parens` judges source parentheses, which formatting
+//! removes: it is excluded from the comparison, and formatted output must
+//! have none.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -14,6 +18,7 @@ use std::process::Command;
 use tempfile::TempDir;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{ArenaExprKind, ExprId};
+use xsh::frontend::syntax::grouping::mixes_logical;
 use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::parser::Parser;
 use xsh::frontend::syntax::token::TokenTag;
@@ -26,6 +31,21 @@ struct Anchor {
 }
 
 type DiagnosticSet = BTreeMap<(String, String), Vec<Anchor>>;
+
+const REDUNDANT_PARENS: &str = "[check.redundant-parens]";
+
+/// Removes the source-parenthesis diagnostics, returning their locations.
+fn without_redundant_parens(diagnostics: &mut DiagnosticSet) -> Vec<String> {
+    let mut removed = Vec::new();
+    diagnostics.retain(|(_, code), anchors| {
+        let redundant = code.ends_with(REDUNDANT_PARENS);
+        if redundant {
+            removed.extend(anchors.iter().map(|anchor| anchor.location.clone()));
+        }
+        !redundant
+    });
+    removed
+}
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace root")
@@ -106,10 +126,9 @@ fn token_anchor(source: &str, line: usize, column: usize) -> (usize, String) {
     (source.len(), String::new())
 }
 
-fn lint_tree(root: &Path) -> DiagnosticSet {
+fn lint_tree(root: &Path, historical: bool) -> DiagnosticSet {
     let output = xsht(root, &["lint"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.code().is_some_and(|code| code <= 1), "xsht lint failed in {}:\n{stderr}", root.display());
     let prefix = format!("{}/", root.canonicalize().expect("canonical corpus root").display());
     let mut diagnostics = DiagnosticSet::new();
     let mut lines = stderr.lines();
@@ -132,6 +151,15 @@ fn lint_tree(root: &Path) -> DiagnosticSet {
     for anchors in diagnostics.values_mut() {
         anchors.sort_by_key(|anchor| anchor.offset);
     }
+    // Redundant parentheses are the only errors that leave a file linted.
+    let only_redundant_errors = diagnostics.keys().any(|(_, code)| code.ends_with(REDUNDANT_PARENS))
+        && diagnostics.keys().all(|(_, code)| !code.starts_with("err") || code.ends_with(REDUNDANT_PARENS));
+    let status = output.status.code();
+    assert!(
+        status.is_some_and(|code| code <= 1 || (code == 2 && (historical || only_redundant_errors))),
+        "xsht lint failed in {}:\n{stderr}",
+        root.display()
+    );
     diagnostics
 }
 
@@ -152,16 +180,33 @@ fn assert_same_diagnostics(corpus: &str, expected: &DiagnosticSet, actual: &Diag
 }
 
 /// Lints `corpus` as written and after `xsht fmt`, requiring equal diagnostics.
-fn assert_formatting_preserves_lints(name: &str, corpus: &Path) -> usize {
+/// A `historical` corpus may hold files that no longer check; `xsht fmt`
+/// leaves those unchanged, so their diagnostics compare equal.
+fn assert_formatting_preserves_lints(name: &str, corpus: &Path, historical: bool) -> usize {
     let scratch = TempDir::new().expect("scratch directory");
     let original = scratch.path().join("original");
     let formatted = scratch.path().join("formatted");
     copy_corpus(corpus, &original);
     copy_corpus(corpus, &formatted);
     let fmt = xsht(&formatted, &["fmt"]);
-    assert!(fmt.status.success(), "xsht fmt failed for {name}:\n{}", String::from_utf8_lossy(&fmt.stderr));
-    let before = lint_tree(&original);
-    assert_same_diagnostics(name, &before, &lint_tree(&formatted));
+    let stderr = String::from_utf8_lossy(&fmt.stderr);
+    let check_refusals_only = stderr.lines().filter(|line| line.starts_with("err[")).all(|line| line.starts_with("err[check."));
+    assert!(fmt.status.success() || (historical && check_refusals_only), "xsht fmt failed for {name}:\n{stderr}");
+    let prefix = format!("{}/", formatted.canonicalize().expect("canonical corpus root").display());
+    let refused: Vec<String> = stderr
+        .lines()
+        .zip(stderr.lines().skip(1))
+        .filter(|(header, _)| header.starts_with("err["))
+        .filter_map(|(_, location)| location.trim().rsplitn(3, ':').nth(2))
+        .map(|path| path.strip_prefix(&prefix).unwrap_or(path).to_owned())
+        .collect();
+    let mut before = lint_tree(&original, historical);
+    without_redundant_parens(&mut before);
+    let mut after = lint_tree(&formatted, historical);
+    let mut remaining = without_redundant_parens(&mut after);
+    remaining.retain(|location| !refused.iter().any(|path| location.starts_with(&format!("{path}:"))));
+    assert!(remaining.is_empty(), "{name}: formatted output keeps redundant parentheses at {remaining:?}");
+    assert_same_diagnostics(name, &before, &after);
     before.values().map(Vec::len).sum()
 }
 
@@ -206,11 +251,12 @@ fn perturb_layout(source: &str) -> Option<String> {
     let mut parens = Vec::new();
     let mut breaks = Vec::new();
     for index in 0..arena.expr_tags.len() {
-        let ArenaExprKind::Binary { left, right, .. } = arena.expr(ExprId::from_index(index)).kind else { continue };
+        let ArenaExprKind::Binary { op, left, right } = arena.expr(ExprId::from_index(index)).kind else { continue };
         for operand in [left, right] {
             let span = arena.expr(operand).span;
-            // Implicit-receiver shorthand such as `.name` must lead its stage.
-            if in_source(span) && !source[span.range()].starts_with('.') {
+            // Implicit-receiver shorthand such as `.name` must lead its stage,
+            // and grouping a mixed `and`/`or`/`??` operand resolves a diagnostic.
+            if in_source(span) && !source[span.range()].starts_with('.') && !mixes_logical(op, &arena.expr(operand).kind) {
                 parens.push(vec![
                     Insertion { offset: span.start(), order: 1, text: "(", end: span.start() },
                     Insertion { offset: span.end(), order: 0, text: ")", end: span.end() },
@@ -277,7 +323,7 @@ fn accept_layout_edits(source: &str, canonical: &str, accepted: &mut Vec<Inserti
 
 #[test]
 fn formatting_preserves_lints_on_the_repository_corpus() {
-    let count = assert_formatting_preserves_lints("repository", &workspace_root());
+    let count = assert_formatting_preserves_lints("repository", &workspace_root(), false);
     eprintln!("repository corpus: {count} diagnostic(s), layout-independent");
 }
 
@@ -299,7 +345,10 @@ fn layout_perturbation_preserves_lints_on_the_repository_corpus() {
         }
     }
     assert!(changed > 0, "no corpus file accepted a layout perturbation");
-    assert_same_diagnostics("perturbed repository", &lint_tree(&original), &lint_tree(&perturbed));
+    let (mut before, mut after) = (lint_tree(&original, false), lint_tree(&perturbed, false));
+    without_redundant_parens(&mut before);
+    without_redundant_parens(&mut after);
+    assert_same_diagnostics("perturbed repository", &before, &after);
     eprintln!("perturbed {changed} repository file(s)");
 }
 
@@ -364,7 +413,11 @@ fn formatting_preserves_lints_on_the_pre_format_corpus() {
         .expect("start tar");
     std::io::Write::write_all(tar.stdin.as_mut().expect("tar stdin"), &archive.stdout).expect("write archive");
     assert!(tar.wait().expect("wait for tar").success());
-    let count = assert_formatting_preserves_lints("pre-format", scratch.path());
+    // The snapshot predates `check.mixed-logical`; grouping those operands
+    // keeps their files formattable without changing what they mean.
+    let grouped = xsht(scratch.path(), &["lint", "--only", "check.mixed-logical", "--fix"]);
+    assert!(grouped.status.code().is_some_and(|code| code <= 2), "xsht lint --fix failed:\n{}", String::from_utf8_lossy(&grouped.stderr));
+    let count = assert_formatting_preserves_lints("pre-format", scratch.path(), true);
     eprintln!("pre-format corpus: {count} diagnostic(s), layout-independent");
 }
 
@@ -374,7 +427,7 @@ fn formatting_preserves_lints_on_package_corpus() {
     if !root.is_dir() {
         return;
     }
-    let count = assert_formatting_preserves_lints("packages", &root);
+    let count = assert_formatting_preserves_lints("packages", &root, false);
     eprintln!("package corpus: {count} diagnostic(s), layout-independent");
 }
 

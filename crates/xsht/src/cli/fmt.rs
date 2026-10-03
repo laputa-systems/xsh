@@ -230,12 +230,19 @@ fn format_one_file(index: usize, file: &str) -> FormatResult {
         .checked
         .as_ref()
         .expect("checked program after clean parse");
-    if !checked.diagnostics.is_empty() {
+    // Formatting removes exactly the parentheses `check.redundant-parens` rejects.
+    let blocking = checked
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() != Some("check.redundant-parens"))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !blocking.is_empty() {
         return FormatResult {
             index,
             file: file.to_string(),
             kind: FormatResultKind::Diagnostics(render_diagnostics_with_keys(
-                &checked.diagnostics,
+                &blocking,
                 &checked_program.sources,
             )),
         };

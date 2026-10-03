@@ -175,7 +175,7 @@ proc stdlib(xsht: Path) [process, error] -> Result[Record] {
   queries += [f"record:${name}" for name in summary.records]
 
   var answers: Map[Str, List[ApiMatch]] = {}
-  for line in (run.text $xsht api --strict --format jsonl @queries)?.lines() {
+  for line in run.text $xsht api --strict --format jsonl @queries?.lines() {
     let answer = json.decode(line)?.require(ApiAnswer)?
     answers[answer.query] = answer.matches
   }

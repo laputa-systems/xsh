@@ -1671,7 +1671,7 @@ impl<'a> Writer<'a> {
     }
 
     fn write_expr(&mut self, expr_id: ExprId, context: Context, output: &mut String) {
-        let parens = grouping::needs_parens(self.arena, expr_id, context);
+        let parens = grouping::needs_parens(self.arena, &self.source, expr_id, context);
         let context = if parens { context.group() } else { context };
         if parens {
             output.push('(');
@@ -1967,7 +1967,13 @@ impl<'a> Writer<'a> {
             return false;
         }
         if let Some(raw) = self.source.get(span.range()) {
-            output.push_str(raw);
+            if raw.contains('(') {
+                // The raw text keeps its comments but not its redundant parentheses.
+                let (text, ranges) = grouping::remove_redundant_parens(&self.source, &[span.range()]);
+                output.push_str(&text[ranges[0].clone()]);
+            } else {
+                output.push_str(raw);
+            }
         }
         while self
             .comments
@@ -2963,7 +2969,7 @@ impl<'a> Writer<'a> {
         if !matches!(kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. }) {
             return self.write_expr(expr_id, context, output);
         }
-        let parens = grouping::needs_parens(self.arena, expr_id, context);
+        let parens = grouping::needs_parens(self.arena, &self.source, expr_id, context);
         let inner = if parens { context.group() } else { context };
         if parens {
             output.push('(');

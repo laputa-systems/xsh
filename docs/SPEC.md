@@ -694,7 +694,8 @@ Parentheses are legal only where removing them would change the parse or break
 one of these grouping rules (`check.redundant-parens`, whose fix removes
 them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
 `(x?).name` (otherwise `?.`), `(-x).abs()`, a command form followed by more of
-its expression (`(run cat file).len()`), a statement that would otherwise start
+its expression (`(run cat file).len()`, or `(run cat file)?.lines()`, where the
+final word would start a typed argument `file?.lines()`), a statement that would otherwise start
 with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
 assignment value that starts with `run`, a pipeline before an operator or
 suffix it would take into its last stage, typed command arguments `(expr)`,

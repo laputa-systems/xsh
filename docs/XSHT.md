@@ -72,11 +72,18 @@ A safe fix:
 - leaves the file parsing, resolving, formatting, and with no new checker
   diagnostics (existing diagnostics may remain);
 - converges: rounds repeat until no fix applies, and the final round's
-  diagnostics are the ones reported.
+  diagnostics are the ones reported;
+- keeps exactly the parentheses the parser needs where it lands: replacements
+  are built with conservative grouping, and `minimize_fix_grouping` removes
+  every pair `check.redundant-parens` would reject.
 
 When a rule cannot preserve nearby comments, it reports without a fix. Lint
 diagnostics are invariant under formatting; a rule that measures source shape
 measures the formatter's spelling. Shapes the formatter owns are not lint rules.
+`check.redundant-parens` is the one diagnostic formatting removes: it never
+blocks `fmt` or hides lint diagnostics, and formatted output has none
+(`lint_format_invariance`). `check.mixed-logical` still blocks `fmt`, which
+never chooses a grouping silently.
 
 ## Native tests
 
