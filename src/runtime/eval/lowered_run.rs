@@ -1498,6 +1498,54 @@ fn lowered_module_matches_contract(
     })
 }
 
+/// Builds a `module-load` error naming the module and its first diagnostics,
+/// so a failed `module.load` points at the broken file instead of only the
+/// loading call site.
+fn module_load_failure(
+    stage: &str,
+    display_path: &str,
+    diagnostics: &[crate::diagnostic::Diagnostic],
+    sources: &crate::source::SourceMap,
+    span: Span,
+) -> RuntimeError {
+    const SHOWN: usize = 3;
+    let mut causes = diagnostics
+        .iter()
+        .take(SHOWN)
+        .map(|diagnostic| {
+            let primary = diagnostic
+                .labels
+                .iter()
+                .find(|label| label.style == crate::diagnostic::LabelStyle::Primary)
+                .or_else(|| diagnostic.labels.first());
+            let location = primary
+                .map(|label| label.span)
+                .or(diagnostic.span)
+                .and_then(|span| sources.location(span.source_id, span.start()))
+                .map(|location| format!("{}:{}:{}: ", location.file, location.line, location.column))
+                .unwrap_or_default();
+            let code = diagnostic
+                .code
+                .as_deref()
+                .map(|code| format!("{code}: "))
+                .unwrap_or_default();
+            let detail = primary
+                .and_then(|label| label.message.as_deref())
+                .map(|message| format!(" ({message})"))
+                .unwrap_or_default();
+            format!("{location}{code}{}{detail}", diagnostic.message)
+        })
+        .collect::<Vec<_>>();
+    if diagnostics.len() > SHOWN {
+        causes.push(format!("and {} more", diagnostics.len() - SHOWN));
+    }
+    RuntimeError::new(
+        "module-load",
+        format!("module `{display_path}` {stage}: {}", causes.join("; ")),
+    )
+    .with_span(span)
+}
+
 fn validate_dynamic_module_top_level(
     program: &ArenaProgram,
     display_path: &str,
@@ -10391,7 +10439,13 @@ impl Evaluator {
         })?;
         let entry_source = entry_source_from_bytes(&display_path, bytes);
         if !entry_source.diagnostics.is_empty() {
-            return Err(RuntimeError::new("module-load", "failed to load module").with_span(span));
+            return Err(module_load_failure(
+                "failed to load",
+                &display_path,
+                &entry_source.diagnostics,
+                &entry_source.sources,
+                span,
+            ));
         }
         // A dynamically loaded module never prepares standard-library source:
         // the loading program prepared every applicable implementation before
@@ -10400,13 +10454,17 @@ impl Evaluator {
         let (module_sources, mut parsed) = parse_load_entry_source_arena_only_with_linkage(
             &display_path,
             entry_source,
-            Vec::new(),
+            self.module_roots.to_vec(),
             StdlibLinkage::LinkToPrepared,
         );
         if !parsed.diagnostics.is_empty() {
-            return Err(
-                RuntimeError::new("module-load", "loaded module failed to parse").with_span(span),
-            );
+            return Err(module_load_failure(
+                "failed to parse",
+                &display_path,
+                &parsed.diagnostics,
+                &module_sources,
+                span,
+            ));
         }
         parsed.arena.root_nominal_namespace = Some(Name::intern(&key));
         validate_dynamic_module_top_level(&parsed.arena, &display_path, span)?;
@@ -10437,17 +10495,24 @@ impl Evaluator {
 
         let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
         if !declarations.diagnostics.is_empty() {
-            return Err(
-                RuntimeError::new("module-load", "loaded module failed to check").with_span(span),
-            );
+            return Err(module_load_failure(
+                "failed to check",
+                &display_path,
+                &declarations.diagnostics,
+                &module_sources,
+                span,
+            ));
         }
         let bodies =
             crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
         if !bodies.diagnostics.is_empty() {
-            return Err(
-                RuntimeError::new("module-load", "loaded module body failed to check")
-                    .with_span(span),
-            );
+            return Err(module_load_failure(
+                "body failed to check",
+                &display_path,
+                &bodies.diagnostics,
+                &module_sources,
+                span,
+            ));
         }
         let module_program = Arc::new(
             super::indexed::full::FullBuilder::build_compact_external_stdlib(
@@ -10509,7 +10574,7 @@ impl Evaluator {
         let (harvest_sources, mut harvest_parsed) = crate::loader::parse_load_entry_source_arena_only(
             &display_path,
             harvest_entry,
-            Vec::new(),
+            self.module_roots.to_vec(),
         );
         harvest_parsed.arena.root_nominal_namespace = Some(Name::intern(&key));
         let child_exports = if harvest_parsed.diagnostics.is_empty() {

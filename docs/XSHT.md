@@ -204,7 +204,11 @@ test files or selected test procedures, using the same source diagnostic as
 
 The default `module_path` is `.` (the current working directory). A config file
 may set `module_path` explicitly to replace that default for projects whose
-modules live in another directory.
+modules live in another directory. `xsht test` also gives those roots to
+`module.load`, so a loaded module's `use` imports resolve like the test file's
+(`stdlib/module.xsh::test_module_load_resolves_uses_with_configured_test_module_roots`).
+A failed `module.load` names the module and its first diagnostics with their
+source locations.
 
 ## Source Representations
 

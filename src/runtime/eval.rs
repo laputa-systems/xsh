@@ -2875,6 +2875,9 @@ pub struct Evaluator {
     function_modules: Arc<FxHashMap<Name, String>>,
     qualified_function_modules: Arc<FxHashMap<QualifiedName, String>>,
     active_modules: Vec<String>,
+    /// Extra `use` search roots for modules loaded by `module.load`, so a
+    /// loaded module resolves imports like the program that loads it.
+    module_roots: Arc<[PathBuf]>,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     capture_process_output: bool,
@@ -2968,6 +2971,7 @@ struct LoweredSharedState {
     function_modules: Arc<FxHashMap<Name, String>>,
     qualified_function_modules: Arc<FxHashMap<QualifiedName, String>>,
     active_modules: Vec<String>,
+    module_roots: Arc<[PathBuf]>,
     cwd: PathBuf,
     env: RuntimeEnv,
     #[cfg(feature = "native-tests")]
@@ -3115,6 +3119,7 @@ impl Evaluator {
             function_modules: Arc::new(FxHashMap::default()),
             qualified_function_modules: Arc::new(FxHashMap::default()),
             active_modules: Vec::new(),
+            module_roots: Arc::from(Vec::new()),
             stdout: Vec::new(),
             stderr: Vec::new(),
             capture_process_output: false,
@@ -3186,6 +3191,11 @@ impl Evaluator {
         self
     }
 
+    pub fn with_module_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.module_roots = Arc::from(roots);
+        self
+    }
+
     #[cfg(feature = "native-tests")]
     pub fn with_native_test_host(mut self, host: NativeTestHost) -> Self {
         self.native_test_host = Some(host);
@@ -3253,6 +3263,7 @@ impl Evaluator {
             function_modules: self.function_modules.clone(),
             qualified_function_modules: self.qualified_function_modules.clone(),
             active_modules: self.active_modules.clone(),
+            module_roots: Arc::clone(&self.module_roots),
             cwd: self.cwd.clone(),
             env: self.env.clone(),
             #[cfg(feature = "native-tests")]
@@ -3279,6 +3290,7 @@ impl Evaluator {
             function_modules: shared.function_modules.clone(),
             qualified_function_modules: shared.qualified_function_modules.clone(),
             active_modules: shared.active_modules.clone(),
+            module_roots: Arc::clone(&shared.module_roots),
             stdout: Vec::new(),
             stderr: Vec::new(),
             capture_process_output: false,
