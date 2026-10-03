@@ -212,12 +212,12 @@ pub(crate) fn read_at(
         );
     }
     let mut file = std::fs::File::open(&path)
-        .map_err(|error| RuntimeError::new("bytes-read-at", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-read-at", &error).with_span(span))?;
     file.seek(SeekFrom::Start(offset as u64))
-        .map_err(|error| RuntimeError::new("bytes-read-at", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-read-at", &error).with_span(span))?;
     let mut data = vec![0_u8; length as usize];
     file.read_exact(&mut data)
-        .map_err(|error| RuntimeError::new("bytes-read-at", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-read-at", &error).with_span(span))?;
     Ok(data)
 }
 
@@ -242,11 +242,11 @@ pub(crate) fn write_at(
         .write(true)
         .create(create)
         .open(&path)
-        .map_err(|error| RuntimeError::new("bytes-write-at", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-write-at", &error).with_span(span))?;
     file.seek(SeekFrom::Start(offset as u64))
-        .map_err(|error| RuntimeError::new("bytes-write-at", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-write-at", &error).with_span(span))?;
     file.write_all(data)
-        .map_err(|error| RuntimeError::new("bytes-write-at", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-write-at", &error).with_span(span))?;
     Ok(data.len() as i64)
 }
 
@@ -361,7 +361,7 @@ pub(crate) fn copy_blocks(
     }
 
     let source_metadata = std::fs::symlink_metadata(&source)
-        .map_err(|error| RuntimeError::new("bytes-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
     if !source_metadata.file_type().is_file() {
         return Err(
             RuntimeError::new("bytes-copy", "source is not a regular file").with_span(span),
@@ -377,12 +377,12 @@ pub(crate) fn copy_blocks(
     }
 
     let mut input = std::fs::File::open(&source)
-        .map_err(|error| RuntimeError::new("bytes-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
     input
         .seek(SeekFrom::Start(
             (skip as u64).saturating_mul(block_size as u64),
         ))
-        .map_err(|error| RuntimeError::new("bytes-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
 
     let mut output = std::fs::OpenOptions::new()
         .write(true)
@@ -390,12 +390,12 @@ pub(crate) fn copy_blocks(
         .create_new(!overwrite)
         .truncate(overwrite)
         .open(&dest)
-        .map_err(|error| RuntimeError::new("bytes-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
     output
         .seek(SeekFrom::Start(
             (seek as u64).saturating_mul(block_size as u64),
         ))
-        .map_err(|error| RuntimeError::new("bytes-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
 
     let mut buffer = vec![0_u8; block_size as usize];
     let mut copied = 0_i64;
@@ -406,13 +406,13 @@ pub(crate) fn copy_blocks(
         }
         let read = input
             .read(&mut buffer)
-            .map_err(|error| RuntimeError::new("bytes-copy", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
         if read == 0 {
             break;
         }
         output
             .write_all(&buffer[..read])
-            .map_err(|error| RuntimeError::new("bytes-copy", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
         copied += read as i64;
         blocks += 1;
         if read < buffer.len() {
@@ -457,7 +457,7 @@ pub(crate) fn copy_file(
     }
 
     let source_metadata = std::fs::symlink_metadata(&source)
-        .map_err(|error| RuntimeError::new("bytes-copy-file", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
     if !source_metadata.file_type().is_file() {
         return Err(
             RuntimeError::new("bytes-copy-file", "source is not a regular file").with_span(span),
@@ -472,26 +472,26 @@ pub(crate) fn copy_file(
     }
 
     let mut input = std::fs::File::open(&source)
-        .map_err(|error| RuntimeError::new("bytes-copy-file", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
     input
         .seek(SeekFrom::Start(source_offset as u64))
-        .map_err(|error| RuntimeError::new("bytes-copy-file", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
 
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create(create)
         .truncate(truncate)
         .open(&dest)
-        .map_err(|error| RuntimeError::new("bytes-copy-file", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
     output
         .seek(SeekFrom::Start(dest_offset as u64))
-        .map_err(|error| RuntimeError::new("bytes-copy-file", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
 
     let copied = match length {
         Some(length) => std::io::copy(&mut input.take(length as u64), &mut output),
         None => std::io::copy(&mut input, &mut output),
     }
-    .map_err(|error| RuntimeError::new("bytes-copy-file", error.to_string()).with_span(span))?;
+    .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
 
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
         (Arc::from("bytes"), Value::Int(copied as i64)),

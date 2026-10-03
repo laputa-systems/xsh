@@ -196,7 +196,7 @@ fn disk_usage_record(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     let stats = rfs::statvfs(stat_path).map_err(|error| {
-        RuntimeError::new("linux-disk-usage", error.to_string()).with_span(span)
+        RuntimeError::host("linux-disk-usage", &error).with_span(span)
     })?;
     let block_size = stats.f_bsize as u128;
     let total = blocks_to_i64(stats.f_blocks as u128, block_size);
@@ -280,7 +280,7 @@ fn ioctl_get_u32(
     if rc == 0 {
         Ok(value)
     } else {
-        Err(RuntimeError::new(kind, error.to_string()).with_span(span))
+        Err(RuntimeError::host(kind, &error).with_span(span))
     }
 }
 
@@ -299,7 +299,7 @@ fn ioctl_set_u32(
     if rc == 0 {
         Ok(())
     } else {
-        Err(RuntimeError::new(kind, error.to_string()).with_span(span))
+        Err(RuntimeError::host(kind, &error).with_span(span))
     }
 }
 

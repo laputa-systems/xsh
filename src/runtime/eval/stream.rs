@@ -179,7 +179,7 @@ impl LiveStream for FileLineStream {
             } else {
                 "fs-read"
             };
-            RuntimeError::new(kind, error.to_string()).with_span(span)
+            RuntimeError::host(kind, &error).with_span(span)
         })?;
         if bytes == 0 {
             return Ok(None);
@@ -207,7 +207,7 @@ impl LiveStream for FileBytesLineStream {
         let bytes = self
             .reader
             .read_until(b'\n', &mut self.buffer)
-            .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
         if bytes == 0 {
             return Ok(None);
         }

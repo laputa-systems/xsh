@@ -691,7 +691,7 @@ impl Evaluator {
                 match fs_module::cd_target_is_dir(&next) {
                     Ok(true) => {},
                     Ok(false) => return Err(RuntimeError::new("cwd-not-directory", "cwd target is not a directory").with_span(span)),
-                    Err(error) => return Err(RuntimeError::new("cwd", error.to_string()).with_span(span)),
+                    Err(error) => return Err(RuntimeError::host("cwd", &error).with_span(span)),
                 }
                 self.trace_enter(TraceKind::CwdEnter, Some(span), Some("cd"), TracePayload::Cwd {
                     previous: TraceArg::bytes(path_bytes(&previous)), current: TraceArg::bytes(path_bytes(&next)),
@@ -7655,7 +7655,7 @@ impl Evaluator {
                     Err(error) => {
                         return Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(
                             Value::Error(Box::new(
-                                RuntimeError::new("cwd", error.to_string()).with_span(span),
+                                RuntimeError::host("cwd", &error).with_span(span),
                             )),
                         ))));
                     }

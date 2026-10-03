@@ -557,6 +557,12 @@ match process.run(command) {
 }
 ```
 
+Host operations outside process forms (filesystem, path, and OS calls) fail
+with an `Error` that implements the facet of its OS error from the same
+vocabulary: `NotFound`, `PermissionDenied`, `Timeout`, `InvalidData`, or
+otherwise `HostIo`. `Err(is NotFound)` and `error is NotFound` match a
+missing file alike.
+
 A failed `assert` produces `AssertionError.Failed(message: Str)`.
 
 ### 4.11 Runtime-owned values

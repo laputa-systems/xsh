@@ -176,12 +176,12 @@ pub(crate) fn mode_other_executable(mode: i64) -> bool {
 
 pub(crate) fn open_root(path: PathBuf, span: Span) -> Result<Root, RuntimeError> {
     Root::open(&path)
-        .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-root", &error).with_span(span))
 }
 
 pub(crate) fn rooted_open_root(root: &Root, path: &Path, span: Span) -> Result<Root, RuntimeError> {
     root.open_dir(path)
-        .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-root", &error).with_span(span))
 }
 
 pub(crate) fn rooted_children(
@@ -480,7 +480,7 @@ pub(crate) fn rooted_read(root: &Root, path: &Path, span: Span) -> Result<Vec<u8
     let mut file = rooted_open_file(root, path, RootedOpenMode::Read, "fs-root-read", span)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
-        .map_err(|error| RuntimeError::new("fs-root-read", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-root-read", &error).with_span(span))?;
     Ok(bytes)
 }
 
@@ -498,7 +498,7 @@ pub(crate) fn rooted_write(
         span,
     )?;
     file.write_all(data)
-        .map_err(|error| RuntimeError::new("fs-root-write", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-root-write", &error).with_span(span))
 }
 
 /// Names the path an I/O failure happened at; `std::io::Error` messages do not.
@@ -522,9 +522,9 @@ fn write_path_unnamed(path: PathBuf, data: &[u8], span: Span) -> Result<(), Runt
         .create(true)
         .truncate(true)
         .open(path)
-        .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
     file.write_all(data)
-        .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))
 }
 
 pub(crate) fn rooted_write_atomic(
@@ -551,16 +551,16 @@ pub(crate) fn rooted_write_atomic(
     )?;
     if let Err(error) = temp.write_all(data) {
         let _ = rooted_remove_at(&parent, &temp_name, false);
-        return Err(RuntimeError::new("fs-root-write", error.to_string()).with_span(span));
+        return Err(RuntimeError::host("fs-root-write", &error).with_span(span));
     }
     if let Err(error) = temp.sync_all() {
         let _ = rooted_remove_at(&parent, &temp_name, false);
-        return Err(RuntimeError::new("fs-root-write", error.to_string()).with_span(span));
+        return Err(RuntimeError::host("fs-root-write", &error).with_span(span));
     }
     drop(temp);
     rooted_rename_at(&parent, &temp_name, &parent, &leaf).map_err(|error| {
         let _ = rooted_remove_at(&parent, &temp_name, false);
-        RuntimeError::new("fs-root-write", error.to_string()).with_span(span)
+        RuntimeError::host("fs-root-write", &error).with_span(span)
     })
 }
 
@@ -568,7 +568,7 @@ pub(crate) fn rooted_metadata(root: &Root, path: &Path, span: Span) -> Result<Va
     let file = rooted_open_file(root, path, RootedOpenMode::Read, "fs-root-stat", span)?;
     let metadata = file
         .metadata()
-        .map_err(|error| RuntimeError::new("fs-root-stat", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
     fs_entry_record(path, &metadata).map_err(|error| error.with_span(span))
 }
 
@@ -576,7 +576,7 @@ pub(crate) fn rooted_exists(root: &Root, path: &Path, span: Span) -> Result<bool
     match root.open_file(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(RuntimeError::new("fs-root-exists", error.to_string()).with_span(span)),
+        Err(error) => Err(RuntimeError::host("fs-root-exists", &error).with_span(span)),
     }
 }
 
@@ -596,12 +596,12 @@ pub(crate) fn rooted_mkdir(
     }
     let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-mkdir", span)?;
     rooted_mkdir_at(&parent, &leaf, mode as u32)
-        .map_err(|error| RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-root-mkdir", &error).with_span(span))?;
     let created = parent
         .open_dir(Path::new(&leaf))
-        .map_err(|error| RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-root-mkdir", &error).with_span(span))?;
     rooted_set_mode(&created, mode as u32)
-        .map_err(|error| RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-root-mkdir", &error).with_span(span))
 }
 
 pub(crate) fn rooted_readlink(
@@ -611,7 +611,7 @@ pub(crate) fn rooted_readlink(
 ) -> Result<PathBuf, RuntimeError> {
     let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-readlink", span)?;
     rooted_readlink_at(&parent, &leaf)
-        .map_err(|error| RuntimeError::new("fs-root-readlink", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-root-readlink", &error).with_span(span))
 }
 
 pub(crate) fn rooted_readlink_result(
@@ -707,7 +707,7 @@ pub(crate) fn rooted_symlink(
             {
                 Ok(())
             } else {
-                Err(RuntimeError::new("fs-root-symlink", error.to_string()).with_span(span))
+                Err(RuntimeError::host("fs-root-symlink", &error).with_span(span))
             }
         }
     }
@@ -724,7 +724,7 @@ pub(crate) fn rooted_chmod(
     }
     let file = rooted_open_file(root, path, RootedOpenMode::Read, "fs-root-chmod", span)?;
     rooted_set_mode_file(&file, mode as u32)
-        .map_err(|error| RuntimeError::new("fs-root-chmod", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-root-chmod", &error).with_span(span))
 }
 
 pub(crate) fn rooted_install_file(
@@ -765,11 +765,11 @@ pub(crate) fn rooted_install_file(
     let mut output = rooted_open_file(dest_root, dest, open_mode, "fs-root-install", span)?;
     if let Err(error) = std::io::copy(&mut input, &mut output) {
         let _ = rooted_remove(dest_root, dest, false, span);
-        return Err(RuntimeError::new("fs-root-install", error.to_string()).with_span(span));
+        return Err(RuntimeError::host("fs-root-install", &error).with_span(span));
     }
     rooted_set_mode_file(&output, mode as u32).map_err(|error| {
         let _ = rooted_remove(dest_root, dest, false, span);
-        RuntimeError::new("fs-root-install", error.to_string()).with_span(span)
+        RuntimeError::host("fs-root-install", &error).with_span(span)
     })
 }
 
@@ -781,7 +781,7 @@ pub(crate) fn rooted_remove(
 ) -> Result<(), RuntimeError> {
     let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-remove", span)?;
     rooted_remove_at(&parent, &leaf, dir)
-        .map_err(|error| RuntimeError::new("fs-root-remove", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-root-remove", &error).with_span(span))
 }
 
 enum RootedOpenMode {
@@ -810,7 +810,7 @@ fn rooted_open_file(
         }
     }
     root.open_with(path, &options)
-        .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }
 
 fn rooted_check_path(path: &Path, kind: &'static str, span: Span) -> Result<(), RuntimeError> {
@@ -841,7 +841,7 @@ fn rooted_parent_root_and_leaf(
     let parent_path = rooted_parent_path(path);
     let parent = root
         .open_dir(parent_path)
-        .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     Ok((parent, leaf.to_os_string()))
 }
 
@@ -872,22 +872,22 @@ fn rooted_create_dir_all(
         match root.open_dir(&prefix) {
             Ok(_) => continue,
             Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => return Err(RuntimeError::new(kind, error.to_string()).with_span(span)),
+            Err(error) => return Err(RuntimeError::host(kind, &error).with_span(span)),
         }
         let parent_path = rooted_parent_path(&prefix);
         let parent = root
             .open_dir(parent_path)
-            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
         let leaf = prefix
             .file_name()
             .expect("normal component has a file name");
         rooted_mkdir_at(&parent, leaf, mode)
-            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
         let created = parent
             .open_dir(leaf)
-            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
         rooted_set_mode(&created, mode)
-            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     }
     Ok(())
 }
@@ -1028,7 +1028,7 @@ pub(crate) fn walk_filesystem(
     span: Span,
 ) -> Result<StreamValue, RuntimeError> {
     std::fs::symlink_metadata(&root)
-        .map_err(|error| RuntimeError::new("fs-walk", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-walk", &error).with_span(span))?;
     let ext_filter = WalkExtFilter::new(exts);
     let spec = WalkSpec {
         root,
@@ -1062,7 +1062,7 @@ fn list_filesystem_unnamed(
     span: Span,
 ) -> Result<StreamValue, RuntimeError> {
     let read_dir = std::fs::read_dir(&root)
-        .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-ls", &error).with_span(span))?;
     if !ordered {
         return Ok(StreamValue::from_live(
             "fs.children",
@@ -1076,7 +1076,7 @@ fn list_filesystem_unnamed(
     let mut children = read_dir
         .map(|entry| entry.map(|entry| (entry.path(), entry)))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-ls", &error).with_span(span))?;
     if ordered {
         children.sort_unstable_by(|(left, _), (right, _)| {
             left.as_os_str()
@@ -1108,7 +1108,7 @@ impl LiveStream for DirectDirectoryStream {
             return Ok(None);
         };
         let entry = entry
-            .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(self.span))?;
+            .map_err(|error| RuntimeError::host("fs-ls", &error).with_span(self.span))?;
         let path = entry.path();
         direct_directory_entry_value(entry, path, self.stat, self.span).map(Some)
     }
@@ -1122,12 +1122,12 @@ fn direct_directory_entry_value(
 ) -> Result<Value, RuntimeError> {
     if stat {
         let metadata = std::fs::symlink_metadata(&path)
-            .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-ls", &error).with_span(span))?;
         return fs_entry_record(&path, &metadata);
     }
     let file_type = entry
         .file_type()
-        .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-ls", &error).with_span(span))?;
     Ok(Value::FsEntry(FsEntryValue::new(path, file_type)))
 }
 
@@ -1138,14 +1138,14 @@ pub(crate) fn disk_usage(path: PathBuf, span: Span) -> Result<i64, RuntimeError>
 
 fn disk_usage_unnamed(path: PathBuf, span: Span) -> Result<i64, RuntimeError> {
     let metadata = std::fs::symlink_metadata(&path)
-        .map_err(|error| RuntimeError::new("fs-du", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-du", &error).with_span(span))?;
     let mut size = metadata.len() as i64;
     if metadata.file_type().is_dir() {
         let children = std::fs::read_dir(&path)
-            .map_err(|error| RuntimeError::new("fs-du", error.to_string()).with_span(span))?
+            .map_err(|error| RuntimeError::host("fs-du", &error).with_span(span))?
             .map(|entry| entry.map(|entry| entry.path()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| RuntimeError::new("fs-du", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-du", &error).with_span(span))?;
         for child in children {
             size += disk_usage(child, span)?;
         }
@@ -1160,7 +1160,7 @@ pub(crate) fn metadata(path: PathBuf, span: Span) -> Result<Value, RuntimeError>
 
 fn metadata_unnamed(path: PathBuf, span: Span) -> Result<Value, RuntimeError> {
     let metadata = std::fs::symlink_metadata(&path)
-        .map_err(|error| RuntimeError::new("fs-metadata", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-metadata", &error).with_span(span))?;
     fs_entry_record(&path, &metadata).map_err(|error| error.with_span(span))
 }
 
@@ -1178,13 +1178,13 @@ fn exists_unnamed(path: PathBuf, span: Span) -> Result<bool, RuntimeError> {
     match std::fs::symlink_metadata(&path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(RuntimeError::new("fs-exists", error.to_string()).with_span(span)),
+        Err(error) => Err(RuntimeError::host("fs-exists", &error).with_span(span)),
     }
 }
 
 pub(crate) fn resolve_path(path: PathBuf, span: Span) -> Result<PathValue, RuntimeError> {
     let resolved = std::fs::canonicalize(path)
-        .map_err(|error| RuntimeError::new("path-resolve", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("path-resolve", &error).with_span(span))?;
     PathValue::new(path_bytes(&resolved)).map_err(|error| error.with_span(span))
 }
 
@@ -1315,13 +1315,13 @@ fn mount_record(source: MountSource, span: Span) -> Result<FsMount, RuntimeError
 }
 
 fn statvfs(path: &Path, kind: &str, span: Span) -> Result<StatVfs, RuntimeError> {
-    rfs::statvfs(path).map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))
+    rfs::statvfs(path).map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }
 
 #[cfg(target_os = "linux")]
 fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
     let text = std::fs::read_to_string("/proc/self/mountinfo")
-        .map_err(|error| RuntimeError::new("fs-mount", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-mount", &error).with_span(span))?;
     Ok(text
         .lines()
         .filter_map(parse_linux_mountinfo_line)
@@ -1490,7 +1490,7 @@ pub fn gitroot(start: PathBuf, span: Span) -> Result<PathBuf, RuntimeError> {
 
 pub(crate) fn executable(path: PathBuf, span: Span) -> Result<bool, RuntimeError> {
     let metadata = std::fs::symlink_metadata(&path)
-        .map_err(|error| RuntimeError::new("fs-executable", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-executable", &error).with_span(span))?;
     Ok(metadata.file_type().is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
@@ -1511,7 +1511,7 @@ fn copy_file_unnamed(
     span: Span,
 ) -> Result<(), RuntimeError> {
     let source_metadata = std::fs::symlink_metadata(&source)
-        .map_err(|error| RuntimeError::new("fs-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-copy", &error).with_span(span))?;
     if !source_metadata.file_type().is_file() {
         return Err(RuntimeError::new("fs-copy", "source is not a regular file").with_span(span));
     }
@@ -1525,17 +1525,17 @@ fn copy_file_unnamed(
     }
 
     let mut input = std::fs::File::open(&source)
-        .map_err(|error| RuntimeError::new("fs-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-copy", &error).with_span(span))?;
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .create_new(!overwrite)
         .truncate(overwrite)
         .open(&dest)
-        .map_err(|error| RuntimeError::new("fs-copy", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-copy", &error).with_span(span))?;
     std::io::copy(&mut input, &mut output)
         .map(|_| ())
-        .map_err(|error| RuntimeError::new("fs-copy", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-copy", &error).with_span(span))
 }
 
 pub(crate) fn copy_tree(
@@ -1547,7 +1547,7 @@ pub(crate) fn copy_tree(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     let source_metadata = std::fs::symlink_metadata(&source)
-        .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
     if !source_metadata.file_type().is_dir() {
         return Err(RuntimeError::new("fs-copy-tree", "source is not a directory").with_span(span));
     }
@@ -1570,12 +1570,12 @@ pub(crate) fn copy_tree(
             if parents {
                 let parent = dest.parent().unwrap_or_else(|| Path::new("."));
                 std::fs::create_dir_all(parent).map_err(|error| {
-                    RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span)
+                    RuntimeError::host("fs-copy-tree", &error).with_span(span)
                 })?;
             }
         }
         Err(error) => {
-            return Err(RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("fs-copy-tree", &error).with_span(span));
         }
     }
 
@@ -1607,11 +1607,11 @@ fn rename_path_unnamed(
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
-            return Err(RuntimeError::new("fs-rename", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("fs-rename", &error).with_span(span));
         }
     }
     std::fs::rename(source, dest)
-        .map_err(|error| RuntimeError::new("fs-rename", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-rename", &error).with_span(span))
 }
 
 pub(crate) fn remove_path(path: PathBuf, missing_ok: bool, span: Span) -> Result<(), RuntimeError> {
@@ -1641,7 +1641,7 @@ fn remove_path_with_policy_unnamed(
         Err(error) if missing_ok && error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     };
-    result.map_err(|error| RuntimeError::new("fs-remove", error.to_string()).with_span(span))
+    result.map_err(|error| RuntimeError::host("fs-remove", &error).with_span(span))
 }
 
 pub(crate) fn mkdir_path(
@@ -1670,10 +1670,10 @@ fn mkdir_path_unnamed(
     } else {
         std::fs::create_dir(&path)
     };
-    result.map_err(|error| RuntimeError::new("fs-mkdir", error.to_string()).with_span(span))?;
+    result.map_err(|error| RuntimeError::host("fs-mkdir", &error).with_span(span))?;
     if let Some(mode) = mode {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
-            .map_err(|error| RuntimeError::new("fs-mkdir", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-mkdir", &error).with_span(span))?;
     }
     Ok(())
 }
@@ -1686,7 +1686,7 @@ pub(crate) fn remove_manifest(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     let root_metadata = std::fs::symlink_metadata(&root).map_err(|error| {
-        RuntimeError::new("fs-remove-manifest", error.to_string()).with_span(span)
+        RuntimeError::host("fs-remove-manifest", &error).with_span(span)
     })?;
     if !root_metadata.file_type().is_dir() {
         return Err(
@@ -1701,14 +1701,14 @@ pub(crate) fn remove_manifest(
         match std::fs::symlink_metadata(&target) {
             Ok(metadata) if metadata.file_type().is_dir() => {
                 std::fs::remove_dir(&target).map_err(|error| {
-                    RuntimeError::new("fs-remove-manifest", error.to_string()).with_span(span)
+                    RuntimeError::host("fs-remove-manifest", &error).with_span(span)
                 })?;
                 stats.removed += 1;
                 collect_manifest_parents(&relative, &mut parent_dirs);
             }
             Ok(_) => {
                 std::fs::remove_file(&target).map_err(|error| {
-                    RuntimeError::new("fs-remove-manifest", error.to_string()).with_span(span)
+                    RuntimeError::host("fs-remove-manifest", &error).with_span(span)
                 })?;
                 stats.removed += 1;
                 collect_manifest_parents(&relative, &mut parent_dirs);
@@ -1718,7 +1718,7 @@ pub(crate) fn remove_manifest(
             }
             Err(error) => {
                 return Err(
-                    RuntimeError::new("fs-remove-manifest", error.to_string()).with_span(span)
+                    RuntimeError::host("fs-remove-manifest", &error).with_span(span)
                 );
             }
         }
@@ -1743,7 +1743,7 @@ pub(crate) fn remove_manifest(
                     ) => {}
                 Err(error) => {
                     return Err(
-                        RuntimeError::new("fs-remove-manifest", error.to_string()).with_span(span)
+                        RuntimeError::host("fs-remove-manifest", &error).with_span(span)
                     );
                 }
             }
@@ -1755,7 +1755,7 @@ pub(crate) fn remove_manifest(
 
 pub(crate) fn remove_dir(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
     std::fs::remove_dir(path)
-        .map_err(|error| RuntimeError::new("fs-remove-dir", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-remove-dir", &error).with_span(span))
 }
 
 pub(crate) fn touch_path(path: PathBuf, create: bool, span: Span) -> Result<(), RuntimeError> {
@@ -1768,7 +1768,7 @@ fn touch_path_unnamed(path: PathBuf, create: bool, span: Span) -> Result<(), Run
         .create(create)
         .append(true)
         .open(&path)
-        .map_err(|error| RuntimeError::new("fs-touch", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-touch", &error).with_span(span))?;
     rfs::utimensat(
         CWD,
         &path,
@@ -1784,7 +1784,7 @@ fn touch_path_unnamed(path: PathBuf, create: bool, span: Span) -> Result<(), Run
         },
         AtFlags::empty(),
     )
-    .map_err(|error| RuntimeError::new("fs-touch", error.to_string()).with_span(span))
+    .map_err(|error| RuntimeError::host("fs-touch", &error).with_span(span))
 }
 
 pub(crate) fn touch_path_from(
@@ -1796,9 +1796,9 @@ pub(crate) fn touch_path_from(
         .create(true)
         .append(true)
         .open(&path)
-        .map_err(|error| RuntimeError::new("fs-touch", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-touch", &error).with_span(span))?;
     let metadata = std::fs::metadata(reference)
-        .map_err(|error| RuntimeError::new("fs-touch", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-touch", &error).with_span(span))?;
     rfs::utimensat(
         CWD,
         &path,
@@ -1814,7 +1814,7 @@ pub(crate) fn touch_path_from(
         },
         AtFlags::empty(),
     )
-    .map_err(|error| RuntimeError::new("fs-touch", error.to_string()).with_span(span))
+    .map_err(|error| RuntimeError::host("fs-touch", &error).with_span(span))
 }
 
 pub(crate) fn truncate_path(path: PathBuf, size: i64, span: Span) -> Result<(), RuntimeError> {
@@ -1829,9 +1829,9 @@ fn truncate_path_unnamed(path: PathBuf, size: i64, span: Span) -> Result<(), Run
     let file = std::fs::OpenOptions::new()
         .write(true)
         .open(path)
-        .map_err(|error| RuntimeError::new("fs-truncate", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-truncate", &error).with_span(span))?;
     file.set_len(size as u64)
-        .map_err(|error| RuntimeError::new("fs-truncate", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-truncate", &error).with_span(span))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1846,7 +1846,7 @@ pub(crate) fn install_file(
     span: Span,
 ) -> Result<(), RuntimeError> {
     let source_metadata = std::fs::symlink_metadata(&source)
-        .map_err(|error| RuntimeError::new("fs-install", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-install", &error).with_span(span))?;
     if !source_metadata.file_type().is_file() {
         return Err(
             RuntimeError::new("fs-install", "source is not a regular file").with_span(span),
@@ -1867,18 +1867,18 @@ pub(crate) fn install_file(
     let parent = dest.parent().unwrap_or_else(|| Path::new("."));
     if parents {
         std::fs::create_dir_all(parent)
-            .map_err(|error| RuntimeError::new("fs-install", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-install", &error).with_span(span))?;
     }
 
     let mut input = std::fs::File::open(&source)
-        .map_err(|error| RuntimeError::new("fs-install", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-install", &error).with_span(span))?;
     let mut temp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| RuntimeError::new("fs-install", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-install", &error).with_span(span))?;
     std::io::copy(&mut input, &mut temp)
-        .map_err(|error| RuntimeError::new("fs-install", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-install", &error).with_span(span))?;
     temp.as_file()
         .set_permissions(std::fs::Permissions::from_mode(mode as u32))
-        .map_err(|error| RuntimeError::new("fs-install", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-install", &error).with_span(span))?;
     if let Some(uid) = owner_uid {
         chown_path(temp.path().to_path_buf(), uid, true, span)?;
     }
@@ -1906,7 +1906,7 @@ fn chmod_path_unnamed(path: PathBuf, mode: i64, span: Span) -> Result<(), Runtim
         return Err(RuntimeError::new("fs-chmod", "mode is out of range").with_span(span));
     }
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode as u32))
-        .map_err(|error| RuntimeError::new("fs-chmod", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))
 }
 
 pub(crate) fn chown_path(
@@ -1927,7 +1927,7 @@ pub(crate) fn chown_path(
     };
     let owner = rustix::process::Uid::from_raw(uid);
     rfs::chownat(CWD, &path, Some(owner), None, flags)
-        .map_err(|error| RuntimeError::new("fs-chown", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-chown", &error).with_span(span))
 }
 
 pub(crate) fn chgrp_path(
@@ -1948,7 +1948,7 @@ pub(crate) fn chgrp_path(
     };
     let group = Gid::from_raw(gid);
     rfs::chownat(CWD, &path, None, Some(group), flags)
-        .map_err(|error| RuntimeError::new("fs-chgrp", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-chgrp", &error).with_span(span))
 }
 
 pub(crate) fn mkfifo_path(path: PathBuf, mode: i64, span: Span) -> Result<(), RuntimeError> {
@@ -1973,9 +1973,9 @@ pub(crate) fn mkfifo_path(path: PathBuf, mode: i64, span: Span) -> Result<(), Ru
 
 pub(crate) fn fsync_path(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
     let file = std::fs::File::open(path)
-        .map_err(|error| RuntimeError::new("fs-fsync", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-fsync", &error).with_span(span))?;
     file.sync_all()
-        .map_err(|error| RuntimeError::new("fs-fsync", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-fsync", &error).with_span(span))
 }
 
 pub(crate) fn sync_filesystems() {
@@ -1984,12 +1984,12 @@ pub(crate) fn sync_filesystems() {
 
 pub(crate) fn hardlink(source: PathBuf, path: PathBuf, span: Span) -> Result<(), RuntimeError> {
     std::fs::hard_link(source, path)
-        .map_err(|error| RuntimeError::new("fs-hardlink", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-hardlink", &error).with_span(span))
 }
 
 pub(crate) fn symlink_path(target: PathBuf, path: PathBuf, span: Span) -> Result<(), RuntimeError> {
     std::os::unix::fs::symlink(target, path)
-        .map_err(|error| RuntimeError::new("fs-symlink", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-symlink", &error).with_span(span))
 }
 
 pub(crate) fn unlink(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
@@ -2003,8 +2003,8 @@ fn unlink_unnamed(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
             Err(RuntimeError::new("fs-unlink", "path is a directory").with_span(span))
         }
         Ok(_) => std::fs::remove_file(path)
-            .map_err(|error| RuntimeError::new("fs-unlink", error.to_string()).with_span(span)),
-        Err(error) => Err(RuntimeError::new("fs-unlink", error.to_string()).with_span(span)),
+            .map_err(|error| RuntimeError::host("fs-unlink", &error).with_span(span)),
+        Err(error) => Err(RuntimeError::host("fs-unlink", &error).with_span(span)),
     }
 }
 
@@ -2015,7 +2015,7 @@ pub(crate) fn readlink(path: PathBuf, span: Span) -> Result<Value, RuntimeError>
 
 fn readlink_unnamed(path: PathBuf, span: Span) -> Result<Value, RuntimeError> {
     let target = std::fs::read_link(path)
-        .map_err(|error| RuntimeError::new("fs-readlink", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-readlink", &error).with_span(span))?;
     Ok(Value::Path(
         PathValue::new(path_bytes(&target)).map_err(|error| error.with_span(span))?,
     ))
@@ -2033,7 +2033,7 @@ pub(crate) fn lock_path(
         .create(true)
         .truncate(false)
         .open(path)
-        .map_err(|error| RuntimeError::new("fs-lock", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-lock", &error).with_span(span))?;
     let operation = match (shared, nonblocking) {
         (true, true) => FlockOperation::NonBlockingLockShared,
         (true, false) => FlockOperation::LockShared,
@@ -2041,7 +2041,7 @@ pub(crate) fn lock_path(
         (false, false) => FlockOperation::LockExclusive,
     };
     if let Err(error) = rfs::flock(&file, operation) {
-        Err(RuntimeError::new("fs-lock", error.to_string()).with_span(span))
+        Err(RuntimeError::host("fs-lock", &error).with_span(span))
     } else {
         Ok(file)
     }
@@ -2049,7 +2049,7 @@ pub(crate) fn lock_path(
 
 pub(crate) fn unlock_file(file: &std::fs::File, span: Span) -> Result<(), RuntimeError> {
     rfs::flock(file, FlockOperation::Unlock)
-        .map_err(|error| RuntimeError::new("fs-lock", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-lock", &error).with_span(span))
 }
 
 pub(crate) fn write_atomic(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
@@ -2060,14 +2060,14 @@ pub(crate) fn write_atomic(path: PathBuf, data: &[u8], span: Span) -> Result<(),
 fn write_atomic_unnamed(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut temp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
     temp.write_all(data)
-        .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
     temp.as_file()
         .sync_all()
-        .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
     std::fs::rename(temp.path(), path)
-        .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))
 }
 
 fn copy_tree_inner(
@@ -2083,7 +2083,7 @@ fn copy_tree_inner(
     } else {
         std::fs::symlink_metadata(source)
     }
-    .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))?;
+    .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
 
     if metadata.file_type().is_dir() {
         match std::fs::symlink_metadata(dest) {
@@ -2101,23 +2101,23 @@ fn copy_tree_inner(
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 std::fs::create_dir(dest).map_err(|error| {
-                    RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span)
+                    RuntimeError::host("fs-copy-tree", &error).with_span(span)
                 })?;
                 stats.dirs += 1;
             }
             Err(error) => {
-                return Err(RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span));
+                return Err(RuntimeError::host("fs-copy-tree", &error).with_span(span));
             }
         }
         std::fs::set_permissions(dest, std::fs::Permissions::from_mode(metadata.mode())).map_err(
-            |error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span),
+            |error| RuntimeError::host("fs-copy-tree", &error).with_span(span),
         )?;
         let mut children = std::fs::read_dir(source)
-            .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))?
+            .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?
             .map(|entry| entry.map(|entry| entry.path()))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| {
-                RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span)
+                RuntimeError::host("fs-copy-tree", &error).with_span(span)
             })?;
         children.sort_unstable_by_key(|path| path_bytes(path));
         for child in children {
@@ -2138,7 +2138,7 @@ fn copy_tree_inner(
         stats.files += 1;
     } else if metadata.file_type().is_symlink() {
         let target = std::fs::read_link(source).map_err(|error| {
-            RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span)
+            RuntimeError::host("fs-copy-tree", &error).with_span(span)
         })?;
         copy_symlink(&target, dest, overwrite, span)?;
         stats.symlinks += 1;
@@ -2179,19 +2179,19 @@ fn copy_regular_file(
         }
     }
     let mut input = std::fs::File::open(source)
-        .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .create_new(!overwrite)
         .truncate(overwrite)
         .open(dest)
-        .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
     std::io::copy(&mut input, &mut output)
-        .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))?;
     output
         .set_permissions(std::fs::Permissions::from_mode(metadata.mode()))
-        .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))
 }
 
 fn copy_symlink(
@@ -2211,16 +2211,16 @@ fn copy_symlink(
         }
         Ok(_) => {
             std::fs::remove_file(path).map_err(|error| {
-                RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span)
+                RuntimeError::host("fs-copy-tree", &error).with_span(span)
             })?;
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
-            return Err(RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("fs-copy-tree", &error).with_span(span));
         }
     }
     std::os::unix::fs::symlink(target, path)
-        .map_err(|error| RuntimeError::new("fs-copy-tree", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-copy-tree", &error).with_span(span))
 }
 
 fn copy_tree_record(stats: CopyTreeStats) -> Value {
@@ -2285,7 +2285,7 @@ fn metadata_for_owner_policy(
     } else {
         std::fs::symlink_metadata(path)
     };
-    result.map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))
+    result.map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }
 
 fn uid_value(uid: i64, kind: &'static str, span: Span) -> Result<u32, RuntimeError> {
@@ -2362,7 +2362,7 @@ impl LiveStream for IgnoreWalkStream {
                 },
                 Err(error) => {
                     return Err(
-                        RuntimeError::new("fs-walk", error.to_string()).with_span(spec.span)
+                        RuntimeError::host("fs-walk", &error).with_span(spec.span)
                     );
                 }
             };
@@ -2396,7 +2396,7 @@ impl RawWalkEntry {
     fn record(self, stat: bool, span: Span) -> Result<Value, RuntimeError> {
         if stat {
             let metadata = std::fs::symlink_metadata(&self.path)
-                .map_err(|error| RuntimeError::new("fs-walk", error.to_string()).with_span(span))?;
+                .map_err(|error| RuntimeError::host("fs-walk", &error).with_span(span))?;
             fs_entry_record(&self.path, &metadata)
         } else {
             Ok(Value::FsEntry(FsEntryValue::new(self.path, self.file_type)))

@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 pub(super) fn modinfo_impl(name: &str, span: Span) -> Result<Value, RuntimeError> {
     let root = module_tree_dir("")
-        .map_err(|error| RuntimeError::new("linux-modinfo", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("linux-modinfo", &error).with_span(span))?;
     modinfo_impl_in_root(name, &root, span)
 }
 
@@ -27,14 +27,14 @@ pub(super) fn modinfo_impl_in_root(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     let index = ModuleIndex::scan(root)
-        .map_err(|error| RuntimeError::new("linux-modinfo", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("linux-modinfo", &error).with_span(span))?;
     let entry = if Path::new(name).exists() {
         let path = PathBuf::from(name);
         ModuleEntry {
             name: module_name_from_path(name),
             relative_path: path.to_string_lossy().into_owned(),
             metadata: read_module_metadata(&path).map_err(|error| {
-                RuntimeError::new("linux-modinfo", error.to_string()).with_span(span)
+                RuntimeError::host("linux-modinfo", &error).with_span(span)
             })?,
             path,
         }
@@ -49,9 +49,9 @@ pub(super) fn modinfo_impl_in_root(
 
 pub(super) fn modprobe_impl(name: &str, params: &str, span: Span) -> Result<(), RuntimeError> {
     let root = module_tree_dir("")
-        .map_err(|error| RuntimeError::new("linux-modprobe", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("linux-modprobe", &error).with_span(span))?;
     let index = ModuleIndex::scan(&root)
-        .map_err(|error| RuntimeError::new("linux-modprobe", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("linux-modprobe", &error).with_span(span))?;
     let entry = index
         .get(name)
         .ok_or_else(|| RuntimeError::new("linux-modprobe", "module not found").with_span(span))?;
@@ -71,13 +71,13 @@ pub(super) fn modprobe_impl(name: &str, params: &str, span: Span) -> Result<(), 
 
 pub(super) fn depmod_impl(version: &str, span: Span) -> Result<(), RuntimeError> {
     let root = module_tree_dir(version)
-        .map_err(|error| RuntimeError::new("linux-depmod", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("linux-depmod", &error).with_span(span))?;
     depmod_impl_in_root(&root, span)
 }
 
 pub(super) fn depmod_impl_in_root(root: &Path, span: Span) -> Result<(), RuntimeError> {
     let index = ModuleIndex::scan(root)
-        .map_err(|error| RuntimeError::new("linux-depmod", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("linux-depmod", &error).with_span(span))?;
     let mut lines = index
         .entries
         .iter()
@@ -98,7 +98,7 @@ pub(super) fn depmod_impl_in_root(root: &Path, span: Span) -> Result<(), Runtime
         .collect::<Vec<_>>();
     lines.sort_unstable();
     fs::write(root.join("modules.dep"), lines.concat())
-        .map_err(|error| RuntimeError::new("linux-depmod", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("linux-depmod", &error).with_span(span))
 }
 
 impl ModuleMetadata {
@@ -264,7 +264,7 @@ fn insmod_path(path: &Path, params: &str, span: Span) -> Result<(), RuntimeError
             RuntimeError::new("linux-modprobe", "params contain NUL").with_span(span)
         })?;
         let file = File::open(path).map_err(|error| {
-            RuntimeError::new("linux-modprobe", error.to_string()).with_span(span)
+            RuntimeError::host("linux-modprobe", &error).with_span(span)
         })?;
         let rc =
             unsafe { libc::syscall(libc::SYS_finit_module, file.as_raw_fd(), params.as_ptr(), 0) };

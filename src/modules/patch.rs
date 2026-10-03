@@ -365,5 +365,5 @@ fn reject_modes(
 }
 
 fn patch_error(kind: &str, error: io::Error, span: Span) -> RuntimeError {
-    RuntimeError::new(kind, error.to_string()).with_span(span)
+    RuntimeError::host(kind, &error).with_span(span)
 }

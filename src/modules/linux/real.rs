@@ -148,7 +148,7 @@ impl LiveStream for UeventStream {
                         continue;
                     }
                     return Err(
-                        RuntimeError::new("linux-uevent", error.to_string()).with_span(span)
+                        RuntimeError::host("linux-uevent", &error).with_span(span)
                     );
                 }
             };

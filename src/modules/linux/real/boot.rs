@@ -306,20 +306,20 @@ impl LiveStream for RfkillStream {
             (
                 Arc::from("name"),
                 str_value(read_trimmed(path.join("name")).map_err(|error| {
-                    RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                    RuntimeError::host("linux-rfkill", &error).with_span(span)
                 })?),
             ),
             (
                 Arc::from("type"),
                 str_value(read_trimmed(path.join("type")).map_err(|error| {
-                    RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                    RuntimeError::host("linux-rfkill", &error).with_span(span)
                 })?),
             ),
             (
                 Arc::from("soft_blocked"),
                 Value::Bool(
                     read_trimmed(path.join("soft")).map_err(|error| {
-                        RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                        RuntimeError::host("linux-rfkill", &error).with_span(span)
                     })? == "1",
                 ),
             ),
@@ -327,7 +327,7 @@ impl LiveStream for RfkillStream {
                 Arc::from("hard_blocked"),
                 Value::Bool(
                     read_trimmed(path.join("hard")).map_err(|error| {
-                        RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                        RuntimeError::host("linux-rfkill", &error).with_span(span)
                     })? == "1",
                 ),
             ),

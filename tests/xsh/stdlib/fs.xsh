@@ -764,3 +764,22 @@ test test_fs_walk_and_files_iteration_failures_are_catchable { |ctx|
     test.fail("expected the walk to fail")?
   }
 }
+
+test test_host_filesystem_errors_implement_error_facets [fs, error] { |ctx|
+  let missing = test.temp_path(ctx, name: "missing-facet")
+  let root = test.temp_dir(ctx, name: "facet-root")?
+  let file = fp"${root}/plain.txt"
+  fs.write(file, "text")?
+  let read = missing.read_text()
+  assert read is Err(is NotFound)
+  match read {
+    Err(error) => assert error is NotFound
+    Ok(_) => assert false, "missing file read"
+  }
+  assert missing.read_bytes() is Err(is NotFound)
+  assert fs.read_text(missing) is Err(is NotFound)
+  assert fs.files(missing) is Err(is NotFound)
+  let below_file = fp"${file}/child".read_text()
+  assert below_file is Err(is HostIo)
+  assert ! (below_file is Err(is NotFound))
+}

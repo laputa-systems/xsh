@@ -95,7 +95,7 @@ struct DynamicEntry {
 
 pub(crate) fn inspect_path(path: &Path, span: Span) -> Result<ElfInfo, RuntimeError> {
     let data = std::fs::read(path)
-        .map_err(|error| RuntimeError::new("elf-read", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("elf-read", &error).with_span(span))?;
     inspect_bytes(&data, span)
 }
 

@@ -1504,6 +1504,20 @@ impl RuntimeError {
         }
     }
 
+    /// A host operation failure carrying the facet its OS error implements, as
+    /// `ProcessError` does, so `Err(is NotFound)` matches a missing file.
+    pub fn host(kind: impl Into<String>, error: &(impl HostErrorFacet + fmt::Display)) -> Self {
+        Self::new(kind, error.to_string()).with_host_facet(error)
+    }
+
+    #[must_use]
+    pub fn with_host_facet(mut self, error: &impl HostErrorFacet) -> Self {
+        if let Some(facet) = error.host_facet() {
+            self.facets.push(facet.to_string());
+        }
+        self
+    }
+
     pub fn abort(status: u8, force: bool) -> Self {
         let symbols = SymbolOwner::current().unwrap_or_default();
         Self {
@@ -1665,6 +1679,36 @@ impl RunError {
                     .unwrap_or(Value::Null),
             ),
         ])
+    }
+}
+
+/// An OS error source that maps onto the `ProcessError` facet vocabulary.
+pub trait HostErrorFacet {
+    fn host_facet(&self) -> Option<&'static str>;
+}
+
+impl HostErrorFacet for std::io::Error {
+    fn host_facet(&self) -> Option<&'static str> {
+        Some(match self.kind() {
+            std::io::ErrorKind::NotFound => "NotFound",
+            std::io::ErrorKind::PermissionDenied => "PermissionDenied",
+            std::io::ErrorKind::TimedOut => "Timeout",
+            std::io::ErrorKind::InvalidData => "InvalidData",
+            _ => "HostIo",
+        })
+    }
+}
+
+impl HostErrorFacet for rustix::io::Errno {
+    fn host_facet(&self) -> Option<&'static str> {
+        std::io::Error::from(*self).host_facet()
+    }
+}
+
+/// A walk failure has a facet only when the filesystem caused it.
+impl HostErrorFacet for ignore::Error {
+    fn host_facet(&self) -> Option<&'static str> {
+        self.io_error().and_then(HostErrorFacet::host_facet)
     }
 }
 

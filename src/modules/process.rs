@@ -75,7 +75,7 @@ fn list_processes_stream(span: Span) -> Result<StreamValue, RuntimeError> {
         ticks => ticks as i64,
     };
     let mut entries = std::fs::read_dir("/proc")
-        .map_err(|error| RuntimeError::new("process-list", error.to_string()).with_span(span))?
+        .map_err(|error| RuntimeError::host("process-list", &error).with_span(span))?
         .flatten()
         .filter_map(|entry| {
             let pid = entry.file_name().to_str()?.parse::<i64>().ok()?;
@@ -191,7 +191,7 @@ fn list_threads_stream(pid: Option<i64>, span: Span) -> Result<StreamValue, Runt
     } else {
         std::fs::read_dir("/proc")
             .map_err(|error| {
-                RuntimeError::new("process-threads", error.to_string()).with_span(span)
+                RuntimeError::host("process-threads", &error).with_span(span)
             })?
             .flatten()
             .filter_map(|entry| {
@@ -851,10 +851,10 @@ fn process_stats_impl(pid: i64, span: Span) -> Result<ProcessStatsRecord, Runtim
     };
     let pages = fields[0]
         .parse::<i64>()
-        .map_err(|error| RuntimeError::new("process-stats", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("process-stats", &error).with_span(span))?;
     let resident = fields[1]
         .parse::<i64>()
-        .map_err(|error| RuntimeError::new("process-stats", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("process-stats", &error).with_span(span))?;
     Ok(ProcessStatsRecord {
         rss_kb: resident.saturating_mul(page_kb),
         vsz_kb: pages.saturating_mul(page_kb),
@@ -915,7 +915,7 @@ fn linux_port_sockets(port: Option<u16>, span: Span) -> Result<Vec<SocketRecord>
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => {
-                return Err(RuntimeError::new("process-port", error.to_string()).with_span(span));
+                return Err(RuntimeError::host("process-port", &error).with_span(span));
             }
         };
         for line in text.lines().skip(1).filter(|line| !line.trim().is_empty()) {
@@ -1045,7 +1045,7 @@ fn linux_socket_owners(
 ) -> Result<rustc_hash::FxHashMap<u64, Vec<SocketOwner>>, RuntimeError> {
     let mut owners: rustc_hash::FxHashMap<u64, Vec<SocketOwner>> = rustc_hash::FxHashMap::default();
     let entries = std::fs::read_dir("/proc")
-        .map_err(|error| RuntimeError::new("process-port", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("process-port", &error).with_span(span))?;
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else {
@@ -1180,7 +1180,7 @@ fn linux_cmdline(path: &std::path::Path) -> Option<Vec<String>> {
 #[cfg(target_os = "linux")]
 fn linux_boot_time_ms(span: Span) -> Result<i64, RuntimeError> {
     let stat = std::fs::read_to_string("/proc/stat")
-        .map_err(|error| RuntimeError::new("process-list", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("process-list", &error).with_span(span))?;
     for line in stat.lines() {
         if let Some(rest) = line.strip_prefix("btime ") {
             let seconds = rest.trim().parse::<i64>().map_err(|_| {
@@ -1732,7 +1732,7 @@ fn macos_process_records(span: Span) -> Result<Vec<ProcessRecord>, RuntimeError>
     let output = Command::new("/bin/ps")
         .args(["-axwwo", "user=,pid=,ppid=,pgid=,command="])
         .output()
-        .map_err(|error| RuntimeError::new("process-list", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("process-list", &error).with_span(span))?;
     if !output.status.success() {
         return Err(RuntimeError::new(
             "process-list",

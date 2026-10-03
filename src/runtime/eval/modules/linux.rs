@@ -88,7 +88,7 @@ impl Evaluator {
             && !parent.as_os_str().is_empty()
         {
             std::fs::create_dir_all(parent).map_err(|error| {
-                RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
+                RuntimeError::host("linux-fake-log", &error).with_span(span)
             })?;
         }
         let mut json_fields = Vec::with_capacity(fields.len() + 1);
@@ -108,10 +108,10 @@ impl Evaluator {
             .append(true)
             .open(path)
             .map_err(|error| {
-                RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
+                RuntimeError::host("linux-fake-log", &error).with_span(span)
             })?;
         writeln!(file, "{line}").map_err(|error| {
-            RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
+            RuntimeError::host("linux-fake-log", &error).with_span(span)
         })
     }
 }
