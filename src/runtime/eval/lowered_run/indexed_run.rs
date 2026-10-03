@@ -281,6 +281,198 @@ fn decode_record_updates<'a>(execution: &FullExecution<'a>, payload: &mut FullPa
     Ok(updates)
 }
 
+/// One decoded entry of an aggregate literal's operand list.
+trait IndexedOperand: Sized {
+    fn decode<'a>(execution: &FullExecution<'a>, input: &mut FullPayload<'a>, build: bool, span: Span) -> Result<Self, RuntimeError>;
+}
+
+/// A list element: its instruction, whether it splices, and its span.
+impl IndexedOperand for (u32, bool, Span) {
+    #[inline]
+    fn decode<'a>(execution: &FullExecution<'a>, input: &mut FullPayload<'a>, build: bool, span: Span) -> Result<Self, RuntimeError> {
+        if !build {
+            return Ok((indexed_raw(input, span)?, false, span));
+        }
+        let splice = indexed_decode::<bool>(input, execution, span)?;
+        Ok((indexed_raw(input, span)?, splice, indexed_decode::<Span>(input, execution, span)?))
+    }
+}
+
+/// A map literal entry: its optional computed key, value, and span.
+impl IndexedOperand for (Option<u32>, u32, Span) {
+    #[inline]
+    fn decode<'a>(execution: &FullExecution<'a>, input: &mut FullPayload<'a>, _: bool, span: Span) -> Result<Self, RuntimeError> {
+        Ok((indexed_optional_raw(input, span)?, indexed_raw(input, span)?, indexed_decode::<Span>(input, execution, span)?))
+    }
+}
+
+impl IndexedOperand for IndexedRecordEntry {
+    #[inline]
+    fn decode<'a>(execution: &FullExecution<'a>, input: &mut FullPayload<'a>, _: bool, span: Span) -> Result<Self, RuntimeError> {
+        Ok(match indexed_raw(input, span)? {
+            0 => Self::Field { name: indexed_decode(input, execution, span)?, instruction: indexed_raw(input, span)? },
+            1 => Self::Spread(indexed_raw(input, span)?),
+            _ => return Err(RuntimeError::new("indexed-ir", "invalid indexed record entry").with_span(span)),
+        })
+    }
+}
+
+impl IndexedOperand for IndexedFmtPart {
+    #[inline]
+    fn decode<'a>(execution: &FullExecution<'a>, input: &mut FullPayload<'a>, _: bool, span: Span) -> Result<Self, RuntimeError> {
+        Ok(match indexed_raw(input, span)? {
+            0 => Self::Text(indexed_decode(input, execution, span)?),
+            1 => Self::Expr(indexed_raw(input, span)?, indexed_decode(input, execution, span)?, indexed_decode(input, execution, span)?),
+            _ => return Err(RuntimeError::new("indexed-ir", "invalid indexed format part").with_span(span)),
+        })
+    }
+}
+
+/// An aggregate literal's operand list, decoded one entry at a time so the
+/// recursive path needs no intermediate list; the frame path collects it. Both
+/// dispatch paths evaluate these operands in source order.
+struct IndexedOperands<'e, 'a, T> {
+    execution: &'e FullExecution<'a>,
+    input: FullPayload<'a>,
+    remaining: usize,
+    build: bool,
+    span: Span,
+    entry: std::marker::PhantomData<T>,
+}
+
+impl<'e, 'a, T: IndexedOperand> IndexedOperands<'e, 'a, T> {
+    fn new(execution: &'e FullExecution<'a>, payload: &mut FullPayload<'a>, build: bool, span: Span) -> Result<Self, RuntimeError> {
+        let (_, mut input) = execution.block(payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+        let remaining = indexed_raw(&mut input, span)? as usize;
+        Ok(Self { execution, input, remaining, build, span, entry: std::marker::PhantomData })
+    }
+
+    /// Decodes a list, map, or record literal, whose payload holds only the operand list.
+    fn literal(execution: &'e FullExecution<'a>, mut payload: FullPayload<'a>, build: bool, span: Span) -> Result<Self, RuntimeError> {
+        let operands = Self::new(execution, &mut payload, build, span)?;
+        indexed_finish(payload, span)?;
+        Ok(operands)
+    }
+
+    fn len(&self) -> usize {
+        self.remaining
+    }
+
+    #[inline]
+    fn next_operand(&mut self) -> Result<Option<T>, RuntimeError> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining -= 1;
+        Ok(Some(T::decode(self.execution, &mut self.input, self.build, self.span)?))
+    }
+
+    fn finish(self) -> Result<(), RuntimeError> {
+        indexed_finish(self.input, self.span)
+    }
+
+    fn into_vec(mut self) -> Result<Vec<T>, RuntimeError> {
+        let mut items = Vec::with_capacity(self.remaining);
+        while let Some(item) = self.next_operand()? {
+            items.push(item);
+        }
+        self.finish()?;
+        Ok(items)
+    }
+}
+
+/// Format parts and the accumulator, whose path span follows the parts.
+fn fmt_operands<'e, 'a>(execution: &'e FullExecution<'a>, mut payload: FullPayload<'a>, path: bool, span: Span) -> Result<(IndexedOperands<'e, 'a, IndexedFmtPart>, IndexedFmt), RuntimeError> {
+    let operands = IndexedOperands::new(execution, &mut payload, false, span)?;
+    let path_span = if path { Some(indexed_decode::<Span>(&mut payload, execution, span)?) } else { None };
+    indexed_finish(payload, span)?;
+    Ok((operands, IndexedFmt { text: String::new(), native: Vec::new(), path_span }))
+}
+
+enum IndexedRecordEntry {
+    Field { name: Name, instruction: u32 },
+    Spread(u32),
+}
+
+impl IndexedRecordEntry {
+    fn instruction(&self) -> u32 {
+        match self { Self::Field { instruction, .. } | Self::Spread(instruction) => *instruction }
+    }
+
+    fn append(&self, fields: &mut Vec<(Name, LoweredValue)>, value: LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        if let Self::Field { name, .. } = self {
+            lowered_record_vec_append_or_replace_unsorted(fields, *name, value);
+            return Ok(());
+        }
+        match value {
+            LoweredValue::Record(record) | LoweredValue::Module(record) => {
+                for (key, value) in record.iter() {
+                    lowered_record_vec_append_or_replace_unsorted(fields, Name::intern(key.as_ref()), value.clone());
+                }
+            }
+            LoweredValue::RecordVec(record) => {
+                for (key, value) in record.iter() {
+                    lowered_record_vec_append_or_replace_unsorted(fields, *key, value.clone());
+                }
+            }
+            LoweredValue::Stats { blanks, code, comments } => {
+                for (key, value) in lowered_inline_stats_to_record_vec(blanks, code, comments) {
+                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                }
+            }
+            LoweredValue::StatsBlob(stats) => {
+                for (key, value) in stats.to_record_vec() {
+                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                }
+            }
+            value => {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("record spread expected Record, found {}", value.type_name()),
+                )
+                .with_span(span));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn finish_record_entries(mut fields: Vec<(Name, LoweredValue)>) -> LoweredValue {
+    fields.sort_unstable_by_key(|(name, _)| *name);
+    lowered_record_vec_or_stats(fields)
+}
+
+#[derive(Clone)]
+enum IndexedFmtPart {
+    Text(Arc<str>),
+    Expr(u32, Span, Option<FormatSpec>),
+}
+
+/// A formatted string or path being assembled from its parts.
+struct IndexedFmt {
+    text: String,
+    native: Vec<u8>,
+    path_span: Option<Span>,
+}
+
+impl IndexedFmt {
+    fn push_text(&mut self, text: &str) {
+        if self.path_span.is_some() { self.native.extend_from_slice(text.as_bytes()) } else { self.text.push_str(text) }
+    }
+
+    fn push_value(&mut self, value: &LoweredValue, span: Span, spec: Option<&FormatSpec>) -> Result<(), RuntimeError> {
+        if self.path_span.is_some() { push_lowered_native_fmt_value(&mut self.native, value, span, spec) }
+        else { push_lowered_fmt_value(&mut self.text, value, span, spec) }
+    }
+
+    fn finish(self) -> Result<LoweredValue, RuntimeError> {
+        match self.path_span {
+            Some(span) => Ok(LoweredValue::Path(PathValue::new(self.native).map_err(|error| error.with_span(span))?)),
+            None => Ok(LoweredValue::Str(self.text.into())),
+        }
+    }
+}
+
 #[derive(Clone)]
 enum IndexedAssignStep {
     Field(Name),
@@ -3277,60 +3469,18 @@ impl Evaluator {
                 };
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
-                let path = tag == FullTag::ExprPathFmtString;
-                let (_, mut parts) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let len = indexed_raw(&mut parts, call_span)? as usize;
-                let path_span = if path {
-                    Some(indexed_decode::<Span>(&mut payload, execution, call_span)?)
-                } else {
-                    None
-                };
-                indexed_finish(payload, call_span)?;
-                let mut text = String::new();
-                let mut native = Vec::new();
-                for _ in 0..len {
-                    match indexed_raw(&mut parts, call_span)? {
-                        0 => {
-                            let part =
-                                indexed_decode::<Arc<str>>(&mut parts, execution, call_span)?;
-                            if path { native.extend_from_slice(part.as_bytes()); }
-                            else { text.push_str(&part); }
-                        }
-                        1 => {
-                            let expr = indexed_raw(&mut parts, call_span)?;
-                            let span = indexed_decode::<Span>(&mut parts, execution, call_span)?;
-                            let spec = indexed_decode::<Option<FormatSpec>>(
-                                &mut parts, execution, call_span,
-                            )?;
-                            let value =
-                                match self.eval_indexed_expr(execution, expr, slots, call_span)? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            if path { push_lowered_native_fmt_value(&mut native, &value, span, spec.as_ref())?; }
-                            else { push_lowered_fmt_value(&mut text, &value, span, spec.as_ref())?; }
-                        }
-                        _ => {
-                            return Err(RuntimeError::new(
-                                "indexed-ir",
-                                "invalid indexed format part",
-                            )
-                            .with_span(call_span));
-                        }
+                let (mut parts, mut fmt) = fmt_operands(execution, payload, tag == FullTag::ExprPathFmtString, call_span)?;
+                while let Some(part) = parts.next_operand()? {
+                    match part {
+                        IndexedFmtPart::Text(text) => fmt.push_text(&text),
+                        IndexedFmtPart::Expr(expr, span, spec) => match self.eval_indexed_expr(execution, expr, slots, call_span)? {
+                            ControlFlow::Continue(value) => fmt.push_value(&value, span, spec.as_ref())?,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        },
                     }
                 }
-                indexed_finish(parts, call_span)?;
-                if let Some(span) = path_span {
-                    ControlFlow::Continue(LoweredValue::Path(
-                        PathValue::new(native).map_err(|error| error.with_span(span))?,
-                    ))
-                } else {
-                    ControlFlow::Continue(LoweredValue::Str(text.into()))
-                }
+                parts.finish()?;
+                ControlFlow::Continue(fmt.finish()?)
             }
             FullTag::ExprGlob => {
                 let pattern = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
@@ -3354,14 +3504,9 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::Status(Box::new(status)))
             }
             FullTag::ExprMapLiteral => {
-                let (_, mut entries) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, call_span))?;
-                let len = indexed_raw(&mut entries, call_span)? as usize;
-                indexed_finish(payload, call_span)?;
                 let mut map = BTreeMap::new();
-                for _ in 0..len {
-                    let key = indexed_optional_raw(&mut entries, call_span)?;
-                    let value = indexed_raw(&mut entries, call_span)?;
-                    let span = indexed_decode::<Span>(&mut entries, execution, call_span)?;
+                let mut entries = IndexedOperands::<(Option<u32>, u32, Span)>::literal(execution, payload, false, call_span)?;
+                while let Some((key, value, span)) = entries.next_operand()? {
                     let key = if let Some(key) = key {
                         let key = match self.eval_indexed_expr(execution, key, slots, span)? {
                             ControlFlow::Continue(value) => value,
@@ -3375,7 +3520,7 @@ impl Evaluator {
                     };
                     append_lowered_map_literal(&mut map, key, value, span)?;
                 }
-                indexed_finish(entries, call_span)?;
+                entries.finish()?;
                 ControlFlow::Continue(LoweredValue::Map(Arc::new(map)))
             }
             FullTag::ExprRecordUpdate => {
@@ -3398,137 +3543,27 @@ impl Evaluator {
                 ControlFlow::Continue(lowered_record_update_batch(base, replacements, span)?)
             }
             FullTag::ExprRecord => {
-                let (_, mut entries) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let len = indexed_raw(&mut entries, call_span)? as usize;
-                indexed_finish(payload, call_span)?;
-                let mut record = Vec::with_capacity(len);
-                for _ in 0..len {
-                    match indexed_raw(&mut entries, call_span)? {
-                        0 => {
-                            let name = indexed_decode::<Name>(&mut entries, execution, call_span)?;
-                            let expr = indexed_raw(&mut entries, call_span)?;
-                            let value =
-                                match self.eval_indexed_expr(execution, expr, slots, call_span)? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            lowered_record_vec_append_or_replace_unsorted(&mut record, name, value);
-                        }
-                        1 => {
-                            let expr = indexed_raw(&mut entries, call_span)?;
-                            let value =
-                                match self.eval_indexed_expr(execution, expr, slots, call_span)? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            match value {
-                                LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
-                                    for (key, value) in fields.iter() {
-                                        lowered_record_vec_append_or_replace_unsorted(
-                                            &mut record,
-                                            Name::intern(key.as_ref()),
-                                            value.clone(),
-                                        );
-                                    }
-                                }
-                                LoweredValue::RecordVec(fields) => {
-                                    for (key, value) in fields.iter() {
-                                        lowered_record_vec_append_or_replace_unsorted(
-                                            &mut record,
-                                            *key,
-                                            value.clone(),
-                                        );
-                                    }
-                                }
-                                LoweredValue::Stats {
-                                    blanks,
-                                    code,
-                                    comments,
-                                } => {
-                                    for (key, value) in
-                                        lowered_inline_stats_to_record_vec(blanks, code, comments)
-                                    {
-                                        lowered_record_vec_append_or_replace_unsorted(
-                                            &mut record,
-                                            key,
-                                            value,
-                                        );
-                                    }
-                                }
-                                LoweredValue::StatsBlob(stats) => {
-                                    for (key, value) in stats.to_record_vec() {
-                                        lowered_record_vec_append_or_replace_unsorted(
-                                            &mut record,
-                                            key,
-                                            value,
-                                        );
-                                    }
-                                }
-                                value => {
-                                    return Err(RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "record spread expected Record, found {}",
-                                            value.type_name()
-                                        ),
-                                    )
-                                    .with_span(call_span));
-                                }
-                            }
-                        }
-                        _ => {
-                            return Err(RuntimeError::new(
-                                "indexed-ir",
-                                "invalid indexed record entry",
-                            )
-                            .with_span(call_span));
-                        }
-                    }
-                }
-                indexed_finish(entries, call_span)?;
-                record.sort_unstable_by_key(|left| left.0);
-                ControlFlow::Continue(lowered_record_vec_or_stats(record))
-            }
-            FullTag::ExprList => {
-                let (_, mut values) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let len = indexed_raw(&mut values, call_span)? as usize;
-                indexed_finish(payload, call_span)?;
-                let mut result = Vec::with_capacity(len);
-                for _ in 0..len {
-                    let value = indexed_raw(&mut values, call_span)?;
-                    match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                        ControlFlow::Continue(value) => result.push(value),
+                let mut entries = IndexedOperands::<IndexedRecordEntry>::literal(execution, payload, false, call_span)?;
+                let mut record = Vec::with_capacity(entries.len());
+                while let Some(entry) = entries.next_operand()? {
+                    match self.eval_indexed_expr(execution, entry.instruction(), slots, call_span)? {
+                        ControlFlow::Continue(value) => entry.append(&mut record, value, call_span)?,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     }
                 }
-                indexed_finish(values, call_span)?;
-                ControlFlow::Continue(LoweredValue::List(result))
+                entries.finish()?;
+                ControlFlow::Continue(finish_record_entries(record))
             }
-            FullTag::ExprListBuild => {
-                let (_, mut elements) = execution.block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let len = indexed_raw(&mut elements, call_span)? as usize;
-                indexed_finish(payload, call_span)?;
-                let mut result = Vec::new();
-                for _ in 0..len {
-                    let splice = indexed_decode::<bool>(&mut elements, execution, call_span)?;
-                    let expr = indexed_raw(&mut elements, call_span)?;
-                    let span = indexed_decode::<Span>(&mut elements, execution, call_span)?;
-                    let value = match self.eval_indexed_expr(execution, expr, slots, span)? {
-                        ControlFlow::Continue(value) => value,
+            FullTag::ExprList | FullTag::ExprListBuild => {
+                let mut items = IndexedOperands::<(u32, bool, Span)>::literal(execution, payload, tag == FullTag::ExprListBuild, call_span)?;
+                let mut result = Vec::with_capacity(items.len());
+                while let Some((expr, splice, span)) = items.next_operand()? {
+                    match self.eval_indexed_expr(execution, expr, slots, span)? {
+                        ControlFlow::Continue(value) => append_lowered_list_element(&mut result, value, splice, span)?,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                    append_lowered_list_element(&mut result, value, splice, span)?;
+                    }
                 }
-                indexed_finish(elements, call_span)?;
+                items.finish()?;
                 ControlFlow::Continue(LoweredValue::List(result))
             }
             FullTag::ExprEmptyMap => {
