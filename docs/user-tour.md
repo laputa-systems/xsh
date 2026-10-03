@@ -325,10 +325,10 @@ tar: Failed to open '/backups/app.tgz'
 runtime traceback
 executable: /usr/local/bin/xsh
 operation: result.propagate
-error: nonzero-exit: pipeline segment 0 `tar` exited with status 1
+error: nonzero-exit: `tar` exited with status 1
 cwd: /home/ops
 argv: tar -czf /backups/app.tgz /var/lib/app
-at backup.xsh:6:1-6:39
+at backup.xsh:2:3-2:26
 call path:
   1. proc backup at backup.xsh:6:1-6:39
 ```
@@ -841,8 +841,8 @@ returns `Result[Disk]` because `first()` fails on an empty list. A private
 `Result[Disk]` and callers use `?` or `??`. A proc whose body ends in a
 statement returns `Result[Unit]`. Exported functions, `main`, and recursive
 functions declare their return types, because those are promises other files
-depend on. So does a proc that mixes early `return Err(...)` exits with a
-value tail: write `-> Result[T]` and the checker holds both paths to it.
+depend on. A proc that mixes early `return Err(...)` exits with a value tail
+still infers `Result[T]`; its error type joins every failure path.
 
 Arguments can be positional, named (`over: 100`), or punned (`over:` passes
 the local `over`). Rest parameters (`...hosts: List[Str]`) collect the tail.

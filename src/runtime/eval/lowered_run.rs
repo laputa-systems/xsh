@@ -759,10 +759,17 @@ fn lowered_measured_command_record(
 
 fn read_host_path_bytes_vec(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
     std::fs::read(path)
-        .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::new("fs-read", format!("{}: {error}", path.display())).with_span(span))
 }
 
 fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
+    read_host_path_bytes_unnamed(path, span).map_err(|mut error| {
+        error.message = format!("{}: {}", path.display(), error.message);
+        error
+    })
+}
+
+fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
     let mut file = std::fs::File::open(path)
         .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
     let len = file
@@ -6047,12 +6054,12 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxInterfaces if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() {
+                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
                     lowered_result_err_value(RuntimeError::new(
                         "linux-unimplemented",
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                } else if !self.linux_dry_run() {
                     lowered_runtime_result(linux_module::interfaces(span), span)?
                 } else {
                     self.linux_dry_run_log("interfaces", &[], span)?;
@@ -6087,12 +6094,12 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxRoutes if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() {
+                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
                     lowered_result_err_value(RuntimeError::new(
                         "linux-unimplemented",
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                } else if !self.linux_dry_run() {
                     lowered_runtime_result(linux_module::routes(span), span)?
                 } else {
                     self.linux_dry_run_log("routes", &[], span)?;
@@ -6116,12 +6123,12 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxNetworkDump if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() {
+                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
                     lowered_result_err_value(RuntimeError::new(
                         "linux-unimplemented",
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                } else if !self.linux_dry_run() {
                     lowered_runtime_result(linux_module::network_dump(span), span)?
                 } else {
                     self.linux_dry_run_log("network_dump", &[], span)?;
@@ -7084,6 +7091,7 @@ impl Evaluator {
                     new_session: plan.new_session,
                     ignore_hup: plan.ignore_hup,
                 };
+                self.flush_shared_stdio();
                 match spawn_command(&invocation, options) {
                     Ok(started) => {
                         lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
@@ -8784,14 +8792,20 @@ impl Evaluator {
         values: NativeArgumentValues,
         span: Span,
     ) -> Result<Value, RuntimeError> {
-        if !self.linux_dry_run() && !self.linux_real() {
+        let real = self.linux_real() || self.linux_host_query(matches!(op,
+            RuntimeOp::LinuxRootDevice | RuntimeOp::LinuxMemInfo | RuntimeOp::LinuxModules
+                | RuntimeOp::LinuxDmesg | RuntimeOp::LinuxIsMountpoint | RuntimeOp::LinuxDiskUsage
+                | RuntimeOp::LinuxSysctlGet | RuntimeOp::LinuxFileAttrs | RuntimeOp::LinuxFileVersion
+                | RuntimeOp::LinuxLoopList | RuntimeOp::LinuxOpenFiles | RuntimeOp::LinuxBlockDevices
+                | RuntimeOp::LinuxBlkid | RuntimeOp::LinuxModinfo | RuntimeOp::LinuxPartitionTable));
+        if !self.linux_dry_run() && !real {
             return Ok(module_error(
                 "linux-unimplemented",
                 "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                 span,
             ));
         }
-        if self.linux_real() && !self.linux_dry_run() {
+        if real && !self.linux_dry_run() {
             return match op {
                 RuntimeOp::LinuxRootDevice => linux_module::root_device(span),
                 RuntimeOp::LinuxMemInfo => linux_module::meminfo(span),
@@ -10273,7 +10287,8 @@ impl Evaluator {
         bytes: bool,
         span: Span,
     ) -> Value {
-        match std::fs::File::open(self.host_path(&path)) {
+        let host_path = self.host_path(&path);
+        match std::fs::File::open(&host_path) {
             Ok(file) => {
                 let stream = if bytes {
                     StreamValue::from_live(
@@ -10294,7 +10309,7 @@ impl Evaluator {
                 };
                 Value::ok(Value::stream(stream))
             }
-            Err(error) => super::module_io_error("fs-read", error, span),
+            Err(error) => super::module_error("fs-read", &format!("{}: {error}", host_path.display()), span),
         }
     }
 
@@ -10811,6 +10826,7 @@ impl Evaluator {
         managed_options.apply_redirections = true;
         managed_options.spawn = options;
         self.trace_spawn_start(span, &invocation, options.detach || options.new_session);
+        self.flush_shared_stdio();
         match spawn_managed(&invocation, managed_options) {
             Ok(child) => {
                 let handle = self.process_handle_value(child, span);

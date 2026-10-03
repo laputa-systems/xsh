@@ -132,15 +132,23 @@ pure meminfo_failure(result: Result[LinuxMemInfo]) -> Str {
   }
 }
 
-test test_linux_text_entries_require_a_gate {
+test test_linux_read_only_queries_are_real_by_default_on_linux {
   # Both variables are emptied here so the test does not depend on the
-  # environment it runs in. Neither empties to an accepted true value, so both
-  # entries refuse before they open any host file, and the refusal names the
-  # variables that would open a gate.
+  # environment it runs in. Read-only host queries need no gate on Linux;
+  # elsewhere they refuse before opening any host file, and the refusal names
+  # the variables that would open a gate.
+  let on_linux = system.uname()?.sysname == "Linux"
   env XSH_LINUX_DRY_RUN="" XSH_LINUX_REAL="" {
-    test.error_kind(linux.meminfo(), "linux-unimplemented")?
-    test.error_kind(linux.modules(), "linux-unimplemented")?
-    assert "XSH_LINUX_REAL=1" in meminfo_failure(linux.meminfo())
+    if on_linux {
+      assert linux.meminfo()?.total > 0
+      let interfaces = linux.interfaces()? |> collect
+      assert interfaces |> any .name == "lo"
+    } else {
+      test.error_kind(linux.meminfo(), "linux-unimplemented")?
+      test.error_kind(linux.modules(), "linux-unimplemented")?
+      test.error_kind(linux.interfaces(), "linux-unimplemented")?
+      assert "XSH_LINUX_REAL=1" in meminfo_failure(linux.meminfo())
+    }
   } ?
 }
 

@@ -147,6 +147,16 @@ enum FrameContinuation {
         else_body: Option<u32>,
         span: Span,
     },
+    PatternIf {
+        branches: Vec<(u32, u32, Vec<usize>)>,
+        index: usize,
+        else_body: Option<u32>,
+        span: Span,
+    },
+    PatternWhile {
+        body: u32,
+        span: Span,
+    },
     ForItems {
         target: LoweredCompTarget,
         body: u32,
@@ -420,6 +430,7 @@ enum FrameWork {
         span: Span,
     },
     Loop { body: u32, span: Span },
+    PatternWhile { condition: u32, body: u32, captures: Vec<usize>, span: Span },
     Finish(StmtFlow),
     FinishError,
 }
@@ -1457,6 +1468,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.calls[index].work.push(FrameWork::Loop { body, span });
                 self.push_statement_block(index, body, span)
             }
+            FrameWork::PatternWhile { condition, body, captures, span } => {
+                self.evaluator.service_pending_signal(span)?;
+                if self.evaluator.shutting_down() { return Ok(()); }
+                self.calls[index].work.push(FrameWork::PatternWhile { condition, body, captures: captures.clone(), span });
+                self.open_pattern_scope(index, captures);
+                self.push_expr(index, condition, span, FrameContinuation::PatternWhile { body, span });
+                Ok(())
+            }
             FrameWork::Finish(flow) => self.finish_deferred_call(index, flow),
             FrameWork::FinishError => self.finish_error_deferred_call(index),
         }
@@ -1736,6 +1755,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 if let Some(body) = selected.or(else_body) {
                     self.push_statement_block(index, body, span)?;
                 }
+                Ok(())
+            }
+            // Pattern conditionals run on the frame, like `if`, so a `yield`
+            // in a branch suspends the producer that lexically contains it.
+            FullTag::StmtPatternIf => {
+                let (_, mut words) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let count = indexed_raw(&mut words, span)? as usize;
+                let mut branches = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let condition = indexed_raw(&mut words, span)?;
+                    let body = indexed_raw(&mut words, span)?;
+                    let captures = indexed_decode::<Vec<usize>>(&mut words, &self.calls[index].execution, span)?;
+                    branches.push((condition, body, captures));
+                }
+                indexed_finish(words, span)?;
+                let else_body = indexed_optional_raw(&mut payload, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.start_pattern_branch(index, branches, 0, else_body, span)
+            }
+            FullTag::StmtPatternWhile => {
+                let condition = indexed_raw(&mut payload, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let captures = indexed_decode::<Vec<usize>>(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.calls[index].work.push(FrameWork::PatternWhile { condition, body, captures, span });
                 Ok(())
             }
             FullTag::StmtFor | FullTag::StmtForRecord => {
@@ -2641,6 +2687,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         } else {
                             self.evaluator.frame_scratch.recycle_if_branches(branches);
                         }
+                    }
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+            },
+            FrameContinuation::PatternIf { branches, index: branch, else_body, span } => match value {
+                FrameValue::Value(value) => {
+                    if lowered_condition_bool(value, span)? {
+                        self.push_statement_block(index, branches[branch].1, span)?;
+                    } else {
+                        self.close_pattern_scope(index)?;
+                        self.start_pattern_branch(index, branches, branch + 1, else_body, span)?;
+                    }
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+            },
+            FrameContinuation::PatternWhile { body, span } => match value {
+                FrameValue::Value(value) => {
+                    if lowered_condition_bool(value, span)? {
+                        self.push_statement_block(index, body, span)?;
+                    } else {
+                        self.close_pattern_scope(index)?;
+                        let rearmed = self.calls[index].work.pop();
+                        debug_assert!(matches!(rearmed, Some(FrameWork::PatternWhile { .. })));
                     }
                 }
                 FrameValue::Break(value) => {
@@ -3962,6 +4035,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     | FrameWork::ForStrLines { .. }
                     | FrameWork::While { .. }
                     | FrameWork::Loop { .. }
+                    | FrameWork::PatternWhile { .. }
             )
         })
     }
@@ -4162,6 +4236,52 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls[index]
             .work
             .push(FrameWork::Value { value, next });
+    }
+
+    /// Opens the owned scope of one pattern condition and its body: the
+    /// captures clear and the scope closes when the work above them finishes
+    /// or unwinds.
+    fn open_pattern_scope(&mut self, index: usize, captures: Vec<usize>) {
+        let scope_id = self.evaluator.enter_owned_host_scope();
+        let defer_offset = self.calls[index].defers.len();
+        self.calls[index].block_scopes.push(scope_id);
+        self.calls[index].block_defer_offsets.push(defer_offset);
+        self.calls[index].work.push(FrameWork::Statements { statements: Vec::new(), complete_call: false, scope_id: Some(scope_id) });
+        self.calls[index].work.push(FrameWork::ClearSlots(captures));
+    }
+
+    /// Closes the scope `open_pattern_scope` left on top of the work stack
+    /// after a condition that did not match.
+    fn close_pattern_scope(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let Some(FrameWork::ClearSlots(captures)) = self.calls[index].work.pop() else {
+            unreachable!("pattern condition owns its capture cleanup");
+        };
+        for slot in captures { self.calls[index].slots[slot] = LoweredValue::Unit; }
+        let Some(FrameWork::Statements { statements, scope_id: Some(scope_id), .. }) = self.calls[index].work.pop() else {
+            unreachable!("pattern condition owns its scope");
+        };
+        self.evaluator.frame_scratch.recycle_statements(statements);
+        self.exit_block_scope(index, scope_id, true, CleanupFailureResources::Retain)
+    }
+
+    fn start_pattern_branch(
+        &mut self,
+        index: usize,
+        mut branches: Vec<(u32, u32, Vec<usize>)>,
+        branch: usize,
+        else_body: Option<u32>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let Some((condition, _, captures)) = branches.get_mut(branch) else {
+            return match else_body {
+                Some(body) => self.push_statement_block(index, body, span),
+                None => Ok(()),
+            };
+        };
+        let (condition, captures) = (*condition, std::mem::take(captures));
+        self.open_pattern_scope(index, captures);
+        self.push_expr(index, condition, span, FrameContinuation::PatternIf { branches, index: branch, else_body, span });
+        Ok(())
     }
 
     fn push_statement_block(

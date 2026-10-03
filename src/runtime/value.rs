@@ -1293,7 +1293,13 @@ impl StreamValue {
 
     pub(crate) fn next_live(&self, span: Span) -> Result<Option<Value>, RuntimeError> {
         match &self.source {
-            Some(source) => source.next(span),
+            // A host source failing mid-iteration (an unreadable directory
+            // under `fs.walk`, a read error under `lines()`) is an ordinary
+            // error at the pulling site, catchable like the opening call's.
+            Some(source) => source.next(span).map_err(|mut error| {
+                if error.abort.is_none() { error.propagated = true; }
+                error
+            }),
             None => Ok(None),
         }
     }
@@ -1693,22 +1699,30 @@ fn run_error_status_summary(status: &ProcessStatus) -> (String, String) {
             "process completed unsuccessfully".to_string(),
         );
     };
+    run_error_segment_summary(segment, status.segments.len() > 1)
+}
 
+/// Names a failed segment: a lone command by its target, a pipeline segment by
+/// its index and target.
+pub(crate) fn run_error_segment_label(segment: &crate::runtime::process::ProcessSegmentStatus, pipeline: bool) -> String {
+    let target = String::from_utf8_lossy(&segment.target);
+    if pipeline {
+        format!("pipeline segment {} `{target}`", segment.index)
+    } else {
+        format!("`{target}`")
+    }
+}
+
+pub(crate) fn run_error_segment_summary(segment: &crate::runtime::process::ProcessSegmentStatus, pipeline: bool) -> (String, String) {
+    let label = run_error_segment_label(segment, pipeline);
     if let Some(kind) = &segment.error_kind {
         let message = segment
             .error_message
             .clone()
             .unwrap_or_else(|| "process execution failed".to_string());
-        return (
-            kind.clone(),
-            format!(
-                "pipeline segment {} failed to execute: {message}",
-                segment.index
-            ),
-        );
+        return (kind.clone(), format!("{label} failed to execute: {message}"));
     }
 
-    let target = String::from_utf8_lossy(&segment.target);
     let status_text = match segment.kind {
         crate::runtime::process::ProcessSegmentStatusKind::Exit => segment.code.map_or_else(
             || "exited unsuccessfully".to_string(),
@@ -1720,7 +1734,7 @@ fn run_error_status_summary(status: &ProcessStatus) -> (String, String) {
         ),
         crate::runtime::process::ProcessSegmentStatusKind::Exec => "failed to execute".to_string(),
     };
-    let kind = if status.segments.len() > 1 {
+    let kind = if pipeline {
         "pipeline-failure"
     } else {
         match segment.kind {
@@ -1729,13 +1743,7 @@ fn run_error_status_summary(status: &ProcessStatus) -> (String, String) {
             crate::runtime::process::ProcessSegmentStatusKind::Exec => "exec-failure",
         }
     };
-    (
-        kind.to_string(),
-        format!(
-            "pipeline segment {} `{}` {}",
-            segment.index, target, status_text
-        ),
-    )
+    (kind.to_string(), format!("{label} {status_text}"))
 }
 
 #[cfg(test)]

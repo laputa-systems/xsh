@@ -282,9 +282,9 @@ impl Evaluator {
                     .as_mut()
                     .expect("a suspended producer owns its frame")
                     .start(scope_id);
-                let (frame_kind, enter_kind) = match producer.kind {
-                    LoweredFunctionKind::Pure => (TracebackFrameKind::Pure, TraceKind::PureEnter),
-                    LoweredFunctionKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
+                let enter_kind = match producer.kind {
+                    LoweredFunctionKind::Pure => TraceKind::PureEnter,
+                    LoweredFunctionKind::Proc => TraceKind::ProcEnter,
                 };
                 if self.trace_enabled {
                     let name = producer.function.display_name();
@@ -296,12 +296,6 @@ impl Evaluator {
                         TracePayload::None,
                     );
                 }
-                self.call_stack.push(TracebackFrame {
-                    kind: frame_kind,
-                    name: producer.function.traceback_name(),
-                    definition_span: Some(producer.definition_span),
-                    call_span: Some(producer.call_span),
-                });
             }
             // The consumer may be inside scopes of its own, so the body's scopes are
             // reattached for this pull and detached again if it suspends. A finished
@@ -334,11 +328,15 @@ impl Evaluator {
                 RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
                     .with_span(span)
             })?;
+            // The body is on the call path only while it runs: a suspended
+            // producer must not appear in tracebacks of its consumer.
+            self.push_producer_traceback_frame(producer);
             let mut frames = ExplicitFrames::new(self, program.as_ref());
             let step = frames.run_producer(call);
             self.indexed_program = previous_program;
             match step {
                 ProducerStep::Yielded { value, state } => {
+                    self.call_stack.pop();
                     // The suspension point decides which scopes the body has open,
                     // which may be more than it had at the start of this pull.
                     let open = state.open_scopes().len();
@@ -347,6 +345,7 @@ impl Evaluator {
                     return Ok(ScriptStreamStep::Yielded(value.into_value()));
                 }
                 ProducerStep::Delegated { value, span, state } => {
+                    self.call_stack.pop();
                     self.detach_owned_host_scopes(state.open_scopes().len());
                     producer.frame = Some(state);
                     match DelegatedSource::new(value, span) {
@@ -424,11 +423,26 @@ impl Evaluator {
                 .with_span(span)
         })?;
         let previous_program = self.indexed_program.replace(Arc::clone(&program));
+        self.push_producer_traceback_frame(producer);
         let mut frames = ExplicitFrames::new(self, program.as_ref());
-        // The cancelled body's `finish_call` closes the scope.
+        // The cancelled body's `finish_call` closes the scope and pops the
+        // traceback frame.
         let outcome = frames.run_cancelled_producer(call, span);
         self.indexed_program = previous_program;
         outcome
+    }
+
+    fn push_producer_traceback_frame(&mut self, producer: &ScriptProducer) {
+        let kind = match producer.kind {
+            LoweredFunctionKind::Pure => TracebackFrameKind::Pure,
+            LoweredFunctionKind::Proc => TracebackFrameKind::Proc,
+        };
+        self.call_stack.push(TracebackFrame {
+            kind,
+            name: producer.function.traceback_name(),
+            definition_span: Some(producer.definition_span),
+            call_span: Some(producer.call_span),
+        });
     }
 
     /// Poll the retained source without recursively entering another producer.
