@@ -13,11 +13,11 @@ core command scripts, examples, docs, and tests.
 
 Always read:
 
-- `docs/CHAPTER-01-why-xsh.md`
+- `docs/user-tour.md`
 - the nearest code and tests for the requested change
 
 Use the documentation-routing policy below, `docs/ARCHITECTURE.md`, and
-`docs/TEST-MAP.md` to choose the task-specific contract, owner files, and tests
+`docs/TESTING.md` to choose the task-specific contract, owner files, and tests
 before editing.
 
 ## Implementation Rules
@@ -26,8 +26,8 @@ before editing.
 - Preserve useful comments and do not add banner or separator comments.
 - Do not add dependencies unless there is a clear need and no local equivalent.
 - Update the closest tests, examples, and `docs/` markdown for the behavior you
-  changed. Do not rebuild or edit generated documentation unless the user
-  explicitly asks; it creates large generated churn.
+  changed. Never hand-edit generated documentation: regenerate it with
+  `make docs`; `make check` fails on stale generated docs.
 - Prefer an `xsht` native test first for XSH behavior: add or extend a
   `test NAME { ... }` declaration under `tests/**/*.xsh` or `showcase/tests/**/*.xsh` when the
   contract can be expressed through XSH, using `test.run_script`,
@@ -55,10 +55,11 @@ before editing.
 
 ## Documentation Routing
 
-- Put language contracts in `docs/SPEC.md`, OS behavior in `docs/SPEC-OS.md`,
-  streams in `docs/STREAMS.md`, JSON boundaries in `docs/JSON.md`, API details
-  in `xsht api`, architecture in
-  `docs/ARCHITECTURE.md`, and testing in `docs/TEST-MAP.md`.
+- Put language contracts (including OS, streams, JSON, and interactive
+  behavior) in `docs/SPEC.md`, API details in the registry behind `xsht api`,
+  architecture and invariants in `docs/ARCHITECTURE.md`, test gates in
+  `docs/TESTING.md`, tooling in `docs/XSHT.md`, and the system-report contract
+  in `core/SYSTEM-REPORT.md`.
 - Do not add prose that restates obvious syntax or API signatures. Prefer exact
   symbols, module paths, and test names; document non-obvious constraints and
   rationale; update the canonical owner instead of creating another guide.
@@ -66,16 +67,15 @@ before editing.
 ## Verification
 
 Choose the narrowest useful command first, then run the full relevant gate from
-`docs/TEST-MAP.md`. Run native XSH test suites on release binaries: build them
+`docs/TESTING.md`. Run native XSH test suites on release binaries: build them
 with `cargo build --release -p xsh --bins -p xsht --bin xsht`, then run
 `target/release/xsht test ...`. They run several times faster than debug (the
 stdlib suite takes 6 s instead of 34 s), and `xsht` runs the sibling `xsh` from
-its own directory. `docs/TEST-MAP.md` commands that name `target/debug/xsht`
-work the same with `target/release/xsht`. Use debug builds for Rust
+its own directory. Use debug builds for Rust
 `cargo test` gates and quick compile checks.
 Build the exact binary or package needed for the task instead of using bare
 `cargo build --release`: the `xsh`, `xshi`, and `xsht` packages own the
-user-facing binaries, while the root package also owns seven `xsh-test-*`
+user-facing binaries, while the root package also owns the `xsh-test-*`
 helper binaries and the `xsh-frontend-stats` profiling tool. Do not use the
 `dist` profile for agent work; it is reserved for CI release packaging.
 
@@ -84,7 +84,7 @@ processes running after a lane finishes.
 
 All Linux support goes through the `Dockerfile.test` environment. Linux builds,
 tests, and verification run in the image that file defines (`xsh-test`), driven
-by `xsh dev internal test-linux` or `xsh dev internal test-linux-ci`; the
+by `cargo dev test linux` or `cargo dev test linux --ci`; the
 target is `aarch64-unknown-linux-musl` with the flags in
 `dev/targets.xsh::docker_test_env`. Do not substitute another Linux toolchain,
 image, or libc: the container pins the compiler, the musl CRT objects, and the

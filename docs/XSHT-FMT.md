@@ -1,266 +1,63 @@
 # XSHT Formatter Design
 
-`xsht fmt` makes ordinary XSH source readable without requiring authors to
-hand-tune every line. It is a normalizing formatter, not a byte-preserving
-printer: syntax and semantic structure come from the AST, while comments,
-source spans, and meaningful layout clues come from the CST.
+`xsht fmt` is a normalizing formatter, not a byte-preserving printer. The AST
+supplies semantic shape and precedence; the CST supplies comments, exact spans,
+and layout clues; a document layer (`Doc`, `DocRenderer` in
+`crates/xsht/src/format.rs`) chooses flat or broken layout. The language
+contract stays in `docs/SPEC.md`.
 
-The formatter owns layout. The language contract remains in `docs/SPEC.md`.
-This document records the formatter's design rationale, implementation handles,
-verification contract, and intentionally deferred work.
-
-## Design Philosophy
-
-Beautiful output has a few practical properties:
-
-- related syntax stays visually together;
-- repeated structures use a consistent shape;
-- breaks happen at semantic boundaries;
-- nested structures have predictable indentation;
-- blank lines separate ideas instead of reacting to line width;
-- comments remain attached to the construct they explain;
-- output parses, checks, and is idempotent;
-- indivisible literals and comments may exceed the width target rather than
-  being split into misleading fragments.
-
-The formatter may normalize layout. Original layout is a preference signal, not
-an unconditional command. Source intent wins when flat and broken forms are
-both readable, but comments, syntax safety, semantic grouping, and width remain
-stronger constraints.
-
-Indentation of a multiline record must preserve the bytes inside nested string,
-path, glob, formatted, and byte literals, including whitespace before a closing
-delimiter. `Writer::write_multiline_inline` uses literal token spans to distinguish
-record layout from literal contents. `test_fmt_nested_multiline_string_preserves_value`
-checks execution before and after formatting and requires the result to be stable.
-
-The design specifically avoids these failure modes:
-
-- collapsing a deliberately multiline `if` or `match` because its flat form
-  happens to fit;
-- collapsing a multiline call argument list into a dense line;
-- losing authored structure in list and map comprehensions;
-- breaking a method chain inside an argument instead of between calls;
-- mixing compact and expanded sibling records in one broken collection;
-- leaving nested records or checksum lists dense inside an expanded parent;
-- adding blank lines merely because a neighboring statement is multiline;
-- splitting or otherwise disguising long URLs, paths, predicates, and generated
-  literals that are inherently difficult to break.
-
-## Implementation Handles
-
-| Concern | Symbols | Owner and coverage |
+| Concern | Symbols | Owner |
 |---|---|---|
-| formatter entry and output | `Formatter`, `FormatOutput`, `format_files` | `crates/xsht/src/format.rs`, `crates/xsht/src/cli/fmt.rs`; `crates/xsht/tests/cli.rs` |
-| source-faithful input | `SyntaxTree`, `SyntaxTree::from_token_table`, `apply_cst_guarded_edits` | `src/syntax/cst.rs`, `crates/xsht/src/edit.rs`; CST and formatter tests |
-| layout decisions | `canonical_parens_when_empty`, `expr_precedence`, `needs_top_level_blank` | `src/syntax/node.rs`, `crates/xsht/src/format.rs`; `tests/syntax.rs` |
-| document rendering | `Doc`, `DocRenderer`, `prefer_broken` | `crates/xsht/src/format.rs`; formatter layout tests |
-| disk-backed corpus | `test_fmt_fixture`, `assert_fmt_fixture` | `tests/xsh/formatter.xsh`, `tests/fixtures/fmt` |
+| entry and output | `Formatter`, `format_files` | `crates/xsht/src/format.rs`, `crates/xsht/src/cli/fmt.rs` |
+| source-faithful input | `SyntaxTree`, `apply_cst_guarded_edits` | `src/syntax/cst.rs`, `crates/xsht/src/edit.rs` |
+| layout decisions | `canonical_parens_when_empty`, `needs_top_level_blank`, `prefer_broken` | `src/syntax/node.rs`, `crates/xsht/src/format.rs` |
+| equivalence check | `verify_formatted_output` | `crates/xsht/src/format_equivalence.rs` |
 
-These names are the retrieval handles for formatter work. The visual policies
-below are implementation policy, not an alternate syntax specification.
+## Policy
 
-## Source Representations
+- Source intent breaks ties. When flat and broken forms are both readable, keep
+  the author's choice (control-flow expressions, call arguments,
+  comprehensions, collections, method chains). Do not preserve accidental
+  cramped or one-token-per-line layout.
+- Break at semantic boundaries, in this order: between chained calls, call
+  arguments, record fields, collection items, comprehension clauses, pipeline
+  stages; inside nested expressions only as a last resort.
+- Broken argument lists put one argument per line with a trailing comma. Method
+  chains keep the first call on the receiver and continue with leading-dot lines
+  that still parse as one expression.
+- Once a collection breaks, similar siblings share a shape, and nested
+  collections expand rather than leave a dense island inside a broken parent.
+- Pipeline stages use a two-space continuation. Blank lines mark sections,
+  declarations, and multi-line control-flow statements, decided from the
+  formatted output so the first and second passes agree.
+- Comments are layout constraints. Leading comments stay leading, trailing
+  comments stay with their statement, and nested comments block AST-only
+  regeneration. `# fmt: skip` preserves the next statement byte-for-byte.
+- Strings, paths, comments, and other indivisible tokens are never split;
+  they may exceed `format.line-width` (from the nearest `xsht-config.ini`,
+  default 120). Multi-line literal contents are never reindented.
+- Width is measured in characters; there is no display-column policy and no
+  second layout-preference setting until a real source case needs one.
 
-The AST and CST have different jobs.
+## Invariants
 
-The AST is semantic. It supplies expression shape, precedence, declarations,
-and checked program structure. `Formatter` uses it to choose safe syntax and
-to decide which constructs can be rendered compactly.
+- Output parses without diagnostics and checks without new checker diagnostics.
+- Output reparses to the input's syntax tree, ignoring positions.
+  `verify_formatted_output` compares canonical walks and returns a
+  `format-equivalence` error instead of writing, for both `fmt` and
+  `lint --fix`. Groupings the AST drops are restored where the parser needs
+  them.
+- Formatting is idempotent.
+- Comments are never duplicated or dropped; `fmt: skip` source is preserved.
+- Expression continuations never become separate statements.
+- Lint diagnostics are unchanged by formatting (`docs/XSHT.md`).
 
-The CST is source-faithful. It retains tokens, comments, whitespace, skipped
-source gaps, delimiters, interpolation groups, and exact source spans. The
-formatter uses it to answer source-fidelity questions:
+## Tests
 
-- whether a construct contains comments;
-- which original tokens and trivia belong to a range;
-- whether a source-shaped group was intentionally multiline;
-- where leading and trailing comments attach;
-- whether a `# fmt: skip` statement can be copied byte-for-byte.
-
-The document layer sits between those representations. The AST decides what a
-construct means, the CST supplies source intent and comment constraints, and
-the document renderer chooses flat or broken layout.
-
-## Document Model
-
-`Doc` and `DocRenderer` in `crates/xsht/src/format.rs` provide the layout layer.
-The useful primitives are text, hard and soft lines, indentation, concatenation,
-and groups with flat and broken alternatives. A group can set `prefer_broken`
-when the original source or the construct policy requires preserving a readable
-multiline shape even if its flat form would fit.
-
-Groups make nested constructs decide independently. This prevents one long call
-from expanding every small nested call, while allowing an expanded collection
-to expand nested records when a compact island would make the parent harder to
-read. Indentation follows the enclosing construct rather than accumulated string
-state, and the renderer measures the same text that it emits.
-
-## Layout Policies
-
-### Source intent as a tie-breaker
-
-When flat and broken forms are both acceptable, prefer the form the author
-already used. This applies especially to control-flow expressions, call
-argument lists, comprehensions, records and lists, and multiline method chains.
-Do not preserve accidental one-token-per-line formatting, cramped layouts, or
-inconsistent sibling shapes merely because the source used them.
-
-### Semantic break points
-
-When a construct must break, preferred boundaries are:
-
-1. between method-chain calls;
-2. between call arguments;
-3. between record fields;
-4. between collection items;
-5. before or after comprehension clauses;
-6. between pipeline stages;
-7. inside nested expressions only when no better boundary exists.
-
-Strings, paths, comments, interpolation text, and other indivisible tokens are
-not split merely to satisfy the width target.
-
-### Calls and method chains
-
-An authored multiline argument list remains multiline when its breaks occur
-between arguments. Broken argument lists use one argument per line and a
-trailing comma. Nested calls make their own decisions.
-When a call has one record argument, a record expanded for width can stay
-inside the call's parentheses if the resulting lines fit. The first and second
-formatting passes must choose the same shape (`Writer::write_call_args`).
-
-Long method chains keep the first call attached to its receiver and put later
-calls on indented leading-dot lines. The emitted continuation must parse as one
-expression rather than separate statements.
-
-### Records, lists, and comprehensions
-
-Compact records and lists remain compact when they fit and are not source-shaped
-as multiline. Once a collection is broken, structurally similar siblings use a
-consistent shape. Nested records and collections expand when leaving them
-compact would create a dense island inside an already broken parent.
-
-Multiline comprehensions use stable continuation lines for the expression, the
-`for` clause, and the optional `if` clause. Their closing delimiter gets its own
-line when the syntax permits it. Trailing `?` expressions and pipeline iterables
-remain part of the same expression across those breaks.
-
-### Pipelines and control flow
-
-Pipeline stages use the existing two-space continuation convention. Nested stage
-blocks indent relative to the stage, and the same continuation style composes
-with calls, comprehensions, and method chains.
-
-Authored multiline `if` and `match` expressions keep their readable branch
-shape. Automatically broken expressions use the corresponding statement layout;
-multiline expression matches put one arm per line with trailing commas.
-
-### Blank lines
-
-Blank lines express logical sections, declarations, major control-flow
-constructs, or an authored blank line. A multiline call, collection, pipeline,
-or control-flow expression does not create a blank line merely because it uses
-more than one output line. `needs_top_level_blank` owns this top-level section
-policy. Inside a block, an `if`, `match`, `for`, `while`, `with`, or `loop`
-statement whose formatted output spans several lines is followed by one blank
-line; the decision uses the formatted output, not the authored layout, so a
-one-line `if c { return x }` that the formatter expands gets the same blank
-line on the first pass as on later passes.
-
-### Comments and `fmt: skip`
-
-Comments are layout constraints, not ordinary text. Leading comments remain
-leading comments, same-line trailing comments stay with their complete
-statement, and nested comments prevent AST-only regeneration unless the
-formatter can deliberately reattach them.
-
-`# fmt: skip` applies to the next statement and preserves that statement's raw
-source, including a same-line trailing comment. The directive itself remains
-in the formatted output. Authored blank lines after a trailing comment are
-kept as one blank line. Comments between call arguments or collection items
-are outside the language grammar; `docs/SPEC.md` defines comments at statement
-boundaries.
-
-## Configuration
-
-`format.line-width` from the nearest `xsht-config.ini` controls the layout target;
-the default is 120 columns. The target is not a hard maximum. Unbreakable
-strings, paths, comments, and `fmt: skip` regions may exceed it.
-
-The nearest configuration behavior is covered by
-`crates/xsht/tests/cli.rs::fmt_uses_nearest_xsht_config_line_width`. Formatter
-policy does not add a second layout-preference configuration surface until the
-structural model needs one.
-
-## Beauty Corpus
-
-The curated disk-backed corpus is one annotated source file at
-`tests/fixtures/fmt/beauty.xsh` with one checked-in golden at
-`tests/fixtures/fmt/beauty.expected.xsh`. Its annotated sections cover:
-
-- positional, named, and spliced call arguments, including multiline calls;
-- method chains;
-- source-shaped lists and comprehensions;
-- sibling and nested collection expansion;
-- `if` and `match` expressions, including nested call arguments;
-- pipeline stage blocks and multiline source with result propagation;
-- leading, trailing, nested, delimiter-adjacent, and `fmt: skip` comments;
-- multiple authored blank lines normalized to one;
-- formatted strings, long URLs, paths, and generated-code-like literals.
-
-`tests/xsh/formatter.xsh::test_fmt_fixture` copies the source to a temporary
-file, runs `xsht fmt`, compares the golden output, runs `xsht check`, and runs
-`xsht fmt --check` to verify idempotency through the CLI. Keep the fixture
-monolithic and add clearly annotated sections so a layout regression remains
-easy to understand without maintaining a directory of tiny files.
-
-When available, the package corpus at `../packages` remains a useful broad
-stress test for long metadata records, generated source lists, nested
-comprehensions, method chains, and source-shaped calls. It is an integration
-corpus, not a substitute for small annotated sections with one intentional
-golden.
-
-Use `tests/syntax.rs` for a narrow formatter unit contract and add an annotated
-section to `tests/fixtures/fmt/beauty.xsh` when the source shape or CLI rewrite
-path is part of the behavior.
-
-## Verification Invariants
-
-Formatter changes preserve these invariants:
-
-- formatted output has no parser diagnostics;
-- formatted output reparses to the input's syntax tree, ignoring positions.
-  `verify_formatted_output` compares `format_equivalence::canonical` walks and
-  returns a `format-equivalence` error instead of the output, so `fmt` and
-  `lint --fix` never write a regrouped program. Groupings the AST drops are
-  restored where the parser needs them: an operand ending in `?` before `.`,
-  `?`, `[`, or `..`; a command form used as an operand; a record arm body; and
-  a statement that starts with an operator after an expression statement;
-- checked output has no new checker diagnostics;
-- formatting is idempotent;
-- comments are neither duplicated nor silently dropped;
-- `fmt: skip` source is byte-preserved;
-- breakable tokens respect the configured width target;
-- unbreakable literals and comments may exceed that target;
-- expression continuations cannot become separate statements;
-- source-shaped multiline constructs do not collapse without a policy reason.
-
-The narrow Rust gate is `cargo test --test integration syntax::`. The CLI corpus
-gate is
-`target/debug/xsht test --exact tests/xsh/formatter.xsh::test_fmt_fixture`
-after `cargo build -p xsht --bin xsht`; the broader native-test command is `xsht test`.
-
-## Current Limits
-
-`Doc` and `DocRenderer` cover call-argument layout, including named and spliced
-arguments. The new corpus cases and comment repair do not change another
-construct family's layout policy, so a further document-model migration would
-only add machinery. Keep direct emission for those families until an observed
-layout failure calls for a different policy.
-
-Width accounting uses character counts. The current source inventory has tabs
-only inside multiline strings, wide characters only in short benchmark
-literals, and no combining marks. A display-column policy needs a real source
-case before changing the renderer. The formatter does not expose a second
-layout-preference configuration surface or a byte-preserving mode.
+The curated corpus is one annotated file, `tests/fixtures/fmt/beauty.xsh`, with
+one golden, `tests/fixtures/fmt/beauty.expected.xsh`. Add an annotated section
+there when a source shape or the CLI rewrite path is part of the behavior;
+`tests/xsh/formatter.xsh::test_fmt_fixture` formats a copy, compares the golden,
+then runs `xsht check` and `xsht fmt --check`. Narrow unit contracts go in
+`tests/syntax.rs` (`cargo test --test integration syntax::`). The sibling
+`../packages` corpus, when present, is a broad stress test, not a golden.
