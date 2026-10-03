@@ -743,6 +743,16 @@ propagated errors:
 
 ## Tests And Examples
 
+`crates/xsh-fuzz` is the soundness fuzzer (library and `xsh-fuzz` binary). It
+depends only on the in-tree crates: `generator` builds well-typed programs from
+a seeded PRNG, `eval` is an independent reference evaluator for that fragment,
+`methods` pins the generator's method shapes to `xsh-registry`, `probes`
+derives a calling-convention corpus from the registry, `mutate` turns generated
+and corpus programs into ill-formed ones, `harness` checks in-process and runs
+programs in a sandboxed child (`xsh-fuzz exec`), and `shrink` minimizes
+failures. Generated programs run their whole body under `proc fuzz_main() []`,
+so the checker proves them free of host effects before anything executes.
+
 Runtime fixtures live under `tests/fixtures/runtime`. Syntax and semantic
 fixtures live under `tests/fixtures/sema` and `tests/fixtures/syntax`.
 Executable tutorial examples live in `examples/`. Larger standalone programs

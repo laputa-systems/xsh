@@ -1830,6 +1830,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xsh-fuzz"
+version = "0.0.1"
+dependencies = [
+ "rustc-hash",
+ "rustix",
+ "tempfile",
+ "xsh",
+ "xsh-registry",
+ "xsht",
+]
+
+[[package]]
 name = "xsh-net"
 version = "0.0.1"
 dependencies = [

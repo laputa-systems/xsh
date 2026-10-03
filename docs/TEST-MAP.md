@@ -35,6 +35,35 @@ integration cli_workers_check_and_lint_nested_schema -- --nocapture`. The
 subprocess fixture checks and lints nested named schema constructors with
 `RUST_MIN_STACK` absent, and verifies that both commands leave the source intact.
 
+## Soundness fuzzing
+
+"Well-typed programs do not go wrong" is a tested property.
+`cargo test -p xsh-fuzz --test soundness` runs it at a fixed seed set:
+generated programs must check, prepare, run without a runtime or internal
+error, and print exactly what `xsh_fuzz::eval` predicts; registry probes the
+checker accepts must run without internal or runtime type errors; mutants of
+generated and corpus programs must get ordinary diagnostics with valid spans;
+`oracle_methods_match_the_registry` fails when a registry signature drifts from
+the generator's method table. A failure prints a minimized program.
+
+`make fuzz` (`xsh-fuzz all --duration 300`, release) explores fresh seeds and
+is not part of `make check`. `xsh-fuzz check` never executes code: it checks
+generated programs and mutants of them and of `tests/`, `core/`, `dev/`,
+`showcase/`, and `examples/` (read only), and every few iterations requires
+`xsht fmt` to accept a generated program, reach a fixed point, keep it checking,
+and leave its `xsht lint` codes unchanged. `xsh-fuzz run` executes generated
+programs, each in a child with a cleared environment, a private temporary
+working directory, CPU, file-size, data, and descriptor limits, a wall-clock
+timeout, and an output cap; the programs themselves contain no host API and are
+checked under an empty effect clause. Options: `--seed`, `--iterations`,
+`--duration`, `--jobs` (default half the CPUs, at most 8), `--timeout`,
+`--no-shrink`. Minimized reproducers go to `target/fuzz/failures/<seed>.xsh`
+with the failure as a leading comment; `xsh-fuzz reduce FILE` minimizes a
+frontend defect in any file, `xsh-fuzz print SEED` shows a generated program and
+its expected output, and `xsh-fuzz probes` runs the registry corpus alone.
+Add a focused native regression next to the owning feature for every real
+defect it finds.
+
 ## Lint and format invariance
 
 `cargo test -p xsht --test integration lint_format_invariance::` copies each
