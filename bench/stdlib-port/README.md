@@ -222,7 +222,7 @@ reverted after measured gate failures; the `linux.rfkill_list` prototype was
 reverted without a script-versus-native measurement. B10 later measured its
 retained native path with a correct fixture, as described below. The port is
 accepted only when its cumulative B0 gates and the relevant tests in
-`docs/TEST-MAP.md` pass. Retained G boundaries stay native until their own
+`docs/TESTING.md` pass. Retained G boundaries stay native until their own
 measurements justify a different disposition.
 
 ## Reproducing
