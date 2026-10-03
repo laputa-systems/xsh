@@ -7923,8 +7923,19 @@ impl Evaluator {
                             match value {
                                 LoweredValue::ResultOk(_) => Ok(StmtFlow::None),
                                 value @ LoweredValue::ResultErr(_) => {
+                                    // The statement carries no span of its own; the failing
+                                    // command's span locates the traceback, not the call
+                                    // site of the enclosing function.
+                                    let span = match &value {
+                                        LoweredValue::ResultErr(error) => match error.as_ref() {
+                                            Value::RunError(error) => error.span,
+                                            Value::Error(error) => error.span,
+                                            _ => None,
+                                        },
+                                        _ => None,
+                                    }.unwrap_or(call_span);
                                     let value =
-                                        self.lowered_question_propagation_value(value, call_span)?;
+                                        self.lowered_question_propagation_value(value, span)?;
                                     Ok(StmtFlow::Propagate(value))
                                 }
                                 other => Err(RuntimeError::new(

@@ -363,15 +363,13 @@ pub(crate) fn completion_error(
     {
         return Some(RunError::new(
             if status.segments.len() > 1 { "pipeline-failure" } else { "unexpected-exit" },
-            format!("pipeline segment {} `{}` exited with unaccepted status {}", segment.index,
-                String::from_utf8_lossy(&segment.target), segment.code.unwrap_or_default()),
+            format!("{} exited with unaccepted status {}",
+                crate::runtime::value::run_error_segment_label(segment, status.segments.len() > 1),
+                segment.code.unwrap_or_default()),
         ).with_status(status.clone()));
     }
-    let mut error = RunError::from_status(ProcessStatus::from_segments(vec![segment.clone()]));
-    if status.segments.len() > 1 && segment.error_kind.is_none() {
-        error.kind = "pipeline-failure".to_string();
-    }
-    Some(error.with_status(status.clone()))
+    let (kind, message) = crate::runtime::value::run_error_segment_summary(segment, status.segments.len() > 1);
+    Some(RunError::new(kind, message).with_status(status.clone()))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -759,10 +759,17 @@ fn lowered_measured_command_record(
 
 fn read_host_path_bytes_vec(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
     std::fs::read(path)
-        .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::new("fs-read", format!("{}: {error}", path.display())).with_span(span))
 }
 
 fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
+    read_host_path_bytes_unnamed(path, span).map_err(|mut error| {
+        error.message = format!("{}: {}", path.display(), error.message);
+        error
+    })
+}
+
+fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
     let mut file = std::fs::File::open(path)
         .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
     let len = file
@@ -10274,7 +10281,8 @@ impl Evaluator {
         bytes: bool,
         span: Span,
     ) -> Value {
-        match std::fs::File::open(self.host_path(&path)) {
+        let host_path = self.host_path(&path);
+        match std::fs::File::open(&host_path) {
             Ok(file) => {
                 let stream = if bytes {
                     StreamValue::from_live(
@@ -10295,7 +10303,7 @@ impl Evaluator {
                 };
                 Value::ok(Value::stream(stream))
             }
-            Err(error) => super::module_io_error("fs-read", error, span),
+            Err(error) => super::module_error("fs-read", &format!("{}: {error}", host_path.display()), span),
         }
     }
 

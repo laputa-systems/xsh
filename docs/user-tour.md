@@ -325,10 +325,10 @@ tar: Failed to open '/backups/app.tgz'
 runtime traceback
 executable: /usr/local/bin/xsh
 operation: result.propagate
-error: nonzero-exit: pipeline segment 0 `tar` exited with status 1
+error: nonzero-exit: `tar` exited with status 1
 cwd: /home/ops
 argv: tar -czf /backups/app.tgz /var/lib/app
-at backup.xsh:6:1-6:39
+at backup.xsh:2:3-2:26
 call path:
   1. proc backup at backup.xsh:6:1-6:39
 ```

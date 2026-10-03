@@ -501,7 +501,22 @@ pub(crate) fn rooted_write(
         .map_err(|error| RuntimeError::new("fs-root-write", error.to_string()).with_span(span))
 }
 
+/// Names the path an I/O failure happened at; `std::io::Error` messages do not.
+fn name_error_path<T>(shown: &str, result: Result<T, RuntimeError>) -> Result<T, RuntimeError> {
+    result.map_err(|mut error| {
+        if error.kind.starts_with("fs-") && !error.message.contains(shown) {
+            error.message = format!("{shown}: {}", error.message);
+        }
+        error
+    })
+}
+
 pub(crate) fn write_path(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, write_path_unnamed(path, data, span))
+}
+
+fn write_path_unnamed(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -1036,6 +1051,16 @@ pub(crate) fn list_filesystem(
     ordered: bool,
     span: Span,
 ) -> Result<StreamValue, RuntimeError> {
+    let shown = root.display().to_string();
+    name_error_path(&shown, list_filesystem_unnamed(root, stat, ordered, span))
+}
+
+fn list_filesystem_unnamed(
+    root: PathBuf,
+    stat: bool,
+    ordered: bool,
+    span: Span,
+) -> Result<StreamValue, RuntimeError> {
     let read_dir = std::fs::read_dir(&root)
         .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
     if !ordered {
@@ -1107,6 +1132,11 @@ fn direct_directory_entry_value(
 }
 
 pub(crate) fn disk_usage(path: PathBuf, span: Span) -> Result<i64, RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, disk_usage_unnamed(path, span))
+}
+
+fn disk_usage_unnamed(path: PathBuf, span: Span) -> Result<i64, RuntimeError> {
     let metadata = std::fs::symlink_metadata(&path)
         .map_err(|error| RuntimeError::new("fs-du", error.to_string()).with_span(span))?;
     let mut size = metadata.len() as i64;
@@ -1124,6 +1154,11 @@ pub(crate) fn disk_usage(path: PathBuf, span: Span) -> Result<i64, RuntimeError>
 }
 
 pub(crate) fn metadata(path: PathBuf, span: Span) -> Result<Value, RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, metadata_unnamed(path, span))
+}
+
+fn metadata_unnamed(path: PathBuf, span: Span) -> Result<Value, RuntimeError> {
     let metadata = std::fs::symlink_metadata(&path)
         .map_err(|error| RuntimeError::new("fs-metadata", error.to_string()).with_span(span))?;
     fs_entry_record(&path, &metadata).map_err(|error| error.with_span(span))
@@ -1135,6 +1170,11 @@ pub(crate) fn cd_target_is_dir(path: &Path) -> std::io::Result<bool> {
 }
 
 pub(crate) fn exists(path: PathBuf, span: Span) -> Result<bool, RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, exists_unnamed(path, span))
+}
+
+fn exists_unnamed(path: PathBuf, span: Span) -> Result<bool, RuntimeError> {
     match std::fs::symlink_metadata(&path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
@@ -1460,6 +1500,16 @@ pub(crate) fn copy_file(
     overwrite: bool,
     span: Span,
 ) -> Result<(), RuntimeError> {
+    let shown = format!("{} -> {}", source.display(), dest.display());
+    name_error_path(&shown, copy_file_unnamed(source, dest, overwrite, span))
+}
+
+fn copy_file_unnamed(
+    source: PathBuf,
+    dest: PathBuf,
+    overwrite: bool,
+    span: Span,
+) -> Result<(), RuntimeError> {
     let source_metadata = std::fs::symlink_metadata(&source)
         .map_err(|error| RuntimeError::new("fs-copy", error.to_string()).with_span(span))?;
     if !source_metadata.file_type().is_file() {
@@ -1540,6 +1590,16 @@ pub(crate) fn rename_path(
     overwrite: bool,
     span: Span,
 ) -> Result<(), RuntimeError> {
+    let shown = format!("{} -> {}", source.display(), dest.display());
+    name_error_path(&shown, rename_path_unnamed(source, dest, overwrite, span))
+}
+
+fn rename_path_unnamed(
+    source: PathBuf,
+    dest: PathBuf,
+    overwrite: bool,
+    span: Span,
+) -> Result<(), RuntimeError> {
     match std::fs::symlink_metadata(&dest) {
         Ok(_) if !overwrite => {
             return Err(RuntimeError::new("fs-rename", "destination exists").with_span(span));
@@ -1564,6 +1624,16 @@ pub(crate) fn remove_path_with_policy(
     missing_ok: bool,
     span: Span,
 ) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, remove_path_with_policy_unnamed(path, recursive, missing_ok, span))
+}
+
+fn remove_path_with_policy_unnamed(
+    path: PathBuf,
+    recursive: bool,
+    missing_ok: bool,
+    span: Span,
+) -> Result<(), RuntimeError> {
     let result = match std::fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_dir() && recursive => std::fs::remove_dir_all(&path),
         Ok(metadata) if metadata.is_dir() => std::fs::remove_dir(&path),
@@ -1575,6 +1645,16 @@ pub(crate) fn remove_path_with_policy(
 }
 
 pub(crate) fn mkdir_path(
+    path: PathBuf,
+    parents: bool,
+    mode: Option<u32>,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, mkdir_path_unnamed(path, parents, mode, span))
+}
+
+fn mkdir_path_unnamed(
     path: PathBuf,
     parents: bool,
     mode: Option<u32>,
@@ -1679,6 +1759,11 @@ pub(crate) fn remove_dir(path: PathBuf, span: Span) -> Result<(), RuntimeError> 
 }
 
 pub(crate) fn touch_path(path: PathBuf, create: bool, span: Span) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, touch_path_unnamed(path, create, span))
+}
+
+fn touch_path_unnamed(path: PathBuf, create: bool, span: Span) -> Result<(), RuntimeError> {
     std::fs::OpenOptions::new()
         .create(create)
         .append(true)
@@ -1733,6 +1818,11 @@ pub(crate) fn touch_path_from(
 }
 
 pub(crate) fn truncate_path(path: PathBuf, size: i64, span: Span) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, truncate_path_unnamed(path, size, span))
+}
+
+fn truncate_path_unnamed(path: PathBuf, size: i64, span: Span) -> Result<(), RuntimeError> {
     if size < 0 {
         return Err(RuntimeError::new("fs-truncate", "size cannot be negative").with_span(span));
     }
@@ -1807,6 +1897,11 @@ pub(crate) fn install_file(
 }
 
 pub(crate) fn chmod_path(path: PathBuf, mode: i64, span: Span) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, chmod_path_unnamed(path, mode, span))
+}
+
+fn chmod_path_unnamed(path: PathBuf, mode: i64, span: Span) -> Result<(), RuntimeError> {
     if !(0..=0o7777).contains(&mode) {
         return Err(RuntimeError::new("fs-chmod", "mode is out of range").with_span(span));
     }
@@ -1898,6 +1993,11 @@ pub(crate) fn symlink_path(target: PathBuf, path: PathBuf, span: Span) -> Result
 }
 
 pub(crate) fn unlink(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, unlink_unnamed(path, span))
+}
+
+fn unlink_unnamed(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
     match std::fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_dir() => {
             Err(RuntimeError::new("fs-unlink", "path is a directory").with_span(span))
@@ -1909,6 +2009,11 @@ pub(crate) fn unlink(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
 }
 
 pub(crate) fn readlink(path: PathBuf, span: Span) -> Result<Value, RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, readlink_unnamed(path, span))
+}
+
+fn readlink_unnamed(path: PathBuf, span: Span) -> Result<Value, RuntimeError> {
     let target = std::fs::read_link(path)
         .map_err(|error| RuntimeError::new("fs-readlink", error.to_string()).with_span(span))?;
     Ok(Value::Path(
@@ -1948,6 +2053,11 @@ pub(crate) fn unlock_file(file: &std::fs::File, span: Span) -> Result<(), Runtim
 }
 
 pub(crate) fn write_atomic(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
+    let shown = path.display().to_string();
+    name_error_path(&shown, write_atomic_unnamed(path, data, span))
+}
+
+fn write_atomic_unnamed(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut temp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;

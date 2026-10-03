@@ -1008,3 +1008,65 @@ print ${k.trim()}
   assert stdout.read_text()? == "a\nb\nc\nd\ng\nh\ni\nj\nk\n"
   assert stderr.read_text()? == "e\nf\n"
 }
+
+test test_tracebacks_locate_the_failing_command_and_current_call_path { |ctx|
+  let failed_run = test.run_script(
+    ctx,
+    r"""proc backup(dest: Path) [process, error] {
+  print "before"
+  run sh -c "exit 4" $dest
+}
+backup(p"/nonexistent/out.tgz")?
+""",
+  )?
+  assert failed_run.status == 3
+  assert "error: nonzero-exit: `sh` exited with status 4" in failed_run.stderr, failed_run.stderr
+  assert "pipeline segment" not in failed_run.stderr, failed_run.stderr
+  assert ":3:3-" in failed_run.stderr, failed_run.stderr
+
+  let pipeline = test.run_script(
+    ctx,
+    """run false | run true ?
+""",
+  )?
+  assert "pipeline segment 0 `false` exited with status 1" in pipeline.stderr, pipeline.stderr
+
+  let stale = test.run_script(
+    ctx,
+    r"""stream numbers() -> Stream[Int] {
+  yield 1
+  yield 2
+}
+proc reads(file: Path) [fs, error] -> Result[Str] {
+  file.read_text()?
+}
+for _ in numbers() {
+  let _ = reads(p"/nonexistent/traceback.txt")?
+}
+""",
+  )?
+  assert stale.status == 3
+  assert "proc reads" in stale.stderr, stale.stderr
+  assert "numbers" not in stale.stderr, stale.stderr
+  assert "fs-read: /nonexistent/traceback.txt: " in stale.stderr, stale.stderr
+}
+
+test test_filesystem_errors_name_their_paths {
+  let missing = p"/nonexistent/xsh-missing-dir"
+  if let Err(error) = fs.metadata(missing) {
+    assert "/nonexistent/xsh-missing-dir" in error.message, error.message
+  } else {
+    test.fail("expected a filesystem failure")?
+  }
+  for failure in [
+    fs.mkdir(fp"${missing}/child"),
+    fs.write(fp"${missing}/file.txt", "x"),
+    fs.copy(fp"${missing}/a", fp"${missing}/b"),
+  ] {
+    if let Err(error) = failure {
+      assert "/nonexistent/xsh-missing-dir" in error.message, error.message
+    } else {
+      test.fail("expected a filesystem failure")?
+    }
+  }
+}
