@@ -104,6 +104,30 @@ Lowering still computes representation-level types (37 `infer_*` uses in
   must agree with the checker's published facts for the same expression.
 - Delete any remaining computation the checker already publishes.
 
+## Docs refresh (remaining)
+
+Landed so far: `README.md`, `docs/user-tour.md` (it absorbs CHAPTER-01), one
+merged `docs/SPEC.md`, a slim `ARCHITECTURE.md`, `TESTING.md` (which replaced
+TEST-MAP), `core/SYSTEM-REPORT.md`, and the retired docs.
+
+- **Stdlib `template` module (lane D1).** Then `make docs` / `make docs-check`,
+  written in XSH with `template`:
+  - generate `docs/reference/stdlib.md`, a compact index from
+    `xsht api --format jsonl`;
+  - generate the CLI reference from `xsht --help`;
+  - generate a lint catalog, after adding a one-line summary per code in
+    `crates/xsht/src/lint.rs`;
+  - check the tour's code blocks under the block convention, including the
+    `<!-- requires: template -->` marker;
+  - `make check` fails when generated docs are stale or tour blocks fail.
+- **Formatter small heuristics (after lane HH).** Keep short single-line
+  blocks and records that fit the line width. Then make the tour `fmt`-clean
+  and require that in `docs-check`.
+- **Regex `$`.** Document that it means end of text, in SPEC and the tour, with
+  `(?m)` or `.trim()` for line-oriented matching.
+- **Parser bugs (after lane HH).** `run ./tool` and `cd /tmp { … }` do not parse.
+- **Decided: module names stay reserved as binding names.**
+
 ## Final gates
 
 These hold at every landing:
