@@ -211,14 +211,6 @@ impl Evaluator {
     }
 }
 
-/// Runs `work`. Every indexed call runs on the heap-backed frames, so there is
-/// no second call route left to force; route-comparison tests in `indexed/full.rs`
-/// still wrap their calls in this.
-#[cfg(test)]
-pub(in crate::runtime::eval) fn with_forced_recursive_fast_path<R>(work: impl FnOnce() -> R) -> R {
-    work()
-}
-
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
     map.extend(entries);

@@ -2887,71 +2887,6 @@ impl Evaluator {
         }
     }
 
-    fn eval_indexed_comp_qualifiers(&mut self, execution: &FullExecution<'_>, qualifiers: &[IndexedCompQualifier], position: usize, key: Option<u32>, value: u32, slots: &mut [LoweredValue], values: &mut Vec<LoweredValue>, map_values: &mut BTreeMap<MapKey, LoweredValue>, span: Span) -> Result<ControlFlow<LoweredValue, ()>, RuntimeError> {
-        if let Some(qualifier) = qualifiers.get(position) {
-            match qualifier {
-                IndexedCompQualifier::If { condition, span } => {
-                    match self.eval_indexed_bool(execution, *condition, slots, *span)? {
-                        ControlFlow::Continue(false) => return Ok(ControlFlow::Continue(())),
-                        ControlFlow::Continue(true) => {},
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    }
-                    return self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, span.to_owned());
-                }
-                IndexedCompQualifier::For { target, iter, span } => {
-                    let iterable = match self.eval_indexed_expr(execution, *iter, slots, *span)? {
-                        ControlFlow::Continue(value) => lowered_comp_iterable(value, *span)?,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                    if let LoweredValue::Stream(mut stream) = iterable {
-                        let result = (|| {
-                            while let Some(item) = self.stream_next(&mut stream, *span)? {
-                                let item = lowered_value_from_runtime_any(&item).ok_or_else(|| RuntimeError::new("type-error", "stream produced unsupported comprehension item").with_span(*span))?;
-                                bind_lowered_comp_target(target, item, slots, *span)?;
-                                if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
-                            }
-                            Ok(ControlFlow::Continue(()))
-                        })();
-                        let cleanup = self.stream_cancel(&mut stream, *span);
-                        return match result { Ok(value) => cleanup.map(|()| value), Err(error) => Err(error) };
-                    }
-                    let iterable = match LoweredScalarCursor::try_new(iterable) {
-                        Ok(mut cursor) => {
-                            while let Some(item) = cursor.next() {
-                                self.service_pending_signal(*span)?;
-                                if self.signal_state.shutdown_complete { return Ok(ControlFlow::Continue(())); }
-                                bind_lowered_comp_target(target, item, slots, *span)?;
-                                if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
-                            }
-                            return Ok(ControlFlow::Continue(()));
-                        }
-                        Err(iterable) => iterable,
-                    };
-                    if let LoweredValue::Map(entries) = iterable {
-                        let mut cursor = LoweredMapCursor::new(entries);
-                        while let Some(item) = cursor.next() {
-                            bind_lowered_comp_target(target, item, slots, *span)?;
-                            if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
-                        }
-                        return Ok(ControlFlow::Continue(()));
-                    }
-                    for item in self.lowered_list_items(iterable, *span, "comprehension expected List or Stream")? {
-                        bind_lowered_comp_target(target, item, slots, *span)?;
-                        if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
-                    }
-                    return Ok(ControlFlow::Continue(()));
-                }
-            }
-        }
-        let key = if let Some(key) = key {
-            let key = match self.eval_indexed_expr(execution, key, slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
-            Some(lowered_map_literal_key(&key, span)?)
-        } else { None };
-        let value = match self.eval_indexed_expr(execution, value, slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
-        if let Some(key) = key { map_values.insert(key, value); } else { values.push(value); }
-        Ok(ControlFlow::Continue(()))
-    }
-
     // Named argument preparation binds each value with a nested match. Follow
     // selected match arms iteratively so constructor width does not become
     // native call depth, while subjects and guards still evaluate in order.
@@ -3525,20 +3460,12 @@ impl Evaluator {
                     fields: values,
                 })))
             }
-            FullTag::ExprListComp | FullTag::ExprMapComp => {
-                let map = tag == FullTag::ExprMapComp;
-                let key = map.then(|| indexed_raw(&mut payload, call_span)).transpose()?;
-                let value = indexed_raw(&mut payload, call_span)?;
-                let qualifiers = decode_comp_qualifiers(execution, &mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let mut values = Vec::new();
-                let mut map_values = BTreeMap::new();
-                let flow = self.eval_indexed_comp_qualifiers(execution, &qualifiers, 0, key, value, slots, &mut values, &mut map_values, span)?;
-                match flow {
-                    ControlFlow::Break(value) => ControlFlow::Break(value),
-                    ControlFlow::Continue(()) => ControlFlow::Continue(if map { LoweredValue::Map(Arc::new(map_values)) } else { LoweredValue::List(values) }),
-                }
+            // These run on the frames, which own comprehension iteration and
+            // stream cancellation, and the boundaries that captures and error
+            // contexts put around their bodies.
+            FullTag::ExprListComp | FullTag::ExprMapComp
+            | FullTag::ExprCapture | FullTag::ExprErrorContext => {
+                self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)?
             }
             FullTag::ExprPipeline => {
                 let input = indexed_raw(&mut payload, call_span)?;
@@ -5711,56 +5638,8 @@ impl Evaluator {
                     flow => self.preserve_lexical_expression_flow(flow),
                 }
             }
-            FullTag::ExprCapture => {
-                let body = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                match self.eval_indexed_error_boundary_block(execution, body, slots, span)? {
-                    StmtFlow::Value(value) => ControlFlow::Continue(LoweredValue::ResultOk(Box::new(value))),
-                    StmtFlow::None => ControlFlow::Continue(LoweredValue::ResultOk(Box::new(LoweredValue::Unit))),
-                    StmtFlow::Propagate(value) => {
-                        self.pending_traceback = None;
-                        ControlFlow::Continue(value)
-                    }
-                    flow => self.preserve_lexical_expression_flow(flow),
-                }
-            }
-            FullTag::ExprErrorContext => {
-                let message = indexed_raw(&mut payload, call_span)?;
-                let body = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let message = match self.eval_indexed_expr(execution, message, slots, span)? {
-                    ControlFlow::Continue(value) => lowered_str_arg_owned(Some(value), "", "ctx description", span)?,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let context = crate::runtime::value::ErrorContext { kind: "ctx".to_string(), message: Some(message), span: Some(span) };
-                self.cleanup_error_contexts.push(context.clone());
-                let result = self.eval_indexed_statement_block(execution, body, slots, span);
-                self.cleanup_error_contexts.pop();
-                match result {
-                    Ok(StmtFlow::Propagate(value)) => {
-                        let contextual = match value {
-                            LoweredValue::ResultErr(error) => LoweredValue::ResultErr(Box::new(super::super::add_error_context(*error, context))),
-                            other => LoweredValue::Error(Box::new(super::super::add_error_context(other.into_value(), context))),
-                        };
-                        if let Some(traceback) = &mut self.pending_traceback {
-                            let error = match &contextual { LoweredValue::ResultErr(error) => error.as_ref(), other => &other.clone().into_value() };
-                            traceback.error = TraceError::from_value(error);
-                        }
-                        self.preserve_lexical_expression_flow(StmtFlow::Propagate(contextual))
-                    }
-                    Ok(StmtFlow::Value(value)) => ControlFlow::Continue(value),
-                    Ok(StmtFlow::None) => ControlFlow::Continue(LoweredValue::Unit),
-                    Ok(flow) => self.preserve_lexical_expression_flow(flow),
-                    Err(error) if error.abort.is_some() => return Err(error),
-                    Err(error) => {
-                        let Value::Error(error) = super::super::add_error_context(Value::Error(Box::new(error)), context) else { unreachable!() };
-                        if let Some(traceback) = &mut self.pending_traceback { traceback.error = TraceError::from_runtime_error(&error); }
-                        return Err(*error);
-                    }
-                }
-            }
+            // A value block enters a block frame directly, without the expression
+            // boundary an expression frame adds; stage bodies run one per item.
             FullTag::ExprValueBlock => {
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;

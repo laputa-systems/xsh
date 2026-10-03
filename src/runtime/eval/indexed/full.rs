@@ -8169,17 +8169,14 @@ run true
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/builtin-templates.xsh");
             let program = Arc::new(fixture("builtin-templates.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for recursive in [false, true] {
-                for (name, expected) in [("nested_templates", Value::Int(7)), ("fresh_templates", Value::Int(8)), ("absent_templates", Value::Bool(true)), ("materialized_templates", Value::Int(6)), ("discarded_templates", Value::Unit)] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                        &[], Span::new(program.store.source_id, 0, 0),
-                    ).expect("template function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    assert_eq!(result.unwrap(), expected);
-                }
+            for (name, expected) in [("nested_templates", Value::Int(7)), ("fresh_templates", Value::Int(8)), ("absent_templates", Value::Bool(true)), ("materialized_templates", Value::Int(6)), ("discarded_templates", Value::Unit)] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("template function exists");
+                assert_eq!(result.unwrap(), expected);
             }
         });
     }
@@ -8192,17 +8189,14 @@ run true
             FullVerifier::verify(&program).unwrap();
             assert!(!program.store.tags.contains(&FullTag::ExprFunctionRef));
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                for (name, expected) in [("value", Value::Int(9)), ("results", Value::Bool(true))] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &[],
-                        Span::new(program.store.source_id, 0, 0),
-                    ).expect("stage callable function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    assert_eq!(result.unwrap(), expected);
-                }
+            for (name, expected) in [("value", Value::Int(9)), ("results", Value::Bool(true))] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("stage callable function exists");
+                assert_eq!(result.unwrap(), expected);
             }
         });
     }
@@ -8224,21 +8218,18 @@ run true
         cycle.store.extra[range.start + 2] = row as u32;
         assert!(FullVerifier::verify(&cycle).is_err());
         let program = Arc::new(program);
-        for recursive in [false, true] {
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-            evaluator.indexed_program = Some(Arc::clone(&program));
-            let mut call = || evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "translated_cause")), LoweredFunctionKind::Pure,
-                &[], Span::at(program.store.source_id, 0),
-            ).expect("typed constructor function exists");
-            let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() }.unwrap();
-            let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else { panic!("constructor returns Result data") };
-            let Value::Error(outer) = error.as_ref() else { panic!("nominal outer error") };
-            assert_eq!(outer.family, "OuterCauseError");
-            let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else { panic!("typed cause") };
-            assert_eq!(inner.family, "InnerCauseError");
-            assert_eq!(inner.span, None);
-        }
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let result = evaluator.call_indexed_direct(
+            LoweredFunctionKey::Name(program_name(&program, "translated_cause")), LoweredFunctionKind::Pure,
+            &[], Span::at(program.store.source_id, 0),
+        ).expect("typed constructor function exists").unwrap();
+        let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else { panic!("constructor returns Result data") };
+        let Value::Error(outer) = error.as_ref() else { panic!("nominal outer error") };
+        assert_eq!(outer.family, "OuterCauseError");
+        let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else { panic!("typed cause") };
+        assert_eq!(inner.family, "InnerCauseError");
+        assert_eq!(inner.span, None);
     }
 
     #[test]
@@ -8418,16 +8409,13 @@ pure selected() -> Str {
 "#;
             let program = fixture("enum-payload-alias-and-alternation.xsh", source);
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Pure, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("enum payload function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Str("one:two:other".into()));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Pure, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("enum payload function exists");
+            assert_eq!(result.unwrap(), Value::Str("one:two:other".into()));
         });
     }
 
@@ -8894,16 +8882,13 @@ pure selected() -> Str {
             let error = FullVerifier::verify(&overlapping).unwrap_err();
             assert!(error.message.contains("nonempty and disjoint"), "{}", error.message);
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "value")),
-                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("update function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(2));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "value")),
+                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("update function exists");
+            assert_eq!(result.unwrap(), Value::Int(2));
         });
     }
 
@@ -8913,16 +8898,13 @@ pure selected() -> Str {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/fs-root-methods.xsh");
             let program = Arc::new(fixture("fs-root-methods.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "root_methods")),
-                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("filesystem root fixture exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("payload"))));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "root_methods")),
+                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("filesystem root fixture exists");
+            assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("payload"))));
         });
     }
 
@@ -8936,16 +8918,13 @@ pure selected() -> Str {
             assert!(!program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliParse));
             FullVerifier::verify(&program).unwrap();
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "command_values")),
-                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("command descriptor function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("workspace/build"))));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "command_values")),
+                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("command descriptor function exists");
+            assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("workspace/build"))));
         });
     }
 
@@ -8966,16 +8945,13 @@ pure selected() -> Str {
             wrong_policy.store.extra[payload.start + 2] = applet as u32;
             assert!(FullVerifier::verify(&wrong_policy).unwrap_err().message.contains("operation policy"));
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "descriptor_values")),
-                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("descriptor function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("6/4/3"))));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "descriptor_values")),
+                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("descriptor function exists");
+            assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("6/4/3"))));
         });
     }
 
@@ -8984,28 +8960,24 @@ pure selected() -> Str {
         run_with_large_stack(|| {
             let source = "pure native_path(value: Path) -> Path { return fp\"prefix/${value}/../end\" }\nproc native_plan(value: Path) [process, error] -> Command { return process.command { stdin = fp\"before/${value}\"; stdout = fp\"${value}/after\"; run true \"--target=$value\" } }\n";
             let program = Arc::new(fixture("native-path-interpolation.xsh", source));
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let argument = Value::Path(PathValue::new(b"raw\xff name".to_vec()).unwrap());
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "native_path")),
-                    LoweredFunctionKind::Pure, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
-                ).expect("native path function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Path(PathValue::new(b"prefix/raw\xff name/../end".to_vec()).unwrap()));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "native_plan")),
-                    LoweredFunctionKind::Proc, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
-                ).expect("native command plan exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                let Value::Command(plan) = result.unwrap() else { panic!("command plan"); };
-                assert_eq!(plan.argv.last().unwrap(), b"--target=raw\xff name");
-                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[0] else { panic!("file input redirection"); };
-                assert_eq!(path.bytes, b"before/raw\xff name");
-                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[1] else { panic!("file output redirection"); };
-                assert_eq!(path.bytes, b"raw\xff name/after");
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let argument = Value::Path(PathValue::new(b"raw\xff name".to_vec()).unwrap());
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "native_path")),
+                LoweredFunctionKind::Pure, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
+            ).expect("native path function exists");
+            assert_eq!(result.unwrap(), Value::Path(PathValue::new(b"prefix/raw\xff name/../end".to_vec()).unwrap()));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "native_plan")),
+                LoweredFunctionKind::Proc, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
+            ).expect("native command plan exists");
+            let Value::Command(plan) = result.unwrap() else { panic!("command plan"); };
+            assert_eq!(plan.argv.last().unwrap(), b"--target=raw\xff name");
+            let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[0] else { panic!("file input redirection"); };
+            assert_eq!(path.bytes, b"before/raw\xff name");
+            let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[1] else { panic!("file output redirection"); };
+            assert_eq!(path.bytes, b"raw\xff name/after");
         });
     }
 
@@ -9148,22 +9120,19 @@ pure selected() -> Str {
         run_with_large_stack(|| {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/scalar-iteration.xsh");
             let program = Arc::new(fixture("scalar-iteration.xsh", source));
-            for recursive in [false, true] {
-                let execute = |name: &str| {
-                    let name = program_name(&program, name);
-                    let work = || run_full(program.clone(), name).0.unwrap();
-                    if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(work) } else { work() }
-                };
-                for (name, expected) in [("scalar_count", 261), ("scalar_comp", 3)] {
-                    assert_eq!(execute(name), Value::Int(expected));
-                }
-                let Value::Result(crate::runtime::value::ResultValue::Ok(value)) = execute("scalar_result") else { panic!("Result iterable") };
-                assert_eq!(*value, Value::Int(255));
-                let Value::Result(crate::runtime::value::ResultValue::Err(error)) = execute("scalar_failure") else { panic!("source failure") };
-                let Value::Error(error) = *error else { panic!("nominal source failure") };
-                assert_eq!(error.kind, "ScalarFailure.Missing");
-                assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), [Some("scalar source")]);
+            let execute = |name: &str| {
+                let name = program_name(&program, name);
+                run_full(program.clone(), name).0.unwrap()
+            };
+            for (name, expected) in [("scalar_count", 261), ("scalar_comp", 3)] {
+                assert_eq!(execute(name), Value::Int(expected));
             }
+            let Value::Result(crate::runtime::value::ResultValue::Ok(value)) = execute("scalar_result") else { panic!("Result iterable") };
+            assert_eq!(*value, Value::Int(255));
+            let Value::Result(crate::runtime::value::ResultValue::Err(error)) = execute("scalar_failure") else { panic!("source failure") };
+            let Value::Error(error) = *error else { panic!("nominal source failure") };
+            assert_eq!(error.kind, "ScalarFailure.Missing");
+            assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), [Some("scalar source")]);
         });
     }
 
@@ -9347,16 +9316,13 @@ pure selected() -> Str {
             let program = Arc::new(fixture("constant-key-projection.xsh", source));
             assert!(program.store.tags.contains(&FullTag::ExprIndex));
             assert!(program.store.tags.contains(&FullTag::ExprMethod));
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("known field function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(8));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("known field function exists");
+            assert_eq!(result.unwrap(), Value::Int(8));
         });
     }
 
@@ -9370,20 +9336,17 @@ pure selected() -> Str {
             let mut malformed = (*program).clone();
             malformed.store.extra[words.start + 1] = u32::MAX;
             assert!(FullVerifier::verify(&malformed).is_err(), "checked value types must refer to the semantic pool");
-            for recursive in [false, true] {
-                for name in ["scalar_failure", "compound_failure", "record_failure", "list_failure", "map_failure", "append_failure", "valid_updates", "argument_failure", "return_failure", "tail_failure", "default_failure", "list_default_failure", "list_return_failure", "map_return_failure", "record_return_failure", "list_argument_failure", "map_argument_failure", "record_argument_failure", "map_default_failure", "record_default_failure", "result_return_failure", "producer_failure", "nested_producer_failure", "accept", "negative_return", "defaulted", "list_defaulted", "map_defaulted", "record_defaulted", "tag_failure", "error_failure", "method_list_failure", "method_map_failure", "method_fallback_failure", "method_map_push_failure", "inferred_if_failure", "inferred_match_failure", "builtin_creation_failure", "branch_creation_failure"] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let args = if matches!(name, "argument_failure" | "return_failure" | "list_return_failure" | "map_return_failure" | "record_return_failure" | "list_argument_failure" | "map_argument_failure" | "record_argument_failure" | "result_return_failure" | "producer_failure" | "nested_producer_failure" | "accept" | "negative_return" | "tag_failure" | "error_failure" | "method_list_failure" | "method_map_failure" | "method_fallback_failure" | "method_map_push_failure" | "inferred_if_failure" | "inferred_match_failure" | "builtin_creation_failure" | "branch_creation_failure") { vec![Value::Int(-1)] } else { Vec::new() };
-                    let kind = if matches!(name, "producer_failure" | "nested_producer_failure") { LoweredFunctionKind::Proc } else { LoweredFunctionKind::Pure };
-                    let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, name)), kind, &args, Span::new(program.store.source_id, 0, 0)).expect("UInt function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    if name == "valid_updates" { assert_eq!(result.unwrap(), Value::Int(8)); }
-                    else {
-                        let error = result.unwrap_err();
-                        assert_eq!(error.kind, "type-error", "{name}");
-                        assert!(error.message.contains("UInt") || error.message.contains("UnsignedRow"), "{name}: {}", error.message);
-                    }
+            for name in ["scalar_failure", "compound_failure", "record_failure", "list_failure", "map_failure", "append_failure", "valid_updates", "argument_failure", "return_failure", "tail_failure", "default_failure", "list_default_failure", "list_return_failure", "map_return_failure", "record_return_failure", "list_argument_failure", "map_argument_failure", "record_argument_failure", "map_default_failure", "record_default_failure", "result_return_failure", "producer_failure", "nested_producer_failure", "accept", "negative_return", "defaulted", "list_defaulted", "map_defaulted", "record_defaulted", "tag_failure", "error_failure", "method_list_failure", "method_map_failure", "method_fallback_failure", "method_map_push_failure", "inferred_if_failure", "inferred_match_failure", "builtin_creation_failure", "branch_creation_failure"] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let args = if matches!(name, "argument_failure" | "return_failure" | "list_return_failure" | "map_return_failure" | "record_return_failure" | "list_argument_failure" | "map_argument_failure" | "record_argument_failure" | "result_return_failure" | "producer_failure" | "nested_producer_failure" | "accept" | "negative_return" | "tag_failure" | "error_failure" | "method_list_failure" | "method_map_failure" | "method_fallback_failure" | "method_map_push_failure" | "inferred_if_failure" | "inferred_match_failure" | "builtin_creation_failure" | "branch_creation_failure") { vec![Value::Int(-1)] } else { Vec::new() };
+                let kind = if matches!(name, "producer_failure" | "nested_producer_failure") { LoweredFunctionKind::Proc } else { LoweredFunctionKind::Pure };
+                let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, name)), kind, &args, Span::new(program.store.source_id, 0, 0)).expect("UInt function exists");
+                if name == "valid_updates" { assert_eq!(result.unwrap(), Value::Int(8)); }
+                else {
+                    let error = result.unwrap_err();
+                    assert_eq!(error.kind, "type-error", "{name}");
+                    assert!(error.message.contains("UInt") || error.message.contains("UnsignedRow"), "{name}: {}", error.message);
                 }
             }
         });
@@ -9395,13 +9358,10 @@ pure selected() -> Str {
             let source = "pure counts() -> Int {\n  var values: Map[Int, Int] = {[20]: 2, [3]: 1}\n  let older = values\n  values[3] = 9\n  let keys: List[Int] = values.keys()\n  return keys[0] + older[3] + (values.get(3) ?? 0)\n}\n";
             let program = fixture("typed-map.xsh", source);
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("typed Map function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(13));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("typed Map function exists");
+            assert_eq!(result.unwrap(), Value::Int(13));
         });
     }
 
@@ -9413,30 +9373,26 @@ pure selected() -> Str {
             assert!(program.store.tags.contains(&FullTag::ExprStrByteAt));
             assert!(program.store.tags.contains(&FullTag::IntStrByteAtSlot));
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                for (name, text, index, expected) in [
-                    ("nullable", "é", 0, Value::Int(195)), ("nullable", "é", 2, Value::Null),
-                    ("nullable", "é", -1, Value::Null), ("sentinel", "é", 0, Value::Int(195)),
-                    ("sentinel", "é", 2, Value::Int(-1)), ("find", ":x", 0, Value::Int(0)),
-                    ("find", "é:x", 0, Value::Int(2)), ("find", "é:x", 3, Value::Null),
-                ] {
-                    let args = [Value::Str(Arc::from(text)), Value::Int(index)];
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &args,
-                        Span::new(program.store.source_id, 0, 0),
-                    ).expect("lookup function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    assert_eq!(result.unwrap(), expected, "{name} index {index} recursive {recursive}");
-                }
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "present")), LoweredFunctionKind::Pure, &[],
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for (name, text, index, expected) in [
+                ("nullable", "é", 0, Value::Int(195)), ("nullable", "é", 2, Value::Null),
+                ("nullable", "é", -1, Value::Null), ("sentinel", "é", 0, Value::Int(195)),
+                ("sentinel", "é", 2, Value::Int(-1)), ("find", ":x", 0, Value::Int(0)),
+                ("find", "é:x", 0, Value::Int(2)), ("find", "é:x", 3, Value::Null),
+            ] {
+                let args = [Value::Str(Arc::from(text)), Value::Int(index)];
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &args,
                     Span::new(program.store.source_id, 0, 0),
-                ).expect("present function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Null);
+                ).expect("lookup function exists");
+                assert_eq!(result.unwrap(), expected, "{name} index {index}");
             }
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "present")), LoweredFunctionKind::Pure, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("present function exists");
+            assert_eq!(result.unwrap(), Value::Null);
         });
     }
 
@@ -9456,16 +9412,13 @@ pure selected() -> Str {
             bad_key.store.extra[entries.start + 2] = u32::MAX;
             assert!(FullVerifier::verify(&bad_key).is_err());
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("Map function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(5));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("Map function exists");
+            assert_eq!(result.unwrap(), Value::Int(5));
         });
     }
 
@@ -9488,16 +9441,13 @@ pure selected() -> Str {
             empty.store.extra[steps.start] = 0;
             assert!(FullVerifier::verify(&empty).is_err());
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "updated")),
-                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("assignment function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(16));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "updated")),
+                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("assignment function exists");
+            assert_eq!(result.unwrap(), Value::Int(16));
         });
     }
 
@@ -9517,16 +9467,13 @@ pure selected() -> Str {
             bad_child.store.extra[elements.start + 2] = u32::MAX;
             assert!(FullVerifier::verify(&bad_child).is_err());
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "spliced")),
-                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("splice function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(5));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "spliced")),
+                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("splice function exists");
+            assert_eq!(result.unwrap(), Value::Int(5));
         });
     }
 
@@ -9544,16 +9491,13 @@ pure selected() -> Str {
             wrong_kind.store.blocks[block.index()].flags = BLOCK_LIST;
             assert!(FullVerifier::verify(&wrong_kind).is_err());
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "capture")), LoweredFunctionKind::Proc,
-                    &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("capture function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "capture")), LoweredFunctionKind::Proc,
+                &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("capture function exists");
+            assert_eq!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
         });
     }
 
@@ -9580,17 +9524,14 @@ proc configured() [] -> Int {
                 assert!(FullVerifier::verify(&malformed).is_err());
             }
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "configured")),
-                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("configuration function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(5));
-                assert!(String::from_utf8(evaluator.stdout.clone()).unwrap().contains("row"));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "configured")),
+                LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("configuration function exists");
+            assert_eq!(result.unwrap(), Value::Int(5));
+            assert!(String::from_utf8(evaluator.stdout.clone()).unwrap().contains("row"));
         });
     }
 
@@ -9616,30 +9557,27 @@ proc configured() [] -> Int {
         run_with_large_stack(|| {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/assert.xsh");
             let program = Arc::new(fixture("assert.xsh", source));
-            for recursive in [false, true] {
-                for (name, detail) in [("passes", None), ("fails", Some("1 == 2")), ("chain_fails", Some("3 < 2")), ("short_circuit_fails", Some("right operand skipped"))] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-                    ).expect("assertion function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    if let Some(detail) = detail {
-                        // Assertion failures propagate as ordinary Result errors.
-                        let Ok(Value::Result(crate::runtime::value::ResultValue::Err(error))) = result else {
-                            panic!("false assertion propagates an error: {result:?}");
-                        };
-                        let Value::Error(error) = *error else { panic!("assertion error payload: {error:?}") };
-                        assert_eq!(error.family, "AssertionError");
-                        assert_eq!(error.variant, "Failed");
-                        assert_eq!(error.kind, "AssertionError.Failed");
-                        assert!(error.message.contains(detail), "{}", error.message);
-                        assert!(error.message.contains("context"));
-                        assert!(!error.message.contains("division-by-zero"));
-                    } else {
-                        assert_eq!(result.unwrap(), Value::ok(Value::Int(7)));
-                    }
+            for (name, detail) in [("passes", None), ("fails", Some("1 == 2")), ("chain_fails", Some("3 < 2")), ("short_circuit_fails", Some("right operand skipped"))] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("assertion function exists");
+                if let Some(detail) = detail {
+                    // Assertion failures propagate as ordinary Result errors.
+                    let Ok(Value::Result(crate::runtime::value::ResultValue::Err(error))) = result else {
+                        panic!("false assertion propagates an error: {result:?}");
+                    };
+                    let Value::Error(error) = *error else { panic!("assertion error payload: {error:?}") };
+                    assert_eq!(error.family, "AssertionError");
+                    assert_eq!(error.variant, "Failed");
+                    assert_eq!(error.kind, "AssertionError.Failed");
+                    assert!(error.message.contains(detail), "{}", error.message);
+                    assert!(error.message.contains("context"));
+                    assert!(!error.message.contains("division-by-zero"));
+                } else {
+                    assert_eq!(result.unwrap(), Value::ok(Value::Int(7)));
                 }
             }
         });
@@ -9670,16 +9608,13 @@ proc configured() [] -> Int {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/proof-provenance.xsh");
             let program = Arc::new(fixture("proof-provenance.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "verified")),
-                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-                ).expect("proof function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Str("ready".into()));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "verified")),
+                LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+            ).expect("proof function exists");
+            assert_eq!(result.unwrap(), Value::Str("ready".into()));
         });
     }
 
@@ -9689,37 +9624,33 @@ proc configured() [] -> Int {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/duration-arithmetic.xsh");
             let program = Arc::new(fixture("duration-arithmetic.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for recursive in [false, true] {
-                let duration = |millis| Value::Duration(crate::runtime::value::DurationValue { millis });
-                for (name, args, expected) in [
-                    ("intervals", vec![duration(7000), duration(2000)], Value::Int(3)),
-                    ("pause", vec![duration(250), Value::Int(3)], duration(751)),
-                ] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                        &args, Span::new(program.store.source_id, 0, 0),
-                    ).expect("Duration function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    assert_eq!(result.unwrap(), expected);
-                }
-                for (name, code, expression) in [
-                    ("underflow", "duration-underflow", "0ms - 1ms"),
-                    ("overflow", "duration-overflow", "18446744073709551615ms + 1ms"),
-                    ("count_overflow", "integer-overflow", "18446744073709551615ms / 1ms"),
-                ] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                        &[], Span::new(program.store.source_id, 0, 0),
-                    ).expect("Duration function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    let error = result.expect_err("checked arithmetic failure");
-                    assert_eq!(error.kind, code);
-                    assert_eq!(&source[error.span.unwrap().range()], expression);
-                }
+            let duration = |millis| Value::Duration(crate::runtime::value::DurationValue { millis });
+            for (name, args, expected) in [
+                ("intervals", vec![duration(7000), duration(2000)], Value::Int(3)),
+                ("pause", vec![duration(250), Value::Int(3)], duration(751)),
+            ] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                    &args, Span::new(program.store.source_id, 0, 0),
+                ).expect("Duration function exists");
+                assert_eq!(result.unwrap(), expected);
+            }
+            for (name, code, expression) in [
+                ("underflow", "duration-underflow", "0ms - 1ms"),
+                ("overflow", "duration-overflow", "18446744073709551615ms + 1ms"),
+                ("count_overflow", "integer-overflow", "18446744073709551615ms / 1ms"),
+            ] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("Duration function exists");
+                let error = result.expect_err("checked arithmetic failure");
+                assert_eq!(error.kind, code);
+                assert_eq!(&source[error.span.unwrap().range()], expression);
             }
         });
     }
@@ -9770,23 +9701,20 @@ proc configured() [] -> Int {
             *Arc::make_mut(tag.wire.as_mut().unwrap()).variants.values_mut().next().unwrap() = Arc::from("forged");
             assert!(FullVerifier::verify(&changed_constant).unwrap_err().message.contains("contradictory"));
             let raw = "{\"state\":\"ready\",\"values\":[\"\"],\"optional\":null}";
-            for recursive in [false, true] {
-                for (name, arguments, expected) in [
-                    ("wire_direct", Vec::new(), "\"ready\""),
-                    ("wire_prepared", Vec::new(), "\"ready\""),
-                    ("wire_typed_map", Vec::new(), "[\"ready\",\"\"]"),
-                    ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
-                    ("wire_nested", vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))], "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}"),
-                ] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                        &arguments, Span::new(program.store.source_id, 0, 0),
-                    ).expect("wire enum function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
-                }
+            for (name, arguments, expected) in [
+                ("wire_direct", Vec::new(), "\"ready\""),
+                ("wire_prepared", Vec::new(), "\"ready\""),
+                ("wire_typed_map", Vec::new(), "[\"ready\",\"\"]"),
+                ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
+                ("wire_nested", vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))], "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}"),
+            ] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                    &arguments, Span::new(program.store.source_id, 0, 0),
+                ).expect("wire enum function exists");
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
             }
         });
     }
@@ -9798,18 +9726,15 @@ proc configured() [] -> Int {
             let program = Arc::new(fixture("inferred-require.xsh", source));
             FullVerifier::verify(&program).unwrap();
             assert_eq!(program.store.prepared_schemas.iter().filter(|schema| matches!(schema.as_ref(), super::super::super::require::PreparedSchema::Record(_))).count(), 1, "both validation sites share the same checked record schema: {:?}", program.store.prepared_schemas);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let raw = program.symbols.with_current(|| Value::Record(BTreeMap::from([(Arc::from("jobs"), Value::Int(4))]).into()));
-                let arguments = vec![raw];
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "inferred_requirement_via_parameter")), LoweredFunctionKind::Pure,
-                    &arguments, Span::new(program.store.source_id, 0, 0),
-                ).expect("prepared function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::ok(Value::Int(4)));
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let raw = program.symbols.with_current(|| Value::Record(BTreeMap::from([(Arc::from("jobs"), Value::Int(4))]).into()));
+            let arguments = vec![raw];
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "inferred_requirement_via_parameter")), LoweredFunctionKind::Pure,
+                &arguments, Span::new(program.store.source_id, 0, 0),
+            ).expect("prepared function exists");
+            assert_eq!(result.unwrap(), Value::ok(Value::Int(4)));
         });
     }
 
@@ -10010,31 +9935,28 @@ proc checked() [process, error] {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/context-scope-capture-tails.xsh");
             let program = Arc::new(fixture("context-scope-capture-tails.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for recursive in [false, true] {
-                for (name, expected, stdout) in [
-                    ("text_tail", Some(Value::ok(Value::Str(Arc::from("text")))), b"".as_slice()),
-                    ("bytes_tail", Some(Value::ok(Value::Bytes(b"bytes".to_vec()))), b"bytes\n".as_slice()),
-                    ("record_tail", Some(Value::ok(Value::Str(Arc::from("record")))), b"".as_slice()),
-                    ("nested_tail", Some(Value::ok(Value::ok(Value::Str(Arc::from("nested"))))), b"".as_slice()),
-                    ("discarded_tail", Some(Value::ok(Value::Unit)), b"".as_slice()),
-                    ("failed_tail", None, b"".as_slice()),
-                ] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
-                        .with_env_var(b"XSH_CAPTURE_TAIL".to_vec(), b"outer".to_vec());
-                    let original_cwd = evaluator.cwd.clone();
-                    let original_env = evaluator.env.snapshot_clone();
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Proc, &[],
-                        Span::new(program.store.source_id, 0, 0),
-                    ).expect("capture tail fixture function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() }.unwrap();
-                    if let Some(expected) = expected { assert_eq!(result, expected, "{name}"); }
-                    else { assert!(matches!(result, Value::Result(crate::runtime::value::ResultValue::Err(_))), "{name}: {result:?}"); }
-                    assert_eq!(evaluator.stdout, stdout, "{name}");
-                    assert_eq!(evaluator.cwd, original_cwd, "{name}");
-                    assert_eq!(evaluator.env.snapshot_clone(), original_env, "{name}");
-                }
+            for (name, expected, stdout) in [
+                ("text_tail", Some(Value::ok(Value::Str(Arc::from("text")))), b"".as_slice()),
+                ("bytes_tail", Some(Value::ok(Value::Bytes(b"bytes".to_vec()))), b"bytes\n".as_slice()),
+                ("record_tail", Some(Value::ok(Value::Str(Arc::from("record")))), b"".as_slice()),
+                ("nested_tail", Some(Value::ok(Value::ok(Value::Str(Arc::from("nested"))))), b"".as_slice()),
+                ("discarded_tail", Some(Value::ok(Value::Unit)), b"".as_slice()),
+                ("failed_tail", None, b"".as_slice()),
+            ] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_CAPTURE_TAIL".to_vec(), b"outer".to_vec());
+                let original_cwd = evaluator.cwd.clone();
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("capture tail fixture function exists").unwrap();
+                if let Some(expected) = expected { assert_eq!(result, expected, "{name}"); }
+                else { assert!(matches!(result, Value::Result(crate::runtime::value::ResultValue::Err(_))), "{name}: {result:?}"); }
+                assert_eq!(evaluator.stdout, stdout, "{name}");
+                assert_eq!(evaluator.cwd, original_cwd, "{name}");
+                assert_eq!(evaluator.env.snapshot_clone(), original_env, "{name}");
             }
         });
     }
@@ -10054,26 +9976,22 @@ proc local() [env, error] -> Int {
 }
 "#;
             let program = Arc::new(fixture("context-scope-assignment.xsh", source));
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
-                    .with_env_var(b"XSH_SCOPE_ASSIGNMENT".to_vec(), b"outer".to_vec());
-                let original_env = evaluator.env.snapshot_clone();
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("scope function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap_err().kind, "context-scope-escape");
-                assert_eq!(evaluator.env.snapshot_clone(), original_env);
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "local")), LoweredFunctionKind::Proc, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("scope function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert_eq!(result.unwrap(), Value::Int(7));
-                assert_eq!(evaluator.env.snapshot_clone(), original_env);
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                .with_env_var(b"XSH_SCOPE_ASSIGNMENT".to_vec(), b"outer".to_vec());
+            let original_env = evaluator.env.snapshot_clone();
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("scope function exists");
+            assert_eq!(result.unwrap_err().kind, "context-scope-escape");
+            assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "local")), LoweredFunctionKind::Proc, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("scope function exists");
+            assert_eq!(result.unwrap(), Value::Int(7));
+            assert_eq!(evaluator.env.snapshot_clone(), original_env);
         });
     }
 
@@ -10090,22 +10008,19 @@ proc scoped() [io, error] -> Int {
 }
 "#;
             let program = Arc::new(fixture("context-scope-force.xsh", source));
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
-                    .with_env_var(b"XSH_FORCE_SCOPE".to_vec(), b"outer".to_vec())
-                    .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
-                let original_cwd = evaluator.cwd.clone();
-                let original_env = evaluator.env.snapshot_clone();
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("scope function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert!(result.unwrap_err().abort.is_some_and(|signal| signal.force));
-                assert_eq!(evaluator.cwd, original_cwd);
-                assert_eq!(evaluator.env.snapshot_clone(), original_env);
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                .with_env_var(b"XSH_FORCE_SCOPE".to_vec(), b"outer".to_vec())
+                .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
+            let original_cwd = evaluator.cwd.clone();
+            let original_env = evaluator.env.snapshot_clone();
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("scope function exists");
+            assert!(result.unwrap_err().abort.is_some_and(|signal| signal.force));
+            assert_eq!(evaluator.cwd, original_cwd);
+            assert_eq!(evaluator.env.snapshot_clone(), original_env);
         });
     }
 
@@ -10123,20 +10038,17 @@ proc scoped() [io, error] -> Int {
             bad_input.store.extra[payload.start + 1] = u32::MAX;
             assert!(FullVerifier::verify(&bad_input).is_err());
             let program = Arc::new(program);
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
-                    .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
-                let original_env = evaluator.env.snapshot_clone();
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let argument = Value::Path(PathValue::new(b"raw\xfe name".to_vec()).unwrap());
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Proc, &[argument.clone()],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("scope function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert!(result.is_ok(), "{result:?}");
-                assert_eq!(evaluator.env.snapshot_clone(), original_env);
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
+            let original_env = evaluator.env.snapshot_clone();
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let argument = Value::Path(PathValue::new(b"raw\xfe name".to_vec()).unwrap());
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Proc, &[argument.clone()],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("scope function exists");
+            assert!(result.is_ok(), "{result:?}");
+            assert_eq!(evaluator.env.snapshot_clone(), original_env);
         });
     }
 
@@ -10152,21 +10064,18 @@ proc scoped() [io, error] -> Int {
 }
 "#;
             let program = Arc::new(fixture("context-scope-fatal.xsh", source));
-            for recursive in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
-                    .with_env_var(b"XSH_FATAL_SCOPE".to_vec(), b"outer".to_vec());
-                let original_cwd = evaluator.cwd.clone();
-                let original_env = evaluator.env.snapshot_clone();
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                let mut call = || evaluator.call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "fatal")), LoweredFunctionKind::Proc, &[],
-                    Span::new(program.store.source_id, 0, 0),
-                ).expect("scope function exists");
-                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                assert!(result.unwrap_err().abort.is_none());
-                assert_eq!(evaluator.cwd, original_cwd);
-                assert_eq!(evaluator.env.snapshot_clone(), original_env);
-            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                .with_env_var(b"XSH_FATAL_SCOPE".to_vec(), b"outer".to_vec());
+            let original_cwd = evaluator.cwd.clone();
+            let original_env = evaluator.env.snapshot_clone();
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let result = evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "fatal")), LoweredFunctionKind::Proc, &[],
+                Span::new(program.store.source_id, 0, 0),
+            ).expect("scope function exists");
+            assert!(result.unwrap_err().abort.is_none());
+            assert_eq!(evaluator.cwd, original_cwd);
+            assert_eq!(evaluator.env.snapshot_clone(), original_env);
         });
     }
 
@@ -10176,27 +10085,23 @@ proc scoped() [io, error] -> Int {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
             let program = Arc::new(fixture("default-parameters.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            for recursive in [false, true] {
-                for (name, expected) in [("choose", 4), ("nested", 5), ("supplied", 9), ("alias_default", 4), ("alias_named", 11)] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                        &[], Span::new(program.store.source_id, 0, 0),
-                    ).expect("defaulted function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    assert_eq!(result.unwrap(), Value::Int(expected));
-                }
-                for (name, succeeds) in [("caught", false), ("skipped", true)] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
-                        &[], Span::new(program.store.source_id, 0, 0),
-                    ).expect("defaulted Result function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    assert!(matches!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(_))) == succeeds);
-                }
+            for (name, expected) in [("choose", 4), ("nested", 5), ("supplied", 9), ("alias_default", 4), ("alias_named", 11)] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("defaulted function exists");
+                assert_eq!(result.unwrap(), Value::Int(expected));
+            }
+            for (name, succeeds) in [("caught", false), ("skipped", true)] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("defaulted Result function exists");
+                assert!(matches!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(_))) == succeeds);
             }
         });
     }
