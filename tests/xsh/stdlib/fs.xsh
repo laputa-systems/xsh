@@ -732,3 +732,34 @@ test test_stable_tables_sort_files_and_process_records { |ctx|
   assert entries[1].size == 4
   assert (process.list() |> count()) > 0
 }
+
+test test_fs_walk_and_files_iteration_failures_are_catchable { |ctx|
+  guard applet.current_euid() != 0 else {
+    test.skip("root reads unreadable directories")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "fs-walk-denied")?
+  let locked = fp"${root}/a/locked"
+  locked.mkdir()?
+  fs.write(fp"${locked}/inside.txt", "x")?
+  fs.write(fp"${root}/b.txt", "x")?
+  fs.chmod(locked, 0o000)?
+  defer fs.chmod(locked, 0o755)?
+
+  let walked: Result[Int] = try {
+    var count = 0
+    for _ in fs.walk(root)? {
+      count += 1
+    }
+    count
+  }
+  assert walked is Err(_)
+  let counted: Result[Int] = try {
+    fs.files(root)? |> count
+  }
+  if let Err(failure) = counted {
+    assert "locked" in failure.message, failure.message
+  } else {
+    test.fail("expected the walk to fail")?
+  }
+}

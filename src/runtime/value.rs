@@ -1293,7 +1293,13 @@ impl StreamValue {
 
     pub(crate) fn next_live(&self, span: Span) -> Result<Option<Value>, RuntimeError> {
         match &self.source {
-            Some(source) => source.next(span),
+            // A host source failing mid-iteration (an unreadable directory
+            // under `fs.walk`, a read error under `lines()`) is an ordinary
+            // error at the pulling site, catchable like the opening call's.
+            Some(source) => source.next(span).map_err(|mut error| {
+                if error.abort.is_none() { error.propagated = true; }
+                error
+            }),
             None => Ok(None),
         }
     }
