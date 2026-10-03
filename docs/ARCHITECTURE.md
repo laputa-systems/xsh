@@ -414,12 +414,15 @@ The executable frontend has stable owners rather than a migration path:
   statements, signal-hook bodies, and statement blocks nested in expressions
   (pipeline stages, retry, `par-map`) through `eval_indexed_statement_block` and
   `eval_indexed_top_level_statement`. These lend the caller's slots to a block
-  frame (`FrameOwner::Block`, `FrameSlots::Lent`), so root publication and
-  context-scope locals stay keyed to the same slot array, and hand loop controls
-  and block values back as `StmtFlow`. `eval_indexed_stmt_inner` keeps only the
-  statements the frames delegate to it. Comprehensions, captures, and
-  error-context blocks are likewise frame-only: the recursive evaluator
-  hands them to `eval_indexed_expr_with_frames`. A block frame is entered once
+  frame (`FrameOwner::Block`, `FrameSlots::Lent`), so root publication stays
+  keyed to the same slot array, and hand loop controls and block values back as
+  `StmtFlow`. `eval_indexed_stmt_inner` keeps only the statements the frames
+  delegate to it. `if` and `match` expressions, comprehensions, captures,
+  error-context blocks, and `cd`/`env` context scopes are likewise frame-only:
+  the recursive evaluator hands them to `eval_indexed_expr_with_frames`, so a
+  context scope's escape checks see its boundary on the same work stack.
+  Calls reached by the recursive evaluator evaluate their operands there and
+  run the callee on the frames; both paths share `append_call_argument`. A block frame is entered once
   per stage item, so its entry and exit avoid moving the frame: statement lists
   step in place, a finished block frame is dropped where it lies, and a frame
   or block with no remaining work, defers, or live host handles skips
@@ -431,10 +434,12 @@ The executable frontend has stable owners rather than a migration path:
   decoder (`IndexedOperands`) and accumulators (`IndexedRecordEntry::append`,
   `IndexedFmt`). The recursive path decodes operands as it evaluates them; the
   frame path collects them before scheduling. Both evaluate in source order.
-  Selected `ExprMatch` arm chains in `eval_indexed_match_expr` advance
-  iteratively. Named-argument constructor preparation can therefore bind a
-  wide record without adding a native evaluator frame for each field; subject
-  and guard evaluation still follows source order.
+  Thin expressions that stay on both paths share their combining step instead:
+  `Evaluator::indexed_question_value` (`?`), `lowered_fallback_value` (`??`),
+  `lowered_err_with_cause`, `lowered_condition_bool`, `comparison_link_holds`
+  with `decode_comparison_chain`, `decode_module_call`, and the traced
+  `Evaluator::eval_indexed_method_dispatch`. `checked_unsigned_value` and
+  `require_value` already had one owner.
 - `src/runtime/eval.rs` owns installation, dynamic-function registration, slot
   pooling, and evaluator/session lifetime. It never owns a second executable
   representation.
