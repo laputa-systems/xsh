@@ -257,9 +257,21 @@ impl Checker {
         let ty = match &expr.kind {
             ArenaExprKind::Null => Type::Null,
             ArenaExprKind::Bool(_) => Type::Bool,
-            ArenaExprKind::Int(_) => Type::Int,
+            ArenaExprKind::Int(value) => {
+                if arena.arena.int_literal(*value).value().is_none() {
+                    self.error(expr.span, "integer literal is outside the 64-bit signed range", "check.int-literal");
+                }
+                Type::Int
+            }
             ArenaExprKind::Float(_) => Type::Float,
-            ArenaExprKind::Duration(_) => Type::Duration,
+            ArenaExprKind::Duration(value) => {
+                // An unrepresentable literal used to check and then fail
+                // preparation, which has no value to encode.
+                if arena.arena.duration_literal(*value).millis().is_none() {
+                    self.error(expr.span, "duration literal exceeds 18446744073709551615ms", "check.duration-literal");
+                }
+                Type::Duration
+            }
             ArenaExprKind::Str(_) => Type::Str,
             ArenaExprKind::Regex(_) => Type::Regex,
             ArenaExprKind::PathStr(_) => Type::Path,

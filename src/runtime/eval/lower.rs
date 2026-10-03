@@ -6618,6 +6618,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     check: LoweredTypeCheck { schema: Some(prepared), ty, name }, span,
                 }))
             }
+            // `0 - x` is only right for Int: a Float operand took the Int
+            // fast path inside loops ("lowered expression expected Int") and
+            // `0.0 - 0.0` loses the sign of `-0.0`, so Floats scale by -1.0.
+            ArenaExprKind::Unary {
+                op: UnaryOp::Neg,
+                expr,
+            } if self.checked_expr_type(expr) == Some(Type::Float) => Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Binary {
+                    op: BinaryOp::Mul,
+                    left: self.lower_expr(expr, slots, current_function, item_slot)?,
+                    right: push_build_row!(self, expr, BuildExprRow::Float(crate::runtime::value::FloatValue::new(-1.0))),
+                    span,
+                }
+            )),
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr,

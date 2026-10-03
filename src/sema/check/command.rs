@@ -843,10 +843,9 @@ impl Checker {
                 }
                 ty
             }
-            ArenaCommandArgKind::SpliceName(name) => self
-                .lookup(*name)
-                .map(|binding| binding.ty.clone())
-                .unwrap_or(Type::Unknown),
+            // An unresolved splice name used to type as Unknown and fail
+            // preparation; resolve it like any other name.
+            ArenaCommandArgKind::SpliceName(name) => self.lookup_expr_ident(*name, arena.arena.span(arg.span)),
             ArenaCommandArgKind::SpliceExpr(expr_id) => {
                 self.check_expr_arena(arena, source, *expr_id, None)
             }
@@ -900,11 +899,8 @@ impl Checker {
                 }
             }
             ArenaCommandArgKind::SpliceName(name) => {
-                let ty = self
-                    .lookup(*name)
-                    .map(|binding| binding.ty.clone())
-                    .unwrap_or(Type::Unknown);
                 let arg_span = arena.arena.span(arg.span);
+                let ty = self.lookup_expr_ident(*name, arg_span);
                 self.check_external_splice_type(&ty, arg_span);
             }
             ArenaCommandArgKind::SpliceExpr(expr_id) => {

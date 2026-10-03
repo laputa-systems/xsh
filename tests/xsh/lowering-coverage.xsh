@@ -149,6 +149,10 @@ test test_members_without_a_checked_type_are_checker_errors { |ctx|
     {source: "let value = fs.cwd", code: "check.module-member"},
     {source: "let value = fs.no_such_function", code: "check.module-member"},
     {source: "let value = system", code: "check.module-member"},
+    {source: "let value = 99999999999999999999", code: "check.int-literal"},
+    {source: "run echo @missing_words", code: "check.unresolved-name"},
+    {source: "pure helper(x: Int) -> Int { x }\nproc body() -> Int {\n  var total = 0\n  for helper in [{[1]: \"a\"}] {\n    total = helper(2)\n  }\n  total\n}\nlet value = body()", code: "check.call-target"},
+    {source: "let value = 18446744073709551616ms", code: "check.duration-literal"},
     {source: "pure pick(flag: Bool) -> Int {\n  if flag {\n    1\n  } else {\n    let unused = 2\n  }\n}\nlet value = pick(false)", code: "check.type-mismatch"},
     {source: "pure pick(flag: Bool) -> Int {\n  match flag {\n    true => { 1 }\n    false => {}\n  }\n}\nlet value = pick(false)", code: "check.type-mismatch"},
   ] {

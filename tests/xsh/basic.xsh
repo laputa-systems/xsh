@@ -54,6 +54,22 @@ value /= 0
   assert "division-by-zero" in division.stderr
 }
 
+pure negated_floats(values: List[Float]) -> List[Float] {
+  var negated: List[Float] = []
+  for value in values {
+    negated += [-value]
+  }
+  negated
+}
+
+test test_float_negation_keeps_float_and_signed_zero {
+  # Negation lowered as `0 - x`: a Float loop value took the Int path inside
+  # a body, and the sign of a negated zero was lost.
+  assert negated_floats([2.5, 0.5 - 0.5]) == [-2.5, -0.0]
+  let zero = 0.5 - 0.5
+  assert f"${-zero} ${-negated_floats([1.25])[0]}" == "-0 1.25"
+}
+
 test test_unexpected_multibyte_character_is_reported_once { |ctx|
   # The lexer used to step one byte at a time, reporting each byte of `é`
   # with a span that split the character.
