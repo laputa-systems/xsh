@@ -978,7 +978,7 @@ let dir = scratch.host_path()?
 
 match rotate(dir) {
   Ok(_) => print "rotated"
-  Err(error) => print f"rotate failed: ${error.message}"
+  Err(_) => print "rotate failed"
 }
 
 print f"left behind: ${fs.children(dir)? |> count()}"
@@ -990,7 +990,7 @@ print f"left behind: ${fs.children(dir)? |> count()}"
 rotating
 removed staging
 released lock
-rotate failed: No such file or directory (os error 2)
+rotate failed
 left behind: 0
 ```
 

@@ -24,7 +24,7 @@ let dir = scratch.host_path()?
 
 match rotate(dir) {
   Ok(_) => print "rotated"
-  Err(error) => print f"rotate failed: ${error.message}"
+  Err(_) => print "rotate failed"
 }
 
 print f"left behind: ${fs.children(dir)? |> count()}"
