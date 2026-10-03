@@ -1033,7 +1033,7 @@ fn parser_accepts_structured_pipeline_stages() {
 fn pipeline_value_calls_accept_plain_receivers_result_tails_and_named_blocks() {
     let source = r#"
 let parts = "a,b" |> split(",")
-let selected = [{value: "b"}] |> where { |entry| entry.value == "b" } |> first()?
+let selected = ([{value: "b"}] |> where { |entry| entry.value == "b" } |> first())?
 let first = ["a", "b"] |> get(0)?
 "#;
     assert_parse_and_check(SourceId::new(0), source);

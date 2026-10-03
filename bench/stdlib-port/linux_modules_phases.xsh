@@ -22,7 +22,7 @@ proc main() [fs, io, env, error, time] {
   round = 0
   let first_start = time.now()
   while round < 200 {
-    let first = linux.modules()? |> first()?
+    let first = (linux.modules()? |> first())?
     sink = sink + first.size
     round = round + 1
   }

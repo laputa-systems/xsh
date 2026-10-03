@@ -117,10 +117,10 @@ true
 test test_require_evaluates_receiver_once_and_matches_explicit_failure {
   var calls = 0
   let input: Any = {name: "ready", jobs: 4}
-  let manifest: RequirementManifest = if true {
+  let manifest: RequirementManifest = (if true {
     calls += 1
     input
-  } else { input }.require()?
+  } else { input }).require()?
   assert calls == 1
   assert manifest.jobs == 4
   let invalid: Any = {name: "ready", jobs: -1}

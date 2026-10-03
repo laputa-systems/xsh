@@ -42,7 +42,7 @@ test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
     f"""
 let root = p"${root.display()}"
 let use_stat = false
-let entry = fs.walk(root, stat: use_stat) |> first()?
+let entry = (fs.walk(root, stat: use_stat) |> first())?
 print \${entry.size}
 """,
   )?
@@ -55,8 +55,8 @@ test test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata { |ctx|
   let file = fp"${root}/entry.txt"
   file.write("old")?
 
-  let walked = fs.files(root, gitignore: false) |> first()?
-  let direct = fs.children(root)? |> first()?
+  let walked = (fs.files(root, gitignore: false) |> first())?
+  let direct = (fs.children(root)? |> first())?
   assert walked == direct
   assert walked.keys() == direct.keys()
   assert walked.size == 3
@@ -88,9 +88,9 @@ test test_fs_files_dynamic_walk_flags_are_evaluated { |ctx|
   assert fs.files(root, gitignore: skip_gitignore) |> any .name == "ignored.txt"
 
   let use_stat = true
-  let normal = fs.files(root, stat: use_stat)
+  let normal = (fs.files(root, stat: use_stat)
     |> where .name == "normal.txt"
-    |> first()?
+    |> first())?
   assert normal.size == 4
 
   let unstat = test.run_script(
@@ -98,7 +98,7 @@ test test_fs_files_dynamic_walk_flags_are_evaluated { |ctx|
     f"""
 let root = p"${root.display()}"
 let use_stat = false
-let entry = fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> first()?
+let entry = (fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> first())?
 print \${entry.size}
 """,
   )?
@@ -157,7 +157,7 @@ test test_fs_tree_metadata_install_and_locking { |ctx|
   let unstat_children = test.run_script(
     ctx,
     f"""
-let entry = fs.children(fp"${nested}", stat: false, ordered: false)? |> first()?
+let entry = (fs.children(fp"${nested}", stat: false, ordered: false)? |> first())?
 print \$entry.size
 """,
   )?
@@ -568,7 +568,7 @@ test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext { |ctx|
       entry.path.strip_prefix(root)?.display()
     }
 
-  let cheap_c = fs.files(root, gitignore: false, stat: false, exts: ["c"]) |> first()?
+  let cheap_c = (fs.files(root, gitignore: false, stat: false, exts: ["c"]) |> first())?
   assert raw_headers.len() == 3
   assert "include/top.h" in raw_headers
   assert "include/bits/alltypes.h" in raw_headers
@@ -596,7 +596,7 @@ test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext { |ctx|
   let unstat_files = test.run_script(
     ctx,
     f"""
-let entry = fs.files(fp"${root}", false, false, [], true) |> first()?
+let entry = (fs.files(fp"${root}", false, false, [], true) |> first())?
 print \$entry.size
 """,
   )?
@@ -751,11 +751,12 @@ test test_fs_walk_and_files_iteration_failures_are_catchable { |ctx|
     for _ in fs.walk(root)? {
       count += 1
     }
+
     count
   }
   assert walked is Err(_)
   let counted: Result[Int] = try {
-    fs.files(root)? |> count
+    fs.files(root)? |> count()
   }
   if let Err(failure) = counted {
     assert "locked" in failure.message, failure.message

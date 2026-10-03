@@ -463,7 +463,7 @@ export error CountError = Bad(count: UInt)
 
 test test_uint_standard_builtin_results_receive_valid_created_values { |ctx|
   for body in [
-    "print ([good, -1] |> min() ?? 0)",
+    "print (([good, -1] |> min()) ?? 0)",
     "print ([good, -1].get(1) ?? 0)",
     "print (if false { good } else { -1 })",
     "for value in [good, -1] { print (value) }",
