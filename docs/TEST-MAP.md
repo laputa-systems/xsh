@@ -33,6 +33,22 @@ integration cli_workers_check_and_lint_nested_schema -- --nocapture`. The
 subprocess fixture checks and lints nested named schema constructors with
 `RUST_MIN_STACK` absent, and verifies that both commands leave the source intact.
 
+## Lint and format invariance
+
+`cargo test -p xsht --test integration lint_format_invariance::` copies each
+corpus to a temporary directory and requires `xsht lint` to report the same
+diagnostics, keyed by file, code, and the spelling-independent class of the
+anchored token in source order, before and after `xsht fmt`. It covers the
+repository corpus, layout perturbations of it (redundant operand parentheses,
+operator line breaks, doubled blank lines, joined bracketed lines; only edits
+the formatter erases are kept), the pre-format corpus from `git archive
+b1f984c8^` when history is present, and `../packages` (or
+`XSH_PACKAGE_CORPUS`) when present.
+`lint_fix_commutes_with_formatting_on_corpus_files` checks that `fmt` then
+`lint --fix` and the reverse order agree up to blank lines. The cases launch
+`xsht fmt` and `xsht lint --fix` only inside temporary copies; run them with
+`--release` for a faster turnaround.
+
 ## IR coverage report tool
 
 `target/debug/xsht check tools/xsh-ir-coverage.xsh` checks the maintained scanner.
@@ -874,7 +890,6 @@ second fix pass, including the isolated CLI convergence/execution test. Run the
 native module, syntax/checker integration suites, and
 focused xsht integration tests before the full relevant gates.
 
-
 Block strings: `tests/xsh/block-strings.xsh` pins exact margins, empty/shared
 breaks, blank lines, raw/formatted text, interpolation order, unaffected literal
 domains, rejection, CRLF/tabs, and isolated formatter/lint execution parity.
@@ -883,9 +898,6 @@ interpolation source slices; `tests/syntax.rs` covers original diagnostic spans
 and formatter round trips. Run the native module with `xsht test --jobs 1`,
 `cargo test -p xsh --lib block_string`, and the focused xsht `block_string` tests
 before the ordinary syntax/tooling gates.
-`cargo test -p xsht --lib block_strings` covers the formatted escaped-newline
-migration with independent runtime byte observations, unchanged interpolation
-order, exact margins/line endings, comments, refusal cases, and convergence.
 
 ## Prepared constants
 

@@ -282,8 +282,9 @@ proof that inference without the annotation will agree. Collection rewrites
 retain record element annotations, and `lint.redundant-require` retains schema
 checks on unconstrained `Record` values. Tail-return fixes keep explicit returns
 when a conditional or fallback would be parsed as a statement or command.
-`lint.prefer-guard` preserves the complete condition spelling, including the
-closing parentheses around pipelines.
+`lint.prefer-guard` preserves the complete condition, including the closing
+parentheses around pipelines, and its fix is the formatter's spelling of the
+guard.
 
 Workspace lint traversals copy only checked facts belonging to the current
 source. Span-ordered fact ranges keep shared imports from multiplying the
@@ -319,6 +320,17 @@ is present still bounds the body through the checker.
 When a lint can report a real issue but cannot safely preserve nearby comments,
 it should report the diagnostic without a fix hint. This is better than
 silently moving comments or relying on final formatting to reconstruct intent.
+
+Formatting never changes what lint reports: a file and its `xsht fmt` output
+produce the same diagnostics (code and node). Comments, redundant grouping,
+line breaks, literal spelling, and other layout facts may decide only whether a
+fix is offered. A rule whose length or shape threshold reads source text
+measures the formatter's spelling instead, as `lint.prefer-guard` does. Shapes
+the formatter owns, such as string literal quoting and tag-union line layout,
+are not lint rules. `crates/xsht/tests/lint_format_invariance.rs` checks this on
+the repository corpus, layout perturbations of it, the pre-format corpus from
+history, and `../packages` when present, and checks that `fmt` then
+`lint --fix` agrees with the reverse order.
 
 `xsht lint --fix` retains diagnostic keys while validating rewritten files, so
 an error reported by an imported module is emitted once per command even when

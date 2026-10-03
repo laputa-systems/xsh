@@ -709,9 +709,7 @@ impl<'a> Writer<'a> {
                     || (variants.len() >= 3
                         && parts.iter().map(|p| p.len() + 3).sum::<usize>() > 60)
                     // A union the author already wrote across lines stays that
-                    // way for three or more variants: `lint.multiline-tag-union`
-                    // asks for exactly that shape, so collapsing it would make
-                    // the two tools contradict each other.
+                    // way for three or more variants.
                     || (variants.len() >= 3
                         && tag_variants_original_multiline(self.arena, &self.source, variant_range));
                 if use_multiline {

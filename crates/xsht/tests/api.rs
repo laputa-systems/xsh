@@ -1027,7 +1027,7 @@ fn api_scalar_iteration_keeps_direct_source_and_snapshot_contract() {
     assert!(stdout.contains("api: language.core.scalar-iteration"), "{stdout}");
     assert!(stdout.contains("retains its snapshot and view bounds"), "{stdout}");
     assert!(stdout.contains("for character in \"café\""), "{stdout}");
-    assert!(stdout.contains("for octet in b\"\\x00\\xff\""), "{stdout}");
+    assert!(stdout.contains("for octet in b\"\\0\\xff\""), "{stdout}");
     assert!(output.stderr.is_empty());
 }
 
