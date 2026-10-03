@@ -228,3 +228,30 @@ test test_redundant_result_unit_lint_keeps_branching_tails { |ctx|
   assert "lint.redundant-result-unit" in plain_output, plain_output
   assert "lint.redundant-result-unit" not in branching_output, branching_output
 }
+
+test test_private_proc_early_err_returns_join_propagated_errors { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""error PortError = Missing(file: Path) | Invalid(text: Str)
+proc read_port(file: Path) [fs, error] {
+  guard file.exists()? else {
+    return Err(PortError.Missing(file:))
+  }
+  let text = file.read_text()?.trim()
+  text.parse_int() ?? { |_| Err(PortError.Invalid(text:))? }
+}
+proc classify(text: Str) [error] {
+  if text == "" { return Err(PortError.Missing(file: p"")) }
+  if text == "x" { return Err(PortError.Invalid(text:)) }
+  text
+}
+let missing = read_port(p"/nonexistent/port")
+let port: Result[Int] = read_port(p"/nonexistent/port")
+let family: Result[Str, PortError] = classify("ok")
+print ${missing is Err(PortError.Missing)} ${port is Err(_)} ${family?} ${classify("x") is Err(PortError.Invalid)}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """true true ok true
+"""
+}

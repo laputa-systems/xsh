@@ -841,8 +841,8 @@ returns `Result[Disk]` because `first()` fails on an empty list. A private
 `Result[Disk]` and callers use `?` or `??`. A proc whose body ends in a
 statement returns `Result[Unit]`. Exported functions, `main`, and recursive
 functions declare their return types, because those are promises other files
-depend on. So does a proc that mixes early `return Err(...)` exits with a
-value tail: write `-> Result[T]` and the checker holds both paths to it.
+depend on. A proc that mixes early `return Err(...)` exits with a value tail
+still infers `Result[T]`; its error type joins every failure path.
 
 Arguments can be positional, named (`over: 100`), or punned (`over:` passes
 the local `over`). Rest parameters (`...hosts: List[Str]`) collect the tail.

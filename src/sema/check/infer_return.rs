@@ -313,6 +313,7 @@ impl Checker {
         let clean = !probe.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
         let candidates = probe.inferred_returns.take().unwrap_or_default();
         let conflicts = probe.return_conflicts.take().unwrap_or_default();
+        let propagated = std::mem::take(&mut probe.inferred_propagations);
         if !candidates.iter().map(|(ty, _)| ty).chain(conflicts.iter().flat_map(|(left, right, _)| [left, right])).any(produces_value) { return; }
         // Once a completion produces a value, a statement completion conflicts
         // with it as any other disagreeing completion does.
@@ -344,7 +345,9 @@ impl Checker {
                     self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), "check.infer-return");
                     Type::Invalid
                 }
-                ty if ty.is_result() => ty,
+                // Every `?` in the body propagates through the inferred error
+                // type, so it joins with the errors of `Err(..)` completions.
+                Type::Result(ok, err) => Type::Result(ok, Box::new(propagated.iter().fold(*err, |joined, (ty, _)| join_error_types(&joined, ty)))),
                 ty => Type::Result(Box::new(ty), Box::new(Type::Error)),
             }
         };
@@ -426,8 +429,21 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
         (Type::List(left), Type::List(right)) => Some(Type::List(Box::new(unify_return_shapes(left, right)?))),
         (Type::Map(lk, left), Type::Map(rk, right)) => Some(Type::Map(Box::new(unify_return_shapes(lk, rk)?), Box::new(unify_return_shapes(left, right)?))),
         (Type::Optional(left), Type::Optional(right)) => Some(Type::Optional(Box::new(unify_return_shapes(left, right)?))),
-        (Type::Result(left, le), Type::Result(right, re)) => Some(Type::Result(Box::new(unify_return_shapes(left, right)?), Box::new(unify_return_shapes(le, re)?))),
+        (Type::Result(left, le), Type::Result(right, re)) => Some(Type::Result(Box::new(unify_return_shapes(left, right)?), Box::new(join_error_types(le, re)))),
         _ => None,
+    }
+}
+
+// Failures from different completions join to their narrowest common error:
+// variants of one family join to the family, anything else to `Error`.
+fn join_error_types(left: &Type, right: &Type) -> Type {
+    match (left, right) {
+        _ if left == right => left.clone(),
+        (Type::Unknown, other) | (other, Type::Unknown) => other.clone(),
+        (Type::ErrorVariant { family, .. }, Type::ErrorVariant { family: other, .. })
+        | (Type::ErrorVariant { family, .. }, Type::ErrorFamily(other))
+        | (Type::ErrorFamily(family), Type::ErrorVariant { family: other, .. }) if family == other => Type::ErrorFamily(*family),
+        _ => Type::Error,
     }
 }
 

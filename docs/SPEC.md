@@ -1214,6 +1214,9 @@ Return types may be omitted only on private functions:
   Unit-like (no tail value, an `if` without `else`, a bare `return`, or a
   failure-only `Err(...)`), the proc returns `Result[Unit]`. Value tails that
   disagree are `check.type-mismatch`; there is no fallback to `Result[Unit]`.
+  Failure-only completions (`Err(...)` tails and early `return Err(...)`) and
+  `?` propagations join into the error type: variants of one family join to
+  the family, anything else to `Error`.
 - Exported functions, `proc main`, and functions in a recursive group need
   explicit return types (`check.required-return`). Empty collections, error-only
   bodies, and dynamic shapes cannot be inferred (`check.infer-return`).
