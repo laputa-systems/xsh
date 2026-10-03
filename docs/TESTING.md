@@ -78,12 +78,22 @@ Repository gates (owner-run unless the task asks for them):
 
 | Command | Runs |
 |---|---|
-| `cargo dev check` | product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `xsht check`, `xsht fmt --check`, `xsht lint`, the runnable-corpus test, `git diff --check` |
-| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`) |
+| `cargo dev check` | product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `xsht check`, `xsht fmt --check`, `xsht lint`, the runnable-corpus test, `check-docs` (with debug binaries), `git diff --check` |
+| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | debug `cargo test` |
 | `cargo dev test xsh` | the native suite through `cargo run -p xsht` |
 | `make fuzz` | the fuzz targets in `crates/xsh-fuzz` |
-| `make docs` / `make docs-check` | regenerate generated docs / fail if they are stale (`make check` also fails on stale generated docs) |
+| `make docs` (`cargo dev docs`) | build release `xsh` and `xsht`, then regenerate every file rendered from `docs/templates/` |
+| `make docs-check` (`cargo dev docs check`) | the same render into memory, failing with the list of stale files; then `xsht check docs/snippets/tour` and `xsht test` in `docs/snippets/tour/project` |
+
+Generated docs: `docs/user-tour.md` and `docs/reference/*.md` are rendered by
+`dev/docs.xsh` from `docs/templates/`; edit the template or the snippet in
+`docs/snippets/tour/`, run `make docs`, and commit both. A template that shows
+`{{.snippets.NAME.output}}` makes `make docs` run that snippet; other output
+blocks are literal template text. The repository's `xsht check` and `xsht lint`
+cover the snippets; `[format] exclude` in `xsht-config.ini` keeps them out of
+`xsht fmt --check` until the formatter keeps short blocks on one line, and
+deleting that line enables it. `dev/tests/test-docs.xsh` covers the generator.
 
 `cargo test -p xsht --test integration lint_format_invariance::` checks that
 lint diagnostics are identical before and after formatting on the repository

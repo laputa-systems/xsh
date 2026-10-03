@@ -12,7 +12,7 @@ requires it. `xsht help` and `xsht help COMMAND` are generated from
 |---|---|---|
 | `xsht check [PATH...]` | parse, load modules, type-check; `--annotate[=POLICY]` writes inferred annotations; `--summary` counts diagnostics by code | `crates/xsht/src/cli/check.rs` |
 | `xsht fmt [--check] [FILE...]` | format through the checked program (`docs/XSHT-FMT.md`) | `crates/xsht/src/cli/fmt.rs` |
-| `xsht lint [--fix] [--only RULE,...] [--runless] [FILE...]` | non-fatal quality diagnostics and conservative autofixes | `crates/xsht/src/cli/lint.rs`, `crates/xsht/src/lint.rs` |
+| `xsht lint [--fix] [--only RULE,...] [--runless] [FILE...]`, `xsht lint --list` | non-fatal quality diagnostics and conservative autofixes; the code catalog | `crates/xsht/src/cli/lint.rs`, `crates/xsht/src/lint.rs` |
 | `xsht test [FILTER]` | discover and run native `test NAME { ... }` declarations | `crates/xsht/src/xsht/test.rs` |
 | `xsht api [QUERY...]` | query language and standard-library metadata | `crates/xsht/src/api.rs`, `crates/xsht/src/cli/api.rs` |
 | `xsht trace SCRIPT` | run with structured tracing (text, jsonl, flamegraph, syscall totals) | `crates/xsht/src/trace.rs`, `crates/xsht/src/cli/trace.rs` |
@@ -40,6 +40,7 @@ command error.
 | `module_path` | module search roots (default `.`); `xsht test` also passes them to `module.load` and appends them to children's `XSH_MODULE_PATH` |
 | `test_roots` | directories `xsht test` searches |
 | `[format] line-width` | formatter width target (default 120) |
+| `[format] exclude` | glob patterns, matched from the discovery root, that `xsht fmt` skips during discovery; files named explicitly are still formatted |
 | `[check] annotate` | default `--annotate` policy |
 | `[lint] prefer-inferred-pure-returns`, `prefer-inferred-private-effects` | opt-in removal of annotations the checker can infer |
 | `[lint] runless-except` | commands allowed under `--runless` |
@@ -49,10 +50,12 @@ command error.
 ## Lint
 
 Lints analyze the checked program and its published facts; they never re-derive
-types or effects from syntax. Rule descriptions come from the code
-(`lint::LINT_CODES`); fix-bearing checker codes are in
-`lint::FIXABLE_CHECK_CODES`. `--only` restricts both reports and fixes; an
-unknown code is a usage error.
+types or effects from syntax. Every code and its one-line summary are in
+`lint::LINT_CODES`; fix-bearing checker codes are in
+`lint::FIXABLE_CHECK_CODES` with summaries in `lint::FIXABLE_CHECK_SUMMARIES`.
+`xsht lint --list [--format text|jsonl]` prints that catalog, which
+`make docs` renders into `docs/reference/lints.md`. `--only` restricts both
+reports and fixes; an unknown code is a usage error.
 
 Lint selects true entry roots during directory discovery (files with no inbound
 import; one deterministic root per import cycle; explicitly named files always),
