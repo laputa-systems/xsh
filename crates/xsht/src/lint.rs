@@ -1213,7 +1213,7 @@ impl<'a> Linter<'a> {
                 self.guarded_statement_depth -= 1;
             }
             ArenaStmtKind::Match { value, arms } => {
-                self.lint_adjacent_pattern_arms(self.arena.match_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, self.arena.span(self.arena.block(arm.block).span), self.arena.span(arm.span))).collect());
+                self.lint_adjacent_pattern_arms(self.arena.match_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, Ok(arm.block), self.arena.span(arm.span))).collect());
                 let old_regex_context = self.regex_recovery_context;
                 self.regex_recovery_context = true;
                 self.lint_pattern_conditional_stmt(value, arms, stmt.span);
@@ -3219,15 +3219,20 @@ impl<'a> Linter<'a> {
             .with_fix_hint(FixHint::replacement(expression.span, "use an error fallback block", replacement)));
     }
 
-    fn lint_adjacent_pattern_arms(&mut self, arms: Vec<(PatternId, Option<ExprId>, Span, Span)>) {
+    fn lint_adjacent_pattern_arms(&mut self, arms: Vec<(PatternId, Option<ExprId>, Result<BlockId, ExprId>, Span)>) {
+        // Bodies compare by canonical tree, not spelling, so formatting cannot
+        // change which arms merge.
+        let keys: Vec<String> = arms.iter().map(|arm| super::format::canonical_subtree(self.arena, self.source, arm.2)).collect();
         let mut start = 0;
         while start + 1 < arms.len() {
-            let Some(body) = self.source.get(arms[start].2.range()) else { return };
+            let body_span = match arms[start].2 {
+                Ok(block) => self.arena.span(self.arena.block(block).span),
+                Err(expr) => self.arena.expr(expr).span,
+            };
+            let Some(body) = self.source.get(body_span.range()) else { return };
             if arms[start].1.is_some() { start += 1; continue; }
             let mut end = start + 1;
-            while end < arms.len() && arms[end].1.is_none()
-                && self.source.get(arms[end].2.range()).is_some_and(|other| other.trim() == body.trim())
-            { end += 1; }
+            while end < arms.len() && arms[end].1.is_none() && keys[end] == keys[start] { end += 1; }
             if end == start + 1 { start = end; continue; }
             let span = Span::new(arms[start].3.source_id, arms[start].3.start(), arms[end - 1].3.end());
             let Some(original) = self.source.get(span.range()) else { return };
@@ -7738,7 +7743,7 @@ impl LintExprVisitor<'_, '_> {
 
             self.linter.lint_optional_postfix(expr);
             if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind {
-                self.linter.lint_adjacent_pattern_arms(self.linter.arena.match_expr_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, self.linter.arena.expr(arm.value).span, self.linter.arena.span(arm.span))).collect());
+                self.linter.lint_adjacent_pattern_arms(self.linter.arena.match_expr_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, Err(arm.value), self.linter.arena.span(arm.span))).collect());
             }
             self.linter.lint_boolean_match(expr);
             self.linter.lint_pattern_conditional_expr(expr);
