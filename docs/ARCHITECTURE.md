@@ -410,9 +410,16 @@ The executable frontend has stable owners rather than a migration path:
   finalized canonical identities.
 - `src/runtime/eval/lowered_run/indexed_run.rs` owns instruction decoding and
   execution. Its `explicit_run.rs` child owns the heap-backed call, work, and
-  continuation frames; it is the only recursive-language-call executor. Field
-  bases, index operands, and native module arguments are scheduled on these
-  frames before dispatch. Calls nested in projections therefore do not retain
+  continuation frames. Every function body runs there, and statements have one
+  implementation there: the recursive expression evaluator runs top-level
+  statements, signal-hook bodies, and statement blocks nested in expressions
+  (pipeline stages, retry, `par-map`) through `eval_indexed_statement_block` and
+  `eval_indexed_top_level_statement`. These lend the caller's slots to a block
+  frame (`FrameOwner::Block`, `FrameSlots::Lent`), so root publication and
+  context-scope locals stay keyed to the same slot array, and hand loop controls
+  and block values back as `StmtFlow`. `eval_indexed_stmt_inner` keeps only the
+  statements the frames delegate to it. Field bases, index operands, and native
+  module arguments are scheduled on these frames before dispatch. Calls nested in projections therefore do not retain
   recursive operand evaluation on the native stack. Native argument holes and
   source order are preserved, and both dispatch paths share module tracing.
   List, map, record, and formatted string or path literals share one operand
