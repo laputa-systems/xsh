@@ -117,9 +117,15 @@ TEST-MAP), `core/SYSTEM-REPORT.md`, and the retired docs.
   - generate the CLI reference from `xsht --help`;
   - generate a lint catalog, after adding a one-line summary per code in
     `crates/xsht/src/lint.rs`;
-  - check the tour's code blocks under the block convention, including the
-    `<!-- requires: template -->` marker;
-  - `make check` fails when generated docs are stale or tour blocks fail.
+  - render the tour from `docs/templates/user-tour.md`. Each example is a real
+    file, `docs/snippets/tour/NN-name.xsh`, and the multi-file example is a
+    real project, `docs/snippets/tour/project/`. Portable snippets are run
+    during rendering and their stdout is spliced in, so the tour never shows
+    stale output; Linux-only snippets are checked but not run;
+  - the snippets go through the normal `xsht check`, lint, `fmt --check` and
+    `xsht test`, so the markdown block convention and its extraction checker
+    are not needed;
+  - `make check` fails when re-rendering differs from the committed docs.
 - **Formatter small heuristics (after lane HH).** Keep short single-line
   blocks and records that fit the line width. Then make the tour `fmt`-clean
   and require that in `docs-check`.
