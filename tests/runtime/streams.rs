@@ -13,7 +13,7 @@ fn batch_max_argv_splits_long_path_lists_before_running_commands() {
         source.push_str("\")");
     }
     source.push_str(
-        "]\n(files) |> batch(max_argv: true) |> each { |chunk|\n  run true @chunk ?\n}\nprint \"ok\"\n",
+        "]\nfiles |> batch(max_argv: true) |> each { |chunk|\n  run true @chunk ?\n}\nprint \"ok\"\n",
     );
 
     let output = run_temp_script("stream-batch-max-argv", &source);

@@ -1188,7 +1188,7 @@ proc accepted_codes() [process, error] -> List[Int] {
   run printf "option\n"
   return [0, 1]
 }
-run --accept=(accepted_codes()) sh -c "printf child; exit 1"
+run --accept=accepted_codes() sh -c "printf child; exit 1"
 "#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(output.stdout, b"option\nchild");

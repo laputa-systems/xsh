@@ -30,13 +30,15 @@ fn run_small_stack_stress(name: &str, source: &str) -> std::process::Output {
 }
 
 fn nested_expression_source(depth: usize) -> String {
+    // Nest to the right: `+` is left-associative, so every pair of
+    // parentheses in `1 + (1 + (... 1))` is required.
     let mut source = String::from("let value = ");
-    for _ in 0..depth {
-        source.push('(');
+    for _ in 1..depth {
+        source.push_str("1 + (");
     }
-    source.push('1');
-    for _ in 0..depth {
-        source.push_str(" + 1)");
+    source.push_str("1 + 1");
+    for _ in 1..depth {
+        source.push(')');
     }
     source.push_str("\nprint ${value}\n");
     source
