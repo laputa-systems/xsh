@@ -120,9 +120,22 @@ Lowering still computes representation-level types (37 `infer_*` uses in
 
 ## Tooling (remaining)
 
-- **Per-test timeout for `xsht test`.** Add a default per-test timeout,
-  overridable per run and per test, that kills the test's process group and
-  reports a timeout failure. Today a hung test runs forever.
+- **Test speed (running).** `cargo test -p xsht` takes 828 s, mostly in the
+  corpus invariance tests. Target under ~90 s. Tests never spawn debug
+  binaries; every spawned `xsh`/`xsht` is the release build, with a loud
+  failure when it is missing or stale.
+
+## Syntax (queued, after the Path-display lane)
+
+- **f-strings interpolate with `{expr}`, not `${expr}`.** The `f` prefix
+  already says the string interpolates. This applies to `f"..."`, `f"""..."""`,
+  and `fp"..."`. Literal braces are written `{{` and `}}`, and `$` is an
+  ordinary character inside f-strings. Command words keep `${expr}`. About 3%
+  of current f-strings (153 of 4,751, mostly generated scripts) contain
+  literal braces that need escaping. The lane updates SPEC first, then the
+  lexer, formatter, lints, and fix hints that emit f-strings, then migrates
+  this repo, the docs snippets and templates, `../packages`, and `../laputa`
+  mechanically.
 
 ## Docs refresh (remaining)
 
