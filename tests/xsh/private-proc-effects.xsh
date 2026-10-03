@@ -98,7 +98,7 @@ test test_private_proc_effects_include_implicit_assertion_failure { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { checked() }
 proc checked() -> Int {
-  true
+  assert true
   42
 }
 """)?
@@ -111,7 +111,7 @@ test test_private_proc_effects_capture_assertion_error_locally { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { locally_caught() }
 proc locally_caught() -> Int {
-  let outcome = try { false; 0 }
+  let outcome = try { assert false; 0 }
   42
 }
 print \${caller()}

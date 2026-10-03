@@ -4204,7 +4204,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaStmtKind::Expr(value) => {
                 let mut slots = top_level_slots(known);
-                let value = self.lower_statement_expr(value, &mut slots, None, None)?;
+                let value = self.lower_expr(value, &mut slots, None, None)?;
                 let kind = BuildTopKind::Expr(value);
                 Some(lowered_top_level(
                     &self.scratch,
@@ -6006,16 +6006,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self,
                 stmt,
                 BuildStmtRow::Return {
-                    value: self.lower_statement_expr(expr, slots, current_function, item_slot)?,
+                    value: self.lower_expr(expr, slots, current_function, item_slot)?,
                 }
             ),
             ArenaStmtKind::TailBareIdent(name) => {
                 let value = self.lower_bare_ident_stmt(tail, name, slots).unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit));
-                let span = self.program.arena.stmt(tail).span;
-                let value = if self.bodies.assertion_spans.contains(&span) {
-                    self.mark_comparison_chain_assertion(value);
-                    push_build_row!(self, expr, BuildExprRow::Assert { value, span })
-                } else { value };
                 push_build_row!(self, stmt, BuildStmtRow::Return { value })
             },
             ArenaStmtKind::If {
@@ -6184,23 +6179,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 None
             }
-        }
-    }
-
-    fn lower_statement_expr(
-        &mut self,
-        id: ExprId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-    ) -> Option<BuildExprId> {
-        let value = self.lower_expr(id, slots, current_function, item_slot)?;
-        let span = self.program.arena.expr(id).span;
-        if self.bodies.assertion_spans.contains(&span) {
-            self.mark_comparison_chain_assertion(value);
-            Some(push_build_row!(self, expr, BuildExprRow::Assert { value, span }))
-        } else {
-            Some(value)
         }
     }
 
@@ -7019,7 +6997,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaStmtKind::Expr(value) => {
                 let span = self.program.arena.stmt(id).span;
-                let value = self.lower_statement_expr(value, slots, current_function, item_slot)?;
+                let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }))
             },
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
@@ -7034,10 +7012,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaStmtKind::TailBareIdent(name) => {
                 let span = self.program.arena.stmt(id).span;
                 let value = self.lower_bare_ident_stmt(id, name, slots)?;
-                let value = if self.bodies.assertion_spans.contains(&span) {
-                    self.mark_comparison_chain_assertion(value);
-                    push_build_row!(self, expr, BuildExprRow::Assert { value, span })
-                } else { value };
                 Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }))
             }
             _ => None,
@@ -7257,12 +7231,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         let ArenaCommand::Proc { name, args } = stmt.command else {
             return None;
         };
-        let span = self.program.arena.span(stmt.span);
-        if self.bodies.assertion_spans.contains(&span) {
-            let value = self.lower_bare_ident(name, slots)?;
-            let value = push_build_row!(self, expr, BuildExprRow::Assert { value, span });
-            return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }));
-        }
         let name_text = name.as_str();
         let (module, api) = super::standard_module_command_name(name_text.as_str())?;
         let op = api_spec().module_op(module, api)?;
@@ -12596,15 +12564,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         match self.program.arena.stmt(stmt).kind {
-            ArenaStmtKind::Expr(expr) => self.lower_statement_expr(expr, slots, current_function, item_slot),
-            ArenaStmtKind::TailBareIdent(name) => {
-                let value = self.lower_bare_ident_stmt(stmt, name, slots)?;
-                let span = self.program.arena.stmt(stmt).span;
-                Some(if self.bodies.assertion_spans.contains(&span) {
-                    self.mark_comparison_chain_assertion(value);
-                    push_build_row!(self, expr, BuildExprRow::Assert { value, span })
-                } else { value })
-            },
+            ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
+            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
             _ => None,
         }
     }

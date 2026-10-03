@@ -19,26 +19,26 @@ proc witness() [error] {
   let outcome: Result[Int] = Ok(7)
   let value = "outer"
   if let Ok(value) = outcome {
-    (value) == (7)
+    assert (value) == (7)
   } else {
-    (value) == ("outer")
+    assert (value) == ("outer")
   }
-  (value) == ("outer")
+  assert (value) == ("outer")
   if let SelectedBranch(value) = SelectedBranch(7) {
-    (value) == (7)
+    assert (value) == (7)
   }
-  (value) == ("outer")
+  assert (value) == ("outer")
   if let Err(_) = outcome {
     test.fail("unexpected error branch")?
   } else if let Ok(value) = outcome {
-    (value) == (7)
+    assert (value) == (7)
   } else {
     test.fail("expected matching branch")?
   }
   if let Ok(outcome) = outcome {
-    (outcome) == (7)
+    assert (outcome) == (7)
   }
-  (outcome) == (Ok(7))
+  assert (outcome) == (Ok(7))
 }
 witness()
 """)?
@@ -107,13 +107,13 @@ pure pattern_condition_dynamic() -> Any { "hello" }
 proc witness() [error] {
   let failure: PatternLoopError = PatternLoopError.Done(detail: "done")
   if let is NotFound = failure {
-    (failure is NotFound) == (true)
+    assert (failure is NotFound) == (true)
   } else {
     test.fail("facet pattern did not match")?
   }
   let outcome = Ok({message: "ready", code: 7})
   if let Ok({message: label, code: 7}) = outcome {
-    (label) == ("ready")
+    assert (label) == ("ready")
   } else {
     test.fail("nested pattern did not match")?
   }
@@ -121,15 +121,15 @@ proc witness() [error] {
   if let Ok({message: label, code: 8}) = outcome {
     test.fail("partial nested pattern selected a branch")?
   } else {
-    (label) == ("outer")
+    assert (label) == ("outer")
   }
-  (label) == ("outer")
+  assert (label) == ("outer")
   let value = pattern_condition_dynamic()
   if let text is Str = value {
-    (text.upper()) == ("HELLO")
+    assert (text.upper()) == ("HELLO")
   }
   if let _ is Str = value {
-    (value.upper()) == ("HELLO")
+    assert (value.upper()) == ("HELLO")
   }
 }
 witness()
@@ -268,20 +268,20 @@ proc witness() [error] {
   let argv = ["build", "native", "debug"]
   let target = "outer"
   if let ["build", target, ..tail] = argv {
-    (target.upper()) == ("NATIVE")
-    (tail) == (["debug"])
+    assert (target.upper()) == ("NATIVE")
+    assert (tail) == (["debug"])
   } else {
     test.fail("list branch did not match")?
   }
-  (target) == ("outer")
+  assert (target) == ("outer")
   var remaining = [1, 2, 3]
   var total = 0
   while let [head, ..tail] = remaining {
     total += head
     remaining = tail
   }
-  (total) == (6)
-  (remaining) == ([])
+  assert (total) == (6)
+  assert (remaining) == ([])
 }
 witness()
 """)?

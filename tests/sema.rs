@@ -3488,12 +3488,12 @@ export let exported: Int = value
 
 #[test]
 fn checker_records_value_and_statement_bool_positions() {
-    let source = "pure choose(flag: Bool) -> Bool {\n  let asserted: Result[Unit] = try { true }\n  let _ = asserted\n  if flag { false } else { true }\n}\nproc assertions() {\n  if true { false }\n}\n";
+    let source = "pure choose(flag: Bool) -> Bool {\n  let asserted: Result[Unit] = try { assert true }\n  let _ = asserted\n  if flag { false } else { true }\n}\nproc assertions() {\n  if true { assert true }\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let true_positions = checked.statement_positions.iter().filter(|(span, _)| source[span.range()].trim() == "true").map(|(_, position)| *position).collect::<Vec<_>>();
+    let true_positions = checked.statement_positions.iter().filter(|(span, _)| source[span.range()].trim().trim_start_matches("assert ") == "true").map(|(_, position)| *position).collect::<Vec<_>>();
     assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Value));
     assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Statement));
     let declarations = Checker::check_compact_declarations(&parsed.arena);

@@ -690,7 +690,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 Membership and boolean statement contracts are covered by
 `tests/xsh/assertions.xsh`, including caller-owned membership-named callable
 fields accessed through `Any`; the independent CLI failure witness is
-`runtime::run::bare_boolean_assertion_is_an_unsuccessful_cli_exit`. Migration
+`runtime::run::assertion_failure_is_an_unsuccessful_cli_exit`. Migration
 coverage belongs in `crates/xsht/tests/lint.rs`;
 `linter_migrates_package_nested_assertions_and_multiline_match_membership`
 covers nested fixes and inline match syntax, while

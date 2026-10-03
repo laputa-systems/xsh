@@ -14,9 +14,6 @@ mod context_scope;
 #[path = "lint_block_strings.rs"]
 mod block_strings;
 
-#[path = "lint_explicit_assert.rs"]
-mod explicit_assert;
-
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -104,8 +101,6 @@ pub struct LintOptions {
     pub function_effect_facts_checked: bool,
     pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
-    /// `CheckOutput::assertion_spans`, for `lint.explicit-assert`.
-    pub assertion_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
@@ -124,11 +119,11 @@ pub const LINT_CODES: &[&str] = &[
     "lint.block-header", "lint.boolean-guard", "lint.boolean-pattern-test", "lint.command-value",
     "lint.compatibility-vocabulary", "lint.core-assert", "lint.dead-code", "lint.default-param-type",
     "lint.dollar-in-expression-string", "lint.duration-arithmetic", "lint.enum-declaration", "lint.env-scope",
-    "lint.error-fallback-block", "lint.explicit-assert", "lint.fs-root-receiver", "lint.identical-match-arms",
+    "lint.error-fallback-block", "lint.fs-root-receiver", "lint.identical-match-arms",
     "lint.inferred-require-target", "lint.interactive-command", "lint.json-roundtrip", "lint.legacy-test-proc",
     "lint.lexical-block", "lint.lookup-absence", "lint.lookup-fallback", "lint.missing-effects",
     "lint.multiline-tag-union", "lint.needless-annotation", "lint.organize-top-level-consts",
-    "lint.path-constructor", "lint.pattern-conditional", "lint.prefer-bare-assertion",
+    "lint.path-constructor", "lint.pattern-conditional",
     "lint.prefer-bare-field-label", "lint.prefer-block-string", "lint.prefer-callable-alias",
     "lint.prefer-comparison-chain", "lint.prefer-const", "lint.prefer-context-scope-value",
     "lint.prefer-defer-block", "lint.prefer-empty-map-literal", "lint.prefer-file-lines", "lint.prefer-fs-files",
@@ -154,12 +149,6 @@ pub const LINT_CODES: &[&str] = &[
     "lint.unused-type",
 ];
 
-/// Whether `--only` selects just the rules whose fixes are applied without
-/// reformatting the file, so a repository-wide migration leaves layout intact.
-pub fn layout_preserving_selection(only: Option<&[String]>) -> bool {
-    only.is_some_and(|only| !only.is_empty() && only.iter().all(|code| code == explicit_assert::CODE))
-}
-
 /// Whether `only` (the `--only` selection, if any) admits a diagnostic code.
 pub fn lint_code_selected(only: Option<&[String]>, code: Option<&str>) -> bool {
     only.is_none_or(|only| code.is_some_and(|code| only.iter().any(|selected| selected == code)))
@@ -184,7 +173,6 @@ impl Default for LintOptions {
             function_effect_facts_checked: false,
             terminating_call_spans: BTreeSet::default(),
             assertion_effect_spans: BTreeSet::default(),
-            assertion_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
@@ -343,7 +331,6 @@ impl<'a> Linter<'a> {
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
         let only = options.only;
-        let assertion_spans = options.assertion_spans;
         let checked_effects = if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
             check_effects().function_effect_facts
         } else { options.function_effect_facts };
@@ -413,10 +400,6 @@ impl<'a> Linter<'a> {
         if include_reachability {
             linter.lint_declaration_reachability(program);
             linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
-        }
-        // Off by default until the tree migrates; `--only lint.explicit-assert` runs it.
-        if only.as_deref().is_some_and(|only| only.iter().any(|code| code == explicit_assert::CODE)) {
-            linter.diagnostics.extend(explicit_assert::lint_explicit_asserts(program, source, &assertion_spans));
         }
         linter.diagnostics.retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code.as_deref()));
         LintOutput {
@@ -4577,7 +4560,7 @@ impl<'a> Linter<'a> {
                 // stage arguments. Keep rewritten expressions inside the same
                 // callback by giving its synthetic block explicit delimiters.
                 let mut edits: Vec<_> = self.diagnostics[first_diagnostic..].iter()
-                    .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.prefer-bare-assertion")))
+                    .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert")))
                     .flat_map(|diagnostic| &diagnostic.fix_hints)
                     .filter_map(|hint| Some((hint.span?, hint.replacement.as_ref()?)))
                     .filter(|(edit, _)| edit.start() >= span.start() && edit.end() <= span.end())
@@ -4596,7 +4579,7 @@ impl<'a> Linter<'a> {
                     }
                     let replacement = format!("{{ {replacement} }}");
                     for diagnostic in &mut self.diagnostics[first_diagnostic..] {
-                        if matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.prefer-bare-assertion")) {
+                        if matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert")) {
                             for hint in &mut diagnostic.fix_hints {
                                 if hint.span.is_some_and(|edit| edit.start() >= span.start() && edit.end() <= span.end()) {
                                     *hint = FixHint::replacement(span, "preserve the stream predicate callback", replacement.clone());
@@ -5668,7 +5651,7 @@ impl<'a> Linter<'a> {
         let mut text = self.source.get(span.range())?.to_string();
         let cst = self.source_cst.get().expect("expression span initializes CST");
         let mut edits: Vec<_> = self.diagnostics.iter()
-            .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.prefer-bare-assertion")))
+            .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert")))
             .flat_map(|diagnostic| diagnostic.fix_hints.iter())
             .filter_map(|hint| Some((hint.span?, hint.replacement.as_ref()?)))
             .filter(|(edit, _)| edit.source_id == span.source_id && edit.start() >= span.start() && edit.end() <= span.end() && !cst.contains_comment(*edit))
@@ -5778,7 +5761,7 @@ impl<'a> Linter<'a> {
             }
         };
         let mut diagnostic = Diagnostic::new(Severity::Warning, if membership { "use canonical membership syntax" } else { "use an `assert` statement" })
-            .with_code(if membership { "lint.prefer-in" } else { "lint.prefer-bare-assertion" })
+            .with_code(if membership { "lint.prefer-in" } else { "lint.core-assert" })
             .with_label(Label::secondary(span, "preserve custom messages, consumed Results, and argument evaluation order"));
         let source_order: Vec<ExprId> = self.arena.call_args(args).iter().map(|arg| match arg.kind { ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value, _ => unreachable!() }).collect();
         let expected_order: Vec<ExprId> = arguments.iter().flatten().copied().collect();
@@ -5797,7 +5780,7 @@ impl<'a> Linter<'a> {
                 (span, format!("test.ok({predicate}, message: {message})"))
             } else if let Some(bare_span) = bare_span {
                 let fix_span = self.expression_source_span(bare_span);
-                (fix_span, explicit_assert::assert_statement(&predicate, explicit_assert::comma_terminated(self.source, fix_span.end())))
+                (fix_span, assert_statement(&predicate, comma_terminated(self.source, fix_span.end())))
             } else {
                 (span, format!("test.ok({predicate})"))
             };
@@ -5826,7 +5809,7 @@ impl<'a> Linter<'a> {
                 let assertion = if let Some(message) = custom_message {
                     let suffix = if statement == span { "" } else { "?" };
                     format!("test.ok({predicate}, message: {}){suffix}", names[&message])
-                } else { explicit_assert::assert_statement(&predicate, false) };
+                } else { assert_statement(&predicate, false) };
                 bindings.push_str(&assertion);
                 // Inline match arms accept one expression. A lexical block also
                 // keeps operand snapshots local to the original assertion.
@@ -10660,4 +10643,16 @@ mod lint_code_registry_tests {
         let registered = LINT_CODES.iter().map(|code| (*code).to_owned()).collect::<BTreeSet<_>>();
         assert_eq!(emitted, registered);
     }
+}
+
+/// An unbraced match arm ends at a comma, which `assert` would read as its
+/// message separator, so such an arm becomes a braced block.
+fn assert_statement(condition: &str, comma_terminated: bool) -> String {
+    if comma_terminated { format!("{{ assert {condition} }}") } else { format!("assert {condition}") }
+}
+
+/// Whether the statement whose expression ends at `end` is terminated by a
+/// comma (an unbraced match arm).
+fn comma_terminated(source: &str, end: usize) -> bool {
+    source.get(end..).is_some_and(|rest| rest.trim_start_matches([' ', '\t']).starts_with(','))
 }

@@ -1,7 +1,13 @@
 test test_declaration_is_checked_without_execution { |ctx|
-  let result = test.run_xsh(ctx, "test registered {\n  false\n}\nrun printf ready\n")?
+  let result = test.run_xsh(ctx, "test registered {\n  assert false\n}\nrun printf ready\n")?
   assert result.status == 0
   assert result.stdout == "ready"
+}
+
+test test_declaration_bool_statement_is_rejected { |ctx|
+  let result = test.run_xsh(ctx, "test registered {\n  1 == 2\n}\n")?
+  assert result.status != 0
+  assert "check.bool-statement" in result.stderr, result.stderr
 }
 
 test test_declaration_body_is_checked { |ctx|
@@ -41,7 +47,7 @@ test declarations_enforce_effects_and_result_unit { |ctx|
 }
 
 test main_does_not_execute { |ctx|
-  let result = test.run_xsh(ctx, "test main { false }\nrun printf ready\n")?
+  let result = test.run_xsh(ctx, "test main { assert false }\nrun printf ready\n")?
   assert result.status == 0
   assert result.stdout == "ready"
 }
@@ -63,7 +69,7 @@ test imported_declarations_do_not_execute { |ctx|
 export pure value() -> Int { 7 }
 test helper_test {
   print "TEST EXECUTED"
-  false
+  assert false
 }
 """)?
   let result = test.run_xsh(ctx, "use helper\nprint \${helper.value()}\n", env: {XSH_MODULE_PATH: root.display()})?

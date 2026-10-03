@@ -164,7 +164,7 @@ test scalar_iteration_body_failure_stops_before_later_items_and_finishes_defers 
   for character in "éx🙂" {
     defer { print f"cleanup:$character" }
     print $character
-    character != "x"
+    assert character != "x"
   }
 }
 """)?

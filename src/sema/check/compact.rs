@@ -30,8 +30,6 @@ pub struct CompactDeclOutput {
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub(crate) cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
     pub diagnostics: Vec<Diagnostic>,
-    /// The general checker's statement-use classification, reused by the body probe.
-    pub assertion_spans: std::collections::BTreeSet<crate::source::Span>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
     pub parameter_types: BTreeMap<crate::source::Span, Type>,
@@ -105,7 +103,6 @@ pub struct CompactBodyProbeOutput {
     pub unsupported_structured_pipeline_exprs: usize,
     pub unsupported_builder_call_exprs: usize,
     pub expr_types: FxHashMap<ExprId, Type>,
-    pub assertion_spans: std::collections::BTreeSet<crate::source::Span>,
     pub proven_nonnull_fallback_receivers: FxHashSet<ExprId>,
     pub projections: FxHashMap<ExprId, crate::sema::projection::CheckedProjection>,
     pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
@@ -146,7 +143,6 @@ impl Checker {
                     parameter_types: checked.parameter_types.clone(),
                     local_binding_types: checked.local_binding_types.clone(),
                     function_return_types: checked.function_return_types.clone(),
-                    assertion_spans: checked.assertion_spans.clone(),
                     ..CompactDeclOutput::default()
                 },
             };
@@ -203,10 +199,6 @@ impl Checker {
             };
             probe.seed_declarations();
             probe.check_compact_program();
-            // The general checker owns statement-use classification, including
-            // contextual tails and narrowing; the execution probe carries the facts
-            // the declaration pass already computed for this program.
-            probe.output.assertion_spans = declarations.assertion_spans.clone();
             probe.resolve_checked_types();
             probe.output
         })
@@ -926,9 +918,6 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::TailBareIdent(name) => {
                 self.output.supported_statements += 1;
                 if name == "_" { self.error(stmt.span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole"); }
-                if let Some(proof) = self.lookup_binding(name).and_then(|binding| binding.boolean_proof.clone()) {
-                    self.apply_compact_guard_narrowings(proof.when_true.clone());
-                }
             }
             ArenaStmtKind::Export(inner) => {
                 self.output.supported_statements += 1;
@@ -1160,9 +1149,8 @@ impl CompactBodyProbe<'_> {
             }
             ArenaStmtKind::Expr(expr) => {
                 self.output.supported_statements += 1;
-                let ty = self.check_compact_expr(expr);
+                self.check_compact_expr(expr);
                 self.record_inert_discard(ArenaExprOrRun::Expr(expr));
-                if ty == Type::Bool { let facts = self.compact_guard_narrowings(expr, true); self.apply_compact_guard_narrowings(facts); }
                 if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) {
                     self.apply_compact_expected(expr, &Type::Unit);
                 }

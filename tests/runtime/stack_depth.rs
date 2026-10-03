@@ -85,7 +85,7 @@ fn small_stack_global_record_constructor_named_arguments_do_not_abort() {
         "type Profile = {{{fields}}}\nexport let profile: Profile = Profile({arguments})\n"
     );
     for index in 0..field_count {
-        source.push_str(&format!("profile.field_{index} == {index}\n"));
+        source.push_str(&format!("assert profile.field_{index} == {index}\n"));
     }
     source.push_str("print complete\n");
     let output = run_small_stack_stress("stack-depth-global-record-constructor", &source);

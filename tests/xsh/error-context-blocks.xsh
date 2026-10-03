@@ -147,11 +147,11 @@ print ${ctx(4)}
   }
 }
 
-test test_ctx_rejects_non_string_labels_and_keeps_statement_boolean_assertions { |ctx|
+test test_ctx_rejects_non_string_labels_and_keeps_assert_statements { |ctx|
   let wrong = test.run_script(ctx, "ctx 7 { print \"skipped\" }\n")?
   assert ! wrong.success, wrong.stderr
   assert "check.type" in wrong.stderr
-  let assertion = test.run_script(ctx, "ctx \"assertion\" { false }\n")?
+  let assertion = test.run_script(ctx, "ctx \"assertion\" { assert false }\n")?
   assert ! assertion.success, assertion.stderr
   assert "AssertionError" in assertion.stderr
   assert "ctx: assertion" in assertion.stderr

@@ -1380,10 +1380,6 @@ enum BuildExprRow {
         span: Span,
     },
     Param(usize),
-    Assert {
-        value: BuildExprId,
-        span: Span,
-    },
     ComparisonChain { pairs: Vec<BuildExprId>, assertion: bool },
     Binary {
         op: BinaryOp,

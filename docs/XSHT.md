@@ -379,23 +379,18 @@ cross-module calls. The relevant broader gate is `cargo test -p xsht --test
 integration` from `docs/TEST-MAP.md`.
 
 `lint.prefer-in` migrates removed standard membership methods and helpers;
-`lint.prefer-bare-assertion` migrates statement-use `test.ok`, `test.eq`, and
-`test.ne` to `assert` statements. The checker supplies statement consumers and resolved standard-call
+`lint.core-assert` migrates statement-use `test.ok`, `test.eq`, and `test.ne`
+to `assert` statements. The checker supplies statement consumers and resolved standard-call
 identity even for the narrowly diagnosed removed APIs. Callable compatibility
 aliases are not retained. Fixes use the CST for source spans and comment
 protection, preserve custom messages and consumed Results, compose nested
 membership edits, and are checked again before writing. Ambiguous dynamic
 receivers and guarded operand-order hazards require explicit manual bindings;
 whole statement fixes can introduce hygienic bindings at the original point.
-
-`lint.explicit-assert` prefixes `assert ` to every statement in
-`CheckOutput::assertion_spans` that is not already an `assert`, so the checker,
-not syntax, decides which parenthesized, multi-line, Unit-tail, and
-bare-identifier statements assert. An unbraced match arm becomes
-`{ assert ... }` because `assert` would read the arm's comma as its message
-separator. The rule runs only when selected with `--only lint.explicit-assert`
-until the tree is migrated; a selection of only this rule applies its edits
-without reformatting the file.
+An unbraced match arm becomes `{ assert ... }` because `assert` would read the
+arm's comma as its message separator. The checker's `check.bool-statement`
+diagnostic carries the same `assert` insertion as a fix, so `xsht lint --fix`
+migrates bare Bool statements.
 
 ## Structural Search And Refactor
 

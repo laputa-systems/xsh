@@ -28,21 +28,21 @@ test test_slice_bytes_normalization_and_nested_views { |ctx|
   let output = test.run_script(ctx, r"""
 proc witness() [error] {
   let data = b"a\0\xffbcd"
-  (data[1..3]) == (b"\0\xff")
-  (data[..2]) == (b"a\0")
-  (data[3..]) == (b"bcd")
-  (data[..]) == (data)
-  (data[-3..-1]) == (b"bc")
-  (data[-99..99]) == (data)
-  (data[4..1]) == (b"")
-  (data[99..]) == (b"")
-  (data[..-99]) == (b"")
-  (b""[-1..99]) == (b"")
-  (data[1..5][1..-1]) == (b"\xffb")
-  (b"  é🦀  ".trim()[..2]) == (b"\xc3\xa9")
-  ("  é🦀  ".trim()[..1][..]) == ("é")
-  (data[..3]) == (data.slice(0, length: 3))
-  (data[3..]) == (data.slice(3, length: data.len() - 3))
+  assert (data[1..3]) == (b"\0\xff")
+  assert (data[..2]) == (b"a\0")
+  assert (data[3..]) == (b"bcd")
+  assert (data[..]) == (data)
+  assert (data[-3..-1]) == (b"bc")
+  assert (data[-99..99]) == (data)
+  assert (data[4..1]) == (b"")
+  assert (data[99..]) == (b"")
+  assert (data[..-99]) == (b"")
+  assert (b""[-1..99]) == (b"")
+  assert (data[1..5][1..-1]) == (b"\xffb")
+  assert (b"  é🦀  ".trim()[..2]) == (b"\xc3\xa9")
+  assert ("  é🦀  ".trim()[..1][..]) == ("é")
+  assert (data[..3]) == (data.slice(0, length: 3))
+  assert (data[3..]) == (data.slice(3, length: data.len() - 3))
 }
 witness()
 """)?
@@ -97,7 +97,7 @@ test test_slice_brackets_preserve_distinct_offset_count_errors { |ctx|
   assert (b"abc"[-1..]) == (b"c")
   assert (b"abc"[4..]) == (b"")
   assert (b"abc"[..-1]) == (b"ab")
-  let equivalent = test.run_script(ctx, r"""b"abc"[..9223372036854775807] == b"abc".slice(0, 9223372036854775807)
+  let equivalent = test.run_script(ctx, r"""assert b"abc"[..9223372036854775807] == b"abc".slice(0, 9223372036854775807)
 """)?
   let {success: equivalent_success, stderr: equivalent_message, ..} = equivalent
   assert equivalent_success, equivalent_message

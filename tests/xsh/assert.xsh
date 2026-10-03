@@ -204,11 +204,10 @@ test test_assert_message_is_optional { |ctx|
   assert ":4:8" in result.stderr
 }
 
-test test_assert_reports_bare_statement_detail { |ctx|
-  let bare = test.run_script(ctx, "[1, 2] == [1, 3]\n")?
+test test_assert_reports_comparison_detail { |ctx|
   let plain = test.run_script(ctx, "assert [1, 2] == [1, 3]\n")?
   let messaged = test.run_script(ctx, "assert [1, 2] == [1, 3], \"list context\"\n")?
-  for result in [bare, plain, messaged] {
+  for result in [plain, messaged] {
     assert ! result.success, result.stderr
     assert "AssertionError.Failed" in result.stderr
     assert "assertion failed: [1, 2] == [1, 3]" in result.stderr
@@ -228,18 +227,18 @@ test test_assert_reports_bare_statement_detail { |ctx|
   assert "assertion failed: 1 < 3 < 2\nordering comparison failed: 3 < 2" in chain.stderr
 }
 
-# The bare form is indented by the width of `assert ` so both failures report
-# the same span; only the generated script paths differ.
-test test_assert_failure_output_matches_bare_statement { |ctx|
-  let script_path = rx"\S*script\.xsh-\d+"
+# A bare Bool statement is rejected before evaluation, with a fix that inserts
+# `assert`; the explicit form reports the failure without a checker error.
+test test_bare_bool_statement_is_rejected_in_favor_of_assert { |ctx|
   for condition in ["1 == 2", "1 < 3 < 2 < 0", "5 in [1, 2]", "false", "1 == 2 and (1 / 0 == 0)"] {
-    let bare = test.run_script(ctx, "proc check() {\n         " + condition + "\n}\ncheck()\n")?
+    let bare = test.run_script(ctx, "proc check() {\n  " + condition + "\n}\ncheck()\n")?
     let explicit = test.run_script(ctx, "proc check() {\n  assert " + condition + "\n}\ncheck()\n")?
-    assert ! bare.success, bare.stderr
-    assert bare.status == explicit.status, explicit.stderr
+    assert bare.status == 2, bare.stderr
+    assert "err[check.bool-statement]" in bare.stderr, bare.stderr
+    assert "insert `assert`" in bare.stderr, bare.stderr
+    assert explicit.status == 3, explicit.stderr
     assert "err[" not in explicit.stderr, explicit.stderr
-    let bare_stderr = script_path.replace(bare.stderr, "SCRIPT")
-    assert bare_stderr == script_path.replace(explicit.stderr, "SCRIPT"), "bare:\n" + bare.stderr + "\nassert:\n" + explicit.stderr
+    assert "AssertionError.Failed" in explicit.stderr, explicit.stderr
   }
   let messaged = test.run_script(ctx, "assert 1 < 3 < 2, \"chain context\"\n")?
   assert ! messaged.success, messaged.stderr

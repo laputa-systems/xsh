@@ -148,8 +148,6 @@ fn same_checked_facts(before_program: &ArenaProgram, after_program: &ArenaProgra
         && before.local_binding_types.iter().filter(|(span, _)| !(edits.body.start() <= span.start() && span.end() <= edits.body.end())).all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
             after.local_binding_types.get(&mapped).is_some_and(|other| shape(before_program, ty) == shape(after_program, other))))
         && before.statement_positions.iter().all(|(span, position)| edits.map(*span).is_none_or(|mapped| after.statement_positions.get(&mapped) == Some(position)))
-        && before.assertion_spans.iter().all(|span| edits.map(*span).is_none_or(|mapped| after.assertion_spans.contains(&mapped)))
-        && after.assertion_spans.iter().all(|mapped| before.assertion_spans.iter().any(|span| edits.map(*span) == Some(*mapped)))
         && before.callable_effects.iter().filter(|(name, _)| *name != &helper_name).all(|(name, effects)| after.callable_effects.get(name) == Some(effects))
 }
 

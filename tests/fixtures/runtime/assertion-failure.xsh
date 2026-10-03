@@ -1,2 +1,2 @@
-1 == 2
+assert 1 == 2
 print "unreachable assertion marker"

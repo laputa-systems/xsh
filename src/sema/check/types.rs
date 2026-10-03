@@ -130,16 +130,10 @@ impl Checker {
     }
 
     pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
-        if matches!(ty, Type::Bool | Type::Result(_, _)) {
-            self.require_effect(Effect::Error, span, "statement failure propagation");
-        }
+        let Type::Result(_, error) = ty else { return; };
+        self.require_effect(Effect::Error, span, "statement failure propagation");
         if self.retry_attempt_depth == 0 { return; }
-        let error = match ty {
-            Type::Result(_, error) => Some(error.as_ref().clone()),
-            Type::Bool => Some(Type::ErrorFamily(Name::intern("AssertionError"))),
-            _ => None,
-        };
-        if let (Some(errors), Some(error)) = (self.error_boundary_errors.last_mut(), error) { errors.push((error, span)); }
+        if let Some(errors) = self.error_boundary_errors.last_mut() { errors.push((error.as_ref().clone(), span)); }
     }
 
     pub(super) fn reject_ignored_result(&mut self, ty: &Type, span: Span) {

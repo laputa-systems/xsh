@@ -358,9 +358,9 @@ proc witness() [error] {
     }
 
   let marker_text = run_choose_tail("ignored")?
-  marker_text == "proc-tail"
-  obj.name() == "main.o"
-  values[0] == "ok.ok"
+  assert marker_text == "proc-tail"
+  assert obj.name() == "main.o"
+  assert values[0] == "ok.ok"
   test.error_kind(run_result_unit_tail_error(), "TailError.tail_error")?
 }
 witness()

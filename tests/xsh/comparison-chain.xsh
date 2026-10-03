@@ -74,12 +74,12 @@ print f"${result}"
   assert "division-by-zero" in reached.stderr
 }
 
-test test_comparison_chain_bare_assertion_reports_reached_failed_pair { |ctx|
+test test_comparison_chain_assertion_reports_reached_failed_pair { |ctx|
   let failed = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
   print f"${n}"
   return n
 }
-observed(1) < observed(2) < observed(1) < (1 / 0)
+assert observed(1) < observed(2) < observed(1) < (1 / 0)
 """)?
   assert ! failed.success, failed.stderr
   assert failed.stdout == "1\n2\n1\n"

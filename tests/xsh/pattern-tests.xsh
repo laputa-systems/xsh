@@ -101,8 +101,8 @@ test test_pattern_predicate_statements_assert_and_values_do_not_propagate { |ctx
   let output = test.run_script(ctx, r"""let outcome = Err("failed")
 let tested = outcome is Ok(_)
 print ${tested}
-outcome is Err(_)
-outcome is Ok(_)
+assert outcome is Err(_)
+assert outcome is Ok(_)
 print "unreachable"
 """)?
   assert ! output.success, output.stderr

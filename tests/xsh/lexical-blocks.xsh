@@ -23,7 +23,7 @@ test test_bare_statement_blocks_assert_false { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 {
   defer mark("cleanup")
-  false
+  assert false
 }
 
 print unreachable
@@ -124,7 +124,7 @@ let selected = { defer { count = 2 }; (count) }
 print $selected $count
 let captured = try { { defer failed()?; "value" } }
 print ${captured ?? {|failure| failure.message}}
-let primary = try { { defer failed()?; false }; "value" }
+let primary = try { { defer failed()?; assert false }; "value" }
 print ${primary ?? {|failure| failure.message}}
 """)?
   let {success: succeeded, stderr: failure_details, ..} = output
@@ -173,7 +173,6 @@ test test_lexical_block_lint_declines_changed_value_and_comment_boundaries { |ct
     "if true # condition rationale\n{ let value = 1; print $value }\n",
     "if true { print yes } else { print no }\n",
     "let value = if true { 7 } else { 8 }\nprint $value\n",
-    "let value = true\nif true {value}\n",
   ] {
     let candidate = test.temp_file(ctx, name: "lexical-block-no-fix.xsh", contents: bytes.from_text(source))?
     let inspected = run.capture --text "xsht" lint $candidate ?

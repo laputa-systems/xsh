@@ -121,7 +121,6 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprFunctionRef,
     ExprPathFrom,
     ExprParam,
-    ExprAssert,
     ExprComparisonChain,
     ExprBinary,
     ExprIf,
@@ -2758,7 +2757,7 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                         | EFFECT_HOST
                         | EFFECT_TRACE
                 }
-                FullTag::ExprAssert | FullTag::ExprAbort | FullTag::ExprFail => EFFECT_PROPAGATE | EFFECT_TRACE,
+                FullTag::ExprAbort | FullTag::ExprFail => EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::ExprDynamicCall => EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
                 FullTag::ExprCall
                 | FullTag::ExprSelfCall
@@ -7121,10 +7120,6 @@ impl_node_codec! {
         BuildExprRow::Param(slot) => ExprParam {
             slot: usize,
         } => BuildExprRow::Param(slot),
-        BuildExprRow::Assert { value, span } => ExprAssert {
-            value: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Assert { value, span },
         BuildExprRow::ComparisonChain { pairs, assertion } => ExprComparisonChain {
             pairs: Vec<BuildExprId>,
             assertion: bool,
@@ -8896,21 +8891,6 @@ pure selected() -> Str {
         )
         .unwrap_err();
         assert_eq!(error.construct, "top_level_boundary_blocker");
-    }
-
-    #[test]
-    fn verifier_checks_assertion_children_locations_and_propagation_effects() {
-        let program = fixture("assertion-ir.xsh", "pure value() -> Bool { false }\nproc check() { false }\nlet _ = value()\ntrue\n");
-        let assertions: Vec<_> = program.store.tags.iter().enumerate().filter_map(|(index, tag)| (*tag == FullTag::ExprAssert).then_some(index)).collect();
-        assert_eq!(assertions.len(), 2, "only statement consumers lower to assertions");
-        assert!(program.store.driver_steps.iter().any(|step| step.effects & (EFFECT_PROPAGATE | EFFECT_TRACE) == (EFFECT_PROPAGATE | EFFECT_TRACE)));
-        let mut bad_child = program.clone();
-        let payload = bad_child.store.data[assertions[0]].range().bounds(bad_child.store.extra.len()).unwrap();
-        bad_child.store.extra[payload.start] = u32::MAX;
-        assert!(FullVerifier::verify(&bad_child).is_err());
-        let mut bad_location = program;
-        bad_location.store.extra[payload.start + 1] = u32::MAX;
-        assert!(FullVerifier::verify(&bad_location).is_err());
     }
 
     #[test]
