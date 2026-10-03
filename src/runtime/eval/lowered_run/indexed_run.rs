@@ -129,18 +129,6 @@ fn bounded_assertion_text(text: &str, limit: usize) -> String {
     output
 }
 
-// Assertion failures are checked language errors, so retry and local capture
-// handle their nominal payload through the ordinary propagation boundary.
-fn checked_assertion_failure(message: impl Into<String>, span: Span) -> RuntimeError {
-    let mut error = crate::runtime::eval::modules::assertion_error(message, Some(span));
-    error.propagated = true;
-    error
-}
-
-fn comparison_chain_assertion_failure(op: BinaryOp, left: &LoweredValue, right: &LoweredValue, span: Span) -> Result<RuntimeError, RuntimeError> {
-    Ok(checked_assertion_failure(comparison_failure_text(op, left, right, span), span))
-}
-
 fn comparison_failure_text(op: BinaryOp, left: &LoweredValue, right: &LoweredValue, span: Span) -> String {
     let (left_text, right_text) = if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
         use crate::runtime::eval::lowered_ops::lowered_assertion_value_detail;
@@ -201,7 +189,7 @@ enum AssertionFailure {
 enum AssertionWork {
     Expr(u32),
     Left { op: BinaryOp, right: u32 },
-    Right { op: BinaryOp, left_failure: Option<RuntimeError> },
+    Right { op: BinaryOp, left_failure: Option<String> },
 }
 
 fn assertion_comparison_op(op: BinaryOp) -> bool {
@@ -2713,17 +2701,23 @@ impl Evaluator {
         }
     }
 
-    fn indexed_assertion_outcome(
+    // Bare Bool statements and `assert` share this failure route: one message
+    // formatter and ordinary checked-error propagation, so retry, try, and
+    // the top-level traceback see identical failures from both forms.
+    fn indexed_assertion_failed(
         &mut self,
-        passed: bool,
-        values: Option<(&LoweredValue, &LoweredValue)>,
+        failure: AssertionFailure,
+        context: Option<&str>,
         span: Span,
-    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        if passed { return Ok(ControlFlow::Continue(LoweredValue::Unit)); }
-        let message = assertion_failure_message(self.sources.span_text(span).as_deref(), values, None, None);
+    ) -> Result<LoweredValue, RuntimeError> {
+        let (operands, reached) = match &failure {
+            AssertionFailure::Operands(left, right) => (Some((left, right)), None),
+            AssertionFailure::Reached(reached) => (None, Some(reached.as_str())),
+            AssertionFailure::False => (None, None),
+        };
+        let message = assertion_failure_message(self.sources.span_text(span).as_deref(), operands, reached, context);
         let error = crate::runtime::eval::modules::assertion_error(message, Some(span));
-        let propagated = self.lowered_question_propagation_value(lowered_result_err_value(error), span)?;
-        Ok(ControlFlow::Break(propagated))
+        self.lowered_question_propagation_value(lowered_result_err_value(error), span)
     }
 
     fn eval_indexed_pipeline_descending(
@@ -3289,40 +3283,17 @@ impl Evaluator {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let (tag, mut predicate) = indexed_value(execution.instruction_id(value), span)?;
-                if tag == FullTag::ExprBinary {
-                    let op = indexed_decode::<BinaryOp>(&mut predicate, execution, span)?;
-                    let left = indexed_raw(&mut predicate, span)?;
-                    let right = indexed_raw(&mut predicate, span)?;
-                    let _ = indexed_decode::<Span>(&mut predicate, execution, span)?;
-                    indexed_finish(predicate, span)?;
-                    if assertion_comparison_op(op) {
-                        let left = match self.eval_indexed_expr(execution, left, slots, span)? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        };
-                        let right = match self.eval_indexed_expr(execution, right, slots, span)? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        };
-                        let passed = crate::runtime::eval::lowered_ops::lowered_assertion_comparison(op, &left, &right, span)?;
-                        return self.indexed_assertion_outcome(passed, Some((&left, &right)), span);
-                    }
-                }
-                let value = match self.eval_indexed_expr(execution, value, slots, span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let LoweredValue::Bool(passed) = value else {
-                    return Err(RuntimeError::new("indexed-ir", "assertion requires checked Bool").with_span(span));
-                };
-                return self.indexed_assertion_outcome(passed, None, span);
+                return Ok(match self.eval_indexed_assertion(execution, value, slots, span)? {
+                    ControlFlow::Continue(None) => ControlFlow::Continue(LoweredValue::Unit),
+                    ControlFlow::Continue(Some(failure)) => ControlFlow::Break(self.indexed_assertion_failed(failure, None, span)?),
+                    ControlFlow::Break(value) => ControlFlow::Break(value),
+                });
             }
             FullTag::ExprComparisonChain => {
                 let (_, mut pairs) = execution.block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
                 let len = indexed_raw(&mut pairs, call_span)? as usize;
-                let assertion = indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let mut previous = None;
                 for _ in 0..len {
@@ -3347,7 +3318,6 @@ impl Evaluator {
                     };
                     let result = lowered_binary_value(op, left.clone(), right.clone(), span)?;
                     if result == LoweredValue::Bool(false) {
-                        if assertion { return Err(comparison_chain_assertion_failure(op, &left, &right, span)?); }
                         return Ok(ControlFlow::Continue(LoweredValue::Bool(false)));
                     }
                     previous = Some(right);
@@ -7554,8 +7524,8 @@ impl Evaluator {
                 AssertionWork::Left { op, right } => {
                     if (op == BinaryOp::And && !result.0) || (op == BinaryOp::Or && result.0) {
                         if !result.0 {
-                            let failure = result.1.get_or_insert_with(|| checked_assertion_failure("boolean assertion failed", span));
-                            failure.message = bounded_assertion_text(&format!("{} (right operand skipped)", failure.message), 1024);
+                            let failure = result.1.get_or_insert_with(|| "boolean assertion failed".into());
+                            *failure = bounded_assertion_text(&format!("{failure} (right operand skipped)"), 1024);
                         }
                     } else {
                         work.push(AssertionWork::Right { op, left_failure: result.1.take() });
@@ -7564,8 +7534,8 @@ impl Evaluator {
                 }
                 AssertionWork::Right { op, left_failure } => {
                     if op == BinaryOp::Or && !result.0 && let Some(left_failure) = left_failure {
-                        let right = result.1.take().map(|error| error.message).unwrap_or_else(|| "boolean assertion failed".into());
-                        result.1 = Some(checked_assertion_failure(bounded_assertion_text(&format!("{}; {}", left_failure.message, right), 1024), span));
+                        let right = result.1.take().unwrap_or_else(|| "boolean assertion failed".into());
+                        result.1 = Some(bounded_assertion_text(&format!("{left_failure}; {right}"), 1024));
                     }
                 }
                 AssertionWork::Expr(instruction) => {
@@ -7594,7 +7564,7 @@ impl Evaluator {
                             if !passed && instruction == condition {
                                 return Ok(ControlFlow::Continue(Some(AssertionFailure::Operands(left, right))));
                             }
-                            result = (passed, if passed { None } else { Some(comparison_chain_assertion_failure(op, &left, &right, operand_span)?) });
+                            result = (passed, if passed { None } else { Some(comparison_failure_text(op, &left, &right, operand_span)) });
                             continue;
                         }
                     }
@@ -7626,8 +7596,8 @@ impl Evaluator {
                                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                             };
                             if lowered_binary_value(op, left.clone(), right.clone(), operand_span)? == LoweredValue::Bool(false) {
-                                let mut failure = comparison_chain_assertion_failure(op, &left, &right, operand_span)?;
-                                if index + 1 < len { failure.message.push_str(" (later operands skipped)"); }
+                                let mut failure = comparison_failure_text(op, &left, &right, operand_span);
+                                if index + 1 < len { failure.push_str(" (later operands skipped)"); }
                                 result = (false, Some(failure));
                                 break;
                             }
@@ -7646,7 +7616,7 @@ impl Evaluator {
         }
         Ok(ControlFlow::Continue(match result {
             (true, _) => None,
-            (false, Some(failure)) => Some(AssertionFailure::Reached(failure.message)),
+            (false, Some(failure)) => Some(AssertionFailure::Reached(failure)),
             (false, None) => Some(AssertionFailure::False),
         }))
     }
@@ -8328,14 +8298,7 @@ impl Evaluator {
                         _ => return Err(RuntimeError::new("type-error", "assert message requires Str").with_span(span)),
                     });
                 }
-                let expression = self.sources.span_text(span);
-                let (operands, reached) = match &failure {
-                    AssertionFailure::Operands(left, right) => (Some((left, right)), None),
-                    AssertionFailure::Reached(reached) => (None, Some(reached.as_str())),
-                    AssertionFailure::False => (None, None),
-                };
-                let message = assertion_failure_message(expression.as_deref(), operands, reached, context.as_deref());
-                Err(checked_assertion_failure(message, span))
+                Ok(StmtFlow::Propagate(self.indexed_assertion_failed(failure, context.as_deref(), span)?))
             }
             FullTag::StmtExpr => {
                 let value = indexed_raw(&mut payload, call_span)?;

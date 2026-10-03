@@ -4699,9 +4699,9 @@ unreachable statement so other diagnostics remain visible, but it does not
 rewrite code automatically.
 It removes provably needless local binding annotations and rewrites simple
 removed membership calls to `in` / `not in` under `lint.prefer-in`, and
-statement-use assertion helpers to boolean expressions under
-`lint.prefer-bare-assertion`. Checked standard-call identity and supported
-operand types are required. Direct membership fixes require inert operands or
+statement-use assertion helpers to `assert` statements under
+`lint.prefer-bare-assertion` and `lint.explicit-assert`. Checked standard-call
+identity and supported operand types are required. Direct membership fixes require inert operands or
 a state-independent literal: purity alone does not prove reorder safety.
 Custom messages and consumed Results retain an explicit `test.ok(...)` call.
 Whole statements can use hygienic local bindings to preserve operand and

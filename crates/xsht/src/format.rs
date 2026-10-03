@@ -545,14 +545,7 @@ impl<'a> Writer<'a> {
                 output.push_str(" else ");
                 self.write_block(*else_block, indent, output);
             }
-            ArenaStmtKind::Assert { condition, message } => {
-                output.push_str("assert ");
-                self.write_expr(*condition, 0, output);
-                if let Some(message) = message {
-                    output.push_str(", ");
-                    self.write_expr(*message, 0, output);
-                }
-            }
+            ArenaStmtKind::Assert { condition, message } => self.write_assert(*condition, *message, output),
             ArenaStmtKind::GuardedStmt {
                 stmt: inner,
                 negate,
@@ -983,6 +976,15 @@ impl<'a> Writer<'a> {
         output.push('}');
     }
 
+    fn write_assert(&mut self, condition: ExprId, message: Option<ExprId>, output: &mut String) {
+        output.push_str("assert ");
+        self.write_expr(condition, 0, output);
+        if let Some(message) = message {
+            output.push_str(", ");
+            self.write_expr(message, 0, output);
+        }
+    }
+
     fn write_stmt_inline(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
         let stmt = self.arena.stmt(stmt_id);
         let kind = stmt.kind;
@@ -1064,6 +1066,7 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
             ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => self.write_expr(*expr, 0, output),
+            ArenaStmtKind::Assert { condition, message } => self.write_assert(*condition, *message, output),
             _ => self.write_stmt(stmt_id, indent, output),
         }
     }
@@ -3690,4 +3693,19 @@ fn write_bytes(value: &[u8], output: &mut String) {
         }
     }
     output.push('"');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Formatter, SourceId};
+
+    #[test]
+    fn assert_statements_format_in_every_statement_position() {
+        let source = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    _ => { assert n > 1, \"large\" }\n  }\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
+        let expected = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    _ => assert n > 1, \"large\"\n  }\n\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
+        let formatted = Formatter::new().format_source(SourceId::new(0), source);
+        assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+        assert_eq!(formatted.formatted, expected);
+        assert_eq!(Formatter::new().format_source(SourceId::new(0), expected).formatted, expected);
+    }
 }
