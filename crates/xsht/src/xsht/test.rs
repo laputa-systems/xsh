@@ -813,37 +813,47 @@ fn native_test_host(
             .with_span(request.span)
     })?;
 
-    let mut command = match (request.kind, &request.linux_fake) {
-        (NativeTestRunKind::Xsh, Some(fake)) => {
+    let faked = request.linux_fake.is_some() || request.unix_fake.is_some();
+    let mut command = match (request.kind, faked) {
+        (NativeTestRunKind::Xsh, true) => {
             if !request.tool_args.iter().all(|arg| arg == "--") {
                 return Err(RuntimeError::new(
                     native_test_error_kind(request.kind),
-                    "xsh options are not supported while a linux fake is installed",
+                    "xsh options are not supported while a test fake is installed",
                 )
                 .with_span(request.span));
             }
             let mut command = Command::new(test_binary("xsht"));
-            command.arg(crate::xsht::app::LINUX_FAKE_RUN);
-            for (key, value) in fake.settings() {
-                command.arg("--fake").arg(format!("{key}={value}"));
+            command.arg(crate::xsht::app::TEST_FAKE_RUN);
+            if let Some(fake) = &request.linux_fake {
+                command.arg("--fake").arg("linux");
+                for (key, value) in fake.settings() {
+                    command.arg("--fake").arg(format!("linux.{key}={value}"));
+                }
+            }
+            if let Some(fake) = &request.unix_fake {
+                command.arg("--fake").arg("unix");
+                for (key, value) in fake.settings() {
+                    command.arg("--fake").arg(format!("unix.{key}={value}"));
+                }
             }
             command.arg(&script_path);
             command
         }
-        (NativeTestRunKind::XshtTrace, Some(_)) => {
+        (NativeTestRunKind::XshtTrace, true) => {
             return Err(RuntimeError::new(
                 native_test_error_kind(request.kind),
-                "the linux fake does not cover `xsht trace` runs",
+                "test fakes do not cover `xsht trace` runs",
             )
             .with_span(request.span));
         }
-        (NativeTestRunKind::Xsh, None) => {
+        (NativeTestRunKind::Xsh, false) => {
             let mut command = Command::new(test_binary("xsh"));
             command.args(&request.tool_args);
             command.arg(&script_path);
             command
         }
-        (NativeTestRunKind::XshtTrace, None) => {
+        (NativeTestRunKind::XshtTrace, false) => {
             let mut command = Command::new(test_binary("xsht"));
             command.arg("trace");
             command.args(
@@ -858,7 +868,7 @@ fn native_test_host(
     };
     // Fixture arguments are already script data. Protect a leading `--`
     // from the host CLI's optional compatibility separator.
-    if request.linux_fake.is_some()
+    if faked
         || request.kind != NativeTestRunKind::Xsh
         || request.tool_args.last().is_none_or(|arg| arg != "--")
     {

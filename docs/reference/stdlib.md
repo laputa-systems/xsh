@@ -402,6 +402,7 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 - `test.temp_dir(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, name: Str = default) -> Result[Path, Error]` — Creates a test-owned temporary path or resource.
 - `test.temp_file(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, name: Str = default, contents: Bytes = default) -> Result[Path, Error]` — Creates a test-owned temporary path or resource.
 - `test.temp_path(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, name: Str = default) -> Path` — Creates a test-owned temporary path or resource.
+- `test.unix_fake(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, settings: Record = default) -> Result[Unit, Error]` — Replaces the host-touching `unix` entries with fixed results for the rest of a native XSH test.
 
 ### `time`
 

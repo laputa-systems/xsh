@@ -3416,6 +3416,18 @@ fn test_module() -> ModuleSig {
             ),
         ),
         (
+            "unix_fake",
+            sig(
+                vec![
+                    param("ctx", test_context_type()),
+                    default_param("settings", record()),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::TestUnixFake,
+            ),
+        ),
+        (
             "run_script",
             sig(
                 vec![

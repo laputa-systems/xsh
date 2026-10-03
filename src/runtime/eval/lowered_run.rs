@@ -196,6 +196,7 @@ impl Evaluator {
             env: env.clone(),
             stdin: stdin.to_vec(),
             linux_fake: self.linux_fake.as_deref().cloned(),
+            unix_fake: self.unix_fake.as_deref().cloned(),
             span,
         })?;
         match lowered_runtime_value(value, span)? {
@@ -2582,7 +2583,7 @@ fn spawned_child_record(child: unix_module::SpawnedChild) -> Value {
     ])))
 }
 
-fn unix_dry_run_tty_attrs() -> Value {
+fn unix_fake_tty_attrs() -> Value {
     Value::Record(RecordMap::from([
         (Arc::from("iflag"), Value::Int(0)),
         (Arc::from("oflag"), Value::Int(0)),
@@ -7469,13 +7470,22 @@ impl Evaluator {
                 }
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestLinuxFake if values.len() == 1 || values.len() == 2 => {
-                let _ctx = lowered_record_arg(values.first().cloned(), "test.linux_fake", span)?;
+            RuntimeOp::TestLinuxFake | RuntimeOp::TestUnixFake
+                if values.len() == 1 || values.len() == 2 =>
+            {
+                let linux = op == RuntimeOp::TestLinuxFake;
+                let (module, api, kind) = if linux {
+                    ("linux", "test.linux_fake", "test-linux-fake")
+                } else {
+                    ("unix", "test.unix_fake", "test-unix-fake")
+                };
+                let _ctx = lowered_record_arg(values.first().cloned(), api, span)?;
                 let settings = match values.get(1).cloned() {
-                    Some(value) => lowered_record_arg(Some(value), "test.linux_fake", span)?,
+                    Some(value) => lowered_record_arg(Some(value), api, span)?,
                     None => RecordMap::new(),
                 };
-                let mut fake = super::LinuxFake::default();
+                let mut linux_fake = super::LinuxFake::default();
+                let mut unix_fake = super::UnixFake::default();
                 let mut failure = None;
                 for (key, value) in settings.iter() {
                     let text = match value {
@@ -7484,23 +7494,32 @@ impl Evaluator {
                         Value::Path(path) => path.display(),
                         other => {
                             failure = Some(format!(
-                                "linux fake setting `{key}` must be Str, Int, or Path, found {}",
+                                "{module} fake setting `{key}` must be Str, Int, or Path, found {}",
                                 other.type_name()
                             ));
                             break;
                         }
                     };
-                    if let Err(message) = fake.set(key, text) {
+                    let set = if linux {
+                        linux_fake.set(key, text)
+                    } else {
+                        unix_fake.set(key, text)
+                    };
+                    if let Err(message) = set {
                         failure = Some(message);
                         break;
                     }
                 }
                 match failure {
-                    Some(message) => lowered_result_err_value(
-                        RuntimeError::new("test-linux-fake", message).with_span(span),
-                    ),
+                    Some(message) => {
+                        lowered_result_err_value(RuntimeError::new(kind, message).with_span(span))
+                    }
                     None => {
-                        self.linux_fake = Some(Arc::new(fake));
+                        if linux {
+                            self.linux_fake = Some(Arc::new(linux_fake));
+                        } else {
+                            self.unix_fake = Some(Arc::new(unix_fake));
+                        }
                         lowered_result_ok(LoweredValue::Unit)
                     }
                 }
@@ -7940,21 +7959,13 @@ impl Evaluator {
                     lowered_str_arg_owned(values.get(1).cloned(), "TERM", "unix.kill_all", span)?;
                 unix_module::kill_all(&name, &signal, span)
             }
-            RuntimeOp::UnixUptimeSeconds if self.unix_dry_run() => {
-                let uptime = self
-                    .unix_dry_run_env("XSH_UNIX_UPTIME_SECONDS", "0")
-                    .parse::<i64>()
-                    .unwrap_or(0);
-                self.unix_dry_run_log("uptime_seconds", &[("seconds", uptime.to_string())], span)?;
-                Ok(Value::ok(Value::Int(uptime)))
-            }
-            RuntimeOp::UnixTty if self.unix_dry_run() => {
-                let tty = self.unix_dry_run_env("XSH_UNIX_TTY", "/dev/tty");
-                self.unix_dry_run_log("tty", &[("tty", tty.clone())], span)?;
+            RuntimeOp::UnixTty if self.unix_fake_active() => {
+                let tty = self.unix_fake_value("tty", "/dev/tty");
+                self.unix_fake_log("tty", &[("tty", tty.clone())], span)?;
                 Ok(Value::ok(Value::Str(tty.into())))
             }
-            RuntimeOp::UnixId if self.unix_dry_run() => {
-                self.unix_dry_run_log("id", &[], span)?;
+            RuntimeOp::UnixId if self.unix_fake_active() => {
+                self.unix_fake_log("id", &[], span)?;
                 Ok(Value::ok(Value::Record(RecordMap::from([
                     (Arc::from("uid"), Value::Int(0)),
                     (Arc::from("euid"), Value::Int(0)),
@@ -7969,22 +7980,22 @@ impl Evaluator {
                     ),
                 ]))))
             }
-            RuntimeOp::UnixTtyAttrs if self.unix_dry_run() => {
+            RuntimeOp::UnixTtyAttrs if self.unix_fake_active() => {
                 let fd = lowered_int_arg_or(values.first().cloned(), 0, "unix.tty_attrs", span)?;
-                self.unix_dry_run_log("tty_attrs", &[("fd", fd.to_string())], span)?;
-                Ok(Value::ok(unix_dry_run_tty_attrs()))
+                self.unix_fake_log("tty_attrs", &[("fd", fd.to_string())], span)?;
+                Ok(Value::ok(unix_fake_tty_attrs()))
             }
-            RuntimeOp::UnixSetTtyAttrs if self.unix_dry_run() => {
+            RuntimeOp::UnixSetTtyAttrs if self.unix_fake_active() => {
                 let _attrs =
                     lowered_record_arg(values.first().cloned(), "unix.set_tty_attrs", span)?;
                 let fd = lowered_int_arg_or(values.get(1).cloned(), 0, "unix.set_tty_attrs", span)?;
-                self.unix_dry_run_log("set_tty_attrs", &[("fd", fd.to_string())], span)?;
+                self.unix_fake_log("set_tty_attrs", &[("fd", fd.to_string())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
-            RuntimeOp::UnixSetHostname if self.unix_dry_run() => {
+            RuntimeOp::UnixSetHostname if self.unix_fake_active() => {
                 let hostname =
                     lowered_str_arg_owned(values.first().cloned(), "", "unix.set_hostname", span)?;
-                self.unix_dry_run_log("set_hostname", &[("hostname", hostname.clone())], span)?;
+                self.unix_fake_log("set_hostname", &[("hostname", hostname.clone())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::UnixReapChildEvents
@@ -7999,9 +8010,9 @@ impl Evaluator {
             | RuntimeOp::UnixNotifyClose
             | RuntimeOp::UnixKillProcessGroup
             | RuntimeOp::UnixExec
-                if self.unix_dry_run() =>
+                if self.unix_fake_active() =>
             {
-                self.eval_unix_dry_run_call(op, values, span)
+                self.eval_unix_fake_call(op, values, span)
             }
             RuntimeOp::UnixReapChildEvents => unix_module::reap_child_events(span),
             RuntimeOp::UnixPid1Setup => {
@@ -8192,13 +8203,6 @@ impl Evaluator {
                 unix_module::exec(&invocation, span)
             }
             RuntimeOp::UnixSetHostname => {
-                if !self.unix_real() {
-                    return Ok(module_error(
-                        "unix-real-required",
-                        "unix.set_hostname requires XSH_UNIX_DRY_RUN=1 or XSH_UNIX_REAL=1",
-                        span,
-                    ));
-                }
                 let hostname =
                     lowered_str_arg_owned(values.first().cloned(), "", "unix.set_hostname", span)?;
                 unix_module::set_hostname(&hostname, span)
@@ -8211,13 +8215,6 @@ impl Evaluator {
                 unix_module::tty_attrs(fd, span)
             }
             RuntimeOp::UnixSetTtyAttrs => {
-                if !self.unix_real() {
-                    return Ok(module_error(
-                        "unix-real-required",
-                        "unix.set_tty_attrs requires XSH_UNIX_DRY_RUN=1 or XSH_UNIX_REAL=1",
-                        span,
-                    ));
-                }
                 let attrs =
                     lowered_record_arg(values.first().cloned(), "unix.set_tty_attrs", span)?;
                 let fd = lowered_int_arg_or(values.get(1).cloned(), 0, "unix.set_tty_attrs", span)?;
@@ -8227,7 +8224,7 @@ impl Evaluator {
         }
     }
 
-    fn eval_unix_dry_run_call(
+    fn eval_unix_fake_call(
         &mut self,
         op: RuntimeOp,
         values: NativeArgumentValues,
@@ -8235,8 +8232,8 @@ impl Evaluator {
     ) -> Result<Value, RuntimeError> {
         match op {
             RuntimeOp::UnixReapChildEvents => {
-                self.unix_dry_run_log("reap_child_events", &[], span)?;
-                Ok(Value::ok(Value::List(self.unix_dry_run_child_events())))
+                self.unix_fake_log("reap_child_events", &[], span)?;
+                Ok(Value::ok(Value::List(self.unix_fake_child_events())))
             }
             RuntimeOp::UnixPid1Setup => {
                 let signals =
@@ -8245,7 +8242,7 @@ impl Evaluator {
                     lowered_bool_arg_or(values.get(1).cloned(), true, "unix.pid1_setup", span)?;
                 let allow_non_pid1 =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "unix.pid1_setup", span)?;
-                self.unix_dry_run_log(
+                self.unix_fake_log(
                     "pid1_setup",
                     &[
                         ("signals", signals.join(",")),
@@ -8257,10 +8254,10 @@ impl Evaluator {
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::UnixWaitPid1Event => {
-                let kind = self.unix_dry_run_env("XSH_UNIX_DRY_RUN_EVENT_KIND", "signal");
-                let signal = self.unix_dry_run_env("XSH_UNIX_DRY_RUN_SIGNAL", "TERM");
-                let pid = self.unix_dry_run_wait_pid();
-                self.unix_dry_run_log(
+                let kind = self.unix_fake_value("event_kind", "signal");
+                let signal = self.unix_fake_value("signal", "TERM");
+                let pid = self.unix_fake_wait_pid();
+                self.unix_fake_log(
                     "wait_pid1_event",
                     &[
                         ("kind", kind.clone()),
@@ -8269,7 +8266,7 @@ impl Evaluator {
                     ],
                     span,
                 )?;
-                let children = self.unix_dry_run_wait_children(pid);
+                let children = self.unix_fake_wait_children(pid);
                 let kind = if kind == "children" || kind == "child" {
                     "children"
                 } else if kind == "poll" {
@@ -8303,7 +8300,7 @@ impl Evaluator {
                     }
                     None => 0,
                 };
-                self.unix_dry_run_log(
+                self.unix_fake_log(
                     "pid1_shutdown",
                     &[
                         (
@@ -8338,7 +8335,7 @@ impl Evaluator {
                     "unix.spawn_process_group",
                     span,
                 )?;
-                self.unix_dry_run_spawn(plan, None, notify, span)
+                self.unix_fake_spawn(plan, None, notify, span)
             }
             RuntimeOp::UnixSpawnProcessGroupLog => {
                 let plan = lowered_command_arg(
@@ -8361,7 +8358,7 @@ impl Evaluator {
                     "unix.spawn_process_group_log",
                     span,
                 )?;
-                self.unix_dry_run_spawn_log(plan, log.display(), notify, span)
+                self.unix_fake_spawn_log(plan, log.display(), notify, span)
             }
             RuntimeOp::UnixSpawnLoggedProcessGroup => {
                 let plan = lowered_command_arg(
@@ -8382,7 +8379,7 @@ impl Evaluator {
                     "unix.spawn_logged_process_group",
                     span,
                 )?;
-                self.unix_dry_run_logged_spawn(plan, logger_plan, span)
+                self.unix_fake_logged_spawn(plan, logger_plan, span)
             }
             RuntimeOp::UnixSpawnWithTty => {
                 let plan = lowered_command_arg(
@@ -8392,22 +8389,22 @@ impl Evaluator {
                 )?;
                 let tty =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "unix.spawn_with_tty", span)?;
-                self.unix_dry_run_spawn(plan, Some(tty), false, span)
+                self.unix_fake_spawn(plan, Some(tty), false, span)
             }
             RuntimeOp::UnixNotifyReady => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.notify_ready", span)?;
                 let ready = if fd < 0 {
                     false
                 } else {
-                    let value = self.unix_dry_run_env("XSH_UNIX_DRY_RUN_READY", "1");
+                    let value = self.unix_fake_value("ready", "1");
                     value == "1" || value == "true" || value == "yes"
                 };
-                self.unix_dry_run_log("notify_ready", &[("ready", ready.to_string())], span)?;
+                self.unix_fake_log("notify_ready", &[("ready", ready.to_string())], span)?;
                 Ok(Value::ok(Value::Bool(ready)))
             }
             RuntimeOp::UnixNotifyClose => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.notify_close", span)?;
-                self.unix_dry_run_log("notify_close", &[("fd", fd.to_string())], span)?;
+                self.unix_fake_log("notify_close", &[("fd", fd.to_string())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::UnixKillProcessGroup => {
@@ -8429,7 +8426,7 @@ impl Evaluator {
                 if let Err(error) = process_module::signal_info(&signal, span) {
                     return Ok(Value::err(Value::Error(Box::new(error))));
                 }
-                self.unix_dry_run_log(
+                self.unix_fake_log(
                     "kill_process_group",
                     &[("pid", pid.to_string()), ("signal", signal)],
                     span,
@@ -8442,7 +8439,7 @@ impl Evaluator {
                     "unix.exec",
                     span,
                 )?;
-                self.unix_dry_run_log(
+                self.unix_fake_log(
                     "exec",
                     &[
                         (
@@ -8455,37 +8452,23 @@ impl Evaluator {
                 )?;
                 Ok(Value::ok(Value::Unit))
             }
-            _ => unreachable!("unix dry-run operation expected"),
+            _ => unreachable!("unix fake operation expected"),
         }
     }
 
-    fn unix_real(&self) -> bool {
-        self.env
-            .get_owned(b"XSH_UNIX_REAL".as_slice())
-            .and_then(|value| String::from_utf8(value).ok())
-            .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+    fn unix_fake_status_kind(&self) -> String {
+        self.unix_fake_value("status_kind", "exit")
     }
 
-    fn unix_dry_run_env(&self, name: &str, default: &str) -> String {
-        self.env
-            .get_owned(name.as_bytes())
-            .and_then(|value| String::from_utf8(value).ok())
-            .unwrap_or_else(|| default.to_string())
-    }
-
-    fn unix_dry_run_status_kind(&self) -> String {
-        self.unix_dry_run_env("XSH_UNIX_DRY_RUN_STATUS_KIND", "exit")
-    }
-
-    fn unix_dry_run_status_code(&self) -> i32 {
-        self.unix_dry_run_env("XSH_UNIX_DRY_RUN_STATUS_CODE", "0")
+    fn unix_fake_status_code(&self) -> i32 {
+        self.unix_fake_value("status_code", "0")
             .parse::<i32>()
             .unwrap_or(0)
     }
 
-    fn unix_dry_run_status(&self) -> ProcessStatus {
-        let kind = self.unix_dry_run_status_kind();
-        let code = self.unix_dry_run_status_code();
+    fn unix_fake_status(&self) -> ProcessStatus {
+        let kind = self.unix_fake_status_kind();
+        let code = self.unix_fake_status_code();
         if kind == "signal" {
             ProcessStatus::signaled(if code > 0 { code } else { libc::SIGTERM })
         } else {
@@ -8493,31 +8476,31 @@ impl Evaluator {
         }
     }
 
-    fn unix_dry_run_child_events(&self) -> Vec<Value> {
+    fn unix_fake_child_events(&self) -> Vec<Value> {
         let pid = self
-            .unix_dry_run_env("XSH_UNIX_DRY_RUN_CHILD_PID", "0")
+            .unix_fake_value("child_pid", "0")
             .parse::<i64>()
             .unwrap_or(0);
         if pid <= 0 {
             return Vec::new();
         }
-        self.unix_dry_run_wait_children(pid)
+        self.unix_fake_wait_children(pid)
     }
 
-    fn unix_dry_run_wait_pid(&self) -> i64 {
+    fn unix_fake_wait_pid(&self) -> i64 {
         let child_pid = self
-            .unix_dry_run_env("XSH_UNIX_DRY_RUN_CHILD_PID", "0")
+            .unix_fake_value("child_pid", "0")
             .parse::<i64>()
             .unwrap_or(0);
         if child_pid > 0 {
             return child_pid;
         }
-        self.unix_dry_run_env("XSH_UNIX_DRY_RUN_PID", "0")
+        self.unix_fake_value("pid", "0")
             .parse::<i64>()
             .unwrap_or(0)
     }
 
-    fn unix_dry_run_wait_children(&self, pid: i64) -> Vec<Value> {
+    fn unix_fake_wait_children(&self, pid: i64) -> Vec<Value> {
         if pid <= 0 {
             return Vec::new();
         }
@@ -8525,12 +8508,12 @@ impl Evaluator {
             (Arc::from("pid"), Value::Int(pid)),
             (
                 Arc::from("status"),
-                Value::Status(self.unix_dry_run_status()),
+                Value::Status(self.unix_fake_status()),
             ),
         ]))]
     }
 
-    fn unix_dry_run_spawn(
+    fn unix_fake_spawn(
         &mut self,
         plan: CommandPlan,
         tty: Option<String>,
@@ -8545,7 +8528,7 @@ impl Evaluator {
             .map(|item| Value::Str(String::from_utf8_lossy(item).into_owned().into()))
             .collect::<Vec<_>>();
         let new_session = tty.is_some();
-        // No real pipe in dry-run; report the fake pid as the notify fd so a
+        // No real pipe under the fake; report the fake pid as the notify fd so a
         // supervisor treats the unit as notify-capable and polls it.
         let notify_fd = if notify { pid } else { -1 };
         let op = if new_session {
@@ -8565,7 +8548,7 @@ impl Evaluator {
         if let Some(tty) = tty {
             fields.push(("tty", tty));
         }
-        self.unix_dry_run_log(op, &fields, span)?;
+        self.unix_fake_log(op, &fields, span)?;
         Ok(Value::ok(Value::Record(RecordMap::from([
             (Arc::from("pid"), Value::Int(pid)),
             (Arc::from("command"), Value::Str(command.into())),
@@ -8577,7 +8560,7 @@ impl Evaluator {
         ]))))
     }
 
-    fn unix_dry_run_spawn_log(
+    fn unix_fake_spawn_log(
         &mut self,
         plan: CommandPlan,
         log_path: String,
@@ -8592,7 +8575,7 @@ impl Evaluator {
             .map(|item| Value::Str(String::from_utf8_lossy(item).into_owned().into()))
             .collect::<Vec<_>>();
         let notify_fd = if notify { pid } else { -1 };
-        self.unix_dry_run_log(
+        self.unix_fake_log(
             "spawn_process_group",
             &[
                 ("pid", pid.to_string()),
@@ -8618,7 +8601,7 @@ impl Evaluator {
         ]))))
     }
 
-    fn unix_dry_run_logged_spawn(
+    fn unix_fake_logged_spawn(
         &mut self,
         plan: CommandPlan,
         logger_plan: CommandPlan,
@@ -8634,7 +8617,7 @@ impl Evaluator {
             .chain(plan.argv.iter().map(Vec::as_slice))
             .map(|item| Value::Str(String::from_utf8_lossy(item).into_owned().into()))
             .collect::<Vec<_>>();
-        self.unix_dry_run_log(
+        self.unix_fake_log(
             "spawn_logged_process_group",
             &[
                 ("pid", pid.to_string()),
@@ -8662,45 +8645,6 @@ impl Evaluator {
             (Arc::from("ignore_hup"), Value::Bool(true)),
         ]))))
     }
-
-    fn unix_dry_run_log(
-        &self,
-        op: &str,
-        fields: &[(&str, String)],
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        let Some(path) = self.env.get_owned(b"XSH_UNIX_DRY_RUN_LOG".as_slice()) else {
-            return Ok(());
-        };
-        let path = std::path::PathBuf::from(OsString::from_vec(path));
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                RuntimeError::new("unix-dry-run-log", error.to_string()).with_span(span)
-            })?;
-        }
-        let mut json_fields = Vec::with_capacity(fields.len() + 1);
-        json_fields.push(("op".to_string(), json_module::raw_json_string(op)));
-        for (name, value) in fields {
-            json_fields.push((
-                (*name).to_string(),
-                json_module::raw_json_string(value.clone()),
-            ));
-        }
-        let line = json_module::compact_raw_json(&json_module::raw_json_object(json_fields));
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .map_err(|error| {
-                RuntimeError::new("unix-dry-run-log", error.to_string()).with_span(span)
-            })?;
-        writeln!(file, "{line}").map_err(|error| {
-            RuntimeError::new("unix-dry-run-log", error.to_string()).with_span(span)
-        })
-    }
-
 
     fn linux_dry_run_file_attrs_flags(&self, span: Span) -> Result<i64, RuntimeError> {
         let value = self.linux_fake_value("file_attrs_flags", "48");
