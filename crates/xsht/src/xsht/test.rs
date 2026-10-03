@@ -5,9 +5,10 @@ use crate::xsht::cli::{
     collect_xsh_files, load_config,
 };
 use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
+use std::ffi::OsString;
 use std::fs;
 use std::io::{IsTerminal, Write};
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -71,6 +72,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     };
     let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
     coverage_module_roots = module_roots.clone();
+    let child_module_path = child_module_path(&module_roots);
     coverage_exclude = config.coverage.exclude.clone();
     if options.collect_coverage()
         && let Err(message) =
@@ -90,7 +92,13 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         config.test_roots.iter().map(PathBuf::from).collect()
     };
     for root in &test_roots {
-        match discover_native_tests(root, &config.exclude, &module_roots, &options) {
+        match discover_native_tests(
+            root,
+            &config.exclude,
+            &module_roots,
+            child_module_path.as_ref(),
+            &options,
+        ) {
             Ok(native) => cases.extend(native),
             Err(message) => {
                 if let Some(output) = cancellation_output() {
@@ -378,6 +386,7 @@ struct NativeTestCase {
     name: String,
     prepared: Arc<PreparedTestProgram>,
     has_ctx: bool,
+    module_path: Option<Arc<OsString>>,
 }
 
 struct TestOutcome {
@@ -502,6 +511,7 @@ fn discover_native_tests(
     root: &Path,
     excludes: &[String],
     module_roots: &[PathBuf],
+    child_module_path: Option<&Arc<OsString>>,
     options: &TestOptions,
 ) -> Result<Vec<TestCase>, String> {
     if !root.exists() {
@@ -616,7 +626,10 @@ fn discover_native_tests(
 
         let prepared = match Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
             .with_module_roots(module_roots.to_vec())
-            .with_native_test_host(Arc::new(native_test_host))
+            .with_native_test_host({
+                let module_path = child_module_path.cloned();
+                Arc::new(move |request| native_test_host(request, module_path.as_deref()))
+            })
             .prepare_test_program(Arc::clone(&arena), source_id)
         {
             Ok(prepared) => Arc::new(prepared),
@@ -646,6 +659,7 @@ fn discover_native_tests(
                     name,
                     prepared: Arc::clone(&prepared),
                     has_ctx,
+                    module_path: child_module_path.cloned(),
                 })),
                 Err(message) => cases.push(TestCase::Invalid { id, message }),
             }
@@ -726,6 +740,12 @@ fn run_native_test(
             env_overlay.push((b"PATH".to_vec(), path.into_vec()));
         }
     }
+    if let Some(module_path) = &case.module_path {
+        env_overlay.push((
+            XSH_MODULE_PATH.as_bytes().to_vec(),
+            module_path.as_bytes().to_vec(),
+        ));
+    }
     if let Some(dir) = &nested_coverage_dir {
         env_overlay.push((XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir)));
     }
@@ -777,8 +797,11 @@ fn run_native_test(
     }
 }
 
-fn native_test_host(request: NativeTestRunRequest) -> Result<Value, RuntimeError> {
-    let script_path = PathBuf::from(std::ffi::OsString::from_vec(
+fn native_test_host(
+    request: NativeTestRunRequest,
+    module_path: Option<&OsString>,
+) -> Result<Value, RuntimeError> {
+    let script_path = PathBuf::from(OsString::from_vec(
         request.script_path.bytes.clone(),
     ));
     if let Some(parent) = script_path.parent() {
@@ -818,6 +841,9 @@ fn native_test_host(request: NativeTestRunRequest) -> Result<Value, RuntimeError
         command.arg("--");
     }
     command.args(&request.script_args);
+    if let Some(module_path) = module_path {
+        command.env(XSH_MODULE_PATH, module_path);
+    }
     command.envs(&request.env);
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
@@ -998,6 +1024,28 @@ fn test_binary(name: &str) -> PathBuf {
         return target_debug;
     }
     PathBuf::from(name)
+}
+
+const XSH_MODULE_PATH: &str = "XSH_MODULE_PATH";
+
+/// Search path for `xsh` children of tests: the inherited `XSH_MODULE_PATH`
+/// followed by the configured module roots as absolute paths, deduplicated.
+/// The runner's own environment is unchanged, so lint discovery still ignores
+/// these roots.
+fn child_module_path(module_roots: &[PathBuf]) -> Option<Arc<OsString>> {
+    let mut entries: Vec<PathBuf> = std::env::var_os(XSH_MODULE_PATH)
+        .map(|inherited| std::env::split_paths(&inherited).collect())
+        .unwrap_or_default();
+    for root in module_roots {
+        let root: PathBuf = absolute_path(root).components().collect();
+        if !entries.contains(&root) {
+            entries.push(root);
+        }
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    std::env::join_paths(entries).ok().map(Arc::new)
 }
 
 fn absolute_path(path: &Path) -> PathBuf {

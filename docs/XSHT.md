@@ -208,7 +208,14 @@ modules live in another directory. `xsht test` also gives those roots to
 `module.load`, so a loaded module's `use` imports resolve like the test file's
 (`stdlib/module.xsh::test_module_load_resolves_uses_with_configured_test_module_roots`).
 A failed `module.load` names the module and its first diagnostics with their
-source locations.
+source locations. Processes that tests spawn (`test.run_script`, `test.run_xsh`,
+`test.run_xsht_trace`, and `run` in test bodies) receive an `XSH_MODULE_PATH`
+of the inherited entries followed by the configured roots as absolute paths,
+deduplicated, so a child `xsh` resolves `use` like the test file
+(`stdlib/module.xsh::test_spawned_xsh_children_append_configured_test_module_roots`).
+An explicit `XSH_MODULE_PATH` in a test's `env` argument still wins. The runner
+does not change its own environment, so these roots never reach `xsht lint`
+discovery.
 
 ## Source Representations
 
