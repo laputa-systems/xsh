@@ -1313,7 +1313,10 @@ impl<'a> Linter<'a> {
     fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool, statement_span: Span) {
         self.lint_inferred_proc_effects(def_id, exported, statement_span);
         let def = self.arena.function_def(def_id).clone();
-        if !def.return_ty_defaulted && !exported && result_unit_type_expr(self.arena, def.return_ty)
+        // Without the annotation, a complete `if`/`match` tail may infer a value.
+        let branching_tail = self.arena.stmt_ids(self.arena.block(def.body).statements).last().is_some_and(|tail|
+            matches!(self.arena.stmt(tail).kind, ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. }));
+        if !def.return_ty_defaulted && !exported && !branching_tail && result_unit_type_expr(self.arena, def.return_ty)
         {
             let ty_span = self.arena.type_expr_span(def.return_ty);
             let deletion_start = scan_before_arrow(self.source, ty_span.start());
@@ -1326,7 +1329,7 @@ impl<'a> Linter<'a> {
                 .with_code("lint.redundant-result-unit")
                 .with_label(Label::secondary(
                     ty_span,
-                    "annotation-free procs default to `Result[Unit]`",
+                    "a proc without a value tail infers `Result[Unit]`",
                 ))
                 .with_fix_hint(FixHint::deletion(
                     deletion_span,

@@ -178,8 +178,9 @@ The implemented v1 surface includes:
 - Newline and semicolon statement terminators.
 - `use`, `export`, `let`, `var`, `proc`, `pure`, `type`, `return`, `defer`,
   `if`, `else`, `while`, `for`, `break`, `continue`, and `match`.
-- Required parameter lists, concrete return inference for private `pure` helpers, default
-  `Result[Unit]` returns for annotation-free `proc`, typed defaults for simple
+- Required parameter lists, concrete return inference for private `pure` helpers
+  and private `proc` value tails, default `Result[Unit]` returns for
+  annotation-free `proc` statement bodies, typed defaults for simple
   defaulted parameters, plus default and rest parameters.
 - Expression-style pure and proc calls, plus fully qualified standard-module
   command calls for effectful APIs returning `Result[Unit]`.
@@ -1604,6 +1605,18 @@ also retain explicit return annotations. Inference does not create a Result
 boundary from `?`: the body must independently determine a compatible Result,
 or declare its return type. Annotation-driven conversions, contextual schema
 constraints, and implicit Ok wrapping retain their declared boundary.
+
+Private top-level procs may omit `-> Type` under the same dependency order. When
+every reachable completion is a compatible value, the proc returns `Result[T]`:
+an explicit Result tail keeps its shape and a plain `T` is wrapped as
+`Ok(value)`. Any statement completion (a Unit tail, an `if` without `else`, a
+bare `return`, or a failure-only `Err(..)`), or a tail that does not check as a
+value body (such as branches with incompatible values), keeps the statement
+reading and `Result[Unit]`. A statement-position caller consumes an inferred
+`Result[T]` with `?` or `let _ =`, as for any value-producing Result. Exported
+procs, `main`, and recursive procs whose bodies produce values report
+`check.required-return`. Test declarations, `cli main`, streams, and nested
+procs keep their declared or default returns.
 
 Pure functions are called with expression syntax:
 

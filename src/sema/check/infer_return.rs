@@ -6,6 +6,7 @@ struct ReturnDeclaration {
     names: Vec<Name>,
     span: Span,
     function: Option<FunctionDefId>,
+    proc_def: bool,
     statement: StmtId,
     exported: bool,
     parameters: FxHashSet<Name>,
@@ -15,6 +16,8 @@ impl Checker {
     /// Infer definitions in dependency order before checking their callers.
     /// An annotation fixes a callable boundary, but every recursive component
     /// still requires its unannotated pure members to declare that boundary.
+    /// Unannotated procs whose body may produce a value are probed here too;
+    /// their bodies are still checked in source order with the inferred return.
     pub(super) fn infer_local_pure_returns(&mut self, program: &ArenaProgram, source: &str, statements: &[StmtId]) {
         let mut declarations = Vec::new();
         for &statement in statements {
@@ -24,23 +27,27 @@ impl Checker {
             };
             let stmt = program.arena.stmt(statement);
             match stmt.kind {
-                ArenaStmtKind::PureDef(function) => {
+                ArenaStmtKind::PureDef(function) | ArenaStmtKind::ProcDef(function) if !program.arena.function_def(function).test_declaration => {
                     let def = program.arena.function_def(function);
                     declarations.push(ReturnDeclaration {
-                        name: def.name, names: vec![def.name], span: stmt.span, function: Some(function), statement, exported,
+                        name: def.name, names: vec![def.name], span: stmt.span, function: Some(function),
+                        proc_def: matches!(stmt.kind, ArenaStmtKind::ProcDef(_)), statement, exported,
                         parameters: program.arena.params(def.params).iter().map(|param| param.name).collect(),
                     });
                 }
                 ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
                     let names = binding_names(program, target).into_iter().filter(|name| *name != "_").collect::<Vec<_>>();
                     if let Some(&name) = names.first() {
-                        declarations.push(ReturnDeclaration { name, names, span: stmt.span, function: None, statement, exported, parameters: FxHashSet::default() });
+                        declarations.push(ReturnDeclaration { name, names, span: stmt.span, function: None, proc_def: false, statement, exported, parameters: FxHashSet::default() });
                     }
                 }
                 _ => {}
             }
         }
-        if !declarations.iter().any(|decl| decl.function.is_some_and(|id| program.arena.function_def(id).return_ty_defaulted)) { return; }
+        if !declarations.iter().any(|decl| decl.function.is_some_and(|id| {
+            let def = program.arena.function_def(id);
+            def.return_ty_defaulted && (!decl.proc_def || proc_may_return_value(program, def))
+        })) { return; }
         let indices: FxHashMap<_, _> = declarations.iter().enumerate().flat_map(|(index, decl)| decl.names.iter().map(move |name| (*name, index))).collect();
         let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();
         let mut add_shadow = |target, span| {
@@ -177,7 +184,7 @@ impl Checker {
                 });
                 let shadowed = parameter_shadow || shadows.get(&name).is_some_and(|ranges| ranges.iter().any(|range|
                     range.source_id == span.source_id && range.start() <= span.start() && range.end() >= span.end()));
-                if (!shadowed || callee && self.pures.contains_key(&name)) && let Some(&dependency) = indices.get(&name) {
+                if (!shadowed || callee && (self.pures.contains_key(&name) || self.procs.contains_key(&name))) && let Some(&dependency) = indices.get(&name) {
                     edges[index].push(dependency);
                 }
             }
@@ -211,6 +218,14 @@ impl Checker {
             };
             let def = program.arena.function_def(id);
             if !def.return_ty_defaulted { continue; }
+            if decl.proc_def {
+                if proc_may_return_value(program, def) {
+                    let boundary = if decl.exported { Some("exported") } else if decl.name == "main" { Some("entry") }
+                        else if cyclic.contains(&index) { Some("recursive") } else { None };
+                    self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                }
+                continue;
+            }
             let body_span = program.arena.span(program.arena.block(def.body).span);
             if decl.exported || cyclic.contains(&index) {
                 let message = if decl.exported {
@@ -273,6 +288,51 @@ impl Checker {
         self.scopes = saved_scopes;
     }
 
+    /// A speculative value-body check decides the success type; the checker
+    /// keeps only that type. A body that completes as a statement, or does not
+    /// check as a value body, keeps the statement reading and `Result[Unit]`.
+    fn infer_proc_return(&mut self, program: &ArenaProgram, source: &str, decl: &ReturnDeclaration, declarations: &[ReturnDeclaration],
+        def: &crate::syntax::arena::ArenaFunctionDef, boundary: Option<&str>) {
+        let visible_scopes = self.scopes.clone();
+        for binding in declarations {
+            if binding.function.is_none() && binding.span.source_id == decl.span.source_id && binding.span.start() >= decl.span.start() {
+                for name in &binding.names { self.current_scope_mut().remove(name); }
+            }
+        }
+        let mut probe = self.constraint_probe();
+        self.scopes = visible_scopes;
+        probe.inferred_returns = Some(Vec::new());
+        probe.inferred_propagations.clear();
+        probe.inference_reachable = true;
+        probe.current_return = None;
+        // Recursive calls contribute no completion, as for inferred pures.
+        if boundary == Some("recursive") && let Some(sig) = probe.procs.get_mut(&decl.name) { sig.return_ty = Type::Unknown; }
+        probe.check_function_arena(program, source, def, false);
+        let clean = !probe.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
+        let candidates = probe.inferred_returns.take().unwrap_or_default();
+        if !clean || candidates.is_empty() || candidates.iter().any(|(ty, _)| unit_like_completion(ty)) { return; }
+        let ty = if let Some(boundary) = boundary {
+            self.error(decl.span, &format!("{boundary} proc `{}` returns a value and requires an explicit return annotation", decl.name), "check.required-return");
+            Type::Invalid
+        } else {
+            let mut inferred: Option<Type> = None;
+            for (candidate, span) in candidates {
+                inferred = Some(match inferred { None => candidate, Some(previous) => self.unify_inferred_returns(previous, candidate, span) });
+            }
+            match inferred.unwrap_or(Type::Invalid) {
+                Type::Invalid => Type::Invalid,
+                ty if !return_type_is_concrete(&ty) => {
+                    self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), "check.infer-return");
+                    Type::Invalid
+                }
+                ty if ty.is_result() => ty,
+                ty => Type::Result(Box::new(ty), Box::new(Type::Error)),
+            }
+        };
+        self.function_return_types.insert(program.arena.span(program.arena.block(def.body).span), ty.clone());
+        if let Some(sig) = self.procs.get_mut(&decl.name) { sig.return_ty = ty; }
+    }
+
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
         match unify_return_shapes(&left, &right) {
             Some(ty) => ty,
@@ -282,6 +342,33 @@ impl Checker {
             }
         }
     }
+}
+
+// Statements, failure-only tails such as `Err(..)`, and scopes over statement
+// bodies fix no success type.
+fn unit_like_completion(ty: &Type) -> bool {
+    match ty {
+        Type::Unit | Type::Unknown => true,
+        Type::Result(ok, _) => unit_like_completion(ok),
+        _ => false,
+    }
+}
+
+// Only these completions can make a proc body a value body. Everything else
+// completes as a statement, so the probe would contribute nothing.
+fn proc_may_return_value(program: &ArenaProgram, def: &crate::syntax::arena::ArenaFunctionDef) -> bool {
+    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(tail).kind {
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. } => true,
+        ArenaStmtKind::Command(command) => matches!(program.arena.command_stmt(command).command,
+            crate::syntax::arena::ArenaCommand::Run(run) if super::command::run_capture_result_type_arena(program, run).is_some()),
+        _ => false,
+    });
+    let body = program.arena.span(program.arena.block(def.body).span);
+    tail_value || (0..program.arena.stmt_tags.len()).any(|raw| {
+        let stmt = program.arena.stmt(StmtId::from_index(raw));
+        matches!(stmt.kind, ArenaStmtKind::Return(Some(_)))
+            && stmt.span.source_id == body.source_id && stmt.span.start() >= body.start() && stmt.span.end() <= body.end()
+    })
 }
 
 fn return_type_is_concrete(ty: &Type) -> bool {

@@ -351,7 +351,7 @@ print "done"
 """)?
   assert output.success, output.stderr
   assert output.stdout == "done\n"
-  let integer = test.run_script(ctx, "proc check() { let code = 7; (code) }\ncheck()?\n")?
+  let integer = test.run_script(ctx, "proc check() -> Result[Unit] { let code = 7; (code) }\ncheck()?\n")?
   assert integer.status == 2, integer.stderr
   assert "check.type-mismatch" in integer.stderr
 }
