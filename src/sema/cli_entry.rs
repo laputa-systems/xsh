@@ -29,12 +29,18 @@ pub(crate) fn validate_cli_entry(
     mut default_value: impl FnMut(ExprId) -> Option<LiteralConstant>,
 ) -> (Option<CliEntryPlan>, Vec<Diagnostic>) {
     let roots = program.statement_ids().collect::<Vec<_>>();
+    // A workspace arena can hold other entry scripts that this program neither
+    // is nor imports; only the entry source and its modules are validated.
+    let sources = roots.iter().copied().chain(program.modules.iter().flat_map(|module| program.module_statements(module)))
+        .map(|id| program.arena.stmt(id).span.source_id)
+        .collect::<std::collections::BTreeSet<_>>();
     let mut diagnostics = Vec::new();
     let mut entry = None;
     for raw in 0..program.arena.stmt_tags.len() {
         let id = StmtId::from_index(raw);
         let statement = program.arena.stmt(id);
         let ArenaStmtKind::CliMain(definition) = statement.kind else { continue; };
+        if !sources.contains(&statement.span.source_id) { continue; }
         let mut error = |span, message: &str| diagnostics.push(Diagnostic::new(Severity::Error, message)
             .with_code("check.cli-entry").with_label(Label::primary(span, message)));
         if !roots.contains(&id) {

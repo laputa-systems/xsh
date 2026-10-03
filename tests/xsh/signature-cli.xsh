@@ -187,3 +187,30 @@ cli main(...operands: List[Str]) [] { print ${operands.join(",")} }
   }
   assert empty.stdout == "\n"
 }
+
+test test_signature_cli_entry_scripts_lint_together_in_a_project { |ctx|
+  let root = test.temp_dir(ctx, name: "cli-project")?
+  fp"${root}/xsht-config.ini".write("module_path = lib\n")?
+  fp"${root}/lib".mkdir()?
+  fp"${root}/bin".mkdir()?
+  fp"${root}/lib/greet.xsh".write(r"""##! Greetings.
+
+## Builds a greeting.
+export pure greeting(name: Str) -> Str {
+  "hello " + name
+}
+""")?
+  for name in ["tool", "other"] {
+    fp"${root}/bin/${name}.xsh".write(r"""use greet
+
+cli main(name: Str = "world") [io] {
+  print greet.greeting(name)
+}
+""")?
+  }
+  let linted = cd (root) {
+    run.capture --text "xsht" lint ?
+  }?
+  assert linted.status.exited_with(0), linted.stderr
+  assert "check.cli-entry" not in linted.stderr, linted.stderr
+}
