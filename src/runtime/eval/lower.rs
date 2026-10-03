@@ -629,6 +629,7 @@ fn lowered_native_test_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TestErrorKind
             | RuntimeOp::TestFail
             | RuntimeOp::TestSkip
+            | RuntimeOp::TestTimeout
             | RuntimeOp::TestTempPath
             | RuntimeOp::TestTempDir
             | RuntimeOp::TestTempFile

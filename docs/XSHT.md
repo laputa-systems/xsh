@@ -93,6 +93,17 @@ Without `--jobs`, half the logical CPUs run concurrently (1 to 8). Each
 runner-owned process group; on SIGINT/SIGTERM the runner sends SIGTERM to those
 groups, waits one second, sends SIGKILL, and exits `128 + signal`.
 
+Each test has a time limit: `--timeout DURATION` (an XSH duration literal such
+as `30s` or `5m`; default `120s`; `0` or `none` disables it), or the limit the
+test sets with `test.timeout(ctx, limit)`, which wins unless the run disabled
+timeouts. A test that overruns is canceled through its evaluator: its first
+checkpoint raises a `canceled` error so its defers run, and its own child
+process groups receive SIGTERM and then SIGKILL. A test still running five
+seconds later is aborted without cleanup; after one more second its thread is
+abandoned. The test is reported as `TIMEOUT` with `TIMEOUT after LIMIT`, counts
+as a failure, and the run continues (`--fail-fast` stops it). Covered by
+`cli::test_runner_times_out_hung_tests_and_stops_their_descendants`.
+
 `--cov` prints source coverage, `--api` adds standard-API hit data, and
 `--cov-json FILE` writes the machine-readable report (`docs/TESTING.md`).
 

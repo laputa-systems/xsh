@@ -79,6 +79,60 @@ pub struct TestEvalOutput {
     pub result: Option<Value>,
 }
 
+/// Shared between the test harness and one test's evaluator: the harness
+/// cancels a test that overran its time limit, and `test.timeout` replaces that
+/// limit from inside the test.
+#[cfg(feature = "native-tests")]
+#[derive(Clone, Debug, Default)]
+pub struct TestCancellation(Arc<TestCancellationState>);
+
+#[cfg(feature = "native-tests")]
+#[derive(Debug, Default)]
+struct TestCancellationState {
+    /// 0 running, 1 canceled, 2 forced.
+    level: std::sync::atomic::AtomicU8,
+    /// Requested limit in milliseconds plus one; zero means no request.
+    timeout_millis: std::sync::atomic::AtomicU64,
+}
+
+#[cfg(feature = "native-tests")]
+impl TestCancellation {
+    /// Asks the test to stop: its evaluator raises a `canceled` error at the
+    /// next checkpoint and asks its child processes to stop, and cleanup runs.
+    pub fn cancel(&self) {
+        self.0.level.fetch_max(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Aborts the test without further cleanup and kills its child processes.
+    pub fn force(&self) {
+        self.0.level.fetch_max(2, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn level(&self) -> u8 {
+        self.0.level.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn request_timeout(&self, limit: Duration) {
+        let millis = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX - 1);
+        self.0
+            .timeout_millis
+            .store(millis.saturating_add(1), std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The limit the test requested through `test.timeout`, if any.
+    pub fn requested_timeout(&self) -> Option<Duration> {
+        match self.0.timeout_millis.load(std::sync::atomic::Ordering::SeqCst) {
+            0 => None,
+            millis => Some(Duration::from_millis(millis - 1)),
+        }
+    }
+
+    /// Identifies this test for resources the harness tracks on its behalf.
+    pub fn id(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
+}
+
 #[cfg(feature = "native-tests")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeTestRunKind {
@@ -100,6 +154,9 @@ pub struct NativeTestRunRequest {
     /// under the same fakes.
     pub linux_fake: Option<LinuxFake>,
     pub unix_fake: Option<UnixFake>,
+    /// The requesting test's cancellation, so the host can stop the child
+    /// when that test times out.
+    pub cancellation: Option<TestCancellation>,
     pub span: Span,
 }
 
@@ -447,6 +504,18 @@ struct EvaluatorSignalState {
     shutdown_complete: bool,
     pre_cancel_deadline: Option<Instant>,
     hook_span: Option<Span>,
+    /// The harness's test cancellation has been delivered once.
+    test_cancel_delivered: bool,
+}
+
+/// What the evaluator still owes a harness test cancellation.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TestCancelRequest {
+    None,
+    /// Raise one ordinary `canceled` error so cleanup runs.
+    Cancel,
+    /// Abort without cleanup: the test did not unwind in time.
+    Force,
 }
 
 #[cfg(feature = "native-tests")]
@@ -2943,6 +3012,8 @@ pub struct Evaluator {
     #[cfg(feature = "native-tests")]
     pub(super) unix_fake: Option<Arc<UnixFake>>,
     #[cfg(feature = "native-tests")]
+    pub(super) test_cancellation: Option<TestCancellation>,
+    #[cfg(feature = "native-tests")]
     test_temp_counter: u64,
 }
 
@@ -2994,6 +3065,7 @@ impl PreparedTestProgram {
         ctx: Value,
         trace_enabled: bool,
         env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
+        cancellation: TestCancellation,
     ) -> TestEvalOutput {
         let symbols = self.symbols.clone();
         run_eval(move || {
@@ -3008,6 +3080,7 @@ impl PreparedTestProgram {
                 };
                 let mut evaluator = Evaluator::new_lowered_worker(shared);
                 evaluator.capture_process_output = true;
+                evaluator.test_cancellation = Some(cancellation);
                 for (name, value) in env_overlay {
                     evaluator = evaluator.with_env_var(name, value);
                 }
@@ -3180,6 +3253,8 @@ impl Evaluator {
             linux_fake: None,
             #[cfg(feature = "native-tests")]
             unix_fake: None,
+            #[cfg(feature = "native-tests")]
+            test_cancellation: None,
             #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         };
@@ -3383,6 +3458,8 @@ impl Evaluator {
             #[cfg(feature = "native-tests")]
             test_calls: Vec::new(),
             #[cfg(feature = "native-tests")]
+            test_cancellation: None,
+            #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         }
     }
@@ -3393,11 +3470,59 @@ impl Evaluator {
         self.signal_state.shutdown_complete
     }
 
+    #[cfg(feature = "native-tests")]
+    fn test_cancel_request(&self) -> TestCancelRequest {
+        match self.test_cancellation.as_ref().map_or(0, TestCancellation::level) {
+            0 => TestCancelRequest::None,
+            1 if self.signal_state.test_cancel_delivered => TestCancelRequest::None,
+            1 => TestCancelRequest::Cancel,
+            _ if self.signal_state.shutdown_complete => TestCancelRequest::None,
+            _ => TestCancelRequest::Force,
+        }
+    }
+
+    #[cfg(not(feature = "native-tests"))]
+    fn test_cancel_request(&self) -> TestCancelRequest {
+        TestCancelRequest::None
+    }
+
+    /// Delivers a harness test cancellation. The first request stops owned
+    /// children the way an unhooked SIGTERM does and raises one `canceled`
+    /// error, which unwinds through ordinary cleanup; a forced request aborts
+    /// without cleanup.
+    fn deliver_test_cancel(
+        &mut self,
+        request: TestCancelRequest,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        self.signal_state.test_cancel_delivered = true;
+        if request == TestCancelRequest::Force {
+            self.kill_active_process_groups();
+            self.signal_state.shutdown_status =
+                Some(default_signal_status(&hook_signal_from_number(libc::SIGTERM)));
+            self.signal_state.shutdown_force = true;
+            self.signal_state.shutdown_complete = true;
+            return Ok(());
+        }
+        if !self.process_handles.is_empty() {
+            self.cancel_process_handles_for_signal(libc::SIGTERM, span)?;
+        }
+        if self.live_process_streams > 0 {
+            self.kill_active_process_groups();
+        }
+        self.cancel_net_jobs_for_signal(span)?;
+        Err(RuntimeError::new("canceled", "the test harness canceled this test").with_span(span))
+    }
+
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
         for live in self.process_handles.values_mut() {
             // Delivery failures remain owned by the handle and surface through
             // its wait or cleanup result, alongside other process I/O failures.
             let _ = crate::runtime::process::drive_managed_input(&mut live.child);
+        }
+        let test_cancel = self.test_cancel_request();
+        if test_cancel != TestCancelRequest::None {
+            return self.deliver_test_cancel(test_cancel, span);
         }
         if self.signal_hooks.is_empty()
             && self.process_handles.is_empty()
@@ -5658,6 +5783,17 @@ impl CancellationPolicy for Evaluator {
 
     fn check_process_group(&mut self, group: ProcessGroup) -> CancellationDecision {
         self.track_process_group(group);
+        match self.test_cancel_request() {
+            TestCancelRequest::None => {}
+            TestCancelRequest::Cancel => {
+                self.signal_state.test_cancel_delivered = true;
+                return CancellationDecision::Forward(libc::SIGTERM);
+            }
+            TestCancelRequest::Force => {
+                self.kill_active_process_groups();
+                return CancellationDecision::Escalate(libc::SIGTERM);
+            }
+        }
         let snapshot = signal_snapshot();
         if let Some(escalation) = snapshot.escalation {
             let primary = hook_signal_from_number(snapshot.primary.unwrap_or(escalation));

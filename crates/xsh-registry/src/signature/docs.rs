@@ -1116,6 +1116,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Skipped tests are reported separately from passes and failures by the harness.",
             &["test", "native-tests", "control-flow"],
         )),
+        ("test", "timeout") => Some((
+            "Sets the current native XSH test's time limit.",
+            "The limit counts from the test's start and replaces the run's `xsht test --timeout` limit unless the run disabled timeouts; a test that overruns it is canceled and reported as a timeout failure.",
+            &["test", "native-tests", "timeout"],
+        )),
         ("test", "temp_path" | "temp_dir" | "temp_file") => Some((
             "Creates a test-owned temporary path or resource.",
             "The returned resource belongs to the test scope and must be cleaned up or retained intentionally.",

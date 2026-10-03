@@ -391,6 +391,8 @@ pub enum RuntimeOp {
     #[cfg(feature = "native-tests")]
     TestSkip,
     #[cfg(feature = "native-tests")]
+    TestTimeout,
+    #[cfg(feature = "native-tests")]
     TestTempPath,
     #[cfg(feature = "native-tests")]
     TestTempDir,

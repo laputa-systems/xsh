@@ -3340,6 +3340,15 @@ fn test_module() -> ModuleSig {
             ),
         ),
         (
+            "timeout",
+            sig(
+                vec![param("ctx", test_context_type()), param("limit", Type::Duration)],
+                Type::Unit,
+                false,
+                RuntimeOp::TestTimeout,
+            ),
+        ),
+        (
             "temp_path",
             sig(
                 vec![

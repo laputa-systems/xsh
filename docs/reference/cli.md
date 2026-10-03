@@ -133,15 +133,16 @@ xsht test — Run discovered tests
 Usage:
   xsht test [OPTIONS] [FILTER]
 
-  --list           List matching tests
-  --exact          Match FILTER exactly
-  --cov            Print source coverage
-  --api            Include API coverage
-  -j, --jobs N     Run N tests concurrently (default: half the CPUs)
-  --nocapture      Show test output
-  --fail-fast      Stop after the first failure
-  --keep-temp      Preserve temporary directories
-  --cov-json FILE  Write coverage JSON
+  --list              List matching tests
+  --exact             Match FILTER exactly
+  --cov               Print source coverage
+  --api               Include API coverage
+  -j, --jobs N        Run N tests concurrently (default: half the CPUs)
+  --timeout DURATION  Fail a test that runs longer (default: 120s; 0 or none disables)
+  --nocapture         Show test output
+  --fail-fast         Stop after the first failure
+  --keep-temp         Preserve temporary directories
+  --cov-json FILE     Write coverage JSON
 ```
 
 ### `xsht grep`
