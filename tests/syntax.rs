@@ -3003,6 +3003,39 @@ fn line_continuation_tokens_cannot_begin_a_statement() {
     assert_eq!(overlap, ["."], "continuation tokens that also begin a statement");
 }
 
+/// The printer joins adjacent tokens with `lexer::join_tokens`, which adds a
+/// space only where the lexer would merge them. Every ordered pair of token
+/// spellings, covering every token kind, lexes back to the same tokens.
+#[test]
+fn joined_token_pairs_lex_back_to_the_same_tokens() {
+    use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, representative_token_texts};
+    let representatives = representative_token_texts();
+    for tag in TokenTag::ALL.into_iter().filter(|tag| *tag != TokenTag::Eof) {
+        assert!(representatives.iter().any(|(kind, _)| *kind == tag), "no spelling for {tag:?}");
+    }
+    for (tag, text) in &representatives {
+        assert_eq!(lex_spellings(text), [(*tag, text.as_str())], "{text:?}");
+    }
+    // A comment runs to the end of the line, so nothing is joined after one.
+    let texts: Vec<&str> = representatives
+        .iter()
+        .filter(|(tag, _)| !matches!(tag, TokenTag::Comment | TokenTag::Newline))
+        .map(|(_, text)| text.as_str())
+        .collect();
+    let mut spaced = 0;
+    for left in &texts {
+        for right in &texts {
+            let joined = join_tokens(left, right);
+            let mut expected = lex_spellings(left);
+            expected.extend(lex_spellings(right));
+            assert_eq!(lex_spellings(&joined), expected, "{left:?} then {right:?} joined as {joined:?}");
+            spaced += usize::from(joined.len() > left.len() + right.len());
+        }
+    }
+    assert_eq!(texts.len(), 148);
+    assert_eq!(spaced, 11078, "pairs that need a space");
+}
+
 #[test]
 fn line_starting_with_a_statement_token_starts_a_new_statement() {
     for line in ["-1", "/tmp/x", "./x", "is_ok(1)"] {

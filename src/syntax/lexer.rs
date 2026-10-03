@@ -626,6 +626,24 @@ pub fn lex_spellings(source: &str) -> Vec<(TokenTag, &str)> {
         .collect()
 }
 
+/// Whether `left` written directly before `right` still lexes as the tokens
+/// of `left` followed by the tokens of `right`. Printers that join tokens
+/// without whitespace consult this instead of per-token rules.
+pub fn tokens_stay_separate(left: &str, right: &str) -> bool {
+    let joined = format!("{left}{right}");
+    let mut expected = lex_spellings(left);
+    expected.extend(lex_spellings(right));
+    lex_spellings(&joined) == expected
+}
+
+/// `right` appended to `left`, separated by a space when written directly
+/// after `left` its tokens would merge with `left`'s last token.
+pub fn join_tokens(left: &str, right: &str) -> String {
+    let last = lex_spellings(left).last().map_or("", |(_, text)| *text);
+    let first = lex_spellings(right).first().map_or("", |(_, text)| *text);
+    if tokens_stay_separate(last, first) { format!("{left}{right}") } else { format!("{left} {right}") }
+}
+
 /// Source spellings that cover every token kind and every lexer decision
 /// that depends on the bytes around a token: each fixed spelling, each
 /// keyword, an identifier for every identifier-start byte (so the `b"`,
