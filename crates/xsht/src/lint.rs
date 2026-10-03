@@ -72,6 +72,39 @@ fn span_may_contain_comment(source: &str, span: Span) -> bool {
         || (0..lexed.token_table.len()).any(|index| lexed.token_table.tag_at(index) == Some(xsh::frontend::syntax::token::TokenTag::Comment))
 }
 
+/// Fixes build replacements with conservative grouping; removes each pair
+/// that `check.redundant-parens` would reject where the fix lands, so applied
+/// fixes keep exactly the parentheses the parser needs.
+fn minimize_fix_grouping(program: &ArenaProgram, source: &str, diagnostics: &mut [Diagnostic]) {
+    let Some(source_id) = program.statement_ids().next().map(|id| program.arena.stmt(id).span.source_id) else { return };
+    for diagnostic in diagnostics {
+        if !diagnostic.fix_hints.iter().any(|hint| hint.replacement.as_deref().is_some_and(|text| text.contains('('))) { continue; }
+        let mut edits: Vec<(usize, Span, String)> = Vec::new();
+        for (index, hint) in diagnostic.fix_hints.iter().enumerate() {
+            let (Some(span), Some(replacement)) = (hint.span, hint.replacement.as_ref()) else { continue };
+            if span.source_id == source_id && source.get(span.range()).is_some() {
+                edits.push((index, span, replacement.clone()));
+            }
+        }
+        edits.sort_by_key(|(_, span, _)| (span.start(), span.end()));
+        if edits.windows(2).any(|pair| pair[1].1.start() < pair[0].1.end()) { continue; }
+        let mut text = String::with_capacity(source.len());
+        let mut ranges = Vec::with_capacity(edits.len());
+        let mut cursor = 0;
+        for (_, span, replacement) in &edits {
+            text.push_str(&source[cursor..span.start()]);
+            ranges.push(text.len()..text.len() + replacement.len());
+            text.push_str(replacement);
+            cursor = span.end();
+        }
+        text.push_str(&source[cursor..]);
+        let (minimal, ranges) = xsh::frontend::syntax::grouping::remove_redundant_parens(&text, &ranges);
+        for ((index, _, _), range) in edits.iter().zip(ranges) {
+            diagnostic.fix_hints[*index].replacement = Some(minimal[range].to_owned());
+        }
+    }
+}
+
 /// Widens `span` over grouping parentheses that enclose exactly it, so an edit
 /// that yields an atomic literal does not depend on redundant source grouping.
 /// Call and index parentheses, and groups holding comments, are never widened.
@@ -258,7 +291,7 @@ pub const FIXABLE_CHECK_CODES: &[&str] = &["check.ambiguous-grouping", "check.bo
 
 /// One-line summaries of `FIXABLE_CHECK_CODES` for `xsht lint --list`.
 pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[
-    ("check.ambiguous-grouping", "Group an `if` or `match` operand, or a pipeline that an operator or suffix applies to"),
+    ("check.ambiguous-grouping", "Group an `if` or `match` operand, or a pipeline that an operator applies to"),
     (
         "check.bool-statement",
         "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard",
@@ -530,6 +563,7 @@ impl<'a> Linter<'a> {
             linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
         linter.diagnostics.retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code.as_deref()));
+        minimize_fix_grouping(program, source, &mut linter.diagnostics);
         LintOutput {
             diagnostics: linter.diagnostics,
         }

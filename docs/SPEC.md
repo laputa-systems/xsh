@@ -699,19 +699,24 @@ intended meaning at a glance:
   write `(if a { 1 } else { 2 }) + 3` or `(match x { ... }).name`. A whole
   initializer, argument, element, field value, arm body, or condition stays
   bare;
-- a pipeline whose result an operator, `is`, a suffix, or `?` applies to
-  (`check.ambiguous-grouping`): write `(xs |> drop(1)).join("")`. After an
-  expression stage, a suffix or operator is part of the stage's expression,
-  and a later `|>` adds a stage, so neither is grouped.
+- a pipeline that an operator, a prefix, or `is` applies to
+  (`check.ambiguous-grouping`): write `(xs |> count) > 3`.
 
-The fixes for both codes insert the parentheses
+A suffix after a pipeline whose last stage is complete chains left to right
+like a method chain and needs no grouping: `xs |> drop(1).join("")` applies
+`.join("")` to the pipeline's result, and `xs |> last()?` tries it. After an
+expression stage (`xs |> map x * 2`), a suffix or operator is part of the
+stage's expression, and a later `|>` adds a stage.
+
+The fixes for `check.mixed-logical` and `check.ambiguous-grouping` insert the parentheses
 (`xsht lint --only <code> --fix`).
 
 Parentheses are legal only where removing them would change the parse or break
 one of these grouping rules (`check.redundant-parens`, whose fix removes
 them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
 `(x?).name` (otherwise `?.`), `(-x).abs()`, a command form followed by more of
-its expression (`(run cat file).len()`), a statement that would otherwise start
+its expression (`(run cat file).len()`, or `(run cat file)?.lines()`, where the
+final word would start a typed argument `file?.lines()`), a statement that would otherwise start
 with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
 assignment value that starts with `run`, a pipeline before an operator or
 suffix it would take into its last stage, typed command arguments `(expr)`,

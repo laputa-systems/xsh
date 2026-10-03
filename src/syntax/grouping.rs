@@ -102,6 +102,12 @@ pub enum FollowToken {
     Question,
     /// An adjacent `?[`.
     QuestionBracket,
+    /// An adjacent `?.` chain, which a command's typed final argument takes
+    /// as its own.
+    QuestionDot,
+    /// An adjacent `?.` chain that ends in a call or index, which a command's
+    /// final name or quoted word also takes (`Parser::at_call_or_index_chain`).
+    QuestionDotCall,
     Dot,
     /// `.require(`.
     Require,
@@ -127,7 +133,7 @@ impl Follow {
         self.adjacent
             && matches!(
                 self.token,
-                FollowToken::Dot | FollowToken::Require | FollowToken::DotDot | FollowToken::Bracket | FollowToken::Paren | FollowToken::Question | FollowToken::QuestionBracket
+                FollowToken::Dot | FollowToken::Require | FollowToken::DotDot | FollowToken::Bracket | FollowToken::Paren | FollowToken::Question | FollowToken::QuestionBracket | FollowToken::QuestionDot | FollowToken::QuestionDotCall
             )
     }
 
@@ -377,7 +383,56 @@ fn is_command_form(kind: &ArenaExprKind) -> bool {
 /// Inside parentheses a `)` also ends one, but a command is always grouped
 /// before a `)` so that removing an enclosing pair cannot extend it.
 fn command_ends_before(follow: Follow) -> bool {
-    matches!(follow.token, FollowToken::End | FollowToken::Question | FollowToken::Brace | FollowToken::Pipe | FollowToken::PipeGt)
+    matches!(
+        follow.token,
+        FollowToken::End | FollowToken::Question | FollowToken::QuestionDot | FollowToken::QuestionDotCall | FollowToken::Brace | FollowToken::Pipe | FollowToken::PipeGt
+    )
+}
+
+/// Whether the final word of `run` takes in an adjacent `?.` chain: a typed
+/// argument always does, and a quoted word or a `.`-separated name does when
+/// the chain ends in a call or index.
+fn run_takes_null_safe_chain(arena: &AstArena, source: &str, run: crate::syntax::arena::RunFormId, follow: Follow) -> bool {
+    use crate::syntax::arena::{ArenaCommandArgKind, ArenaRedirectionTarget, ArenaWordPart};
+    if !matches!(follow.token, FollowToken::QuestionDot | FollowToken::QuestionDotCall) {
+        return false;
+    }
+    let Some(segment) = arena.run_segments(arena.run_form(run).segments).last() else { return false };
+    let last = match arena.redirections(segment.redirections).last() {
+        Some(redirection) => match &redirection.target {
+            ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
+        },
+        None => arena.command_args(segment.args).last().unwrap_or(&segment.target),
+    };
+    match last.kind {
+        ArenaCommandArgKind::Typed(_) => true,
+        ArenaCommandArgKind::Word(parts) if follow.token == FollowToken::QuestionDotCall => {
+            let mut parts = arena.word_parts(parts);
+            match (parts.next(), parts.next()) {
+                (Some(ArenaWordPart::Quoted(_)), None) => true,
+                (Some(ArenaWordPart::Bare(text)), None) => arena.text_value(&text, source).is_none_or(|text| {
+                    let tokens = lex_spellings(text);
+                    tokens.first().is_some_and(|(tag, _)| *tag == TokenTag::Ident)
+                        && tokens[1..].chunks(2).all(|pair| {
+                            matches!(pair, [(TokenTag::Dot, _), (TokenTag::Ident | TokenTag::Keyword, _)])
+                        })
+                }),
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// The follow of a `?.` chain whose receiver is written where `context`
+/// holds the chain's first link.
+fn null_safe_follow(context: Context) -> Follow {
+    let ends_chain = |follow: Follow| {
+        follow.adjacent
+            && matches!(follow.token, FollowToken::Paren | FollowToken::Bracket | FollowToken::QuestionBracket | FollowToken::QuestionDotCall | FollowToken::Require)
+    };
+    let call = ends_chain(context.follow) || (context.follow.adjacent && context.follow.token == FollowToken::Dot && ends_chain(context.chain_follow));
+    Follow::adjacent(if call { FollowToken::QuestionDotCall } else { FollowToken::QuestionDot })
 }
 
 /// A call or field that the parser extends with a following `{` builder block.
@@ -411,7 +466,7 @@ fn brace_reads_as_record(arena: &AstArena, kind: &ArenaExprKind) -> bool {
 
 /// Whether `expr`, written in `context` with only the parentheses its own
 /// children need, must be parenthesized for the parser to rebuild it.
-pub fn needs_parens(arena: &AstArena, expr: ExprId, context: Context) -> bool {
+pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Context) -> bool {
     let kind = arena.expr(expr).kind;
     // A pipeline whose last stage is complete continues like a primary at
     // the level where `|>` applies; elsewhere it binds below every operator.
@@ -434,7 +489,7 @@ pub fn needs_parens(arena: &AstArena, expr: ExprId, context: Context) -> bool {
         // A `spawn` or `wait` target stops before `?`, `?.`, and `?[`.
         Slot::Postfix { .. } | Slot::Try => {
             (power < POSTFIX
-                && !(matches!(context.follow.token, FollowToken::Question | FollowToken::QuestionBracket) && is_command_target_form(&kind)))
+                && !(matches!(context.follow.token, FollowToken::Question | FollowToken::QuestionBracket | FollowToken::QuestionDot | FollowToken::QuestionDotCall) && is_command_target_form(&kind)))
                 // A typed final command argument takes an adjacent `?` as its own.
                 || (context.slot == Slot::Try && command_run(&kind).is_some_and(|run| run_ends_with_typed_arg(arena, run)))
         }
@@ -463,9 +518,9 @@ pub fn needs_parens(arena: &AstArena, expr: ExprId, context: Context) -> bool {
         // `x?.`, `x?[`, `x??`, and `x?..` read as one postfix or operator.
         ArenaExprKind::Try(_) => {
             follow.adjacent
-                && matches!(follow.token, FollowToken::Dot | FollowToken::Bracket | FollowToken::Question | FollowToken::QuestionBracket | FollowToken::DotDot)
+                && matches!(follow.token, FollowToken::Dot | FollowToken::Bracket | FollowToken::Question | FollowToken::QuestionBracket | FollowToken::QuestionDot | FollowToken::QuestionDotCall | FollowToken::DotDot)
         }
-        _ if is_command_form(&kind) => !command_ends_before(follow),
+        _ if is_command_form(&kind) => !command_ends_before(follow) || command_run(&kind).is_some_and(|run| run_takes_null_safe_chain(arena, source, run, follow)),
         // `. in x` reads as the field `.in`.
         // A type pattern takes in an adjacent `.`, `[`, `(`, or `?`.
         ArenaExprKind::PatternTest { .. } => follow.is_suffix(),
@@ -501,12 +556,14 @@ pub fn needs_parens(arena: &AstArena, expr: ExprId, context: Context) -> bool {
 /// Whether `kind`, held by an operator or suffix in `slot`, must be grouped
 /// because a reader cannot see its extent (`check.ambiguous-grouping`): an
 /// `if` or `match` anywhere an operator, suffix, or `|>` holds it, and a
-/// pipeline whose result an operator or suffix applies to.
+/// pipeline that an operator, prefix, or `is` applies to. A suffix after a
+/// complete last stage chains left to right like a method chain, so
+/// `xs |> drop(1).join("")` applies `.join` to the pipeline's result.
 pub fn held_ambiguously(slot: Slot, kind: &ArenaExprKind) -> bool {
     match kind {
         ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } => slot != Slot::Open,
         ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } | ArenaExprKind::ValuePipelineCall { .. } => {
-            !matches!(slot, Slot::Open | Slot::PipelineInput { .. })
+            matches!(slot, Slot::Left(_) | Slot::Right(_) | Slot::Prefix | Slot::PatternTestValue)
         }
         _ => false,
     }
@@ -568,7 +625,7 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
             Context { chain_follow, ..left(slot, Follow::adjacent(FollowToken::Dot)) }
         }
         ArenaExprKind::Require { .. } => left(Slot::Postfix { dotted: false }, Follow::adjacent(FollowToken::Require)),
-        ArenaExprKind::NullSafeField { .. } => left(Slot::Postfix { dotted: false }, Follow::adjacent(FollowToken::Question)),
+        ArenaExprKind::NullSafeField { .. } => left(Slot::Postfix { dotted: false }, null_safe_follow(context)),
         ArenaExprKind::Index { base, guarded, .. } | ArenaExprKind::Slice { base, guarded, .. } if base == child => {
             let slot = if matches!(context.slot, Slot::CommandTarget { .. }) { Slot::CommandTarget { spawn: false, receiver: true } } else { Slot::Postfix { dotted: false } };
             left(slot, Follow::adjacent(if guarded { FollowToken::QuestionBracket } else { FollowToken::Bracket }))
@@ -577,6 +634,10 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         ArenaExprKind::Call { callee, .. } if callee == child => {
             let slot = if matches!(context.slot, Slot::CommandTarget { .. }) { Slot::CommandTarget { spawn: false, receiver: true } } else { Slot::Postfix { dotted: false } };
             left(slot, Follow::adjacent(FollowToken::Paren))
+        }
+        // `x?.require(` continues as a `?.` chain.
+        ArenaExprKind::Try(_) if context.follow.adjacent && context.follow.token == FollowToken::Require => {
+            left(Slot::Try, Follow::adjacent(FollowToken::QuestionDotCall))
         }
         ArenaExprKind::Try(_) => left(Slot::Try, Follow::adjacent(FollowToken::Question)),
         ArenaExprKind::BuilderCall { .. } => left(Slot::Postfix { dotted: false }, Follow::BRACE),
@@ -832,8 +893,8 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
             {
                 context = Context { slot: Slot::PipelineInput { structured: false }, follow: Follow::spaced(FollowToken::PipeGt), ..context };
             }
-            let required = needs_parens(arena, *expr, context)
-                || removal_breaks_children(arena, *expr, context, &grouped)
+            let required = needs_parens(arena, source, *expr, context)
+                || removal_breaks_children(arena, source, *expr, context, &grouped)
                 || removal_merges_tokens(source, spans[0], arena.expr(*expr).span)
                 || ((context.slot != Slot::Open || context.follow.is_suffix())
                     && !matches!(arena.expr(*expr).kind, ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } | ArenaExprKind::ValuePipelineCall { .. })
@@ -862,7 +923,8 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
 
 /// Removes every redundant pair of parentheses inside `within` from `source`,
 /// for tools that splice text whose grouping was chosen without context.
-pub fn remove_redundant_parens(source: &str, within: &[std::ops::Range<usize>]) -> String {
+/// Returns the text and `within` moved to match it.
+pub fn remove_redundant_parens(source: &str, within: &[std::ops::Range<usize>]) -> (String, Vec<std::ops::Range<usize>>) {
     let mut text = source.to_string();
     let mut ranges = within.to_vec();
     for _ in 0..32 {
@@ -894,7 +956,7 @@ pub fn remove_redundant_parens(source: &str, within: &[std::ops::Range<usize>]) 
             }
         }
     }
-    text
+    (text, ranges)
 }
 
 struct Groups<'a> {
@@ -948,7 +1010,7 @@ impl Groups<'_> {
 
 /// Without its parentheses, `expr`'s context reaches the children along its
 /// edges, which may then need parentheses of their own.
-fn removal_breaks_children(arena: &AstArena, expr: ExprId, context: Context, grouped: &FxHashMap<ExprId, Vec<Span>>) -> bool {
+fn removal_breaks_children(arena: &AstArena, source: &str, expr: ExprId, context: Context, grouped: &FxHashMap<ExprId, Vec<Span>>) -> bool {
     let mut broken = false;
     for_each_child(arena, expr, |child| {
         if broken || grouped.contains_key(&child) {
@@ -956,7 +1018,7 @@ fn removal_breaks_children(arena: &AstArena, expr: ExprId, context: Context, gro
         }
         let ungrouped = child_context(arena, expr, context, child);
         if ungrouped != child_context(arena, expr, context.group(), child) {
-            broken = needs_parens(arena, child, ungrouped) || removal_breaks_children(arena, child, ungrouped, grouped);
+            broken = needs_parens(arena, source, child, ungrouped) || removal_breaks_children(arena, source, child, ungrouped, grouped);
         }
     });
     broken
@@ -1037,7 +1099,7 @@ fn ambiguous_grouping(arena: &AstArena, operand: ExprId, source: &str) -> Diagno
     let message = if matches!(arena.expr(operand).kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }) {
         "group an `if` or `match` expression that an operator or suffix applies to"
     } else {
-        "group a pipeline whose result an operator or suffix applies to"
+        "group a pipeline that an operator applies to"
     };
     Diagnostic::error(message)
         .with_code("check.ambiguous-grouping")

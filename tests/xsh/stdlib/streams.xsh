@@ -66,7 +66,7 @@ beta
   # item was mistaken for a method on the list.
   let ext_lower = ["a.TXT", "b.com"]
     |> map { |s|
-      (s.split(".") |> last())?.lower()
+      s.split(".") |> last()?.lower()
     }
     |> collect()
   assert ext_lower == ["txt", "com"]
@@ -104,10 +104,10 @@ beta
     }) == 16
 
   assert ([1, 2, 3] |> sum) == 6
-  assert ([3, 1, 2] |> min)? == 1
-  assert ([3, 1, 2] |> max)? == 3
-  assert ([3, 1, 2] |> first())? == 3
-  assert ([3, 1, 2] |> last())? == 2
+  assert [3, 1, 2] |> min? == 1
+  assert [3, 1, 2] |> max? == 3
+  assert [3, 1, 2] |> first()? == 3
+  assert [3, 1, 2] |> last()? == 2
   assert [1, 2, 3] |> any . == 2
   assert [1, 2, 3] |> all . > 0
   let expected_counts: Map[Int] = {["1"]: 2, ["2"]: 1}
@@ -544,11 +544,11 @@ stream numbers(name: Str) [io, error] -> Stream[Int] {
 }
 
 proc main() [io, error] {
-  let last = (numbers("last") |> last())?
+  let last = numbers("last") |> last()?
   print f"last=${last}"
-  let min = (numbers("min") |> min())?
+  let min = numbers("min") |> min()?
   print f"min=${min}"
-  let max = (numbers("max") |> max())?
+  let max = numbers("max") |> max()?
   print f"max=${max}"
 }
 """,
@@ -884,15 +884,15 @@ test test_reduce_by_jobs_hint_preserves_results {
 
   assert par.keys().len() == 3
 
-  assert ((nums
+  assert (nums
     |> reduce-by(min: true, jobs: 8) { |n|
       {key: "all", value: n}
-    }).get("all") ?? -1) == 0
+    }.get("all") ?? -1) == 0
 
-  assert ((nums
+  assert (nums
     |> reduce-by(max: true, jobs: 8) { |n|
       {key: "all", value: n}
-    }).get("all") ?? -1) == 49999
+    }.get("all") ?? -1) == 49999
 }
 
 test test_jobs_options_evaluate_once_before_stage { |ctx|
@@ -1225,7 +1225,7 @@ let numbers = nums(Path("${marker.display()}"), Path("${rows.display()}"))
 # The call did not run the body, so no row has been written yet, and the first
 # pull stops at the first row: the defer runs and the later rows never do.
 print \${Path("${rows.display()}").exists() ?}
-let first = (numbers |> first())?
+let first = numbers |> first()?
 print \${first}
 print \${Path("${rows.display()}").read_text() ?}
 print \${Path("${marker.display()}").read_text() ?}
@@ -1784,9 +1784,9 @@ proc main() [io, fs, error] {
     }
   print f"block_found=\${block_found}"
   print Path("${marker.display()}").read_text()?
-  let first = (numbers(Path("${marker.display()}"))
+  let first = numbers(Path("${marker.display()}"))
     |> where . % 2 == 1
-    |> first())?
+    |> first()?
   print f"first=\${first}"
   print Path("${marker.display()}").read_text()?
 }
@@ -1822,7 +1822,7 @@ stream numbers(marker: Path) [fs, error] -> Stream[Int] {
   yield 2
 }
 proc main() [fs, io, error] {
-  let first = (numbers(Path("${marker.display()}")) |> where . > 10 |> first())?
+  let first = numbers(Path("${marker.display()}")) |> where . > 10 |> first()?
   print f"first=\${first}"
 }
 """,
@@ -1966,19 +1966,19 @@ beta
 gamma
 """)?
 
-  assert (input.lines()? |> first())? == "alpha"
+  assert input.lines()? |> first()? == "alpha"
 
-  assert ("""one
+  assert """one
 two
 """.lines()
   |> drop(1)
-  |> first())? == "two"
+  |> first()? == "two"
 
-  assert ("""red
+  assert """red
 blue
 """
   |> text.lines
-  |> take(1))[0] == "red"
+  |> take(1)[0] == "red"
 
   assert """x
 y
@@ -2042,7 +2042,7 @@ stream inner(n: Int) [io] -> Stream[Int] {
 }
 
 proc main() [io, error] {
-  let first = (outer() |> flat-map { |n| inner(n) } |> first())?
+  let first = outer() |> flat-map { |n| inner(n) } |> first()?
   print f"first=${first}"
 }
 """,
@@ -2688,13 +2688,13 @@ test test_fs_files_lazy_folding_terminals_match_eager_results { |ctx|
     |> map .size
     |> sum) == 6
 
-  assert (fs.files(root)
+  assert fs.files(root)
     |> map .size
-    |> min)? == 1
+    |> min? == 1
 
-  assert (fs.files(root)
+  assert fs.files(root)
     |> map .size
-    |> max)? == 3
+    |> max? == 3
 
   assert (fs.files(root)
     |> map .size

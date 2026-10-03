@@ -89,7 +89,7 @@ impl Checker {
             slot: grouping::Slot::Postfix { dotted: false },
             ..grouping::Context::open(grouping::Follow::adjacent(grouping::FollowToken::Require))
         };
-        Some(if grouping::needs_parens(&arena.arena, receiver, receiver_context) {
+        Some(if grouping::needs_parens(&arena.arena, source, receiver, receiver_context) {
             format!("({text}).require({schema})")
         } else {
             format!("{text}.require({schema})")

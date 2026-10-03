@@ -12107,7 +12107,7 @@ proc network_raw_number(
   return Ok({value: null, complete: false}) when digits == ""
 
   for digit in digits {
-    if digit not in if hexadecimal { "0123456789abcdef" } else { "0123456789" } {
+    if digit not in (if hexadecimal { "0123456789abcdef" } else { "0123456789" }) {
       return Ok({value: null, complete: false})
     }
   }
@@ -12651,7 +12651,7 @@ pure ip_rule_table(value: Str) -> Result[Int] {
 
 pure ip_rule_prefix(value: Str?, length: Int?, family: Str) -> Result[Str?] {
   let maximum = if family == "ipv4" { 32 } else { 128 }
-  let prefix_length = length ?? if value == null or value == "all" { 0 } else { maximum }
+  let prefix_length = length ?? (if value == null or value == "all" { 0 } else { maximum })
   if prefix_length < 0 or prefix_length > maximum {
     return Err(check_failure("ip rule reference has an invalid prefix length"))
   }
@@ -12823,8 +12823,8 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
     let source_address = ip_rule_prefix(source, source_length, family)?
     let destination_address = ip_rule_prefix(destination, destination_length, family)?
     let maximum = if family == "ipv4" { 32 } else { 128 }
-    let source_prefix_length = source_length ?? if source_address == null { 0 } else { maximum }
-    let destination_prefix_length = destination_length ?? if destination_address == null { 0 } else { maximum }
+    let source_prefix_length = source_length ?? (if source_address == null { 0 } else { maximum })
+    let destination_prefix_length = destination_length ?? (if destination_address == null { 0 } else { maximum })
     if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or (goto_target != null and (goto_target < 0 or goto_target > 4294967295 or action != "goto")) {
       return Err(check_failure("ip rule reference has an invalid selector"))
     }
@@ -24983,7 +24983,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
     )
   }
 
-  let scored = 1 + if compared.exact_bounds { 1 } else { 0 } + if compared.exact_controls { 1 } else { 0 }
+  let scored = 1 + (if compared.exact_bounds { 1 } else { 0 }) + (if compared.exact_controls { 1 } else { 0 })
   Ok(
     {
       scored: scored,

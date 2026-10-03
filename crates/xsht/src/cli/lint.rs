@@ -19,6 +19,7 @@ use xsh::frontend::symbols::{Name, SymbolOwner};
 use xsh::frontend::syntax::arena::{
     ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId, UseStmtId,
 };
+use xsh::frontend::syntax::grouping::grouping_diagnostics;
 use xsh::frontend::syntax::parser::Parser;
 pub fn lint_files(files: &[String], fix: bool, runless: bool, only: Option<Vec<String>>) -> CliOutput {
     if let Some(output) = cancellation_output() {
@@ -651,7 +652,7 @@ fn set_checked_lint_facts_for_source(
     options.membership_migration_spans = source_checked_set(&checked.membership_migration_spans, source_id);
     options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
     options.definitely_exiting_block_spans = source_checked_set(&checked.definitely_exiting_block_spans, source_id);
-    options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { source_checked_set(&checked.statically_resolved_call_spans, source_id) } else { Default::default() };
+    options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) { source_checked_set(&checked.statically_resolved_call_spans, source_id) } else { Default::default() };
 }
 
 fn lint_workspace_root(
@@ -696,7 +697,8 @@ fn lint_workspace_root(
     });
     let unrelated_check_error = checked.diagnostics.iter().any(|diagnostic|
         migration_lint_code(diagnostic.code.as_deref()).is_none()
-            && diagnostic.code.as_deref() != Some("check.removed-membership"));
+            && diagnostic.code.as_deref() != Some("check.removed-membership")
+            && !spelling_only(diagnostic));
     if !checked.diagnostics.is_empty() && unrelated_check_error && (!fix || !relevant_diagnostics.is_empty()) {
         relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
         return vec![LintResult {
@@ -766,12 +768,21 @@ fn lint_workspace_root(
                 linted.diagnostics.push(diagnostic);
             }
         }
+        // The bundle check judges only the root's spelling; an imported
+        // module's grouping is judged against its own text.
+        let module_grouping = if key == root { Vec::new() } else { grouping_diagnostics(bundle, &module.text) };
+        if !fix {
+            linted.diagnostics.extend(checked.diagnostics.iter().filter(|diagnostic|
+                spelling_only(diagnostic) && diagnostic_mentions_source(diagnostic, module.source_id)).cloned());
+            linted.diagnostics.extend(module_grouping.iter().cloned());
+        }
         linted.diagnostics.retain(|diagnostic| lint_code_selected(only, diagnostic.code.as_deref()));
         let check_diagnostics = checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id)
-                && lint_code_selected(only, diagnostic.code.as_deref()))
+            .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
+            .chain(&module_grouping)
+            .filter(|diagnostic| lint_code_selected(only, diagnostic.code.as_deref()))
             .cloned()
             .collect::<Vec<_>>();
         let result = if fix {
@@ -792,7 +803,7 @@ fn lint_workspace_root(
             LintResult {
                 index: results.len(),
                 kind: LintResultKind::Diagnostics {
-                    status: lint_diagnostics_status(&linted.diagnostics),
+                    status: if linted.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check."))) { 2 } else { lint_diagnostics_status(&linted.diagnostics) },
                     diagnostics: render_diagnostics_with_keys(
                         &linted.diagnostics,
                         &workspace.sources,
@@ -1099,6 +1110,12 @@ fn order_modules_depth_first(
     ordered.push(key.to_string());
 }
 
+/// Source parentheses that do not change the parse leave every checked fact
+/// intact, so they never hide lint diagnostics.
+fn spelling_only(diagnostic: &Diagnostic) -> bool {
+    diagnostic.code.as_deref() == Some("check.redundant-parens")
+}
+
 fn diagnostic_mentions_source(diagnostic: &Diagnostic, source_id: SourceId) -> bool {
     diagnostic
         .span
@@ -1317,7 +1334,7 @@ fn lint_one_file_with_fixes(
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-    lint_options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
+    lint_options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) { checked.statically_resolved_call_spans.clone() } else { Default::default() };
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
@@ -1543,7 +1560,7 @@ fn apply_cst_fixes(
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-        options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
+        options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) { checked.statically_resolved_call_spans.clone() } else { Default::default() };
         let linted = if is_module {
             Linter::lint_module(&program.parsed.arena, &candidate, options)
         } else {
