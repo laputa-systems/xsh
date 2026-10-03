@@ -443,6 +443,9 @@ impl<'a> Parser<'a> {
                     self.token_table.keyword_at(index + 1),
                     Some(Keyword::And | Keyword::Or | Keyword::In)
                 )
+                && !(self.token_table.keyword_at(index + 1) == Some(Keyword::Not)
+                    && self.token_table.keyword_at(index + 2) == Some(Keyword::In))
+                && !(tag == TokenTag::Ident && self.token_table.name_at(index + 1).is_some_and(|name| name == "is"))
         })
     }
 

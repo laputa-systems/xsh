@@ -51,5 +51,5 @@ fn patch_filename(
 }
 
 fn diff_error(kind: &str, error: std::io::Error, span: Span) -> RuntimeError {
-    RuntimeError::new(kind, error.to_string()).with_span(span)
+    RuntimeError::host(kind, &error).with_span(span)
 }

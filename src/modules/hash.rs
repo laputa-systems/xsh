@@ -57,7 +57,7 @@ pub(crate) fn digest_file(
     span: Span,
 ) -> Result<DigestValue, RuntimeError> {
     let mut file = std::fs::File::open(path)
-        .map_err(|error| RuntimeError::new("hash-read", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("hash-read", &error).with_span(span))?;
     digest_reader(algorithm, &mut file, span)
 }
 
@@ -142,7 +142,7 @@ fn digest_stream<D: md5::Digest + Default>(
             Ok(count) => count,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => {
-                return Err(RuntimeError::new("hash-read", error.to_string()).with_span(span));
+                return Err(RuntimeError::host("hash-read", &error).with_span(span));
             }
         };
         if count == 0 {

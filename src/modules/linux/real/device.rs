@@ -217,7 +217,7 @@ fn loop_device_record(path: &Path, span: Span) -> Result<Option<Value>, RuntimeE
         Ok(file) => file,
         Err(error) if is_inaccessible_loop_device(&error) => return Ok(None),
         Err(error) => {
-            return Err(RuntimeError::new("linux-loop", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("linux-loop", &error).with_span(span));
         }
     };
     let mut info = LoopInfo64::default();
@@ -227,7 +227,7 @@ fn loop_device_record(path: &Path, span: Span) -> Result<Option<Value>, RuntimeE
         return match error.raw_os_error() {
             Some(libc::ENXIO | libc::ENODEV) => Ok(None),
             _ if is_inaccessible_loop_device(&error) => Ok(None),
-            _ => Err(RuntimeError::new("linux-loop", error.to_string()).with_span(span)),
+            _ => Err(RuntimeError::host("linux-loop", &error).with_span(span)),
         };
     }
     Ok(Some(Value::Record(crate::runtime::value::RecordMap::from(
@@ -265,7 +265,7 @@ fn write_swap_header(device: &Path, span: Span) -> Result<(), RuntimeError> {
         .read(true)
         .write(true)
         .open(device)
-        .map_err(|error| RuntimeError::new("linux-mkswap", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("linux-mkswap", &error).with_span(span))?;
     let page_size = page_size(span)?;
     let size = device_size(&file, span)?;
     if size < (page_size as u64) * 10 {
@@ -293,7 +293,7 @@ fn write_swap_header(device: &Path, span: Span) -> Result<(), RuntimeError> {
         .and_then(|_| file.write_all(SWAP_MAGIC))
         .and_then(|_| file.flush())
         .and_then(|_| file.sync_all())
-        .map_err(|error| RuntimeError::new("linux-mkswap", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("linux-mkswap", &error).with_span(span))
 }
 
 fn device_size(file: &File, span: Span) -> Result<u64, RuntimeError> {
@@ -305,13 +305,13 @@ fn device_size(file: &File, span: Span) -> Result<u64, RuntimeError> {
 
     file.metadata()
         .map(|metadata| metadata.len())
-        .map_err(|error| RuntimeError::new("linux-mkswap", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("linux-mkswap", &error).with_span(span))
 }
 
 fn fill_random(buffer: &mut [u8], span: Span) -> Result<(), RuntimeError> {
     File::open("/dev/urandom")
         .and_then(|mut file| file.read_exact(buffer))
-        .map_err(|error| RuntimeError::new("linux-mkswap", error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host("linux-mkswap", &error).with_span(span))
 }
 
 fn page_size(_span: Span) -> Result<usize, RuntimeError> {

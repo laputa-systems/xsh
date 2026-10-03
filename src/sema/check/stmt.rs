@@ -301,7 +301,7 @@ impl Checker {
             if !valid { self.error(rhs_span, "invalid Duration compound assignment dimensions", "check.operator-type"); }
             return Type::Duration;
         }
-        if op == AssignOp::Add && matches!(left, Type::List(_)) {
+        if op == AssignOp::Add && matches!(left, Type::List(_) | Type::Str) {
             self.expect_type(left, right, rhs_span);
             return left.clone();
         }

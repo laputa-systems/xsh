@@ -761,8 +761,9 @@ fn lowered_measured_command_record(
 }
 
 fn read_host_path_bytes_vec(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
-    std::fs::read(path)
-        .map_err(|error| RuntimeError::new("fs-read", format!("{}: {error}", path.display())).with_span(span))
+    std::fs::read(path).map_err(|error| {
+        RuntimeError::new("fs-read", format!("{}: {error}", path.display())).with_host_facet(&error).with_span(span)
+    })
 }
 
 fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
@@ -774,10 +775,10 @@ fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeErr
 
 fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
     let mut file = std::fs::File::open(path)
-        .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
     let len = file
         .metadata()
-        .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?
+        .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?
         .len()
         .try_into()
         .map_err(|_| RuntimeError::new("fs-read", "file is too large").with_span(span))?;
@@ -800,7 +801,7 @@ fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, Ru
             Ok(read) => initialized += read,
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) => {
-                return Err(RuntimeError::new("fs-read", error.to_string()).with_span(span));
+                return Err(RuntimeError::host("fs-read", &error).with_span(span));
             }
         }
     }
@@ -813,13 +814,13 @@ fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, Ru
                 let mut value = unsafe { bytes.assume_init() }.to_vec();
                 value.extend_from_slice(&extra[..read]);
                 file.read_to_end(&mut value).map_err(|error| {
-                    RuntimeError::new("fs-read", error.to_string()).with_span(span)
+                    RuntimeError::host("fs-read", &error).with_span(span)
                 })?;
                 return Ok(value.into());
             }
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) => {
-                return Err(RuntimeError::new("fs-read", error.to_string()).with_span(span));
+                return Err(RuntimeError::host("fs-read", &error).with_span(span));
             }
         }
     }
@@ -1312,7 +1313,7 @@ fn lowered_to_json(
 
 fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<String, RuntimeError> {
     let bytes = std::fs::read(path)
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
     String::from_utf8(bytes)
         .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))
 }
@@ -1320,7 +1321,7 @@ fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<Str
 #[cfg(feature = "native-tests")]
 fn create_host_dir_all(path: &Path, operation: &str, span: Span) -> Result<(), RuntimeError> {
     std::fs::create_dir_all(path)
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))
+        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))
 }
 
 /// Whether a captured module-export signature satisfies the contract `expected`:
@@ -3386,9 +3387,9 @@ pub(super) fn new_temp_fs_root(
     span: Span,
 ) -> Result<FsRootHandle, RuntimeError> {
     let temp = TempDir::new()
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
     let root = Root::open(temp.path())
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
     Ok(FsRootHandle::TempDir { root, _temp: temp })
 }
 
@@ -3741,7 +3742,7 @@ impl Evaluator {
             .create("file")
             .and_then(|mut file| file.flush())
             .map_err(|error| {
-                RuntimeError::new("fs-temp-file", error.to_string()).with_span(span)
+                RuntimeError::host("fs-temp-file", &error).with_span(span)
             })?;
         let root = self.push_lowered_fs_root(root);
         let path = PathValue::new(b"file".to_vec()).map_err(|error| error.with_span(span))?;
@@ -3782,9 +3783,9 @@ impl Evaluator {
             }
         };
         std::fs::create_dir_all(path)
-            .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-dir", &error).with_span(span))?;
         let root = Root::open(path)
-            .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-dir", &error).with_span(span))?;
         Ok(self.push_lowered_fs_root(FsRootHandle::Dir(root)))
     }
 
@@ -3815,7 +3816,7 @@ impl Evaluator {
             RuntimeError::new("fs-dir", "user directory is unavailable").with_span(span)
         })?;
         let root = Root::open(path)
-            .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("fs-dir", &error).with_span(span))?;
         Ok(self.push_lowered_fs_root(FsRootHandle::Dir(root)))
     }
 
@@ -3857,7 +3858,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error.with_span(span)),
                 },
                 Err(error) => lowered_result_err_value(
-                    RuntimeError::new("applet.current_exe", error.to_string()).with_span(span),
+                    RuntimeError::host("applet.current_exe", &error).with_span(span),
                 ),
             },
             RuntimeOp::AppletLoginSession if values.len() == 3 => {
@@ -3870,7 +3871,7 @@ impl Evaluator {
                 match auth_module::login_session(&user, preserve_env, &host) {
                     Ok(code) => lowered_result_ok(LoweredValue::Int(i64::from(code))),
                     Err(error) => lowered_result_err_value(
-                        RuntimeError::new("applet.login_session", error.to_string())
+                        RuntimeError::host("applet.login_session", &error)
                             .with_span(span),
                     ),
                 }
@@ -3895,7 +3896,7 @@ impl Evaluator {
                 ) {
                     Ok(code) => lowered_result_ok(LoweredValue::Int(i64::from(code))),
                     Err(error) => lowered_result_err_value(
-                        RuntimeError::new("applet.su_session", error.to_string()).with_span(span),
+                        RuntimeError::host("applet.su_session", &error).with_span(span),
                     ),
                 }
             }
@@ -3906,7 +3907,7 @@ impl Evaluator {
                 match auth_module::sulogin_session(&user) {
                     Ok(code) => lowered_result_ok(LoweredValue::Int(i64::from(code))),
                     Err(error) => lowered_result_err_value(
-                        RuntimeError::new("applet.sulogin_session", error.to_string())
+                        RuntimeError::host("applet.sulogin_session", &error)
                             .with_span(span),
                     ),
                 }
@@ -5409,7 +5410,7 @@ impl Evaluator {
                 match std::io::stdin().read_to_end(&mut data) {
                     Ok(_) => lowered_result_ok(LoweredValue::Bytes(data.into())),
                     Err(error) => lowered_result_err_value(
-                        RuntimeError::new("io.stdin_bytes", error.to_string()).with_span(span),
+                        RuntimeError::host("io.stdin_bytes", &error).with_span(span),
                     ),
                 }
             }
@@ -5418,7 +5419,7 @@ impl Evaluator {
                 match std::io::stdin().read_to_string(&mut data) {
                     Ok(_) => lowered_result_ok(LoweredValue::Str(data.into())),
                     Err(error) => lowered_result_err_value(
-                        RuntimeError::new("io.stdin_text", error.to_string()).with_span(span),
+                        RuntimeError::host("io.stdin_text", &error).with_span(span),
                     ),
                 }
             }
@@ -5438,7 +5439,7 @@ impl Evaluator {
                         lowered_result_ok(LoweredValue::Str(line.into()))
                     }
                     Err(error) => lowered_result_err_value(
-                        RuntimeError::new("io.stdin_line", error.to_string()).with_span(span),
+                        RuntimeError::host("io.stdin_line", &error).with_span(span),
                     ),
                 }
             }
@@ -7662,7 +7663,7 @@ impl Evaluator {
                 match tui::read_secret(&prompt) {
                     Ok(secret) => lowered_result_ok(LoweredValue::Str(secret.into())),
                     Err(error) => lowered_result_err_value(
-                        RuntimeError::new("tui.read_secret", error.to_string()).with_span(span),
+                        RuntimeError::host("tui.read_secret", &error).with_span(span),
                     ),
                 }
             }
@@ -8122,7 +8123,7 @@ impl Evaluator {
                     && !parent.as_os_str().is_empty()
                 {
                     std::fs::create_dir_all(parent).map_err(|error| {
-                        RuntimeError::new("unix-spawn-log", error.to_string()).with_span(span)
+                        RuntimeError::host("unix-spawn-log", &error).with_span(span)
                     })?;
                 }
                 let stdout = std::fs::OpenOptions::new()
@@ -8131,10 +8132,10 @@ impl Evaluator {
                     .mode(0o600)
                     .open(&host_log)
                     .map_err(|error| {
-                        RuntimeError::new("unix-spawn-log", error.to_string()).with_span(span)
+                        RuntimeError::host("unix-spawn-log", &error).with_span(span)
                     })?;
                 let stderr = stdout.try_clone().map_err(|error| {
-                    RuntimeError::new("unix-spawn-log", error.to_string()).with_span(span)
+                    RuntimeError::host("unix-spawn-log", &error).with_span(span)
                 })?;
                 let notify = lowered_bool_arg_or(
                     values.get(2).cloned(),
@@ -10202,7 +10203,9 @@ impl Evaluator {
                 };
                 Value::ok(Value::stream(stream))
             }
-            Err(error) => super::module_error("fs-read", &format!("{}: {error}", host_path.display()), span),
+            Err(error) => Value::err(Value::Error(Box::new(
+                RuntimeError::new("fs-read", format!("{}: {error}", host_path.display())).with_host_facet(&error).with_span(span),
+            ))),
         }
     }
 

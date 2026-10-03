@@ -50,6 +50,22 @@ pub(super) fn canonical(program: &ArenaProgram, source: &str) -> Canonical {
     }
 }
 
+/// Layout-independent key for one subtree: two blocks or expressions get the
+/// same key exactly when `xsht fmt` could print one as the other.
+pub(crate) fn canonical_subtree(arena: &AstArena, source: &str, root: Result<BlockId, ExprId>) -> String {
+    let mut writer = CanonicalWriter {
+        arena,
+        source,
+        out: String::new(),
+        marks: Vec::new(),
+    };
+    match root {
+        Ok(block) => writer.block(block),
+        Err(expr) => writer.expr(expr),
+    }
+    writer.out
+}
+
 struct CanonicalWriter<'a> {
     arena: &'a AstArena,
     source: &'a str,

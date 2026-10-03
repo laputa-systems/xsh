@@ -243,3 +243,15 @@ pure list_assignment_empty_unit() -> Unit {}
 test test_list_assignment_is_unit {
   assert list_assignment_unit() == list_assignment_empty_unit()
 }
+
+test test_str_compound_addition_appends_text {
+  var text = "a"
+  text += "b"
+  var record = {names: ["x"], label: "l"}
+  record.label += "!"
+  var labels = {first: "f"}
+  labels.first += text
+  assert text == "ab"
+  assert record.label == "l!"
+  assert labels.first == "fab"
+}

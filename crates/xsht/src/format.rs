@@ -28,6 +28,7 @@ use xsh::frontend::syntax::token::TokenTag;
 
 #[path = "format_equivalence.rs"]
 mod format_equivalence;
+pub(crate) use format_equivalence::canonical_subtree;
 #[cfg(test)]
 #[path = "format_proofs.rs"]
 mod format_proofs;

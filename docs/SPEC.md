@@ -523,6 +523,8 @@ pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
 ```
 
 Constructors are qualified by family (and by module namespace when imported).
+An imported `mod.E` names the same family as `E` inside its module, so an
+error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
@@ -556,6 +558,12 @@ match process.run(command) {
   Err(error) => return Err(error)
 }
 ```
+
+Host operations outside process forms (filesystem, path, and OS calls) fail
+with an `Error` that implements the facet of its OS error from the same
+vocabulary: `NotFound`, `PermissionDenied`, `Timeout`, `InvalidData`, or
+otherwise `HostIo`. `Err(is NotFound)` and `error is NotFound` match a
+missing file alike.
 
 A failed `assert` produces `AssertionError.Failed(message: Str)`.
 
@@ -1344,7 +1352,8 @@ parameter may be passed as a flag, mapping kebab case to snake case
 calls. User procs are never called in command style. Core command names
 (`print`, `eprint`, `cd`, `env`) cannot be redefined.
 
-A statement that begins with an identifier followed by `|>` is a pipeline
+A statement that begins with an identifier or `.name` chain followed by `|>`
+or a binary operator (including `and`, `or`, `in`, `not in`, and `is`) is an
 expression, not a command.
 
 ### 10.2 Command arguments
@@ -2059,8 +2068,9 @@ optionally local bindings), only when checking reports no diagnostics.
 `xsht lint` reports `lint.*` findings and the checker findings that carry fixes
 (such as `check.bool-statement`). `--fix` applies only fixes that preserve
 behavior and comments; a rewritten file must parse and check with no new
-diagnostics. `--only RULE,...` limits reporting and fixing to the named codes,
-so `xsht lint --fix --only check.bool-statement` inserts `assert` where Bool
+diagnostics. `--only RULE,...` limits reporting and fixing to the named codes
+and applies exactly their edits, leaving every other byte unformatted, so
+`xsht lint --fix --only check.bool-statement` inserts `assert` where Bool
 statements appear. `xsht lint --list [--format text|jsonl]` prints every
 selectable code with a one-line summary; the generated
 `docs/reference/lints.md` is that catalog. Each finding names its rule, and a fix is withheld (with an
@@ -2331,7 +2341,7 @@ wait_expr      = "wait" expr ;
 ```ebnf
 pattern        = alias_pattern ( "|" alias_pattern )* ;
 alias_pattern  = primary_pattern ( "as" IDENT )* ;
-primary_pattern = "_" | IDENT | literal | type_pattern | facet_pattern
+primary_pattern = "_" | IDENT | literal | "-" ( INT | FLOAT ) | type_pattern | facet_pattern
                | constructor_pattern | variant_pattern | record_pattern
                | list_pattern | "(" pattern ")" ;
 type_pattern   = ( "_" | IDENT ) "is" type_expr ;

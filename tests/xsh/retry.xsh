@@ -488,3 +488,14 @@ local
 escape
 """
 }
+
+test test_retry_body_uses_the_expected_success_type {
+  let counts: Result[Map[Str, Int]] = retry [] {
+    {}
+  }
+  let names: Result[List[Str]] = retry [] {
+    []
+  }
+  assert counts?.len() == 0
+  assert names?.len() == 0
+}

@@ -444,3 +444,114 @@ test test_capitalized_unknown_pattern_names_are_rejected { |ctx|
   assert "check.pattern-capitalized-binding" in rejected.stderr
   assert "is NotFound" in rejected.stderr
 }
+
+test test_field_path_line_followed_by_not_in_or_is_is_an_expression {
+  let r = {a: {b: 1}}
+  let xs = [2, 3]
+  let absent = {
+    r.a.b not in xs
+  }
+  let typed = {
+    r.a.b is 1
+  }
+  assert absent
+  assert typed
+}
+
+pure sign_name(n: Int) -> Str {
+  match n {
+    -1 => "minus one"
+    0 => "zero"
+    _ => "other"
+  }
+}
+
+test test_negative_number_literal_patterns {
+  assert sign_name(-1) == "minus one"
+  assert sign_name(1) == "other"
+  let offset = -2.5
+  assert offset is -2.5
+  let label = match -3 {
+    -2 | -3 => "small",
+    _ => "other",
+  }
+  assert label == "small"
+}
+
+pure arm_capture_then_let(r: Int) -> Int {
+  let a = match r {
+    e => e + 1,
+  }
+  let e = 7
+  let b = match e {
+    7 => 10,
+    _ => 20,
+  }
+  a + b + e
+}
+
+test test_match_arm_captures_end_with_their_arm { |ctx|
+  assert arm_capture_then_let(1) == 19
+
+  # An arm capture may shadow a binding of the same scope, which resolves
+  # again after the arm (lint.shadowing flags the style, not the meaning).
+  let shadowed = test.run_script(
+    ctx,
+    """pure shadows(r: Int) -> Int {
+  let e = 100
+  let a = match r {
+    e => e + 1
+  }
+  a + e
+}
+print (shadows(1))
+""",
+  )?
+  assert shadowed.success, shadowed.stderr
+  assert shadowed.stdout == """102
+"""
+}
+
+test test_error_variant_patterns_match_errors_raised_in_another_module { |ctx|
+  let root = test.temp_dir(ctx, name: "error-identity-module")?
+  fp"${root}/raiser.xsh".write(r"""
+##! Error identity fixture module.
+## Fixture errors.
+export error Failure = Missing(detail: Str) | Busy
+## Fails with a declared family.
+export pure fail_typed() -> Result[Int, Failure] { return Err(Failure.Missing(detail: "typed")) }
+## Fails through the broad Error carrier.
+export pure fail_broad() -> Result[Int] { return Err(Failure.Missing(detail: "broad")) }
+## Matches inside the module.
+export pure describe(result: Result[Int, Failure]) -> Str {
+  match result {
+    Err(Failure.Missing {detail}) => f"missing ${detail}"
+    _ => "other"
+  }
+}
+""")?
+  let output = test.run_script(
+    ctx,
+    r"""
+use raiser as r
+match r.fail_typed() {
+  Ok(_) => print "ok"
+  Err(r.Failure.Missing {detail}) => print $detail
+  Err(r.Failure.Busy) => print "busy"
+}
+match r.fail_broad() {
+  Err(r.Failure.Missing {detail}) => print $detail
+  _ => print "other"
+}
+let local: Result[Int, r.Failure] = Err(r.Failure.Missing(detail: "local"))
+print (r.fail_typed() is Err(r.Failure.Missing)) (r.describe(local))
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """typed
+broad
+true missing local
+"""
+}

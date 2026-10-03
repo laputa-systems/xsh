@@ -5272,7 +5272,7 @@ test test_system_report_process_stat_parser_preserves_start_identity {
   assert stat.start_ticks == 100
   assert stat.virtual_bytes == 8192
   assert stat.resident_pages == 2
-  let error_kind = f"${fs.cwd()?.display()}/core/lib/system_report.xsh.SystemReportError.InvalidProcStat"
+  let error_kind = "SystemReportError.InvalidProcStat"
   for invalid in [
     "0x7b (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2",
     "1_23 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2",

@@ -115,7 +115,7 @@ struct SystemOsRelease {
 #[cfg(target_os = "linux")]
 fn memory_impl(span: Span) -> Result<SystemMemory, RuntimeError> {
     let text = std::fs::read_to_string("/proc/meminfo")
-        .map_err(|error| RuntimeError::new("system-memory", error.to_string()).with_span(span))?;
+        .map_err(|error| RuntimeError::host("system-memory", &error).with_span(span))?;
     parse_memory(&text, span)
 }
 
@@ -162,7 +162,7 @@ fn os_release_impl(span: Span) -> Result<SystemOsRelease, RuntimeError> {
     let text = std::fs::read_to_string("/etc/os-release")
         .or_else(|_| std::fs::read_to_string("/usr/lib/os-release"))
         .map_err(|error| {
-            RuntimeError::new("system-os-release", error.to_string()).with_span(span)
+            RuntimeError::host("system-os-release", &error).with_span(span)
         })?;
     let values = parse_os_release(&text);
     let name = values

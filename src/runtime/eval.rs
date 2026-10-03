@@ -3335,7 +3335,7 @@ impl Evaluator {
             None => DurationValue { millis: 150 },
         };
         let guard = install_hook_signal_handler(signal.number)
-            .map_err(|error| RuntimeError::new("signal-hook", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("signal-hook", &error).with_span(span))?;
         self.signal_handler_guards.push(guard);
         let ignore_pending_primary = signal_snapshot().primary == Some(signal.number);
         self.signal_hooks.insert(
@@ -6103,7 +6103,7 @@ fn module_error(kind: &str, message: &str, span: Span) -> Value {
 }
 
 fn module_io_error(kind: &str, error: std::io::Error, span: Span) -> Value {
-    module_error(kind, &error.to_string(), span)
+    Value::err(Value::Error(Box::new(RuntimeError::host(kind, &error).with_span(span))))
 }
 
 fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
@@ -6631,19 +6631,19 @@ fn read_glob_dir(host: &std::path::Path, span: Span) -> Result<Vec<GlobDirEntry>
             return Ok(Vec::new());
         }
         Err(error) => {
-            return Err(RuntimeError::new("glob-read", error.to_string()).with_span(span));
+            return Err(RuntimeError::host("glob-read", &error).with_span(span));
         }
     };
     let mut entries = Vec::new();
     for entry in read_dir {
         let entry = entry
-            .map_err(|error| RuntimeError::new("glob-read", error.to_string()).with_span(span))?;
+            .map_err(|error| RuntimeError::host("glob-read", &error).with_span(span))?;
         let host_path = entry.path();
         let metadata = match std::fs::symlink_metadata(&host_path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => {
-                return Err(RuntimeError::new("glob-read", error.to_string()).with_span(span));
+                return Err(RuntimeError::host("glob-read", &error).with_span(span));
             }
         };
         entries.push(GlobDirEntry {
@@ -6814,10 +6814,10 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::EnvPathList => matches!(value, Value::EnvPathList),
         Type::Error => matches!(value, Value::Error(_) | Value::RunError(_)),
         Type::ErrorFamily(family) => {
-            matches!(value, Value::Error(error) if error.family_name() == *family)
+            matches!(value, Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family))
         }
         Type::ErrorVariant { family, variant } => {
-            matches!(value, Value::Error(error) if error.family_name() == *family && error.variant_name() == *variant)
+            matches!(value, Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family) && error.variant_name() == *variant)
         }
         Type::ErrorFacet(facet) => {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
@@ -6933,10 +6933,10 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::EnvPathList => false,
         Type::Error => matches!(value, LoweredValue::Error(_)),
         Type::ErrorFamily(family) => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.family_name() == *family))
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family)))
         }
         Type::ErrorVariant { family, variant } => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.family_name() == *family && error.variant_name() == *variant))
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family) && error.variant_name() == *variant))
         }
         Type::ErrorFacet(facet) => {
             matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.facets.iter().any(|value| value == facet)))

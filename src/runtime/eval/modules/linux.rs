@@ -101,7 +101,7 @@ pub(super) fn append_fake_log(
         && !parent.as_os_str().is_empty()
     {
         std::fs::create_dir_all(parent).map_err(|error| {
-            RuntimeError::new(kind, error.to_string()).with_span(span)
+            RuntimeError::host(kind, &error).with_span(span)
         })?;
     }
     let mut json_fields = Vec::with_capacity(fields.len() + 1);
@@ -121,9 +121,9 @@ pub(super) fn append_fake_log(
         .append(true)
         .open(path)
         .map_err(|error| {
-            RuntimeError::new(kind, error.to_string()).with_span(span)
+            RuntimeError::host(kind, &error).with_span(span)
         })?;
     writeln!(file, "{line}").map_err(|error| {
-        RuntimeError::new(kind, error.to_string()).with_span(span)
+        RuntimeError::host(kind, &error).with_span(span)
     })
 }

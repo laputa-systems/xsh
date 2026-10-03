@@ -348,8 +348,44 @@ impl Program {
     pub fn print(&self) -> String {
         let mut printer = Printer { program: self, out: String::new(), indent: 0 };
         printer.program_text();
-        printer.out
+        strip_redundant_parens(printer.out)
     }
+}
+
+/// The printer groups conservatively, and the checker rejects grouping that
+/// does not change the parse (`check.redundant-parens`), so remove exactly the
+/// parentheses it reports.
+fn strip_redundant_parens(mut source: String) -> String {
+    for _ in 0..16 {
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &source);
+        if !parsed.diagnostics.is_empty() {
+            return source;
+        }
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &source);
+        let mut edits: Vec<(usize, usize, String)> = checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code.as_deref() == Some("check.redundant-parens"))
+            .flat_map(|diagnostic| &diagnostic.fix_hints)
+            .filter_map(|hint| Some((hint.span?.start(), hint.span?.end(), hint.replacement.clone()?)))
+            .collect();
+        if edits.is_empty() {
+            return source;
+        }
+        edits.sort_by_key(|(start, end, _)| (*start, std::cmp::Reverse(*end)));
+        let mut kept_end = 0;
+        edits.retain(|(start, end, _)| {
+            let keep = *start >= kept_end;
+            if keep {
+                kept_end = *end;
+            }
+            keep
+        });
+        for (start, end, replacement) in edits.into_iter().rev() {
+            source.replace_range(start..end, &replacement);
+        }
+    }
+    source
 }
 
 struct Printer<'a> {
