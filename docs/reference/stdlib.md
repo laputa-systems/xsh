@@ -391,6 +391,7 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 - `test.eq(left: Any, right: Any, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
 - `test.error_kind(value: Any, kind: Str, message: Str = default) -> Result[Unit, Error]` — Asserts one native-test condition.
 - `test.fail(message: Str = default) -> Result[Unit, Error]` — Fails the current native XSH test with an explicit message.
+- `test.linux_fake(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, settings: Record = default) -> Result[Unit, Error]` — Replaces the `linux` module with fixed results for the rest of a native XSH test.
 - `test.mock(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, op: Str, matcher: Record, result: Any, times: Int = default) -> Result[Unit, Error]` — Installs a scoped host-effect mock for a native XSH test.
 - `test.ne(left: Any, right: Any, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
 - `test.ok(condition: Bool, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
