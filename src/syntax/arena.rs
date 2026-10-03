@@ -626,23 +626,31 @@ impl ArenaProgram {
         self.docs.cli_entries.iter().find_map(|(entry, span)| (*entry == statement).then_some(*span))
     }
 
-    pub(crate) fn attach_doc_comments(&mut self, source: &str) {
+    pub(crate) fn attach_doc_comments(&mut self, source_id: SourceId, source: &str) {
         let statements = self.statement_ids().collect::<Vec<_>>();
-        self.docs = doc_comments_for_statements(&self.arena, source, &statements);
+        self.docs = doc_comments_for_statements(&self.arena, source_id, source, &statements);
+    }
+
+    fn attach_doc_comments_from_spans(&mut self, source: &str) {
+        let source_id = self
+            .statement_ids()
+            .next()
+            .map(|statement| self.arena.stmt(statement).span.source_id)
+            .or(self.arena.span_source_id)
+            .unwrap_or(SourceId::new(0));
+        self.attach_doc_comments(source_id, source);
     }
 }
 
 fn doc_comments_for_statements(
     arena: &AstArena,
+    source_id: SourceId,
     source: &str,
     statements: &[StmtId],
 ) -> ArenaDocComments {
     let first_statement = statements
         .first()
         .map(|statement| arena.stmt(*statement).span);
-    let source_id = first_statement
-        .map(|span| span.source_id)
-        .unwrap_or(crate::source::SourceId::new(0));
     // Doc comments are source trivia, not text that merely happens to begin
     // with `##`. In particular, formatter output may contain triple-quoted
     // strings whose decoded value has Markdown headings on their own lines.
@@ -990,12 +998,17 @@ impl<'a> ArenaProgramBuilder<'a> {
         result
     }
 
-    pub fn attach_doc_comments_for_statements(&mut self, source: &str, statements: ArenaRange) {
+    pub fn attach_doc_comments_for_statements(
+        &mut self,
+        source_id: SourceId,
+        source: &str,
+        statements: ArenaRange,
+    ) {
         if self.internal_source_depth > 0 {
             return;
         }
         let statement_ids = self.lowerer.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let docs = doc_comments_for_statements(&self.lowerer.arena, source, &statement_ids);
+        let docs = doc_comments_for_statements(&self.lowerer.arena, source_id, source, &statement_ids);
         if let Some(module) = docs.module {
             self.docs.module_ranges.push((statements, module));
         }
@@ -3197,7 +3210,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             && program.docs.module_ranges.is_empty()
             && let Some(source) = source
         {
-            program.attach_doc_comments(source);
+            program.attach_doc_comments_from_spans(source);
         }
         program
     }
@@ -3216,7 +3229,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             && program.docs.module_ranges.is_empty()
             && let Some(source) = source
         {
-            program.attach_doc_comments(source);
+            program.attach_doc_comments_from_spans(source);
         }
         program
     }

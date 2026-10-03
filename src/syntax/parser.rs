@@ -106,7 +106,7 @@ impl<'a> Parser<'a> {
                 parser.skip_separators();
             }
             let mut program = arena.finish();
-            program.attach_doc_comments(parser.source);
+            program.attach_doc_comments(parser.source_id, parser.source);
             ArenaParseOutput {
                 arena: program,
                 cst,
@@ -175,7 +175,7 @@ impl<'a> Parser<'a> {
             self.skip_separators();
         }
         let statements = arena.finish_root_statements_from(start);
-        arena.attach_doc_comments_for_statements(self.source, statements);
+        arena.attach_doc_comments_for_statements(self.source_id, self.source, statements);
         ArenaParseFragment {
             statements,
             cst,
@@ -196,7 +196,7 @@ impl<'a> Parser<'a> {
             self.skip_separators();
         }
         let mut program = arena.finish();
-        program.attach_doc_comments(self.source);
+        program.attach_doc_comments(self.source_id, self.source);
         program
     }
 
