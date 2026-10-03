@@ -182,6 +182,10 @@ fn module_docs(module: &str) -> ApiDocs {
             "Text splitting, joining, replacement, counting, and character transforms.",
             "Text APIs operate on UTF-8 Str values.",
         ),
+        "template" => (
+            "Text templates for configuration files and generated documents.",
+            "Templates read data but cannot call XSH functions or reach the host; missing fields are errors.",
+        ),
         "time" => (
             "Clock, sleep, command measurement, and duration display.",
             "",
@@ -1131,6 +1135,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Runs a nested XSH or tracing fixture from a native test.",
             "The nested process receives explicit arguments and its status/output remain test data for assertions.",
             &["test", "native-tests", "process"],
+        )),
+        ("template", "render") => Some((
+            "Renders a Go text/template-style template against data.",
+            "Actions are `{{.}}`, `{{.a.b}}`, `{{$var.a}}`, `{{if}}`/`{{else if}}`/`{{else}}`, `{{range}}` with optional `$i, $v :=` and `{{else}}`, `{{with}}`, `{{define \"name\"}}`, `{{template \"name\" pipeline}}`, `{{/* comments */}}`, and `{{-`/`-}}` white-space trimming. Pipelines chain `|` into the fixed functions len, upper, lower, trim, default, join, quote, json, not, and, or, eq, and ne; no XSH function is callable. Data is records, maps, lists, and scalars; maps and records range in sorted key order. false, null, 0, 0.0, and empty Str, List, Map, and record values are falsy. Only Str, Int, Float, and Bool render directly. The whole template parses before rendering; syntax errors report kind `template-syntax` and rendering failures, including a missing field, report `template-render`, each with a `template:LINE:COLUMN:` message prefix.",
+            &["template", "text", "configuration"],
         )),
         ("time", "now") => Some((
             "Reads the current wall-clock time.",

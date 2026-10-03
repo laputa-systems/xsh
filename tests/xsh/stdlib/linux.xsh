@@ -460,7 +460,7 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   # The nested source is a template rather than an f-string: its `${...}`
   # interpolations belong to the nested script, so the outer checker must not
   # resolve them, and only the tree's path is substituted.
-  let template = """\nproc main() [io, fs, error] {
+  let nested_template = """\nproc main() [io, fs, error] {
   let info = linux.modinfo(\"demo-name\")?
   print f\"\${info.name}|\${info.description}|\${info.license}|\${info.version}\"
   for param in info.params {
@@ -475,7 +475,7 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   print fs.read_text(p\"{root}/modules.dep\")?
 }
 """
-  let source = template.replace("{root}", f"${root}")
+  let source = nested_template.replace("{root}", f"${root}")
 
   let environment = {XSH_LINUX_REAL: "1", XSH_MODULES_DIR: f"${root}"}
 
