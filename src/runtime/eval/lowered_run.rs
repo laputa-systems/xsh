@@ -197,6 +197,7 @@ impl Evaluator {
             stdin: stdin.to_vec(),
             linux_fake: self.linux_fake.as_deref().cloned(),
             unix_fake: self.unix_fake.as_deref().cloned(),
+            cancellation: self.test_cancellation.clone(),
             span,
         })?;
         match lowered_runtime_value(value, span)? {
@@ -7398,6 +7399,15 @@ impl Evaluator {
                     )))),
                     span,
                 )?
+            }
+            #[cfg(feature = "native-tests")]
+            RuntimeOp::TestTimeout if values.len() == 2 => {
+                let limit = lowered_duration_arg(values.pop(), "test.timeout", span)?;
+                lowered_record_arg(values.pop(), "test.timeout", span)?;
+                if let Some(cancellation) = &self.test_cancellation {
+                    cancellation.request_timeout(Duration::from_millis(limit.millis));
+                }
+                LoweredValue::Unit
             }
             #[cfg(feature = "native-tests")]
             RuntimeOp::TestTempPath if values.len() == 1 || values.len() == 2 => {

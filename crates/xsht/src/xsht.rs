@@ -37,6 +37,7 @@ pub(crate) mod test {
         pub(crate) fail_fast: bool,
         pub(crate) keep_temp: bool,
         pub(crate) jobs: Option<usize>,
+        pub(crate) timeout: Option<std::time::Duration>,
         pub(crate) coverage: bool,
         pub(crate) api: bool,
         pub(crate) coverage_json_out: Option<String>,

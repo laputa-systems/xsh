@@ -165,6 +165,8 @@ numbers, because nested-run stderr embeds PIDs and timestamps. Native skips use
 privilege, or fixture availability. Rust tests that return early for a missing
 capability count as passed, so report whether a privileged case actually ran
 (`--nocapture` shows the reason).
+A hung native test fails as `TIMEOUT` after `xsht test --timeout` (default
+120 s); a test that legitimately runs longer calls `test.timeout(ctx, limit)`.
 
 ## Coverage
 

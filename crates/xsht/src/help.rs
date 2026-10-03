@@ -193,6 +193,10 @@ static COMMANDS: &[CommandHelp] = &[
                 description: "Run N tests concurrently (default: half the CPUs)",
             },
             HelpOption {
+                syntax: "--timeout DURATION",
+                description: "Fail a test that runs longer (default: 120s; 0 or none disables)",
+            },
+            HelpOption {
                 syntax: "--nocapture",
                 description: "Show test output",
             },

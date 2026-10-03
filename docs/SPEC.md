@@ -2131,6 +2131,13 @@ argument records. When an operation has mocks and none matches, the call
 fails with an unmatched-mock error; operations without mocks use the real
 host.
 
+Each test runs under a time limit counted from its start: the runner's
+`xsht test --timeout` value unless the test calls `test.timeout(ctx, limit)`,
+which replaces it unless the run disabled timeouts. On overrun the test's next
+evaluation checkpoint raises a `canceled` error, so its defers and other
+cleanup run, and the processes it started are signaled to stop; the test is
+reported as a timeout failure.
+
 `test.linux_fake(ctx, settings)` replaces the `linux` module with a fixed
 double for the rest of the test and for scripts the test runs through
 `test.run_script` and `test.run_xsh` (not `test.run_xsht_trace`). The fake

@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
-    Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram,
+    Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram, TestCancellation,
 };
 use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
@@ -36,6 +36,8 @@ pub(crate) struct TestOptions {
     pub(crate) fail_fast: bool,
     pub(crate) keep_temp: bool,
     pub(crate) jobs: Option<usize>,
+    /// Per-test time limit; `None` disables timeouts.
+    pub(crate) timeout: Option<Duration>,
     pub(crate) coverage: bool,
     pub(crate) api: bool,
     pub(crate) coverage_json_out: Option<String>,
@@ -186,6 +188,14 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
                 failed += 1;
                 write_test_result(&id, "FAILED", outcome.duration);
                 failure_details.push((id.clone(), message.clone(), outcome.stdout, outcome.stderr));
+                options.fail_fast
+            }
+            TestOutcomeKind::TimedOut { limit, detail } => {
+                failed += 1;
+                write_test_result(&id, "TIMEOUT", outcome.duration);
+                let mut message = format!("TIMEOUT after {}\n", format_test_duration(*limit));
+                message.push_str(detail);
+                failure_details.push((id.clone(), message, outcome.stdout, outcome.stderr));
                 options.fail_fast
             }
         };
@@ -399,6 +409,9 @@ enum TestOutcomeKind {
     Passed,
     Failed(String),
     Skipped(String),
+    /// The test overran `limit`; `detail` is whatever the canceled evaluator
+    /// reported while unwinding.
+    TimedOut { limit: Duration, detail: String },
 }
 
 /// Only explicitly registered declarations are harness entrypoints.
@@ -670,7 +683,7 @@ fn discover_native_tests(
 fn run_test_case(case: TestCase, index: usize, run_id: &str, options: &TestOptions) -> TestOutcome {
     let started = Instant::now();
     let mut outcome = match case {
-        TestCase::Native(case) => run_native_test(case, index, run_id, options),
+        TestCase::Native(case) => run_native_test_with_timeout(case, index, run_id, options),
         TestCase::Invalid { message, .. } => TestOutcome {
             kind: TestOutcomeKind::Failed(message),
             duration: Duration::ZERO,
@@ -683,11 +696,111 @@ fn run_test_case(case: TestCase, index: usize, run_id: &str, options: &TestOptio
     outcome
 }
 
+/// How long a canceled test gets to unwind through its cleanup before the
+/// runner forces it to abort.
+const TIMED_OUT_TEST_GRACE: Duration = Duration::from_secs(5);
+/// How long a forced test gets to abort before the runner reports it and
+/// abandons its thread.
+const FORCED_TEST_GRACE: Duration = Duration::from_secs(1);
+const TEST_TIMEOUT_POLL: Duration = Duration::from_millis(20);
+
+/// Runs one test on its own thread under the run's time limit, or the limit
+/// the test requested through `test.timeout`. An overrun test is canceled
+/// through its evaluator, its `test.run_*` process groups are stopped, and it
+/// is reported as a timeout once it unwinds or the grace period ends.
+fn run_native_test_with_timeout(
+    case: NativeTestCase,
+    index: usize,
+    run_id: &str,
+    options: &TestOptions,
+) -> TestOutcome {
+    let Some(run_limit) = options.timeout else {
+        return run_native_test(case, index, run_id, options, TestCancellation::default());
+    };
+    let cancellation = TestCancellation::default();
+    let (tx, rx) = mpsc::channel();
+    let spawned = {
+        let cancellation = cancellation.clone();
+        let run_id = run_id.to_string();
+        let options = options.clone();
+        std::thread::Builder::new()
+            .name(format!("xsht-test-{index}"))
+            .spawn(move || {
+                let _ = tx.send(run_native_test(case, index, &run_id, &options, cancellation));
+            })
+    };
+    if let Err(error) = spawned {
+        return TestOutcome {
+            kind: TestOutcomeKind::Failed(format!("failed to start test thread: {error}")),
+            duration: Duration::ZERO,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            coverage_trace: None,
+        };
+    }
+    let started = Instant::now();
+    let limit = loop {
+        let limit = cancellation.requested_timeout().unwrap_or(run_limit);
+        let remaining = limit.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            break limit;
+        }
+        match rx.recv_timeout(remaining.min(TEST_TIMEOUT_POLL)) {
+            Ok(outcome) => return outcome,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return TestOutcome {
+                    kind: TestOutcomeKind::Failed("test thread exited without a result".to_string()),
+                    duration: Duration::ZERO,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    coverage_trace: None,
+                };
+            }
+        }
+    };
+    cancellation.cancel();
+    stop_child_groups_owned_by(cancellation.id());
+    let unwound = rx.recv_timeout(TIMED_OUT_TEST_GRACE).ok().or_else(|| {
+        cancellation.force();
+        stop_child_groups_owned_by(cancellation.id());
+        rx.recv_timeout(FORCED_TEST_GRACE).ok()
+    });
+    // A child started while the test unwound must not outlive it either.
+    stop_child_groups_owned_by(cancellation.id());
+    let (detail, stdout, stderr) = match unwound {
+        Some(outcome) => (
+            match outcome.kind {
+                TestOutcomeKind::Failed(detail) => detail,
+                _ => String::new(),
+            },
+            outcome.stdout,
+            outcome.stderr,
+        ),
+        None => (
+            format!(
+                "the test did not stop within {} of cancellation; its thread was abandoned\n",
+                format_test_duration(TIMED_OUT_TEST_GRACE + FORCED_TEST_GRACE)
+            ),
+            Vec::new(),
+            Vec::new(),
+        ),
+    };
+    TestOutcome {
+        kind: TestOutcomeKind::TimedOut { limit, detail },
+        duration: Duration::ZERO,
+        stdout,
+        stderr,
+        coverage_trace: None,
+    }
+}
+
 fn run_native_test(
     case: NativeTestCase,
     index: usize,
     run_id: &str,
     options: &TestOptions,
+    cancellation: TestCancellation,
 ) -> TestOutcome {
     let temp_root = std::env::temp_dir().join(format!(
         "xsh-test-{run_id}-{index}-{}",
@@ -749,7 +862,7 @@ fn run_native_test(
     }
     let evaluated =
         case.prepared
-            .eval_test(&case.name, ctx, options.collect_coverage(), env_overlay);
+            .eval_test(&case.name, ctx, options.collect_coverage(), env_overlay, cancellation);
 
     let mut detail = String::new();
     if !evaluated.output.diagnostics.is_empty() {
@@ -895,7 +1008,10 @@ fn native_test_host(
         RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
             .with_span(request.span)
     })?;
-    let _group = ChildGroupRegistration::new(child.id() as libc::pid_t);
+    let _group = ChildGroupRegistration::new(
+        child.id() as libc::pid_t,
+        request.cancellation.as_ref().map_or(0, TestCancellation::id),
+    );
     if !request.stdin.is_empty()
         && let Some(mut child_stdin) = child.stdin.take()
     {
@@ -941,6 +1057,9 @@ const CHILD_GROUP_MIN_GRACE: Duration = Duration::from_millis(100);
 /// handler can read them without locking.
 static CHILD_GROUPS: [AtomicI32; CHILD_GROUP_SLOTS] =
     [const { AtomicI32::new(0) }; CHILD_GROUP_SLOTS];
+/// `TestCancellation::id` of the test that started each `CHILD_GROUPS` entry.
+static CHILD_GROUP_OWNERS: [AtomicUsize; CHILD_GROUP_SLOTS] =
+    [const { AtomicUsize::new(0) }; CHILD_GROUP_SLOTS];
 static PREVIOUS_SIGNAL_HANDLER: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
 
 struct ChildGroupRegistration {
@@ -948,11 +1067,14 @@ struct ChildGroupRegistration {
 }
 
 impl ChildGroupRegistration {
-    fn new(pgid: libc::pid_t) -> Self {
+    fn new(pgid: libc::pid_t, owner: usize) -> Self {
         let slot = CHILD_GROUPS.iter().position(|slot| {
             slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
         });
+        if let Some(slot) = slot {
+            CHILD_GROUP_OWNERS[slot].store(owner, Ordering::SeqCst);
+        }
         Self { slot }
     }
 }
@@ -960,17 +1082,22 @@ impl ChildGroupRegistration {
 impl Drop for ChildGroupRegistration {
     fn drop(&mut self) {
         if let Some(slot) = self.slot {
+            CHILD_GROUP_OWNERS[slot].store(0, Ordering::SeqCst);
             CHILD_GROUPS[slot].store(0, Ordering::SeqCst);
         }
     }
 }
 
-/// Async-signal-safe: uses only `killpg` and `nanosleep`.
-fn signal_child_groups(signal: i32) -> bool {
+/// Signals the registered groups, or only those `owner` started when it is
+/// nonzero. Async-signal-safe: uses only atomics and `killpg`.
+fn signal_child_groups(signal: i32, owner: usize) -> bool {
     let mut alive = false;
-    for slot in &CHILD_GROUPS {
+    for (slot, slot_owner) in CHILD_GROUPS.iter().zip(&CHILD_GROUP_OWNERS) {
         let pgid = slot.load(Ordering::SeqCst);
-        if pgid > 0 && unsafe { libc::killpg(pgid, signal) } == 0 {
+        if pgid > 0
+            && (owner == 0 || slot_owner.load(Ordering::SeqCst) == owner)
+            && unsafe { libc::killpg(pgid, signal) } == 0
+        {
             alive = true;
         }
     }
@@ -979,9 +1106,10 @@ fn signal_child_groups(signal: i32) -> bool {
 
 /// Asks test subprocess groups to stop so `xsh` children can forward the
 /// signal to process groups they created, then kills whatever remains.
-fn stop_child_groups(signal: i32, min_grace: Duration) {
+/// Async-signal-safe: uses only atomics, `killpg`, and `nanosleep`.
+fn stop_child_groups(signal: i32, min_grace: Duration, owner: usize) {
     let mut waited = Duration::ZERO;
-    let mut alive = signal_child_groups(signal);
+    let mut alive = signal_child_groups(signal, owner);
     while (alive || waited < min_grace) && waited < CHILD_GROUP_GRACE {
         let pause = libc::timespec {
             tv_sec: 0,
@@ -989,13 +1117,17 @@ fn stop_child_groups(signal: i32, min_grace: Duration) {
         };
         unsafe { libc::nanosleep(&pause, std::ptr::null_mut()) };
         waited += CHILD_GROUP_POLL;
-        alive = signal_child_groups(0);
+        alive = signal_child_groups(0, owner);
     }
-    signal_child_groups(libc::SIGKILL);
+    signal_child_groups(libc::SIGKILL, owner);
 }
 
 fn terminate_child_groups() {
-    stop_child_groups(libc::SIGTERM, Duration::ZERO);
+    stop_child_groups(libc::SIGTERM, Duration::ZERO, 0);
+}
+
+fn stop_child_groups_owned_by(owner: usize) {
+    stop_child_groups(libc::SIGTERM, Duration::ZERO, owner);
 }
 
 extern "C" fn handle_test_cancellation_signal(signal: i32) {
@@ -1004,7 +1136,7 @@ extern "C" fn handle_test_cancellation_signal(signal: i32) {
         let previous: extern "C" fn(i32) = unsafe { std::mem::transmute(previous) };
         previous(signal);
     }
-    stop_child_groups(libc::SIGTERM, CHILD_GROUP_MIN_GRACE);
+    stop_child_groups(libc::SIGTERM, CHILD_GROUP_MIN_GRACE, 0);
     unsafe { libc::_exit((128 + signal).clamp(1, 255)) };
 }
 
@@ -1111,7 +1243,7 @@ fn write_test_result(id: &str, status: &str, duration: Duration) {
     let status = if test_color_enabled() {
         let color = match status {
             "ok" => "\x1b[32m",
-            "FAILED" => "\x1b[31m",
+            "FAILED" | "TIMEOUT" => "\x1b[31m",
             _ => "\x1b[33m",
         };
         format!("{color}{status}\x1b[0m")

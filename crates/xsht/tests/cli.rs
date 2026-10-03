@@ -2135,6 +2135,85 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
 }
 
 #[test]
+fn test_runner_times_out_hung_tests_and_stops_their_descendants() {
+    let root = TempDir::new().expect("temporary timeout fixture");
+    let marker = format!("xsht-timeout-{}", std::process::id());
+    fs::create_dir(root.path().join("tests")).expect("create test root");
+    fs::write(root.path().join("tests/hang.xsh"), format!("\
+test spins {{ |ctx|
+  defer {{ print \"spins cleanup ran\" }}
+  var n = 0
+  while true {{ n += 1 }}
+}}
+
+test sleeping_script {{ |ctx|
+  let output = test.run_script(ctx, \"\"\"
+run sh -c \"sleep 300; : {marker}-grandchild\"
+\"\"\", [\"{marker}-child\"])?
+  assert output.success
+}}
+
+test sleeping_command {{ |ctx|
+  run sh -c \"sleep 300; : {marker}-command\"
+}}
+
+test own_shorter_limit {{ |ctx|
+  test.timeout(ctx, 200ms)
+  time.sleep(30s)
+}}
+
+test own_longer_limit {{ |ctx|
+  test.timeout(ctx, 30s)
+  time.sleep(1500ms)
+}}
+
+test passes {{ |ctx|
+  assert 1 == 1
+}}
+")).expect("write timeout fixture");
+    let started = std::time::Instant::now();
+    let mut runner = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--jobs", "2", "--timeout", "1s"])
+        .current_dir(root.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("start xsht test");
+    let status = loop {
+        if let Some(status) = runner.try_wait().expect("poll runner") {
+            break status;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(60) {
+            let _ = runner.kill();
+            panic!("hung tests did not time out");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let mut stdout = String::new();
+    std::io::Read::read_to_string(&mut runner.stdout.take().expect("runner stdout"), &mut stdout)
+        .expect("read runner stdout");
+    assert!(started.elapsed() < std::time::Duration::from_secs(30), "{stdout}");
+    assert_eq!(status.code(), Some(1), "{stdout}");
+    for name in ["spins", "sleeping_script", "sleeping_command", "own_shorter_limit"] {
+        assert!(stdout.contains(&format!("tests/hang.xsh::{name} ... TIMEOUT")), "{name}: {stdout}");
+    }
+    assert!(stdout.contains("---- tests/hang.xsh::spins ----\nstdout:\nspins cleanup ran\nTIMEOUT after 1s\n"), "{stdout}");
+    assert!(stdout.contains("TIMEOUT after 200ms"), "{stdout}");
+    assert!(stdout.contains("tests/hang.xsh::own_longer_limit ... ok"), "{stdout}");
+    assert!(stdout.contains("tests/hang.xsh::passes ... ok"), "{stdout}");
+    assert!(stdout.contains("test result: FAILED. 2 passed; 4 failed; 0 skipped"), "{stdout}");
+    assert_eq!(processes_with_marker(&marker), Vec::<String>::new());
+
+    let invalid = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--timeout", "soon"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht test with an invalid timeout");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("`--timeout` expects a duration"));
+}
+
+#[test]
 fn native_test_declaration_discovery_preserves_names_and_runs_each_once() {
     let root = TempDir::new().expect("temporary native declaration fixture");
     fs::create_dir(root.path().join("tests")).expect("create test root");

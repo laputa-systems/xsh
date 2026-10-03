@@ -276,12 +276,31 @@ fn parse_check(args: &[String]) -> Result<Command, String> {
     })
 }
 
+/// Long enough for the slowest suite tests on a loaded machine, short enough
+/// that a hung test fails the run instead of stalling it.
+const DEFAULT_TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// `0` and `none` disable the limit; otherwise an XSH duration literal.
+fn parse_test_timeout(value: &str) -> Result<Option<std::time::Duration>, String> {
+    if value == "0" || value == "none" {
+        return Ok(None);
+    }
+    match xsh::execution::value::DurationValue::from_literal(value) {
+        Some(duration) if duration.millis == 0 => Ok(None),
+        Some(duration) => Ok(Some(std::time::Duration::from_millis(duration.millis))),
+        None => Err(format!(
+            "`--timeout` expects a duration such as 30s or 5m, or 0 or none; got '{value}'"
+        )),
+    }
+}
+
 fn parse_test(args: &[String]) -> Result<Command, String> {
     let mut filter = None;
     let mut list = false;
     let mut exact = false;
     let mut coverage = false;
     let mut jobs = None;
+    let mut timeout = Some(DEFAULT_TEST_TIMEOUT);
     let mut nocapture = false;
     let mut fail_fast = false;
     let mut keep_temp = false;
@@ -307,6 +326,12 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
                     return Err("`--jobs` must be a positive integer".to_string());
                 }
                 jobs = Some(n);
+            }
+            "--timeout" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "`--timeout` requires DURATION".to_string())?;
+                timeout = parse_test_timeout(value)?;
             }
             "--nocapture" => nocapture = true,
             "--fail-fast" => fail_fast = true,
@@ -343,6 +368,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             fail_fast,
             keep_temp,
             jobs,
+            timeout,
             coverage,
             api,
             coverage_json_out,
