@@ -23,7 +23,7 @@ fn sandbox() -> Sandbox {
 }
 
 fn jobs() -> usize {
-    std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get).div_ceil(2).clamp(1, 8)
+    std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get).div_ceil(2).clamp(1, 4)
 }
 
 /// Runs `body` for every seed in `0..count` on a few threads, collecting
@@ -104,14 +104,26 @@ fn mutants_get_ordinary_diagnostics() {
             ("program.xsh".to_string(), xsh_fuzz::generator::generate(seed, &config).source)
         } else {
             let (path, text) = &corpus[rng.below(corpus.len())];
-            (path.to_string_lossy().into_owned(), text.clone())
+            (format!("{} as {}", path.display(), xsh_fuzz::mutate::MUTANT_FILE), text.clone())
         };
         let mut mutant = mutate(&text, &mut rng);
         for _ in 0..rng.below(3) {
             mutant = mutate(&mutant, &mut rng);
         }
-        let failure = check_mutant(&file, &mutant).err()?;
+        let failure = check_mutant(xsh_fuzz::mutate::MUTANT_FILE, &mutant).err()?;
         Some(format!("seed {seed} ({file}): {failure}\n--- mutant\n{mutant}"))
     });
     assert!(failures.is_empty(), "{} mutants broke the frontend:\n\n{}", failures.len(), failures.join("\n\n"));
+}
+
+#[test]
+fn sandbox_kills_a_child_over_the_memory_limit() {
+    // macOS enforces no data rlimit; the parent's footprint sampling must
+    // stop a program that keeps doubling a list.
+    let mut sandbox = sandbox();
+    sandbox.memory_limit = 128 << 20;
+    sandbox.timeout = std::time::Duration::from_secs(60);
+    let run = sandbox.run("var items = [0]\nwhile true {\n  items += items\n}\n").unwrap();
+    assert!(run.memory_exceeded.is_some(), "{run:?}");
+    assert!(run.elapsed < std::time::Duration::from_secs(30), "{run:?}");
 }

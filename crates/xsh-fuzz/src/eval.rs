@@ -437,6 +437,11 @@ impl<'a> Evaluator<'a> {
     }
 
     pub fn expr(&mut self, expr: &Expr) -> Res<Val> {
+        let value = self.expr_inner(expr)?;
+        within_size_budget(value)
+    }
+
+    fn expr_inner(&mut self, expr: &Expr) -> Res<Val> {
         self.tick()?;
         Ok(match expr {
             Expr::Int(value) => Val::Int(*value),
@@ -928,7 +933,55 @@ pub fn values_equal(left: &Val, right: &Val) -> bool {
     }
 }
 
+/// Values above this many units (elements, or 16-byte runs of text) make
+/// the program a rejected draw. Loops that repeatedly double a list or a
+/// string otherwise grow without bound, in this evaluator and in the run.
+const SIZE_LIMIT: usize = 20_000;
+
+fn weight(value: &Val, budget: usize) -> usize {
+    let mut total = 0;
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        total += match value {
+            Val::Str(text) | Val::Path(text) | Val::Err(text) => 1 + text.len() / 16,
+            Val::Bytes(bytes) => 1 + bytes.len() / 16,
+            Val::List(items) | Val::Variant(_, _, items) => {
+                pending.extend(items);
+                1
+            }
+            Val::Map(entries) => {
+                for (key, value) in entries {
+                    pending.push(key);
+                    pending.push(value);
+                }
+                1
+            }
+            Val::Rec(fields) => {
+                pending.extend(fields.iter().map(|(_, value)| value));
+                1
+            }
+            Val::Ok(inner) => {
+                pending.push(inner);
+                1
+            }
+            _ => 1,
+        };
+        if total > budget {
+            break;
+        }
+    }
+    total
+}
+
+fn within_size_budget(value: Val) -> Res<Val> {
+    if weight(&value, SIZE_LIMIT) > SIZE_LIMIT { domain("size budget") } else { Ok(value) }
+}
+
 fn assign_value(op: AssignOp, old: Val, rhs: Val) -> Res<Val> {
+    within_size_budget(assign_value_unbounded(op, old, rhs)?)
+}
+
+fn assign_value_unbounded(op: AssignOp, old: Val, rhs: Val) -> Res<Val> {
     let overflow = || Flow::Domain("integer-overflow".into());
     Ok(match (op, old, rhs) {
         (AssignOp::Set, _, rhs) => rhs,

@@ -18,7 +18,7 @@ export XSH_OS_STRESS_REPEAT
 build:
 	$(DEV) build
 
-FUZZ_DURATION ?= 300
+FUZZ_DURATION ?= 120
 
 # Soundness fuzzing over fresh seeds (see docs/TEST-MAP.md); not part of `check`.
 fuzz:

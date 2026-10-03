@@ -253,8 +253,14 @@ fn run_group(group: &[&Probe], sandbox: &Sandbox) -> Vec<(Probe, String)> {
         Err(error) => return vec![((*group[0]).clone(), format!("spawn failed: {error}"))],
     };
     let mut failures = Vec::new();
-    if run.timed_out || run.signal.is_some() {
-        let reason = if run.timed_out { "timed out".to_string() } else { format!("killed by signal {:?}", run.signal) };
+    if run.timed_out || run.signal.is_some() || run.memory_exceeded.is_some() {
+        let reason = if let Some(footprint) = run.memory_exceeded {
+            format!("exceeded the memory limit at {} MiB", footprint >> 20)
+        } else if run.timed_out {
+            "timed out".to_string()
+        } else {
+            format!("killed by signal {:?}", run.signal)
+        };
         failures.push(((*group[0]).clone(), format!("{reason}\n{}", run.stderr)));
         return failures;
     }

@@ -12,12 +12,23 @@ use std::path::{Path, PathBuf};
 /// Corpus directories, relative to the repository root. They are only read.
 pub const CORPUS_DIRS: &[&str] = &["tests", "core", "dev", "showcase", "examples"];
 
-/// Every `.xsh` file under the corpus directories of `root`, sorted.
+/// Corpus files larger than this are skipped: checking a mutant holds the
+/// whole program's facts in memory.
+pub const MAX_CORPUS_BYTES: u64 = 32 << 10;
+
+/// Path under which mutants are checked. It has no sibling modules, so a
+/// mutant's `use` fails fast instead of loading (and retaining) a large
+/// module graph from the repository.
+pub const MUTANT_FILE: &str = "mutant.xsh";
+
+/// Every `.xsh` file of at most [`MAX_CORPUS_BYTES`] under the corpus
+/// directories of `root`, sorted.
 pub fn corpus_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for dir in CORPUS_DIRS {
         collect(&root.join(dir), &mut files);
     }
+    files.retain(|path| std::fs::metadata(path).is_ok_and(|metadata| metadata.len() <= MAX_CORPUS_BYTES));
     files.sort();
     files
 }

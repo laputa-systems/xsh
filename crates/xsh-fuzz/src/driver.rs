@@ -3,7 +3,7 @@
 
 use crate::generator::{GenConfig, Generated, finish, generate};
 use crate::harness::{Failure, Sandbox, verify_generated};
-use crate::mutate::{check_mutant, corpus_files, format_invariants, mutate};
+use crate::mutate::{MUTANT_FILE, check_mutant, corpus_files, format_invariants, mutate};
 use crate::rng::Rng;
 use crate::shrink::{shrink_program, shrink_text};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -39,6 +39,14 @@ pub struct Options {
     /// Formatter and lint invariants every Nth check iteration (0 disables).
     pub format_every: u64,
     pub exe: PathBuf,
+    /// Iteration index of the first seed (`seed + first + i`).
+    pub first: u64,
+    /// Iterations per worker process; 0 runs in this process. Each worker
+    /// exits after its batch, so state the frontend retains between checks
+    /// (interned names, prepared modules) cannot accumulate.
+    pub shard_size: u64,
+    /// Footprint above which a worker process is killed and reported.
+    pub worker_memory_limit: u64,
 }
 
 #[derive(Debug, Default)]
@@ -149,7 +157,7 @@ pub fn minimize_format(generated: &Generated, failure: &str, scratch: &Path) -> 
                     _ => false,
                 }
             },
-            600,
+            150,
         )
     });
     best
@@ -203,6 +211,11 @@ impl Shared {
         }
     }
 
+    /// Minimize failures unless disabled or the campaign is out of time.
+    fn should_shrink(&self) -> bool {
+        self.options.shrink && self.options.duration.is_none_or(|duration| self.started.elapsed() < duration)
+    }
+
     fn take_seed(&self) -> Option<u64> {
         if self.stop.load(Ordering::Relaxed) {
             return None;
@@ -218,12 +231,168 @@ impl Shared {
         {
             return None;
         }
-        Some(index)
+        Some(self.options.first + index)
     }
 }
 
-/// Runs a campaign and returns its statistics.
+/// Runs a campaign and returns its statistics: in worker processes of
+/// `shard_size` iterations each, or in this process when that is 0.
 pub fn campaign(options: Options) -> Stats {
+    if options.shard_size > 0 {
+        return supervise(options);
+    }
+    in_process(options)
+}
+
+/// One line a worker process prints last, with its counts.
+const STATS_PREFIX: &str = "xsh-fuzz-shard-stats";
+
+fn print_shard_stats(stats: &Stats) {
+    println!(
+        "{STATS_PREFIX} {} {} {} {} {}",
+        stats.checked.load(Ordering::Relaxed),
+        stats.mutants.load(Ordering::Relaxed),
+        stats.formatted.load(Ordering::Relaxed),
+        stats.ran.load(Ordering::Relaxed),
+        stats.failures.load(Ordering::Relaxed)
+    );
+}
+
+/// The worker side of [`supervise`]: one batch in this process, then the
+/// stats line.
+pub fn run_shard(options: Options) {
+    let stats = in_process(options);
+    print_shard_stats(&stats);
+}
+
+fn mode_name(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Check => "check",
+        Mode::Run => "run",
+        Mode::All => "all",
+    }
+}
+
+/// Runs batches in at most `jobs` concurrent worker processes until the
+/// iteration count or duration is reached, killing a worker whose footprint
+/// exceeds `worker_memory_limit`.
+fn supervise(options: Options) -> Stats {
+    let stats = Stats::default();
+    let next = AtomicU64::new(0);
+    let started = Instant::now();
+    let jobs = options.jobs.max(1);
+    std::thread::scope(|scope| {
+        for _ in 0..jobs {
+            scope.spawn(|| {
+                loop {
+                    if options.duration.is_some_and(|duration| started.elapsed() >= duration) {
+                        break;
+                    }
+                    let first = next.fetch_add(options.shard_size, Ordering::Relaxed);
+                    let mut count = options.shard_size;
+                    if let Some(iterations) = options.iterations {
+                        if first >= iterations {
+                            break;
+                        }
+                        count = count.min(iterations - first);
+                    }
+                    let remaining = options.duration.map(|duration| duration.saturating_sub(started.elapsed()));
+                    if remaining.is_some_and(|remaining| remaining.is_zero()) {
+                        break;
+                    }
+                    run_worker(&options, first, count, remaining, &stats);
+                }
+            });
+        }
+    });
+    stats
+}
+
+fn run_worker(options: &Options, first: u64, count: u64, remaining: Option<Duration>, stats: &Stats) {
+    let mut command = std::process::Command::new(&options.exe);
+    command
+        .arg("shard")
+        .arg(mode_name(options.mode))
+        .args(["--seed", &options.seed.to_string()])
+        .args(["--first", &first.to_string()])
+        .args(["--iterations", &count.to_string()])
+        .args(["--timeout", &options.timeout.as_secs().to_string()])
+        .args(["--mutants", &options.mutants.to_string()])
+        .args(["--format-every", &options.format_every.to_string()])
+        .arg("--out")
+        .arg(&options.out)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped());
+    if let Some(remaining) = remaining {
+        command.args(["--duration", &remaining.as_secs().max(1).to_string()]);
+    }
+    if !options.shrink {
+        command.arg("--no-shrink");
+    }
+    let Ok(mut child) = command.spawn() else {
+        eprintln!("xsh-fuzz: could not start a worker process");
+        stats.failures.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    let stdout = child.stdout.take().expect("piped stdout");
+    let reader = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::BufReader::new(stdout), &mut text);
+        text
+    });
+    let mut exceeded = None;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {}
+            Err(_) => break None,
+        }
+        if let Some(footprint) = crate::harness::footprint(child.id())
+            && footprint > options.worker_memory_limit
+        {
+            exceeded = Some(footprint);
+            let _ = child.kill();
+            break child.wait().ok();
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let output = reader.join().unwrap_or_default();
+    match output.lines().find_map(|line| line.strip_prefix(STATS_PREFIX)) {
+        Some(counts) => {
+            let counts: Vec<usize> = counts.split_whitespace().filter_map(|count| count.parse().ok()).collect();
+            if let [checked, mutants, formatted, ran, failures] = counts[..] {
+                stats.checked.fetch_add(checked, Ordering::Relaxed);
+                stats.mutants.fetch_add(mutants, Ordering::Relaxed);
+                stats.formatted.fetch_add(formatted, Ordering::Relaxed);
+                stats.ran.fetch_add(ran, Ordering::Relaxed);
+                stats.failures.fetch_add(failures, Ordering::Relaxed);
+            }
+        }
+        None => {
+            // The worker ended early: a crash, a hang the watchdog reported,
+            // or the memory limit. Its seeds are in the reproducers it wrote.
+            stats.failures.fetch_add(1, Ordering::Relaxed);
+            let reason = match exceeded {
+                Some(footprint) => format!("exceeded {} MiB", footprint >> 20),
+                None => format!("ended with {status:?}"),
+            };
+            let name = format!("worker-{}-{first}", options.seed);
+            let text = format!(
+                "worker for seeds {}..{} {reason}\nrerun: xsh-fuzz shard {} --seed {} --first {first} --iterations {count} --jobs 1\n",
+                options.seed + first,
+                options.seed + first + count,
+                mode_name(options.mode),
+                options.seed
+            );
+            match write_failure(&options.out, &name, "", &text) {
+                Ok(path) => eprintln!("FAIL {name}: {reason} -> {}", path.display()),
+                Err(error) => eprintln!("FAIL {name}: {reason} ({error})"),
+            }
+        }
+    }
+}
+
+fn in_process(options: Options) -> Stats {
     let jobs = options.jobs.max(1);
     let corpus = corpus_files(&options.corpus_root);
     let shared = Arc::new(Shared {
@@ -311,7 +480,7 @@ fn run_iteration(shared: &Shared, seed: u64, config: &GenConfig, sandbox: &Sandb
     shared.stats.ran.fetch_add(1, Ordering::Relaxed);
     shared.stats.run_time_us.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
     if let Err(failure) = result {
-        let (small, failure) = if shared.options.shrink { minimize(&generated, &failure, Some(sandbox), 1500) } else { (generated, failure) };
+        let (small, failure) = if shared.should_shrink() { minimize(&generated, &failure, Some(sandbox), 1500) } else { (generated, failure) };
         shared.report(&seed.to_string(), &small.source, &format!("{} (run mode, seed {seed})\n{}", failure.kind(), failure.detail()));
     }
 }
@@ -323,7 +492,7 @@ fn check_iteration(shared: &Shared, worker: usize, seed: u64, index: u64, config
     let result = guarded(shared, worker, &name, &generated.source, || verify_generated(&generated.source, &generated.expected, None));
     shared.stats.checked.fetch_add(1, Ordering::Relaxed);
     if let Err(failure) = result {
-        let (small, failure) = if shared.options.shrink { minimize(&generated, &failure, None, 1500) } else { (generated.clone(), failure) };
+        let (small, failure) = if shared.should_shrink() { minimize(&generated, &failure, None, 1500) } else { (generated.clone(), failure) };
         shared.report(&name, &small.source, &format!("{} (check mode, seed {seed})\n{}", failure.kind(), failure.detail()));
         return;
     }
@@ -335,7 +504,7 @@ fn check_iteration(shared: &Shared, worker: usize, seed: u64, index: u64, config
         match outcome {
             Ok(Ok(())) => {}
             Ok(Err(failure)) => {
-                let (source, failure) = if shared.options.shrink { minimize_format(&generated, &failure, scratch) } else { (generated.source.clone(), failure) };
+                let (source, failure) = if shared.should_shrink() { minimize_format(&generated, &failure, scratch) } else { (generated.source.clone(), failure) };
                 shared.report(&format!("{seed}-format"), &source, &format!("format (seed {seed})\n{failure}"));
             }
             Err(_) => shared.report(&format!("{seed}-format"), &generated.source, "format: formatter or linter panicked"),
@@ -348,7 +517,7 @@ fn check_iteration(shared: &Shared, worker: usize, seed: u64, index: u64, config
         } else {
             let path = shared.corpus[rng.below(shared.corpus.len())].clone();
             let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            (path.display().to_string(), path.to_string_lossy().into_owned(), text)
+            (path.display().to_string(), MUTANT_FILE.to_string(), text)
         };
         let mut mutant = mutate(&text, &mut rng);
         for _ in 0..rng.below(3) {
@@ -358,7 +527,7 @@ fn check_iteration(shared: &Shared, worker: usize, seed: u64, index: u64, config
         let outcome = guarded(shared, worker, &name, &mutant, || check_mutant(&file, &mutant));
         shared.stats.mutants.fetch_add(1, Ordering::Relaxed);
         if let Err(failure) = outcome {
-            let small = if shared.options.shrink {
+            let small = if shared.should_shrink() {
                 let head = signature(&failure);
                 quiet_panics(|| {
                     shrink_text(&mutant, |candidate| matches!(check_mutant(&file, candidate), Err(found) if signature(&found) == head), 400)

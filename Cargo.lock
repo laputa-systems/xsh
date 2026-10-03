@@ -1833,6 +1833,7 @@ dependencies = [
 name = "xsh-fuzz"
 version = "0.0.1"
 dependencies = [
+ "libc",
  "rustc-hash",
  "rustix",
  "tempfile",

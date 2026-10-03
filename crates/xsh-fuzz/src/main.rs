@@ -21,12 +21,18 @@ options:
   --seed N          first seed (default: from the clock); iteration i uses N+i
   --iterations N    stop after N programs
   --duration SECS   stop after SECS seconds (default 60 without --iterations)
-  --jobs N          worker threads (default: half the CPUs, at most 8)
+  --jobs N          worker processes (default: half the CPUs, at most 4)
   --out DIR         failure reproducers (default target/fuzz/failures)
   --timeout SECS    per-program execution timeout (default 10)
   --mutants N       mutants per check iteration (default 4)
   --format-every N  formatter/lint invariants every N check iterations (default 4, 0 = off)
-  --no-shrink       write failures without minimizing them";
+  --shard-size N    iterations per worker process (default 500; 0 = this process)
+  --worker-memory M kill a worker process above M MiB (default 384)
+  --no-shrink       write failures without minimizing them
+
+Each program runs in its own child, killed above 256 MiB or after
+--timeout; each worker process handles one batch and exits, so at most
+--jobs workers (plus one program child each) are alive at a time.";
 
 fn fail(message: &str) -> ! {
     eprintln!("xsh-fuzz: {message}\n{USAGE}");
@@ -92,6 +98,21 @@ fn main() {
             eprintln!("{failure}");
             return;
         }
+        Some("shard") => {
+            args.next();
+            let mode = match args.next().as_deref() {
+                Some("check") => Mode::Check,
+                Some("run") => Mode::Run,
+                Some("all") => Mode::All,
+                _ => fail("shard needs a mode"),
+            };
+            let mut options = default_options(mode);
+            options.jobs = 1;
+            options.shard_size = 0;
+            parse_options(&mut args, &mut options);
+            xsh_fuzz::driver::run_shard(options);
+            return;
+        }
         Some("check") => Mode::Check,
         Some("run") => Mode::Run,
         Some("all") => Mode::All,
@@ -102,49 +123,17 @@ fn main() {
     if args.peek().is_some_and(|arg| !arg.starts_with("--")) {
         args.next();
     }
-    let cpus = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
-    let mut options = Options {
-        mode,
-        seed: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(1, |elapsed| elapsed.as_secs()),
-        iterations: None,
-        duration: None,
-        jobs: (cpus / 2).clamp(1, 8),
-        out: repo_root().join("target/fuzz/failures"),
-        shrink: true,
-        timeout: Duration::from_secs(10),
-        corpus_root: repo_root(),
-        mutants: 4,
-        format_every: 4,
-        exe: std::env::current_exe().expect("current executable"),
-    };
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--seed" => options.seed = number(&mut args, "--seed"),
-            "--iterations" => options.iterations = Some(number(&mut args, "--iterations")),
-            "--duration" => options.duration = Some(Duration::from_secs(number(&mut args, "--duration"))),
-            "--jobs" => options.jobs = number(&mut args, "--jobs"),
-            "--out" => options.out = PathBuf::from(args.next().unwrap_or_else(|| fail("--out needs a directory"))),
-            "--timeout" => options.timeout = Duration::from_secs(number(&mut args, "--timeout")),
-            "--mutants" => options.mutants = number(&mut args, "--mutants"),
-            "--format-every" => options.format_every = number(&mut args, "--format-every"),
-            "--no-shrink" => options.shrink = false,
-            "-h" | "--help" => {
-                println!("{USAGE}");
-                return;
-            }
-            other => fail(&format!("unknown option `{other}`")),
-        }
-    }
+    let mut options = default_options(mode);
+    parse_options(&mut args, &mut options);
     if options.iterations.is_none() && options.duration.is_none() {
         options.duration = Some(Duration::from_secs(60));
     }
     eprintln!(
-        "xsh-fuzz: mode {:?}, seed {}, {} jobs, failures in {}",
+        "xsh-fuzz: mode {:?}, seed {}, {} worker processes of {} iterations, failures in {}",
         options.mode,
         options.seed,
         options.jobs,
+        options.shard_size,
         options.out.display()
     );
     let started = Instant::now();
@@ -161,4 +150,51 @@ fn main() {
         ran as f64 / elapsed,
     );
     std::process::exit(i32::from(failures > 0));
+}
+
+fn default_options(mode: Mode) -> Options {
+    let cpus = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
+    Options {
+        mode,
+        seed: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1, |elapsed| elapsed.as_secs()),
+        iterations: None,
+        duration: None,
+        jobs: (cpus / 2).clamp(1, 4),
+        out: repo_root().join("target/fuzz/failures"),
+        shrink: true,
+        timeout: Duration::from_secs(10),
+        corpus_root: repo_root(),
+        mutants: 4,
+        format_every: 4,
+        exe: std::env::current_exe().expect("current executable"),
+        first: 0,
+        shard_size: 500,
+        worker_memory_limit: 384 << 20,
+    }
+}
+
+fn parse_options(args: &mut impl Iterator<Item = String>, options: &mut Options) {
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--seed" => options.seed = number(args, "--seed"),
+            "--iterations" => options.iterations = Some(number(args, "--iterations")),
+            "--duration" => options.duration = Some(Duration::from_secs(number(args, "--duration"))),
+            "--jobs" => options.jobs = number(args, "--jobs"),
+            "--out" => options.out = PathBuf::from(args.next().unwrap_or_else(|| fail("--out needs a directory"))),
+            "--timeout" => options.timeout = Duration::from_secs(number(args, "--timeout")),
+            "--mutants" => options.mutants = number(args, "--mutants"),
+            "--format-every" => options.format_every = number(args, "--format-every"),
+            "--no-shrink" => options.shrink = false,
+            "--first" => options.first = number(args, "--first"),
+            "--shard-size" => options.shard_size = number(args, "--shard-size"),
+            "--worker-memory" => options.worker_memory_limit = number::<u64>(args, "--worker-memory") << 20,
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                std::process::exit(0);
+            }
+            other => fail(&format!("unknown option `{other}`")),
+        }
+    }
 }

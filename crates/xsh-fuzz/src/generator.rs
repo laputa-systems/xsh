@@ -48,6 +48,9 @@ pub struct Generated {
     pub expected: String,
 }
 
+/// Larger draws are rejected, so one program cannot dominate a run.
+pub const MAX_SOURCE_BYTES: usize = 48 << 10;
+
 /// Generates the program for `seed`. Draws that the reference evaluator
 /// rejects (overflow, a missing index) are retried with a derived seed, so the
 /// result is still a pure function of `seed`.
@@ -75,6 +78,9 @@ pub fn finish(seed: u64, mut program: Program) -> Option<Generated> {
         fill_asserts(&mut function.body, &observed);
     }
     let source = program.print();
+    if source.len() > MAX_SOURCE_BYTES {
+        return None;
+    }
     let mut expected = String::new();
     for line in lines {
         expected.push_str(&line);
@@ -100,9 +106,17 @@ fn fill_asserts(block: &mut Block, observed: &HashMap<usize, Option<Val>>) {
     for stmt in &mut block.stmts {
         let key = std::ptr::from_ref(&*stmt) as usize;
         match stmt {
-            Stmt::AssertEq { expected, .. } => {
-                *expected = observed.get(&key).cloned().flatten().as_ref().and_then(literal_of);
-            }
+            Stmt::AssertEq { expr, expected } => match observed.get(&key) {
+                Some(Some(value)) if literal_of(value).is_some() => *expected = literal_of(value),
+                // Values that differ between executions: `expr == expr` would
+                // run the expression twice, so discard it instead.
+                Some(_) => {
+                    let value = expr.clone();
+                    *stmt = Stmt::Let { name: "_".into(), annot: None, value, mutable: false };
+                }
+                // Never executed: `expr == expr` is a well-typed dead assertion.
+                None => {}
+            },
             Stmt::If { then, otherwise, .. } => {
                 fill_asserts(then, observed);
                 if let Some(otherwise) = otherwise {
@@ -170,6 +184,9 @@ struct Gen<'c> {
     aliases: Vec<(String, usize)>,
     /// The item type while generating a stream producer body.
     yield_ty: Option<Ty>,
+    /// Value blocks being generated; assertion holes are filled only in
+    /// statement blocks, so none are generated inside expressions.
+    value_depth: usize,
 }
 
 const ALPHABET: &[&str] = &[
@@ -241,11 +258,12 @@ fn brace_arm_match(expr: &Expr) -> bool {
     }
 }
 
-/// A statement starting with a field path followed by `not in` parses as a
-/// command. Parser defect, reported separately.
+/// A statement starting with a field path followed by `not in` or `is`
+/// parses as a command. Parser defect, reported separately.
 fn field_not_in(expr: &Expr) -> bool {
+    let field_path = |expr: &Expr| matches!(expr, Expr::Field(..)) || matches!(expr, Expr::Var(name) if name.contains('.'));
     match expr {
-        Expr::Binary(BinOp::NotIn, left, _) => matches!(&**left, Expr::Field(..)) || matches!(&**left, Expr::Var(name) if name.contains('.')),
+        Expr::Binary(BinOp::NotIn, left, _) | Expr::Is(left, _) => field_path(left),
         Expr::Binary(_, left, _) | Expr::Fallback(left, _) => field_not_in(left),
         _ => false,
     }
@@ -267,6 +285,7 @@ impl<'c> Gen<'c> {
             consts: Vec::new(),
             aliases: Vec::new(),
             yield_ty: None,
+            value_depth: 0,
         }
     }
 
@@ -858,6 +877,13 @@ impl<'c> Gen<'c> {
     }
 
     fn value_block(&mut self, ty: &Ty, cx: bool, depth: usize) -> Block {
+        self.value_depth += 1;
+        let block = self.value_block_inner(ty, cx, depth);
+        self.value_depth -= 1;
+        block
+    }
+
+    fn value_block_inner(&mut self, ty: &Ty, cx: bool, depth: usize) -> Block {
         self.scopes.push(Vec::new());
         let mut stmts = Vec::new();
         if self.nesting < 2 && depth <= 2 && self.rng.chance(15) {
@@ -876,6 +902,7 @@ impl<'c> Gen<'c> {
     /// A value block whose first statement is a `let`, so its braces never
     /// read as a record literal.
     fn value_block_with_let(&mut self, ty: &Ty, cx: bool, depth: usize) -> Block {
+        self.value_depth += 1;
         self.scopes.push(Vec::new());
         self.nesting += 1;
         let mut stmts = Vec::new();
@@ -887,6 +914,7 @@ impl<'c> Gen<'c> {
         self.nesting -= 1;
         let tail = self.tail_expr(ty, cx, depth);
         self.scopes.pop();
+        self.value_depth -= 1;
         Block { stmts, tail: Some(tail) }
     }
 
@@ -1379,10 +1407,18 @@ impl<'c> Gen<'c> {
                         self.ctx.prop = Some(Fam::Error);
                         self.ctx.in_loop = false;
                         self.ctx.return_err = false;
-                        let block = self.value_block(inner, true, next);
+                        // An empty delay list makes one attempt and needs no time
+                        // effect. `retry` passes no expected type into its block, so
+                        // its values must establish their own type.
+                        let retry = !needs_cx(inner) && self.rng.chance(30);
+                        // A producer cannot yield from a retry attempt.
+                        let yield_ty = if retry { self.yield_ty.take() } else { None };
+                        let block = self.value_block(inner, !retry, next);
+                        if retry {
+                            self.yield_ty = yield_ty;
+                        }
                         self.ctx = saved;
-                        // An empty delay list makes one attempt and needs no time effect.
-                        Some(if self.rng.chance(30) { Expr::Retry(Box::new(block)) } else { Expr::Try(Box::new(block)) })
+                        Some(if retry { Expr::Retry(Box::new(block)) } else { Expr::Try(Box::new(block)) })
                     }
                     _ => None,
                 }
@@ -1660,7 +1696,7 @@ impl<'c> Gen<'c> {
                 stmts.push(Stmt::Out(self.render(&Expr::Var(name.clone()), &ty)));
                 self.bind(name, ty, false);
             }
-            16 if self.ctx.observe => {
+            16 if self.ctx.observe && self.value_depth == 0 => {
                 let ty = self.rng.pick(&[Ty::Int, Ty::Str, Ty::Bool, Ty::Float, Ty::Bytes, Ty::Path, Ty::Duration]).clone();
                 let expr = self.expr_or_literal(&ty, false, 1);
                 stmts.push(Stmt::AssertEq { expr, expected: None });

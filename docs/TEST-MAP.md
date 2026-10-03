@@ -46,17 +46,24 @@ generated and corpus programs must get ordinary diagnostics with valid spans;
 `oracle_methods_match_the_registry` fails when a registry signature drifts from
 the generator's method table. A failure prints a minimized program.
 
-`make fuzz` (`xsh-fuzz all --duration 300`, release) explores fresh seeds and
-is not part of `make check`. `xsh-fuzz check` never executes code: it checks
+`make fuzz` (`xsh-fuzz all --duration 120`, release; `FUZZ_DURATION` overrides)
+explores fresh seeds and is not part of `make check`. Memory is bounded by
+construction: at most `--jobs` worker processes (default half the CPUs, at most
+4) each check or run a batch of 500 seeds and exit, so frontend state cannot
+accumulate; a worker above 384 MiB and a program above 256 MiB are killed and
+reported, using the sampled physical footprint because macOS enforces no data
+rlimit. The reference evaluator rejects draws whose values exceed a size budget
+(doubling loops), generated sources are capped at 48 KiB, and corpus mutants are
+checked under a path with no sibling modules. `xsh-fuzz check` never executes code: it checks
 generated programs and mutants of them and of `tests/`, `core/`, `dev/`,
 `showcase/`, and `examples/` (read only), and every few iterations requires
 `xsht fmt` to accept a generated program, reach a fixed point, keep it checking,
 and leave its `xsht lint` codes unchanged. `xsh-fuzz run` executes generated
 programs, each in a child with a cleared environment, a private temporary
-working directory, CPU, file-size, data, and descriptor limits, a wall-clock
-timeout, and an output cap; the programs themselves contain no host API and are
+working directory, CPU, file-size, data, and descriptor limits, a sampled
+memory limit, a wall-clock timeout, and an output cap; the programs themselves contain no host API and are
 checked under an empty effect clause. Options: `--seed`, `--iterations`,
-`--duration`, `--jobs` (default half the CPUs, at most 8), `--timeout`,
+`--duration`, `--jobs`, `--timeout`, `--shard-size`, `--worker-memory`,
 `--no-shrink`. Minimized reproducers go to `target/fuzz/failures/<seed>.xsh`
 with the failure as a leading comment; `xsh-fuzz reduce FILE` minimizes a
 frontend defect in any file, `xsh-fuzz print SEED` shows a generated program and

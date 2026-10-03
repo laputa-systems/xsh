@@ -180,6 +180,11 @@ pub struct RunReport {
     pub stdout: String,
     pub stderr: String,
     pub timed_out: bool,
+    /// The child's physical footprint when it was killed for exceeding the
+    /// memory limit.
+    pub memory_exceeded: Option<u64>,
+    /// The largest footprint sampled while the child ran.
+    pub peak_memory: u64,
     pub elapsed: Duration,
 }
 
@@ -190,11 +195,18 @@ pub struct Sandbox {
     pub exe: PathBuf,
     pub timeout: Duration,
     pub output_cap: usize,
+    /// Physical footprint above which the child is killed. macOS does not
+    /// enforce data or address-space rlimits, so the parent samples the
+    /// footprint (`proc_pid_rusage` on macOS, `VmRSS` on Linux) while it
+    /// waits.
+    pub memory_limit: u64,
 }
+
+pub const DEFAULT_MEMORY_LIMIT: u64 = 256 << 20;
 
 impl Sandbox {
     pub fn new(exe: PathBuf) -> Self {
-        Self { exe, timeout: Duration::from_secs(10), output_cap: 1 << 20 }
+        Self { exe, timeout: Duration::from_secs(10), output_cap: 1 << 20, memory_limit: DEFAULT_MEMORY_LIMIT }
     }
 
     /// Runs `source` as a script in a fresh private directory.
@@ -220,10 +232,20 @@ impl Sandbox {
         let read_out = std::thread::spawn(move || read_capped(stdout, cap));
         let read_err = std::thread::spawn(move || read_capped(stderr, cap));
         let mut timed_out = false;
+        let mut memory_exceeded = None;
+        let mut peak_memory = 0;
         let mut pause = Duration::from_micros(200);
         let status = loop {
             if let Some(status) = child.try_wait()? {
                 break status;
+            }
+            if let Some(footprint) = footprint(child.id()) {
+                peak_memory = peak_memory.max(footprint);
+                if footprint > self.memory_limit {
+                    memory_exceeded = Some(footprint);
+                    let _ = child.kill();
+                    break child.wait()?;
+                }
             }
             if started.elapsed() > self.timeout {
                 timed_out = true;
@@ -231,7 +253,7 @@ impl Sandbox {
                 break child.wait()?;
             }
             std::thread::sleep(pause);
-            pause = (pause * 2).min(Duration::from_millis(20));
+            pause = (pause * 2).min(Duration::from_millis(10));
         };
         let stdout = read_out.join().unwrap_or_default();
         let stderr = read_err.join().unwrap_or_default();
@@ -242,9 +264,38 @@ impl Sandbox {
             stdout,
             stderr,
             timed_out,
+            memory_exceeded,
+            peak_memory,
             elapsed: started.elapsed(),
         })
     }
+}
+
+/// The physical memory footprint of a live process, in bytes.
+#[cfg(target_os = "macos")]
+pub fn footprint(pid: u32) -> Option<u64> {
+    let mut info = std::mem::MaybeUninit::<libc::rusage_info_v2>::zeroed();
+    let pid = i32::try_from(pid).ok()?;
+    // SAFETY: with RUSAGE_INFO_V2, proc_pid_rusage writes one rusage_info_v2
+    // into the buffer, which is that size; on failure it is left untouched
+    // and not read.
+    let status = unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, info.as_mut_ptr().cast()) };
+    // SAFETY: a zero status means the kernel filled the structure.
+    (status == 0).then(|| unsafe { info.assume_init() }.ri_phys_footprint)
+}
+
+/// The resident memory of a live process, in bytes.
+#[cfg(target_os = "linux")]
+pub fn footprint(pid: u32) -> Option<u64> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kib * 1024)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn footprint(_pid: u32) -> Option<u64> {
+    None
 }
 
 fn read_capped(mut reader: impl Read, cap: usize) -> String {
@@ -275,7 +326,9 @@ pub fn exec_worker(script: &Path) -> ! {
     // No file may grow: generated programs have no filesystem effect.
     limit(Resource::Fsize, 0);
     limit(Resource::Core, 0);
-    limit(Resource::Data, 2 << 30);
+    // Enforced on Linux only; the parent's footprint sampling is the bound
+    // everywhere.
+    limit(Resource::Data, 1 << 30);
     limit(Resource::Nofile, 64);
     let output = xsh::execution::script::run_script(xsh::execution::script::RunOptions {
         script: script.to_string_lossy().into_owned(),
@@ -300,6 +353,8 @@ pub enum Failure {
     /// The program ran but printed something other than the reference output.
     WrongOutput { expected: String, actual: String },
     Timeout,
+    /// A small well-typed program exceeded the memory limit.
+    Memory(String),
     Crash(String),
 }
 
@@ -311,13 +366,16 @@ impl Failure {
             Failure::Runtime(_) => "runtime",
             Failure::WrongOutput { .. } => "wrong-output",
             Failure::Timeout => "timeout",
+            Failure::Memory(_) => "memory",
             Failure::Crash(_) => "crash",
         }
     }
 
     pub fn detail(&self) -> String {
         match self {
-            Failure::Rejected(text) | Failure::Internal(text) | Failure::Runtime(text) | Failure::Crash(text) => text.clone(),
+            Failure::Rejected(text) | Failure::Internal(text) | Failure::Runtime(text) | Failure::Memory(text) | Failure::Crash(text) => {
+                text.clone()
+            }
             Failure::WrongOutput { expected, actual } => {
                 let mut text = String::new();
                 for (index, (want, got)) in expected.lines().zip(actual.lines()).enumerate() {
@@ -357,6 +415,13 @@ pub fn verify_generated(source: &str, expected: &str, sandbox: Option<&Sandbox>)
     }
     let Some(sandbox) = sandbox else { return Ok(()) };
     let run = sandbox.run(source).map_err(|error| Failure::Crash(format!("spawn failed: {error}")))?;
+    if let Some(footprint) = run.memory_exceeded {
+        return Err(Failure::Memory(format!(
+            "killed at {} MiB, over the {} MiB limit",
+            footprint >> 20,
+            sandbox.memory_limit >> 20
+        )));
+    }
     if run.timed_out {
         return Err(Failure::Timeout);
     }
