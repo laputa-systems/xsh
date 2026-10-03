@@ -61,7 +61,7 @@ and arithmetic and fails only at runtime.
 - Rule: field access, indexing and method results on `Any` yield `Any`.
 - `Any` establishes a concrete type only through `.require(T)` or a checked
   type pattern. This is `check.dynamic-boundary`, as `.get` is today.
-- Spec first, in `docs/SPEC-TYPING.md`. The current spec text says "Bare Any
+- Spec first, in `docs/SPEC.md` (Typing). The current spec text says "Bare Any
   retains its established dynamic field behavior".
 - The diagnostic carries a fix that inserts `.require(T)` when the target type
   is known from context, and the fix is selectable with `xsht lint --only`.

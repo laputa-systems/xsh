@@ -13,9 +13,9 @@ formatting and linting, and verifies that the manifest covers every
 
 | Showcase | Composition focus | Canonical documentation | Focused coverage |
 |---|---|---|---|
-| `json.xsh` | typed JSON read/write, JSON-lines, and schema checks at a persistence boundary | `docs/SPEC.md` | `tests/xsh/stdlib/json.xsh` |
-| `streams.xsh` | filesystem records through serial and bounded parallel stream stages | `docs/STREAMS.md` | `tests/xsh/stdlib/streams.xsh` |
-| `processes.xsh` | process discovery, structured command plans, concurrent waits, and host identity records | `docs/SPEC-OS.md` | `tests/xsh/stdlib/process.xsh`, `tests/xsh/stdlib/system.xsh` |
+| `json.xsh` | typed JSON read/write, JSON-lines, and schema checks at a persistence boundary | `docs/SPEC.md` section 14 | `tests/xsh/stdlib/json.xsh` |
+| `streams.xsh` | filesystem records through serial and bounded parallel stream stages | `docs/SPEC.md` section 13 | `tests/xsh/stdlib/streams.xsh` |
+| `processes.xsh` | process discovery, structured command plans, concurrent waits, and host identity records | `docs/SPEC.md` sections 11-12 | `tests/xsh/stdlib/process.xsh`, `tests/xsh/stdlib/system.xsh` |
 | `release-package.xsh` | staged archive creation, safe extraction, rooted patching, and byte-preserving compression | `xsht api module:archive module:patch` | `tests/xsh/stdlib/archive.xsh`, `tests/xsh/stdlib/diff.xsh`, `tests/xsh/stdlib/patch.xsh` |
 | `typed-cli-options.xsh` | typed options, command dispatch, path conversion, and regex-backed input records | `docs/SPEC.md`, `xsht api module:cli module:regex` | `tests/xsh/stdlib/args.xsh` |
 
