@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, BinaryOp, Checker, Effect, Name, RunKind, Span, Type, UnaryOp,
+    BTreeMap, BinaryOp, Checker, Diagnostic, Effect, Label, Name, RunKind, Span, Type, UnaryOp,
     api_spec, block_has_exit_point_arena, collection_item_ty,
 };
 use crate::syntax::arena::{
@@ -117,7 +117,14 @@ impl Checker {
             return Type::Pure;
         }
         if api_spec().module(&name.as_str()).is_some() {
-            return Type::ErasedRecord;
+            // A namespace has no runtime value; typing it as an erased record
+            // let `let host = system` check and then fail preparation.
+            self.diagnostics.push(
+                Diagnostic::error(format!("standard module `{name}` is a namespace, not a value"))
+                    .with_code("check.module-member")
+                    .with_label(Label::primary(span, "call one of its functions instead")),
+            );
+            return Type::Unknown;
         }
         if name == "ARGV" && !self.streams.contains_key(&name) {
             let shadowed_args = self.scopes.iter().skip(1).any(|scope| scope.contains_key(&Name::intern("args")));
@@ -250,9 +257,21 @@ impl Checker {
         let ty = match &expr.kind {
             ArenaExprKind::Null => Type::Null,
             ArenaExprKind::Bool(_) => Type::Bool,
-            ArenaExprKind::Int(_) => Type::Int,
+            ArenaExprKind::Int(value) => {
+                if arena.arena.int_literal(*value).value().is_none() {
+                    self.error(expr.span, "integer literal is outside the 64-bit signed range", "check.int-literal");
+                }
+                Type::Int
+            }
             ArenaExprKind::Float(_) => Type::Float,
-            ArenaExprKind::Duration(_) => Type::Duration,
+            ArenaExprKind::Duration(value) => {
+                // An unrepresentable literal used to check and then fail
+                // preparation, which has no value to encode.
+                if arena.arena.duration_literal(*value).millis().is_none() {
+                    self.error(expr.span, "duration literal exceeds 18446744073709551615ms", "check.duration-literal");
+                }
+                Type::Duration
+            }
             ArenaExprKind::Str(_) => Type::Str,
             ArenaExprKind::Regex(_) => Type::Regex,
             ArenaExprKind::PathStr(_) => Type::Path,
@@ -1021,7 +1040,9 @@ impl Checker {
 
         self.push_scope();
         self.begin_error_boundary();
+        self.retry_block_depth += 1;
         let body_ty = self.check_tail_block_arena(arena, source, block, None);
+        self.retry_block_depth -= 1;
         let error_ty = self.end_error_boundary(None);
         self.pop_scope();
 
@@ -1446,11 +1467,17 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                let left_ty = self.check_expr_arena(arena, source, left, expected);
-                let right_expected = if matches!(&left_ty, Type::List(item) if **item == Type::Unknown) {
-                    expected
-                } else {
-                    Some(&left_ty)
+                // The result type is an operand type only for List
+                // concatenation; Duration arithmetic mixes Int and Duration, so
+                // an expectation for the result must not constrain an operand
+                // such as `(if c { 1s } else { 2s }) / 1ms`.
+                let left_expected = expected.filter(|ty| matches!(ty, Type::List(_)));
+                let left_ty = self.check_expr_arena(arena, source, left, left_expected);
+                let right_expected = match &left_ty {
+                    Type::List(item) if **item == Type::Unknown => expected,
+                    Type::Duration => None,
+                    Type::Int if op == BinaryOp::Mul => None,
+                    _ => Some(&left_ty),
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
                 if left_ty == Type::Any || right_ty == Type::Any { return Type::Any; }
@@ -1526,6 +1553,24 @@ impl Checker {
                 return Type::Tag(info.type_name);
             }
         }
+        // A standard module is a namespace of functions, not a record: a member
+        // read without a call used to type as Any and failed preparation.
+        if let ArenaExprKind::Ident(module) = base_expr.kind
+            && self.lookup(module).is_none()
+            && api_spec().module(&module.as_str()).is_some()
+        {
+            let message = if api_spec().module_overloads(&module.as_str(), &name.as_str()).is_some() {
+                format!("standard module function `{module}.{name}` must be called")
+            } else {
+                format!("standard module `{module}` has no function `{name}`")
+            };
+            self.diagnostics.push(
+                Diagnostic::error(message)
+                    .with_code("check.module-member")
+                    .with_label(Label::primary(span, "standard module members are functions, not values")),
+            );
+            return Type::Unknown;
+        }
         let base_ty = self.check_expr_arena(arena, source, base, None);
         match base_ty {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
@@ -1551,52 +1596,9 @@ impl Checker {
                     Type::Unknown
                 }
             },
-            Type::Status => match name.as_str().as_str() {
-                "ok" | "success" => Type::Bool,
-                "kind" => Type::Str,
-                "segments" => Type::List(Box::new(Type::ErasedRecord)),
-                _ => Type::Unknown,
-            },
-            Type::ProcessHandle => match name.as_str().as_str() {
-                "pid" => Type::Int,
-                "command" => Type::Str,
-                "argv" => Type::List(Box::new(Type::Str)),
-                "detached" => Type::Bool,
-                _ => Type::Unknown,
-            },
-            Type::Path => match name.as_str().as_str() {
-                "parent" => Type::Path,
-                "name" | "ext" => Type::Str,
-                _ => Type::Unknown,
-            },
-            Type::Digest => match name.as_str().as_str() {
-                "algorithm" => Type::Str,
-                "bytes" => Type::Bytes,
-                _ => Type::Unknown,
-            },
-            Type::Regex => match name.as_str().as_str() {
-                "pattern" => Type::Str,
-                _ => Type::Unknown,
-            },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
-                match name.as_str().as_str() {
-                    "message" => Type::Str,
-                    "kind" => {
-                        self.error(
-                            span,
-                            "error `.kind` was removed; match exact variants or facets instead",
-                            "check.error-removed",
-                        );
-                        Type::Str
-                    }
-                    _ => Type::Unknown,
-                }
+            receiver if Self::fixed_field_type(&receiver, name).is_some() => {
+                self.checked_fixed_field(&receiver, name, span)
             }
-            Type::ProcessError => match name.as_str().as_str() {
-                "message" => Type::Str,
-                "kind" => Type::Str,
-                _ => Type::Unknown,
-            },
             _ => {
                 if !matches!(base_ty, Type::Any | Type::Unknown) {
                     self.error(
@@ -1605,6 +1607,68 @@ impl Checker {
                         "check.field-access",
                     );
                 }
+                Type::Unknown
+            }
+        }
+    }
+
+    /// Fields of runtime values whose field set is fixed. `None` when the
+    /// receiver is not such a value; `Some(None)` for an unknown field.
+    fn fixed_field_type(receiver: &Type, name: Name) -> Option<Option<Type>> {
+        let name = name.as_str();
+        let name = name.as_str();
+        Some(match receiver {
+            Type::Status => match name {
+                "ok" | "success" => Some(Type::Bool),
+                "kind" => Some(Type::Str),
+                "segments" => Some(Type::List(Box::new(Type::ErasedRecord))),
+                _ => None,
+            },
+            Type::ProcessHandle => match name {
+                "pid" => Some(Type::Int),
+                "command" => Some(Type::Str),
+                "argv" => Some(Type::List(Box::new(Type::Str))),
+                "detached" => Some(Type::Bool),
+                _ => None,
+            },
+            Type::Path => match name {
+                "parent" => Some(Type::Path),
+                "name" | "ext" => Some(Type::Str),
+                _ => None,
+            },
+            Type::Digest => match name {
+                "algorithm" => Some(Type::Str),
+                "bytes" => Some(Type::Bytes),
+                _ => None,
+            },
+            Type::Regex => match name {
+                "pattern" => Some(Type::Str),
+                _ => None,
+            },
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) | Type::ProcessError => match name {
+                "message" | "kind" => Some(Type::Str),
+                _ => None,
+            },
+            _ => return None,
+        })
+    }
+
+    /// Checks a field of a fixed-field value. An unknown field used to type
+    /// as Unknown and fail only at runtime.
+    fn checked_fixed_field(&mut self, receiver: &Type, name: Name, span: Span) -> Type {
+        let is_error = matches!(receiver, Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_));
+        if is_error && name == "kind" {
+            self.error(span, "error `.kind` was removed; match exact variants or facets instead", "check.error-removed");
+            return Type::Str;
+        }
+        match Self::fixed_field_type(receiver, name).flatten() {
+            Some(ty) => ty,
+            None => {
+                self.diagnostics.push(
+                    Diagnostic::error(format!("unknown field `{name}` on {receiver}"))
+                        .with_code("check.unknown-field")
+                        .with_label(Label::primary(span, format!("{receiver} has no field `{name}`"))),
+                );
                 Type::Unknown
             }
         }
@@ -1646,34 +1710,22 @@ impl Checker {
                     Type::Unknown
                 }
             },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
-                match name.as_str().as_str() {
-                    "message" => Type::Str,
-                    "kind" => {
-                        self.error(
-                            span,
-                            "error `.kind` was removed; match exact variants or facets instead",
-                            "check.error-removed",
-                        );
-                        Type::Str
-                    }
-                    _ => Type::Unknown,
-                }
+            receiver if Self::fixed_field_type(receiver, name).is_some() => {
+                self.checked_fixed_field(receiver, name, span)
             }
-            Type::ProcessError => match name.as_str().as_str() {
-                "message" => Type::Str,
-                "kind" => Type::Str,
-                _ => Type::Unknown,
+            Type::Module(exports) => match exports.get(&name) {
+                Some(export) => export.field_type(),
+                None => {
+                    self.error(span, "unknown export on known module contract", "check.unknown-field");
+                    Type::Unknown
+                }
             },
-            Type::ProcessHandle => match name.as_str().as_str() {
-                "pid" => Type::Int,
-                "command" => Type::Str,
-                "argv" => Type::List(Box::new(Type::Str)),
-                "detached" => Type::Bool,
-                _ => Type::Unknown,
-            },
-            Type::Any => Type::Any,
-            _ => Type::Unknown,
+            Type::Any | Type::DynamicModule => Type::Any,
+            Type::Unknown => Type::Unknown,
+            _ => {
+                self.error(span, "field access requires a record-like value", "check.field-access");
+                Type::Unknown
+            }
         };
         if wrap_optional && !matches!(field_ty, Type::Optional(_)) {
             Type::Optional(Box::new(field_ty))

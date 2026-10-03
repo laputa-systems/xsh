@@ -210,7 +210,10 @@ exponent: `1.0`, `0.25`, `1.5e6`, `10e-3`.
 
 A script's top-level statements run in order. Top-level code may run commands,
 mutate `var` bindings, and use control flow. `return` outside a callable is an
-error (`check.return-outside-callable`).
+error (`check.return-outside-callable`). Declarations (`use`, `export`,
+`type`, `enum`, `error`, `proc`, `pure`, `stream`) occur only at the top level
+of a script or module; inside a callable body or any block they are
+`check.nested-declaration`. A local `const` remains valid in bodies.
 
 A script's exit status is chosen as follows:
 
@@ -268,7 +271,9 @@ traceback.
 
 `use name` imports a module and binds exactly one namespace, `name`;
 `use name as alias` binds `alias`. Standard modules are always available
-without `use` and cannot be aliased. User modules resolve relative to the
+without `use` and cannot be aliased; they are namespaces, not values, so a
+member must be called rather than used as a value (`check.module-member`).
+User modules resolve relative to the
 importing file, then through each directory in `XSH_MODULE_PATH` (separated by
 the platform's path-list separator). Dotted paths name subdirectories.
 
@@ -1151,7 +1156,8 @@ The delay list (each a `Duration`) evaluates once before the first attempt.
 The block runs, then again after each delay while attempts fail, so an empty
 list means exactly one attempt. Inside an attempt, `?` fails the attempt
 rather than the enclosing function and needs no `error` effect; `return`,
-`break`, and `continue` keep their ordinary targets. Each attempt is a scope
+`break`, and `continue` keep their ordinary targets; a stream producer cannot
+`yield` from an attempt (`check.yield`). Each attempt is a scope
 whose defers run before the next attempt or the final result. The optional
 `on (pattern)` selects which errors to retry, using the non-binding pattern
 rules; any other failure returns at once without consuming a delay. The result

@@ -54,6 +54,57 @@ value /= 0
   assert "division-by-zero" in division.stderr
 }
 
+pure negated_floats(values: List[Float]) -> List[Float] {
+  var negated: List[Float] = []
+  for value in values {
+    negated += [-value]
+  }
+  negated
+}
+
+test test_float_negation_keeps_float_and_signed_zero {
+  # Negation lowered as `0 - x`: a Float loop value took the Int path inside
+  # a body, and the sign of a negated zero was lost.
+  assert negated_floats([2.5, 0.5 - 0.5]) == [-2.5, -0.0]
+  let zero = 0.5 - 0.5
+  assert f"${-zero} ${-negated_floats([1.25])[0]}" == "-0 1.25"
+}
+
+pure concatenations_ordered(left: Str, right: Str) -> Bool {
+  left + left < right + right
+}
+
+test test_str_concatenation_comparison_in_a_body_compares_text {
+  # The Int comparison fast path matched `a + b < c + d` by shape and
+  # compared Str slots as Ints at runtime.
+  assert concatenations_ordered("a", "b")
+  assert ! concatenations_ordered("b", "a")
+}
+
+test test_unexpected_multibyte_character_is_reported_once { |ctx|
+  # The lexer used to step one byte at a time, reporting each byte of `é`
+  # with a span that split the character.
+  let output = test.run_script(ctx, "let value = 1 é 2\n")?
+  assert ! output.success
+  assert output.stderr.split("lex.unexpected-character").len() == 2, output.stderr
+  assert "é" in output.stderr, output.stderr
+}
+
+test test_path_division_assignment_is_rejected_before_running { |ctx|
+  # `/` is numeric division only; the checker used to accept `/=` on a
+  # Path, which then failed at runtime as a type error.
+  let output = test.run_script(
+    ctx,
+    """var root = p"/opt"
+root /= "bin"
+print "ran"
+""",
+  )?
+  assert ! output.success
+  assert "check.operator-type" in output.stderr, output.stderr
+  assert output.stdout == ""
+}
+
 pure sibling_branch_value(choice: Str) -> Int {
   if choice == "first" {
     let value = 0

@@ -83,7 +83,7 @@ Repository gates (owner-run unless the task asks for them):
 | `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | debug `cargo test` |
 | `cargo dev test xsh` | the native suite through `cargo run -p xsht` |
-| `make fuzz` | the fuzz targets in `crates/xsh-fuzz` |
+| `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
 | `make docs` (`cargo dev docs`) | build release `xsh` and `xsht`, then regenerate every file rendered from `docs/templates/` |
 | `make docs-check` (`cargo dev docs check`) | the same render into memory, failing with the list of stale files; then `xsht check docs/snippets/tour` and `xsht test` in `docs/snippets/tour/project` |
 
@@ -100,6 +100,25 @@ deleting that line enables it. `dev/tests/test-docs.xsh` covers the generator.
 lint diagnostics are identical before and after formatting on the repository
 corpus, layout perturbations of it, and `../packages` (or
 `XSH_PACKAGE_CORPUS`) when present; it formats only temporary copies.
+
+## Soundness fuzzing
+
+Well-typed programs must not go wrong. `cargo test -p xsh-fuzz --test
+soundness` checks this at a fixed seed set. Generated programs must check, run
+without a runtime or internal error, and print exactly what the reference
+evaluator (`xsh_fuzz::eval`) predicts. Registry probes the checker accepts must
+run without internal errors, and mutants of generated and corpus programs must
+get ordinary diagnostics with valid spans. A failure prints a minimized
+program.
+
+`make fuzz` explores fresh seeds. Generated programs run under
+`proc fuzz_main() []`, so the checker proves them free of host effects, and
+each runs in a child with a cleared environment, a temp directory, a timeout,
+and an output cap. Memory is bounded: at most `--jobs` workers (default half
+the CPUs, at most 4) each handle 500 seeds and exit. A worker above 384 MiB or
+a program above 256 MiB of sampled physical footprint is killed and reported
+(macOS enforces no data rlimit). Failures are written to
+`target/fuzz/failures/<seed>.xsh`; `xsh-fuzz reduce FILE` minimizes one.
 
 ## Linux
 

@@ -143,6 +143,23 @@ impl Checker {
             if name == "reveal_type" {
                 return self.check_reveal_type_call_arena(arena, source, args, span);
             }
+            // A local binding shadows a function of the same name, and the
+            // runtime calls the local; checking the call against the function
+            // accepted programs that then failed with a runtime type error.
+            if (self.procs.contains_key(&name) || self.pures.contains_key(&name) || self.streams.contains_key(&name))
+                && let Some(binding) = self.lookup(name)
+            {
+                let ty = binding.ty.clone();
+                self.error(
+                    span,
+                    &format!("local `{name}` of type {ty} shadows the function `{name}` and cannot be called"),
+                    "check.call-target",
+                );
+                for arg in args {
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                }
+                return Type::Unknown;
+            }
             if let Some(sig) = self.procs.get(&name).cloned() {
                 if self.in_pure {
                     self.error(

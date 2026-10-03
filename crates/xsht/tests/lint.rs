@@ -2712,14 +2712,19 @@ proc dead() {
 }
 
 #[test]
-fn linter_follows_declared_callable_resolution_before_local_bindings() {
+fn linter_follows_declared_callable_resolution_past_local_bindings() {
+    // A call inside the local's scope is `check.call-target` (the runtime
+    // would call the local); after the scope ends the call is the function's.
     let source = "\
 pure helper() -> Str {
   return \"callable\"
 }
 
 proc main() {
-  let helper = 1
+  if true {
+    let helper = 1
+    print $helper
+  }
   print helper()
 }
 ";

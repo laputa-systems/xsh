@@ -168,6 +168,17 @@ beta
   [{name: "small", size: 1}, {name: "large", size: 4}] |> table.print(columns: ["name", "size"])
 }
 
+test test_fold_initial_branch_expression_types_the_accumulator {
+  # A branch or match initializer used to type the fold result as Unknown,
+  # which then failed preparation instead of checking.
+  let prefix = true
+  let joined = ["a", "b"] |> fold(if prefix { "<" } else { "" }) { |acc, item| acc + item }
+  let counted = [1, 2, 3] |> fold(match joined { "<ab" => 10, _ => 0 }) { |acc, item| acc + item }
+  let suffixed: Str = joined + ">"
+  assert suffixed == "<ab>"
+  assert counted == 16
+}
+
 test test_fold_block_composes_pipeline_over_accumulator_field {
   let result = [0]
     |> fold({parts: ["first", "last"]}) { |acc, _|

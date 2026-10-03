@@ -529,6 +529,10 @@ impl Checker {
                 ArenaCallArgKind::Positional(_) => { let expected = params.get(positional).map(|param| &param.ty); positional += 1; expected }
                 _ => None,
             };
+            // A Value or Sequence parameter has no expected type; passing its
+            // Unknown placeholder made branch expressions (`fold(if ...)`)
+            // adopt Unknown instead of their own type.
+            let expected = expected.filter(|ty| **ty != Type::Unknown);
             if let ArenaCallArgKind::NamedSpread { value, .. } = arg.kind {
                 self.check_expr_arena(arena, source, value, None);
             } else {

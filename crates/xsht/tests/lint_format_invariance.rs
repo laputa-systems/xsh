@@ -364,6 +364,17 @@ fn formatting_preserves_lints_on_the_pre_format_corpus() {
         .expect("start tar");
     std::io::Write::write_all(tar.stdin.as_mut().expect("tar stdin"), &archive.stdout).expect("write archive");
     assert!(tar.wait().expect("wait for tar").success());
+    // The checker has since rejected these unsound sites; migrate them as the
+    // live tree was, so the historical corpus still checks.
+    for (file, from, to) in [
+        ("tests/xsh/collections.xsh", "item.path.display\n", "item.path.display()\n"),
+        ("tests/xsh/stdlib/args.xsh", "parsed.target.name()", "parsed.target?.name()"),
+    ] {
+        let path = scratch.path().join(file);
+        if let Ok(text) = fs::read_to_string(&path) {
+            fs::write(&path, text.replace(from, to)).expect("migrate historical corpus file");
+        }
+    }
     let count = assert_formatting_preserves_lints("pre-format", scratch.path());
     eprintln!("pre-format corpus: {count} diagnostic(s), layout-independent");
 }

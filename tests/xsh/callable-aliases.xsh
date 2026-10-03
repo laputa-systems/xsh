@@ -197,6 +197,27 @@ print bounded(4)
   }
 }
 
+test test_proc_alias_declared_inside_a_body_calls_the_proc { |ctx|
+  # Inside a body the alias used to be prepared as a pure function value,
+  # so the checked call failed at runtime as an unresolved call.
+  let result = test.run_script(
+    ctx,
+    r"""proc helper(value: Int, step: Int = 2) -> Int { value + step }
+pure double(value: Int) -> Int { value * 2 }
+proc body() [] -> Result[Int] {
+  try {
+    let invoke = helper
+    let twice = double
+    invoke(1, step: twice(3))
+  }
+}
+print ${body()?}
+""",
+  )?
+  assert result.success, result.stderr
+  assert result.stdout == "7\n"
+}
+
 test test_callable_alias_retains_stream_stage_signature { |ctx|
   let result = test.run_script(
     ctx,

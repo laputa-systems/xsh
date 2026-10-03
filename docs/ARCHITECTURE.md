@@ -23,6 +23,7 @@ tooling in `docs/XSHT.md`, formatter policy in `docs/XSHT-FMT.md`.
 | `crates/xsh-registry` | standard-module signatures, records, API docs, examples, language reference items, and runtime operation IDs |
 | `crates/xsh-net` | DNS, the resolved TCP dialer, TLS, redirects, body limits, and network error classification |
 | `crates/xsh-root` | kernel-enforced rooted file opening (Linux and macOS) |
+| `crates/xsh-fuzz` | the soundness fuzzer: a seeded generator of well-typed programs, an independent reference evaluator, registry-derived call probes, corpus mutation, a sandboxed runner, and failure shrinking (`make fuzz`) |
 | `crates/xsh-applets` | native applet support (`mdev`) |
 
 A subsystem gets its own crate only when it has a stable Rust boundary that does

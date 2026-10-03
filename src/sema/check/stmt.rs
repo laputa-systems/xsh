@@ -305,12 +305,6 @@ impl Checker {
             self.expect_type(left, right, rhs_span);
             return left.clone();
         }
-        if op == AssignOp::Div
-            && matches!(left, Type::Path | Type::Unknown)
-            && matches!(right, Type::Str | Type::Path | Type::Unknown)
-        {
-            return Type::Path;
-        }
         if matches!(left, Type::Float) && op != AssignOp::Rem {
             if !matches!(right, Type::Float | Type::Unknown) {
                 self.error(
@@ -393,6 +387,25 @@ impl Checker {
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
         self.statement_positions.entry(stmt.span).or_insert(super::StatementPosition::Statement);
+        // Declarations bind module-level names; inside a body or block nothing
+        // could resolve them and preparation has no form for them.
+        if matches!(
+            stmt.kind,
+            ArenaStmtKind::Use(_)
+                | ArenaStmtKind::Export(_)
+                | ArenaStmtKind::TypeDef(_)
+                | ArenaStmtKind::ErrorDef(_)
+                | ArenaStmtKind::ProcDef(_)
+                | ArenaStmtKind::PureDef(_)
+                | ArenaStmtKind::StreamDef(_)
+        ) && (self.block_depth > 0 || self.current_return.is_some())
+        {
+            self.error(
+                stmt.span,
+                "declarations are allowed only at the top level of a script or module",
+                "check.nested-declaration",
+            );
+        }
         match stmt.kind {
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
                 let narrowings = self.check_condition_arena(arena, source, condition, "check.guard-condition");
@@ -1829,6 +1842,7 @@ impl Checker {
         if self.in_defer_block {
             self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
         }
+        self.reject_yield_in_retry(span);
         let expected = self.current_yield.clone();
         if expected.is_none() {
             self.error(span, "`yield` is valid only in stream producers", "check.yield");
@@ -1861,6 +1875,14 @@ impl Checker {
         }
     }
 
+    /// A retry attempt runs outside its producer's frame, so a `yield` there
+    /// used to check and then fail at runtime.
+    fn reject_yield_in_retry(&mut self, span: Span) {
+        if self.retry_block_depth > 0 {
+            self.error(span, "`yield` is not allowed inside a retry attempt", "check.yield");
+        }
+    }
+
     fn check_yield_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1871,6 +1893,7 @@ impl Checker {
         if self.in_defer_block {
             self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
         }
+        self.reject_yield_in_retry(span);
         let expected = match self.current_yield.clone() {
             Some(ty) => ty,
             None => {
@@ -2129,6 +2152,19 @@ impl Checker {
         if !reachable || always_returns { Type::Unknown } else { result }
     }
 
+    /// A value branch whose block ends without a value (a trailing `let`, or
+    /// nothing) completes with Unit. The block checker reports a mismatch only
+    /// for a tail value, so such a branch used to satisfy any expected type
+    /// and the function then failed preparation.
+    fn check_unit_branch_completion(&mut self, arena: &ArenaProgram, block: BlockId, expected: Option<Type>, actual: &Type) {
+        if *actual == Type::Unit
+            && let Some(expected) = expected
+            && !tail_type_matches_expected(&expected, actual)
+        {
+            self.expect_type(&expected, actual, arena.arena.span(arena.arena.block(block).span));
+        }
+    }
+
     fn return_inference_block_returns(&self, arena: &ArenaProgram, block: BlockId) -> bool {
         arena.arena.stmt_ids(arena.arena.block(block).statements)
             .any(|id| self.return_inference_stmt_returns(arena, id))
@@ -2304,6 +2340,7 @@ impl Checker {
                     self.bind_pattern_condition_arena(arena, source, branch.condition);
                     let actual = self.check_tail_block_arena(arena, source, branch.block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
                     self.pop_scope();
+                    if !infer_branches { self.check_unit_branch_completion(arena, branch.block, expected.or(inferred.as_ref()).cloned(), &actual); }
                     if actual != Type::Unknown {
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, stmt.span))
@@ -2318,6 +2355,7 @@ impl Checker {
                     }
                     let actual = self.check_tail_block_arena(arena, source, block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
                     self.pop_scope();
+                    if !infer_branches { self.check_unit_branch_completion(arena, block, expected.or(inferred.as_ref()).cloned(), &actual); }
                     if actual != Type::Unknown {
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, stmt.span))
@@ -2375,6 +2413,7 @@ impl Checker {
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
             }
             let arm_ty = self.check_tail_block_arena(arena, source, arm.block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
+            if !infer_branches { self.check_unit_branch_completion(arena, arm.block, expected.or(inferred.as_ref()).cloned(), &arm_ty); }
             if arm_ty != Type::Unknown {
                 inferred = Some(if infer_branches {
                     inferred.map_or(arm_ty.clone(), |previous| self.unify_inferred_returns(previous, arm_ty, arena.arena.span(arm.span)))

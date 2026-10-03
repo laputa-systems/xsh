@@ -6,7 +6,7 @@ use super::{
     module_sig_accepts_arity, module_sig_accepts_names_arena,
 };
 use crate::sema::check::{ApiArgCheck, MethodSig, ModuleFnSig};
-use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
+use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaProgram};
 
 /// Registered method calls instantiate receiver relationships before checking
 /// arguments. Effects and overload selection remain owned by the same registry.
@@ -40,6 +40,15 @@ impl Checker {
             return Type::Bool;
         }
         if base_ty == Type::Any {
+            // A dynamic method has no checked signature to bind names
+            // against; such a call used to check and then fail preparation.
+            if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. })) {
+                self.error(
+                    span,
+                    &format!("named arguments to `{name}` need a checked receiver; validate the value with `.require(T)` first"),
+                    "check.dynamic-boundary",
+                );
+            }
             self.check_opaque_callable_effects(&format!("Any.{name}"), span);
             for arg in args {
                 self.check_call_arg_arena(arena, source, &arg.kind, None);
@@ -303,6 +312,25 @@ impl Checker {
         if base_ty == Type::Pure {
             return self.check_pure_call_method_arena(arena, source, name, args, span);
         }
+        // Every other concrete receiver has no methods. Accepting the call as
+        // Unknown let it through to preparation (an internal encode error) or
+        // to a runtime type error on a null Optional.
+        if matches!(base_ty, Type::Unknown | Type::Invalid | Type::Inference(_) | Type::BuiltinParameter(_) | Type::DynamicModule) {
+            return Type::Unknown;
+        }
+        for arg in args {
+            self.check_call_arg_arena(arena, source, &arg.kind, None);
+        }
+        let diagnostic = if let Type::Optional(inner) = &base_ty {
+            Diagnostic::error(format!("method `{name}` needs a present value, found {base_ty}"))
+                .with_code("check.optional-method")
+                .with_label(Label::primary(span, format!("use `?.{name}(...)` or test for null before calling a {inner} method")))
+        } else {
+            Diagnostic::error(format!("unknown method `{name}` on {base_ty}"))
+                .with_code("check.unknown-method")
+                .with_label(Label::primary(span, format!("{base_ty} has no methods")))
+        };
+        self.diagnostics.push(diagnostic);
         Type::Unknown
     }
 
