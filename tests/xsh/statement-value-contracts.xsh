@@ -25,6 +25,33 @@ print ${boolean()} ${early()} ${optional(false) ?? 0} ${result()?}
   assert output.stdout == "false false 0 9\n"
 }
 
+test omitted_private_proc_payloads { |ctx|
+  let output = test.run_script(ctx, r"""proc boolean() [] { false }
+proc early(flag: Bool) [] { if flag { return 1 }; 2 }
+proc branch(flag: Bool) [] { if flag { "yes" } else { "no" } }
+proc statement() [io] { print statement }
+let unit: Result[Unit] = statement()
+print ${boolean()?} ${early(true)?} ${early(false)?} ${branch(false)?} ${unit is Ok(_)}
+""")?
+  assert output.success, output.stderr
+  assert output.status == 0
+  assert output.stdout == "statement\nfalse 1 2 no true\n"
+}
+
+test non_unit_statement_results_are_discarded { |ctx|
+  let output = test.run_script(ctx, r"""proc data() [io] -> Int { print data; 1 }
+proc inferred() [io] { print inferred; 2 }
+data()
+inferred()?
+print done
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "data\ninferred\ndone\n"
+  let ignored = test.run_script(ctx, "proc inferred() [] { 2 }\ninferred()\n")?
+  assert ignored.status == 2
+  assert "check.ignored-result" in ignored.stderr, ignored.stderr
+}
+
 test unit_consuming_assertions { |ctx|
   let output = test.run_script(ctx, r"""proc check() [error] -> Unit { assert false }
 proc wrapped() [error] -> Result[Unit] { assert false }

@@ -1194,10 +1194,16 @@ impl Checker {
         let previous_effects = self.current_effects.clone();
         let previous_effect_owner = self.effect_owner;
         self.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
-        let inferring = pure && def.return_ty_defaulted && self.inferred_returns.is_some();
-        let return_ty = if inferring { Type::Unknown } else { self.type_from_arena(arena, def.return_ty) };
+        // A proc return probe infers only the top-level declaration it targets.
+        let inferring = def.return_ty_defaulted && self.inferred_returns.is_some() && (pure || previous_return.is_none());
+        let outer_inference = if inferring { None } else { self.inferred_returns.take() };
+        let inferred_proc_return = (!pure && def.return_ty_defaulted && !inferring)
+            .then(|| self.function_return_types.get(&body_span).cloned()).flatten();
+        let return_ty = if inferring { Type::Unknown } else {
+            inferred_proc_return.clone().unwrap_or_else(|| self.type_from_arena(arena, def.return_ty))
+        };
         if !inferring { self.function_return_types.insert(body_span, return_ty.clone()); }
-        self.return_schema = (!inferring).then(|| self.record_constructors.annotation_expectation(&arena.arena, def.return_ty, self.current_namespace).ok()).flatten();
+        self.return_schema = (!inferring && inferred_proc_return.is_none()).then(|| self.record_constructors.annotation_expectation(&arena.arena, def.return_ty, self.current_namespace).ok()).flatten();
         self.expected_schema = self.return_schema.clone();
         self.current_return = Some(return_ty.clone());
         self.in_pure = pure;
@@ -1294,6 +1300,7 @@ impl Checker {
             });
         }
         self.pop_scope();
+        if !inferring { self.inferred_returns = outer_inference; }
         self.scopes = saved_capture_scopes;
         self.current_return = previous_return;
         self.return_schema = previous_return_schema;

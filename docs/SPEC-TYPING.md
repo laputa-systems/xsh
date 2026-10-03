@@ -455,8 +455,14 @@ Named pure functions and procs have statically checked parameters and return
 types. Private pure returns may be inferred from their definitions, independently
 of declaration and caller order. Return inference accepts concrete compatible
 shapes, preserves explicit Result boundaries, and requires annotations for
-recursive components, exported functions, and underdetermined shapes. Checked
-return facts are shared with indexed preparation and annotation tooling.
+recursive components, exported functions, and underdetermined shapes. A private
+top-level proc whose completions are all compatible values infers `Result[T]`
+from a speculative value-body check; any statement completion keeps
+`Result[Unit]`, so the statement reading of existing bodies is unchanged.
+Exported, `main`, and recursive procs that produce values require annotations;
+source-order proc body checking consumes the inferred return. Checked return
+facts are shared with indexed preparation, and inferred pure returns with
+annotation tooling.
 First-class `Pure` and `Proc` values are dynamic callable handles used for
 module contracts and runtime-loaded APIs. Their `.call(...)` method returns
 `Any` or `Result[Any]` because the concrete signature is known only to the

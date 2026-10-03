@@ -231,7 +231,7 @@ test test_assert_reports_comparison_detail { |ctx|
 # `assert`; the explicit form reports the failure without a checker error.
 test test_bare_bool_statement_is_rejected_in_favor_of_assert { |ctx|
   for condition in ["1 == 2", "1 < 3 < 2 < 0", "5 in [1, 2]", "false", "1 == 2 and (1 / 0 == 0)"] {
-    let bare = test.run_script(ctx, "proc check() {\n  " + condition + "\n}\ncheck()\n")?
+    let bare = test.run_script(ctx, "proc check() -> Result[Unit] {\n  " + condition + "\n}\ncheck()\n")?
     let explicit = test.run_script(ctx, "proc check() {\n  assert " + condition + "\n}\ncheck()\n")?
     assert bare.status == 2, bare.stderr
     assert "err[check.bool-statement]" in bare.stderr, bare.stderr
