@@ -989,3 +989,52 @@ test loads_plugin_with_configured_roots {
     assert output.status.exited_with(0), f"${output.stdout}${output.stderr}"
   } ?
 }
+
+test test_spawned_xsh_children_append_configured_test_module_roots { |ctx|
+  let project = test.temp_dir(ctx, name: "child-module-roots-project")?
+  let inherited = test.temp_dir(ctx, name: "child-module-roots-inherited")?
+  fp"${project}/lib/shared".mkdir()?
+  fp"${project}/tests".mkdir()?
+  fp"${inherited}/extra".mkdir()?
+  fp"${project}/xsht-config.ini".write("""module_path = lib
+""")?
+  fp"${project}/lib/shared/answers.xsh".write("""##! Shared answers.
+
+## The shared answer.
+export pure answer() -> Int {
+  42
+}
+""")?
+  fp"${inherited}/extra/greeting.xsh".write("""##! An inherited greeting.
+
+## The greeting word.
+export pure word() -> Str {
+  "hi"
+}
+""")?
+  fp"${project}/tests/children.xsh".write(r"""const child_source = "use shared.answers as answers\nuse extra.greeting as greeting\nprint greeting.word() answers.answer()\n"
+
+test run_script_child_finds_configured_roots { |ctx|
+  let output = test.run_script(ctx, child_source)?
+  assert output.success, output.stderr
+  assert output.stdout == "hi 42\n", output.stdout
+}
+
+test plain_run_child_finds_configured_roots { |ctx|
+  let script = fp"${test.temp_dir(ctx, name: "plain-run")?}/child.xsh"
+  script.write(child_source)?
+  let output = run.capture --text "xsh" $script ?
+  assert output.status.exited_with(0), output.stderr
+  assert output.stdout == "hi 42\n", output.stdout
+}
+""")?
+
+  let inherited_root = inherited.display()
+  env XSH_MODULE_PATH=$inherited_root {
+    cd project {
+      let output = run.capture --text "xsht" test tests/children.xsh ?
+      assert output.status.exited_with(0), f"${output.stdout}${output.stderr}"
+      assert "2 passed" in output.stdout, output.stdout
+    } ?
+  }
+}
