@@ -812,7 +812,7 @@ fn lowered_run_capture_type(kind: RunKind) -> Option<LoweredType> {
         // `run.capture --text/--bytes` yields a {status, stdout, stderr} record,
         // not a bare Str/Bytes, so field access on the binding lowers.
         RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord => Some(LoweredType::Record),
-        RunKind::StreamText | RunKind::StreamBytes => Some(LoweredType::List),
+        RunKind::StreamText | RunKind::StreamBytes => Some(LoweredType::Stream),
         _ => None,
     }
 }
@@ -840,21 +840,6 @@ fn lowered_arena_run_capture_type(
         return None;
     };
     lowered_run_capture_type(segment.kind)
-}
-
-fn lowered_arena_run_binding_type(
-    arena: &AstArena,
-    id: crate::syntax::arena::RunFormId,
-) -> Option<LoweredType> {
-    let run = arena.run_form(id);
-    match arena.run_segments(run.segments) {
-        [] => None,
-        [segment] => lowered_run_binding_type(segment.kind),
-        // A multi-segment pipeline always evaluates to the pipeline Status
-        // (eval_lowered_run_pipeline returns LoweredValue::Status), so the
-        // binding takes Status regardless of the individual segment kinds.
-        _ => Some(LoweredType::Status),
-    }
 }
 
 fn lowered_arena_run_status_type(
@@ -1077,22 +1062,6 @@ pub(super) fn lowered_arena_type(
     declarations: &CompactDeclOutput,
 ) -> Option<LoweredType> {
     lowered_arena_type_inner(arena, ty, declarations, 0)
-}
-
-fn lowered_arena_result_ok_type(
-    arena: &AstArena,
-    ty: TypeExprId,
-    declarations: &CompactDeclOutput,
-) -> Option<LoweredType> {
-    if arena.type_expr_tags[ty.index()] != ArenaTypeExprTag::Result {
-        return None;
-    }
-    let data = arena.type_expr_data[ty.index()];
-    lowered_arena_type(
-        arena,
-        TypeExprId::from_index(data.lhs as usize),
-        declarations,
-    )
 }
 
 fn lowered_arena_type_inner(
@@ -2300,6 +2269,32 @@ fn compact_checked_type_is_concrete(ty: &Type) -> bool {
     !matches!(ty, Type::Any | Type::Unknown | Type::Invalid) && !ty.contains_any() && !ty.contains_inference()
 }
 
+/// Disagreements between a representation lowering derives itself and the
+/// checker's published type for the same binding, recorded by debug builds.
+#[cfg(debug_assertions)]
+pub(crate) static LOWERING_DRIFT: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Lowering agrees with the checker up to representation erasure: lowering may
+/// keep `Any`, a nullable value erases to its present kind, `UInt` shares the
+/// `Int` representation, and an unresolved checker fact makes no claim.
+#[cfg(debug_assertions)]
+fn note_lowering_drift(span: Span, kind: Option<LoweredType>, lowered: &Type, checked: Option<&Type>) {
+    let Some(checked) = checked.filter(|ty| checked_fact_is_resolved(ty)) else { return };
+    let present = checked.optional_inner().unwrap_or(checked);
+    let kind_agrees = match (kind, lowered_checked_type(present)) {
+        (None | Some(LoweredType::Any), _) | (_, None) => true,
+        (Some(kind), Some(expected)) => kind == expected,
+    };
+    if !kind_agrees || lowered != checked {
+        LOWERING_DRIFT.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(format!("{span:?}: lowering {kind:?} {lowered}, checker {checked}"));
+    }
+}
+
+fn concrete_checked_fact(ty: &Type) -> bool {
+    compact_checked_type_is_concrete(ty) && !matches!(ty.result_ok(), Some(Type::Any | Type::Unknown | Type::Invalid))
+}
+
 fn compact_call_blocker_index(program: &ArenaProgram, callee: ExprId) -> usize {
     match program.arena.expr(callee).kind {
         ArenaExprKind::Ident(_) => 0,
@@ -2886,7 +2881,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if item.is_some() {
                 self.output.constructed_top_level_statements += 1;
             } else if !construct_top_level_stmt_is_skippable(self.program, *stmt) {
-                let blocker = self.top_level_blocker_kind(*stmt, &known);
+                let blocker = self.top_level_blocker_kind(*stmt);
                 self.output.top_level_blockers[blocker.index()] += 1;
                 self.record_top_level_blocker_detail(*stmt, blocker);
             }
@@ -3355,54 +3350,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    fn top_level_blocker_kind(
-        &self,
-        id: StmtId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> CompactTopLevelBlocker {
+    fn top_level_blocker_kind(&self, id: StmtId) -> CompactTopLevelBlocker {
         match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) => self.top_level_blocker_kind(inner, known),
+            ArenaStmtKind::Export(inner) => self.top_level_blocker_kind(inner),
             ArenaStmtKind::Use(_) => CompactTopLevelBlocker::Use,
-            ArenaStmtKind::Let {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Expr(value),
-            } | ArenaStmtKind::Const {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Expr(value),
-            }
-            | ArenaStmtKind::Var {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Expr(value),
-            } => {
+            ArenaStmtKind::Let { target, ty, .. }
+            | ArenaStmtKind::Const { target, ty, .. }
+            | ArenaStmtKind::Var { target, ty, .. } => {
                 if simple_binding_target(self.program, target).is_none() {
                     return CompactTopLevelBlocker::BindingTarget;
                 }
-                if self.top_level_binding_kind(ty, value, known).is_none() {
-                    return CompactTopLevelBlocker::BindingType;
-                }
-                CompactTopLevelBlocker::BindingExpression
-            }
-            ArenaStmtKind::Let {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Run(run),
-            } | ArenaStmtKind::Const {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Run(run),
-            }
-            | ArenaStmtKind::Var {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Run(run),
-            } => {
-                if simple_binding_target(self.program, target).is_none() {
-                    return CompactTopLevelBlocker::BindingTarget;
-                }
-                if self.top_level_run_binding_kind(ty, run).is_none() {
+                if ty.is_some_and(|ty| lowered_arena_type(&self.program.arena, ty, self.declarations).is_none()) {
                     return CompactTopLevelBlocker::BindingType;
                 }
                 CompactTopLevelBlocker::BindingExpression
@@ -3525,7 +3483,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.program.arena.binding_target(target).kind
                 {
                     let mut slots = top_level_slots(known);
-                    let checked = self.top_level_binding_checked_type(ty, value, known);
+                    let checked = self.top_level_binding_checked_type(ty, value);
                     let source = self.lower_binding_expr_value(ty, checked.as_ref(), value, self.program.arena.stmt(id).span, &mut slots, None, None)?;
                     let target = self.lower_comp_target_typed(target, &mut slots, checked.as_ref())?;
                     let field_names = slots.indices.iter().filter_map(|(name, slot)| {
@@ -3564,7 +3522,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         slots,
                     ));
                 }
-                let _kind = self.top_level_binding_kind(ty, value, known);
                 let annotation = ty;
                 let (ty, validation) = match ty {
                     Some(ty) => {
@@ -3641,7 +3598,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         slots,
                     ));
                 }
-                let _run_kind = self.top_level_run_binding_kind(ty, run);
                 let (ty, validation) = match ty {
                     Some(ty) => {
                         let lowered =
@@ -3875,16 +3831,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             ArenaStmtKind::Let {
                                 target,
                                 ty,
-                                initializer: ArenaExprOrRun::Expr(value),
+                                initializer: ArenaExprOrRun::Expr(_),
                             } | ArenaStmtKind::Const {
                                 target,
                                 ty,
-                                initializer: ArenaExprOrRun::Expr(value),
+                                initializer: ArenaExprOrRun::Expr(_),
                             }
                             | ArenaStmtKind::Var {
                                 target,
                                 ty,
-                                initializer: ArenaExprOrRun::Expr(value),
+                                initializer: ArenaExprOrRun::Expr(_),
                             } => {
                                 let Some(name) = simple_binding_target(self.program, target) else {
                                     continue;
@@ -3895,10 +3851,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 known.insert(
                                     name,
                                     LoweredTopLevelBinding {
-                                        kind: self
-                                            .top_level_binding_kind(ty, value, known)
-                                            .unwrap_or(LoweredType::Any),
-                                        result_ok: None,
+                                        kind: self.top_level_binding(inner, ty, false).kind,
                                         checked: None,
                                         mutable: false,
                                         slot: true,
@@ -3911,7 +3864,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                     name,
                                     LoweredTopLevelBinding {
                                         kind: LoweredType::Proc,
-                                        result_ok: None,
                                         checked: None,
                                         mutable: false,
                                         slot: false,
@@ -3924,7 +3876,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                     name,
                                     LoweredTopLevelBinding {
                                         kind: LoweredType::Pure,
-                                        result_ok: None,
                                         checked: None,
                                         mutable: false,
                                         slot: false,
@@ -3939,200 +3890,93 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     namespace,
                     LoweredTopLevelBinding {
                         kind: LoweredType::Module,
-                        result_ok: None,
                         checked: None,
                         mutable: false,
                         slot: true,
                     },
                 );
             }
-            ArenaStmtKind::Let {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Expr(value),
-            } | ArenaStmtKind::Const {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Expr(value),
-            }
-            | ArenaStmtKind::Var {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Expr(value),
-            } => {
-                if let ArenaBindingTargetKind::Record { .. } =
-                    self.program.arena.binding_target(target).kind
+            ArenaStmtKind::Let { target, ty, initializer }
+            | ArenaStmtKind::Const { target, ty, initializer }
+            | ArenaStmtKind::Var { target, ty, initializer } => {
+                let mutable = matches!(stmt.kind, ArenaStmtKind::Var { .. });
+                if let (ArenaBindingTargetKind::Record { .. }, ArenaExprOrRun::Expr(value)) =
+                    (&self.program.arena.binding_target(target).kind, initializer)
                 {
-                    let mutable = matches!(stmt.kind, ArenaStmtKind::Var { .. });
-                    let checked = self.top_level_binding_checked_type(ty, value, known);
+                    let checked = self.top_level_binding_checked_type(ty, value);
                     for (name, checked) in record_binding_types(self.program, target, checked.as_ref()) {
                         let kind = checked.as_ref().and_then(lowered_checked_type).unwrap_or(LoweredType::Any);
-                        let result_ok = checked.as_ref().and_then(Type::result_ok).and_then(lowered_checked_type);
-                        known.insert(name, LoweredTopLevelBinding { kind, result_ok, checked, mutable, slot: true });
+                        known.insert(name, LoweredTopLevelBinding { kind, checked, mutable, slot: true });
                     }
                     return;
                 }
                 let Some(name) = simple_binding_target(self.program, target) else {
                     return;
                 };
-                if is_discard_name(name) {
-                    return;
+                if !is_discard_name(name) {
+                    known.insert(name, self.top_level_binding(id, ty, mutable));
                 }
-                let kind = self
-                    .top_level_binding_kind(ty, value, known)
-                    .unwrap_or(LoweredType::Any);
-                known.insert(
-                    name,
-                    LoweredTopLevelBinding {
-                        kind,
-                        result_ok: ty
-                            .and_then(|ty| {
-                                lowered_arena_result_ok_type(
-                                    &self.program.arena,
-                                    ty,
-                                    self.declarations,
-                                )
-                            })
-                            .or_else(|| self.infer_lowered_expr_result_ok_type(value, known)),
-                        checked: self.top_level_binding_checked_type(ty, value, known),
-                        mutable: matches!(stmt.kind, ArenaStmtKind::Var { .. }),
-                        slot: true,
-                    },
-                );
             }
             ArenaStmtKind::Guard { target, initializer, .. } => {
                 let checked = match initializer {
-                    ArenaExprOrRun::Expr(value) => self.top_level_binding_checked_type(None, value, known),
-                    ArenaExprOrRun::Run(run) => self.top_level_run_binding_checked_type(None, run),
+                    ArenaExprOrRun::Expr(value) => self.concrete_checked_type(value),
+                    ArenaExprOrRun::Run(_) => None,
                 };
                 for (name, checked) in record_binding_types(self.program, target, checked.as_ref().and_then(Type::result_ok)) {
                     let kind = checked.as_ref().and_then(lowered_checked_type).unwrap_or(LoweredType::Any);
-                    let result_ok = checked.as_ref().and_then(Type::result_ok).and_then(lowered_checked_type);
-                    known.insert(name, LoweredTopLevelBinding { kind, result_ok, checked, mutable: false, slot: true });
+                    known.insert(name, LoweredTopLevelBinding { kind, checked, mutable: false, slot: true });
                 }
-            }
-            ArenaStmtKind::Let {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Run(run),
-            } | ArenaStmtKind::Const {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Run(run),
-            }
-            | ArenaStmtKind::Var {
-                target,
-                ty,
-                initializer: ArenaExprOrRun::Run(run),
-            } => {
-                let Some(name) = simple_binding_target(self.program, target) else {
-                    return;
-                };
-                if is_discard_name(name) {
-                    return;
-                }
-                let Some(kind) = self.top_level_run_binding_kind(ty, run) else {
-                    return;
-                };
-                known.insert(
-                    name,
-                    LoweredTopLevelBinding {
-                        kind,
-                        result_ok: ty
-                            .and_then(|ty| {
-                                lowered_arena_result_ok_type(
-                                    &self.program.arena,
-                                    ty,
-                                    self.declarations,
-                                )
-                            })
-                            .or_else(|| self.infer_lowered_run_result_ok_type(run)),
-                        checked: self.top_level_run_binding_checked_type(ty, run),
-                        mutable: matches!(stmt.kind, ArenaStmtKind::Var { .. }),
-                        slot: true,
-                    },
-                );
             }
             _ => {}
         }
     }
 
-    fn top_level_binding_kind(
-        &self,
-        ty: Option<TypeExprId>,
-        value: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
+    /// A top-level binding's representation comes from its annotation, else
+    /// from the checker's published binding type.
+    fn top_level_binding(&self, id: StmtId, ty: Option<TypeExprId>, mutable: bool) -> LoweredTopLevelBinding {
         if let Some(ty) = ty {
-            return lowered_arena_type(&self.program.arena, ty, self.declarations);
+            #[cfg(debug_assertions)]
+            self.note_annotation_drift(id, ty);
+            return LoweredTopLevelBinding {
+                kind: lowered_arena_type(&self.program.arena, ty, self.declarations).unwrap_or(LoweredType::Any),
+                checked: Some(compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace)),
+                mutable,
+                slot: true,
+            };
         }
-        self.infer_checked_expr_type(value, known)
-            .as_ref()
-            .and_then(lowered_checked_type)
-            .or_else(|| self.infer_lowered_expr_type(value, known))
+        let checked = self.declarations.local_binding_types.get(&self.program.arena.stmt(id).span);
+        LoweredTopLevelBinding {
+            kind: checked.and_then(lowered_checked_type).unwrap_or(LoweredType::Any),
+            checked: checked.filter(|ty| concrete_checked_fact(ty)).cloned(),
+            mutable,
+            slot: true,
+        }
     }
 
-    fn top_level_binding_checked_type(
-        &self,
-        ty: Option<TypeExprId>,
-        value: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<Type> {
+    /// Lowering interprets binding annotations itself; the checker publishes
+    /// its own reading of the same annotation as the binding type.
+    #[cfg(debug_assertions)]
+    fn note_annotation_drift(&self, id: StmtId, ty: TypeExprId) {
+        let span = self.program.arena.stmt(id).span;
+        let kind = lowered_arena_type(&self.program.arena, ty, self.declarations);
+        let annotated = compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace);
+        note_lowering_drift(span, kind, &annotated, self.declarations.local_binding_types.get(&span));
+    }
+
+    fn top_level_binding_checked_type(&self, ty: Option<TypeExprId>, value: ExprId) -> Option<Type> {
         ty.map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace))
-            .or_else(|| self.infer_checked_expr_type(value, known))
+            .or_else(|| self.concrete_checked_type(value))
     }
 
-    fn infer_checked_expr_type(
-        &self,
-        value: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<Type> {
-        self.bodies
-            .expr_types
-            .get(&value)
-            .filter(|ty| {
-                compact_checked_type_is_concrete(ty)
-                    && !matches!(
-                        ty.result_ok(),
-                        Some(Type::Any | Type::Unknown | Type::Invalid)
-                    )
-            })
-            .cloned()
-            .or_else(|| match self.program.arena.expr(value).kind {
-                ArenaExprKind::Ident(name) => {
-                    known.get(&name).and_then(|binding| binding.checked.clone())
-                }
-                ArenaExprKind::Call { .. } => self.checked_expr_type(value),
-                _ => None,
-            })
+    /// The checker's published type for `value` when it is concrete, including
+    /// a concrete `Result` success type.
+    fn concrete_checked_type(&self, value: ExprId) -> Option<Type> {
+        self.bodies.expr_types.get(&value).filter(|ty| concrete_checked_fact(ty)).cloned()
     }
 
     fn lower_binding_checked_type(&self, ty: Option<TypeExprId>, value: ExprId) -> Option<Type> {
-        let expected =
-            ty.map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace));
-        let table_type = self
-            .bodies
-            .expr_types
-            .get(&value)
-            .filter(|ty| !matches!(ty, Type::Invalid))
-            .cloned();
-        let actual = self.checked_expr_type(value)
-            .or_else(|| self.infer_checked_expr_type(value, &self.top_level_known))
-            .or_else(|| {
-                table_type
-                    .as_ref()
-                    .filter(|ty| compact_checked_type_is_concrete(ty))
-                    .cloned()
-            })
-            .or_else(|| {
-                self.infer_lowered_expr_type(value, &self.top_level_known)
-                    .and_then(type_for_lowered_type)
-            })
-            .or(table_type);
-        match (expected, actual) {
-            (Some(expected), _) => Some(expected),
-            (None, actual) => actual,
-        }
+        ty.map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace))
+            .or_else(|| self.bodies.expr_types.get(&value).filter(|ty| !matches!(ty, Type::Invalid)).cloned())
     }
 
     fn checked_unsigned_value(&mut self, value: BuildExprId, ty: &Type, span: Span) -> BuildExprId {
@@ -4184,8 +4028,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 None => lowered,
             });
         };
-        let kind = self
-            .infer_lowered_expr_type(value, &self.top_level_known)
+        let kind = self.bodies.expr_types.get(&value)
+            .map(|ty| ty.optional_inner().unwrap_or(ty))
+            .and_then(lowered_checked_type)
             .unwrap_or(LoweredType::Any);
         if lowered_type_needs_static_check(kind) || matches!(checked_ty, Some(Type::UInt)) {
             let check = LoweredTypeCheck {
@@ -4248,7 +4093,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return self.lowered_method_supported_for_type(ty, name, arg_count);
         }
         let Some(ty) = self.checked_expr_type(base)
-            .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))
+            .or_else(|| self.concrete_checked_type(base))
         else {
             return true;
         };
@@ -4259,16 +4104,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_method_supported_for_type(ty, name, arg_count)
     }
 
-    fn infer_loop_item_checked_type(&self, iter: ExprId) -> Option<Type> {
+    fn loop_item_checked_type(&self, iter: ExprId) -> Option<Type> {
         self.checked_expr_type(iter)
-            .or_else(|| self.infer_checked_expr_type(iter, &self.top_level_known))
+            .or_else(|| self.concrete_checked_type(iter))
             .or_else(|| self.bodies.expr_types.get(&iter).cloned())
             .and_then(|ty| ty.iteration_item_type())
     }
 
     fn lower_direct_iterable(&mut self, iter: ExprId, slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>) -> Option<BuildExprId> {
         let checked = self.checked_expr_type(iter)
-            .or_else(|| self.infer_checked_expr_type(iter, &self.top_level_known))
+            .or_else(|| self.concrete_checked_type(iter))
             .or_else(|| self.bodies.expr_types.get(&iter).cloned());
         let lowered = self.lower_expr(iter, slots, current_function, item_slot)?;
         if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes)) {
@@ -4283,7 +4128,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     /// previous untyped-slot behavior instead of forcing `Any`.
     fn compact_match_scrutinee_result_types(&self, scrutinee: ExprId) -> (Option<Type>, Option<Type>) {
         let scrutinee_ty = self.checked_expr_type(scrutinee)
-            .or_else(|| self.infer_checked_expr_type(scrutinee, &self.top_level_known));
+            .or_else(|| self.concrete_checked_type(scrutinee));
         match scrutinee_ty {
             Some(Type::Result(ok, err)) => {
                 let ok_ty = compact_checked_type_is_concrete(&ok).then(|| ok.as_ref().clone());
@@ -4299,183 +4144,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         self.bodies.expr_types.get(&value).filter(|ty| checked_fact_is_resolved(ty)).cloned()
     }
 
-    fn top_level_run_binding_kind(
-        &self,
-        ty: Option<TypeExprId>,
-        run: crate::syntax::arena::RunFormId,
-    ) -> Option<LoweredType> {
-        if let Some(ty) = ty {
-            return lowered_arena_type(&self.program.arena, ty, self.declarations);
-        }
-        self.infer_lowered_run_binding_type(run)
-    }
-
-    fn top_level_run_binding_checked_type(
-        &self,
-        ty: Option<TypeExprId>,
-        run: crate::syntax::arena::RunFormId,
-    ) -> Option<Type> {
-        ty.map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace))
-            .or_else(|| match self.infer_lowered_run_binding_type(run)? {
-                LoweredType::Status => Some(Type::Status),
-                LoweredType::Str => Some(Type::Str),
-                LoweredType::Bytes => Some(Type::Bytes),
-                _ => None,
-            })
-    }
-
-    fn infer_lowered_run_binding_type(
-        &self,
-        run: crate::syntax::arena::RunFormId,
-    ) -> Option<LoweredType> {
-        let ok = lowered_arena_run_binding_type(&self.program.arena, run)?;
-        if self.program.arena.run_form(run).propagate || ok == LoweredType::Status {
-            Some(ok)
-        } else {
-            Some(LoweredType::Result)
-        }
-    }
-
-    fn infer_lowered_run_result_ok_type(
-        &self,
-        run: crate::syntax::arena::RunFormId,
-    ) -> Option<LoweredType> {
-        (!self.program.arena.run_form(run).propagate)
-            .then(|| lowered_arena_run_capture_type(&self.program.arena, run))
-            .flatten()
-    }
-
-    fn infer_lowered_expr_type(
-        &self,
-        value: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        match self.program.arena.expr(value).kind {
-            ArenaExprKind::ValuePipelineCall { call, .. } => self.infer_lowered_expr_type(call, known),
-            ArenaExprKind::Bool(_) => Some(LoweredType::Bool),
-            ArenaExprKind::Int(_) => Some(LoweredType::Int),
-            ArenaExprKind::Float(_) => Some(LoweredType::Float),
-            ArenaExprKind::Duration(_) => Some(LoweredType::Duration),
-            ArenaExprKind::Str(_) | ArenaExprKind::FmtString(_) => Some(LoweredType::Str),
-            ArenaExprKind::PathStr(_) | ArenaExprKind::PathFmtString(_) => Some(LoweredType::Path),
-            ArenaExprKind::Bytes(_) => Some(LoweredType::Bytes),
-            ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. } => Some(LoweredType::List),
-            ArenaExprKind::MapComp { .. } => Some(LoweredType::Map),
-            ArenaExprKind::Record(fields) => Some(if self.bodies.expr_types.get(&value).is_some_and(|ty| matches!(ty, Type::Map(_, _)))
-                || self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. }))
-                { LoweredType::Map } else { LoweredType::Record }),
-            ArenaExprKind::EnvGet { .. } | ArenaExprKind::EnvPathList => Some(LoweredType::Result),
-            ArenaExprKind::Require { .. } => Some(LoweredType::Result),
-            ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_) => Some(LoweredType::Result),
-            ArenaExprKind::Ident(name) => {
-                known.get(&name).map(|binding| binding.kind).or_else(|| {
-                    (self.compact_tag_variant_arity(name) == Some(0)).then_some(LoweredType::Tag)
-                })
-            }
-            // A value-producing `if` has the common type of its branches.
-            ArenaExprKind::If {
-                branches,
-                else_value,
-            } => {
-                let expected = self.infer_lowered_expr_type(else_value, known)?;
-                self.program
-                    .arena
-                    .if_expr_branches(branches)
-                    .iter()
-                    .all(|branch| {
-                        self.infer_lowered_expr_type(branch.value, known) == Some(expected)
-                    })
-                    .then_some(expected)
-            }
-            ArenaExprKind::Match { arms, .. } | ArenaExprKind::PatternTest { arms, .. } => {
-                let mut expected = None;
-                for arm in self.program.arena.match_expr_arms(arms) {
-                    let kind = self.infer_lowered_expr_type(arm.value, known)?;
-                    if let Some(expected) = expected {
-                        if expected != kind {
-                            return None;
-                        }
-                    } else {
-                        expected = Some(kind);
-                    }
-                }
-                expected
-            }
-            ArenaExprKind::ComparisonChain(_) => Some(LoweredType::Bool),
-            ArenaExprKind::Binary { .. } => self.checked_expr_type(value).as_ref().and_then(lowered_checked_type),
-            ArenaExprKind::Try(expr) => self
-                .bodies
-                .expr_types
-                .get(&value)
-                .filter(|ty| compact_checked_type_is_concrete(ty))
-                .and_then(lowered_checked_type)
-                .or_else(|| self.infer_lowered_try_type(expr, known)),
-            ArenaExprKind::Run(run) => self.infer_lowered_run_binding_type(run),
-            ArenaExprKind::Slice { base, .. } => match self.infer_lowered_expr_type(base, known)? {
-                kind @ (LoweredType::List | LoweredType::Str | LoweredType::Bytes) => Some(kind),
-                _ => self
-                    .bodies
-                    .expr_types
-                    .get(&value)
-                    .and_then(lowered_checked_type),
-            },
-            ArenaExprKind::Call { .. } => self.checked_expr_type(value).as_ref().and_then(lowered_checked_type),
-            _ => self
-                .bodies
-                .expr_types
-                .get(&value)
-                .and_then(lowered_checked_type),
-        }
-    }
-
     // Conditions and returned Bool values keep ordinary short-circuit behavior;
     // only statement assertions ask the chain to retain failed pair values.
     fn mark_comparison_chain_assertion(&mut self, value: BuildExprId) {
         if let BuildExprRow::ComparisonChain { assertion, .. } = &mut self.scratch.borrow_mut().expressions[value.index()] {
             *assertion = true;
         }
-    }
-
-    fn infer_lowered_try_type(
-        &self,
-        expr: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        self.bodies
-            .expr_types
-            .get(&expr)
-            .and_then(|ty| ty.result_ok())
-            .filter(|ty| compact_checked_type_is_concrete(ty))
-            .and_then(lowered_checked_type)
-            .or_else(|| match self.program.arena.expr(expr).kind {
-                ArenaExprKind::Ident(name) => {
-                    known.get(&name).and_then(|binding| binding.result_ok)
-                }
-                _ => self.infer_lowered_expr_type(expr, known),
-            })
-    }
-
-    fn infer_lowered_expr_result_ok_type(
-        &self,
-        value: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        self.bodies
-            .expr_types
-            .get(&value)
-            .and_then(|ty| ty.result_ok())
-            .and_then(lowered_checked_type)
-            .or_else(|| match self.program.arena.expr(value).kind {
-                ArenaExprKind::Ident(name) => {
-                    known.get(&name).and_then(|binding| binding.result_ok)
-                }
-                ArenaExprKind::Call { .. } => self.checked_call_ok_type(value),
-                _ => None,
-            })
-    }
-
-    fn checked_call_ok_type(&self, call: ExprId) -> Option<LoweredType> {
-        self.checked_expr_type(call).as_ref().and_then(Type::result_ok).and_then(lowered_checked_type)
     }
 
     fn is_empty_record_in_map_context(&self, value: ExprId, ty: Option<TypeExprId>) -> bool {
@@ -4784,6 +4458,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                 }
+                #[cfg(debug_assertions)]
+                if let Some(ty) = ty { self.note_annotation_drift(id, ty); }
                 let binding_ty = self.declarations.local_binding_types.get(&self.program.arena.stmt(id).span).cloned()
                     .or_else(|| self.lower_binding_checked_type(ty, value));
                 if let Some(ty) = ty
@@ -4888,10 +4564,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
                 let binding_ty = ty
                     .map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace))
-                    .or_else(|| {
-                        self.infer_lowered_run_binding_type(run)
-                            .and_then(type_for_lowered_type)
-                    });
+                    .or_else(|| self.declarations.local_binding_types.get(&self.program.arena.stmt(id).span).cloned());
                 let slot = slots.declare_with_type(name, binding_ty);
                 Some(push_build_row!(
                     self,
@@ -5131,7 +4804,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     if !self.program.arena.block(block).params.is_empty() {
                         return None;
                     }
-                    let item_ty = self.infer_loop_item_checked_type(iter);
+                    let item_ty = self.loop_item_checked_type(iter);
                     let iter = self.lower_direct_iterable(iter, slots, current_function, item_slot)?;
                     let saved = slots.enter();
                     let target = self.lower_comp_target_typed(target, slots, item_ty.as_ref())?;
@@ -5192,7 +4865,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 )?;
                 let item_ty = if let Some(base) = str_lines_base {
                     self.checked_expr_type(base)
-                        .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))
+                        .or_else(|| self.concrete_checked_type(base))
                         .and_then(|ty| match ty {
                             Type::Bytes => Some(Type::Bytes),
                             Type::Str => Some(Type::Str),
@@ -5200,7 +4873,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         })
                         .or(Some(Type::Str))
                 } else {
-                    self.infer_loop_item_checked_type(iter)
+                    self.loop_item_checked_type(iter)
                 };
                 // The loop variable is declared in the loop's own scope, so it may
                 // shadow an outer binding; `exit` restores the outer slot.
@@ -6433,7 +6106,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if let Some(base) = base {
                 let ty = self.checked_expr_type(base)
                     .or_else(|| self.bodies.expr_types.get(&base).filter(|ty| compact_checked_type_is_concrete(ty)).cloned())
-                    .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known));
+                    .or_else(|| self.concrete_checked_type(base));
                 if matches!(ty, Some(Type::Optional(_))) {
                     return self.lower_optional_postfix(id, base, slots, current_function, item_slot);
                 }
@@ -6696,7 +6369,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 let left_ty = self.checked_expr_type(left)
                     .or_else(|| self.bodies.expr_types.get(&left).filter(|ty| compact_checked_type_is_concrete(ty)).cloned())
-                    .or_else(|| self.infer_checked_expr_type(left, &self.top_level_known));
+                    .or_else(|| self.concrete_checked_type(left));
                 let left = self.lower_expr(left, slots, current_function, item_slot)?;
                 let right = self.lower_expr(right, slots, current_function, item_slot)?;
                 if matches!(left_ty, Some(Type::Optional(_))) {
@@ -8008,7 +7681,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if let ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } = self.program.arena.expr(callee).kind
             && self.checked_expr_type(base)
-                .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known)).is_some_and(|ty| {
+                .or_else(|| self.concrete_checked_type(base)).is_some_and(|ty| {
                 ty == Type::FsRoot
                     || matches!(ty, Type::Result(ref inner, _) if **inner == Type::FsRoot)
                     || matches!(ty, Type::Optional(ref inner) if **inner == Type::FsRoot && slots.postfix_receivers.contains_key(&base))
@@ -11605,7 +11278,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for qualifier in self.program.arena.comp_qualifiers(range).to_vec() {
             match qualifier {
                 crate::syntax::arena::ArenaCompQualifier::For { target, iter, span } => {
-                    let item_ty = self.infer_loop_item_checked_type(iter);
+                    let item_ty = self.loop_item_checked_type(iter);
                     let iter = self.lower_direct_iterable(iter, slots, current_function, item_slot)?;
                     slots.enter();
                     let target = Box::new(self.lower_comp_target_typed(target, slots, item_ty.as_ref())?);
@@ -12282,7 +11955,6 @@ fn top_level_known_with_runtime_bindings() -> FxHashMap<Name, LoweredTopLevelBin
     let mut known = FxHashMap::default();
     let args = LoweredTopLevelBinding {
         kind: LoweredType::List,
-        result_ok: None,
         checked: None,
         mutable: false,
         slot: true,
@@ -13993,5 +13665,38 @@ pub(super) fn cleanup_pipeline_stage_item_slot(
 ) {
     if let Some(name) = cleanup {
         slots.retire(name, slot, "pipeline.item");
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod drift_tests {
+    /// Lower every repository program and the embedded standard library, and
+    /// require each representation lowering derives itself to agree with the
+    /// checker's published type.
+    #[test]
+    fn corpus_lowering_agrees_with_checked_types() {
+        std::thread::Builder::new().stack_size(64 * 1024 * 1024).spawn(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let mut paths = Vec::new();
+            for dir in ["core", "dev", "examples", "showcase", "stdlib", "tests"] {
+                super::super::indexed::tests::collect_xsh_paths(&root.join(dir), &mut paths);
+            }
+            paths.sort();
+            let mut lowered = 0;
+            for path in paths {
+                let name = path.to_string_lossy();
+                let source = std::fs::read_to_string(&path).expect("corpus source is readable");
+                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                    &name, crate::loader::entry_source_from_text(&name, source.clone()), Vec::new());
+                let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+                if !parsed.diagnostics.is_empty() || !declarations.diagnostics.is_empty() { continue; }
+                let source_id = sources.files()[0].id();
+                lowered += usize::from(super::super::FullBuilder::build_compact(
+                    &parsed.arena, &declarations, &source, std::sync::Arc::new(sources), source_id).is_ok());
+            }
+            let drift = std::mem::take(&mut *super::LOWERING_DRIFT.lock().unwrap());
+            assert!(lowered > 300, "only {lowered} corpus programs lowered");
+            assert!(drift.is_empty(), "{}", drift.join("\n"));
+        }).unwrap().join().unwrap();
     }
 }

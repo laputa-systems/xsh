@@ -242,7 +242,7 @@ impl Checker {
     // Later parameter and return destinations can solve holes nested in a
     // binding. Preserve their identities until every source constraint is checked.
     pub(super) fn record_checked_local_binding(&mut self, program: &ArenaProgram, target: BindingTargetId, span: Span, ty: &Type) {
-        if self.current_return.is_some() && !self.local_inference.collecting
+        if !self.local_inference.collecting
             && matches!(program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name != "_")
         {
             self.local_inference.checked_bindings.insert(span, ty.clone());

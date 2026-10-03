@@ -905,7 +905,6 @@ struct IndexedRootSlots {
 #[derive(Clone, Debug)]
 struct LoweredTopLevelBinding {
     kind: LoweredType,
-    result_ok: Option<LoweredType>,
     checked: Option<Type>,
     mutable: bool,
     slot: bool,

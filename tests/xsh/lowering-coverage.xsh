@@ -110,6 +110,23 @@ fallback missing
 """
 }
 
+# Top-level slots take the checker's binding type: a stream run binding is a
+# Stream, so a signal hook's root snapshot can read it.
+test test_signal_hooks_read_top_level_stream_run_bindings { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let rows = run.stream --text printf "a\nb\n" ?
+on USR1 [] {
+  print rows.collect().len()
+  abort(0)
+}
+run sh -c r"kill -USR1 $PPID; sleep 1" ?
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n"
+}
+
 test test_map_parameter_defaults_encode_map_keys { |ctx|
   let output = test.run_script(
     ctx,
