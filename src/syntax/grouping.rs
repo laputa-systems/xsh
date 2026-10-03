@@ -590,7 +590,7 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         ArenaExprKind::ComparisonChain(_) => context,
         ArenaExprKind::ValuePipelineCall { .. } => inherit(Slot::Open, 0),
         ArenaExprKind::If { .. }
-        | ArenaExprKind::Match { value: _, .. } if is_condition(arena, parent, child) => open(Follow::BRACE),
+        | ArenaExprKind::Match { .. } if is_condition(arena, parent, child) => open(Follow::BRACE),
         ArenaExprKind::Match { arms, .. } if arena.match_expr_arms(arms).iter().any(|arm| arm.value == child) => Context::arm_body(Follow::CLOSE),
         ArenaExprKind::ErrorContext { .. } | ArenaExprKind::PatternCondition { .. } => open(Follow::BRACE),
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
