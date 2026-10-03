@@ -110,7 +110,7 @@ mod tests {
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
-    use crate::lint::{LintOptions, Linter};
+    use crate::xsht::lint::{LintOptions, Linter};
 
     fn diagnostics(source: &str) -> Vec<Diagnostic> {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

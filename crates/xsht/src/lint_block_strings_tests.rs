@@ -2,7 +2,7 @@ use super::super::{LintOptions, Linter};
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 use xsh::execution::script::{RunOptions, ScriptOutput, run_script};
-use crate::format::Formatter;
+use crate::xsht::format::Formatter;
 
 fn observations(source: &str) -> ScriptOutput {
     let directory = tempfile::TempDir::new().unwrap();
