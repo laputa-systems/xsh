@@ -403,6 +403,8 @@ pub enum RuntimeOp {
     #[cfg(feature = "native-tests")]
     TestLinuxFake,
     #[cfg(feature = "native-tests")]
+    TestUnixFake,
+    #[cfg(feature = "native-tests")]
     TestRunScript,
     #[cfg(feature = "native-tests")]
     TestRunXsh,

@@ -13,33 +13,9 @@
 # The error kinds this entry reports.
 #
 # A declared error variant reports `Family.Variant` unless its payload carries
-# a string `kind` field, so `kind` is what keeps the baseline spellings
-# `unix-uptime` and `unix-dry-run-log` visible to callers.
+# a string `kind` field, so `kind` is what keeps the baseline spelling
+# `unix-uptime` visible to callers.
 error UnixTextError = Failure(kind: Str, message: Str)
-
-# Whether `text` spells one of the accepted true values.
-#
-# The baseline compares the raw value without trimming or case folding, so only
-# these four spellings open the gate.
-pure is_flag(text: Str) -> Bool {
-  return text == "1" or text == "true" or text == "yes" or text == "on"
-}
-
-# Whether the dry-run gate is open.
-proc unix_dry_run() [env] -> Bool {
-  return is_flag(env.get("XSH_UNIX_DRY_RUN") ?? "")
-}
-
-# The value of `name`, or `fallback` when it is unset.
-#
-# A value that is not valid UTF-8 is also replaced by the fallback, exactly as
-# the baseline's dry-run environment reader replaces it.
-proc override_env(name: Str, fallback: Str) [env] -> Str {
-  match env.get(name) {
-    Ok(text) => return text
-    Err(_) => return fallback
-  }
-}
 
 # The integer text the baseline's `parse::<i64>` accepts, or null.
 #
@@ -124,51 +100,6 @@ pure uptime_from_text(text: Str) -> Int {
   return parse_field_int(fields[0].split(".", 1)[0]) ?? 0
 }
 
-# Whether `XSH_UNIX_DRY_RUN_LOG` names a log file to append to.
-#
-# Only an unset variable means no log: a value that is empty or not valid UTF-8
-# still names a path, which the baseline opens and fails on.
-proc log_configured() [env] -> Bool {
-  match env.get("XSH_UNIX_DRY_RUN_LOG") {
-    Ok(_) => return true
-    Err(failure) => return failure.message != "environment value is unset"
-  }
-}
-
-# Append the dry-run log line for an uptime reading.
-#
-# An unset `XSH_UNIX_DRY_RUN_LOG` means no log is configured and the append is
-# skipped; a set value is a path, including an empty one, which the baseline
-# opens and fails on. The seconds count is logged as text, because the baseline
-# renders every field value as a JSON string.
-proc dry_run_log(seconds: Int) [fs, env, error] -> Result[Unit] {
-  if ! log_configured() {
-    return Ok()
-  }
-
-  let log_path = env.path("XSH_UNIX_DRY_RUN_LOG", p"")?
-  let line = json.encode({op: "uptime_seconds", seconds: f"${seconds}"})?
-  match append_line(log_path, line) {
-    Ok(_) => return Ok()
-    Err(failure) => return Err(UnixTextError.Failure(kind: "unix-dry-run-log", message: failure.message))
-  }
-}
-
-# Append one line to `target`, creating missing parent directories first.
-#
-# There is no append primitive, so the existing text is re-read and rewritten
-# with the new line added. The baseline appends to the open file in place, so a
-# file that is not valid UTF-8 is rewritten here instead of appended to.
-proc append_line(target: Path, line: Str) [fs, error] -> Result[Unit] {
-  let parent = target.parent()
-  if parent.display() != "" {
-    fs.mkdir(parent, parents: true)?
-  }
-
-  let existing = fs.read_text(target) ?? ""
-  return fs.write(target, existing + line + "\n")
-}
-
 ## Report the host uptime in whole seconds.
 ##
 ## `/proc/uptime` carries the uptime in seconds with a fractional part in its
@@ -176,18 +107,7 @@ proc append_line(target: Path, line: Str) [fs, error] -> Result[Unit] {
 ## integer there — empty text, a fraction with no whole part, or a value
 ## outside `Int` range — reads as zero. A read failure is reported with
 ## `unix-uptime` and the operating system's message.
-##
-## While `XSH_UNIX_DRY_RUN` is set the reading comes from
-## `XSH_UNIX_UPTIME_SECONDS` instead, defaulting to zero when that variable is
-## unset, empty, or not an integer, and one line is appended to the
-## `XSH_UNIX_DRY_RUN_LOG` file when that variable names one.
-export proc uptime_seconds() [fs, env, error] -> Result[Int] {
-  if unix_dry_run() {
-    let seconds = parse_field_int(override_env("XSH_UNIX_UPTIME_SECONDS", "0")) ?? 0
-    dry_run_log(seconds)?
-    return Ok(seconds)
-  }
-
+export proc uptime_seconds() [fs, error] -> Result[Int] {
   match fs.read_text(/proc/uptime) {
     Ok(text) => return Ok(uptime_from_text(text))
     Err(failure) => return Err(UnixTextError.Failure(kind: "unix-uptime", message: failure.message))

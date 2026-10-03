@@ -36,6 +36,8 @@ mod net_eval;
 mod process;
 #[path = "modules/unix.rs"]
 mod unix_eval;
+#[cfg(feature = "native-tests")]
+pub use unix_eval::UnixFake;
 
 impl Evaluator {
     pub(super) fn invocation_from_command_plan(

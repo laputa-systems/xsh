@@ -1136,6 +1136,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The fake never touches the host, logs each call as a JSON line to the `log` setting, and also covers scripts the test runs through `test.run_script` and `test.run_xsh`.",
             &["test", "native-tests", "linux"],
         )),
+        ("test", "unix_fake") => Some((
+            "Replaces the host-touching `unix` entries with fixed results for the rest of a native XSH test.",
+            "Covers process groups, PID 1 events, tty, identity, hostname, and exec; `kill_all` and `uptime_seconds` still reach the host. Each faked call logs a JSON line to the `log` setting, and the fake also covers scripts the test runs through `test.run_script` and `test.run_xsh`.",
+            &["test", "native-tests", "unix"],
+        )),
         ("test", "run_script" | "run_xsh" | "run_xsht_trace") => Some((
             "Runs a nested XSH or tracing fixture from a native test.",
             "The nested process receives explicit arguments and its status/output remain test data for assertions.",

@@ -122,16 +122,25 @@ pub fn run_script_with_shared_stdio(options: RunOptions) -> ScriptOutput {
     finish_run_attempt(&options, attempt)
 }
 
-/// Run one script like [`run_script_with_shared_stdio`] with the `linux`
-/// module replaced by a test fake. Only the native test harness calls this.
+/// Run one script like [`run_script_with_shared_stdio`] with the `linux` and
+/// `unix` modules replaced by the given test fakes. Only the native test
+/// harness calls this.
 #[cfg(feature = "native-tests")]
-pub fn run_script_with_linux_fake(
+pub fn run_script_with_test_fakes(
     options: RunOptions,
-    fake: crate::runtime::eval::LinuxFake,
+    linux: Option<crate::runtime::eval::LinuxFake>,
+    unix: Option<crate::runtime::eval::UnixFake>,
 ) -> ScriptOutput {
     let attempt = match try_prepare_program(&options) {
         Ok(Ok(mut prepared)) => {
-            prepared.evaluator = prepared.evaluator.with_shared_stdio().with_linux_fake(fake);
+            let mut evaluator = prepared.evaluator.with_shared_stdio();
+            if let Some(fake) = linux {
+                evaluator = evaluator.with_linux_fake(fake);
+            }
+            if let Some(fake) = unix {
+                evaluator = evaluator.with_unix_fake(fake);
+            }
+            prepared.evaluator = evaluator;
             prepared.run()
         }
         Ok(Err(attempt)) => attempt,

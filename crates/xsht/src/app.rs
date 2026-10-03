@@ -72,8 +72,12 @@ pub fn main() -> ExitCode {
             files,
             dry_run,
         }) => finish_command(|| refactor_scripts(&pattern, &replacement, &files, dry_run)),
-        Ok(Command::LinuxFakeRun { options, fake }) => {
-            let output = xsh::execution::script::run_script_with_linux_fake(options, fake);
+        Ok(Command::TestFakeRun {
+            options,
+            linux,
+            unix,
+        }) => {
+            let output = xsh::execution::script::run_script_with_test_fakes(options, linux, unix);
             use std::io::Write;
             let _ = std::io::stdout().lock().write_all(&output.stdout);
             let _ = std::io::stderr().lock().write_all(&output.stderr);
@@ -127,12 +131,13 @@ enum Command {
         files: Vec<String>,
         dry_run: bool,
     },
-    /// Harness-internal: runs a script under a `linux` test fake for
-    /// `test.run_script`/`test.run_xsh` after the test called
-    /// `test.linux_fake`. Not listed in help.
-    LinuxFakeRun {
+    /// Harness-internal: runs a script under the `linux` and `unix` test
+    /// fakes for `test.run_script`/`test.run_xsh` after the test called
+    /// `test.linux_fake` or `test.unix_fake`. Not listed in help.
+    TestFakeRun {
         options: xsh::execution::script::RunOptions,
-        fake: xsh::execution::evaluator::LinuxFake,
+        linux: Option<xsh::execution::evaluator::LinuxFake>,
+        unix: Option<xsh::execution::evaluator::UnixFake>,
     },
 }
 
@@ -153,40 +158,69 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "test" => parse_test(&args[1..]),
         "grep" => parse_grep(&args[1..]),
         "refactor" => parse_refactor(&args[1..]),
-        LINUX_FAKE_RUN => parse_linux_fake_run(&args[1..]),
+        TEST_FAKE_RUN => parse_test_fake_run(&args[1..]),
         "run" => Err("xsht has no `run`; use xsh SCRIPT instead".to_string()),
         other => Err(format!("unknown command '{other}'")),
     }
 }
 
-pub(crate) const LINUX_FAKE_RUN: &str = "__linux-fake-run";
+pub(crate) const TEST_FAKE_RUN: &str = "__test-fake-run";
 
-/// `__linux-fake-run [--fake KEY=VALUE]... SCRIPT -- [ARGS...]`
-fn parse_linux_fake_run(args: &[String]) -> Result<Command, String> {
-    let mut fake = xsh::execution::evaluator::LinuxFake::default();
+/// `__test-fake-run [--fake MODULE | --fake MODULE.KEY=VALUE]... SCRIPT -- [ARGS...]`
+///
+/// `--fake MODULE` installs that module's fake; a setting installs it too.
+fn parse_test_fake_run(args: &[String]) -> Result<Command, String> {
+    let usage =
+        || format!("usage: xsht {TEST_FAKE_RUN} [--fake MODULE[.KEY=VALUE]]... SCRIPT -- [ARGS...]");
+    let mut linux: Option<xsh::execution::evaluator::LinuxFake> = None;
+    let mut unix: Option<xsh::execution::evaluator::UnixFake> = None;
     let mut rest = args;
     while let [flag, setting, tail @ ..] = rest
         && flag == "--fake"
     {
-        let (key, value) = setting
-            .split_once('=')
-            .ok_or_else(|| format!("linux fake setting '{setting}' is not KEY=VALUE"))?;
-        fake.set(key, value)?;
+        let (module, assignment) = match setting.split_once('.') {
+            Some((module, assignment)) => (module, Some(assignment)),
+            None => (setting.as_str(), None),
+        };
+        let pair = match assignment {
+            Some(assignment) => Some(
+                assignment
+                    .split_once('=')
+                    .ok_or_else(|| format!("fake setting '{setting}' is not MODULE.KEY=VALUE"))?,
+            ),
+            None => None,
+        };
+        match module {
+            "linux" => {
+                let fake = linux.get_or_insert_default();
+                if let Some((key, value)) = pair {
+                    fake.set(key, value)?;
+                }
+            }
+            "unix" => {
+                let fake = unix.get_or_insert_default();
+                if let Some((key, value)) = pair {
+                    fake.set(key, value)?;
+                }
+            }
+            other => return Err(format!("unknown fake module '{other}'")),
+        }
         rest = tail;
     }
     let [script, separator, script_args @ ..] = rest else {
-        return Err(format!("usage: xsht {LINUX_FAKE_RUN} [--fake KEY=VALUE]... SCRIPT -- [ARGS...]"));
+        return Err(usage());
     };
     if separator != "--" {
-        return Err(format!("usage: xsht {LINUX_FAKE_RUN} [--fake KEY=VALUE]... SCRIPT -- [ARGS...]"));
+        return Err(usage());
     }
-    Ok(Command::LinuxFakeRun {
+    Ok(Command::TestFakeRun {
         options: xsh::execution::script::RunOptions {
             script: script.clone(),
             args: script_args.to_vec(),
             coverage_trace_dir: None,
         },
-        fake,
+        linux,
+        unix,
     })
 }
 

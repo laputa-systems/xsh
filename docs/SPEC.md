@@ -1962,6 +1962,10 @@ Contracts worth knowing without consulting the reference:
   switch; the `process` effect is what makes these calls explicit. On other
   platforms every entry fails with `linux-unsupported`. Native tests use
   `test.linux_fake` (§17) instead of the host.
+- `unix` entries likewise act on the host when called: `set_hostname`,
+  `set_tty_attrs`, `pid1_setup`, process-group spawns and signals, and `exec`
+  have no environment gate or dry-run switch. Native tests use
+  `test.unix_fake` (§17) instead of the host.
 
 ### 15.1 `template`
 
@@ -2136,6 +2140,14 @@ settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
 `hwclock_epoch_ms`) choose the values some queries report; unknown settings
 fail with `test-linux-fake`. Only the test harness can install the fake: no
 environment variable or `xsh` option enables it.
+
+`test.unix_fake(ctx, settings)` does the same for `unix`, with the same scope
+and harness-only installation. It covers the process-group, PID 1, tty,
+identity, hostname, and exec entries; `unix.kill_all` and
+`unix.uptime_seconds` still read the host. Faked calls log to `log` (a log
+that cannot be written raises `unix-fake-log`), and `tty`, `event_kind`,
+`signal`, `pid`, `child_pid`, `status_kind`, `status_code`, and `ready` choose
+the values faked entries report; unknown settings fail with `test-unix-fake`.
 
 ## 18. Not In XSH
 

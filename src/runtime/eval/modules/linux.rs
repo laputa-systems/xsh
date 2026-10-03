@@ -83,35 +83,47 @@ impl Evaluator {
         let Some(path) = self.linux_fake_setting("log") else {
             return Ok(());
         };
-        let path = std::path::PathBuf::from(path);
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
-            })?;
-        }
-        let mut json_fields = Vec::with_capacity(fields.len() + 1);
-        json_fields.push(("op".to_string(), crate::modules::json::raw_json_string(op)));
-        for (name, value) in fields {
-            json_fields.push((
-                (*name).to_string(),
-                crate::modules::json::raw_json_string(value.clone()),
-            ));
-        }
-        let line = crate::modules::json::compact_raw_json(&crate::modules::json::raw_json_object(
-            json_fields,
-        ));
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .map_err(|error| {
-                RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
-            })?;
-        writeln!(file, "{line}").map_err(|error| {
-            RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
-        })
+        append_fake_log(path, "linux-fake-log", op, fields, span)
     }
+}
+
+/// Append one JSON line naming `op` and its `fields` to a test fake's call log,
+/// creating missing parent directories. Failures raise `kind`.
+pub(super) fn append_fake_log(
+    path: &str,
+    kind: &'static str,
+    op: &str,
+    fields: &[(&str, String)],
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let path = std::path::PathBuf::from(path);
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            RuntimeError::new(kind, error.to_string()).with_span(span)
+        })?;
+    }
+    let mut json_fields = Vec::with_capacity(fields.len() + 1);
+    json_fields.push(("op".to_string(), crate::modules::json::raw_json_string(op)));
+    for (name, value) in fields {
+        json_fields.push((
+            (*name).to_string(),
+            crate::modules::json::raw_json_string(value.clone()),
+        ));
+    }
+    let line = crate::modules::json::compact_raw_json(&crate::modules::json::raw_json_object(
+        json_fields,
+    ));
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| {
+            RuntimeError::new(kind, error.to_string()).with_span(span)
+        })?;
+    writeln!(file, "{line}").map_err(|error| {
+        RuntimeError::new(kind, error.to_string()).with_span(span)
+    })
 }
