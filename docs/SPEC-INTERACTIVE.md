@@ -7,7 +7,7 @@ behavior, examples, docs generation, or tooling.
 
 ## 1. Reference Shell And Deviations
 
-`xshi` is behaviorally the `ish` shell (`~/d/ish`) built on XSH's process,
+`xshi` is behaviorally the `ish` shell built on XSH's process,
 filesystem, and stdlib facilities. What an `ish` user sees or gets from a
 keystroke is the contract: rendered screens and cursor positions, command
 results and statuses, and the files a session leaves behind. `xshi` ported
@@ -68,7 +68,8 @@ is not a second script language.
   are unavailable to scripts.
 - Library changes outside `crates/xshi` must stay neutral for existing scripts
   unless an interactive option is passed. The one such change so far is
-  `ProcessRedirection::ChildDup` (`docs/SPEC-OS.md`).
+  `ProcessRedirection::ChildDup`, which applies descriptor copies such as
+  `2>&1` in the child in list order; scripts cannot express it.
 
 Source layout under `crates/xshi/src/interactive/`:
 

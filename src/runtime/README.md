@@ -25,4 +25,4 @@ runtime errors are for behavior that cannot be represented as ordinary failure
 data.
 
 For process groups, signals, cancellation, cwd/env mutation, or signal hooks,
-read `docs/SPEC-OS.md` before editing.
+read `docs/SPEC.md` sections 11-12 before editing.

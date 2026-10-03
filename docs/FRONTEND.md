@@ -8,8 +8,7 @@ path never reconstructs a recursive syntax tree or installs a second executable
 program as a fallback.
 
 This document is the durable architecture and change contract for that path.
-`docs/SPEC.md`, `docs/SPEC-TYPING.md`, and `docs/SPEC-OS.md` remain the
-source-visible behavior contracts.
+`docs/SPEC.md` remains the source-visible behavior contract.
 
 ## Greppable Frontend Vocabulary
 
