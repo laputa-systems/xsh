@@ -120,6 +120,26 @@ struct LoweredPathWriteArgs {
     data: ExprId,
 }
 
+/// The checker's binding of a registered call's source entries to the
+/// parameters of its selected overload.
+struct CheckedApiArguments {
+    sig: &'static ModuleFnSig,
+    values: Vec<Option<ExprId>>,
+}
+
+impl CheckedApiArguments {
+    fn get(&self, name: &str) -> Option<ExprId> {
+        self.values[self.sig.params.iter().position(|param| param.name == name)?]
+    }
+
+    /// Parameter-ordered values with absent trailing defaults dropped.
+    fn ordered(&self) -> Vec<Option<ExprId>> {
+        let mut values = self.values.clone();
+        while values.last().is_some_and(Option::is_none) { values.pop(); }
+        values
+    }
+}
+
 struct LoweredModuleCallArgs {
     semantic_rule: crate::modules::signature::SemanticRule,
     op: RuntimeOp,
@@ -213,65 +233,23 @@ fn lower_abort_args(args: &[ArenaCallArg]) -> Option<LoweredAbortArgs> {
     Some(LoweredAbortArgs { status, force })
 }
 
-fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProcessCommandArgvArgs> {
-    let names = [
-        "target",
-        "argv",
-        "cwd",
-        "env",
-        "stdin",
-        "stdout",
-        "stderr",
-        "stdout_append",
-        "stderr_append",
-        "timeout",
-        "detach",
-        "new_session",
-        "ignore_hup",
-        "cpu_max",
-        "accept",
-    ];
-    if !(2..=names.len()).contains(&args.len()) {
-        return None;
-    }
-    let mut slots: [Option<ExprId>; 15] = [None; 15];
-    let mut next_positional = 0usize;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Named { name, value, .. } => {
-                let index = names.iter().position(|expected| name == *expected)?;
-                if slots[index].is_some() {
-                    return None;
-                }
-                slots[index] = Some(value);
-            }
-            ArenaCallArgKind::Positional(value) => {
-                while next_positional < slots.len() && slots[next_positional].is_some() {
-                    next_positional += 1;
-                }
-                let slot = slots.get_mut(next_positional)?;
-                *slot = Some(value);
-                next_positional += 1;
-            }
-            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-        }
-    }
+fn lower_process_command_argv_args(args: &CheckedApiArguments) -> Option<LoweredProcessCommandArgvArgs> {
     Some(LoweredProcessCommandArgvArgs {
-        target: slots[0]?,
-        argv: slots[1]?,
-        cwd: slots[2],
-        env: slots[3],
-        stdin: slots[4],
-        stdout: slots[5],
-        stderr: slots[6],
-        stdout_append: slots[7],
-        stderr_append: slots[8],
-        timeout: slots[9],
-        detach: slots[10],
-        new_session: slots[11],
-        ignore_hup: slots[12],
-        cpu_max: slots[13],
-        accept: slots[14],
+        target: args.get("target")?,
+        argv: args.get("argv")?,
+        cwd: args.get("cwd"),
+        env: args.get("env"),
+        stdin: args.get("stdin"),
+        stdout: args.get("stdout"),
+        stderr: args.get("stderr"),
+        stdout_append: args.get("stdout_append"),
+        stderr_append: args.get("stderr_append"),
+        timeout: args.get("timeout"),
+        detach: args.get("detach"),
+        new_session: args.get("new_session"),
+        ignore_hup: args.get("ignore_hup"),
+        cpu_max: args.get("cpu_max"),
+        accept: args.get("accept"),
     })
 }
 
@@ -281,55 +259,21 @@ fn lowered_module_call_args(
     args: &[ArenaCallArg],
     plan: Option<&CheckedApiCall>,
 ) -> Option<LoweredModuleCallArgs> {
-    if module == "fs" && name == "hardlink" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 2 {
-            return Some(LoweredModuleCallArgs {
-                semantic_rule: crate::modules::signature::SemanticRule::Standard,
-                op: RuntimeOp::FsHardlink,
-                args: positional.into_iter().map(Some).collect(),
-            });
-        }
-    }
-    if module == "mime" && name == "lookup_ext" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 1 {
-            return Some(LoweredModuleCallArgs {
-                semantic_rule: crate::modules::signature::SemanticRule::Standard,
-                op: RuntimeOp::MimeLookupExt,
-                args: positional.into_iter().map(Some).collect(),
-            });
-        }
-    }
-    if module == "mime" && name == "lookup_path" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 1 {
-            return Some(LoweredModuleCallArgs {
-                semantic_rule: crate::modules::signature::SemanticRule::Standard,
-                op: RuntimeOp::MimeLookupPath,
-                args: positional.into_iter().map(Some).collect(),
-            });
-        }
-    }
-    // A script-backed entry must use its prepared implementation rather than
-    // the native operation slot carried by the same signature. The script
-    // route runs first and reports an unprepared module as a missing-target
-    // diagnostic.
     let plan = plan?;
     let sig = plan.sig;
-    if sig.script_impl().is_some() || lowered_module_sig_type(sig).is_none() {
-        return None;
-    }
     let mut lowered_args = vec![None; sig.params.len()];
     for (arg, &slot) in args.iter().zip(&plan.argument_slots) {
         lowered_args[slot] = Some(compact_call_arg_expr(arg)?);
     }
     while lowered_args.last().is_some_and(Option::is_none) { lowered_args.pop(); }
-    Some(LoweredModuleCallArgs {
-        semantic_rule: sig.semantic_rule,
-        op: sig.op,
-        args: lowered_args,
-    })
+    let op = match (module.as_str().as_str(), name.as_str().as_str()) {
+        ("fs", "hardlink") => RuntimeOp::FsHardlink,
+        ("mime", "lookup_ext") => RuntimeOp::MimeLookupExt,
+        ("mime", "lookup_path") => RuntimeOp::MimeLookupPath,
+        _ if sig.script_impl().is_some() || lowered_module_sig_type(sig).is_none() => return None,
+        _ => sig.op,
+    };
+    Some(LoweredModuleCallArgs { semantic_rule: sig.semantic_rule, op, args: lowered_args })
 }
 
 fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerifyFileArgs> {
@@ -697,213 +641,38 @@ fn lowered_native_test_op_supported(op: RuntimeOp) -> bool {
     )
 }
 
-fn lower_archive_tar_create_args(args: &[ArenaCallArg]) -> Option<LoweredArchiveTarCreateArgs> {
-    let mut positional = Vec::with_capacity(3);
-    let mut compression = None;
-    let mut overwrite = None;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Positional(value) => match positional.len() {
-                0..=2 => positional.push(value),
-                3 => {
-                    if compression.replace(value).is_some() {
-                        return None;
-                    }
-                    positional.push(value);
-                }
-                4 => {
-                    if overwrite.replace(value).is_some() {
-                        return None;
-                    }
-                    positional.push(value);
-                }
-                _ => return None,
-            },
-            ArenaCallArgKind::Named { name, value, .. } if name == "compression" => {
-                if positional.len() > 3 || compression.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "overwrite" => {
-                if positional.len() > 4 {
-                    return None;
-                }
-                if overwrite.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-        }
-    }
-    if positional.len() < 3 {
-        return None;
-    }
+fn lower_archive_tar_create_args(args: &CheckedApiArguments) -> Option<LoweredArchiveTarCreateArgs> {
     Some(LoweredArchiveTarCreateArgs {
-        path: positional[0],
-        root: positional[1],
-        entries: positional[2],
-        compression,
-        overwrite,
+        path: args.get("path")?,
+        root: args.get("root")?,
+        entries: args.get("entries")?,
+        compression: args.get("compression"),
+        overwrite: args.get("overwrite"),
     })
 }
 
-fn lower_fs_write_args(args: &[ArenaCallArg]) -> Option<LoweredFsWriteArgs> {
-    let mut path = None;
-    let mut data = None;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Positional(value) if path.is_none() => path = Some(value),
-            ArenaCallArgKind::Positional(value) if data.is_none() => data = Some(value),
-            ArenaCallArgKind::Positional(_) => return None,
-            ArenaCallArgKind::Named { name, value, .. } if name == "path" => {
-                if path.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "data" => {
-                if data.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-        }
-    }
-    Some(LoweredFsWriteArgs {
-        path: path?,
-        data: data?,
-    })
+fn lower_fs_write_args(args: &CheckedApiArguments) -> Option<LoweredFsWriteArgs> {
+    Some(LoweredFsWriteArgs { path: args.get("path")?, data: args.get("data")? })
 }
 
-fn lower_fs_mkdir_args(args: &[ArenaCallArg]) -> Option<LoweredFsMkdirArgs> {
-    let mut path = None;
-    let mut parents = None;
-    let mut next_positional = 0usize;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Positional(value) => {
-                match next_positional {
-                    0 => {
-                        if path.is_some() {
-                            return None;
-                        }
-                        path = Some(value);
-                    }
-                    1 => {
-                        if parents.is_some() {
-                            return None;
-                        }
-                        parents = Some(value);
-                    }
-                    _ => return None,
-                }
-                next_positional += 1;
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "path" => {
-                if path.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "parents" => {
-                if parents.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-        }
-    }
-    Some(LoweredFsMkdirArgs {
-        path: path?,
-        parents,
-    })
+fn lower_fs_mkdir_args(args: &CheckedApiArguments) -> Option<LoweredFsMkdirArgs> {
+    Some(LoweredFsMkdirArgs { path: args.get("path")?, parents: args.get("parents") })
 }
 
-fn lower_fs_remove_args(args: &[ArenaCallArg]) -> Option<LoweredFsRemoveArgs> {
-    let mut path = None;
-    let mut missing_ok = None;
-    let mut next_positional = 0usize;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Positional(value) => {
-                match next_positional {
-                    0 => {
-                        if path.is_some() {
-                            return None;
-                        }
-                        path = Some(value);
-                    }
-                    1 => {
-                        if missing_ok.is_some() {
-                            return None;
-                        }
-                        missing_ok = Some(value);
-                    }
-                    _ => return None,
-                }
-                next_positional += 1;
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "path" => {
-                if path.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "missing_ok" => {
-                if missing_ok.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-        }
-    }
-    Some(LoweredFsRemoveArgs {
-        path: path?,
-        missing_ok,
-    })
+fn lower_fs_remove_args(args: &CheckedApiArguments) -> Option<LoweredFsRemoveArgs> {
+    Some(LoweredFsRemoveArgs { path: args.get("path")?, missing_ok: args.get("missing_ok") })
 }
 
-fn lower_path_mkdir_args(args: &[ArenaCallArg]) -> Option<LoweredPathMkdirArgs> {
-    let mut parents = None;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Named { name, value, .. } if name == "parents" => {
-                if parents.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Positional(_)
-            | ArenaCallArgKind::Named { .. }
-            | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
-                return None;
-            }
-        }
-    }
-    Some(LoweredPathMkdirArgs { parents })
+fn lower_path_mkdir_args(args: &CheckedApiArguments) -> LoweredPathMkdirArgs {
+    LoweredPathMkdirArgs { parents: args.get("parents") }
 }
 
-fn lower_path_remove_args(args: &[ArenaCallArg]) -> Option<LoweredPathRemoveArgs> {
-    let mut missing_ok = None;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Named { name, value, .. } if name == "missing_ok" => {
-                if missing_ok.replace(value).is_some() {
-                    return None;
-                }
-            }
-            ArenaCallArgKind::Positional(_)
-            | ArenaCallArgKind::Named { .. }
-            | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
-                return None;
-            }
-        }
-    }
-    Some(LoweredPathRemoveArgs { missing_ok })
+fn lower_path_remove_args(args: &CheckedApiArguments) -> LoweredPathRemoveArgs {
+    LoweredPathRemoveArgs { missing_ok: args.get("missing_ok") }
 }
 
-fn lower_path_write_args(args: &[ArenaCallArg]) -> Option<LoweredPathWriteArgs> {
-    let positional = positional_call_args(args)?;
-    let [data] = positional.as_slice() else {
-        return None;
-    };
-    Some(LoweredPathWriteArgs { data: *data })
+fn lower_path_write_args(args: &CheckedApiArguments) -> Option<LoweredPathWriteArgs> {
+    Some(LoweredPathWriteArgs { data: args.get("data")? })
 }
 
 fn build_expr(scratch: &Rc<RefCell<BuildScratch>>, row: BuildExprRow) -> BuildExprId {
@@ -1115,106 +884,18 @@ fn compact_run_command_asserts_success(
         )
 }
 
-fn lower_fs_files_args(args: &[ArenaCallArg], has_exts: bool) -> Option<LoweredFsFilesArgs> {
-    let mut root = None;
-    let mut gitignore = None;
-    let mut stat = None;
-    let mut hidden = None;
-    let mut exts = None;
-    let mut next_positional = 0usize;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Positional(value) => {
-                // Optional arguments may be passed positionally in parameter
-                // order (path, gitignore, stat, exts, hidden). `walk`/`dirs`
-                // share this helper but have no `exts` parameter, so a fourth
-                // positional maps directly to `hidden` for them.
-                match next_positional {
-                    0 => {
-                        if root.is_some() {
-                            return None;
-                        }
-                        root = Some(value);
-                    }
-                    1 => gitignore = Some(value),
-                    2 => stat = Some(value),
-                    3 if has_exts => exts = Some(value),
-                    3 => hidden = Some(value),
-                    4 => hidden = Some(value),
-                    _ => return None,
-                }
-                next_positional += 1;
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "gitignore" => {
-                gitignore = Some(value);
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "stat" => {
-                stat = Some(value);
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "hidden" => {
-                hidden = Some(value);
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "exts" => {
-                exts = Some(value);
-            }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-        }
-    }
+fn lower_fs_files_args(args: &CheckedApiArguments) -> Option<LoweredFsFilesArgs> {
     Some(LoweredFsFilesArgs {
-        root: root?,
-        gitignore,
-        stat,
-        hidden,
-        exts,
+        root: args.get("path")?,
+        gitignore: args.get("gitignore"),
+        stat: args.get("stat"),
+        hidden: args.get("hidden"),
+        exts: args.get("exts"),
     })
 }
 
-fn lower_fs_list_args(args: &[ArenaCallArg]) -> Option<LoweredFsListArgs> {
-    let mut path = None;
-    let mut stat = None;
-    let mut ordered = None;
-    let mut next_positional = 0usize;
-    for arg in args {
-        match arg.kind {
-            ArenaCallArgKind::Positional(value) => {
-                let target = match next_positional {
-                    0 => &mut path,
-                    1 => &mut stat,
-                    2 => &mut ordered,
-                    _ => return None,
-                };
-                if target.is_some() {
-                    return None;
-                }
-                *target = Some(value);
-                next_positional += 1;
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "path" => {
-                if path.is_some() {
-                    return None;
-                }
-                path = Some(value);
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "stat" => {
-                if stat.is_some() {
-                    return None;
-                }
-                stat = Some(value);
-            }
-            ArenaCallArgKind::Named { name, value, .. } if name == "ordered" => {
-                if ordered.is_some() {
-                    return None;
-                }
-                ordered = Some(value);
-            }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-        }
-    }
-    Some(LoweredFsListArgs {
-        path: path?,
-        stat,
-        ordered,
-    })
+fn lower_fs_list_args(args: &CheckedApiArguments) -> Option<LoweredFsListArgs> {
+    Some(LoweredFsListArgs { path: args.get("path")?, stat: args.get("stat"), ordered: args.get("ordered") })
 }
 
 impl SlotScope {
@@ -4039,6 +3720,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     slots,
                 ))
             }
+            ArenaStmtKind::Guard { .. } => {
+                // The success bindings outlive the statement, so the guard is
+                // the source of a binding step that publishes its new slots.
+                let mut slots = top_level_slots(known);
+                let outer = slots.indices.clone();
+                let span = self.program.arena.stmt(id).span;
+                let guard = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
+                let fields = slots.indices.iter()
+                    .filter(|(name, slot)| outer.get(*name) != Some(*slot))
+                    .map(|(name, slot)| (*name, *slot))
+                    .collect();
+                let source = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: vec![guard], span });
+                Some(lowered_top_level(
+                    &self.scratch,
+                    BuildTopKind::LetRecord { source, fields, target: LoweredCompTarget::Discard, mutable: false, span },
+                    known,
+                    slots,
+                ))
+            }
             ArenaStmtKind::BooleanGuard { .. }
             | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::If { .. }
@@ -4300,6 +4000,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         slot: true,
                     },
                 );
+            }
+            ArenaStmtKind::Guard { target, initializer, .. } => {
+                let checked = match initializer {
+                    ArenaExprOrRun::Expr(value) => self.top_level_binding_checked_type(None, value, known),
+                    ArenaExprOrRun::Run(run) => self.top_level_run_binding_checked_type(None, run),
+                };
+                for (name, checked) in record_binding_types(self.program, target, checked.as_ref().and_then(Type::result_ok)) {
+                    let kind = checked.as_ref().and_then(lowered_checked_type).unwrap_or(LoweredType::Any);
+                    let result_ok = checked.as_ref().and_then(Type::result_ok).and_then(lowered_checked_type);
+                    known.insert(name, LoweredTopLevelBinding { kind, result_ok, checked, mutable: false, slot: true });
+                }
             }
             ArenaStmtKind::Let {
                 target,
@@ -7140,7 +6851,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         && let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
                     {
                         if module == "fs" && name == "files" {
-                            let options = lower_fs_files_args(&args_vec, true)?;
+                            let options = lower_fs_files_args(&self.checked_api_arguments(expr, &args_vec)?)?;
                             return Some(push_build_row!(
                                 self,
                                 expr,
@@ -7188,7 +6899,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             ));
                         }
                         if module == "fs" && name == "walk" {
-                            let options = lower_fs_files_args(&args_vec, false)?;
+                            let options = lower_fs_files_args(&self.checked_api_arguments(expr, &args_vec)?)?;
                             return Some(push_build_row!(
                                 self,
                                 expr,
@@ -7388,56 +7099,36 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    fn lower_env_field_method_call(
+    /// `env.PATH` methods act on the runtime environment overlay, so a view
+    /// held in a binding is evaluated only for its effects.
+    fn lower_env_path_method_call(
         &mut self,
-        base: crate::syntax::arena::ExprId,
-        _method: crate::symbol::Name,
+        call: ExprId,
+        callee: ExprId,
         args_vec: &[ArenaCallArg],
-        span: crate::source::Span,
+        span: Span,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        let base_kind = self.program.arena.expr(base).kind;
-        let (field_name, method_name) = match base_kind {
-            ArenaExprKind::Ident(module) if module == "env" => return None,
-            ArenaExprKind::Field {
-                base: inner,
-                name: method_name,
-            } => {
-                if !is_env_module_expr(&self.program.arena, inner) {
-                    return None;
-                }
-                let inner_kind = self.program.arena.expr(inner).kind;
-                let field_name = match inner_kind {
-                    ArenaExprKind::Field { name, .. } => name,
-                    _ => return None,
-                };
-                (field_name, method_name)
-            }
-            _ => return None,
+        let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind else {
+            return None;
         };
-        let positional = positional_call_args(args_vec)?;
-        let mut lowered_args = Vec::with_capacity(positional.len());
-        for arg in &positional {
-            lowered_args.push(self.lower_expr(*arg, slots, current_function, item_slot)?);
+        let plan = self.bodies.api_calls.get(&call)
+            .filter(|plan| plan.receiver == Some(crate::modules::MethodReceiver::EnvPathList))?;
+        let arguments = self.checked_api_arguments(call, args_vec)?.ordered().into_iter().collect::<Option<Vec<_>>>()?;
+        let mut bindings = Vec::new();
+        if !matches!(self.program.arena.expr(base).kind, ArenaExprKind::EnvPathList)
+            && !is_env_module_expr(&self.program.arena, base)
+        {
+            let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
+            bindings.push((receiver, slots.reserve("environment path receiver")));
         }
-        let op = match (field_name.as_str().as_str(), method_name.as_str().as_str()) {
-            ("PATH", "prepend") => RuntimeOp::EnvPathPrepend,
-            ("PATH", "append") => RuntimeOp::EnvPathAppend,
-            ("PATH", "pop") => RuntimeOp::EnvPathPop,
-            _ => return None,
-        };
-        Some(push_build_row!(
-            self,
-            expr,
-            BuildExprRow::ModuleCall {
-                cli_plan: None,
-                op,
-                args: lowered_args.into_iter().map(Some).collect(),
-                span,
-            }
-        ))
+        let args = arguments.iter()
+            .map(|argument| self.lower_expr(*argument, slots, current_function, item_slot).map(Some))
+            .collect::<Option<Vec<_>>>()?;
+        let value = push_build_row!(self, expr, BuildExprRow::ModuleCall { cli_plan: None, op: plan.sig.op, args, span });
+        Some(self.wrap_argument_bindings(value, bindings, span))
     }
 
     fn lower_env_field(
@@ -8130,7 +7821,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .and_then(|key| compact_error_family_info(self.declarations, key)).is_some()
                 || matches!(self.checked_expr_type(base), Some(Type::ErrorFamily(_)))
                 || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if slots.resolve(module).is_none() && matches!(self.checked_expr_type(base), Some(Type::Module(_))))
-                || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if api_spec().module(&module.as_str()).is_some() || self.declarations.error_families_by_name.contains_key(&module))
+                || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "Path" || api_spec().module(&module.as_str()).is_some() || self.declarations.error_families_by_name.contains_key(&module))
                 || self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace).is_some();
             if !namespace {
                 let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
@@ -8191,6 +7882,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             else { slots.postfix_receivers.remove(&expr); }
         }
         result
+    }
+
+    fn checked_path_method_arguments(&self, call: ExprId, args: &[ArenaCallArg]) -> Option<CheckedApiArguments> {
+        self.bodies.api_calls.get(&call)
+            .filter(|plan| plan.receiver == Some(crate::modules::MethodReceiver::Path))
+            .and_then(|_| self.checked_api_arguments(call, args))
+    }
+
+    fn checked_api_arguments(&self, call: ExprId, args: &[ArenaCallArg]) -> Option<CheckedApiArguments> {
+        let plan = self.bodies.api_calls.get(&call)?;
+        if plan.argument_slots.len() != args.len() { return None; }
+        let mut values = vec![None; plan.sig.params.len()];
+        for (arg, &slot) in args.iter().zip(&plan.argument_slots) {
+            if values.get_mut(slot)?.replace(compact_call_arg_expr(arg)?).is_some() { return None; }
+        }
+        Some(CheckedApiArguments { sig: plan.sig, values })
     }
 
     /// The checker's binding of a user callable call's source entries to
@@ -8380,9 +8087,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         match self.program.arena.expr(callee).kind {
             ArenaExprKind::Field { base, name } => {
-                if let Some(env_call) = self.lower_env_field_method_call(
+                if let Some(env_call) = self.lower_env_path_method_call(
+                    id,
                     callee,
-                    name,
                     &args_vec,
                     span,
                     slots,
@@ -8457,7 +8164,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }));
                     }
                     if module == "fs" && name == "children" {
-                        let options = lower_fs_list_args(&args_vec)?;
+                        let options = lower_fs_list_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8492,7 +8199,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                     if module == "fs" && name == "files" {
-                        let options = lower_fs_files_args(&args_vec, true)?;
+                        let options = lower_fs_files_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8536,7 +8243,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                     if module == "fs" && name == "walk" {
-                        let options = lower_fs_files_args(&args_vec, false)?;
+                        let options = lower_fs_files_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8587,7 +8294,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                     if module == "fs" && name == "write" {
-                        let options = lower_fs_write_args(&args_vec)?;
+                        let options = lower_fs_write_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8609,7 +8316,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                     if module == "fs" && name == "mkdir" {
-                        let options = lower_fs_mkdir_args(&args_vec)?;
+                        let options = lower_fs_mkdir_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8634,7 +8341,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                     if module == "fs" && name == "remove" {
-                        let options = lower_fs_remove_args(&args_vec)?;
+                        let options = lower_fs_remove_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8659,7 +8366,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                     if module == "archive" && name == "tar_create" {
-                        let options = lower_archive_tar_create_args(&args_vec)?;
+                        let options = lower_archive_tar_create_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8705,7 +8412,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                     if module == "process" && name == "command_argv" {
-                        let options = lower_process_command_argv_args(&args_vec)?;
+                        let options = lower_process_command_argv_args(&self.checked_api_arguments(id, &args_vec)?)?;
                         let command = LoweredProcessCommandArgv {
                             target: self.lower_expr(
                                 options.target,
@@ -8953,7 +8660,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "write" || name == "write_atomic" {
-                    let options = lower_path_write_args(&args_vec)?;
+                    let options = lower_path_write_args(&self.checked_path_method_arguments(id, &args_vec)?)?;
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -8971,7 +8678,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "mkdir" {
-                    let options = lower_path_mkdir_args(&args_vec)?;
+                    let options = lower_path_mkdir_args(&self.checked_path_method_arguments(id, &args_vec)?);
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -8991,7 +8698,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "remove"
-                    && let Some(options) = lower_path_remove_args(&args_vec)
+                    && let Some(options) = self.checked_path_method_arguments(id, &args_vec).map(|args| lower_path_remove_args(&args))
                 {
                     return Some(push_build_row!(
                         self,
@@ -9187,6 +8894,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             }
                         ));
                     }
+                }
+                // Named entries reach user functions through the checker's binding.
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
                     let qualified = self.compact_qualified_function_key(module, name);
                     if self.compact_qualified_function_available(qualified) {
                         let params = self
@@ -9439,7 +9149,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "write" || name == "write_atomic" {
-                    let options = lower_path_write_args(&args_vec)?;
+                    let options = lower_path_write_args(&self.checked_path_method_arguments(id, &args_vec)?)?;
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -9457,7 +9167,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "mkdir" {
-                    let options = lower_path_mkdir_args(&args_vec)?;
+                    let options = lower_path_mkdir_args(&self.checked_path_method_arguments(id, &args_vec)?);
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -9477,7 +9187,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 if name == "remove"
-                    && let Some(options) = lower_path_remove_args(&args_vec)
+                    && let Some(options) = self.checked_path_method_arguments(id, &args_vec).map(|args| lower_path_remove_args(&args))
                 {
                     return Some(push_build_row!(
                         self,

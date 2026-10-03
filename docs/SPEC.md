@@ -4387,7 +4387,8 @@ spans from the builder block.
 `stdout: Path`, `stderr: Path`, `stdout_append: Bool`,
 `stderr_append: Bool`, `timeout: Duration`, `cpu_max: Int`, `detach: Bool`,
 `new_session: Bool`, `ignore_hup: Bool`, and exactly one plain `run` entry. It
-captures a typed process plan without executing it. `process.command_argv`
+captures a typed process plan without executing it; a bare `process.command()`
+call without a builder block is a checker error. `process.command_argv`
 builds the same typed plan from data; its `argv` list is the full argv vector
 and must include `argv[0]`, the child program name. `argv[0]` may be a custom
 name; XSH resolves `target` as the executable and passes the remaining argv
