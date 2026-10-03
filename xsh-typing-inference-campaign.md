@@ -1,7 +1,7 @@
 # XSH typing inference: plan
 
-Status: decisions settled on 2026-10-02. Items 1, 2, 3c (first slice) and 4a
-have landed. Item 5 (test speed) runs next, then the remaining items in order.
+Status: decisions settled on 2026-10-02. Items 1, 2, 3c (first slice), 4a and
+5 have landed. The remaining items follow in order.
 Items with disjoint files may run as parallel lanes (see Orchestration).
 
 ## Where things stand
@@ -198,6 +198,15 @@ This replaces the implicit-Bool design.
     explicit returns.
 
 ### 5. Make the test suites fast enough to run routinely
+
+Status: target met. The full native suite runs in about 17 s on release
+binaries, down from 20+ minutes on debug. That comes from release builds, the
+system-report exclusion below, runner-owned process groups with a default jobs
+cap, and checker hot-path fixes (no redundant whole-program re-checks, shared
+module types, in-place constraint resolution). Optional follow-ups, if checking
+becomes the bottleneck again: copy-on-write checker scope snapshots and record
+types (estimated 1.5–2x on checking), and caching prepared modules per process
+(removes per-test `module.load` re-checks).
 
 `tests/xsh/system-report.xsh` and `dev/tests/test-system-report-check.xsh` are
 excluded in `xsht-config.ini` for the rest of the campaign. They took about 95%
