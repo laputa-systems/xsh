@@ -214,6 +214,19 @@ impl Checker {
                     }
                     return;
                 }
+                // A capitalized name that is not a known variant is almost
+                // always a mistyped variant or facet; binding it would silently
+                // match every value.
+                if name.as_str().starts_with(|first: char| first.is_ascii_uppercase()) {
+                    self.error(
+                        span,
+                        &format!(
+                            "`{name}` would bind a new name that matches anything; write `is {name}` for an error facet, `Family.{name}` for a variant, or a lowercase name to bind"
+                        ),
+                        "check.pattern-capitalized-binding",
+                    );
+                    return;
+                }
                 self.define_pattern_binding(*name, value_ty.clone(), span);
             }
             ArenaPatternKind::Type { binding, ty } => {

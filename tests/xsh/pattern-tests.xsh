@@ -430,3 +430,17 @@ if let is NotFound = dynamic_failure() { print matched }
 matched
 """
 }
+
+test test_capitalized_unknown_pattern_names_are_rejected { |ctx|
+  let rejected = test.run_script(
+    ctx,
+    """match p"missing.log".read_text() {
+  Ok(_) => print "ok"
+  Err(NotFound) => print "caught"
+}
+""",
+  )?
+  assert ! rejected.success
+  assert "check.pattern-capitalized-binding" in rejected.stderr
+  assert "is NotFound" in rejected.stderr
+}

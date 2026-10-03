@@ -871,7 +871,7 @@ Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
 | Pattern | Matches |
 |---|---|
 | `_` | anything |
-| `name` | anything, binding it (or a payload-free variant of that name) |
+| `name` | anything, binding it (or a payload-free variant of that name); a capitalized name that is no known variant is an error (`check.pattern-capitalized-binding`) rather than a binding |
 | literal | an equal value |
 | `Ok(p)`, `Err(p)`, `Variant(p, ...)` | constructors |
 | `Family.Variant { field, .. }` | an error variant, binding payload fields |
