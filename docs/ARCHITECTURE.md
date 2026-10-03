@@ -415,6 +415,10 @@ The executable frontend has stable owners rather than a migration path:
   frames before dispatch. Calls nested in projections therefore do not retain
   recursive operand evaluation on the native stack. Native argument holes and
   source order are preserved, and both dispatch paths share module tracing.
+  List, map, record, and formatted string or path literals share one operand
+  decoder (`IndexedOperands`) and accumulators (`IndexedRecordEntry::append`,
+  `IndexedFmt`). The recursive path decodes operands as it evaluates them; the
+  frame path collects them before scheduling. Both evaluate in source order.
   Selected `ExprMatch` arm chains in `eval_indexed_match_expr` advance
   iteratively. Named-argument constructor preparation can therefore bind a
   wide record without adding a native evaluator frame for each field; subject
