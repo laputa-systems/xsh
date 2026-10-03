@@ -8,9 +8,10 @@ use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
 use std::fs;
 use std::io::{IsTerminal, Write};
 use std::os::unix::ffi::OsStringExt;
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
@@ -184,6 +185,8 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         };
         !stop
     });
+    // Workers abandoned by an early stop must not outlive the runner.
+    terminate_child_groups();
     if interrupted.is_none()
         && let Some(output) = cancellation_output()
     {
@@ -279,10 +282,13 @@ fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
 }
 
 fn default_test_jobs() -> usize {
-    std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(1)
-        .clamp(1, 8)
+    default_test_jobs_for(std::thread::available_parallelism().map_or(1, usize::from))
+}
+
+/// Leave half the logical CPUs free so a default run does not saturate the
+/// machine; test subprocesses such as `test.run_script` add their own load.
+fn default_test_jobs_for(cpus: usize) -> usize {
+    (cpus / 2).clamp(1, 8)
 }
 
 fn run_test_cases_parallel<F>(
@@ -797,10 +803,15 @@ fn native_test_host(request: NativeTestRunRequest) -> Result<Value, RuntimeError
         command.stdin(Stdio::piped());
     }
 
+    // Each child leads a runner-owned process group so cancellation can stop
+    // it and every descendant that stays in its group.
+    command.process_group(0);
+
     let mut child = command.spawn().map_err(|error| {
         RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
             .with_span(request.span)
     })?;
+    let _group = ChildGroupRegistration::new(child.id() as libc::pid_t);
     if !request.stdin.is_empty()
         && let Some(mut child_stdin) = child.stdin.take()
     {
@@ -833,6 +844,109 @@ fn native_test_host(request: NativeTestRunRequest) -> Result<Value, RuntimeError
         (Arc::from("stdout_bytes"), Value::Bytes(output.stdout)),
         (Arc::from("stderr_bytes"), Value::Bytes(output.stderr)),
     ])))
+}
+
+const CHILD_GROUP_SLOTS: usize = 256;
+const CHILD_GROUP_GRACE: Duration = Duration::from_secs(1);
+const CHILD_GROUP_POLL: Duration = Duration::from_millis(10);
+/// Lets in-process evaluators observe the recorded signal and forward it to the
+/// process groups they own before the runner exits.
+const CHILD_GROUP_MIN_GRACE: Duration = Duration::from_millis(100);
+
+/// Process groups of live test subprocesses. Slots are atomics so the signal
+/// handler can read them without locking.
+static CHILD_GROUPS: [AtomicI32; CHILD_GROUP_SLOTS] =
+    [const { AtomicI32::new(0) }; CHILD_GROUP_SLOTS];
+static PREVIOUS_SIGNAL_HANDLER: AtomicUsize = AtomicUsize::new(libc::SIG_DFL);
+
+struct ChildGroupRegistration {
+    slot: Option<usize>,
+}
+
+impl ChildGroupRegistration {
+    fn new(pgid: libc::pid_t) -> Self {
+        let slot = CHILD_GROUPS.iter().position(|slot| {
+            slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        });
+        Self { slot }
+    }
+}
+
+impl Drop for ChildGroupRegistration {
+    fn drop(&mut self) {
+        if let Some(slot) = self.slot {
+            CHILD_GROUPS[slot].store(0, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Async-signal-safe: uses only `killpg` and `nanosleep`.
+fn signal_child_groups(signal: i32) -> bool {
+    let mut alive = false;
+    for slot in &CHILD_GROUPS {
+        let pgid = slot.load(Ordering::SeqCst);
+        if pgid > 0 && unsafe { libc::killpg(pgid, signal) } == 0 {
+            alive = true;
+        }
+    }
+    alive
+}
+
+/// Asks test subprocess groups to stop so `xsh` children can forward the
+/// signal to process groups they created, then kills whatever remains.
+fn stop_child_groups(signal: i32, min_grace: Duration) {
+    let mut waited = Duration::ZERO;
+    let mut alive = signal_child_groups(signal);
+    while (alive || waited < min_grace) && waited < CHILD_GROUP_GRACE {
+        let pause = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: CHILD_GROUP_POLL.as_nanos() as libc::c_long,
+        };
+        unsafe { libc::nanosleep(&pause, std::ptr::null_mut()) };
+        waited += CHILD_GROUP_POLL;
+        alive = signal_child_groups(0);
+    }
+    signal_child_groups(libc::SIGKILL);
+}
+
+fn terminate_child_groups() {
+    stop_child_groups(libc::SIGTERM, Duration::ZERO);
+}
+
+extern "C" fn handle_test_cancellation_signal(signal: i32) {
+    let previous = PREVIOUS_SIGNAL_HANDLER.load(Ordering::SeqCst);
+    if previous != libc::SIG_DFL && previous != libc::SIG_IGN {
+        let previous: extern "C" fn(i32) = unsafe { std::mem::transmute(previous) };
+        previous(signal);
+    }
+    stop_child_groups(libc::SIGTERM, CHILD_GROUP_MIN_GRACE);
+    unsafe { libc::_exit((128 + signal).clamp(1, 255)) };
+}
+
+/// Installs the `xsht test` SIGINT/SIGTERM handler. It chains to the handler
+/// already installed (which records the cancellation request), stops test
+/// subprocess groups, and exits immediately: tests run in-process, so the
+/// runner cannot wait for a busy test thread to notice cancellation.
+pub(crate) fn install_test_cancellation_signal_handlers() -> std::io::Result<()> {
+    for signal in [libc::SIGINT, libc::SIGTERM] {
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = handle_test_cancellation_signal as *const () as usize;
+        action.sa_flags = 0;
+        let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+        unsafe {
+            libc::sigemptyset(&mut action.sa_mask);
+            libc::sigaddset(&mut action.sa_mask, libc::SIGINT);
+            libc::sigaddset(&mut action.sa_mask, libc::SIGTERM);
+            if libc::sigaction(signal, &action, &mut previous) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        if previous.sa_sigaction != handle_test_cancellation_signal as *const () as usize {
+            PREVIOUS_SIGNAL_HANDLER.store(previous.sa_sigaction, Ordering::SeqCst);
+        }
+    }
+    Ok(())
 }
 
 fn native_test_error_kind(kind: NativeTestRunKind) -> &'static str {
@@ -1062,7 +1176,16 @@ fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{Duration, format_test_duration};
+    use super::{Duration, default_test_jobs_for, format_test_duration};
+
+    #[test]
+    fn default_test_jobs_leave_half_the_cpus_free() {
+        assert_eq!(default_test_jobs_for(1), 1);
+        assert_eq!(default_test_jobs_for(2), 1);
+        assert_eq!(default_test_jobs_for(8), 4);
+        assert_eq!(default_test_jobs_for(11), 5);
+        assert_eq!(default_test_jobs_for(64), 8);
+    }
 
     #[test]
     fn formats_test_durations_for_humans() {

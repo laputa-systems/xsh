@@ -190,6 +190,14 @@ exclude = docs/snippets/**/*.xsh
 Native tests capture `process.run` stdout and stderr per test by default. `xsht
 test` shows that output for failed tests; `xsht test --nocapture` shows it while
 tests run. Normal XSH execution continues to inherit child process streams.
+Without `--jobs N`, `xsht test` runs half the logical CPUs' worth of tests
+concurrently (at least 1, at most 8) so a default run leaves room for the
+subprocesses tests start; an explicit `--jobs N` wins. Each `test.run_script`,
+`test.run_xsh`, and `test.run_xsht_trace` child leads a runner-owned process
+group. On SIGINT or SIGTERM the runner sends SIGTERM to those groups, which lets
+an `xsh` child forward it to the process groups it created, waits up to one
+second, sends SIGKILL to what remains, and exits with `128 + signal`. Covered by
+`cli::test_runner_cancellation_stops_run_script_descendants`.
 `crates/xsht/src/xsht/test.rs` reports indexed-lowering failures as failed
 test files or selected test procedures, using the same source diagnostic as
 `xsht check`; preparing a native test must not panic on unsupported source.

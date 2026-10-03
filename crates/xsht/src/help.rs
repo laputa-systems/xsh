@@ -179,7 +179,7 @@ static COMMANDS: &[CommandHelp] = &[
             },
             HelpOption {
                 syntax: "-j, --jobs N",
-                description: "Run tests concurrently",
+                description: "Run N tests concurrently (default: half the CPUs)",
             },
             HelpOption {
                 syntax: "--nocapture",

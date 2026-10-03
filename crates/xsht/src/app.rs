@@ -5,11 +5,10 @@ use crate::xsht::cli::{
     refactor_scripts, trace_script,
 };
 use crate::xsht::help::{command_help as generated_command_help, root_help};
-use crate::xsht::test::{TestOptions, test_scripts};
+use crate::xsht::test::{TestOptions, install_test_cancellation_signal_handlers, test_scripts};
 use std::process::ExitCode;
 use xsh::process::{
     clear_cancellation_request, install_cancellation_signal_handlers,
-    install_immediate_cancellation_signal_handlers,
 };
 
 pub fn main() -> ExitCode {
@@ -28,18 +27,19 @@ pub fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let immediate_cancellation = args.first().is_some_and(|arg| arg == "test");
-    let _signal_guard = match if immediate_cancellation {
-        install_immediate_cancellation_signal_handlers()
-    } else {
-        install_cancellation_signal_handlers()
-    } {
+    let _signal_guard = match install_cancellation_signal_handlers() {
         Ok(guard) => guard,
         Err(error) => {
             eprintln!("xsht: failed to install signal handlers: {error}");
             return ExitCode::from(2);
         }
     };
+    if args.first().is_some_and(|arg| arg == "test")
+        && let Err(error) = install_test_cancellation_signal_handlers()
+    {
+        eprintln!("xsht: failed to install signal handlers: {error}");
+        return ExitCode::from(2);
+    }
     clear_cancellation_request();
 
     match parse_tool(args) {
