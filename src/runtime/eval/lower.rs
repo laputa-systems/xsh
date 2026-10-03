@@ -2121,7 +2121,9 @@ fn compact_collect_stmt_call_edges(
         }
         ArenaStmtKind::Assert { condition, message } => {
             compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
+            if let Some(message) = message {
+                compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
+            }
         }
         ArenaStmtKind::GuardedStmt {
             stmt, condition, ..
@@ -7006,11 +7008,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                 .or_else(|| self.lower_run_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_proc_stmt(command, slots, current_function, item_slot)),
             ArenaStmtKind::Assert { condition, message } => {
-                let span = self.program.arena.stmt(id).span;
+                let span = self.program.arena.expr(condition).span;
                 let value = self.lower_expr(condition, slots, current_function, item_slot)?;
                 self.mark_comparison_chain_assertion(value);
-                let message = self.lower_expr(message, slots, current_function, item_slot)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Assert { value, message: Some(message), span }))
+                let message = match message {
+                    Some(message) => Some(self.lower_expr(message, slots, current_function, item_slot)?),
+                    None => None,
+                };
+                Some(push_build_row!(self, stmt, BuildStmtRow::Assert { value, message, span }))
             }
             ArenaStmtKind::Expr(value) => {
                 let span = self.program.arena.stmt(id).span;

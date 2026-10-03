@@ -1024,7 +1024,7 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Assert { condition, message } => {
                 self.lint_expr(condition);
-                self.lint_expr(message);
+                if let Some(message) = message { self.lint_expr(message); }
             }
             ArenaStmtKind::GuardedStmt {
                 stmt: inner,
@@ -6314,7 +6314,7 @@ fn lazy_visit_stmt(
         }
         ArenaStmtKind::Assert { condition, message } => {
             lazy_visit_expr(arena, condition, out);
-            lazy_visit_expr(arena, message, out);
+            if let Some(message) = message { lazy_visit_expr(arena, message, out); }
         }
         ArenaStmtKind::GuardedStmt { stmt, condition, .. } => {
             lazy_visit_expr(arena, condition, out);
@@ -7523,7 +7523,7 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
         ArenaStmtKind::BooleanGuard { condition, else_block } => expr_contains_read_text_lines_call(arena, condition) || block_contains_read_text_lines_call(arena, else_block),
         ArenaStmtKind::Assert { condition, message } => {
             expr_contains_read_text_lines_call(arena, condition)
-                || expr_contains_read_text_lines_call(arena, message)
+                || message.is_some_and(|message| expr_contains_read_text_lines_call(arena, message))
         }
         ArenaStmtKind::GuardedStmt {
             stmt, condition, ..
@@ -9008,7 +9008,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaStmtKind::Assert { condition, message } => {
                 self.scan_expr(condition);
-                self.scan_expr(message);
+                if let Some(message) = message { self.scan_expr(message); }
             }
             ArenaStmtKind::GuardedStmt {
                 stmt, condition, ..
@@ -9666,7 +9666,10 @@ fn stmt_flow(
         }
         ArenaStmtKind::Assert { condition, message } => {
             expr_flow(arena, condition, terminating_call_spans).then(
-                FlowSummary::fallthrough().union(expr_flow(arena, message, terminating_call_spans).then(FlowSummary::terminating()))
+                FlowSummary::fallthrough().union(match message {
+                    Some(message) => expr_flow(arena, message, terminating_call_spans).then(FlowSummary::terminating()),
+                    None => FlowSummary::terminating(),
+                })
             )
         }
         ArenaStmtKind::GuardedStmt { stmt, .. } => {

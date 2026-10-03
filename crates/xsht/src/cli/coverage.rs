@@ -676,7 +676,9 @@ fn collect_statement(
         }
         ArenaStmtKind::Assert { condition, message } => {
             add_expr(program, sources, condition, by_source);
-            add_expr(program, sources, message, by_source);
+            if let Some(message) = message {
+                add_expr(program, sources, message, by_source);
+            }
         }
         ArenaStmtKind::GuardedStmt {
             stmt: inner,

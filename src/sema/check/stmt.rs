@@ -524,9 +524,11 @@ impl Checker {
                 if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
                     self.error(arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
                 }
-                let message_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(message), Some(&Type::Str), None);
-                if message_ty != Type::Str && !matches!(message_ty, Type::Unknown | Type::Invalid) {
-                    self.error(arena.arena.expr(message).span, "assert message requires Str", "check.assert-message");
+                if let Some(message) = message {
+                    let message_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(message), Some(&Type::Str), None);
+                    if message_ty != Type::Str && !matches!(message_ty, Type::Unknown | Type::Invalid) {
+                        self.error(arena.arena.expr(message).span, "assert message requires Str", "check.assert-message");
+                    }
                 }
                 let facts = self.infer_condition_narrowings_arena(arena, condition);
                 self.apply_narrowings(&facts.when_true);
