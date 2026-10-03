@@ -7298,6 +7298,7 @@ impl Evaluator {
                         }
                     }
                 };
+                self.check_lent_context_assignment(slots, slot, &value, span)?;
                 let current = super::super::lowered_ops::lowered_record_field_mut(
                     &mut slots[slot], Name::intern(field.as_ref()), span,
                 )?;
