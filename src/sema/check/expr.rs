@@ -504,7 +504,7 @@ impl Checker {
             }
             ArenaExprKind::Capture(block) => self.check_capture_arena(arena, source, *block, expected, expr.span),
             ArenaExprKind::Retry { delays, pattern, block } => {
-                self.check_retry_arena(arena, source, *delays, *pattern, *block, expr.span)
+                self.check_retry_arena(arena, source, *delays, *pattern, *block, expected, expr.span)
             }
             ArenaExprKind::Run(run_id) => self.check_run_expr_arena(arena, source, *run_id),
             ArenaExprKind::Spawn(form) => self.check_spawn_form_arena(arena, source, form),
@@ -1011,6 +1011,7 @@ impl Checker {
         delays: ArenaRange,
         pattern: Option<PatternId>,
         block: BlockId,
+        expected: Option<&Type>,
         span: Span,
     ) -> Type {
         let delay_ids: Vec<ExprId> = arena.arena.expr_ids(delays).collect();
@@ -1041,7 +1042,8 @@ impl Checker {
         self.push_scope();
         self.begin_error_boundary();
         self.retry_block_depth += 1;
-        let body_ty = self.check_tail_block_arena(arena, source, block, None);
+        let expected_ok = match expected { Some(Type::Result(ok, _)) => Some(ok.as_ref()), _ => None };
+        let body_ty = self.check_tail_block_arena(arena, source, block, expected_ok);
         self.retry_block_depth -= 1;
         let error_ty = self.end_error_boundary(None);
         self.pop_scope();
