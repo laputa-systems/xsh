@@ -111,11 +111,11 @@ run printf "%s\\n" ARGV run.builtin fs.ls count_bytes ?
   let output = test.run_script(ctx, source)?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == """ARGV
+  assert output.stdout == """local 7
+ARGV
 run.builtin
 fs.ls
 count_bytes
-local 7
 """
   for rejected in [
     """proc inspect(args: List[Str]) [] { let old = ARGV }

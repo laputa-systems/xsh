@@ -984,3 +984,27 @@ test test_run_capture_match_arm_bindings_keep_capture_types {
   assert run_capture_match_assignments("hi") == "hi|2|hi|failed true|hi"
   assert run_capture_propagated_method("ok")? == "ok"
 }
+
+test test_script_output_keeps_its_order_around_inheriting_children { |ctx|
+  let root = test.temp_dir(ctx, name: "output-order")?
+  let script = fp"${root}/order.xsh"
+  script.write(r"""print "a"
+run echo b
+print "c"
+let _ = run.status echo d
+eprint "e"
+run sh -c "echo f >&2"
+print "g"
+run echo h | run cat
+let child = spawn run sh -c "sleep 0.1; echo j" ?
+print "i"
+let _ = wait child ?
+let k = run.text echo k ?
+print ${k.trim()}
+""")?
+  let stdout = fp"${root}/stdout.txt"
+  let stderr = fp"${root}/stderr.txt"
+  run "xsh" $script > $stdout 2> $stderr
+  assert stdout.read_text()? == "a\nb\nc\nd\ng\nh\ni\nj\nk\n"
+  assert stderr.read_text()? == "e\nf\n"
+}

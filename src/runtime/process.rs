@@ -188,6 +188,10 @@ pub trait CancellationPolicy {
     fn check_process_group(&mut self, group: ProcessGroup) -> CancellationDecision;
 
     fn process_group_finished(&mut self, _group: ProcessGroup) {}
+
+    /// Runs before a child that shares this process's stdout or stderr starts
+    /// or is waited on, so output the caller buffered appears first.
+    fn before_shared_stdio(&mut self) {}
 }
 
 struct DefaultCancellationPolicy;
@@ -620,6 +624,7 @@ fn run_managed_with_policy(
     policy: &mut dyn CancellationPolicy,
     options: SpawnManagedOptions,
 ) -> Result<ProcessEnd, RunError> {
+    policy.before_shared_stdio();
     let mut child = match spawn_managed(invocation, options) {
         Ok(child) => child,
         Err(error) if setup_error_is_hard(&error) => return Err(error),
@@ -657,6 +662,7 @@ pub fn run_pipeline_inherit_with_policy(
     if invocations.len() == 1 {
         return run_inherit_with_policy(&invocations[0], policy);
     }
+    policy.before_shared_stdio();
 
     if invocations.iter().skip(1).any(|invocation| invocation.redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. }))) {
         return Err(RunError::new("redirection", "Bytes input is only valid on the first byte pipeline segment"));
@@ -819,6 +825,7 @@ fn run_capture_stdio(
 ) -> Result<ProcessOutput, RunError> {
     let executable = resolve_executable(invocation)?;
     let cgroup = CgroupScope::cpu_max(invocation.cpu_max, "xsh-run").map_err(map_cgroup_error)?;
+    policy.before_shared_stdio();
     let stderr = if capture_stderr {
         Stdio::piped()
     } else {
@@ -1166,6 +1173,7 @@ pub fn wait_managed(
     mode: WaitMode,
     policy: &mut dyn CancellationPolicy,
 ) -> Result<(ChildWaitOutcome, Option<Cancellation>), RunError> {
+    policy.before_shared_stdio();
     let mut cancellation = None;
     loop {
         let outcome = waitpid_managed(child, mode)?;

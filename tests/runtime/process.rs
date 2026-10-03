@@ -1079,7 +1079,7 @@ io.write_stdout_bytes(copied)?
 run ({probe}) bytes-echo < b"pipe\0\xff" | run cat
 "#, probe = xsh_string_literal(os_probe())));
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(output.stdout, b"pipe\0\xff\0");
+    assert_eq!(output.stdout, b"\0pipe\0\xff");
 }
 
 #[test]

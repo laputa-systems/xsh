@@ -107,6 +107,21 @@ pub fn run_script(options: RunOptions) -> ScriptOutput {
     }
 }
 
+/// Run one script as this process's program: buffered output is written to
+/// the process's stdout and stderr before any child that shares them runs, so
+/// script output and child output keep their order.
+pub fn run_script_with_shared_stdio(options: RunOptions) -> ScriptOutput {
+    let attempt = match try_prepare_program(&options) {
+        Ok(Ok(mut prepared)) => {
+            prepared.evaluator = prepared.evaluator.with_shared_stdio();
+            prepared.run()
+        }
+        Ok(Err(attempt)) => attempt,
+        Err(err) => return read_error_output(&options, err),
+    };
+    finish_run_attempt(&options, attempt)
+}
+
 /// Run one script with construction, controller, and explicitly spawned worker
 /// allocation phases. This exists solely for `xsh-runtime-stats`; ordinary
 /// script execution stays on [`run_script`].

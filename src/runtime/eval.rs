@@ -2876,6 +2876,9 @@ pub struct Evaluator {
     module_roots: Arc<[PathBuf]>,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+    /// Whether `stdout` and `stderr` buffer this process's own streams, so
+    /// they are written out before a child that shares those streams runs.
+    shared_stdio: bool,
     capture_process_output: bool,
     cwd: PathBuf,
     env: RuntimeEnv,
@@ -3113,6 +3116,7 @@ impl Evaluator {
             module_roots: Arc::from(Vec::new()),
             stdout: Vec::new(),
             stderr: Vec::new(),
+            shared_stdio: false,
             capture_process_output: false,
             cwd,
             env: RuntimeEnv::inherited(),
@@ -3174,6 +3178,29 @@ impl Evaluator {
 
     pub fn into_sources(self) -> SourceMap {
         Arc::try_unwrap(Arc::clone(&self.sources)).unwrap_or_else(|sources| (*sources).clone())
+    }
+
+    /// Treats buffered output as this process's stdout and stderr: it is
+    /// written out before any child that shares those streams starts or is
+    /// waited on, instead of only when the run finishes.
+    pub fn with_shared_stdio(mut self) -> Self {
+        self.shared_stdio = true;
+        self
+    }
+
+    pub(super) fn flush_shared_stdio(&mut self) {
+        use std::io::Write;
+        if !self.shared_stdio || self.capture_process_output { return; }
+        if !self.stdout.is_empty() {
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(&self.stdout);
+            let _ = stdout.flush();
+            self.stdout.clear();
+        }
+        if !self.stderr.is_empty() {
+            let _ = std::io::stderr().lock().write_all(&self.stderr);
+            self.stderr.clear();
+        }
     }
 
     pub fn with_tracing(mut self) -> Self {
@@ -3283,6 +3310,7 @@ impl Evaluator {
             module_roots: Arc::clone(&shared.module_roots),
             stdout: Vec::new(),
             stderr: Vec::new(),
+            shared_stdio: false,
             capture_process_output: false,
             cwd: shared.cwd.clone(),
             env: shared.env.clone(),
@@ -3720,6 +3748,7 @@ impl Evaluator {
 
     pub(super) fn flush_stdout_line(&mut self, line: &str) {
         use std::io::Write;
+        self.flush_shared_stdio();
 
         let mut stdout = std::io::stdout().lock();
         let _ = stdout.write_all(line.as_bytes());
@@ -3729,6 +3758,7 @@ impl Evaluator {
 
     pub(super) fn flush_stderr_line(&mut self, line: &str) {
         use std::io::Write;
+        self.flush_shared_stdio();
 
         let mut stderr = std::io::stderr().lock();
         let _ = stderr.write_all(line.as_bytes());
@@ -5596,6 +5626,10 @@ impl Evaluator {
 }
 
 impl CancellationPolicy for Evaluator {
+    fn before_shared_stdio(&mut self) {
+        self.flush_shared_stdio();
+    }
+
     fn check_process_group(&mut self, group: ProcessGroup) -> CancellationDecision {
         self.track_process_group(group);
         let snapshot = signal_snapshot();

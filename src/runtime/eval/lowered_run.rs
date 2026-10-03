@@ -7084,6 +7084,7 @@ impl Evaluator {
                     new_session: plan.new_session,
                     ignore_hup: plan.ignore_hup,
                 };
+                self.flush_shared_stdio();
                 match spawn_command(&invocation, options) {
                     Ok(started) => {
                         lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
@@ -10811,6 +10812,7 @@ impl Evaluator {
         managed_options.apply_redirections = true;
         managed_options.spawn = options;
         self.trace_spawn_start(span, &invocation, options.detach || options.new_session);
+        self.flush_shared_stdio();
         match spawn_managed(&invocation, managed_options) {
             Ok(child) => {
                 let handle = self.process_handle_value(child, span);
