@@ -121,9 +121,9 @@ script;proc:format 1200
     |> map .count
     |> sum
 
-  let max_depth = all_frames
+  let max_depth = (all_frames
     |> map .depth
-    |> max?
+    |> max)?
 
   let svg_w = 1200
   let fh = 16

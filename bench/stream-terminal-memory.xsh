@@ -11,11 +11,11 @@ proc main(...argv: List[Str]) [io, error] {
   if terminal == "count" {
     value = numbers() |> count()
   } else if terminal == "last" {
-    value = numbers() |> last()?
+    value = (numbers() |> last())?
   } else if terminal == "min" {
-    value = numbers() |> min()?
+    value = (numbers() |> min())?
   } else if terminal == "max" {
-    value = numbers() |> max()?
+    value = (numbers() |> max())?
   } else {
     abort(2)
   }

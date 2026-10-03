@@ -5,7 +5,7 @@ proc main() [env, error, io] {
     let fallback = env.get_or("XSH_BENCH_MISSING", "fallback")
     sink = sink + (fallback ?? "?").byte_len()
     match env.bool("XSH_BENCH_FLAG") {
-      Ok(flag) => sink = sink + if flag { 1 } else { 0 }
+      Ok(flag) => sink = sink + (if flag { 1 } else { 0 })
       Err(_) => sink = sink + 1
     }
 

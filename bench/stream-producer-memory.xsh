@@ -12,13 +12,13 @@ proc main(...argv: List[Str]) [io, error] {
   let mode = argv[0]
   let size = argv[1].parse_int()?
   if mode == "first" {
-    let value = numbers(size) |> first()?
+    let value = (numbers(size) |> first())?
     print f"value=${value}"
   } else if mode == "take-first" {
-    let value = numbers(size) |> take(1) |> par-map(jobs: 8) { |n| n } |> first()?
+    let value = (numbers(size) |> take(1) |> par-map(jobs: 8) { |n| n } |> first())?
     print f"value=${value}"
   } else if mode == "par-first" {
-    let value = numbers(size) |> par-map(jobs: 8) { |n| n } |> first()?
+    let value = (numbers(size) |> par-map(jobs: 8) { |n| n } |> first())?
     print f"value=${value}"
   } else if mode == "count" {
     let value = numbers(size) |> count()

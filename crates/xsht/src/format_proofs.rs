@@ -101,7 +101,7 @@ fn remove_redundant_parens(source: &str) -> String {
 #[test]
 fn needs_parens_is_exact_for_every_slot_and_form() {
     let (parents, children) = (parents(), children());
-    let (mut cases, mut required, mut redundant, mut kept) = (0, 0, 0, 0);
+    let (mut cases, mut required, mut redundant, mut kept, mut ambiguous) = (0, 0, 0, 0, 0);
     for parent in &parents {
         for child in &children {
             let hole = parent.find('H').unwrap();
@@ -119,7 +119,17 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
                     && diagnostic.labels[0].span.end() == group_end
             });
             let bare = parent.replacen('H', child, 1);
-            let removable = canonical(&bare).as_ref() == Some(&tree) && grouping(&bare).iter().all(|d| d.code.as_deref() != Some("check.mixed-logical"));
+            let same_tree = canonical(&bare).as_ref() == Some(&tree);
+            let bare_grouping = grouping(&bare);
+            let removable = same_tree && bare_grouping.iter().all(|d| !matches!(d.code.as_deref(), Some("check.mixed-logical" | "check.ambiguous-grouping")));
+            // The ambiguous-grouping fix restores exactly these parentheses.
+            if same_tree && let Some(fix) = bare_grouping.iter().find(|d| d.code.as_deref() == Some("check.ambiguous-grouping")) {
+                let hint = &fix.fix_hints[0];
+                let mut fixed = bare.clone();
+                fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+                assert_eq!(fixed, grouped, "ambiguous-grouping fix of\n{bare}");
+                ambiguous += 1;
+            }
             // A `|>` method stage is rebuilt as a call, so its spelling, not
             // its tree, decides whether a suffix joins the stage; such
             // parentheses are kept rather than judged.
@@ -132,7 +142,7 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
         }
     }
     assert_eq!((parents.len(), children.len()), (73, 65));
-    assert_eq!((cases, required, redundant, kept), (4745, 1173, 3562, 10));
+    assert_eq!((cases, required, redundant, kept, ambiguous), (4745, 1343, 3392, 10, 170));
 }
 
 struct Generator(u64);
@@ -151,7 +161,7 @@ impl Generator {
             return LEAVES[self.next(LEAVES.len())].to_string();
         }
         let operand = |generator: &mut Self| format!("({})", generator.expr(depth - 1));
-        match self.next(14) {
+        match self.next(15) {
             0..=3 => {
                 let op = OPERATORS[self.next(OPERATORS.len())];
                 format!("{} {op} {}", operand(self), operand(self))
@@ -165,7 +175,8 @@ impl Generator {
             10 => format!("{} is Int", operand(self)),
             11 => format!("if {} {{ {} }} else {{ {} }}", operand(self), operand(self), operand(self)),
             12 => format!("[{} for x in {}]", operand(self), operand(self)),
-            _ => ["run foo", "spawn f()", "b |> f(.)", "b?.f"][self.next(4)].to_string(),
+            13 => format!("match {} {{ _ => {} }}", operand(self), operand(self)),
+            _ => ["run foo", "spawn f()", "b |> f(.)", "b?.f", "b |> sort", "b |> take(1)"][self.next(6)].to_string(),
         }
     }
 }

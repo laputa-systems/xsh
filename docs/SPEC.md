@@ -688,7 +688,19 @@ intended meaning at a glance:
 - `and` mixed with `or`, or `??` mixed with `and` or `or`
   (`check.mixed-logical`): write `(a and b) or c` or
   `(flag ?? false) and ready`. Chains of one operator, such as
-  `a and b and c`, need no grouping.
+  `a and b and c`, need no grouping;
+- an `if` or `match` expression held by an operator, a prefix, `is`, a
+  suffix, `?`, `|>`, or a `spawn`/`wait` target (`check.ambiguous-grouping`):
+  write `(if a { 1 } else { 2 }) + 3` or `(match x { ... }).name`. A whole
+  initializer, argument, element, field value, arm body, or condition stays
+  bare;
+- a pipeline whose result an operator, `is`, a suffix, or `?` applies to
+  (`check.ambiguous-grouping`): write `(xs |> drop(1)).join("")`. After an
+  expression stage, a suffix or operator is part of the stage's expression,
+  and a later `|>` adds a stage, so neither is grouped.
+
+The fixes for both codes insert the parentheses
+(`xsht lint --only <code> --fix`).
 
 Parentheses are legal only where removing them would change the parse or break
 one of these grouping rules (`check.redundant-parens`, whose fix removes

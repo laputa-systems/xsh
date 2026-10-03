@@ -233,7 +233,7 @@ pure inferred_match_failure(n: Int) -> Int {
 
 pure builtin_creation_failure(n: Int) -> Int {
   let good: UInt = 1
-  return [good, n] |> min ?? 0
+  return ([good, n] |> min) ?? 0
 }
 
 pure branch_creation_failure(n: Int) -> Str {
