@@ -1131,6 +1131,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Call records describe the completed mock scope and are not a substitute for asserting the returned behavior.",
             &["test", "mock", "native-tests"],
         )),
+        ("test", "linux_fake") => Some((
+            "Replaces the `linux` module with fixed results for the rest of a native XSH test.",
+            "The fake never touches the host, logs each call as a JSON line to the `log` setting, and also covers scripts the test runs through `test.run_script` and `test.run_xsh`.",
+            &["test", "native-tests", "linux"],
+        )),
         ("test", "run_script" | "run_xsh" | "run_xsht_trace") => Some((
             "Runs a nested XSH or tracing fixture from a native test.",
             "The nested process receives explicit arguments and its status/output remain test data for assertions.",

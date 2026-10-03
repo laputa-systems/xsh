@@ -6425,13 +6425,7 @@ proc collect_network(
   pci_functions: List[report.PciFunction],
   usb_devices: List[report.UsbDevice],
 ) [fs, process, env, error] -> NetworkCollection {
-  var result: Result[LinuxNetworkDump] = Err(
-    report.SystemReportError.InvalidJson(message: "network dump was not collected"),
-  )
-  env XSH_LINUX_REAL="1" {
-    result = linux.network_dump()
-  }
-  match result {
+  match linux.network_dump() {
     Ok(value) => {
       let assembled = assemble_network_dump(value)
       link_network_device_sources(root, assembled, pci_functions, usb_devices)
@@ -6756,29 +6750,11 @@ export type SystemReportLiveCollector = module {
   export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation
 }
 
-pure is_truthy(value: Str) -> Bool {
-  value == "1" or value == "true" or value == "yes" or value == "on"
-}
-
-proc dry_run_enabled() [env] -> Bool {
-  if let Ok(value) = env.get("XSH_LINUX_DRY_RUN") {
-    is_truthy(value)
-  } else {
-    false
-  }
-}
-
 ## Collects the current process-visible Linux view and eligible local mount capacity.
 export proc collect_live(
   selected: Str = "",
   sensitive: Bool = false,
 ) [fs, process, env, time, error] -> Result[report.SystemReport] {
-  if dry_run_enabled() {
-    return Err(
-      report.SystemReportError.DryRun(message: "system-report refuses live collection while XSH Linux dry-run mode is active"),
-    )
-  }
-
   let uname = system.uname()?
   if uname.sysname != "Linux" {
     return Err(

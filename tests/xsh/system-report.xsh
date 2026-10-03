@@ -4525,17 +4525,6 @@ test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing {
   assert value.cpu.cpus[0].cache_ids == [0, 1]
 }
 
-test test_system_report_live_collection_rejects_linux_dry_run {
-  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
-  env XSH_LINUX_DRY_RUN=1 {
-    if let Err(error) = collector.collect_live() {
-      assert "dry-run mode" in error.message
-    } else {
-      test.fail("live collection accepted dry-run mode")?
-    }
-  }
-}
-
 test test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts {
   let root = fs.tempdir()?
   defer root.close()?

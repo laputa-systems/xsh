@@ -558,16 +558,29 @@ impl Checker {
             matches!(item.kind, crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup))) {
             self.error(run_span, "stdin redirection is only valid on the first byte pipeline segment", "check.pipeline-stdin");
         }
-        if is_pipeline
-            && segments
-                .iter()
-                .any(|segment| !matches!(segment.kind, RunKind::Plain | RunKind::Status))
-        {
-            self.error(
-                run_span,
-                "byte pipelines cannot use capture run forms",
-                "check.pipeline-capture",
-            );
+        if is_pipeline {
+            // The head segment chooses the form for the whole pipeline: a
+            // capture head captures the last segment's stdout, so every later
+            // segment is plain `run`.
+            let head = segments[0].kind;
+            let message = if matches!(head, RunKind::StreamText | RunKind::StreamBytes) {
+                Some("byte pipelines cannot use `run.stream`")
+            } else if matches!(head, RunKind::Plain | RunKind::Status) {
+                segments
+                    .iter()
+                    .skip(1)
+                    .any(|segment| !matches!(segment.kind, RunKind::Plain | RunKind::Status))
+                    .then_some("only the first byte pipeline segment may choose a capture form")
+            } else {
+                segments
+                    .iter()
+                    .skip(1)
+                    .any(|segment| segment.kind != RunKind::Plain)
+                    .then_some("segments after a capturing pipeline head must be plain `run`")
+            };
+            if let Some(message) = message {
+                self.error(run_span, message, "check.pipeline-capture");
+            }
         }
         if is_pipeline
             && segments

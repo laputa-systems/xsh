@@ -256,7 +256,6 @@ defer fs.remove(source, missing_ok: true)
 fs.write(source, b"abcdef")?
 fs.write(copy, b"------")?
 
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
   linux.read_device(source, dest, bytes: 3)?
   linux.write_device(copy, source)?
   test.eq(dest.read_bytes()?, b"abc")?
@@ -317,7 +316,6 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
   test.error_kind(linux.link_up("bad/interface"), "linux-link-up")?
   test.error_kind(linux.set_ipv4_address("lo", "not-an-ip", "255.255.255.0"), "linux-set-ipv4-address")?
   test.error_kind(linux.add_default_ipv4_route("not-an-ip"), "linux-add-default-ipv4-route")?
-} ?
 "#,
     );
 
@@ -335,9 +333,7 @@ fn linux_real_chroot_reports_real_error() {
         "linux-real-chroot-error",
         r#"
 let missing = fp"/tmp/xsh-missing-chroot-${process.current_pid()?}"
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
   test.error_kind(linux.chroot(missing), "linux-chroot")?
-} ?
 "#,
     );
 

@@ -122,6 +122,24 @@ pub fn run_script_with_shared_stdio(options: RunOptions) -> ScriptOutput {
     finish_run_attempt(&options, attempt)
 }
 
+/// Run one script like [`run_script_with_shared_stdio`] with the `linux`
+/// module replaced by a test fake. Only the native test harness calls this.
+#[cfg(feature = "native-tests")]
+pub fn run_script_with_linux_fake(
+    options: RunOptions,
+    fake: crate::runtime::eval::LinuxFake,
+) -> ScriptOutput {
+    let attempt = match try_prepare_program(&options) {
+        Ok(Ok(mut prepared)) => {
+            prepared.evaluator = prepared.evaluator.with_shared_stdio().with_linux_fake(fake);
+            prepared.run()
+        }
+        Ok(Err(attempt)) => attempt,
+        Err(err) => return read_error_output(&options, err),
+    };
+    finish_run_attempt(&options, attempt)
+}
+
 /// Run one script with construction, controller, and explicitly spawned worker
 /// allocation phases. This exists solely for `xsh-runtime-stats`; ordinary
 /// script execution stays on [`run_script`].

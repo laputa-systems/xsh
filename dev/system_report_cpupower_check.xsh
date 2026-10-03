@@ -285,7 +285,7 @@ export proc compare_live_cpupower(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
       cwd: /,
-      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"${scratch_path}/candidate",
       stderr: fp"${scratch_path}/candidate-error",
     ),

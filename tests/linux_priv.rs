@@ -277,12 +277,10 @@ fn linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup() {
     let source = format!(
         "\
 let target = Path({})
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
   linux.mount(\"none\", target, fstype: \"tmpfs\", options: [\"size=4m\", \"nosuid\", \"nodev\"])?
   let mounted = linux.is_mountpoint(target)?
   let usage = linux.disk_usage(target)?.collect()
   print ${{mounted}} ${{usage[0].mount == target.display()}} ${{usage[0].fstype == \"tmpfs\"}} ${{usage[0].total > 0}}
-}} ?
 ",
         xsh_string_literal(target.to_str().unwrap())
     );
@@ -345,7 +343,6 @@ fn linux_priv_mount_and_switch_root_fail_within_private_namespace() {
         "\
 let target = Path({})
 let missing_root = Path({})
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
   match linux.mount(\"none\", target, fstype: \"xsh_missing_fs\") {{
     Err(error) => test.error_kind(error, \"linux-mount\")?
     Ok(_) => test.fail(\"mount with unknown filesystem succeeded\")?
@@ -361,7 +358,6 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     Ok(_) => test.fail(\"switch_root with missing root succeeded\")?
   }}
   print \"failure paths checked\"
-}} ?
 ",
         xsh_string_literal(target.to_str().unwrap()),
         xsh_string_literal(missing_root.to_str().unwrap()),
@@ -413,10 +409,8 @@ fn linux_priv_mknod_creates_character_device_when_permitted() {
     let source = format!(
         "\
 let node = Path({})
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
   linux.mknod(node, \"char\", 1, 3)?
   print ${{node.exists()?}}
-}} ?
 ",
         xsh_string_literal(node.to_str().unwrap())
     );
@@ -450,7 +444,6 @@ fn linux_priv_loop_attach_list_and_detach_release_device() {
             "\
 let device = Path({})
 let image = Path({})
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
   test.ok(linux.loop_list()?.collect() |> any .device == device)?
   linux.loop_detach(device)?
   test.ok(! (linux.loop_list()?.collect() |> any .device == device))?
@@ -470,7 +463,6 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
   }}
   test.ok(gone)?
   print \"detached\"
-}} ?
 ",
             xsh_string_literal(device.to_str().unwrap()),
             xsh_string_literal(image.to_str().unwrap()),
@@ -556,10 +548,8 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
 
     let output = run_script(
         "\
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
   linux.kill_all(signal: \"TERM\", except_pid1: true)?
   print \"done\"
-} ?
 ",
     );
     if !output.status.success() && lacks_capability(&output) {

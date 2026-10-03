@@ -52,6 +52,8 @@ use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
 mod require;
 mod modules;
+#[cfg(feature = "native-tests")]
+pub use modules::LinuxFake;
 mod net_job;
 mod process_handle;
 mod stream;
@@ -94,6 +96,9 @@ pub struct NativeTestRunRequest {
     pub script_args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub stdin: Vec<u8>,
+    /// The fake the requesting test installed; the host runs the script
+    /// under the same fake.
+    pub linux_fake: Option<LinuxFake>,
     pub span: Span,
 }
 
@@ -2932,6 +2937,8 @@ pub struct Evaluator {
     #[cfg(feature = "native-tests")]
     pub(super) native_test_host: Option<NativeTestHost>,
     #[cfg(feature = "native-tests")]
+    pub(super) linux_fake: Option<Arc<LinuxFake>>,
+    #[cfg(feature = "native-tests")]
     test_temp_counter: u64,
 }
 
@@ -2969,6 +2976,8 @@ struct LoweredSharedState {
     env: RuntimeEnv,
     #[cfg(feature = "native-tests")]
     native_test_host: Option<NativeTestHost>,
+    #[cfg(feature = "native-tests")]
+    linux_fake: Option<Arc<LinuxFake>>,
 }
 
 #[cfg(feature = "native-tests")]
@@ -3162,6 +3171,8 @@ impl Evaluator {
             #[cfg(feature = "native-tests")]
             native_test_host: None,
             #[cfg(feature = "native-tests")]
+            linux_fake: None,
+            #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         };
         let argv = Value::List(argv.into_iter().map(|s| Value::Str(s.into())).collect());
@@ -3284,6 +3295,8 @@ impl Evaluator {
             env: self.env.clone(),
             #[cfg(feature = "native-tests")]
             native_test_host: self.native_test_host.clone(),
+            #[cfg(feature = "native-tests")]
+            linux_fake: self.linux_fake.clone(),
         })
     }
 
@@ -3315,6 +3328,8 @@ impl Evaluator {
             env: shared.env.clone(),
             #[cfg(feature = "native-tests")]
             native_test_host: shared.native_test_host.clone(),
+            #[cfg(feature = "native-tests")]
+            linux_fake: shared.linux_fake.clone(),
             interactive: false,
             interactive_command_dispatcher: None,
             last_status: None,

@@ -634,6 +634,7 @@ fn lowered_native_test_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TestTempFile
             | RuntimeOp::TestMock
             | RuntimeOp::TestCalls
+            | RuntimeOp::TestLinuxFake
             | RuntimeOp::TestRunScript
             | RuntimeOp::TestRunXsh
             | RuntimeOp::TestRunXshtTrace
@@ -836,9 +837,7 @@ fn lowered_arena_run_capture_type(
     id: crate::syntax::arena::RunFormId,
 ) -> Option<LoweredType> {
     let run = arena.run_form(id);
-    let [segment] = arena.run_segments(run.segments) else {
-        return None;
-    };
+    let segment = arena.run_segments(run.segments).first()?;
     lowered_run_capture_type(segment.kind)
 }
 
@@ -847,9 +846,7 @@ fn lowered_arena_run_status_type(
     id: crate::syntax::arena::RunFormId,
 ) -> Option<LoweredType> {
     let run = arena.run_form(id);
-    let [segment] = arena.run_segments(run.segments) else {
-        return None;
-    };
+    let segment = arena.run_segments(run.segments).first()?;
     lowered_run_status_type(segment.kind)
 }
 
@@ -5822,16 +5819,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     accept,
                 });
             }
+            // A capturing head yields a Result unwrapped by an external `Try`.
+            // A statement-position status pipeline asserts success like a lone
+            // `run`: it yields a Result the statement row propagates.
+            let capture_kind = lowered_run_capture_type(segments[0].kind).is_some();
             let pipeline = push_build_row!(
                 self,
                 expr,
                 BuildExprRow::RunPipeline {
                     segments: lowered_segments,
-                    propagate: run.propagate,
+                    propagate: !capture_kind && (run.propagate || assert_success),
                     span: self.program.arena.span(run.span),
                 }
             );
-            if run.propagate {
+            if run.propagate && (capture_kind || !assert_success) {
                 Some(push_build_row!(self, expr, BuildExprRow::Try(pipeline)))
             } else {
                 Some(pipeline)

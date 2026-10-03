@@ -256,9 +256,7 @@ impl ProcessStatus {
 
     pub fn from_segments(segments: Vec<ProcessSegmentStatus>) -> Self {
         let success = !segments.is_empty() && segments.iter().all(|segment| segment.success);
-        let summary = segments
-            .iter()
-            .find(|segment| !segment.success)
+        let summary = first_rejected(&segments, |segment| !segment.success)
             .or_else(|| segments.last());
         let (kind, code) = summary.map_or((ProcessStatusKind::Exec, None), |segment| {
             (segment.kind.into(), segment.code)
@@ -337,13 +335,59 @@ impl AcceptedExitCodes {
     }
 }
 
+impl ProcessSegmentStatus {
+    pub(crate) fn is_sigpipe(&self) -> bool {
+        self.kind == ProcessSegmentStatusKind::Signal && self.code == Some(libc::SIGPIPE)
+    }
+}
+
+/// Pipefail with the `cmd | head` exception: an upstream segment killed by
+/// `SIGPIPE` is not a failure when some later segment exited and was accepted
+/// (code 0, or a code in its own `--accept` list), because that later segment
+/// chose to stop reading.
+fn tolerate_upstream_sigpipe(segments: &mut [ProcessSegmentStatus], invocations: &[ProcessInvocation]) {
+    let downstream_accepted = |segment: &ProcessSegmentStatus| {
+        segment.kind == ProcessSegmentStatusKind::Exit
+            && invocations
+                .get(segment.index)
+                .and_then(|invocation| invocation.accepted_exit_codes)
+                .map_or(segment.code == Some(0), |policy| policy.accepts(segment))
+    };
+    for position in 0..segments.len() {
+        if segments[position].is_sigpipe()
+            && segments[position + 1..].iter().any(downstream_accepted)
+        {
+            segments[position].success = true;
+        }
+    }
+}
+
+/// The segment a pipeline failure names: the first rejected segment that was
+/// not merely killed by `SIGPIPE`, else the first rejected segment.
+fn first_rejected(
+    segments: &[ProcessSegmentStatus],
+    rejected: impl Fn(&ProcessSegmentStatus) -> bool,
+) -> Option<&ProcessSegmentStatus> {
+    segments
+        .iter()
+        .find(|segment| rejected(segment) && !segment.is_sigpipe())
+        .or_else(|| segments.iter().find(|segment| rejected(segment)))
+}
+
+pub(crate) fn failed_segment(status: &ProcessStatus) -> Option<&ProcessSegmentStatus> {
+    first_rejected(&status.segments, |segment| !segment.success)
+}
+
 pub(crate) fn rejected_segment<'a>(
     status: &'a ProcessStatus,
     policies: &[Option<AcceptedExitCodes>],
     require_zero: bool,
 ) -> Option<&'a ProcessSegmentStatus> {
     let require_zero = require_zero || policies.len() > 1 && policies.iter().any(Option::is_some);
-    status.segments.iter().find(|segment| {
+    first_rejected(&status.segments, |segment| {
+        if segment.success && segment.is_sigpipe() {
+            return false;
+        }
         policies.get(segment.index).copied().flatten()
             .map_or(require_zero && !segment.success, |policy| !policy.accepts(segment))
     })
@@ -661,12 +705,69 @@ pub fn run_pipeline_inherit_with_policy(
         return run_inherit_with_policy(&invocations[0], policy);
     }
     policy.before_shared_stdio();
+    let mut started = start_pipeline(invocations, false, None)?;
+    let cancellation = if let Some(group) = started.group {
+        let _foreground = ForegroundTerminal::take(group);
+        wait_children(
+            &mut started.children,
+            group,
+            &mut started.segment_statuses,
+            pipeline_deadline(invocations),
+            policy,
+        )?
+    } else {
+        None
+    };
+    let status = started.status(invocations);
+    if let Some(cancellation) = cancellation {
+        return Err(cancellation.error(Some(status)));
+    }
+    Ok(ProcessEnd {
+        pid: None,
+        status: Some(status),
+        error: None,
+    })
+}
 
+struct StartedPipeline {
+    children: Vec<StartedChild>,
+    segment_statuses: Vec<Option<ProcessSegmentStatus>>,
+    group: Option<ProcessGroup>,
+    /// The last segment's stdout when the pipeline captures it.
+    stdout: Option<ChildStdout>,
+    _cgroup: CgroupScope,
+}
+
+impl StartedPipeline {
+    fn status(&self, invocations: &[ProcessInvocation]) -> ProcessStatus {
+        let mut segments: Vec<_> = self.segment_statuses.iter().flatten().cloned().collect();
+        tolerate_upstream_sigpipe(&mut segments, invocations);
+        ProcessStatus::from_segments(segments)
+    }
+}
+
+fn pipeline_deadline(invocations: &[ProcessInvocation]) -> Option<Instant> {
+    invocations
+        .iter()
+        .filter_map(|invocation| invocation.timeout)
+        .min()
+        .map(|timeout| Instant::now() + timeout)
+}
+
+/// Spawns every segment into one process group, stopping at the first setup
+/// failure (recorded as that segment's status). `stderr` is a shared pipe
+/// every segment writes to, or `None` to inherit.
+fn start_pipeline(
+    invocations: &[ProcessInvocation],
+    capture_stdout: bool,
+    stderr: Option<&io::PipeWriter>,
+) -> Result<StartedPipeline, RunError> {
     if invocations.iter().skip(1).any(|invocation| invocation.redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. }))) {
         return Err(RunError::new("redirection", "Bytes input is only valid on the first byte pipeline segment"));
     }
     let mut children: Vec<StartedChild> = Vec::new();
     let mut previous_stdout: Option<ChildStdout> = None;
+    let mut last_stdout = None;
     let mut segment_statuses: Vec<Option<ProcessSegmentStatus>> = vec![None; invocations.len()];
     let mut process_group = None;
     let cgroup = CgroupScope::cpu_max(
@@ -678,6 +779,7 @@ pub fn run_pipeline_inherit_with_policy(
     .map_err(map_cgroup_error)?;
 
     for (index, invocation) in invocations.iter().enumerate() {
+        let last = index + 1 == invocations.len();
         let executable = match resolve_executable(invocation) {
             Ok(executable) => executable,
             Err(error) => {
@@ -695,10 +797,14 @@ pub fn run_pipeline_inherit_with_policy(
         } else {
             Stdio::null()
         };
-        let stdout = if index + 1 == invocations.len() {
+        let stdout = if last && !capture_stdout {
             Stdio::inherit()
         } else {
             Stdio::piped()
+        };
+        let stderr_stdio = match stderr {
+            Some(writer) => Stdio::from(writer.try_clone().map_err(map_spawn_error)?),
+            None => Stdio::inherit(),
         };
 
         let group_config = process_group
@@ -709,7 +815,7 @@ pub fn run_pipeline_inherit_with_policy(
             executable,
             stdin,
             stdout,
-            Stdio::inherit(),
+            stderr_stdio,
             group_config,
         )?;
         match command.spawn() {
@@ -729,11 +835,11 @@ pub fn run_pipeline_inherit_with_policy(
                     return Err(map_cgroup_error(error));
                 }
                 let pid = Some(child.id());
-                previous_stdout = if index + 1 == invocations.len() {
-                    None
+                if last {
+                    last_stdout = child.stdout.take();
                 } else {
-                    child.stdout.take()
-                };
+                    previous_stdout = child.stdout.take();
+                }
                 let input = match InputDelivery::start(&mut child, invocation, group) {
                     Ok(input) => input,
                     Err(error) => { group.kill(); for started in &mut children { let _ = started.child.wait(); } return Err(error); }
@@ -762,33 +868,134 @@ pub fn run_pipeline_inherit_with_policy(
     }
 
     drop(previous_stdout);
-    let cancellation = if let Some(group) = process_group {
-        let _foreground = ForegroundTerminal::take(group);
-        let deadline = invocations
-            .iter()
-            .filter_map(|invocation| invocation.timeout)
-            .min()
-            .map(|timeout| Instant::now() + timeout);
-        wait_children(
-            &mut children,
-            group,
-            &mut segment_statuses,
-            deadline,
-            policy,
-        )?
-    } else {
-        None
-    };
+    Ok(StartedPipeline {
+        children,
+        segment_statuses,
+        group: process_group,
+        stdout: last_stdout,
+        _cgroup: cgroup,
+    })
+}
 
-    let segments = segment_statuses.into_iter().flatten().collect();
-    let status = ProcessStatus::from_segments(segments);
+/// Runs a byte pipeline capturing the last segment's stdout and, when
+/// `capture_stderr` is set, every segment's stderr into one buffer. Each
+/// buffer has the single-command capture limit.
+pub fn run_pipeline_capture_with_policy(
+    invocations: &[ProcessInvocation],
+    capture_stderr: bool,
+    policy: &mut dyn CancellationPolicy,
+) -> Result<ProcessOutput, RunError> {
+    policy.before_shared_stdio();
+    let (stderr_reader, stderr_writer) = if capture_stderr {
+        let (reader, writer) = io::pipe().map_err(map_spawn_error)?;
+        (Some(reader), Some(writer))
+    } else {
+        (None, None)
+    };
+    let mut started = start_pipeline(invocations, true, stderr_writer.as_ref())?;
+    drop(stderr_writer);
+    let stdout = started.stdout.take();
+    let stdout_fd = stdout.as_ref().map(AsRawFd::as_raw_fd);
+    let stderr_fd = stderr_reader.as_ref().map(AsRawFd::as_raw_fd);
+    if let Some(stdout) = stdout.as_ref() {
+        set_nonblocking(stdout.as_fd())?;
+    }
+    if let Some(stderr) = stderr_reader.as_ref() {
+        set_nonblocking(stderr.as_fd())?;
+    }
+    let mut captured_stdout = Vec::new();
+    let mut captured_stderr = Vec::new();
+    let mut cancellation = None;
+    let mut capture_limit_hit = false;
+    let mut buf = [0u8; 8192];
+    if let Some(group) = started.group {
+        let _foreground = ForegroundTerminal::take(group);
+        let deadline = pipeline_deadline(invocations);
+        loop {
+            let mut remaining = 0;
+            for child in &mut started.children {
+                if started.segment_statuses[child.index].is_some() {
+                    continue;
+                }
+                if let Err(error) = feed_input(&mut child.input) {
+                    group.kill();
+                    for child in &mut started.children { let _ = child.child.wait(); }
+                    return Err(error);
+                }
+                match child.child.try_wait().map_err(map_wait_error)? {
+                    Some(status) => {
+                        child.input = None;
+                        started.segment_statuses[child.index] = Some(process_segment_status(
+                            status,
+                            child.index,
+                            &child.target,
+                            child.pid,
+                        ));
+                    }
+                    None => remaining += 1,
+                }
+            }
+            if let Some(fd) = stdout_fd {
+                drain_capture_fd(fd, &mut captured_stdout, &mut capture_limit_hit, group, &mut buf);
+            }
+            if let Some(fd) = stderr_fd {
+                drain_capture_fd(fd, &mut captured_stderr, &mut capture_limit_hit, group, &mut buf);
+            }
+            if remaining == 0 {
+                break;
+            }
+            if timeout_elapsed(deadline) {
+                group.kill();
+                for child in &mut started.children {
+                    if started.segment_statuses[child.index].is_none() {
+                        let status = child.child.wait().map_err(map_wait_error)?;
+                        started.segment_statuses[child.index] = Some(process_segment_status(
+                            status,
+                            child.index,
+                            &child.target,
+                            child.pid,
+                        ));
+                    }
+                }
+                let status = started.status(invocations);
+                return Err(RunError::new("timeout", "process pipeline timed out").with_status(status));
+            }
+            if !capture_limit_hit {
+                check_cancellation(group, &mut cancellation, policy);
+            }
+            let mut pollfds = Vec::new();
+            for fd in [stdout_fd, stderr_fd].into_iter().flatten() {
+                let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+                pollfds.push(revent::PollFd::from_borrowed_fd(fd, revent::PollFlags::IN));
+            }
+            let timeout = revent::Timespec::try_from(WAIT_POLL).expect("WAIT_POLL fits Timespec");
+            let _ = revent::poll(&mut pollfds, Some(&timeout));
+        }
+        policy.process_group_finished(group);
+    }
+    let status = started.status(invocations);
+    if capture_limit_hit && cancellation.is_none() {
+        return Err(RunError::new(
+            "capture-limit",
+            "captured pipeline output exceeded the capture limit",
+        )
+        .with_status(status));
+    }
     if let Some(cancellation) = cancellation {
         return Err(cancellation.error(Some(status)));
     }
-    Ok(ProcessEnd {
-        pid: None,
-        status: Some(status),
-        error: None,
+    let policies = invocations.iter().map(|invocation| invocation.accepted_exit_codes).collect::<Vec<_>>();
+    if let Some(error) = completion_error(&status, &policies, false) {
+        return Err(error);
+    }
+    Ok(ProcessOutput {
+        end: ProcessEnd {
+            pid: None,
+            status: Some(status),
+            error: None,
+        },
+        stdout: captured_stdout,
+        stderr: captured_stderr,
     })
 }
 

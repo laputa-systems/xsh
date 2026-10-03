@@ -471,7 +471,7 @@ export proc compare_live_lsusb(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
       cwd: /,
-      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"${scratch_path}/candidate",
       stderr: fp"${scratch_path}/candidate-error",
     ),

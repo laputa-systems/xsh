@@ -29,6 +29,8 @@ pub(super) mod crypt;
 mod fs;
 #[path = "modules/linux.rs"]
 mod linux_eval;
+#[cfg(feature = "native-tests")]
+pub use linux_eval::LinuxFake;
 #[path = "modules/net.rs"]
 mod net_eval;
 mod process;

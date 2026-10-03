@@ -970,13 +970,9 @@ fn linux_text_entries_answer_from_the_host() {
         ),
     );
 
-    // `linux.meminfo` and `linux.modules` read the host only under the real
-    // gate; the dry-run gate is a separate entry the corpus covers.
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(&script)
         .current_dir(&dir)
-        .env("XSH_LINUX_REAL", "1")
-        .env_remove("XSH_LINUX_DRY_RUN")
         .output()
         .expect("run the embedded-entry fixture");
     assert_eq!(
@@ -1043,8 +1039,6 @@ fn os_release_entry_reads_the_fixed_paths() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(&script)
         .current_dir(&dir)
-        .env("XSH_LINUX_REAL", "1")
-        .env_remove("XSH_LINUX_DRY_RUN")
         .output()
         .expect("run the fixed-path release fixture");
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();

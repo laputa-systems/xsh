@@ -1442,9 +1442,19 @@ run (
 ### 11.2 Success and failure
 
 Plain `run` in statement position, and every byte pipeline in statement
-position, fails with `ProcessError` on a nonzero exit, a signal death, a setup
-failure, or a failed pipeline segment. In value position plain `run` and
-`run.status` yield the `Status` as data. `run.text`, `run.bytes`, and
+position whose first segment is plain `run`, fails with `ProcessError` on a
+nonzero exit, a signal death, a setup failure, or a failed pipeline segment.
+A pipeline is pipefail: every started segment runs to completion and is
+reaped, and the error is `PipelineFailure` naming the failing segment's index
+and target. One exception keeps `cmd | head` usable: a segment killed by
+`SIGPIPE` is not a failure when a later segment exited with an accepted code
+(`0`, or a code in its own `--accept` list); its `Status` segment still reports
+the signal. When several segments fail, the error names the first that was not
+killed by `SIGPIPE`. In value position plain `run` and `run.status` yield the
+`Status` as data, for a pipeline too: `status.success` is false when any
+segment failed under the same rule, and `status.segments` holds each segment.
+A pipeline whose first segment is `run.status` discards the status in
+statement position. `run.text`, `run.bytes`, and
 `run.stream` fail on an unsuccessful exit. `run.capture` returns `Ok(record)`
 even for a nonzero exit, and fails only on setup, timeout, cancellation,
 capture-limit, and decoding errors.
@@ -1519,6 +1529,25 @@ run CC=cc CFLAGS="-O2 -pipe" ./configure --prefix=/usr
 ```
 
 Byte pipelines connect stdout to stdin; each segment must be its own `run`.
+The first segment's form chooses the form of the whole pipeline. Only the first
+segment may name a form other than plain `run` or `run.status`. A
+`run.text`, `run.bytes`, or `run.capture` head captures the last segment's
+stdout, and every later segment must be plain `run`:
+
+```xsh
+let head = run.text git log --oneline | run head -n 5 ?
+let report = run.capture --text make check | run tee $log ?
+```
+
+A capturing pipeline fails under the same pipefail rule as a statement
+pipeline (§11.2), naming the failing segment, except that `run.capture` returns
+its record for a completed pipeline and reports the failure in `status`.
+`run.text` and `run.bytes` inherit stderr for every segment. `run.capture`
+captures every segment's stderr into one `stderr` buffer, interleaved in
+arrival order. Each captured buffer has the §11.5 limit, and exceeding it
+terminates the whole pipeline with `CaptureLimit`. `run.stream` cannot head a
+pipeline. A pipeline that breaks these form rules is a check-time error
+(`check.pipeline-capture`).
 Redirection targets are typed path values or non-negative file descriptors
 (`>& 2`). `>`/`2>` truncate and `>>`/`2>>` append. Stdin `<` also accepts
 `Bytes`, sent exactly with no temporary file (empty bytes closes stdin at
@@ -1907,6 +1936,12 @@ Contracts worth knowing without consulting the reference:
 - `time` has no civil-time formatter; run `date` for locale-aware output.
 - Regex syntax is the common Rust regex surface without Unicode property
   classes. Match offsets are byte offsets.
+- `linux` entries act on the host as soon as they are called, including
+  destructive ones (`halt`, `reboot`, `mount`, `insmod`, link and address
+  changes, `write_partition_table`). There is no environment gate or dry-run
+  switch; the `process` effect is what makes these calls explicit. On other
+  platforms every entry fails with `linux-unsupported`. Native tests use
+  `test.linux_fake` (§17) instead of the host.
 
 ### 15.1 `template`
 
@@ -2071,6 +2106,16 @@ output), and mocks for `dns.*` and `net.*` operations matched by partial
 argument records. When an operation has mocks and none matches, the call
 fails with an unmatched-mock error; operations without mocks use the real
 host.
+
+`test.linux_fake(ctx, settings)` replaces the `linux` module with a fixed
+double for the rest of the test and for scripts the test runs through
+`test.run_script` and `test.run_xsh` (not `test.run_xsht_trace`). The fake
+never touches the host: every entry returns fixed data, and each call appends a
+JSON line naming its operation and arguments to the `log` setting. The other
+settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
+`hwclock_epoch_ms`) choose the values some queries report; unknown settings
+fail with `test-linux-fake`. Only the test harness can install the fake: no
+environment variable or `xsh` option enables it.
 
 ## 18. Not In XSH
 

@@ -17,8 +17,7 @@ subprocesses, and emits one typed snapshot as text or JSON v1.
 
 `collect_from_root` reads an explicit source root (fixtures, captured views)
 and skips local mount-capacity queries unless `include_local_mount_usage` is
-set. `collect_live` rejects Linux dry-run mode and reads the process-visible
-view. `--from FILE` validates a saved v1 report and renders it without
+set. `collect_live` reads the process-visible view. `--from FILE` validates a saved v1 report and renders it without
 collecting. Valid partial reports exit 0 with section states and collection
 issues; usage errors, invalid replay input, and non-Linux live collection map to
 `SystemReportCliError.Usage`, `InvalidInput`, and `Unsupported`; other
