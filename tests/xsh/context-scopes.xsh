@@ -336,6 +336,60 @@ for item in translated() { print "escaped" }
   }
 }
 
+test test_scope_rejects_dynamic_escapes_through_fields_and_nested_bodies { |ctx|
+  # Any hides the live cause from the checker, so the runtime owns these.
+  let declarations = r"""error Inner = Failed(resource: Stream[Int])
+error Outer = Failed(message: Str)
+stream rows() [] -> Stream[Int] { yield 1 }
+type Holder = {item: Any}
+var holder: Holder = {item: null}
+var escaped: Any = null
+let ignored = env ({X: "inner"}) {
+  let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
+  let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+"""
+  for escape in [
+    "holder.item = attached",
+    "let seen = [1] |> tee { |n| escaped = attached }",
+    "let seen = [1] |> tee { |n| holder.item = attached }",
+    "let retried = retry [] { escaped = attached; true }",
+    "let retried = retry [] { let n = { holder.item = attached; 1 }; true }",
+    "let seen = [1] |> tee { |n| let retried = retry [] { escaped = attached; true } }",
+  ] {
+    let output = test.run_script(ctx, declarations + "  " + escape + "\n  7\n}\nprint \"escaped\"\n")?
+    let {status, stderr, stdout} = output
+    assert status == 3, f"${escape}: ${stderr}"
+    assert "context-scope-escape" in stderr, f"${escape}: ${stderr}"
+    assert stdout == "", escape
+  }
+}
+
+test test_scope_nested_bodies_may_assign_live_values_to_scope_locals { |ctx|
+  let output = test.run_script(ctx, r"""error Inner = Failed(resource: Stream[Int])
+error Outer = Failed(message: Str)
+stream rows() [] -> Stream[Int] { yield 1 }
+type Holder = {item: Any}
+var outer = 0
+let count = env ({X: "inner"}) {
+  let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
+  let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+  var local: Any = null
+  var holder: Holder = {item: null}
+  let seen = [1, 2] |> tee { |n|
+    local = attached
+    holder.item = attached
+    outer = outer + n
+  }
+  let retried = retry [] { local = attached; holder.item = attached; true }
+  outer
+}?
+print f"${count} ${outer}"
+""")?
+  let {success, stderr, stdout} = output
+  assert success, stderr
+  assert stdout == "3 3\n"
+}
+
 test test_scope_rejects_producers_hidden_in_process_error_causes { |ctx|
   let output = test.run_script(ctx, r"""error Inner = Failed(resource: Stream[Int])
 stream rows() [] -> Stream[Int] { yield 1 }

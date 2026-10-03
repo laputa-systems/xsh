@@ -2910,6 +2910,9 @@ pub struct Evaluator {
     signal_state: EvaluatorSignalState,
     /// The frame engine's reusable scratch vectors.
     frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
+    /// Set while a context-scoped frame lends its slots to the recursive
+    /// evaluator, so nested bodies keep the outer-assignment escape rule.
+    lent_context_slots: Option<crate::runtime::eval::lowered_run::indexed_run::explicit_run::LentContextSlots>,
     /// Producers that have been created and not yet finished or stopped.
     ///
     /// A producer's body runs only while something is consuming it, so the
@@ -3145,6 +3148,7 @@ impl Evaluator {
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
+            lent_context_slots: None,
             script_producers: Vec::new(),
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
@@ -3316,6 +3320,7 @@ impl Evaluator {
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
+            lent_context_slots: None,
             script_producers: Vec::new(),
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]

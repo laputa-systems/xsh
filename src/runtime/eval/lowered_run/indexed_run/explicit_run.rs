@@ -432,7 +432,20 @@ pub(super) enum FrameOwner {
     Function(LoweredFunctionKey, LoweredFunctionKind),
     /// A top-level statement does not own a scope: it runs in the script's.
     /// Slots the block has not declared belong to `outer_scope`.
-    Block { owns_scope: bool, outer_scope: u64 },
+    /// `context_depth` is set when a frame inside a context scope lent the
+    /// slots: see `LentContextSlots`.
+    Block { owns_scope: bool, outer_scope: u64, context_depth: Option<usize> },
+}
+
+/// Slot ownership a frame inside a context scope lends to the recursive
+/// evaluator, which runs nested bodies (stage blocks, retry bodies) and field
+/// assignments on the same slots in frames of their own. Scopes at or above
+/// `depth` on the evaluator's scope stack belong to the context body, so a live
+/// value may be stored only in a slot one of those scopes owns.
+pub(in crate::runtime::eval) struct LentContextSlots {
+    slots: usize,
+    depth: usize,
+    scopes: Vec<u64>,
 }
 
 /// A function frame owns its slots. A block frame borrows the recursive
@@ -583,6 +596,26 @@ impl Evaluator {
         })
     }
 
+    /// Rejects a live value stored in a slot whose owner scope is below the
+    /// context body's `depth` on the scope stack. Owners no longer on the
+    /// stack belong to finished bodies and are not outer bindings.
+    fn check_context_slot_owner(&self, owner: u64, depth: usize, span: Span) -> Result<(), RuntimeError> {
+        match self.scope_ids.iter().rposition(|scope| *scope == owner) {
+            Some(position) if position < depth => Err(context_assignment_escape(span)),
+            _ => Ok(()),
+        }
+    }
+
+    /// The context check for an assignment the recursive evaluator performs
+    /// on slots a context-scoped frame lent it.
+    pub(super) fn check_lent_context_assignment(&self, slots: &[LoweredValue], slot: usize, value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        match &self.lent_context_slots {
+            Some(lent) if lent.slots == slots.as_ptr() as usize && Self::context_scope_value_escapes(value) =>
+                self.check_context_slot_owner(lent.scopes[slot], lent.depth, span),
+            _ => Ok(()),
+        }
+    }
+
     /// Statements have one implementation, on the frames, whoever runs them.
     fn eval_indexed_work_with_frames(
         &mut self,
@@ -597,12 +630,15 @@ impl Evaluator {
         };
         let outer_scope = self.current_scope_id();
         let scope_id = if owns_scope { self.enter_owned_host_scope() } else { outer_scope };
-        let slot_scopes = self.frame_scratch.take_slot_scopes(0, outer_scope);
+        let (slot_scopes, context_depth) = match &self.lent_context_slots {
+            Some(lent) if lent.slots == slots.as_ptr() as usize => (lent.scopes.clone(), Some(lent.depth)),
+            _ => (self.frame_scratch.take_slot_scopes(0, outer_scope), None),
+        };
         let mut work = self.frame_scratch.take_work();
         work.push(first);
         let mut frames = ExplicitFrames::new(self, &program);
         frames.calls.push(CallFrame {
-            owner: FrameOwner::Block { owns_scope, outer_scope },
+            owner: FrameOwner::Block { owns_scope, outer_scope, context_depth },
             producer: false,
             scope_id,
             execution: execution.thread_local(),
@@ -620,6 +656,10 @@ impl Evaluator {
         let flow = frames.block_flow.take();
         result.map(|_| flow.expect("a finished block frame reports its flow"))
     }
+}
+
+fn context_assignment_escape(span: Span) -> RuntimeError {
+    RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape through an outer assignment").with_span(span)
 }
 
 /// The slot a receiver instruction reads, when it reads exactly one.
@@ -1165,6 +1205,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         self.push_call(function, kind, values, span, Some(next))
+    }
+
+    /// Walks a named call's arguments from `argument`, filling the arguments it
+    /// omits from the callee's prepared defaults, then resolves the call.
+    fn push_static_arguments(&mut self, index: usize, function: LoweredFunctionKey, kind: LoweredFunctionKind, args: Vec<(u32, u32)>, mut argument: usize, mut values: Vec<LoweredValue>, span: Span, next: FrameContinuation) -> Result<(), RuntimeError> {
+        while let Some((arg_kind, instruction)) = args.get(argument).copied() {
+            if arg_kind == 2 {
+                values.push(self.evaluator.indexed_argument_default_for(function, kind, instruction as usize, span)?);
+                argument += 1;
+            } else {
+                self.push_expr(index, instruction, span, FrameContinuation::CallArguments { function, kind, args, index: argument, values, span, next: Box::new(next) });
+                return Ok(());
+            }
+        }
+        self.evaluator.frame_scratch.recycle_call_args(args);
+        self.push_resolved_call(index, function, kind, values, span, next)
     }
 
     fn push_dynamic_arguments(&mut self, index: usize, callee: LoweredValue, args: Vec<(u32, u32)>, mut argument: usize, mut values: Vec<LoweredValue>, span: Span, next: FrameContinuation) -> Result<(), RuntimeError> {
@@ -1841,10 +1897,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             _ => {
-                let flow = {
-                    let call = &mut self.calls[index];
-                    self.evaluator.eval_indexed_stmt(&call.execution, instruction, &mut call.slots, span)?
-                };
+                let flow = self.with_lent_context(index, |evaluator, execution, slots|
+                    evaluator.eval_indexed_stmt(execution, instruction, slots, span))?;
                 match flow {
                     StmtFlow::None => Ok(()),
                     StmtFlow::Value(value) => self.complete_expression_value(index, value),
@@ -2233,40 +2287,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                if let Some((_, value)) = args.first().copied() {
-                    self.push_expr(
-                        index,
-                        value,
-                        value_span,
-                        FrameContinuation::CallArguments {
-                            function,
-                            kind,
-                            args,
-                            index: 0,
-                            values: Vec::new(),
-                            span: value_span,
-                            next: Box::new(next),
-                        },
-                    );
-                } else {
-                    // A zero-argument call has no argument list to walk, so it
-                    // reaches the call decision here instead of through
-                    // `FrameContinuation::CallArguments`. Both paths resolve
-                    // the callee the same way.
-                    self.evaluator.frame_scratch.recycle_call_args(args);
-                    self.push_resolved_call(index, function, kind, Vec::new(), value_span, next)?;
-                }
+                self.push_static_arguments(index, function, kind, args, 0, Vec::new(), value_span, next)?;
             }
             _ => {
-                let flow = {
-                    let call = &mut self.calls[index];
-                    self.evaluator.eval_indexed_expr(
-                        &call.execution,
-                        instruction,
-                        &mut call.slots,
-                        span,
-                    )?
-                };
+                let flow = self.with_lent_context(index, |evaluator, execution, slots|
+                    evaluator.eval_indexed_expr(execution, instruction, slots, span))?;
                 let value = match flow {
                     ControlFlow::Continue(value) => FrameValue::Value(value),
                     ControlFlow::Break(value) => FrameValue::Break(value),
@@ -2837,26 +2862,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     append_call_argument(&mut values, args[argument].0, value, span)?;
-                    let next_index = argument + 1;
-                    if let Some((_, instruction)) = args.get(next_index).copied() {
-                        self.push_expr(
-                            index,
-                            instruction,
-                            span,
-                            FrameContinuation::CallArguments {
-                                function,
-                                kind,
-                                args,
-                                index: next_index,
-                                values,
-                                span,
-                                next,
-                            },
-                        );
-                    } else {
-                        self.evaluator.frame_scratch.recycle_call_args(args);
-                        self.push_resolved_call(index, function, kind, values, span, *next)?;
-                    }
+                    self.push_static_arguments(index, function, kind, args, argument + 1, values, span, *next)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -3217,12 +3223,58 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn check_context_assignment(&self, index: usize, slot: usize, value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
         if !Evaluator::context_scope_value_escapes(value) { return Ok(()); }
-        let Some(boundary) = self.calls[index].work.iter().rposition(|work| matches!(work,
-            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })) else { return Ok(()); };
-        let owner = self.calls[index].slot_scope(slot);
-        if self.calls[index].work[boundary + 1..].iter().any(|work| matches!(work,
+        let call = &self.calls[index];
+        let owner = call.slot_scope(slot);
+        let Some(boundary) = call.work.iter().rposition(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })) else {
+            return match call.owner {
+                FrameOwner::Block { context_depth: Some(depth), .. } => self.evaluator.check_context_slot_owner(owner, depth, span),
+                _ => Ok(()),
+            };
+        };
+        if call.work[boundary + 1..].iter().any(|work| matches!(work,
             FrameWork::Statements { scope_id: Some(scope), .. } if *scope == owner)) { return Ok(()); }
-        Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape through an outer assignment").with_span(span))
+        Err(context_assignment_escape(span))
+    }
+
+    /// The slot ownership a delegated evaluation needs when this frame is
+    /// inside a context scope, whether its own or the one that lent its slots.
+    fn lent_context_slots(&self, index: usize) -> Option<LentContextSlots> {
+        let call = &self.calls[index];
+        let depth = match call.work.iter().rposition(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })) {
+            Some(boundary) => {
+                let scope_ids = &self.evaluator.scope_ids;
+                call.work[boundary + 1..].iter().find_map(|work| match work {
+                    FrameWork::Statements { scope_id: Some(scope), .. } => scope_ids.iter().rposition(|id| id == scope),
+                    _ => None,
+                }).unwrap_or(scope_ids.len())
+            }
+            None => match call.owner {
+                FrameOwner::Block { context_depth: Some(depth), .. } => depth,
+                _ => return None,
+            },
+        };
+        Some(LentContextSlots {
+            slots: call.slots.as_ptr() as usize,
+            depth,
+            scopes: (0..call.slots.len()).map(|slot| call.slot_scope(slot)).collect(),
+        })
+    }
+
+    /// Runs `delegate` on the recursive evaluator with this frame's slots,
+    /// lending it the frame's context-scope slot ownership.
+    fn with_lent_context<T>(
+        &mut self,
+        index: usize,
+        delegate: impl FnOnce(&mut Evaluator, &FullExecution<'p>, &mut [LoweredValue]) -> T,
+    ) -> T {
+        let lent = self.lent_context_slots(index);
+        let previous = lent.is_some().then(|| std::mem::replace(&mut self.evaluator.lent_context_slots, lent));
+        let call = &mut self.calls[index];
+        let result = delegate(self.evaluator, &call.execution, &mut call.slots);
+        if let Some(previous) = previous { self.evaluator.lent_context_slots = previous; }
+        result
     }
 
     /// Records a slot declared in the current scope.

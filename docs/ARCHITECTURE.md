@@ -421,6 +421,10 @@ The executable frontend has stable owners rather than a migration path:
   error-context blocks, and `cd`/`env` context scopes are likewise frame-only:
   the recursive evaluator hands them to `eval_indexed_expr_with_frames`, so a
   context scope's escape checks see its boundary on the same work stack.
+  A frame inside a context scope that delegates to the recursive evaluator
+  lends its slot owners and the body's scope-stack depth (`LentContextSlots`),
+  so field assignments and the block frames of stage and retry bodies apply
+  the same outer-assignment rule to the lent slots.
   Calls reached by the recursive evaluator evaluate their operands there and
   run the callee on the frames; both paths share `append_call_argument`. A block frame is entered once
   per stage item, so its entry and exit avoid moving the frame: statement lists
