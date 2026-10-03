@@ -103,6 +103,12 @@ use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 const INDEXED_EVAL_DEPTH_LIMIT: usize = 2048;
 const INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT: usize = 128;
+/// Native stack bytes the recursive call route may consume below the outermost
+/// recursive call before calls move to the heap-backed frames. A call count
+/// alone does not bound it: one recursive level costs over 100 KiB of native
+/// stack in an optimized build, where `eval_indexed_expr_inner` inlines most
+/// instruction arms into a single frame.
+const INDEXED_RECURSIVE_STACK_BUDGET: usize = 2 * 1024 * 1024;
 
 fn indexed_eval_depth_limit() -> usize {
     if cfg!(feature = "native-tests") && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
@@ -224,6 +230,8 @@ impl Evaluator {
 
 thread_local! {
     static INDEXED_EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
+    /// Native stack address of the outermost recursive call on this thread.
+    static INDEXED_EVAL_STACK_ANCHOR: Cell<usize> = const { Cell::new(0) };
     static INDEXED_EXPLICIT_FRAMES: Cell<bool> = const { Cell::new(false) };
     #[cfg(test)]
     static FORCE_RECURSIVE_FAST_PATH: Cell<bool> = const { Cell::new(false) };
@@ -243,7 +251,20 @@ pub(super) fn indexed_recursive_fast_path_allowed(return_kind: LoweredReturnKind
         return false;
     }
     !indexed_explicit_frames_active()
-        && INDEXED_EVAL_DEPTH.with(|depth| depth.get() < (indexed_eval_depth_limit() / 16).max(1))
+        && INDEXED_EVAL_DEPTH.with(|depth| {
+            let depth = depth.get();
+            depth == 0
+                || (depth < (indexed_eval_depth_limit() / 16).max(1)
+                    && INDEXED_EVAL_STACK_ANCHOR.with(Cell::get).abs_diff(native_stack_address())
+                        < INDEXED_RECURSIVE_STACK_BUDGET)
+        })
+}
+
+/// An address in the caller's native stack frame.
+#[inline(never)]
+fn native_stack_address() -> usize {
+    let marker = 0u8;
+    std::hint::black_box(&marker) as *const u8 as usize
 }
 
 /// Whether a test has forced the shallow recursive call route on.
@@ -307,6 +328,9 @@ fn with_indexed_eval_depth<R>(
                 "indexed evaluation exceeded the stack-depth limit",
             )
             .with_span(span));
+        }
+        if current == 0 {
+            INDEXED_EVAL_STACK_ANCHOR.with(|anchor| anchor.set(native_stack_address()));
         }
         depth.set(current + 1);
         let _reset = EvalDepthReset {

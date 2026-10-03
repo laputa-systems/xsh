@@ -10143,6 +10143,28 @@ pure pipeline(values: List[Int]) -> List[Int] {
         assert!(frames.2.is_empty());
     }
 
+    /// The recursive route hands calls to the heap frames once it has used its
+    /// native stack budget, whatever the call count. An optimized build spends
+    /// over 100 KiB of native stack per recursive level, so the count guard
+    /// alone overflowed a release evaluator thread long before it tripped.
+    #[test]
+    fn recursive_call_route_is_bounded_by_native_stack_use() {
+        use crate::runtime::eval::lowered_run as route;
+        route::with_forced_recursive_fast_path(|| {
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let plain = LoweredReturnKind::Plain(LoweredType::Int);
+            route::with_indexed_eval_depth(span, || {
+                assert!(route::indexed_recursive_fast_path_allowed(plain));
+                let here = route::native_stack_address();
+                route::INDEXED_EVAL_STACK_ANCHOR
+                    .with(|anchor| anchor.set(here + route::INDEXED_RECURSIVE_STACK_BUDGET));
+                assert!(!route::indexed_recursive_fast_path_allowed(plain));
+                Ok(())
+            })
+            .unwrap();
+        });
+    }
+
     fn run_program_through_route(source: &str, force_recursive: bool) -> (u8, Vec<u8>, Vec<u8>) {
         let mut sources = SourceMap::new();
         let source_id = sources.add_file("call-routes.xsh", source);
