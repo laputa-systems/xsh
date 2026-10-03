@@ -18,10 +18,12 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 ## Read-only lint performance gate
 
 `make check` delegates to `cargo dev check lint`, which runs
-`cargo test -p xsht --test integration lint_performance::
--- --test-threads=1 --nocapture`. The repository case invokes `xsht lint`
-from the repository root with ordinary configured discovery, requires a
-successful exit with no diagnostics, and enforces a 60-second wall deadline.
+`cargo test --release -p xsht --test integration lint_performance::
+-- --test-threads=1 --nocapture`. The repository case invokes the release
+`xsht lint` from the repository root with ordinary configured discovery,
+requires a successful exit with no diagnostics, and enforces a 15-second wall
+deadline. Debug builds do not measure it: the case is ignored under
+`debug_assertions`.
 Compilation finishes before timing begins; discovery, checking, linting, and
 process startup count toward the deadline. It never supplies `--fix`.
 The harness kills and reaps a timed-out child and captures both output streams

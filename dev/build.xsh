@@ -63,7 +63,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
   )
 }
 
-## Compiles the debug lint gate before measuring read-only lint on the configured repository corpus.
+## Compiles the release lint gate before measuring read-only lint on the configured repository corpus.
 export proc check_lint(ctx: context.Context) [process, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
@@ -73,6 +73,7 @@ export proc check_lint(ctx: context.Context) [process, error, io] -> Result[Unit
       [
         "cargo",
         "test",
+        "--release",
         "-p",
         "xsht",
         "--test",

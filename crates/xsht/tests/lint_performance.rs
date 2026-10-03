@@ -4,9 +4,10 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
-// The budget covers process startup, configured discovery, checking, and linting.
-// Cargo compilation and fixture setup finish before the clock starts.
-const REPOSITORY_LINT_BUDGET: Duration = Duration::from_secs(60);
+// The budget covers process startup, configured discovery, checking, and linting
+// with the release `xsht`. Cargo compilation and fixture setup finish before the
+// clock starts. Debug builds are not measured.
+const REPOSITORY_LINT_BUDGET: Duration = Duration::from_secs(15);
 
 struct LintRun {
     elapsed: Duration,
@@ -83,6 +84,7 @@ fn require_clean_lint(run: &LintRun) -> Result<(), String> {
 }
 
 #[test]
+#[cfg_attr(debug_assertions, ignore = "release-only performance gate: run `cargo dev check lint` or `cargo test --release`")]
 fn repository_lint_is_clean_within_wall_budget() {
     let run = run_lint(&workspace_root(), REPOSITORY_LINT_BUDGET)
         .unwrap_or_else(|failure| panic!("{failure}"));
