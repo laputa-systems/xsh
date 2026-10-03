@@ -75,7 +75,15 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let old_version = f"${major}.${minor}.${patch_component}"
   let new_major = if opts.component == "major" { major + 1 } else { major }
-  let new_minor = if opts.component == "major" { 0 } else { if opts.component == "minor" { minor + 1 } else { minor } }
+  let new_minor = if opts.component == "major" {
+    0
+  } else {
+    if opts.component == "minor" {
+      minor + 1
+    } else {
+      minor
+    }
+  }
   let new_patch = if opts.component == "patch" { patch_component + 1 } else { 0 }
   let new_version = f"${new_major}.${new_minor}.${new_patch}"
   let old_version_field = f"\"${old_version}\""

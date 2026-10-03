@@ -8,4 +8,6 @@ stream forwarded() [] -> Stream[Int] {
   yield @[4, 5]
 }
 
-for value in forwarded() { print $value }
+for value in forwarded() {
+  print $value
+}

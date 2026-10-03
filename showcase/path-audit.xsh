@@ -87,7 +87,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
 
     let resolved_text = resolved.display()
 
-    let same_display = (seen_dirs.get(resolved_text) ?? [])
+    let same_display = seen_dirs.get(resolved_text) ?? []
 
     if resolved in same_display {
       dir_findings = add_dir_finding(dir_findings, 2, "duplicate-directory", label, resolved_text)
@@ -120,7 +120,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
         continue when child.kind != "file" or ! child.executable
         let child_path = child.path.display()
         let exact_name = child.path.strip_prefix(dir)?
-        let same_display = (first_path.get(child.name) ?? [])
+        let same_display = first_path.get(child.name) ?? []
         let earlier = same_display |> where .name == exact_name
 
         if earlier.len() > 0 {

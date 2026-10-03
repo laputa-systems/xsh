@@ -1,24 +1,31 @@
 enum AliasEvent {
-  Added(Str),
-  Changed(Str),
-  Count(Int),
+    Added(Str),
+    Changed(Str),
+    Count(Int),
 }
+
 type AliasText = Str
 
 pure alias_event_name(event: AliasEvent) -> Str {
   match event {
     (Added(file) | Changed(file)) as original => {
       let typed: AliasEvent = original
-      if typed is Added(_) { file } else { file }
+      if typed is Added(_) {
+        file
+      } else {
+        file
+      }
     }
     Count(_) => "count"
   }
 }
 
 test test_pattern_aliases_capture_whole_nodes_and_preserve_types { |ctx|
-  assert (alias_event_name(Added("one"))) == ("one")
-  assert (alias_event_name(Changed("two"))) == ("two")
-  let output = test.run_script(ctx, r"""proc witness() [error] {
+  assert alias_event_name(Added("one")) == "one"
+  assert alias_event_name(Changed("two")) == "two"
+  let output = test.run_script(
+    ctx,
+    r"""proc witness() [error] {
   let values = [{name: "item", count: 3}]
   let selected = match values {
     [{name, count} as entry] as all => {
@@ -30,14 +37,17 @@ test test_pattern_aliases_capture_whole_nodes_and_preserve_types { |ctx|
   assert (selected) == ("item:item:item:3")
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
 }
 
 test test_pattern_alternatives_publish_only_first_complete_match { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc witness() [error] {
   let result = match [[99], [7, 8]] {
     ([[value, ..tail], [99]] | [[99], [value, ..tail]]) as original => {
@@ -54,7 +64,8 @@ proc witness() [error] {
   assert (first) == (7)
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
@@ -62,17 +73,21 @@ witness()
 
 test test_pattern_aliases_work_in_iflet_and_whilelet {
   if let (Added(file) | Changed(file)) as original = Changed("selected") {
-    assert (file) == ("selected")
-    assert (original is Changed(_)) == (true)
-  } else { test.fail("expected selected branch")? }
+    assert file == "selected"
+    assert (original is Changed(_)) == true
+  } else {
+    test.fail("expected selected branch")?
+  }
+
   var current = [1, 2]
   var total = 0
   while let [head, ..tail] as values = current {
-    assert (values.len()) == (tail.len() + 1)
+    assert values.len() == tail.len() + 1
     total += head
     current = tail
   }
-  assert (total) == (3)
+
+  assert total == 3
 }
 
 test test_pattern_aliases_and_alternatives_evaluate_subject_and_guard_once { |ctx|
@@ -89,23 +104,32 @@ print $selected
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  assert (result.stdout) == ("subject\nguard\n9\n")
+  assert result.stdout == """subject
+guard
+9
+"""
 }
 
 test test_pattern_tests_accept_only_grouped_capture_free_alternatives {
-  assert (1 is (1 | 2)) == (true)
-  assert (3 is (1 | 2)) == (false)
-  assert (["build"] is (["build"] | ["clean"])) == (true)
-  assert (Added("item") is (Added(_) | Changed(_))) == (true)
+  assert (1 is (1 | 2)) == true
+  assert (3 is (1 | 2)) == false
+  assert (["build"] is (["build"] | ["clean"])) == true
+  assert (Added("item") is (Added(_) | Changed(_))) == true
 }
 
 test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alternatives { |ctx|
   for source in [
-    "let result = match [1] { [value] as value => value _ => 0 }\n",
-    "let result = match {left: 1, right: 2} { {left: value, right: value} => value _ => 0 }\n",
-    "let result = match [1] { [left] | [right] => 1 _ => 0 }\n",
-    "enum Event { Number(Int), Text(Str) }\nlet result = match Number(1) { Number(value) | Text(value) => 1 _ => 0 }\n",
-    "let result = match 1 { 1 | 2 as original => 1 _ => 0 }\n",
+    """let result = match [1] { [value] as value => value _ => 0 }
+""",
+    """let result = match {left: 1, right: 2} { {left: value, right: value} => value _ => 0 }
+""",
+    """let result = match [1] { [left] | [right] => 1 _ => 0 }
+""",
+    """enum Event { Number(Int), Text(Str) }
+let result = match Number(1) { Number(value) | Text(value) => 1 _ => 0 }
+""",
+    """let result = match 1 { 1 | 2 as original => 1 _ => 0 }
+""",
   ] {
     let result = test.run_script(ctx, source)?
     {
@@ -113,12 +137,16 @@ test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alter
       let assertion_message = result.stderr
       assert assertion_condition, assertion_message
     }
-    assert ("check.pattern-" in result.stderr)
+    assert "check.pattern-" in result.stderr
   }
+
   for source in [
-    "let result = match 1 { 1 as _ => 1 _ => 0 }\n",
-    "let result = match 1 { (1, 2) => 1 _ => 0 }\n",
-    "let result = 1 is 1 | 2\n",
+    """let result = match 1 { 1 as _ => 1 _ => 0 }
+""",
+    """let result = match 1 { (1, 2) => 1 _ => 0 }
+""",
+    """let result = 1 is 1 | 2
+""",
   ] {
     let result = test.run_script(ctx, source)?
     {
@@ -126,11 +154,14 @@ test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alter
       let assertion_message = result.stderr
       assert assertion_condition, assertion_message
     }
-    assert ("parse." in result.stderr)
+    assert "parse." in result.stderr
   }
+
   for source in [
-    "let result = [1] is ([value] | [value])\n",
-    "let result = 1 is (1 as value | 2 as value)\n",
+    """let result = [1] is ([value] | [value])
+""",
+    """let result = 1 is (1 as value | 2 as value)
+""",
   ] {
     let result = test.run_script(ctx, source)?
     {
@@ -138,12 +169,14 @@ test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alter
       let assertion_message = result.stderr
       assert assertion_condition, assertion_message
     }
-    assert ("check.pattern-test-binding" in result.stderr)
+    assert "check.pattern-test-binding" in result.stderr
   }
 }
 
 test test_pattern_alternatives_compare_resolved_type_aliases { |ctx|
-  let output = test.run_script(ctx, r"""type AliasText = Str
+  let output = test.run_script(
+    ctx,
+    r"""type AliasText = Str
 type AliasOtherText = Str
 proc witness() [error] {
   let dynamic = json.decode("\"item\"")?
@@ -158,7 +191,8 @@ proc witness() [error] {
   assert (selected) == ("ITEM")
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
@@ -166,18 +200,22 @@ witness()
 
 test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing {
   let selected = match [4, 7] {
-    [left, right] | [right, left] => left * 10 + right
-    _ => 0
+    [left, right] | [right, left] => left * 10 + right,
+    _ => 0,
   }
-  assert (selected) == (47)
+  assert selected == 47
   let dynamic = json.decode("\"item\"")?
   if dynamic is (_ is Str | _ is AliasText) {
-    assert (dynamic.upper()) == ("ITEM")
-  } else { test.fail("expected string")? }
+    assert dynamic.upper() == "ITEM"
+  } else {
+    test.fail("expected string")?
+  }
 }
 
 test test_pattern_aliases_preserve_nominal_error_identity_and_inferred_returns { |ctx|
-  let output = test.run_script(ctx, r"""error AliasFailure = Missing(message: Str) : NotFound | Denied(message: Str) : PermissionDenied
+  let output = test.run_script(
+    ctx,
+    r"""error AliasFailure = Missing(message: Str) : NotFound | Denied(message: Str) : PermissionDenied
 
 pure alias_failure_message(failure: AliasFailure) -> Str {
   match failure {
@@ -207,7 +245,8 @@ proc witness() [error] {
   assert (inferred) == (7)
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
@@ -220,22 +259,26 @@ test test_pattern_aliases_keep_list_value_semantics {
     copied += [3]
     var rest = tail
     rest += [4]
-    assert (source) == ([1, 2])
-    assert (original) == ([1, 2])
-    assert (tail) == ([2])
-    assert (copied) == ([1, 2, 3])
-    assert (rest) == ([2, 4])
-    assert (head) == (1)
+    assert source == [1, 2]
+    assert original == [1, 2]
+    assert tail == [2]
+    assert copied == [1, 2, 3]
+    assert rest == [2, 4]
+    assert head == 1
   }
 }
 
 test test_pattern_tests_require_grouping_for_nested_alternatives { |ctx|
-  let bad = test.run_script(ctx, "let selected = [1] is [1 | 2]\n")?
+  let bad = test.run_script(
+    ctx,
+    """let selected = [1] is [1 | 2]
+""",
+  )?
   {
     let assertion_condition = ! bad.success
     let assertion_message = bad.stderr
     assert assertion_condition, assertion_message
   }
-  assert ("check.pattern-test-alternation" in bad.stderr)
-  assert ([1] is [(1 | 2)]) == (true)
+  assert "check.pattern-test-alternation" in bad.stderr
+  assert ([1] is [(1 | 2)]) == true
 }

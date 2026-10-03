@@ -29,7 +29,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   assert plugin.name == "demo"
   assert "description" in plugin.keys()
   assert "missing" not in plugin.keys()
-  assert ("name" in plugin.keys())
+  assert "name" in plugin.keys()
   assert plugin.keys().len() == 3
   plugin.execute(root)?
   assert fp"${root}/out.txt".read_text()? == "demo"
@@ -382,7 +382,9 @@ export pure failure() -> Result[Unit] {
   Err(HelperError.Failed(detail: "loaded", code: 9))
 }
 """)?
-  let result = test.run_script(ctx, r"""
+  let result = test.run_script(
+    ctx,
+    r"""
 use helper
 var order = 0
 let failure = helper.HelperError.Failed(
@@ -398,37 +400,54 @@ match dynamic {
   _ is helper.Temporary => print "temporary"
   _ => print "wrong facet"
 }
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  assert (result.stdout) == ("failed 7 12\ntemporary\n")
-  let aliased = test.run_script(ctx, r"""
+  assert result.stdout == """failed 7 12
+temporary
+"""
+  let aliased = test.run_script(
+    ctx,
+    r"""
 use helper as h
 let failure = h.HelperError.Failed(detail: "aliased", code: 8)
 match failure {
   h.HelperError.Failed {detail, code} => print $detail $code
   _ => print "wrong family"
 }
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = aliased
     assert assertion_condition, assertion_message
   }
-  assert (aliased.stdout) == ("aliased 8\n")
-  let loaded = test.run_script(ctx, f"""
+  assert aliased.stdout == """aliased 8
+"""
+  let loaded = test.run_script(
+    ctx,
+    f"""
 type FailureProvider = module {
   export pure failure() -> Result[Unit]
 }
 let provider = module.load(p"${root.display()}/helper.xsh")?.require(FailureProvider)?
 print \${provider.failure() is Err(_)}
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = loaded
     assert assertion_condition, assertion_message
   }
-  assert (loaded.stdout) == ("true\n")
+  assert loaded.stdout == """true
+"""
 }
 
 test test_static_module_exports_bind_one_namespace { |ctx|
@@ -1012,7 +1031,8 @@ export pure word() -> Str {
   "hi"
 }
 """)?
-  fp"${project}/tests/children.xsh".write(r"""const child_source = "use shared.answers as answers\nuse extra.greeting as greeting\nprint greeting.word() answers.answer()\n"
+  fp"${project}/tests/children.xsh".write(
+    r"""const child_source = "use shared.answers as answers\nuse extra.greeting as greeting\nprint greeting.word() answers.answer()\n"
 
 test run_script_child_finds_configured_roots { |ctx|
   let output = test.run_script(ctx, child_source)?
@@ -1027,7 +1047,8 @@ test plain_run_child_finds_configured_roots { |ctx|
   assert output.status.exited_with(0), output.stderr
   assert output.stdout == "hi 42\n", output.stdout
 }
-""")?
+""",
+  )?
 
   let inherited_root = inherited.display()
   env XSH_MODULE_PATH=$inherited_root {

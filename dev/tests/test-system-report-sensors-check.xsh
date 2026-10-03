@@ -122,6 +122,6 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  assert "sensors.lm-sensors: reference=1, compared=1, mismatched=0" in (output.read_text()?)
-  assert "adapter=sensors-json-v1" in (output.read_text()?)
+  assert "sensors.lm-sensors: reference=1, compared=1, mismatched=0" in output.read_text()?
+  assert "adapter=sensors-json-v1" in output.read_text()?
 }

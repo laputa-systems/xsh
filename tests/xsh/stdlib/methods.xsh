@@ -18,45 +18,54 @@ test test_list_concatenation_and_compound_assignment_preserve_aliases {
   items += [1]
   let alias = items
   items += [2, 3]
-  assert (alias) == ([1])
-  assert (items) == ([1, 2, 3])
+  assert alias == [1]
+  assert items == [1, 2, 3]
   items += items
-  assert (items) == ([1, 2, 3, 1, 2, 3])
-  assert (alias) == ([1])
+  assert items == [1, 2, 3, 1, 2, 3]
+  assert alias == [1]
   let appended = [4, 5]
   let joined = alias + appended
-  assert (joined) == (alias.extend([4, 5]))
-  assert ([] + [6]) == ([6])
+  assert joined == alias.extend([4, 5])
+  assert [] + [6] == [6]
   let singleton = [6]
   let empty_ints = []
-  assert (singleton + empty_ints) == (singleton)
+  assert singleton + empty_ints == singleton
   let empty: List[Str] = []
-  assert (empty + empty) == ([])
+  assert empty + empty == []
   var container = {items: [1]}
   let record_alias = container
   container.items += [2]
-  assert (container.items) == ([1, 2])
-  assert (record_alias.items) == ([1])
+  assert container.items == [1, 2]
+  assert record_alias.items == [1]
   container.items += container.items
-  assert (container.items) == ([1, 2, 1, 2])
-  assert (record_alias.items) == ([1])
+  assert container.items == [1, 2, 1, 2]
+  assert record_alias.items == [1]
   var table: Map[List[Int]] = {entry: [1]}
   let table_alias = table
   table["entry"] += [2]
-  assert (table.get("entry")?) == ([1, 2])
-  assert (table_alias.get("entry")?) == ([1])
+  assert table.get("entry")? == [1, 2]
+  assert table_alias.get("entry")? == [1]
   table["entry"] += table.get("entry")?
-  assert (table.get("entry")?) == ([1, 2, 1, 2])
-  assert (table_alias.get("entry")?) == ([1])
+  assert table.get("entry")? == [1, 2, 1, 2]
+  assert table_alias.get("entry")? == [1]
 }
 
 test test_list_compound_assignment_checks_targets_and_elements { |ctx|
   for source in [
-    "var items = [1]\nitems += 2\n",
-    "var items = [1]\nitems += [\"wrong\"]\n",
-    "let items = [1]\nitems += [2]\n",
-    "var items = [1]\nitems -= [2]\n",
-    "let items = [1] + [\"wrong\"]\n",
+    """var items = [1]
+items += 2
+""",
+    """var items = [1]
+items += ["wrong"]
+""",
+    """let items = [1]
+items += [2]
+""",
+    """var items = [1]
+items -= [2]
+""",
+    """let items = [1] + ["wrong"]
+""",
   ] {
     let result = test.run_script(ctx, source)?
     {
@@ -94,7 +103,12 @@ print ${values[0]} ${values[1]} ${values[2]}
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  assert (result.stdout) == ("selector\nrhs\nselector\nitem\n1 2 3\n")
+  assert result.stdout == """selector
+rhs
+selector
+item
+1 2 3
+"""
 }
 
 test test_list_concatenation_evaluates_operands_once_in_source_order { |ctx|
@@ -116,7 +130,10 @@ print values.len()
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  assert (result.stdout) == ("left\nright\n2\n")
+  assert result.stdout == """left
+right
+2
+"""
 }
 
 test test_list_compound_assignment_retains_target_on_dynamic_rhs_failure { |ctx|
@@ -141,7 +158,8 @@ proc main() [io, error] {
     assert assertion_condition, assertion_message
   }
   assert "schema check failed at $: expected List, found Int" in result.stderr
-  assert (result.stdout) == ("1\n")
+  assert result.stdout == """1
+"""
 }
 
 test test_collection_number_text_status_and_result_methods {
@@ -149,7 +167,7 @@ test test_collection_number_text_status_and_result_methods {
   let pushed = base.push("beta")
   let extended = pushed.extend(["gamma"])
   assert extended.len() == 3
-  assert ("gamma" in extended)
+  assert "gamma" in extended
   assert extended.get(0)? == "alpha"
   assert (extended.get(9) ?? "fallback") == "fallback"
   assert ["a", "b", "c"].join(":") == "a:b:c"
@@ -175,8 +193,8 @@ beta"""
 
   assert text.trim().starts_with("alpha")
   assert text.trim().ends_with("beta")
-  assert ("alpha" in text)
-  assert (text.trim().lines().collect().len()) == (2)
+  assert "alpha" in text
+  assert text.trim().lines().collect().len() == 2
   assert text.words().len() == 3
   assert "a,b,c".split(",")[1] == "b"
   assert "a  b\tc".fields().join(",") == "a,b,c"
@@ -234,10 +252,10 @@ beta""".find("z") == null
   test.error_kind(" 5 ".parse_int_decimal(), "parse-int")?
   test.error_kind("05".parse_int_decimal(), "parse-int")?
   test.error_kind("nope".parse_int(), "parse-int")?
-  assert ("hello" + " " + "world") == "hello world"
+  assert "hello" + " " + "world" == "hello world"
   let name = "Alice"
-  assert ("Hello, " + name + "!") == "Hello, Alice!"
-  assert ("a" + "b" + "c") == "abc"
+  assert "Hello, " + name + "!" == "Hello, Alice!"
+  assert "a" + "b" + "c" == "abc"
   let status = run.status false
   assert status.exited()
   assert ! status.signaled()

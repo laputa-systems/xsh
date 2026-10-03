@@ -16,16 +16,31 @@ test test_constants_prepare_data_and_keep_aliases {
 }
 
 test test_constants_reject_runtime_dependencies { |ctx|
-  let ordinary = test.run_script(ctx, "let source = 1\nconst value = source\nprint value\n")?
+  let ordinary = test.run_script(
+    ctx,
+    """let source = 1
+const value = source
+print value
+""",
+  )?
   assert ! ordinary.success
-  let overflow = test.run_script(ctx, "const value = 9223372036854775807 + 1\nprint value\n")?
+  let overflow = test.run_script(
+    ctx,
+    """const value = 9223372036854775807 + 1
+print value
+""",
+  )?
   assert ! overflow.success
 }
 
 const empty_alias = empty_numbers
+
 type ConstantConfig = {name: Str = "default", values: List[Int] = empty_numbers}
+
 const protocol_config = ConstantConfig(name: "static")
+
 enum ConstantEvent { Ready, Count(Int) }
+
 const protocol_event: ConstantEvent = Count(global_constant)
 
 test test_constants_prepare_constructors_paths_regex_and_forward_references {
@@ -41,16 +56,29 @@ test test_constants_prepare_constructors_paths_regex_and_forward_references {
 
 test test_constants_reject_cycles_contextless_empty_values_and_local_captures { |ctx|
   let sources = [
-    "const a = b\nconst b = a\n",
-    "const values = []\n",
-    "const values: List[Any] = []\n",
-    "const value = 1 / 0\n",
-    "const value = args\n",
-    "pure source() -> Int { 1 }\nconst value = source()\n",
-    "const value = \"x\".upper()\n",
-    "const value = p\"config\".read_text()?\n",
-    "proc helper(input: Int) { const value = input }\n",
-    "type Config = {count: Int}\nconst value = Config(count: \"bad\")\n",
+    """const a = b
+const b = a
+""",
+    """const values = []
+""",
+    """const values: List[Any] = []
+""",
+    """const value = 1 / 0
+""",
+    """const value = args
+""",
+    """pure source() -> Int { 1 }
+const value = source()
+""",
+    """const value = "x".upper()
+""",
+    """const value = p"config".read_text()?
+""",
+    """proc helper(input: Int) { const value = input }
+""",
+    """type Config = {count: Int}
+const value = Config(count: "bad")
+""",
   ]
   for source in sources {
     let executed = test.run_script(ctx, source)?
@@ -69,7 +97,9 @@ export const values: List[Int] = [size, 4]
 export type Config = {values: List[Int] = values}
 const private_value = 9
 """)?
-  let executed = test.run_script(ctx, r"""use config as c
+  let executed = test.run_script(
+    ctx,
+    r"""use config as c
 const count = c.size + 1
 const config = c.Config()
 var values = c.values
@@ -78,10 +108,17 @@ print $count
 print ${config.values.len()}
 print ${c.values.len()}
 print ${values.len()}
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   let {success: succeeded, stderr: failure_details, ..} = executed
   assert succeeded, failure_details
-  assert executed.stdout == "4\n2\n2\n3\n"
+  assert executed.stdout == """4
+2
+2
+3
+"""
 }
 
 test test_constants_contextual_maps_share_without_mutation {
@@ -97,12 +134,24 @@ test test_constants_contextual_maps_share_without_mutation {
 
 test test_constants_reject_shadowed_runtime_values { |ctx|
   let sources = [
-    "const input = 1\npure helper(input: Int) -> Int { const captured = input; captured }\n",
-    "const item = 1\nfor item in [2] { const captured = item }\n",
-    "const item = 1\nlet {item} = {item: 2}\nconst captured = item\n",
-    "const item = 1\nmatch 2 { item => { const captured = item } }\n",
-    "const value = 1 == \"different\"\n",
-    "type Config = {count: Int}\nconst value: Config = {count: 1, extra: 2}\n",
+    """const input = 1
+pure helper(input: Int) -> Int { const captured = input; captured }
+""",
+    """const item = 1
+for item in [2] { const captured = item }
+""",
+    """const item = 1
+let {item} = {item: 2}
+const captured = item
+""",
+    """const item = 1
+match 2 { item => { const captured = item } }
+""",
+    """const value = 1 == "different"
+""",
+    """type Config = {count: Int}
+const value: Config = {count: 1, extra: 2}
+""",
   ]
   for source in sources {
     let executed = test.run_script(ctx, source)?
@@ -111,16 +160,27 @@ test test_constants_reject_shadowed_runtime_values { |ctx|
 }
 
 test test_constants_functions_read_prepared_globals_before_runtime_registration { |ctx|
-  let executed = test.run_script(ctx, r"""pure prepared() -> Int { value }
+  let executed = test.run_script(
+    ctx,
+    r"""pure prepared() -> Int { value }
 print ${prepared()}
 const value = 8
 proc display() { print $value }
 display()
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = executed
   assert succeeded, failure_details
-  assert executed.stdout == "8\n8\n"
-  let asserted = test.run_script(ctx, "const condition = false\nproc check() [error] { condition }\ncheck()\n")?
+  assert executed.stdout == """8
+8
+"""
+  let asserted = test.run_script(
+    ctx,
+    """const condition = false
+proc check() [error] { condition }
+check()
+""",
+  )?
   assert ! asserted.success
 }
 
@@ -137,12 +197,23 @@ test test_constants_checked_operators_keep_typed_optional_and_duration_data {
 }
 
 test test_constants_fail_before_any_runtime_statement { |ctx|
-  let prepared = test.run_script(ctx, "print starting\nconst invalid = 1 / 0\n")?
+  let prepared = test.run_script(
+    ctx,
+    """print starting
+const invalid = 1 / 0
+""",
+  )?
   assert ! prepared.success
   assert prepared.stdout == ""
-  let runtime = test.run_script(ctx, "print starting\nlet invalid = 1 / 0\n")?
+  let runtime = test.run_script(
+    ctx,
+    """print starting
+let invalid = 1 / 0
+""",
+  )?
   assert ! runtime.success
-  assert runtime.stdout == "starting\n"
+  assert runtime.stdout == """starting
+"""
 }
 
 test test_constants_constructor_spreads_use_prepared_visible_fields {
@@ -154,12 +225,30 @@ test test_constants_constructor_spreads_use_prepared_visible_fields {
 
 test test_constants_constructor_spreads_reject_runtime_and_erased_sources { |ctx|
   for source in [
-    "type Config = {value: Int}\nlet source = {value: 1}\nconst config = Config(...source)\n",
-    "type Config = {value: Int}\nconst source: Map[Int] = {value: 1}\nconst config = Config(...source)\n",
-    "type Config = {value: Int}\nconst source = {value: 1}\nconst config = Config(value: 2, ...source)\n",
-    "type Config = {value: Int}\nconst source = {other: 1}\nconst config = Config(...source)\n",
-    "type Config = {value: Int}\nconst source: Int? = 1\nconst config = Config(value: source)\n",
-    "type Config = {value: Int}\nconst source: Config? = {value: 1}\nconst config = Config(...source)\n",
+    """type Config = {value: Int}
+let source = {value: 1}
+const config = Config(...source)
+""",
+    """type Config = {value: Int}
+const source: Map[Int] = {value: 1}
+const config = Config(...source)
+""",
+    """type Config = {value: Int}
+const source = {value: 1}
+const config = Config(value: 2, ...source)
+""",
+    """type Config = {value: Int}
+const source = {other: 1}
+const config = Config(...source)
+""",
+    """type Config = {value: Int}
+const source: Int? = 1
+const config = Config(value: source)
+""",
+    """type Config = {value: Int}
+const source: Config? = {value: 1}
+const config = Config(...source)
+""",
   ] {
     let executed = test.run_script(ctx, source)?
     assert ! executed.success
@@ -170,6 +259,12 @@ test test_constants_closed_record_projections_preserve_declared_field_types { |c
   const source = {nested: {value: "ready"}}
   const selected = source.nested.value
   assert selected == "ready"
-  let rejected = test.run_script(ctx, "type Item = {value: Str?}\nconst source: Item = {value: \"ready\"}\nconst selected: Str = source.value\n")?
+  let rejected = test.run_script(
+    ctx,
+    """type Item = {value: Str?}
+const source: Item = {value: "ready"}
+const selected: Str = source.value
+""",
+  )?
   assert ! rejected.success
 }

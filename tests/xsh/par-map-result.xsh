@@ -57,13 +57,16 @@ test test_par_map_all_ok {
 }
 
 test test_par_map_collect_all_retains_nominal_error_data_in_order {
-  let results = [10, 0, 20] |> par-map { |x| safe_div(x) }
-  assert (results.len()) == (3)
-  assert (results[0]?) == (10)
-  assert (results[2]?) == (5)
+  let results = [10, 0, 20]
+    |> par-map { |x|
+      safe_div(x)
+    }
+  assert results.len() == 3
+  assert results[0]? == 10
+  assert results[2]? == 5
   if let Err(failure) = results[1] {
-      assert (failure is TestError.DivisionByZero)
-      assert (failure.message) == ("division by zero")
+    assert failure is TestError.DivisionByZero
+    assert failure.message == "division by zero"
   } else {
     assert false, "expected the middle item's nominal error"
   }

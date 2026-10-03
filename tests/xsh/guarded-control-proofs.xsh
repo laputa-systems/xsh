@@ -23,7 +23,9 @@ print ${read(" ready ")}
     let result = test.run_script(ctx, source)?
     let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
     assert succeeded, diagnostics
-    assert output == "missing\nready\n"
+    assert output == """missing
+ready
+"""
   }
 }
 
@@ -46,7 +48,9 @@ print ${read({raw: " ready "})}
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  assert output == "missing\nready\n"
+  assert output == """missing
+ready
+"""
 }
 
 test guarded_loop_exits_preserve_only_the_reaching_iteration_proof { |ctx|
@@ -70,15 +74,28 @@ for raw in stopped {
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  assert output == "first\nlast\nfirst\n"
+  assert output == """first
+last
+first
+"""
 }
 
 test guarded_yield_and_invalid_targets_do_not_establish_continuation_proofs { |ctx|
   for source in [
-    "stream values(raw: Str?) [] -> Stream[Str] { yield \"missing\" when raw == null; yield raw }\n",
-    "let raw: Str? = null\nreturn \"missing\" when raw == null\nlet selected: Str = raw\n",
-    "let raw: Str? = null\nbreak when raw == null\nlet selected: Str = raw\n",
-    "let raw: Str? = null\ncontinue when raw == null\nlet selected: Str = raw\n",
+    """stream values(raw: Str?) [] -> Stream[Str] { yield "missing" when raw == null; yield raw }
+""",
+    """let raw: Str? = null
+return "missing" when raw == null
+let selected: Str = raw
+""",
+    """let raw: Str? = null
+break when raw == null
+let selected: Str = raw
+""",
+    """let raw: Str? = null
+continue when raw == null
+let selected: Str = raw
+""",
   ] {
     let file = test.temp_file(ctx, name: "invalid-guarded-proof.xsh", contents: bytes.from_text(source))?
     let checked = run.capture --text "xsht" check $file ?
@@ -107,5 +124,7 @@ print ${raw ?? "missing"}
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  assert output == "ready\n ready \n"
+  assert output == """ready
+ ready 
+"""
 }

@@ -1,5 +1,7 @@
 test test_yield_delegation_lists_and_parent_continuation { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc close(message: Str) [io] { print $message }
 stream rows() [] -> Stream[Int] {
   yield 0
@@ -18,16 +20,26 @@ proc main() [io, error] {
   let lists = nested() |> collect()
   print f"${lists.len()} ${lists[0].len()} ${lists[2].len()}"
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("0\n1\n2\n3\n4\n5\n3 2 2\n")
+  assert output.stdout == """0
+1
+2
+3
+4
+5
+3 2 2
+"""
 }
 
 test test_yield_delegation_pulls_lazily_and_closes_child_first { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc close(message: Str) [io] { print $message }
 stream child() [io, error] -> Stream[Int] {
   defer close("child-close")
@@ -52,16 +64,28 @@ proc main() [io, error] {
   }
   print "consumer-after"
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("created\nparent-start\npull 0\nrow 0\npull 1\nrow 1\nchild-close\nparent-close\nconsumer-after\n")
+  assert output.stdout == """created
+parent-start
+pull 0
+row 0
+pull 1
+row 1
+child-close
+parent-close
+consumer-after
+"""
 }
 
 test test_yield_delegation_evaluates_source_once_and_resumes { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc close(message: Str) [io] { print $message }
 proc source() [io] -> List[Int] {
   print "source"
@@ -81,16 +105,27 @@ stream parent() [io, error] -> Stream[Int] {
 proc main() [io, error] {
   for n in parent() { print f"row ${n}" }
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("row 1\nchild-close\nbetween\nsource\nrow 2\nrow 3\nafter\nparent-close\n")
+  assert output.stdout == """row 1
+child-close
+between
+source
+row 2
+row 3
+after
+parent-close
+"""
 }
 
 test test_yield_delegation_result_handling_and_late_failure { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc close(message: Str) [io] { print $message }
 error RowsError = Late(row: Int)
 proc source() [error] -> Result[List[Int], RowsError] { return [1, 2] }
@@ -110,14 +145,22 @@ proc main() [io, error] {
   for row in parent() { print f"row ${row}" }
   print "consumer-after"
 }
-""")?
-  assert (output.success) == (false)
-  assert (output.stdout) == ("row 1\nrow 2\nrow 3\nchild-close\nparent-close\n")
-  assert ("RowsError.Late" in output.stderr)
+""",
+  )?
+  assert output.success == false
+  assert output.stdout == """row 1
+row 2
+row 3
+child-close
+parent-close
+"""
+  assert "RowsError.Late" in output.stderr
 }
 
 test test_yield_delegation_aliases_share_one_cursor { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc close(message: Str) [io] { print $message }
 stream child() [] -> Stream[Int] { yield @[1, 2, 3] }
 stream parent(source: Stream[Int]) [] -> Stream[Int] { yield @source }
@@ -128,12 +171,15 @@ proc main() [io, error] {
   let remaining = source |> collect()
   print f"remaining ${remaining.len()}"
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("1\nremaining 0\n")
+  assert output.stdout == """1
+remaining 0
+"""
 }
 
 test test_yield_delegation_requires_explicit_list_or_stream { |ctx|
@@ -143,16 +189,23 @@ test test_yield_delegation_requires_explicit_list_or_stream { |ctx|
 
       """
     let output = test.run_script(ctx, source)?
-    assert (output.success) == (false)
-    assert ("check.yield-delegation" in output.stderr)
+    assert output.success == false
+    assert "check.yield-delegation" in output.stderr
   }
-  let output = test.run_script(ctx, "proc bad() { yield @[1] }\n")?
-  assert (output.success) == (false)
-  assert ("check.yield" in output.stderr)
+
+  let output = test.run_script(
+    ctx,
+    """proc bad() { yield @[1] }
+""",
+  )?
+  assert output.success == false
+  assert "check.yield" in output.stderr
 }
 
 test test_yield_delegation_guard_and_zero_take_do_not_evaluate_source { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc source() [io] -> List[Int] { print "source"; return [1, 2] }
 stream rows() [io] -> Stream[Int] {
   yield @source() when false
@@ -164,18 +217,27 @@ proc main() [io] {
   print f"empty ${empty.len()}"
   for row in rows() { print f"row ${row}" }
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("empty 0\nsource\nrow 1\nrow 2\n")
+  assert output.stdout == """empty 0
+source
+row 1
+row 2
+"""
 }
 
 test test_yield_delegation_live_source_and_list_snapshot { |ctx|
   let file_path = test.temp_path(ctx, name: "delegated-lines")
-  file_path.write("first\nsecond\n")?
-  let output = test.run_script(ctx, f"""
+  file_path.write("""first
+second
+""")?
+  let output = test.run_script(
+    ctx,
+    f"""
 stream lines(file: Path) [fs, error] -> Stream[Str] {
   yield @(file.lines()?)
   yield "last"
@@ -191,16 +253,26 @@ proc main() [io, fs, error] {
   }
   print f"original \${values[0]}"
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("first\nsecond\nlast\n1\n2\n3\noriginal 99\n")
+  assert output.stdout == """first
+second
+last
+1
+2
+3
+original 99
+"""
 }
 
 test test_yield_delegation_cleanup_failure_still_closes_parent { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 error CleanupError = Child(message: Str) | Parent(message: Str)
 proc child_close() [io, error] -> Result[Unit, CleanupError] {
   print "child-close"
@@ -221,20 +293,29 @@ stream parent() [io, error] -> Stream[Int] {
 proc main() [io, error] {
   for row in parent() { print f"row ${row}"; break }
 }
-""")?
-  assert (output.success) == (false)
-  assert (output.stdout) == ("row 1\nchild-close\nparent-close\n")
-  assert ("child cleanup failed" in output.stderr)
+""",
+  )?
+  assert output.success == false
+  assert output.stdout == """row 1
+child-close
+parent-close
+"""
+  assert "child cleanup failed" in output.stderr
 }
 
 test test_yield_delegation_rejects_item_and_effect_mismatches { |ctx|
   for source in [
-    "stream bad() [] -> Stream[Int] { yield @[\"wrong\"] }\n",
-    "stream child() [io] -> Stream[Int] { print \"effect\"; yield 1 }\nstream bad() [] -> Stream[Int] { yield @child() }\n",
-    "stream child() [] -> Stream[Int] { yield 1 }\nstream bad() [] -> Stream[Int] { yield child() }\n",
+    """stream bad() [] -> Stream[Int] { yield @["wrong"] }
+""",
+    """stream child() [io] -> Stream[Int] { print "effect"; yield 1 }
+stream bad() [] -> Stream[Int] { yield @child() }
+""",
+    """stream child() [] -> Stream[Int] { yield 1 }
+stream bad() [] -> Stream[Int] { yield child() }
+""",
   ] {
     let output = test.run_script(ctx, source)?
-    assert (output.success) == (false)
-    assert ("check." in output.stderr)
+    assert output.success == false
+    assert "check." in output.stderr
   }
 }

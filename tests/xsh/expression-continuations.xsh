@@ -19,7 +19,19 @@ test.eq(right: expected(), left: rows(false)?[position()].value)?
 """
   let plain = test.run_script(ctx, source)?
   assert plain.success, plain.stderr
-  assert plain.stdout == "base\nbase cleanup\nindex\nexpected\nbase\nbase cleanup\nouter cleanup\ntrue\nexpected\nbase\nbase cleanup\nindex\n"
+  assert plain.stdout == """base
+base cleanup
+index
+expected
+base
+base cleanup
+outer cleanup
+true
+expected
+base
+base cleanup
+index
+"""
   let traced = test.run_xsht_trace(ctx, source, ["--trace", "--raw"])?
   assert traced.success, traced.stderr
   assert traced.stdout == plain.stdout

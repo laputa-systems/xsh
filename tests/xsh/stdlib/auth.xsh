@@ -14,18 +14,18 @@ bad:x:not-int:0:bad:/bad:/bin/sh
 """)?
 
   assert passwd.len() == 1
-  assert (passwd[0].name) == ("root")
-  assert (passwd[0].uid) == (0)
-  assert (passwd[0].home.display()) == ("/root")
+  assert passwd[0].name == "root"
+  assert passwd[0].uid == 0
+  assert passwd[0].home.display() == "/root"
 
   let shadow = auth.parse_shadow("""root:!:1:0:99999:7:::
 raw-line
 """)
 
   assert shadow.len() == 2
-  assert (shadow[0].username) == ("root")
-  assert (shadow[0].rest[0]) == ("1")
-  assert (shadow[1].raw)
+  assert shadow[0].username == "root"
+  assert shadow[0].rest[0] == "1"
+  assert shadow[1].raw
 
   assert auth.render_shadow(shadow) == """root:!:1:0:99999:7:::
 raw-line
@@ -57,14 +57,14 @@ exit 17
   }
 
   let password_hash = applet.hash_password("secret", "sha512")?
-  assert (password_hash != ""), "hash_password returned empty string"
-  assert (applet.verify_password("secret", password_hash)), "verify_password rejected correct password"
-  assert (! applet.verify_password("wrong", password_hash)), "verify_password accepted wrong password"
+  assert password_hash != "", "hash_password returned empty string"
+  assert applet.verify_password("secret", password_hash), "verify_password rejected correct password"
+  assert ! applet.verify_password("wrong", password_hash), "verify_password accepted wrong password"
   let known_sha512 = "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1"
-  assert (applet.verify_password("Hello world!", known_sha512)), "verify_password rejected the SHA-512 reference hash"
-  assert (! applet.verify_password("wrong", known_sha512)), "verify_password accepted the wrong password for the reference hash"
-  assert (applet.current_euid() >= 0), "current_euid is negative"
-  assert (applet.current_exe()?.exists()?), "current_exe path does not exist"
+  assert applet.verify_password("Hello world!", known_sha512), "verify_password rejected the SHA-512 reference hash"
+  assert ! applet.verify_password("wrong", known_sha512), "verify_password accepted the wrong password for the reference hash"
+  assert applet.current_euid() >= 0, "current_euid is negative"
+  assert applet.current_exe()?.exists()?, "current_exe path does not exist"
   assert applet.login_session(session_user, false, "")? == 17
   assert applet.sulogin_session(session_user)? == 17
   assert applet.su_session(session_user, false, false, shell.display(), "", [])? == 17

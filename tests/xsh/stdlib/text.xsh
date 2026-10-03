@@ -89,7 +89,8 @@ short
 test test_text_fields_selects_runs_or_literal_delimiters {
   # The default delimiter selects runs of Unicode whitespace, so leading,
   # trailing, and repeated whitespace contribute no fields.
-  assert "  alpha \t beta \n gamma ".fields() == ["alpha", "beta", "gamma"]
+  assert """  alpha 	 beta 
+ gamma """.fields() == ["alpha", "beta", "gamma"]
   assert "alpha  beta".fields() == ["alpha", "beta"]
   assert "".fields() == []
   assert "   ".fields() == []

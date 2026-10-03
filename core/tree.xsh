@@ -10,7 +10,11 @@ pure add_counts(left: Counts, right: Counts) -> Counts {
 }
 
 pure plural(count: Int, singular: Str, multiple: Str) -> Str {
-  if count == 1 { singular } else { multiple }
+  if count == 1 {
+    singular
+  } else {
+    multiple
+  }
 }
 
 proc print_entry(target: Path, name: Str, prefix: Str, is_last: Bool, kind: Str) [fs, error] {

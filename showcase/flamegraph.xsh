@@ -67,7 +67,7 @@ script;proc:format 1200
     |> where ! .starts_with("#") {
     let parts = line.split(" ")
     let stack = parts[0]
-    let count = json.decode((parts.get(1) ?? "0"))?.require(Int)?
+    let count = json.decode(parts.get(1) ?? "0")?.require(Int)?
     raw[stack] = (raw.get(stack) ?? 0) + count
   }
 
@@ -75,7 +75,7 @@ script;proc:format 1200
   var cum: Map[Int] = {}
 
   for stack in raw.keys() {
-    let n = (raw.get(stack) ?? 0)
+    let n = raw.get(stack) ?? 0
     let frames = stack.split(";")
 
     for item in frames |> enumerate() {
@@ -110,7 +110,7 @@ script;proc:format 1200
 
   for f in sorted {
     let pk = parent_key(f.key)
-    let x = (x_cur.get(pk) ?? 0)
+    let x = x_cur.get(pk) ?? 0
     x_cur[pk] = x + f.count
     x_cur[f.key] = x
     x_pos[f.key] = x
@@ -135,7 +135,7 @@ script;proc:format 1200
 
   for f in sorted {
     continue when total == 0
-    let x_count = (x_pos.get(f.key) ?? 0)
+    let x_count = x_pos.get(f.key) ?? 0
     let x_px = x_count * (svg_w - 4) / total + 2
     let w_px = f.count * (svg_w - 4) / total
     continue when w_px < 1

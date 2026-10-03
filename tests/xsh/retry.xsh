@@ -163,7 +163,9 @@ print \${value}
 }
 
 test test_retry_filter_stops_on_first_nonmatching_error { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0
 var delays = 0
@@ -180,16 +182,21 @@ match result {
   _ => print "wrong"
 }
 print f"\${attempts} \${delays} \${cleaned}"
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("original\n1 2 1\n")
+  assert output.stdout == """original
+1 2 1
+"""
 }
 
 test test_retry_filter_matching_exhaustion_and_mixed_failures { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str) | Timeout(message: Str) | Fatal(message: Str)
 var attempts = 0
 proc exhausted() -> Result[Str, FetchError] {
@@ -213,16 +220,22 @@ match result {
   _ => print "wrong"
 }
 print \${attempts}
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("attempt 3\nsecond\n2\n")
+  assert output.stdout == """attempt 3
+second
+2
+"""
 }
 
 test test_retry_filter_empty_delays_success_and_nested_retry { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0
 proc attempt() -> Result[Str, FetchError] {
@@ -239,51 +252,69 @@ let nested = retry [0ms] on (FetchError.Busy) {
 }
 print \${attempts}
 match nested { Err(FetchError.Busy {message}) => print \${message}; _ => print "wrong" }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("1\nok\n2\nlast\n")
+  assert output.stdout == """1
+ok
+2
+last
+"""
 }
 
 test test_retry_filter_trace_records_selection_and_stop_reason { |ctx|
-  let output = test.run_xsht_trace(ctx, """
+  let output = test.run_xsht_trace(
+    ctx,
+    """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Fatal(message: "original")) }
 let result = retry [0ms] on (FetchError.Busy) { attempt()? }
 match result { Err(_) => print "stopped"; _ => print "wrong" }
-""", ["--raw", "--trace-format", "jsonl"])?
+""",
+    ["--raw", "--trace-format", "jsonl"],
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("stopped\n")
-  assert ("\"kind\":\"retry.attempt\"" in output.stderr)
-  assert ("\"selected\":false" in output.stderr)
-  assert ("\"stop_reason\":\"nonmatching\"" in output.stderr)
+  assert output.stdout == """stopped
+"""
+  assert "\"kind\":\"retry.attempt\"" in output.stderr
+  assert "\"selected\":false" in output.stderr
+  assert "\"stop_reason\":\"nonmatching\"" in output.stderr
 }
 
 test test_retry_filter_rejects_captures_and_impossible_families { |ctx|
-  let capture = test.run_script(ctx, """
+  let capture = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (FetchError.Busy {message}) { attempt()? }
-""")?
-  assert (capture.status) == (2)
-  assert ("check.pattern-test-binding" in capture.stderr)
-  let impossible = test.run_script(ctx, """
+""",
+  )?
+  assert capture.status == 2
+  assert "check.pattern-test-binding" in capture.stderr
+  let impossible = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str)
 error OtherError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (OtherError.Busy) { attempt()? }
-""")?
-  assert (impossible.status) == (2)
-  assert ("check.pattern-type" in impossible.stderr)
+""",
+  )?
+  assert impossible.status == 2
+  assert "check.pattern-type" in impossible.stderr
 }
 
 test test_retry_filter_facets_and_cleanup_failure_priority { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str) : NotFound | Fatal(message: Str) : InvalidData
 var attempts = 0
 var cleaned = 0
@@ -301,40 +332,55 @@ let result = retry [0ms] on (NotFound) {
 }
 match result { Err(FetchError.Busy {message}) => print \${message}; _ => print "wrong" }
 print f"\${attempts} \${cleaned}"
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("primary\n2 2\n")
-  assert ("secondary" in output.stderr)
+  assert output.stdout == """primary
+2 2
+"""
+  assert "secondary" in output.stderr
 }
 
 test test_retry_filter_does_not_retry_abort { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 let result = retry [0ms] on (_) {
   print "attempt"
   abort(7)
 }
 print "after"
-""")?
-  assert (output.status) == (7)
-  assert (output.stdout) == ("attempt\n")
+""",
+  )?
+  assert output.status == 7
+  assert output.stdout == """attempt
+"""
 }
 
 test test_retry_filter_alias_and_impossible_facet_diagnostics { |ctx|
   for source in [
-    "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (FetchError.Busy as failure) { attempt()? }\n",
-    "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (NotFound) { attempt()? }\n",
+    """error FetchError = Busy(message: Str)
+proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
+let result = retry [] on (FetchError.Busy as failure) { attempt()? }
+""",
+    """error FetchError = Busy(message: Str)
+proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
+let result = retry [] on (NotFound) { attempt()? }
+""",
   ] {
     let output = test.run_script(ctx, source)?
-    assert (output.status) == (2)
-    assert ("check.pattern-" in output.stderr)
+    assert output.status == 2
+    assert "check.pattern-" in output.stderr
   }
 }
 
 test test_retry_filter_cleanup_failure_becomes_attempt_error { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var cleaned = 0
 proc cleanup() -> Result[Unit, FetchError] {
@@ -347,25 +393,33 @@ let result = retry [0ms] on (FetchError.Busy) {
 }
 match result { Err(FetchError.Fatal {message}) => print \${message}; _ => print "wrong" }
 print \${cleaned}
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("cleanup\n1\n")
+  assert output.stdout == """cleanup
+1
+"""
 }
 
 test test_retry_filter_rejects_string_classification { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 proc attempt() -> Result[Str, Str] { Err("busy") }
 let result = retry [] on ("busy") { attempt()? }
-""")?
-  assert (output.status) == (2)
-  assert ("check.retry-pattern" in output.stderr)
+""",
+  )?
+  assert output.status == 2
+  assert "check.retry-pattern" in output.stderr
 }
 
 test test_retry_filter_nested_try_and_lexical_return_keep_destinations { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0
 proc busy() -> Result[Str, FetchError] {
@@ -388,10 +442,15 @@ proc escaped() -> Result[Str, FetchError] {
   "wrong"
 }
 match escaped() { Err(FetchError.Fatal {message}) => print \${message}; _ => print "wrong" }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("local\nlocal\n2\nescape\n")
+  assert output.stdout == """local
+local
+2
+escape
+"""
 }

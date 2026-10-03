@@ -7,6 +7,8 @@ let selected = {
   let answer = count + 41
   answer
 }
-let grouped = { (selected) }
+let grouped = {
+  (selected)
+}
 let shorthand = {selected}
 print $grouped ${shorthand.selected}

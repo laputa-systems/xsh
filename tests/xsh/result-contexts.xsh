@@ -1,5 +1,7 @@
 test test_result_return_match_preserves_constructor_context { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 error DecodeError = Invalid(message: Str)
 enum Json { JNum(Float) }
 pure decode_num(tok: Str) -> Result[Json] {
@@ -22,16 +24,25 @@ print ${ordinary(true)?}
 print ${conditional(true)?}
 print ${conditional(false) is Err(DecodeError.Invalid)}
 print ${block_result()?}
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\ntrue\n7\n11\ntrue\n13\n")
+  assert output.stdout == """true
+true
+7
+11
+true
+13
+"""
 }
 
 test test_result_unit_nested_match_tail_keeps_error_data { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 error E = Failed(message: Str)
 let original: Result[Unit, E] = Err(E.Failed(message: "inner"))
 let translated: Result[Unit, E] = match original {
@@ -44,10 +55,12 @@ let translated: Result[Unit, E] = match original {
   _ => Ok(),
 }
 print ${translated is Err(E.Failed)}
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\n")
+  assert output.stdout == """true
+"""
 }

@@ -72,7 +72,7 @@ pure is_decimal(text: Str) -> Bool {
   var index = 0
 
   while index < text.byte_len() {
-    guard is_digit_byte((text.byte_at(index) ?? -1)) else {
+    guard is_digit_byte(text.byte_at(index) ?? -1) else {
       return false
     }
 
@@ -106,7 +106,7 @@ pure parse_mono_row(line: Str) -> Result[MonoRow] {
 pure is_llvm_lines_row(line: Str) -> Bool {
   let trimmed = line.trim()
 
-  return false when trimmed == "" or ! is_digit_byte((trimmed.byte_at(0) ?? -1))
+  return false when trimmed == "" or ! is_digit_byte(trimmed.byte_at(0) ?? -1)
 
   let fields = trimmed.fields()
   fields.len() >= 7 and is_decimal(fields[0]) and is_decimal(fields[3])
@@ -279,12 +279,7 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
 }
 
 pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) -> List[Offender] {
-  [
-    row
-    for row in rows
-    if row.duplicated_lines >= min_duplicated
-    if filter == "" or filter in row.name
-  ]
+  [row for row in rows if row.duplicated_lines >= min_duplicated if filter == "" or filter in row.name]
 }
 
 pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {

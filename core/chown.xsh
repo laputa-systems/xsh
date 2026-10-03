@@ -45,8 +45,8 @@ proc main(...argv: List[Str]) [fs, error] {
   return Err(usage_error("chown", "[-Rh] OWNER[:GROUP] PATH...")) when operands.len() < 2
 
   let parts = operands[0].split(":")
-  let owner_name = (parts.get(0) ?? "")
-  let group_name = (parts.get(1) ?? "")
+  let owner_name = parts.get(0) ?? ""
+  let group_name = parts.get(1) ?? ""
 
   let owner = if owner_name == "" {
     user.current()?

@@ -15,13 +15,13 @@ test test_archive_tar_cpio_and_compression { |ctx|
   let tarball = fp"${out}/pkg.tar.gz"
   archive.tar_create(tarball, src, [p"."], compression: "gz")?
   let entries = archive.tar_list(tarball)?.collect()
-  assert (entries.len() >= 3), "tar list should include dir, file, and symlink"
-  assert (entries |> any .path.display().ends_with("dir/a.txt")), "tar entry missing"
+  assert entries.len() >= 3, "tar list should include dir, file, and symlink"
+  assert entries |> any .path.display().ends_with("dir/a.txt"), "tar entry missing"
   let sorted_tarball = fp"${out}/sorted.tar"
   var sorted_entries = [p"dir/a.txt"]
   sorted_entries = sorted_entries |> sort-by .display()
   archive.tar_create(sorted_tarball, src, sorted_entries)?
-  assert (archive.tar_list(sorted_tarball)?.collect().len()) == (1)
+  assert archive.tar_list(sorted_tarball)?.collect().len() == 1
   let extracted = fp"${out}/extract"
   archive.tar_extract(tarball, extracted)?
   assert fp"${extracted}/dir/a.txt".read_text()?.trim() == "alpha"
@@ -33,7 +33,7 @@ test test_archive_tar_cpio_and_compression { |ctx|
   let cpio = fp"${out}/pkg.cpio"
   archive.cpio_create(cpio, src, [p"."])?
   let cpio_entries = archive.cpio_list(cpio)?.collect()
-  assert (cpio_entries.len() >= 3), "cpio list should include source entries"
+  assert cpio_entries.len() >= 3, "cpio list should include source entries"
   let cpio_out = fp"${out}/cpio"
   archive.cpio_extract(cpio, cpio_out)?
   assert fp"${cpio_out}/dir/a.txt".read_text()?.trim() == "alpha"

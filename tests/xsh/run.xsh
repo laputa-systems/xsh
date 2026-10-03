@@ -70,12 +70,12 @@ print $value.length()
 }
 
 test test_grouped_multiline_run_invocation_executes {
-  assert (run.text (
-      printf
-      "%s %s\n"
-      "grouped"
-      "run"
-    )?) == """grouped run
+  assert run.text (
+    printf
+    "%s %s\n"
+    "grouped"
+    "run"
+  )? == """grouped run
 """
 }
 
@@ -223,7 +223,9 @@ fs read
 }
 
 test test_call_splices_preserve_shared_and_constant_lists { |ctx|
-  let result = test.run_script(ctx, r"""
+  let result = test.run_script(
+    ctx,
+    r"""
 const prepared = ["constant", "backing"]
 proc pair(a: Str, b: Str) -> Result[Unit] {
   print ${a} ${b}
@@ -237,12 +239,19 @@ pair(@prepared)?
 var order = 0
 pair(@{ order = order * 10 + 1; ["first"] }, @{ order = order * 10 + 2; ["second"] })?
 print $order
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  assert (result.stdout) == ("left right\nconstant backing\nleft right\nconstant backing\nfirst second\n12\n")
+  assert result.stdout == """left right
+constant backing
+left right
+constant backing
+first second
+12
+"""
 }
 
 test test_nul_run_targets_proc_splice_and_match_diagnostics { |ctx|
@@ -339,7 +348,9 @@ test test_legacy_test_and_getopt_spellings_are_not_command_aliases { |ctx|
 }
 
 test test_function_tail_values_return_declared_values { |ctx|
-  let output = test.run_script(ctx, r"""pure run_object_path(src: Path) -> Path { src.with_ext("o") }
+  let output = test.run_script(
+    ctx,
+    r"""pure run_object_path(src: Path) -> Path { src.with_ext("o") }
 proc run_wrap_tail(value: Str) [error] -> Result[Str] { Ok(f"${value}.ok") }
 proc run_command_tail(value: Str) [error] -> Result[Str] {
   run_wrap_tail(value)
@@ -364,7 +375,8 @@ proc witness() [error] {
   test.error_kind(run_result_unit_tail_error(), "TailError.tail_error")?
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
@@ -373,7 +385,7 @@ witness()
 test test_byte_pipeline_executes_without_shell_and_redirects_stdout { |ctx|
   let out = test.temp_path(ctx)
   run printf "%s\n" "hello" | run tr a-z A-Z > $out ?
-  assert (out.read_bytes()?) == b"HELLO\n"
+  assert out.read_bytes()? == b"HELLO\n"
 }
 
 test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
@@ -389,7 +401,7 @@ test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
     run tar cf - src | run gzip -9 > $tarball ?
   } ?
 
-  assert (tarball.metadata()?.size > 0)
+  assert tarball.metadata()?.size > 0
 }
 
 test test_plain_run_updates_last_status_and_direct_binding {
@@ -397,7 +409,7 @@ test test_plain_run_updates_last_status_and_direct_binding {
   let last = $?
   assert last.exited_with(1)
   let bound = run sh -c "exit 7"
-  assert (bound.segments[0].code == 7)
+  assert bound.segments[0].code == 7
   assert bound.ok == false
 }
 
@@ -417,31 +429,31 @@ name"""
   run sh -c "printf err >&2" 2> $errlog ?
   run sh -c "printf more >&2" 2>> $errlog ?
   run true <& 0 ?
-  assert (spaced.read_bytes()?) == b"ab"
-  assert (lined.read_bytes()?) == b"ab"
-  assert (dashed.read_bytes()?) == b"ab"
-  assert (errlog.read_bytes()?) == b"errmore"
+  assert spaced.read_bytes()? == b"ab"
+  assert lined.read_bytes()? == b"ab"
+  assert dashed.read_bytes()? == b"ab"
+  assert errlog.read_bytes()? == b"errmore"
 }
 
 test test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments { |ctx|
   env PATH="/bin:/usr/bin" {
     let status = run xsh-definitely-missing-command | run true
-    assert (status.segments[0].kind) == ("exec")
-    assert (status.segments[0].error_kind) == ("not-found")
+    assert status.segments[0].kind == "exec"
+    assert status.segments[0].error_kind == "not-found"
   }
 
   let sink = test.temp_path(ctx)
   let broken = run yes | run head -n 1 > $sink
-  assert (broken.segments[0].kind == "signal")
+  assert broken.segments[0].kind == "signal"
 
-  assert (sink.read_text()?) == """y
+  assert sink.read_text()? == """y
 """
 }
 
 test test_signaled_status_exposes_total_signal_helpers {
   let status = run sh -c "kill -TERM $$"
   assert status.signaled()
-  assert (status.signal_number()? > 0)
+  assert status.signal_number()? > 0
 }
 
 test test_large_stdout_capture_drains_and_limit_is_error {
@@ -827,7 +839,7 @@ main(args)?
 }
 
 test test_run_fixture_behaviors { |ctx|
-  assert (run.text printf "%s\n" "hello world"?) == """hello world
+  assert run.text printf "%s\n" "hello world"? == """hello world
 """
 
   let failed = test.run_script(
@@ -917,7 +929,7 @@ beta
   }
   assert process.run(command)?.exited_with(0)
   assert mode == 493
-  assert ("493" in label)
+  assert "493" in label
   assert lines[0] == "beta"
   assert total == 6
   assert unique[2] == 3
@@ -945,16 +957,20 @@ proc run_capture_match_assignments(ok_cmd: Str) [process] -> Str {
     Ok(body) => text = body.trim()
     Err(err) => text = f"text failed: ${err.message}"
   }
+
   if let Ok(body) = run.bytes printf "%s" $ok_cmd {
     size = body.len()
   }
+
   if let Ok(captured) = run.capture --text printf "%s " $ok_cmd {
     stdout = captured.stdout.trim()
   }
+
   match run.text sh -c "exit 3" {
     Ok(body) => failure = body.trim()
     Err(err) => failure = f"failed ${err.message != ""}"
   }
+
   let label = if let Ok(body) = run.text printf " %s " $ok_cmd { body.trim() } else { "none" }
   f"${text}|${size}|${stdout}|${failure}|${label}"
 }

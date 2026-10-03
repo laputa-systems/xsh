@@ -9,7 +9,9 @@ let updated = {...settings, build.jobs: 4}
 print $updated.build.jobs
 
 type Observation[T] = {value: T? = null, samples: List[T] = []}
+
 type CountObservation = Observation[Int]
+
 let count = Observation(value: 7)
 let direct = Observation(value: "demo", samples: ["demo"])
 let absent: CountObservation = Observation(value: null)

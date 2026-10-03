@@ -20,7 +20,7 @@ proc main(...argv: List[Str]) [process, error] {
     return Err(AppletError.Usage("date: expected at most one format operand"))
   }
 
-  let format_arg = (opts.operands.get(0) ?? "+%a %b %d %H:%M:%S %Y")
+  let format_arg = opts.operands.get(0) ?? "+%a %b %d %H:%M:%S %Y"
   let format = if format_arg.starts_with("+") { format_arg.replace("+", "") } else { format_arg }
   let host_format = format.replace("%:z", "%z")
   let date_argv = if opts.utc {

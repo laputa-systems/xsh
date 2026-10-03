@@ -41,18 +41,18 @@ type ReportCoverageManifest = {
 
 test test_system_report_fixture_failure_shows_cargo_diagnostic {
   assert report_checks.fixture_failure_summary(
-  "",
-  """error[E0433]: missing crate
+    "",
+    """error[E0433]: missing crate
 error: could not compile xsh test
 """,
-) == "error: could not compile xsh test"
+  ) == "error: could not compile xsh test"
   assert report_checks.fixture_failure_summary(
-  """running 1 test
+    """running 1 test
 test result: FAILED. 0 passed; 1 failed
 """,
-  """error: test failed
+    """error: test failed
 """,
-) == "test result: FAILED. 0 passed; 1 failed"
+  ) == "test result: FAILED. 0 passed; 1 failed"
   assert report_checks.fixture_failure_summary("", "") == "no test output"
 }
 
@@ -362,9 +362,24 @@ test test_system_report_usb_topology_reference_scores_parent_links_and_stable_nu
 }
 
 test test_system_report_usb_topology_name_parser_keeps_root_hubs_and_sparse_ports {
-  assert (report_checks.parse_usb_topology_name("usb4")?) == {parent_name: null, port_path: null, bus_number: 4, is_root_hub: true}
-  assert (report_checks.parse_usb_topology_name("4-2")?) == {parent_name: "usb4", port_path: "2", bus_number: 4, is_root_hub: false}
-  assert (report_checks.parse_usb_topology_name("4-2.9")?) == {parent_name: "4-2", port_path: "2.9", bus_number: 4, is_root_hub: false}
+  assert report_checks.parse_usb_topology_name("usb4")? == {
+    parent_name: null,
+    port_path: null,
+    bus_number: 4,
+    is_root_hub: true,
+  }
+  assert report_checks.parse_usb_topology_name("4-2")? == {
+    parent_name: "usb4",
+    port_path: "2",
+    bus_number: 4,
+    is_root_hub: false,
+  }
+  assert report_checks.parse_usb_topology_name("4-2.9")? == {
+    parent_name: "4-2",
+    port_path: "2.9",
+    bus_number: 4,
+    is_root_hub: false,
+  }
   for invalid in [
     "usb",
     "usb0",
@@ -429,7 +444,7 @@ test test_system_report_usb_topology_rooted_reference_reads_devices_without_inte
   assert devices[1].port_path == "2.9"
   assert devices[2].is_root_hub == true
   root.write(
-        p"sys/bus/usb/devices/4-2/busnum",
+    p"sys/bus/usb/devices/4-2/busnum",
     """5
 """,
   )?
@@ -572,7 +587,7 @@ test test_system_report_usb_ids_rooted_reference_reads_fixed_width_values {
   assert devices[0].class_code == {value: 9, complete: true}
   assert devices[0].manufacturer == {value: "GenesysLogic", complete: true}
   root.write(
-        fp"${device_path}/bDeviceClass",
+    fp"${device_path}/bDeviceClass",
     """9
 """,
   )?
@@ -627,9 +642,9 @@ test test_system_report_usb_power_reference_scores_controls_and_brackets_runtime
 }
 
 test test_system_report_usb_power_number_reference_keeps_signed_autosuspend_delay {
-  assert (report_checks.parse_usb_power_number("-1", true)?) == -1
-  assert (report_checks.parse_usb_power_number("0", true)?) == 0
-  assert (report_checks.parse_usb_power_number("2", false)?) == 2
+  assert report_checks.parse_usb_power_number("-1", true)? == -1
+  assert report_checks.parse_usb_power_number("0", true)? == 0
+  assert report_checks.parse_usb_power_number("2", false)? == 2
   for invalid in ["", "1.5", "-", "9007199254740992"] {
     test.error_kind(report_checks.parse_usb_power_number(invalid, true), "SystemReportCheckError.Invalid")?
   }
@@ -674,7 +689,7 @@ test test_system_report_usb_power_rooted_reference_reads_runtime_and_configurati
   assert devices[0].runtime_status == {value: "active", complete: true}
   assert devices[0].configuration_count == {value: 2, complete: true}
   root.write(
-        fp"${device_path}/bNumConfigurations",
+    fp"${device_path}/bNumConfigurations",
     """-1
 """,
   )?
@@ -758,11 +773,11 @@ test test_system_report_usb_interface_reference_scores_active_and_available_sett
     [reference],
     [{...reference, active_alternate: {value: 1, complete: true}}],
   )?
-  assert ("4-2:1.0.active_alternate" in changed.unstable_fields)
+  assert "4-2:1.0.active_alternate" in changed.unstable_fields
   let partial_candidate = """{"usb":{"status":{"state":"partial","enumeration_succeeded":false},"devices":[{"sysfs_name":"4-2","interfaces":[]}]}}"""
   let incomplete = report_checks.compare_usb_interfaces(partial_candidate, [reference], [reference])?
   assert incomplete.missing_names == []
-  assert ("4-2:1.0.presence" in incomplete.unstable_fields)
+  assert "4-2:1.0.presence" in incomplete.unstable_fields
 }
 
 test test_system_report_usb_interface_reference_selects_active_alternate_from_available_settings {
@@ -807,7 +822,7 @@ test test_system_report_usb_interface_reference_selects_active_alternate_from_av
     [{...reference, active_class: {value: 255, complete: true}}],
     [{...reference, active_class: {value: 255, complete: true}}],
   )?
-  assert ("4-2:1.0.active_class" in wrong_active_class.field_mismatches)
+  assert "4-2:1.0.active_class" in wrong_active_class.field_mismatches
 }
 
 test test_system_report_usb_interface_rooted_reference_reads_driver_active_class_and_descriptors {
@@ -859,7 +874,7 @@ test test_system_report_usb_interface_rooted_reference_reads_driver_active_class
   assert rows[0].active_endpoint_count == {value: 1, complete: true}
   assert rows[0].settings[0].endpoints[0].address == 129
   root.write(
-        fp"${interface_path}/bInterfaceNumber",
+    fp"${interface_path}/bInterfaceNumber",
     """01
 """,
   )?
@@ -931,15 +946,15 @@ test test_system_report_power_supply_reference_scores_units_and_brackets_gauges 
   let partial_candidate = """{"power":{"status":{"state":"partial","enumeration_succeeded":false},"supplies":[]},"issues":[{"section":"power","field":"supplies"}]}"""
   let partial = report_checks.compare_power_supplies(partial_candidate, [battery], [battery])?
   assert partial.missing_names == []
-  assert ("BAT0.presence" in partial.unstable_fields)
+  assert "BAT0.presence" in partial.unstable_fields
   let cap_only_issue = candidate.replace("\"state\":\"complete\"", "\"state\":\"partial\"")
     .replace("]}}", "]},\"issues\":[{\"section\":\"power\",\"field\":\"cap_zones\"}]}")
   assert report_checks.compare_power_supplies(cap_only_issue, [battery], [battery])?.exact
 }
 
 test test_system_report_power_supply_number_reference_keeps_signed_current_and_exact_range {
-  assert (report_checks.parse_power_supply_number("-250000", true)?) == -250000
-  assert (report_checks.parse_power_supply_number("0", false)?) == 0
+  assert report_checks.parse_power_supply_number("-250000", true)? == -250000
+  assert report_checks.parse_power_supply_number("0", false)? == 0
   for invalid in ["", "-", "1.5", "9007199254740992"] {
     test.error_kind(report_checks.parse_power_supply_number(invalid, true), "SystemReportCheckError.Invalid")?
   }
@@ -974,7 +989,7 @@ test test_system_report_power_supply_rooted_reference_reads_signed_current_and_m
   assert supplies[0].current_now_ua == {value: -250000, complete: true}
   assert supplies[0].energy_now_uwh == {value: null, complete: true}
   root.write(
-        fp"${battery}/capacity",
+    fp"${battery}/capacity",
     """101
 """,
   )?
@@ -1061,9 +1076,9 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  assert "power supply raw replay: exact" in (output.read_text()?)
+  assert "power supply raw replay: exact" in output.read_text()?
   bundle.write(
-        fp"${battery}/energy_now",
+    fp"${battery}/energy_now",
     """51000000
 """,
   )?
@@ -1225,13 +1240,13 @@ test test_system_report_powercap_reference_scores_nested_zones_constraints_and_c
     [package, core],
     [{...changed_constraint, energy_uj: {value: 150, complete: true}}, core],
   )?
-  assert ("intel-rapl:0.constraint_10.power_limit_uw" in changed_limit.unstable_fields)
+  assert "intel-rapl:0.constraint_10.power_limit_uw" in changed_limit.unstable_fields
   let wrapped = report_checks.compare_powercap(
     candidate,
     [{...package, energy_uj: {value: 950, complete: true}}, core],
     [{...package, energy_uj: {value: 50, complete: true}}, core],
   )?
-  assert ("intel-rapl:0.energy_uj" in wrapped.unstable_fields)
+  assert "intel-rapl:0.energy_uj" in wrapped.unstable_fields
 }
 
 test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_constraint_indices {
@@ -1292,7 +1307,7 @@ test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
   assert (package_zone.constraints |> map .index) == [0, 10]
   assert core_zone.parent == {value: "intel-rapl:0", complete: true}
   root.write(
-        fp"${package}/constraint_10_power_limit_uw",
+    fp"${package}/constraint_10_power_limit_uw",
     """-1
 """,
   )?
@@ -1349,7 +1364,7 @@ test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tamper
   assert report_checks.replay_powercap_bundle(bundle)?.exact
   assert report_checks.validate_powercap_bundle(bundle)?.len() == 2
   bundle.write(
-        fp"${package}/constraint_10_power_limit_uw",
+    fp"${package}/constraint_10_power_limit_uw",
     """80000001
 """,
   )?
@@ -1463,7 +1478,7 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
   assert replay.link.exact
   assert replay.identity.matched_count == 1
   bundle.write(
-        fp"${device}/vendor",
+    fp"${device}/vendor",
     """0x8087
 """,
   )?
@@ -1529,7 +1544,7 @@ test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering
   assert replay.exact
   assert replay.matched_count == 1
   bundle.write(
-        fp"${chip}/temp1_input",
+    fp"${chip}/temp1_input",
     """43000
 """,
   )?
@@ -1687,7 +1702,7 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   assert replay.identity.reference_count == 3
   assert replay.identity.matched_edges == 2
   bundle.write(
-        fp"${partition}/size",
+    fp"${partition}/size",
     """129
 """,
   )?
@@ -1878,7 +1893,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored { |ctx
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  assert "link=unavailable" in (output.read_text()?)
+  assert "link=unavailable" in output.read_text()?
 }
 
 test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_tampering {
@@ -2000,7 +2015,7 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
   assert replay.power.exact
   assert replay.interface.exact
   bundle.write(
-        fp"${device}/idVendor",
+    fp"${device}/idVendor",
     """1d6c
 """,
   )?
@@ -2059,8 +2074,8 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  assert "power=unavailable" in (output.read_text()?)
-  assert "interfaces=unavailable" in (output.read_text()?)
+  assert "power=unavailable" in output.read_text()?
+  assert "interfaces=unavailable" in output.read_text()?
 }
 
 test test_system_report_device_class_reference_scores_duplicate_labels_and_parent_indexes {
@@ -2093,13 +2108,13 @@ test test_system_report_device_class_reference_scores_duplicate_labels_and_paren
     [first, second],
   )?
   assert partial_parent.field_mismatches == []
-  assert ("sound:card1.usb_parent" in partial_parent.unstable_fields)
+  assert "sound:card1.usb_parent" in partial_parent.unstable_fields
   let changed = report_checks.compare_device_classes(
     candidate,
     [first, second],
     [first, {...second, parent_target: "../../../devices/pci0000:00/0000:00:14.0/usb1/1-3"}],
   )?
-  assert ("sound:card1.parent" in changed.unstable_fields)
+  assert "sound:card1.parent" in changed.unstable_fields
   let absent = json.remove(json.decode(candidate)?, ["devices", "devices", 1])?
   let missing = report_checks.compare_device_classes(json.encode(absent)?, [first, second], [first, second])?
   assert missing.missing_names == ["sound:card1"]
@@ -2119,9 +2134,9 @@ test test_system_report_device_class_rooted_reference_keeps_sysfs_entry_identity
 
   let records = report_checks.read_device_class_reference(root)?
   assert records.len() == 2
-  assert (records |> any .entry_name == "card0")
-  assert (records |> any .entry_name == "card1")
-  assert (records |> all .name == "Shared label")
+  assert records |> any .entry_name == "card0"
+  assert records |> any .entry_name == "card1"
+  assert records |> all .name == "Shared label"
 }
 
 test test_system_report_hwmon_reference_scores_duplicate_chip_names_and_raw_units {
@@ -2189,17 +2204,17 @@ test test_system_report_hwmon_reference_scores_duplicate_chip_names_and_raw_unit
     [first, second],
   )?
   assert partial_parent.field_mismatches == []
-  assert ("hwmon1:temp1.usb_parent" in partial_parent.unstable_fields)
+  assert "hwmon1:temp1.usb_parent" in partial_parent.unstable_fields
   let changed = report_checks.compare_hwmon(
     candidate,
     [first, second],
     [first, {...second, value: {value: 44000, complete: true}}],
   )?
-  assert ("hwmon1:temp1.value" in changed.unstable_fields)
+  assert "hwmon1:temp1.value" in changed.unstable_fields
   let transient_input = json.set(json.decode(candidate)?, ["sensors", "channels", 1, "value"], 44000)?
   let transient = report_checks.compare_hwmon(json.encode(transient_input)?, [first, second], [first, second])?
   assert transient.field_mismatches == []
-  assert ("hwmon1:temp1.value" in transient.unstable_fields)
+  assert "hwmon1:temp1.value" in transient.unstable_fields
 }
 
 test test_system_report_hwmon_rooted_reference_reads_channel_attributes {
@@ -2288,15 +2303,15 @@ test test_system_report_dmidecode_dump_relocates_smbios3_entry_point {
   let table = b"\x7f\x04\0\0\0\0"
   let dump = smbios_reference.craft_dmidecode_dump(entry, table)?
   assert dump.len() == 38
-  assert dump[16..24] == (bytes.from_ints([32, 0, 0, 0, 0, 0, 0, 0])?)
+  assert dump[16..24] == bytes.from_ints([32, 0, 0, 0, 0, 0, 0, 0])?
   assert (dump.byte_at(5) ?? -1) == 43
   assert dump[32..38] == table
   var checksum = 0
   for index in range(24) {
-    checksum += (dump.byte_at(index) ?? -1)
+    checksum += dump.byte_at(index) ?? -1
   }
 
-  assert (checksum % 256) == 0
+  assert checksum % 256 == 0
   assert (entry.byte_at(17) ?? -1) == 16
   test.error_kind(
     smbios_reference.craft_dmidecode_dump(
@@ -2347,21 +2362,21 @@ test test_system_report_dmidecode_dump_relocates_smbios2_entry_point {
   let table = b"\x7f\x04\0\0\0\0"
   let dump = smbios_reference.craft_dmidecode_dump(entry, table)?
   assert dump.len() == 38
-  assert dump[24..28] == (bytes.from_ints([32, 0, 0, 0])?)
+  assert dump[24..28] == bytes.from_ints([32, 0, 0, 0])?
   assert (dump.byte_at(21) ?? -1) == 25
   assert dump[32..38] == table
   var primary_checksum = 0
   for index in range(31) {
-    primary_checksum += (dump.byte_at(index) ?? -1)
+    primary_checksum += dump.byte_at(index) ?? -1
   }
 
-  assert (primary_checksum % 256) == 0
+  assert primary_checksum % 256 == 0
   var dmi_checksum = 0
   for index in range(16, 31) {
-    dmi_checksum += (dump.byte_at(index) ?? -1)
+    dmi_checksum += dump.byte_at(index) ?? -1
   }
 
-  assert (dmi_checksum % 256) == 0
+  assert dmi_checksum % 256 == 0
 }
 
 test test_system_report_dmidecode_hex_output_corroborates_raw_records_and_strings {
@@ -2394,16 +2409,18 @@ End Of Table
   assert parsed[0].strings == [b"Vendor", b"Model", b"Version"]
   assert smbios_reference.compare_dmidecode_hex_output(raw, output)?.exact
   assert smbios_reference.compare_dmidecode_hex_output(
-  raw,
-  output.replace(
+    raw,
+    output.replace(
   """    Vendor
 """,
   """    Handle 0xDEAD
 """,
 ),
-)?.exact
+  )?.exact
   let wrong_field = output.replace("01 08 34 12 01 02 03 00", "01 08 34 12 01 01 03 00")
-  assert smbios_reference.compare_dmidecode_hex_output(raw, wrong_field)?.field_mismatches == ["1:4660.field.product_index"]
+  assert smbios_reference.compare_dmidecode_hex_output(raw, wrong_field)?.field_mismatches == [
+    "1:4660.field.product_index",
+  ]
   let wrong_string = output.replace("4D 6F 64 65 6C 00", "4D 6F 64 65 58 00")
   assert smbios_reference.compare_dmidecode_hex_output(raw, wrong_string)?.field_mismatches == ["1:4660.string.2"]
   test.error_kind(
@@ -2471,7 +2488,7 @@ test test_system_report_smbios_capture_scores_table_without_optional_entry_point
   source.write(p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
   assert smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?.scoreable
   assert smbios_reference.validate_smbios_bundle(bundle)?.records.len() == 1
-  assert "\"path\": \"sys/firmware/dmi/tables/smbios_entry_point\"" in (bundle.read_text(p"capture.json")?)
+  assert "\"path\": \"sys/firmware/dmi/tables/smbios_entry_point\"" in bundle.read_text(p"capture.json")?
 }
 
 test test_system_report_smbios_capture_preserves_absent_source_without_scoring {
@@ -2482,7 +2499,7 @@ test test_system_report_smbios_capture_preserves_absent_source_without_scoring {
   let captured = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
   assert captured.stable
   assert captured.scoreable == false
-  assert "\"state\": \"absent\"" in (bundle.read_text(p"capture.json")?)
+  assert "\"state\": \"absent\"" in bundle.read_text(p"capture.json")?
   test.error_kind(smbios_reference.validate_smbios_bundle(bundle), "SmbiosCheckError.Invalid")?
 }
 
@@ -2532,7 +2549,7 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   assert "\"source_mode\": \"captured_replay\"" in metadata
   assert "\"origin\": \"synthetic_fixture\"" in metadata
   assert "\"exit_status\": 0" in metadata
-  assert "Handle 0x0000" in (bundle.read_text(p"dmidecode-output.txt")?)
+  assert "Handle 0x0000" in bundle.read_text(p"dmidecode-output.txt")?
   test.error_kind(
     smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
@@ -2600,8 +2617,8 @@ exit 2
     smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
   )?
-  assert "\"version_exit_status\": 2" in (bundle.read_text(p"dmidecode-probe.json")?)
-  assert "unsupported version probe" in (bundle.read_text(p"dmidecode-version-error.txt")?)
+  assert "\"version_exit_status\": 2" in bundle.read_text(p"dmidecode-probe.json")?
+  assert "unsupported version probe" in bundle.read_text(p"dmidecode-version-error.txt")?
   assert ! bundle.exists(p"dmidecode-comparison.json")?
 }
 
@@ -2637,8 +2654,8 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  assert "firmware.dmidecode:" in (output.read_text()?)
-  assert "\"exact\": true" in (bundle.read_text(p"dmidecode-comparison.json")?)
+  assert "firmware.dmidecode:" in output.read_text()?
+  assert "\"exact\": true" in bundle.read_text(p"dmidecode-comparison.json")?
 }
 
 test test_system_report_cpufreq_rooted_reference_reads_every_policy {
@@ -2746,7 +2763,7 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy {
   root.remove(p"sys/devices/system/cpu/cpufreq/boost")?
   root.mkdir(p"sys/devices/system/cpu/intel_pstate", parents: true)?
   root.write(
-        p"sys/devices/system/cpu/intel_pstate/no_turbo",
+    p"sys/devices/system/cpu/intel_pstate/no_turbo",
     """1
 """,
   )?
@@ -2754,7 +2771,7 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy {
   assert intel_reference[0].boost_allowed == false
   assert intel_reference[0].boost_scope == "intel_pstate"
   root.write(
-        p"sys/devices/system/cpu/intel_pstate/no_turbo",
+    p"sys/devices/system/cpu/intel_pstate/no_turbo",
     """invalid
 """,
   )?
@@ -2881,7 +2898,7 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
   assert replay.policies.exact_bounds
   assert replay.policies.exact_controls
   bundle.write(
-        fp"${policy}/related_cpus",
+    fp"${policy}/related_cpus",
     """1
 """,
   )?
@@ -2979,7 +2996,7 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
   assert replay.topology.exact
   assert replay.topology.matched_count == 2
   bundle.write(
-        fp"${cpu_root}/cpu1/topology/core_id",
+    fp"${cpu_root}/cpu1/topology/core_id",
     """1
 """,
   )?
@@ -3052,8 +3069,18 @@ test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
     usage_count: 6,
     time_us: 40,
   }
-  let before = report_checks.CpuIdleReference(driver: "intel_idle", governor: "menu", available_governors: ["menu", "teo"], states: [shallow, deep])
-  let after = report_checks.CpuIdleReference(driver: before.driver, governor: before.governor, available_governors: before.available_governors, states: [{...shallow, usage_count: 5, time_us: 30}, {...deep, usage_count: 8, time_us: 60}])
+  let before = report_checks.CpuIdleReference(
+    driver: "intel_idle",
+    governor: "menu",
+    available_governors: ["menu", "teo"],
+    states: [shallow, deep],
+  )
+  let after = report_checks.CpuIdleReference(
+    driver: before.driver,
+    governor: before.governor,
+    available_governors: before.available_governors,
+    states: [{...shallow, usage_count: 5, time_us: 30}, {...deep, usage_count: 8, time_us: 60}],
+  )
   let candidate = """{"cpu":{"status":{"state":"complete","enumeration_succeeded":true},"global_idle_driver":"intel_idle","global_idle_governor":"menu","available_idle_governors":["menu","teo"],"idle_states":[{"cpu_id":0,"state_index":1,"name":"C1","description":"second","disable_setting":0,"latency_us":8,"residency_us":20,"usage_count":7,"time_us":50},{"cpu_id":0,"state_index":0,"name":"C1","description":"first","disable_setting":0,"latency_us":1,"residency_us":2,"usage_count":4,"time_us":20}]}}"""
   let exact = report_checks.compare_cpuidle(candidate, before, after)?
   assert exact.eligible
@@ -3166,9 +3193,9 @@ test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state {
   assert reference.governor == "menu"
   assert reference.available_governors == ["menu", "teo"]
   assert reference.states.len() == 4
-  assert (reference.states |> any .cpu_id == 2 and .state_index == 1 and .name == "C1")
+  assert reference.states |> any .cpu_id == 2 and .state_index == 1 and .name == "C1"
   root.write(
-        p"sys/devices/system/cpu/cpu2/cpuidle/state1/disable",
+    p"sys/devices/system/cpu/cpu2/cpuidle/state1/disable",
     """2
 """,
   )?
@@ -3187,94 +3214,94 @@ test test_system_report_capture_rejects_simultaneous_live_comparison { |ctx|
   let stderr = test.temp_path(ctx, name: "system-report-cpu-bundle.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-cpuidle 2> $stderr
   assert ! status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let usb_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-usb-topology 2> $stderr
   assert ! usb_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let usb_ids_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-usb-ids 2> $stderr
   assert ! usb_ids_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let usb_power_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-usb-power 2> $stderr
   assert ! usb_power_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let smbios_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-smbios-bundle $bundle --compare-smbios 2> $stderr
   assert ! smbios_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let thermal_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-thermal-bundle $bundle --compare-thermal 2> $stderr
   assert ! thermal_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let hwmon_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-hwmon-bundle $bundle --compare-hwmon 2> $stderr
   assert ! hwmon_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let block_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-block-bundle $bundle --compare-storage 2> $stderr
   assert ! block_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let cgroup_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cgroup2-bundle $bundle --compare-cgroup-v2 2> $stderr
   assert ! cgroup_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let process_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-process-bundle $bundle --compare-processes 2> $stderr
   assert ! process_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let supply_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-power-supply-bundle $bundle --compare-power-supplies 2> $stderr
   assert ! supply_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let identity_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-os-release-bundle $bundle --compare-identity 2> $stderr
   assert ! identity_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let uptime_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-uptime-bundle $bundle --compare-identity 2> $stderr
   assert ! uptime_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let dmi_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-dmi-identity-bundle $bundle --compare-identity 2> $stderr
   assert ! dmi_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let device_tree_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-device-tree-bundle $bundle --compare-identity 2> $stderr
   assert ! device_tree_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let command_line_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-kernel-command-line-bundle $bundle --compare-command-line 2> $stderr
   assert ! command_line_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let modules_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-kernel-modules-bundle $bundle --compare-modules 2> $stderr
   assert ! modules_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let swaps_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-swaps-bundle $bundle --compare-swaps 2> $stderr
   assert ! swaps_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let pressure_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-pressure-bundle $bundle --compare-pressure 2> $stderr
   assert ! pressure_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let mountinfo_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-mountinfo-bundle $bundle --compare-mounts 2> $stderr
   assert ! mountinfo_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let parameters_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-kernel-parameters-bundle $bundle --compare-parameters 2> $stderr
   assert ! parameters_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   assert ! bundle.exists()?
   let utility_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle --dmidecode-bin /nonexistent --compare-smbios 2> $stderr
   assert ! utility_status.exited_with(0)
-  assert "bundle operations cannot be combined" in (stderr.read_text()?)
+  assert "bundle operations cannot be combined" in stderr.read_text()?
   let missing_binary_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle 2> $stderr
   assert ! missing_binary_status.exited_with(0)
-  assert "requires --dmidecode-bin" in (stderr.read_text()?)
+  assert "requires --dmidecode-bin" in stderr.read_text()?
   assert ! bundle.exists()?
 }
 
@@ -3284,7 +3311,7 @@ test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
   let possible_extra = report_checks.parse_lscpu_topology(
     output.replace("]}", ",{\"cpu\":3,\"online\":false,\"socket\":1,\"core\":22,\"node\":1}]}"),
   )?
-  assert (report_checks.select_present_lscpu_topology(possible_extra, [0, 1, 2])?) == reference
+  assert report_checks.select_present_lscpu_topology(possible_extra, [0, 1, 2])? == reference
   test.error_kind(
     report_checks.select_present_lscpu_topology(reference, [0, 1, 2, 3]),
     "SystemReportCheckError.Invalid",
@@ -3309,14 +3336,14 @@ test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
     reference,
   )?
   assert ! bad_package.exact
-  assert (bad_package.package_group_mismatches.len() > 0)
+  assert bad_package.package_group_mismatches.len() > 0
   let missing_package = report_checks.compare_lscpu_topology(
     candidate.replace("\"package_id\":7", "\"package_id\":null"),
     reference,
     reference,
   )?
   assert ! missing_package.exact
-  assert (missing_package.field_missing.len() > 0)
+  assert missing_package.field_missing.len() > 0
   let changed = report_checks.parse_lscpu_topology(output.replace("\"node\":1", "\"node\":0"))?
   test.error_kind(report_checks.compare_lscpu_topology(candidate, reference, changed), "SystemReportCheckError.Invalid")?
   let duplicate = """{"cpus":[{"cpu":0,"online":true,"socket":0,"core":0,"node":0},{"cpu":0,"online":true,"socket":0,"core":0,"node":0}]}"""
@@ -3390,8 +3417,8 @@ test test_system_report_cache_reference_scores_unique_instances_and_cpu_links {
 }
 
 test test_system_report_cache_reference_parses_sizes_without_candidate_rules {
-  assert (report_checks.parse_cpu_cache_size_reference("1M")?) == 1048576
-  assert (report_checks.parse_cpu_cache_size_reference("48K")?) == 49152
+  assert report_checks.parse_cpu_cache_size_reference("1M")? == 1048576
+  assert report_checks.parse_cpu_cache_size_reference("48K")? == 49152
   test.error_kind(report_checks.parse_cpu_cache_size_reference("1T"), "SystemReportCheckError.Invalid")?
   test.error_kind(report_checks.parse_cpu_cache_size_reference("8796093022208K"), "SystemReportCheckError.Invalid")?
 }
@@ -3453,7 +3480,7 @@ test test_system_report_cache_rooted_reference_reads_shared_instance_sources {
   assert reference[0].shared_cpus == [0, 2]
   assert reference[0].kernel_id == 9
   root.write(
-        p"sys/devices/system/cpu/cpu2/cache/index7/shared_cpu_list",
+    p"sys/devices/system/cpu/cpu2/cache/index7/shared_cpu_list",
     """0,,2
 """,
   )?
@@ -3551,7 +3578,7 @@ test test_system_report_network_link_raw_reference_reads_bounded_sysfs_attribute
   assert reference[0].rx_bytes == 100
   assert reference[0].complete
   root.write(
-        p"sys/class/net/eth0/statistics/tx_bytes",
+    p"sys/class/net/eth0/statistics/tx_bytes",
     """invalid
 """,
   )?
@@ -3559,7 +3586,7 @@ test test_system_report_network_link_raw_reference_reads_bounded_sysfs_attribute
   assert ! incomplete[0].complete
   assert incomplete[0].tx_bytes == null
   root.write(
-        p"sys/class/net/eth0/statistics/tx_bytes",
+    p"sys/class/net/eth0/statistics/tx_bytes",
     """200
 """,
   )?
@@ -3629,7 +3656,7 @@ test test_system_report_ip_link_reference_scores_stable_identity_and_state {
     typed_candidate.replace("\"kind\":\"vlan\"", "\"kind\":\"bridge\""),
     typed_reference,
   )?
-  assert (wrong_kind.field_mismatches == ["5.kind"])
+  assert wrong_kind.field_mismatches == ["5.kind"]
   assert ! wrong_kind.exact
 }
 
@@ -3643,7 +3670,7 @@ test test_system_report_ip_link_reference_checks_master_relationship {
     candidate.replace("\"master_ifindex\":6", "\"master_ifindex\":7"),
     reference,
   )?
-  assert (wrong_parent.field_mismatches == ["5.master_ifindex"])
+  assert wrong_parent.field_mismatches == ["5.master_ifindex"]
   assert ! wrong_parent.exact
   let unresolved_master = report_checks.parse_ip_link_json(
     """[{"ifindex":5,"ifname":"eth0","flags":["UP"],"mtu":1500,"operstate":"UP","master":"missing"}]""",
@@ -3661,7 +3688,7 @@ test test_system_report_ip_link_reference_checks_lower_link_relationship {
     candidate.replace("\"lower_ifindex\":2", "\"lower_ifindex\":7"),
     reference,
   )?
-  assert (wrong_lower.field_mismatches == ["5.lower_ifindex"])
+  assert wrong_lower.field_mismatches == ["5.lower_ifindex"]
   let numeric_reference = report_checks.parse_ip_link_json(
     """[{"ifindex":5,"ifname":"veth0","flags":["UP"],"mtu":1500,"operstate":"UP","link_index":27,"link_netnsid":1}]""",
   )?
@@ -3695,9 +3722,9 @@ test test_system_report_ip_address_reference_preserves_ipv6_identity_and_link_me
   assert exact.matched_count == 3
   assert report_checks.compare_ip_addresses(candidate.replace("\"complete\"", "\"partial\""), reference)?.exact_static
   assert report_checks.compare_ip_addresses(
-      candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
-      reference,
-    )?.candidate_field_missing
+    candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
+    reference,
+  )?.candidate_field_missing
   let missing = candidate.replace("2001:db8:42::5", "2001:db8:42::6")
   let changed = report_checks.compare_ip_addresses(missing, reference)?
   assert ! changed.exact_static
@@ -3728,16 +3755,18 @@ test test_system_report_ip_address_lifetimes_score_bracketed_countdowns {
       preferred_lifetime_seconds: 120,
     ),
   ]
-  let later = [report_checks.IpAddressReference(
-    ifindex: first[0].ifindex,
-    family: first[0].family,
-    address: first[0].address,
-    prefix_length: first[0].prefix_length,
-    scope: first[0].scope,
-    broadcast: first[0].broadcast,
-    valid_lifetime_seconds: 297,
-    preferred_lifetime_seconds: 117,
-  )]
+  let later = [
+    report_checks.IpAddressReference(
+      ifindex: first[0].ifindex,
+      family: first[0].family,
+      address: first[0].address,
+      prefix_length: first[0].prefix_length,
+      scope: first[0].scope,
+      broadcast: first[0].broadcast,
+      valid_lifetime_seconds: 297,
+      preferred_lifetime_seconds: 117,
+    ),
+  ]
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":2,"addresses":[{"family":"ipv6","address":{"state":"observed","value":"2001:db8::10"},"prefix_length":64,"valid_lifetime_seconds":299,"preferred_lifetime_seconds":119}]}]}}"""
   let exact = report_checks.compare_ip_address_lifetimes(candidate, first, later)?
   assert exact.exact
@@ -3784,9 +3813,12 @@ test test_system_report_ip_rule_reference_keeps_family_and_static_selectors {
   assert reference[1].source_prefix_length == 24
   assert reference[2].family == "ipv6"
   assert report_checks.parse_ip_rule_json("""[{"priority":2,"src":"all","nop":null}]""", "ipv4")?[0].action == "nop"
-  assert report_checks.parse_ip_rule_json("""[{"priority":3,"src":"all","fwmark":"0x7","fwmask":"0xffffffff"}]""", "ipv4")?[0].fwmask == null
+  assert report_checks.parse_ip_rule_json(
+    """[{"priority":3,"src":"all","fwmark":"0x7","fwmask":"0xffffffff"}]""",
+    "ipv4",
+  )?[0].fwmask == null
   test.error_kind(report_checks.parse_ip_rule_json("""[{"priority":4,"src":"all","fwmark":7}]""", "ipv4"), "schema")?
-  assert (report_checks.ip_rule_reference_stable(reference, [reference[2], reference[0], reference[1]])?)
+  assert report_checks.ip_rule_reference_stable(reference, [reference[2], reference[0], reference[1]])?
   assert ! report_checks.ip_rule_reference_stable(reference, [reference[0], reference[1]])?
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":2,"name":{"state":"observed","value":"eth0"}}],"rules":[{"family":"ipv6","priority":101,"source":{"state":"observed","value":"2001:db8::"},"source_prefix_length":64,"destination":{"state":"absent","value":null},"destination_prefix_length":0,"fwmark":null,"fwmask":null,"table":1000,"action":"to_table","input_ifindex":null,"output_ifindex":null,"attributes":[]},{"family":"ipv4","priority":100,"source":{"state":"observed","value":"192.0.2.0"},"source_prefix_length":24,"destination":{"state":"absent","value":null},"destination_prefix_length":0,"fwmark":7,"fwmask":255,"table":254,"action":"to_table","input_ifindex":2,"output_ifindex":null,"attributes":[]},{"family":"ipv4","priority":0,"source":{"state":"absent","value":null},"source_prefix_length":0,"destination":{"state":"absent","value":null},"destination_prefix_length":0,"fwmark":null,"fwmask":null,"table":255,"action":"to_table","input_ifindex":null,"output_ifindex":null,"attributes":[]}]}}"""
   let exact = report_checks.compare_ip_rules(candidate, reference)?
@@ -3800,9 +3832,9 @@ test test_system_report_ip_rule_reference_keeps_family_and_static_selectors {
   let partial = report_checks.compare_ip_rules(candidate.replace("\"complete\"", "\"partial\""), reference)?
   assert partial.exact_static
   assert report_checks.compare_ip_rules(
-      candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
-      reference,
-    )?.candidate_field_missing
+    candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
+    reference,
+  )?.candidate_field_missing
   test.error_kind(
     report_checks.parse_ip_rule_json(
   """[{"priority":1,"src":"all","table":"main"},{"priority":1,"src":"all","table":"main"}]""",
@@ -3898,14 +3930,14 @@ test test_system_report_ip_rule_reference_preserves_prefix_without_address_attri
     """[{"priority":100,"src":"0","srclen":24,"dst":"0","dstlen":16,"table":"main"}]""",
     "ipv4",
   )?
-  assert (reference[0].source == null)
+  assert reference[0].source == null
   assert reference[0].source_prefix_length == 24
-  assert (reference[0].destination == null)
+  assert reference[0].destination == null
   assert reference[0].destination_prefix_length == 16
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[],"rules":[{"family":"ipv4","priority":100,"source":{"state":"absent","value":null},"source_prefix_length":24,"destination":{"state":"absent","value":null},"destination_prefix_length":16,"fwmark":null,"fwmask":null,"table":254,"action":"to_table","input_ifindex":null,"output_ifindex":null,"flags":0,"attributes":[]}]}}"""
   assert report_checks.compare_ip_rules(candidate, reference)?.exact_scored
   let ipv6 = report_checks.parse_ip_rule_json("""[{"priority":101,"src":"0","srclen":64,"table":"main"}]""", "ipv6")?
-  assert (ipv6[0].source == null)
+  assert ipv6[0].source == null
   assert ipv6[0].source_prefix_length == 64
 }
 
@@ -3925,16 +3957,16 @@ test test_system_report_ip_route_reference_keeps_family_table_and_link_identity 
   assert reference[1].prefix_length == 32
   assert reference[2].family == "ipv6"
   assert report_checks.parse_ip_route_json("""[{"dst":"2001:db8::/64","protocol":"ra"}]""", "ipv6")?[0].protocol == "router_advertisement"
-  assert (report_checks.ip_route_reference_stable(reference, [reference[2], reference[0], reference[1]])?)
+  assert report_checks.ip_route_reference_stable(reference, [reference[2], reference[0], reference[1]])?
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":2,"name":{"state":"observed","value":"eth0"}},{"ifindex":3,"name":{"state":"observed","value":"eth0.42"}}],"routes":[{"family":"ipv6","destination":{"state":"observed","value":"2001:db8:42::"},"source":{"state":"absent","value":null},"source_prefix_length":0,"preferred_source":{"state":"absent","value":null},"prefix_length":64,"gateway":{"state":"absent","value":null},"table":1000,"metric":20,"route_type":"unicast","scope":"global","protocol":"static","flags":0,"nexthops":[],"output_ifindex":3},{"family":"ipv4","destination":{"state":"observed","value":"192.0.2.10"},"source":{"state":"absent","value":null},"source_prefix_length":0,"preferred_source":{"state":"absent","value":null},"prefix_length":32,"gateway":{"state":"absent","value":null},"table":255,"metric":null,"route_type":"local","scope":"host","protocol":"kernel","flags":0,"nexthops":[],"output_ifindex":2},{"family":"ipv4","destination":{"state":"observed","value":"0.0.0.0"},"source":{"state":"absent","value":null},"source_prefix_length":0,"preferred_source":{"state":"absent","value":null},"prefix_length":0,"gateway":{"state":"observed","value":"192.0.2.1"},"table":254,"metric":100,"route_type":"unicast","scope":"global","protocol":"boot","flags":0,"nexthops":[],"output_ifindex":2}]}}"""
   let exact = report_checks.compare_ip_routes(candidate, reference)?
   assert exact.exact_static
   assert exact.matched_count == 3
   assert report_checks.compare_ip_routes(candidate.replace("\"complete\"", "\"partial\""), reference)?.exact_static
   assert report_checks.compare_ip_routes(
-      candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
-      reference,
-    )?.candidate_field_missing
+    candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
+    reference,
+  )?.candidate_field_missing
   let changed = report_checks.compare_ip_routes(candidate.replace("\"metric\":100", "\"metric\":101"), reference)?
   assert ! changed.exact_static
   assert changed.missing_keys.len() == 1
@@ -3970,7 +4002,7 @@ test test_system_report_ip_route_reference_scores_source_and_multipath_hops {
     ),
     "ipv6",
   )?
-  assert (report_checks.ip_route_reference_stable(reference, reordered)?)
+  assert report_checks.ip_route_reference_stable(reference, reordered)?
   let changed_flags = report_checks.parse_ip_route_json(output.replace("\"onlink\"", "\"offload\""), "ipv6")?
   assert ! report_checks.ip_route_reference_stable(reference, changed_flags)?
   let changed_route_flags = report_checks.parse_ip_route_json(output.replace("\"notify\"", "\"rt_offload\""), "ipv6")?
@@ -4134,7 +4166,7 @@ test test_system_report_cpu_set_capture_validates_saved_reference {
   source.write(p"sys/devices/system/cpu/present", "1")?
   assert report_checks.validate_cpu_set_bundle(bundle)?.present == [0, 2]
   bundle.write(
-        p"sys/devices/system/cpu/present",
+    p"sys/devices/system/cpu/present",
     """0,1
 """,
   )?
@@ -4209,7 +4241,7 @@ test test_system_report_cpu_set_capture_replays_raw_sources {
   source.write(p"sys/devices/system/cpu/present", "0")?
   assert report_checks.replay_cpu_set_bundle(bundle)?.exact
   bundle.write(
-        p"sys/devices/system/cpu/present",
+    p"sys/devices/system/cpu/present",
     """0,4
 """,
   )?
@@ -4224,8 +4256,8 @@ test test_system_report_cpu_set_capture_records_missing_source {
   source.mkdir(p"sys/devices/system/cpu", parents: true)?
   source.write(p"sys/devices/system/cpu/possible", "0")?
   report_checks.capture_cpu_set_bundle(source, bundle, "synthetic_fixture")?
-  assert "\"state\": \"absent\"" in (bundle.read_text(p"capture.json")?)
-  assert "\"reference\": null" in (bundle.read_text(p"capture.json")?)
+  assert "\"state\": \"absent\"" in bundle.read_text(p"capture.json")?
+  assert "\"reference\": null" in bundle.read_text(p"capture.json")?
   test.error_kind(report_checks.replay_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
@@ -4257,13 +4289,13 @@ MemFree: 4 kB
   bundle.write(p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))?
   assert report_checks.validate_memory_bundle(bundle)?.meminfo.len() == 2
   source.write(
-        p"proc/meminfo",
+    p"proc/meminfo",
     """MemTotal: 64 kB
 """,
   )?
   assert report_checks.validate_memory_bundle(bundle)?.meminfo[0].value == reference.meminfo[0].value
   bundle.write(
-        p"proc/meminfo",
+    p"proc/meminfo",
     """MemTotal: 16 kB
 MemFree: 5 kB
 """,
@@ -4277,7 +4309,7 @@ MemFree: 4 kB
   )?
   assert report_checks.validate_memory_bundle(bundle)?.thp.len() == 1
   bundle.write(
-        p"sys/kernel/mm/transparent_hugepage/defrag",
+    p"sys/kernel/mm/transparent_hugepage/defrag",
     """[always] never
 """,
   )?
@@ -4346,9 +4378,9 @@ VERSION_ID=2
   let reference = report_checks.validate_os_release_bundle(bundle)?
   assert reference.id == "vendor"
   assert reference.version_id == "2"
-  assert "\"selected_path\": \"usr/lib/os-release\"" in (bundle.read_text(p"capture.json")?)
+  assert "\"selected_path\": \"usr/lib/os-release\"" in bundle.read_text(p"capture.json")?
   bundle.write(
-        p"etc/os-release",
+    p"etc/os-release",
     """ID=inserted
 """,
   )?
@@ -4461,7 +4493,7 @@ test test_system_report_kernel_command_line_capture_validates_raw_bytes {
   source.mkdir(p"proc", parents: true)?
   source.write(p"proc/cmdline", b"quiet secret=fixture\0\xff\n")?
   report_checks.capture_kernel_command_line_bundle(source, bundle, "synthetic_fixture")?
-  assert (report_checks.validate_kernel_command_line_bundle(bundle)?) == b"quiet secret=fixture\0\xff\n"
+  assert report_checks.validate_kernel_command_line_bundle(bundle)? == b"quiet secret=fixture\0\xff\n"
   let metadata = bundle.read_text(p"capture.json")?
   let contradictory = json.set(json.decode(metadata)?, ["errno"], 13)?
   bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
@@ -4472,9 +4504,9 @@ test test_system_report_kernel_command_line_capture_validates_raw_bytes {
     """changed
 """,
   )?
-  assert (report_checks.validate_kernel_command_line_bundle(bundle)?) == b"quiet secret=fixture\0\xff\n"
+  assert report_checks.validate_kernel_command_line_bundle(bundle)? == b"quiet secret=fixture\0\xff\n"
   bundle.write(
-        p"proc/cmdline",
+    p"proc/cmdline",
     """quiet secret=changed
 """,
   )?
@@ -4556,9 +4588,9 @@ test test_system_report_proc_stat_reference_preserves_identity_and_rejects_unsaf
 }
 
 test test_system_report_proc_status_uid_reference_requires_one_numeric_row {
-  assert (report_checks.parse_proc_status_uid_reference("""Name:	worker
+  assert report_checks.parse_proc_status_uid_reference("""Name:	worker
 Uid:	1000	1001	1001	1001
-""")?) == 1000
+""")? == 1000
   test.error_kind(
     report_checks.parse_proc_status_uid_reference("""Name:	worker
 """),
@@ -4609,11 +4641,11 @@ test test_system_report_proc_statm_reference_uses_reported_page_size_and_exact_b
 }
 
 test test_system_report_proc_cgroup_reference_requires_one_absolute_v2_path {
-  assert (report_checks.parse_proc_cgroup_reference("""0::/tenant/worker
+  assert report_checks.parse_proc_cgroup_reference("""0::/tenant/worker
 2:cpu:/legacy
-""")?) == "/tenant/worker"
-  assert (report_checks.parse_proc_cgroup_reference("""2:cpu:/legacy
-""")?) == null
+""")? == "/tenant/worker"
+  assert report_checks.parse_proc_cgroup_reference("""2:cpu:/legacy
+""")? == null
   test.error_kind(
     report_checks.parse_proc_cgroup_reference("""0::relative
 """),
@@ -4643,18 +4675,18 @@ test test_system_report_cpu_scope_reference_selects_visible_cgroup_mount {
   assert selected.visible_path == "/tenant/team:blue"
   assert selected.source_path == "sys/fs/cgroup-alt/team:blue"
   assert selected.mount_root == "/tenant"
-  assert (report_checks.visible_cgroup2_ancestors(selected)?) == [
-      {
-        visible_path: "/tenant/team:blue",
-        source_path: "sys/fs/cgroup-alt/team:blue",
-        hierarchy_level: 0,
-      },
-      {
-        visible_path: "/tenant",
-        source_path: "sys/fs/cgroup-alt",
-        hierarchy_level: 1,
-      },
-    ]
+  assert report_checks.visible_cgroup2_ancestors(selected)? == [
+    {
+      visible_path: "/tenant/team:blue",
+      source_path: "sys/fs/cgroup-alt/team:blue",
+      hierarchy_level: 0,
+    },
+    {
+      visible_path: "/tenant",
+      source_path: "sys/fs/cgroup-alt",
+      hierarchy_level: 1,
+    },
+  ]
   let escaped = report_checks.resolve_visible_cgroup2_location(
     """0::/team
 """,
@@ -4690,10 +4722,10 @@ test test_system_report_cpu_scope_reference_selects_visible_cgroup_mount {
 }
 
 test test_system_report_cpu_scope_reference_parses_exact_quota_period {
-  assert (report_checks.parse_cpu_scope_quota("""50000 100000
-""")?) == {quota: 50000, period: 100000, unlimited: false}
-  assert (report_checks.parse_cpu_scope_quota("""max	100000
-""")?) == {quota: null, period: 100000, unlimited: true}
+  assert report_checks.parse_cpu_scope_quota("""50000 100000
+""")? == {quota: 50000, period: 100000, unlimited: false}
+  assert report_checks.parse_cpu_scope_quota("""max	100000
+""")? == {quota: null, period: 100000, unlimited: true}
   for invalid in ["", "max", "0 100000", "50000 0", "-1 100000", "50000 100000 extra", "9007199254740992 100000"] {
     test.error_kind(report_checks.parse_cpu_scope_quota(invalid), "SystemReportCheckError.Invalid")?
   }
@@ -4737,38 +4769,38 @@ test test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_anc
   let snapshot = report_checks.read_cpu_scope_cgroup_reference(root)?
   assert snapshot.ancestors.len() == 2
   assert snapshot.ancestors[0] == {
-      path: "/tenant/worker",
-      hierarchy_level: 0,
-      effective_cpus: [
-        0,
-        2,
-      ],
-      quota: {
-        quota: 50000,
-        period: 100000,
-        unlimited: false,
-      },
-    }
+    path: "/tenant/worker",
+    hierarchy_level: 0,
+    effective_cpus: [
+      0,
+      2,
+    ],
+    quota: {
+      quota: 50000,
+      period: 100000,
+      unlimited: false,
+    },
+  }
   assert snapshot.ancestors[1] == {
-      path: "/tenant",
-      hierarchy_level: 1,
-      effective_cpus: [
-        0,
-        1,
-        2,
-        3,
-      ],
-      quota: {
-        quota: null,
-        period: 100000,
-        unlimited: true,
-      },
-    }
+    path: "/tenant",
+    hierarchy_level: 1,
+    effective_cpus: [
+      0,
+      1,
+      2,
+      3,
+    ],
+    quota: {
+      quota: null,
+      period: 100000,
+      unlimited: true,
+    },
+  }
   root.remove(p"sys/fs/cgroup/worker/cpu.max")?
   let missing = report_checks.read_cpu_scope_cgroup_reference(root)?
   assert missing.ancestors[0].quota == null
   root.write(
-        p"sys/fs/cgroup/worker/cpu.max",
+    p"sys/fs/cgroup/worker/cpu.max",
     """50000 0
 """,
   )?
@@ -4785,7 +4817,7 @@ test test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_anc
   )?
   assert report_checks.read_cpu_scope_cgroup_reference(root)?.ancestors == []
   root.write(
-        p"proc/self/cgroup",
+    p"proc/self/cgroup",
     """0::/tenant/worker
 """,
   )?
@@ -4797,7 +4829,7 @@ test test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_anc
   assert report_checks.read_cpu_scope_cgroup_reference(root)?.ancestors == []
   assert report_checks.read_cgroup2_resource_reference(root)?.resources == []
   root.write(
-        p"proc/self/mountinfo",
+    p"proc/self/mountinfo",
     """31 20 0:25 /tenant /sys/fs/cgroup rw - cgroup2
 """,
   )?
@@ -4891,29 +4923,29 @@ test test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits {
 }
 
 test test_system_report_cgroup_v2_reference_parses_limits_and_named_counters {
-  assert (report_checks.parse_cgroup2_limit("""max
-""")?) == {value: null, unlimited: true}
-  assert (report_checks.parse_cgroup2_limit("""8192
-""")?) == {value: 8192, unlimited: false}
+  assert report_checks.parse_cgroup2_limit("""max
+""")? == {value: null, unlimited: true}
+  assert report_checks.parse_cgroup2_limit("""8192
+""")? == {value: 8192, unlimited: false}
   for invalid in ["", "-1", "8192 4", "9007199254740992"] {
     test.error_kind(report_checks.parse_cgroup2_limit(invalid), "SystemReportCheckError.Invalid")?
   }
 
-  assert (report_checks.parse_cgroup2_cpu_stat("""usage_usec 9
+  assert report_checks.parse_cgroup2_cpu_stat("""usage_usec 9
 user_usec 7
 unknown_future 4
-""")?) == [
-      {
-        resource: "cpu.stat.usage_usec",
-        value: 9,
-        unit: "microseconds",
-      },
-      {
-        resource: "cpu.stat.user_usec",
-        value: 7,
-        unit: "microseconds",
-      },
-    ]
+""")? == [
+  {
+    resource: "cpu.stat.usage_usec",
+    value: 9,
+    unit: "microseconds",
+  },
+  {
+    resource: "cpu.stat.user_usec",
+    value: 7,
+    unit: "microseconds",
+  },
+]
   test.error_kind(
     report_checks.parse_cgroup2_cpu_stat("""usage_usec 9
 usage_usec 10
@@ -4925,31 +4957,33 @@ usage_usec 10
 """),
     "SystemReportCheckError.Invalid",
   )?
-  assert (report_checks.parse_cgroup2_io_stat("""8:0 rbytes=100 wbytes=200 rios=3
+  assert report_checks.parse_cgroup2_io_stat("""8:0 rbytes=100 wbytes=200 rios=3
 8:16 rbytes=10 unknown=5
-""")?) == [
-      {
-        resource: "io.stat.8:0.rbytes",
-        value: 100,
-        unit: "bytes",
-      },
-      {
-        resource: "io.stat.8:0.wbytes",
-        value: 200,
-        unit: "bytes",
-      },
-      {
-        resource: "io.stat.8:0.rios",
-        value: 3,
-        unit: "requests",
-      },
-      {
-        resource: "io.stat.8:16.rbytes",
-        value: 10,
-        unit: "bytes",
-      },
-    ]
-  assert (report_checks.parse_cgroup2_io_stat("7:7 \n8:0 rbytes=1\n")?) == [{resource: "io.stat.8:0.rbytes", value: 1, unit: "bytes"}]
+""")? == [
+  {
+    resource: "io.stat.8:0.rbytes",
+    value: 100,
+    unit: "bytes",
+  },
+  {
+    resource: "io.stat.8:0.wbytes",
+    value: 200,
+    unit: "bytes",
+  },
+  {
+    resource: "io.stat.8:0.rios",
+    value: 3,
+    unit: "requests",
+  },
+  {
+    resource: "io.stat.8:16.rbytes",
+    value: 10,
+    unit: "bytes",
+  },
+]
+  assert report_checks.parse_cgroup2_io_stat("""7:7 
+8:0 rbytes=1
+""")? == [{resource: "io.stat.8:0.rbytes", value: 1, unit: "bytes"}]
   test.error_kind(
     report_checks.parse_cgroup2_io_stat("""8:0 rbytes=1
 8:0 wbytes=2
@@ -5041,17 +5075,19 @@ nr_periods 2
   )?
   let snapshot = report_checks.read_cgroup2_resource_reference(root)?
   assert snapshot.ancestors == ["/tenant/worker", "/tenant"]
-  assert (snapshot.resources
-      |> any .path == "/tenant/worker" and .resource == "memory.max" and .maximum_value == 8192 and .current_value == 4096 and .unit == "bytes")
-  assert (snapshot.resources |> any .resource == "memory.swap.max" and .maximum_unlimited == true and .current_value == 0)
-  assert (snapshot.resources |> any .resource == "pids.max" and .maximum_value == 32 and .current_value == 2 and .unit == "count")
-  assert (snapshot.resources |> any .resource == "cpu.max" and .quota == 50000 and .period == 100000)
-  assert (snapshot.resources |> any .resource == "cpu.stat.usage_usec" and .current_value == 9 and .unit == "microseconds")
-  assert (snapshot.resources |> any .resource == "cpuset.cpus.effective" and .effective_cpus == [0, 2])
-  assert (snapshot.resources |> any .resource == "io.stat.8:0.rbytes" and .current_value == 100 and .unit == "bytes")
-  assert (snapshot.resources |> any .path == "/tenant" and .resource == "cpu.max" and .maximum_unlimited == true)
+  assert snapshot.resources
+    |> any .path == "/tenant/worker" and .resource == "memory.max" and .maximum_value == 8192 and .current_value == 4096 and .unit == "bytes"
+  assert snapshot.resources |> any .resource == "memory.swap.max" and .maximum_unlimited == true and .current_value == 0
+  assert snapshot.resources
+    |> any .resource == "pids.max" and .maximum_value == 32 and .current_value == 2 and .unit == "count"
+  assert snapshot.resources |> any .resource == "cpu.max" and .quota == 50000 and .period == 100000
+  assert snapshot.resources
+    |> any .resource == "cpu.stat.usage_usec" and .current_value == 9 and .unit == "microseconds"
+  assert snapshot.resources |> any .resource == "cpuset.cpus.effective" and .effective_cpus == [0, 2]
+  assert snapshot.resources |> any .resource == "io.stat.8:0.rbytes" and .current_value == 100 and .unit == "bytes"
+  assert snapshot.resources |> any .path == "/tenant" and .resource == "cpu.max" and .maximum_unlimited == true
   root.write(
-        p"sys/fs/cgroup/worker/memory.current",
+    p"sys/fs/cgroup/worker/memory.current",
     """broken
 """,
   )?
@@ -5111,7 +5147,7 @@ nr_periods 2
   assert replay.exact_scored
   assert replay.reference_count == 6
   bundle.write(
-        p"sys/fs/cgroup/worker/memory.max",
+    p"sys/fs/cgroup/worker/memory.max",
     """4096
 """,
   )?
@@ -5216,16 +5252,21 @@ test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
   assert exact.exact_scored == true
   assert exact.reference_count == 2
   assert report_checks.compare_cgroup2_resources(
-      candidate.replace("\"maximum_value\":8192", "\"maximum_value\":9000"),
-      before,
-      after,
-    )?.exact_scored == false
+    candidate.replace("\"maximum_value\":8192", "\"maximum_value\":9000"),
+    before,
+    after,
+  )?.exact_scored == false
   assert report_checks.compare_cgroup2_resources(
-      candidate.replace("\"current_value\":10", "\"current_value\":13"),
-      before,
-      after,
-    )?.exact_scored == false
-  let changing = report_checks.Cgroup2ResourceObservation(ancestors: after.ancestors, started: after.started, ended: after.ended, resources: [{...after.resources[0], current_value: 4500}, after.resources[1]])
+    candidate.replace("\"current_value\":10", "\"current_value\":13"),
+    before,
+    after,
+  )?.exact_scored == false
+  let changing = report_checks.Cgroup2ResourceObservation(
+    ancestors: after.ancestors,
+    started: after.started,
+    ended: after.ended,
+    resources: [{...after.resources[0], current_value: 4500}, after.resources[1]],
+  )
   let partial = report_checks.compare_cgroup2_resources(candidate, before, changing)?
   assert partial.exact_stable == true
   assert partial.exact_scored == false
@@ -5248,10 +5289,10 @@ VendorCounter: 12 widgets
 """
   let counters = report_checks.parse_meminfo_reference(source)?
   assert counters.len() == 4
-  assert (counters |> any .name == "MemTotal" and .value == 16384 and .unit == "bytes")
-  assert (counters |> any .name == "MemFree" and .value == 4096 and .unit == "bytes")
-  assert (counters |> any .name == "HugePages_Total" and .value == 2 and .unit == "count")
-  assert (counters |> any .name == "VendorCounter" and .value == 12 and .unit == "widgets")
+  assert counters |> any .name == "MemTotal" and .value == 16384 and .unit == "bytes"
+  assert counters |> any .name == "MemFree" and .value == 4096 and .unit == "bytes"
+  assert counters |> any .name == "HugePages_Total" and .value == 2 and .unit == "count"
+  assert counters |> any .name == "VendorCounter" and .value == 12 and .unit == "widgets"
   test.error_kind(
     report_checks.parse_meminfo_reference("""MemTotal: 16 MB
 """),
@@ -5309,8 +5350,8 @@ VendorCounter: 12 widgets
 }
 
 test test_system_report_thp_reference_requires_one_selected_policy_and_stable_fields {
-  assert (report_checks.parse_thp_reference("""always [future_policy] never
-""")?) == "always [future_policy] never"
+  assert report_checks.parse_thp_reference("""always [future_policy] never
+""")? == "always [future_policy] never"
   for bad in [
     "",
     """always never
@@ -5476,7 +5517,7 @@ test test_system_report_vulnerability_capture_preserves_absent_class_without_sco
   let bundle = fs.tempdir()?
   defer bundle.close()?
   report_checks.capture_vulnerabilities_bundle(source, bundle, "synthetic_fixture")?
-  assert "\"listing_state\": \"absent\"" in (bundle.read_text(p"capture.json")?)
+  assert "\"listing_state\": \"absent\"" in bundle.read_text(p"capture.json")?
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
@@ -5536,10 +5577,10 @@ test test_system_report_huge_page_reference_scores_global_and_numa_pools {
 }
 
 test test_system_report_huge_page_reference_parses_complete_decimal_counters {
-  assert (report_checks.parse_huge_page_counter_reference("""42
-""")?) == 42
-  assert (report_checks.parse_huge_page_counter_reference("""0008
-""")?) == 8
+  assert report_checks.parse_huge_page_counter_reference("""42
+""")? == 42
+  assert report_checks.parse_huge_page_counter_reference("""0008
+""")? == 8
   for bad in [
     "",
     """-1
@@ -5669,7 +5710,7 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
   let metadata = bundle.read_text(p"capture.json")?
   assert "\"state\": \"absent\"" in metadata
   source.write(
-        p"proc/pressure/cpu",
+    p"proc/pressure/cpu",
     """changed
 """,
   )?
@@ -5882,7 +5923,7 @@ Uid:	1001	1001	1001	1001
   assert replay.resources.exact_scored
   assert replay.identity.matched_count == 2
   bundle.write(
-        p"proc/123/statm",
+    p"proc/123/statm",
     """3 1 0 0 0 0 0
 """,
   )?
@@ -6692,40 +6733,40 @@ test result: ok. 2 passed; 0 failed; 0 skipped
 test result: ok. 0 passed; 0 failed; 1 skipped
 """)
   let rust_fixture = "src/modules/linux/real/netlink.rs::dump_accumulator_reads_multipart_messages_across_datagrams"
-  assert (report_checks.rust_fixture_argv("/opt/cargo", rust_fixture)?) == [
-      "/opt/cargo",
-      "test",
-      "--offline",
-      "-p",
-      "xsh",
-      "--lib",
-      "--target",
-      "aarch64-unknown-linux-musl",
-      "modules::linux::real::netlink::tests::dump_accumulator_reads_multipart_messages_across_datagrams",
-      "--",
-      "--exact",
-      "--test-threads=1",
-    ]
-  assert (report_checks.rust_fixture_argv(
-      "/opt/cargo",
-      "tests/linux_priv.rs::system_report_sysctl_denial_as_unprivileged_reader_creates_no_child",
-    )?) == [
-      "/opt/cargo",
-      "test",
-      "--offline",
-      "-p",
-      "xsh",
-      "--test",
-      "linux_priv",
-      "--features",
-      "linux-priv-tests",
-      "--target",
-      "aarch64-unknown-linux-musl",
-      "system_report_sysctl_denial_as_unprivileged_reader_creates_no_child",
-      "--",
-      "--exact",
-      "--test-threads=1",
-    ]
+  assert report_checks.rust_fixture_argv("/opt/cargo", rust_fixture)? == [
+    "/opt/cargo",
+    "test",
+    "--offline",
+    "-p",
+    "xsh",
+    "--lib",
+    "--target",
+    "aarch64-unknown-linux-musl",
+    "modules::linux::real::netlink::tests::dump_accumulator_reads_multipart_messages_across_datagrams",
+    "--",
+    "--exact",
+    "--test-threads=1",
+  ]
+  assert report_checks.rust_fixture_argv(
+    "/opt/cargo",
+    "tests/linux_priv.rs::system_report_sysctl_denial_as_unprivileged_reader_creates_no_child",
+  )? == [
+    "/opt/cargo",
+    "test",
+    "--offline",
+    "-p",
+    "xsh",
+    "--test",
+    "linux_priv",
+    "--features",
+    "linux-priv-tests",
+    "--target",
+    "aarch64-unknown-linux-musl",
+    "system_report_sysctl_denial_as_unprivileged_reader_creates_no_child",
+    "--",
+    "--exact",
+    "--test-threads=1",
+  ]
   test.error_kind(
     report_checks.rust_fixture_argv("/opt/cargo", "src/modules/linux/real/netlink.rs::missing::extra"),
     "SystemReportCheckError.Invalid",
@@ -6752,25 +6793,35 @@ clone3({flags=CLONE_VM|CLONE_VFORK}, 88) = 42
 execve("/bin/sh", ["sh"], 0x0) = 0
 """
   let violations = report_checks.process_trace_violations(child_trace)
-  assert ("process clone syscall" in violations)
-  assert ("secondary exec syscall" in violations)
+  assert "process clone syscall" in violations
+  assert "secondary exec syscall" in violations
   assert report_checks.process_trace_violations("") == ["initial XSH exec was not traced"]
 
   let read_only_trace = """42 openat2(3</>, "proc/cpuinfo", {flags=O_RDONLY|O_CLOEXEC}, 24) = 4
 42 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE) = 4
 42 sendto(4, [{nlmsg_type=RTM_GETLINK}], 32, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 32
 """
-  assert (report_checks.host_effect_trace_violations(read_only_trace).len() == 0)
-  assert report_checks.host_effect_trace_violations("42 socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC, IPPROTO_UDP) = -1 EPERM") == ["external network socket"]
-  assert report_checks.host_effect_trace_violations("42 socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0) = 4") == ["unexpected socket family"]
-  assert report_checks.host_effect_trace_violations("42 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_GENERIC) = 4") == ["unexpected netlink protocol"]
+  assert report_checks.host_effect_trace_violations(read_only_trace).len() == 0
   assert report_checks.host_effect_trace_violations(
-      "42 socket(AF_NETLINK, SOCK_STREAM|SOCK_CLOEXEC, NETLINK_ROUTE) = -1 EPROTONOSUPPORT",
-    ) == ["unexpected netlink socket type"]
+    "42 socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC, IPPROTO_UDP) = -1 EPERM",
+  ) == ["external network socket"]
+  assert report_checks.host_effect_trace_violations("42 socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0) = 4") == [
+    "unexpected socket family",
+  ]
+  assert report_checks.host_effect_trace_violations("42 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_GENERIC) = 4") == [
+    "unexpected netlink protocol",
+  ]
+  assert report_checks.host_effect_trace_violations(
+    "42 socket(AF_NETLINK, SOCK_STREAM|SOCK_CLOEXEC, NETLINK_ROUTE) = -1 EPROTONOSUPPORT",
+  ) == ["unexpected netlink socket type"]
   assert report_checks.host_effect_trace_violations("42 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE) = 4") == []
-  assert report_checks.host_effect_trace_violations("42 socketpair(AF_UNIX, SOCK_STREAM, 0, [4, 5]) = 0") == ["unexpected socket pair"]
+  assert report_checks.host_effect_trace_violations("42 socketpair(AF_UNIX, SOCK_STREAM, 0, [4, 5]) = 0") == [
+    "unexpected socket pair",
+  ]
   assert report_checks.host_effect_trace_violations("42 listen(4, 1) = -1 EACCES") == ["unexpected network listener"]
-  assert report_checks.host_effect_trace_violations("42 accept4(4, NULL, NULL, SOCK_CLOEXEC) = -1 EAGAIN") == ["unexpected network accept"]
+  assert report_checks.host_effect_trace_violations("42 accept4(4, NULL, NULL, SOCK_CLOEXEC) = -1 EAGAIN") == [
+    "unexpected network accept",
+  ]
   let mixed_queries = "42 sendto(4, [{nlmsg_type=RTM_GETLINK}, {nlmsg_type=RTM_GETADDR}], 64, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 64"
   assert report_checks.host_effect_trace_violations(mixed_queries) == []
   let userspace_route_socket = "42 sendto(4, [{nlmsg_type=RTM_GETLINK}], 32, 0, {sa_family=AF_NETLINK, nl_pid=123, nl_groups=00000000}, 12) = 32"
@@ -6791,14 +6842,14 @@ execve("/bin/sh", ["sh"], 0x0) = 0
 42 sendmsg(4, {msg_name={nl_family=AF_NETLINK}, msg_iov=[{iov_base={nlmsg_type=RTM_NEWROUTE}}]}, 0) = -1 EPERM
 """
   let host_violations = report_checks.host_effect_trace_violations(violating_trace)
-  assert ("writable file open" in host_violations)
-  assert ("system mutation syscall unlinkat" in host_violations)
-  assert ("external network syscall" in host_violations)
-  assert ("non-query netlink request" in host_violations)
+  assert "writable file open" in host_violations
+  assert "system mutation syscall unlinkat" in host_violations
+  assert "external network syscall" in host_violations
+  assert "non-query netlink request" in host_violations
   let sendmsg_trace = "42 sendmsg(4, {msg_name={nl_family=AF_NETLINK}, msg_iov=[{iov_base={nlmsg_type=RTM_NEWROUTE}}]}, 0) = -1 EPERM"
   assert report_checks.host_effect_trace_violations(sendmsg_trace) == ["unexpected network send"]
   let packet_send_trace = "42 sendto(4, \"probe\", 5, 0, {sa_family=AF_PACKET, sll_protocol=htons(0x0800)}, 20) = 5"
-  assert ("external network syscall" in report_checks.host_effect_trace_violations(packet_send_trace))
+  assert "external network syscall" in report_checks.host_effect_trace_violations(packet_send_trace)
   let local_helper_trace = "42 sendto(4, \"query\", 5, 0, {sa_family=AF_UNIX, sun_path=\"/var/run/nscd/socket\"}, 110) = 5"
   assert report_checks.host_effect_trace_violations(local_helper_trace) == ["unexpected network send"]
   let attempted_local_helper = "42 connect(4, {sa_family=AF_UNIX, sun_path=\"/var/run/nscd/socket\"}, 110) = -1 ENOENT"
@@ -6848,11 +6899,11 @@ execve("/bin/sh", ["sh"], 0x0) = 0
   let terminal_size_ioctl = "42 ioctl(2<pipe:[123]>, TIOCGWINSZ, 0x7fff) = -1 ENOTTY"
   assert report_checks.host_effect_trace_violations(terminal_size_ioctl) == []
   let unfinished_open = "42 openat(AT_FDCWD, \"/tmp/output\", O_WRONLY <unfinished ...>"
-  assert ("incomplete syscall trace" in report_checks.host_effect_trace_violations(unfinished_open))
+  assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(unfinished_open)
   let resumed_open = "42 <... openat resumed> ) = 4"
-  assert ("incomplete syscall trace" in report_checks.host_effect_trace_violations(resumed_open))
+  assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(resumed_open)
   let truncated_open = "42 openat(AT_FDCWD, \"/tmp/output\", O_WRONLY"
-  assert ("incomplete file open trace" in report_checks.host_effect_trace_violations(truncated_open))
+  assert "incomplete file open trace" in report_checks.host_effect_trace_violations(truncated_open)
 
   let replay_trace = """42 openat2(3, "stdout-live-json", {flags=O_RDONLY}, 24) = 4
 42 openat2(3, "proc/meminfo", {flags=O_RDONLY}, 24) = 5
@@ -6869,7 +6920,9 @@ execve("/bin/sh", ["sh"], 0x0) = 0
   assert report_checks.replay_host_read_violations(replay_metadata_trace).len() == 3
   let saved_link_target = "42 readlinkat(3, \"saved-report\", \"/sys/devices/virtual\", 4096) = 20"
   assert report_checks.replay_host_read_violations(saved_link_target) == []
-  assert report_checks.replay_host_read_violations("42 openat(3, \"proc\", O_RDONLY|O_DIRECTORY) = 5") == ["saved-report replay read a live source"]
+  assert report_checks.replay_host_read_violations("42 openat(3, \"proc\", O_RDONLY|O_DIRECTORY) = 5") == [
+    "saved-report replay read a live source",
+  ]
 
   let permitted_process_trace = """42 openat2(3, "proc/123/stat", {flags=O_RDONLY}, 24) = 4
 42 openat2(3, "proc/123/status", {flags=O_RDONLY}, 24) = 4
@@ -6884,7 +6937,7 @@ execve("/bin/sh", ["sh"], 0x0) = 0
 """
   assert report_checks.forbidden_process_read_violations(forbidden_process_trace).len() == 4
   let permitted_process_json = """{"processes":{"processes":[{"pid":123,"command":{"state":"observed","value":"worker"}}]}}"""
-  assert (report_checks.forbidden_process_field_violations(permitted_process_json)?) == []
+  assert report_checks.forbidden_process_field_violations(permitted_process_json)? == []
   let forbidden_process_json = """{"processes":{"processes":[{"pid":123,"environment":"secret","cmdline":"private","open_paths":["/private"]}]}}"""
   assert report_checks.forbidden_process_field_violations(forbidden_process_json)?.len() == 3
 }
@@ -6985,7 +7038,7 @@ test test_system_report_trace_resolves_annotated_directory_descriptors {
 
 test test_system_report_lscpu_reference_parser_keeps_sparse_online_ids {
   let reference = """{"cpus":[{"cpu":0,"online":true,"node":0},{"cpu":1,"online":false,"node":0},{"cpu":65,"online":true,"node":1}]}"""
-  assert (report_checks.parse_lscpu_online_cpu_ids(reference)?) == [0, 65]
+  assert report_checks.parse_lscpu_online_cpu_ids(reference)? == [0, 65]
   let repeated = """{"cpus":[{"cpu":0,"online":true},{"cpu":0,"online":false}]}"""
   test.error_kind(report_checks.parse_lscpu_online_cpu_ids(repeated), "SystemReportCheckError.Invalid")?
   let unknown = """{"cpus":[{"cpu":0,"online":"yes"}]}"""
@@ -7001,8 +7054,8 @@ test test_system_report_lscpu_reference_parser_rejects_empty_cpu_set {
 }
 
 test test_system_report_sysfs_reference_cpu_list_parser_handles_sparse_ids {
-  assert (report_checks.parse_reference_cpu_list("0-2,65,129-130", false)?) == [0, 1, 2, 65, 129, 130]
-  assert (report_checks.parse_reference_cpu_list("", true)?) == []
+  assert report_checks.parse_reference_cpu_list("0-2,65,129-130", false)? == [0, 1, 2, 65, 129, 130]
+  assert report_checks.parse_reference_cpu_list("", true)? == []
   test.error_kind(report_checks.parse_reference_cpu_list("", false), "SystemReportCheckError.Invalid")?
   test.error_kind(report_checks.parse_reference_cpu_list("2-1", false), "SystemReportCheckError.Invalid")?
   test.error_kind(report_checks.parse_reference_cpu_list("0,0", false), "SystemReportCheckError.Invalid")?
@@ -7010,9 +7063,9 @@ test test_system_report_sysfs_reference_cpu_list_parser_handles_sparse_ids {
 }
 
 test test_system_report_proc_status_affinity_reference_requires_one_valid_cpu_list {
-  assert (report_checks.parse_proc_status_affinity("""Name:	cat
+  assert report_checks.parse_proc_status_affinity("""Name:	cat
 Cpus_allowed_list:	0-2,65,129-130
-""")?) == [0, 1, 2, 65, 129, 130]
+""")? == [0, 1, 2, 65, 129, 130]
   test.error_kind(
     report_checks.parse_proc_status_affinity("""Name:	cat
 """),
@@ -7139,7 +7192,7 @@ test test_system_report_swapon_raw_parser_and_comparison_keep_swap_identity {
   let mismatch = report_checks.compare_swap_devices(wrong_used, reference)?
   assert mismatch.field_mismatches == ["/dev/zram0"]
   assert mismatch.used_mismatches == 1
-  assert (mismatch.kind_mismatches + mismatch.size_mismatches + mismatch.priority_mismatches) == 0
+  assert mismatch.kind_mismatches + mismatch.size_mismatches + mismatch.priority_mismatches == 0
   assert ! mismatch.exact
   let absent_field = report_checks.compare_swap_devices("""{"memory":{}}""", reference)?
   assert absent_field.candidate_field_missing
@@ -7208,8 +7261,8 @@ test test_system_report_proc_swaps_raw_reference_decodes_units_paths_and_empty_i
 /swap\\134040file file 1 0 1
 """)?
   assert literal_escape[0].name == "/swap\\040file"
-  assert (report_checks.parse_proc_swaps_raw_reference("""Filename Type Size Used Priority
-""")?) == []
+  assert report_checks.parse_proc_swaps_raw_reference("""Filename Type Size Used Priority
+""")? == []
   test.error_kind(report_checks.parse_proc_swaps_raw_reference(""), "SystemReportCheckError.Invalid")?
   test.error_kind(
     report_checks.parse_proc_swaps_raw_reference("""Filename Type Size Used Priority
@@ -7247,7 +7300,7 @@ test test_system_report_proc_swaps_capture_validates_saved_source_and_oracle {
   report_checks.capture_proc_swaps_bundle(source, bundle, "synthetic_fixture")?
   assert report_checks.validate_proc_swaps_bundle(bundle)?[0].size_bytes == 4096
   source.write(
-        p"proc/swaps",
+    p"proc/swaps",
     """changed
 """,
   )?
@@ -7308,7 +7361,7 @@ ${padding}""",
   let empty = fs.tempdir()?
   defer empty.close()?
   report_checks.capture_proc_swaps_bundle(source, empty, "synthetic_fixture")?
-  assert (report_checks.validate_proc_swaps_bundle(empty)?) == []
+  assert report_checks.validate_proc_swaps_bundle(empty)? == []
 }
 
 test test_system_report_proc_swaps_capture_replays_production_collector {
@@ -7411,7 +7464,10 @@ ProgIf:	00
   assert reference[1].address == "0001:02:03.0"
   assert reference[0].vendor_id == reference[1].vendor_id
   assert reference[0].class_code == 393216
-  assert report_checks.pci_reference_stable(reference, report_checks.parse_lspci_vmm_numeric(second + "\n" + first + "\n")?)
+  assert report_checks.pci_reference_stable(
+    reference,
+    report_checks.parse_lspci_vmm_numeric(second + "\n" + first + "\n")?,
+  )
   let candidate = """{"pci":{"status":{"state":"complete","enumeration_succeeded":true},"functions":[{"address":"0001:02:03.0","domain":1,"bus":2,"device":3,"function":0,"vendor_id":32902,"device_id":4660,"class_code":393216,"revision":0,"subsystem_vendor_id":null,"subsystem_device_id":null,"driver":null,"numa_node":null,"iommu_group":null},{"address":"0000:00:1f.6","domain":0,"bus":0,"device":31,"function":6,"vendor_id":32902,"device_id":4660,"class_code":393216,"revision":1,"subsystem_vendor_id":32902,"subsystem_device_id":1,"driver":"pcieport","numa_node":0,"iommu_group":"42"}]}}"""
   let exact = report_checks.compare_lspci_identity(candidate, reference)?
   assert exact.exact_static
@@ -7425,9 +7481,9 @@ ProgIf:	00
   let missing_vendor = json.encode(json.set(json.decode(candidate)?, ["pci", "functions", 0, "vendor_id"], null)?)?
   assert report_checks.compare_lspci_identity(missing_vendor, reference)?.candidate_field_missing
   assert ! report_checks.pci_reference_stable(
-      reference,
-      report_checks.parse_lspci_vmm_numeric(first.replace("Driver:\tpcieport", "Driver:\tother") + "\n" + second + "\n")?,
-    )
+    reference,
+    report_checks.parse_lspci_vmm_numeric(first.replace("Driver:\tpcieport", "Driver:\tother") + "\n" + second + "\n")?,
+  )
   let no_prog_if = report_checks.parse_lspci_vmm_numeric(
     first + "\n" + second.replace(
   """ProgIf:	00
@@ -7533,8 +7589,11 @@ test test_system_report_pci_binding_reference_resolves_parent_indexes_and_absent
 }
 
 test test_system_report_pci_binding_parent_reference_requires_own_bdf_and_keeps_bridge {
-  assert (report_checks.pci_binding_parent_from_target(../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0, "0001:03:00.0")?) == "0001:02:01.0"
-  assert (report_checks.pci_binding_parent_from_target(../../../devices/pci0001:02/0001:02:01.0, "0001:02:01.0")?) == null
+  assert report_checks.pci_binding_parent_from_target(
+    ../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0,
+    "0001:03:00.0",
+  )? == "0001:02:01.0"
+  assert report_checks.pci_binding_parent_from_target(../../../devices/pci0001:02/0001:02:01.0, "0001:02:01.0")? == null
   test.error_kind(
     report_checks.pci_binding_parent_from_target(../../../devices/pci0001:02/0001:02:01.0, "0001:03:00.0"),
     "SystemReportCheckError.Invalid",
@@ -7571,7 +7630,7 @@ test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
   assert reference[1].driver == null
   assert reference[1].numa_node == null
   root.write(
-        fp"${child}/numa_node",
+    fp"${child}/numa_node",
     """0x1
 """,
   )?
@@ -7603,7 +7662,7 @@ test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brac
   assert exact.exact
   let wrong_index = report_checks.compare_thermal_zones(candidate.replace("\"index\":2", "\"index\":1"), [zone], [zone])?
   assert ! wrong_index.exact
-  assert (wrong_index.field_mismatches |> any "trip.2" in .)
+  assert wrong_index.field_mismatches |> any "trip.2" in .
   let changed = report_checks.compare_thermal_zones(candidate, [zone], [{...zone, temperature_millidegrees: 42000}])?
   assert changed.unstable_fields == ["zone.3.temperature_millidegrees"]
   assert ! changed.exact
@@ -7662,7 +7721,7 @@ test test_system_report_thermal_rooted_reference_reads_indexed_sources {
   assert (zones[0].trips |> map .index) == [0, 2]
   assert zones[0].trips[1].hysteresis_millidegrees == null
   root.write(
-        fp"${zone}/trip_point_02_temp",
+    fp"${zone}/trip_point_02_temp",
     """85000
 """,
   )?
@@ -7713,7 +7772,7 @@ test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering {
   bundle.write(p"capture.json", metadata)?
   assert report_checks.replay_thermal_bundle(bundle)?.exact
   bundle.write(
-        fp"${zone}/trip_point_2_temp",
+    fp"${zone}/trip_point_2_temp",
     """86000
 """,
   )?
@@ -7766,7 +7825,7 @@ test test_system_report_pci_link_rooted_reference_reads_bounded_attributes {
   assert reference[0].current_width == 4
   assert reference[1].current_width == null
   root.write(
-        fp"${first}/current_link_width",
+    fp"${first}/current_link_width",
     """0x4
 """,
   )?
@@ -7856,7 +7915,7 @@ test test_system_report_block_queue_raw_sources_bracket_counters_and_firmware {
   assert before[0].firmware == "firmware-7"
   assert before[0].counters.len() == 11
   root.write(
-        p"sys/class/block/sda/stat",
+    p"sys/class/block/sda/stat",
     """12 0 8 1 2 0 16 2 0 3 4
 """,
   )?
@@ -7878,7 +7937,7 @@ test test_system_report_block_queue_raw_sources_bracket_counters_and_firmware {
   )?
   assert report_checks.compare_block_queue_sources(gauge_changed, before, after)?.unstable
   root.write(
-        p"sys/class/block/sda/stat",
+    p"sys/class/block/sda/stat",
     """12 0 8 1 2 0 16 2 0 3 4 5 6 7 8 9 10
 """,
   )?
@@ -8041,7 +8100,7 @@ test test_system_report_mountinfo_capture_preserves_absent_source_without_scorin
   let bundle = fs.tempdir()?
   defer bundle.close()?
   report_checks.capture_mountinfo_bundle(source, bundle, "synthetic_fixture")?
-  assert "\"source_state\": \"absent\"" in (bundle.read_text(p"capture.json")?)
+  assert "\"source_state\": \"absent\"" in bundle.read_text(p"capture.json")?
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
@@ -8172,11 +8231,11 @@ test test_system_report_lsmod_reference_rejects_conflicting_or_unsafe_rows {
   let header = """Module Size Used by
 """
   assert report_checks.parse_lsmod_reference(
-  header + """alpha 4096 0
+    header + """alpha 4096 0
 """,
-  """alpha 4096 0 - Live 0x0 (OE)
+    """alpha 4096 0 - Live 0x0 (OE)
 """,
-)?.len() == 1
+  )?.len() == 1
   test.error_kind(
     report_checks.parse_lsmod_reference(
   header + """alpha 4096 0
@@ -8294,7 +8353,7 @@ beta 8192 1 alpha Live 0x1
   assert reference.len() == 2
   assert reference[1].name == "beta"
   source.write(
-        p"proc/modules",
+    p"proc/modules",
     """changed 1 0 - Live 0x0
 """,
   )?
@@ -8332,7 +8391,7 @@ test test_system_report_kernel_modules_capture_marks_absent_and_malformed_unscor
   let absent_bundle = fs.tempdir()?
   defer absent_bundle.close()?
   report_checks.capture_kernel_modules_bundle(source, absent_bundle, "synthetic_fixture")?
-  assert "\"source_state\": \"absent\"" in (absent_bundle.read_text(p"capture.json")?)
+  assert "\"source_state\": \"absent\"" in absent_bundle.read_text(p"capture.json")?
   test.error_kind(report_checks.validate_kernel_modules_bundle(absent_bundle), "SystemReportCheckError.Invalid")?
   source.mkdir(p"proc", parents: true)?
   source.write(
@@ -8343,7 +8402,7 @@ test test_system_report_kernel_modules_capture_marks_absent_and_malformed_unscor
   let malformed_bundle = fs.tempdir()?
   defer malformed_bundle.close()?
   report_checks.capture_kernel_modules_bundle(source, malformed_bundle, "synthetic_fixture")?
-  assert "\"reference\": null" in (malformed_bundle.read_text(p"capture.json")?)
+  assert "\"reference\": null" in malformed_bundle.read_text(p"capture.json")?
   test.error_kind(report_checks.validate_kernel_modules_bundle(malformed_bundle), "SystemReportCheckError.Invalid")?
   source.write(p"proc/modules", "")?
   let empty_bundle = fs.tempdir()?
@@ -8443,7 +8502,15 @@ test test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpect
     report_checks.compare_kernel_parameters("{}", reference.extend(reference)),
     "SystemReportCheckError.Invalid",
   )?
-  let invalid = [report_checks.KernelParameterReference(name: "kernel.pid_max", source: "sysctl", state: "absent", value: "4194304", raw_bytes_base64: null)]
+  let invalid = [
+    report_checks.KernelParameterReference(
+      name: "kernel.pid_max",
+      source: "sysctl",
+      state: "absent",
+      value: "4194304",
+      raw_bytes_base64: null,
+    ),
+  ]
   test.error_kind(report_checks.compare_kernel_parameters("{}", invalid), "SystemReportCheckError.Invalid")?
   let repeated = json.encode({
     kernel: {
@@ -8501,7 +8568,7 @@ test test_system_report_kernel_parameter_capture_validates_observed_absent_and_t
   assert reference[6].name == "usbcore.autosuspend"
   assert reference[6].value == "2"
   source.write(
-        p"proc/sys/kernel/pid_max",
+    p"proc/sys/kernel/pid_max",
     """changed
 """,
   )?
@@ -8603,7 +8670,10 @@ VERSION_ID="2026\\"release"
   assert ! compared.exact
   let absent_version = report_checks.parse_reference_os_release("""ID=example
 """)?
-  assert report_checks.compare_os_release("""{"identity":{"os_release":{"id":"example","version_id":null}}}""", absent_version)?.exact
+  assert report_checks.compare_os_release(
+    """{"identity":{"os_release":{"id":"example","version_id":null}}}""",
+    absent_version,
+  )?.exact
   let wrong_version = report_checks.compare_os_release(
     """{"identity":{"os_release":{"id":"example","version_id":"other"}}}""",
     reference,
@@ -8699,11 +8769,11 @@ VERSION_ID=2
 }
 
 test test_system_report_device_tree_reference_requires_exact_terminated_bytes_and_order {
-  assert (report_checks.parse_reference_od_bytes(
-  """ 41 52 4d 00
+  assert report_checks.parse_reference_od_bytes(
+    """ 41 52 4d 00
 """,
-  4,
-)?) == b"ARM\0"
+    4,
+  )? == b"ARM\0"
   test.error_kind(
     report_checks.parse_reference_od_bytes(
   """ 41 5g 00
@@ -8879,8 +8949,8 @@ test test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_o
     reference,
     {...reference, vendor: {value: null, complete: false}},
   )?
-  assert ("source" in changed_vendor.unstable_fields)
-  assert ("source" not in changed_vendor.field_mismatches)
+  assert "source" in changed_vendor.unstable_fields
+  assert "source" not in changed_vendor.field_mismatches
   let redacted = report_checks.compare_dmi_identity(
     candidate.replace("\"state\":\"observed\",\"value\":\"serial-123\"", "\"state\":\"redacted\",\"value\":null"),
     reference,
@@ -8891,7 +8961,7 @@ test test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_o
     "\"state\":\"observed\",\"value\":\"serial-123\"",
     "\"state\":\"redacted\",\"value\":null",
   )
-  assert (report_checks.dmi_identity_redacted(default_report, reference)?)
+  assert report_checks.dmi_identity_redacted(default_report, reference)?
   assert ! report_checks.dmi_identity_redacted(candidate, reference)?
   let invented_uuid = default_report.replace(
     "\"state\":\"absent\",\"value\":null",
@@ -8940,7 +9010,7 @@ test test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_o
   }
   let fabricated = report_checks.compare_dmi_identity(candidate, absent, absent)?
   assert ! fabricated.eligible
-  assert ("vendor" in fabricated.field_mismatches)
+  assert "vendor" in fabricated.field_mismatches
 }
 
 test test_system_report_dmi_identity_rooted_reference_reads_optional_fields {
@@ -8995,7 +9065,7 @@ test test_system_report_dmi_identity_capture_validates_saved_sources_and_oracle 
   assert reference.serial.value == "serial-123"
   assert reference.uuid == {value: null, complete: true}
   source.write(
-        p"sys/class/dmi/id/sys_vendor",
+    p"sys/class/dmi/id/sys_vendor",
     """changed
 """,
   )?
@@ -9082,7 +9152,7 @@ test test_system_report_device_tree_od_reference_reads_bounded_raw_source {
   let observed = report_checks.read_device_tree_raw_reference(scratch, source_path, 4, "model-before")?
   assert observed.state == "observed"
   assert observed.data == b"ARM\0"
-  assert (observed.ended >= observed.started)
+  assert observed.ended >= observed.started
   source.write(p"model", b"ARM\0X")?
   test.error_kind(
     report_checks.read_device_tree_raw_reference(scratch, source_path, 4, "model-oversize"),
@@ -9104,14 +9174,14 @@ test test_system_report_live_reference_rejects_synthetic_candidate_mode {
 }
 
 test test_system_report_uptime_reference_requires_a_bracketed_integer_second {
-  assert (report_checks.parse_reference_uptime_seconds("""123.456 987.654
-""")?) == 123
-  assert (report_checks.parse_reference_uptime_seconds("""123.456	987.654
-""")?) == 123
-  assert (report_checks.parse_reference_uptime_seconds("""123.999999999999999999999999 999999999999999999999999.00
-""")?) == 123
-  assert (report_checks.parse_reference_uptime_seconds("""9007199254740991.99 0.00
-""")?) == 9007199254740991
+  assert report_checks.parse_reference_uptime_seconds("""123.456 987.654
+""")? == 123
+  assert report_checks.parse_reference_uptime_seconds("""123.456	987.654
+""")? == 123
+  assert report_checks.parse_reference_uptime_seconds("""123.999999999999999999999999 999999999999999999999999.00
+""")? == 123
+  assert report_checks.parse_reference_uptime_seconds("""9007199254740991.99 0.00
+""")? == 9007199254740991
   test.error_kind(report_checks.parse_reference_uptime_seconds("12x.5 4.0"), "SystemReportCheckError.Invalid")?
   test.error_kind(report_checks.parse_reference_uptime_seconds("123.456 invalid"), "SystemReportCheckError.Invalid")?
   test.error_kind(
@@ -9151,13 +9221,13 @@ test test_system_report_uptime_capture_validates_saved_source_and_oracle {
 """,
   )?
   report_checks.capture_uptime_bundle(source, bundle, "synthetic_fixture")?
-  assert (report_checks.validate_uptime_bundle(bundle)?) == 73
+  assert report_checks.validate_uptime_bundle(bundle)? == 73
   source.write(
-        p"proc/uptime",
+    p"proc/uptime",
     """74.00 12.50
 """,
   )?
-  assert (report_checks.validate_uptime_bundle(bundle)?) == 73
+  assert report_checks.validate_uptime_bundle(bundle)? == 73
   let metadata = bundle.read_text(p"capture.json")?
   let changed_oracle = json.set(json.decode(metadata)?, ["reference_seconds"], 74)?
   bundle.write_atomic(p"capture.json", json.encode(changed_oracle)?)?

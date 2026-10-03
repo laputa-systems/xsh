@@ -47,25 +47,39 @@ test test_constant_key_projection_nullable_and_keyword_labels {
 
 test test_constant_key_projection_rejects_incompatible_known_field_type { |ctx|
   for source in [
-    "const field = \"workers\"\ntype Config = {workers: Int}\nlet config: Config = {workers: 4}\nlet value: Str = config.get(field)?\n",
-    "type Config = {workers: Int}\nlet config: Config = {workers: 4}\nlet value: Str = config[\"workers\"]\n",
+    """const field = "workers"
+type Config = {workers: Int}
+let config: Config = {workers: 4}
+let value: Str = config.get(field)?
+""",
+    """type Config = {workers: Int}
+let config: Config = {workers: 4}
+let value: Str = config["workers"]
+""",
   ] {
     let output = test.run_script(ctx, source)?
-    assert !output.success, source
+    assert ! output.success, source
     assert "check.type-mismatch" in output.stderr, output.stderr
   }
 }
 
 test test_constant_key_projection_evaluates_receiver_once { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 type Config = {workers: Int}
 proc config() -> Config { print "receiver"; {workers: 4} }
 const field = "workers"
 print (config().get(field)?)
 print (config()[field])
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "receiver\n4\nreceiver\n4\n"
+  assert output.stdout == """receiver
+4
+receiver
+4
+"""
 }
 
 test test_constant_key_projection_imported_const_key { |ctx|
@@ -74,17 +88,25 @@ test test_constant_key_projection_imported_const_key { |ctx|
 ## Visible worker field.
 export const workers = "workers"
 """)?
-  let output = test.run_script(ctx, r"""use keys as keys
+  let output = test.run_script(
+    ctx,
+    r"""use keys as keys
 type Config = {workers: Int}
 let config: Config = {workers: 4}
 print (config.get(keys.workers)?)
 print (config[keys.workers])
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "4\n4\n"
+  assert output.stdout == """4
+4
+"""
 }
 
 type ProjectionWide = {workers: Int, hidden: Bool}
+
 type ProjectionVisible = {workers: Int}
 
 test test_constant_key_projection_dynamic_and_hidden_fields_keep_validation {
@@ -98,7 +120,9 @@ test test_constant_key_projection_dynamic_and_hidden_fields_keep_validation {
   assert literal_hidden, "literal hidden field remains boolean"
 }
 
-type ProjectionNamedGet = module { export pure get(value: Str) -> Str }
+type ProjectionNamedGet = module {
+  export pure get(value: Str) -> Str
+}
 
 test test_constant_key_projection_keeps_exported_get_function { |ctx|
   let root = test.temp_dir(ctx, name: "named-get-export")?
@@ -115,22 +139,36 @@ export pure get(value: Str) -> Str { f"user:$value" }
 }
 
 test test_constant_key_projection_requires_constant_keys_for_field_types { |ctx|
-  let declaration = "type Config = {workers: Int}\nlet config: Config = {workers: 4}\n"
-  let accepted = test.run_script(ctx, declaration + r"""const field = "workers"
+  let declaration = """type Config = {workers: Int}
+let config: Config = {workers: 4}
+"""
+  let accepted = test.run_script(
+    ctx,
+    declaration + r"""const field = "workers"
 let fetched: Int = config.get(field)?
 let indexed: Int = config[field]
 let literal: Result[Int] = config.get("workers")
 print ${fetched + indexed + literal?}
-""")?
+""",
+  )?
   assert accepted.success, accepted.stderr
-  assert accepted.stdout == "12\n"
+  assert accepted.stdout == """12
+"""
   for source in [
-    "var field = \"workers\"\nlet value: Int = config.get(field)?\n",
-    "let field = \"workers\"\nlet value: Int = config.get(field)?\n",
-    "type Visible = {workers: Int}\nlet wide = {workers: 4, hidden: true}\nlet visible: Visible = wide\nlet hidden: Bool = visible.get(\"hidden\")?\n",
+    """var field = "workers"
+let value: Int = config.get(field)?
+""",
+    """let field = "workers"
+let value: Int = config.get(field)?
+""",
+    """type Visible = {workers: Int}
+let wide = {workers: 4, hidden: true}
+let visible: Visible = wide
+let hidden: Bool = visible.get("hidden")?
+""",
   ] {
     let output = test.run_script(ctx, declaration + source)?
-    assert !output.success, source
+    assert ! output.success, source
     assert "check.dynamic-boundary" in output.stderr, output.stderr
   }
 }

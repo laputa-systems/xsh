@@ -5,6 +5,7 @@ print counts.keys().join(",")
 print (counts.get(name) ?? 0)
 
 let attempts: Map[Int, Str] = {[2]: "retry", [0]: "initial"}
+
 for {key: attempt, value: label} in attempts {
   print f"${attempt}: ${label}"
 }

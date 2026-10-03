@@ -25,7 +25,7 @@ pure render_string_lines(values: List[Str]) -> Str {
 
 pure render_pairs_between(values: List[Str], index: Int, lines: List[Str]) -> Str {
   while index < values.len() {
-    let next = lines.push(f"${(values.get(index) ?? "")} ${(values.get(index + 1) ?? "")}")
+    let next = lines.push(f"${values.get(index) ?? ""} ${values.get(index + 1) ?? ""}")
     return render_pairs_between(values, index + 2, next)
   }
 

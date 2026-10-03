@@ -81,7 +81,15 @@ proc main(...argv: List[Str]) [fs, error] {
 
     if opts.number {
       let n = item.index + 1
-      let seq = if n < 10 { f"00${n}" } else { if n < 100 { f"0${n}" } else { f"${n}" } }
+      let seq = if n < 10 {
+        f"00${n}"
+      } else {
+        if n < 100 {
+          f"0${n}"
+        } else {
+          f"${n}"
+        }
+      }
       new_stem = f"${seq}_${new_stem}"
     }
 

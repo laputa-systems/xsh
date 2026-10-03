@@ -3,33 +3,33 @@ const max_cpu_list_identifiers = 65536
 
 ## Describes the outcome for one observed value or field.
 export enum ObservationState: Str {
-  Observed = "observed",
-  Absent = "absent",
-  Unsupported = "unsupported",
-  PermissionDenied = "permission_denied",
-  NotRequested = "not_requested",
-  Redacted = "redacted",
-  Malformed = "malformed",
-  Disappeared = "disappeared",
-  Raced = "raced",
-  Truncated = "truncated",
-  RangeFailure = "range_failure",
-  ReadFailure = "read_failure",
+    Observed = "observed",
+    Absent = "absent",
+    Unsupported = "unsupported",
+    PermissionDenied = "permission_denied",
+    NotRequested = "not_requested",
+    Redacted = "redacted",
+    Malformed = "malformed",
+    Disappeared = "disappeared",
+    Raced = "raced",
+    Truncated = "truncated",
+    RangeFailure = "range_failure",
+    ReadFailure = "read_failure",
 }
 
 ## Describes whether a section's requested enumeration completed.
 export enum SectionState: Str {
-  Complete = "complete",
-  Partial = "partial",
-  SectionAbsent = "absent",
-  SectionUnsupported = "unsupported",
-  SectionPermissionDenied = "permission_denied",
-  SectionNotRequested = "not_requested",
-  SectionRedacted = "redacted",
-  SectionMalformed = "malformed",
-  SectionDisappeared = "disappeared",
-  SectionRaced = "raced",
-  SectionTruncated = "truncated",
+    Complete = "complete",
+    Partial = "partial",
+    SectionAbsent = "absent",
+    SectionUnsupported = "unsupported",
+    SectionPermissionDenied = "permission_denied",
+    SectionNotRequested = "not_requested",
+    SectionRedacted = "redacted",
+    SectionMalformed = "malformed",
+    SectionDisappeared = "disappeared",
+    SectionRaced = "raced",
+    SectionTruncated = "truncated",
 }
 
 ## Failures returned by report parsing, selection, and schema validation.
@@ -37,12 +37,12 @@ export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(m
 
 ## Identifies whether observations came from a live host or a replay source.
 export enum SourceMode: Str {
-  LiveLinux = "live_linux",
-  Replay = "replay",
-  SyntheticFixture = "synthetic_fixture",
-  CapturedReplay = "captured_replay",
-  ContainerLive = "container_live",
-  PhysicalLive = "physical_live",
+    LiveLinux = "live_linux",
+    Replay = "replay",
+    SyntheticFixture = "synthetic_fixture",
+    CapturedReplay = "captured_replay",
+    ContainerLive = "container_live",
+    PhysicalLive = "physical_live",
 }
 
 ## Stores text with its observation status and optional original bytes.
@@ -961,7 +961,10 @@ pure not_requested_processes(section: ProcessSection) -> ProcessSection {
 }
 
 pure clear_process_cgroup_resource_links(section: ProcessSection) -> ProcessSection {
-  var processes: List[ProcessRecord] = [{...process_item, cgroup_resource_index: null} for process_item in section.processes]
+  var processes: List[ProcessRecord] = [
+    {...process_item, cgroup_resource_index: null}
+    for process_item in section.processes
+  ]
   {...section, processes: processes}
 }
 
@@ -2894,7 +2897,11 @@ pure optional_bool_key(value: Bool?) -> Str {
     return "none;"
   }
 
-  if value { "bool:true;" } else { "bool:false;" }
+  if value {
+    "bool:true;"
+  } else {
+    "bool:false;"
+  }
 }
 
 pure cpu_policy_key(policy: CpuFreqPolicy) -> Str {

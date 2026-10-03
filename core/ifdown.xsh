@@ -80,7 +80,7 @@ pure add_unique(items: List[Str], item: Str) -> List[Str] {
 pure glob_match(pattern: Str, text: Str) -> Bool {
   return true when pattern == "*"
 
-  return pattern == text unless ("*" in pattern)
+  return pattern == text unless "*" in pattern
 
   let parts = pattern.split("*")
 
@@ -102,7 +102,7 @@ pure append_current(config: Config, current: Interface) -> Config {
 proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config] {
   let path_value = fp"${source}"
 
-  return parse_interfaces_file(path_value, config)? unless ("*" in source)
+  return parse_interfaces_file(path_value, config)? unless "*" in source
 
   let dir = path_value.parent()
   let pattern = path_value.name()

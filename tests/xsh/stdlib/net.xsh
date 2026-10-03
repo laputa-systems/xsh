@@ -83,11 +83,11 @@ test test_net_module_with_mocks { |ctx|
   assert pool.max_idle_per_host == 1
   net.close_pool("stdlib-test")?
   net.close_all_pools()?
-  assert (test.calls(ctx, "net.request")[0].args.method) == ("GET")
-  assert (test.calls(ctx, "net.request_many")[0].args.requests[0].method) == ("GET")
-  assert (test.calls(ctx, "net.download")[0].args.dest.require(Path)?.display()) == ("out")
-  assert (test.calls(ctx, "net.download_many")[0].args.downloads[0].url) == ("https://example.test/file")
-  assert (test.calls(ctx, "net.upload")[0].args.source.require(Path)?.display()) == ("in")
+  assert test.calls(ctx, "net.request")[0].args.method == "GET"
+  assert test.calls(ctx, "net.request_many")[0].args.requests[0].method == "GET"
+  assert test.calls(ctx, "net.download")[0].args.dest.require(Path)?.display() == "out"
+  assert test.calls(ctx, "net.download_many")[0].args.downloads[0].url == "https://example.test/file"
+  assert test.calls(ctx, "net.upload")[0].args.source.require(Path)?.display() == "in"
 }
 
 proc net_start_scoped_helper() [net] -> Result[NetJob] {
@@ -169,7 +169,7 @@ test test_net_start_aliases_share_one_consumption { |ctx|
   let alias = job
   alias.cancel()?
   test.error_kind(job.wait(), "net-job-not-live")?
-  assert (test.calls(ctx, "net.start")[0].args.method) == ("GET")
+  assert test.calls(ctx, "net.start")[0].args.method == "GET"
 }
 
 test test_net_start_enforces_live_job_capacity { |ctx|

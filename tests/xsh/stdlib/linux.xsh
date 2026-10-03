@@ -22,28 +22,28 @@ test test_linux_dry_run_covers_module_surface { |ctx|
     linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")?
     linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")?
     let interfaces = linux.interfaces()?.collect()
-    assert (interfaces[0].name) == ("eth0")
-    assert (interfaces[0].addresses[0].family) == ("inet")
+    assert interfaces[0].name == "eth0"
+    assert interfaces[0].addresses[0].family == "inet"
     let routes = linux.routes()?.collect()
-    assert (routes[0].dst) == ("default")
-    assert (routes[0].gateway) == ("192.0.2.1")
+    assert routes[0].dst == "default"
+    assert routes[0].gateway == "192.0.2.1"
     let network = linux.network_dump()?
     assert network.state == "complete"
     assert network.links[0].name == "eth0"
     assert network.addresses[0].address == "192.0.2.10"
     assert network.routes[0].table == 254
     assert network.rules[0].priority == 32766
-    assert (linux.meminfo()?.total > 0)
-    assert (linux.modules()?.collect()[0].name) == ("xsh_demo")
+    assert linux.meminfo()?.total > 0
+    assert linux.modules()?.collect()[0].name == "xsh_demo"
     assert "xsh" in linux.dmesg()?.collect()[0]
     assert linux.is_mountpoint(/proc)?
-    assert (linux.disk_usage(/)?.collect()[0].device) == ("rootfs")
-    assert (linux.block_devices()?.collect()[0].name) == ("vda")
+    assert linux.disk_usage(/)?.collect()[0].device == "rootfs"
+    assert linux.block_devices()?.collect()[0].name == "vda"
     let sysctl_value = linux.sysctl_get("kernel.pid_max")?
     assert sysctl_value == "1"
     linux.sysctl_set("kernel.pid_max", sysctl_value)?
     let attrs = linux.file_attrs(seed)?
-    assert (attrs.immutable and attrs.append_only)
+    assert attrs.immutable and attrs.append_only
     linux.set_file_attrs(seed, attrs.flags)?
     let version = linux.file_version(seed)?
     linux.set_file_version(seed, version)?
@@ -57,12 +57,12 @@ test test_linux_dry_run_covers_module_surface { |ctx|
     linux.set_hwclock(epoch_ms)?
     linux.set_system_clock(epoch_ms)?
     let rfkill = linux.rfkill_list()?.collect()
-    assert (rfkill[0].type) == ("wlan")
+    assert rfkill[0].type == "wlan"
     linux.rfkill_block(rfkill[0].id)?
     linux.rfkill_unblock(rfkill[0].id)?
     let loop_device = linux.loop_attach(seed)?
     linux.loop_detach(loop_device)?
-    assert (linux.loop_list()?.collect()[0].device) == (loop_device)
+    assert linux.loop_list()?.collect()[0].device == loop_device
     linux.mkswap(seed)?
     linux.swapon(seed, priority: 1)?
     linux.swapoff(seed)?
@@ -70,7 +70,7 @@ test test_linux_dry_run_covers_module_surface { |ctx|
     assert linux.modinfo("demo")?.params[0].name == "debug"
     linux.modprobe("demo", params: "debug=1")?
     linux.depmod("dry-run")?
-    assert (linux.open_files(123)?.collect()[0].type) == ("file")
+    assert linux.open_files(123)?.collect()[0].type == "file"
     let table = linux.partition_table(seed)?
     assert table.partitions[0].name == "root"
     linux.write_partition_table(seed, table)?
@@ -165,19 +165,19 @@ test test_linux_text_dry_run_values_and_log { |ctx|
   # its operation to the log file.
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN_LOG=$log {
     let memory = linux.meminfo()?
-    assert memory.total == (1024 * 1024 * 1024)
-    assert memory.free == (256 * 1024 * 1024)
-    assert memory.available == (512 * 1024 * 1024)
-    assert memory.buffers == (64 * 1024 * 1024)
-    assert memory.cached == (128 * 1024 * 1024)
-    assert memory.swap_total == (512 * 1024 * 1024)
-    assert memory.swap_free == (384 * 1024 * 1024)
+    assert memory.total == 1024 * 1024 * 1024
+    assert memory.free == 256 * 1024 * 1024
+    assert memory.available == 512 * 1024 * 1024
+    assert memory.buffers == 64 * 1024 * 1024
+    assert memory.cached == 128 * 1024 * 1024
+    assert memory.swap_total == 512 * 1024 * 1024
+    assert memory.swap_free == 384 * 1024 * 1024
 
     let modules = linux.modules()?.collect()
-    assert (modules.len()) == (1)
-    assert (modules[0].name) == ("xsh_demo")
-    assert (modules[0].size) == (4096)
-    assert (modules[0].used_by) == (["xsh_dep"])
+    assert modules.len() == 1
+    assert modules[0].name == "xsh_demo"
+    assert modules[0].size == 4096
+    assert modules[0].used_by == ["xsh_dep"]
   } ?
 
   assert log.read_text()? == """{"op":"meminfo"}
@@ -189,13 +189,13 @@ test test_linux_dry_run_disk_usage_and_sysctl_records {
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_SYSCTL_VALUE=65535 {
     let root_usage = linux.disk_usage()?.collect()
     let tmp_usage = linux.disk_usage(/tmp)?.collect()
-    assert (root_usage[0].device) == ("rootfs")
-    assert (root_usage[0].mount) == ("/")
-    assert (root_usage[0].fstype) == ("tmpfs")
-    assert (root_usage[0].total) == (1073741824)
-    assert (root_usage[0].used) == (268435456)
-    assert (root_usage[0].available) == (805306368)
-    assert (tmp_usage[0].mount) == ("/tmp")
+    assert root_usage[0].device == "rootfs"
+    assert root_usage[0].mount == "/"
+    assert root_usage[0].fstype == "tmpfs"
+    assert root_usage[0].total == 1073741824
+    assert root_usage[0].used == 268435456
+    assert root_usage[0].available == 805306368
+    assert tmp_usage[0].mount == "/tmp"
     assert linux.is_mountpoint(/proc)?
     assert ! linux.is_mountpoint(/tmp)?
     assert linux.sysctl_get("kernel.pid_max")? == "65535"
@@ -232,7 +232,7 @@ test test_linux_dry_run_file_attrs_decode_seed_flags { |ctx|
 test test_linux_dry_run_rejects_invalid_seed_inputs {
   env XSH_LINUX_DRY_RUN=1 {
     match linux.sysctl_get("kernel..pid_max") {
-      Ok(_) => assert (false), "invalid sysctl name was accepted"
+      Ok(_) => assert false, "invalid sysctl name was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
         assert "invalid" in failure.message
@@ -240,7 +240,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
     }
 
     match linux.sysctl_set("../kernel.pid_max", "1") {
-      Ok(_) => assert (false), "invalid sysctl path was accepted"
+      Ok(_) => assert false, "invalid sysctl path was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
         assert "invalid" in failure.message
@@ -249,7 +249,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
 
     for flags in [-1, 4294967296] {
       match linux.set_file_attrs(/tmp/file, flags) {
-        Ok(_) => assert (false), "invalid file attribute flags were accepted"
+        Ok(_) => assert false, "invalid file attribute flags were accepted"
         Err(failure) => {
           test.error_kind(failure, "linux-file-attrs")?
           assert "between 0 and 4294967295" in failure.message
@@ -258,7 +258,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
     }
 
     match linux.set_file_version(/tmp/file, -1) {
-      Ok(_) => assert (false), "invalid file version was accepted"
+      Ok(_) => assert false, "invalid file version was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-file-version")?
         assert "between 0 and 4294967295" in failure.message
@@ -267,7 +267,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
 
     test.error_kind(linux.kill_all(signal: "BOGUS"), "invalid-signal")?
     match linux.mknod(/tmp/file, "socket", 0, 0) {
-      Ok(_) => assert (false), "invalid node kind was accepted"
+      Ok(_) => assert false, "invalid node kind was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-mknod")?
         assert "block" in failure.message
@@ -297,7 +297,7 @@ test test_linux_dry_run_log_appends_in_place { |ctx|
   } ?
   let once = log.read_bytes()?
   assert once.starts_with(seeded)
-  assert (once.len() > seeded.len())
+  assert once.len() > seeded.len()
 
   # A second call appends exactly one more record: the file grows by the same
   # number of bytes again and nothing before it is truncated.
@@ -306,7 +306,7 @@ test test_linux_dry_run_log_appends_in_place { |ctx|
   } ?
   let twice = log.read_bytes()?
   assert twice.starts_with(seeded)
-  assert (twice.len() - once.len()) == (once.len() - seeded.len())
+  assert twice.len() - once.len() == once.len() - seeded.len()
 
   # A destination whose parent directories do not exist yet is created.
   let fresh = fp"${root}/missing/deeper/linux.jsonl"
@@ -384,12 +384,12 @@ test test_linux_meminfo_reads_the_host_text {
   # total it is reported next to.
   env XSH_LINUX_REAL=1 {
     let memory = linux.meminfo()?
-    assert (memory.total > 0)
-    assert (memory.total % 1024) == 0
-    assert (memory.free >= 0 and memory.free <= memory.total)
-    assert (memory.available >= 0 and memory.available <= memory.total)
-    assert (memory.buffers >= 0 and memory.cached >= 0)
-    assert (memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)
+    assert memory.total > 0
+    assert memory.total % 1024 == 0
+    assert memory.free >= 0 and memory.free <= memory.total
+    assert memory.available >= 0 and memory.available <= memory.total
+    assert memory.buffers >= 0 and memory.cached >= 0
+    assert memory.swap_free >= 0 and memory.swap_free <= memory.swap_total
   } ?
 }
 
@@ -408,10 +408,10 @@ test test_linux_modules_streams_the_host_text {
   env XSH_LINUX_REAL=1 {
     let records = linux.modules()?
     for entry in records {
-      assert (entry.name != "")
-      assert (entry.size >= 0)
+      assert entry.name != ""
+      assert entry.size >= 0
       for dependent in entry.used_by {
-        assert (dependent != "")
+        assert dependent != ""
       }
 
       break
@@ -421,10 +421,10 @@ test test_linux_modules_streams_the_host_text {
   # The whole text interprets into records with the same shape.
   env XSH_LINUX_REAL=1 {
     for entry in linux.modules()?.collect() {
-      assert (entry.name != "")
-      assert (entry.size >= 0)
+      assert entry.name != ""
+      assert entry.size >= 0
       for dependent in entry.used_by {
-        assert (dependent != "")
+        assert dependent != ""
       }
     }
   } ?
@@ -536,11 +536,11 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
     time.sleep(10ms)?
   }
 
-  assert (ready.exists()?), "child did not open its descriptor"
+  assert ready.exists()?, "child did not open its descriptor"
 
   env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
     let before = linux.open_files(child.pid)?.collect()
-    assert (before |> any .path == source), "open descriptor must be visible"
+    assert before |> any .path == source, "open descriptor must be visible"
 
     release.write("")?
     for _ in range(0, 500) {
@@ -548,10 +548,10 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
       time.sleep(10ms)?
     }
 
-    assert (closed.exists()?), "child did not close its descriptor"
+    assert closed.exists()?, "child did not close its descriptor"
     let after = linux.open_files(child.pid)?.collect()
-    assert (after.len() > 0), "child must still be visible"
-    assert (! (after |> any .path == source)), "closed descriptor must disappear"
+    assert after.len() > 0, "child must still be visible"
+    assert ! (after |> any .path == source), "closed descriptor must disappear"
   } ?
 
   stop.write("")?

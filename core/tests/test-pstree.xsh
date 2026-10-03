@@ -32,7 +32,7 @@ test test_pstree_renders_tree_with_pid_labels { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
   assert f"[${parent_pid}]" in output
   assert f"sleep [${child.pid}]" in output
-  assert ("\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output)
+  assert "\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output
   assert ! ("->" in output)
 }
 
@@ -40,7 +40,7 @@ test test_pstree_rejects_unknown_pid { |ctx|
   let err = test.temp_path(ctx, name: "pstree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- 999999999 2> $err
   assert ! status.exited_with(0)
-  assert "no such pid" in (err.read_text()?)
+  assert "no such pid" in err.read_text()?
 }
 
 test test_pstree_default_prints_visible_root { |ctx|
@@ -52,7 +52,7 @@ test test_pstree_default_prints_visible_root { |ctx|
   }
 
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" ?
-  assert (output.trim() != "")
+  assert output.trim() != ""
 
   if system.uname()?.sysname == "Darwin" {
     assert "launchd" in output

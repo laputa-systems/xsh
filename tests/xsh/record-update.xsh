@@ -1,5 +1,7 @@
 test test_record_update_nested_spread_before_witness { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc witness() [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
   let updated = {
@@ -13,14 +15,17 @@ proc witness() [error] {
   assert (config.build.flags.debug) == (false)
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
 }
 
 test test_record_update_disjoint_paths_match_nested_spreads { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc witness() [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
   let before = {...config, build: {...config.build, jobs: 8, flags: {...config.build.flags, debug: true}}}
@@ -30,14 +35,17 @@ proc witness() [error] {
   assert (config.build.flags.debug) == (false)
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
 }
 
 test test_record_update_keeps_schema_and_contextual_replacements { |ctx|
-  let output = test.run_script(ctx, r"""type RecordUpdateFlags = {debug: Bool, optimize: Bool}
+  let output = test.run_script(
+    ctx,
+    r"""type RecordUpdateFlags = {debug: Bool, optimize: Bool}
 type RecordUpdateBuild = {jobs: Int, flags: RecordUpdateFlags, tags: List[Str]}
 type RecordUpdateConfig = {build: RecordUpdateBuild, name: Str = "default"}
 proc witness() [error] {
@@ -53,14 +61,17 @@ proc witness() [error] {
   assert (quoted.get("build.jobs")?) == (7)
 }
 witness()
-""")?
+""",
+  )?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
   assert output.stdout == ""
 }
 
 test test_record_update_evaluates_snapshot_and_rhs_in_source_order { |ctx|
-  let output = test.run_xsh(ctx, r"""
+  let output = test.run_xsh(
+    ctx,
+    r"""
 type Flags = {debug: Bool, optimize: Bool}
 type Build = {jobs: Int, flags: Flags}
 type Config = {build: Build, name: Str}
@@ -77,16 +88,24 @@ print f"${updated.name},${updated.build.jobs},${updated.build.flags.debug},${upd
 print f"${alias.name},${alias.build.flags.debug},${source.name},${source.build.flags.debug}"
 }
 inspect()
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("base\njobs\noptimize\noriginal,8,false,true\noriginal,false,changed,true\n")
+  assert output.stdout == """base
+jobs
+optimize
+original,8,false,true
+original,false,changed,true
+"""
 }
 
 test test_record_update_failure_stops_later_rhs_and_keeps_published_value { |ctx|
-  let output = test.run_xsh(ctx, r"""
+  let output = test.run_xsh(
+    ctx,
+    r"""
 error UpdateError = Failed(code: Int)
 type Flags = {debug: Bool}
 type Build = {jobs: Int, flags: Flags}
@@ -104,26 +123,71 @@ match update(published) {
   Err(UpdateError.Failed {code}) => print f"caught=${code}"
 }
 print f"${published.name},${published.build.jobs},${published.build.flags.debug}"
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("first\nfailure\nclosed\ncaught=7\noriginal,2,false\n")
+  assert output.stdout == """first
+failure
+closed
+caught=7
+original,2,false
+"""
 }
 
 test test_record_update_rejects_bases_targets_and_replacements { |ctx|
-  let prefix = "let config = {build: {jobs: 2, flags: {debug: false}}, name: \"demo\"}\n"
+  let prefix = """let config = {build: {jobs: 2, flags: {debug: false}}, name: "demo"}
+"""
   for {source, code} in [
-    {source: "let updated = {build.jobs: 8}\n", code: "check.record-update-base"},
-    {source: "let extra = {name: \"other\"}\nlet updated = {...config, ...extra, build.jobs: 8}\n", code: "check.record-update-base"},
-    {source: "let dynamic: Any = config\nlet updated = {...dynamic, build.jobs: 8}\n", code: "check.record-update-shape"},
-    {source: "let updated = {...config, build.workers: 8}\n", code: "check.record-update-field"},
-    {source: "let updated = {...config, name.size: 8}\n", code: "check.record-update-field"},
-    {source: "let updated = {...config, extra: 1, build.jobs: 8}\n", code: "check.record-update-field"},
-    {source: "let updated = {...config, build: {jobs: 1, flags: {debug: true}}, build.jobs: 8}\n", code: "check.record-update-overlap"},
-    {source: "let updated = {...config, build.jobs: 1, build.jobs: 2}\n", code: "check.record-update-overlap"},
-    {source: "let updated = {...config, build.jobs: \"many\"}\n", code: "check.type-mismatch"},
+    {
+      source: """let updated = {build.jobs: 8}
+""",
+      code: "check.record-update-base",
+    },
+    {
+      source: """let extra = {name: "other"}
+let updated = {...config, ...extra, build.jobs: 8}
+""",
+      code: "check.record-update-base",
+    },
+    {
+      source: """let dynamic: Any = config
+let updated = {...dynamic, build.jobs: 8}
+""",
+      code: "check.record-update-shape",
+    },
+    {
+      source: """let updated = {...config, build.workers: 8}
+""",
+      code: "check.record-update-field",
+    },
+    {
+      source: """let updated = {...config, name.size: 8}
+""",
+      code: "check.record-update-field",
+    },
+    {
+      source: """let updated = {...config, extra: 1, build.jobs: 8}
+""",
+      code: "check.record-update-field",
+    },
+    {
+      source: """let updated = {...config, build: {jobs: 1, flags: {debug: true}}, build.jobs: 8}
+""",
+      code: "check.record-update-overlap",
+    },
+    {
+      source: """let updated = {...config, build.jobs: 1, build.jobs: 2}
+""",
+      code: "check.record-update-overlap",
+    },
+    {
+      source: """let updated = {...config, build.jobs: "many"}
+""",
+      code: "check.type-mismatch",
+    },
   ] {
     let output = test.run_script(ctx, prefix + source)?
     assert ! output.success, source

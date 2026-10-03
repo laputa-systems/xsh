@@ -28,7 +28,14 @@ nested(root)
     [root.display()],
   )?
   assert output.success, output.stderr
-  assert output.stdout == "/tmp/parsed\n3 5\n1\ntrue\ntrue\n/tmp/nested\n5\n"
+  assert output.stdout == """/tmp/parsed
+3 5
+1
+true
+true
+/tmp/nested
+5
+"""
 }
 
 test test_environment_path_views_lower_named_entries_and_bound_receivers { |ctx|
@@ -42,7 +49,9 @@ print ${p"/opt/probe-b" in env.PATH}
 """,
   )?
   assert output.success, output.stderr
-  assert output.stdout == "/opt/probe-a\ntrue\n"
+  assert output.stdout == """/opt/probe-a
+true
+"""
 }
 
 test test_user_module_calls_lower_named_and_defaulted_entries { |ctx|
@@ -69,7 +78,10 @@ nested()
     {XSH_MODULE_PATH: root.display()},
   )?
   assert output.success, output.stderr
-  assert output.stdout == "15 12 6\n3 1\n4\n"
+  assert output.stdout == """15 12 6
+3 1
+4
+"""
 }
 
 test test_top_level_guard_bindings_publish_success_values { |ctx|
@@ -93,7 +105,9 @@ print "unreachable ${missing.root}"
 """,
   )?
   assert output.status == 4, output.stderr
-  assert output.stdout == "src 3 native\nfallback missing\n"
+  assert output.stdout == """src 3 native
+fallback missing
+"""
 }
 
 test test_map_parameter_defaults_encode_map_keys { |ctx|
@@ -104,12 +118,18 @@ print ${size()}
 """,
   )?
   assert output.success, output.stderr
-  assert output.stdout == "2\n"
+  assert output.stdout == """2
+"""
 }
 
 test test_process_command_requires_builder_block { |ctx|
-  let output = test.run_script(ctx, "let command = process.command()\nprint process.run(command)?.exited()\n")?
-  assert !output.success
+  let output = test.run_script(
+    ctx,
+    """let command = process.command()
+print process.run(command)?.exited()
+""",
+  )?
+  assert ! output.success
   assert "check.builder-call" in output.stderr, output.stderr
   assert "compact.indexed-build" not in output.stderr, output.stderr
 }

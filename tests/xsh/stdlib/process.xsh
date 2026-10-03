@@ -1,22 +1,22 @@
 test test_process_module {
   let current_pid = process.current_pid()?
-  assert (current_pid > 0)
-  assert (process.list()? |> any .pid == current_pid), "process list should contain current pid"
-  assert ((process.list()?
-      |> where .pid > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time.count_chars() == 20 and .start_time_ms > 0 and .runtime_seconds >= 0
-      |> count()) > 0), "process list should contain typed fields"
-  assert (process.threads(current_pid)? |> any .owner_pid == current_pid), "process threads should accept a pid"
-  assert ((process.threads()?
-      |> where .pid > 0 and .owner_pid > 0 and .thread_id > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time.count_chars() == 20 and .start_time_ms > 0 and .runtime_seconds >= 0
-      |> count()) > 0), "process threads should contain typed fields"
+  assert current_pid > 0
+  assert process.list()? |> any .pid == current_pid, "process list should contain current pid"
+  assert (process.list()?
+    |> where .pid > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time.count_chars() == 20 and .start_time_ms > 0 and .runtime_seconds >= 0
+    |> count()) > 0, "process list should contain typed fields"
+  assert process.threads(current_pid)? |> any .owner_pid == current_pid, "process threads should accept a pid"
+  assert (process.threads()?
+    |> where .pid > 0 and .owner_pid > 0 and .thread_id > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time.count_chars() == 20 and .start_time_ms > 0 and .runtime_seconds >= 0
+    |> count()) > 0, "process threads should contain typed fields"
   let stats = process.stats(current_pid)?
-  assert (stats.rss_kb >= 0)
-  assert (stats.vsz_kb >= 0)
-  assert (process.list()? |> any .pid > 0), "process list should contain entries"
-  assert (process.which("sh")?.display() != "")
-  assert ((process.port(9)? |> count()) >= 0)
-  assert ((process.ports()? |> count()) >= 0)
-  assert ((process.ports(current_pid)? |> count()) >= 0)
+  assert stats.rss_kb >= 0
+  assert stats.vsz_kb >= 0
+  assert process.list()? |> any .pid > 0, "process list should contain entries"
+  assert process.which("sh")?.display() != ""
+  assert (process.port(9)? |> count()) >= 0
+  assert (process.ports()? |> count()) >= 0
+  assert (process.ports(current_pid)? |> count()) >= 0
   assert process.signal("TERM")?.name == "TERM"
   assert process.argv_words("cmd 'two words'")? == ["cmd", "two words"]
   let command = process.command_argv("sh", ["sh", "-c", "exit 7"])
@@ -30,17 +30,17 @@ test test_process_module {
   assert process.run(ok_command)?.exited_with(0)
   let sleeper = process.command_argv("sh", ["sh", "-c", "sleep 5"])
   let child = process.spawn(sleeper)?
-  assert (child.pid > 0)
+  assert child.pid > 0
   process.kill(child.pid, signal: "TERM")?
   let any_handle = spawn run true ?
   let any = process.wait_any([any_handle])?
   assert any.index == 0
-  assert (any.pid > 0)
+  assert any.pid > 0
   assert any.status.exited_with(0)
   let ready_one = spawn run true ?
   let ready_two = spawn run true ?
   let ready = process.wait_ready([ready_one, ready_two])?
-  assert (ready.len() >= 1)
+  assert ready.len() >= 1
   assert ready[0].status.exited_with(0)
   let handle = spawn run sh -c "sleep 5" ?
   handle.cancel(signal: "TERM", kill_after: 10ms)?
@@ -69,13 +69,20 @@ pure argv_words_message(result: Result[List[Str]]) -> Str {
 # Every case the native `argv_words` unit test covered, plus whitespace runs,
 # empty quoted arguments, and quote concatenation.
 test test_process_argv_words_parses_quotes_and_escapes {
-  assert process.argv_words("cmd 'two words' \"double quoted\" escaped\\ space 'literal *'")? == ["cmd", "two words", "double quoted", "escaped space", "literal *"]
+  assert process.argv_words("cmd 'two words' \"double quoted\" escaped\\ space 'literal *'")? == [
+    "cmd",
+    "two words",
+    "double quoted",
+    "escaped space",
+    "literal *",
+  ]
 
   # Whitespace, including runs and leading or trailing whitespace, separates
   # words.
   assert process.argv_words("one")? == ["one"]
   assert process.argv_words("plain words")? == ["plain", "words"]
-  assert process.argv_words("  spaced \t out \n lines  ")? == ["spaced", "out", "lines"]
+  assert process.argv_words("""  spaced 	 out 
+ lines  """)? == ["spaced", "out", "lines"]
 
   # Input with no words at all.
   let no_words = []
@@ -110,7 +117,9 @@ test test_process_argv_words_parses_quotes_and_escapes {
 
   # Every ASCII byte outside the rejected set and the quote forms is an
   # ordinary word byte.
-  assert (process.argv_words("!#%+,-./0123456789:=@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz~")?) == (["!#%+,-./0123456789:=@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz~"])
+  assert process.argv_words("!#%+,-./0123456789:=@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz~")? == [
+    "!#%+,-./0123456789:=@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz~",
+  ]
 }
 
 # Every case the native `argv_words` unit test covered, plus each shell syntax
@@ -238,7 +247,7 @@ test test_process_command_redirections { |ctx|
 test test_process_timeout_errors {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   match process.run(command) {
-    Err(ProcessError.Timeout {message: message}) => assert ("timed out" in message)
+    Err(ProcessError.Timeout {message: message}) => assert "timed out" in message
     Err(is Timeout) => test.fail("timeout facet without nominal variant")?
     Err(error) => test.fail(f"unexpected process error: ${error.message}")?
     Ok(_) => test.fail("timed-out process succeeded")?
@@ -257,7 +266,7 @@ test test_process_wait_and_handle_contracts {
 
   let handle = spawn run true ?
   let status = wait handle?
-  assert (handle.pid > 0)
+  assert handle.pid > 0
   assert handle.command == "true"
   assert handle.argv[0] == "true"
   assert handle.detached == false
@@ -271,7 +280,7 @@ test test_process_wait_and_handle_contracts {
 
   let duplicate = spawn run true ?
   match wait [duplicate, duplicate] {
-    Err(ProcessError.Unknown {message: message}) => assert ("already requested" in message)
+    Err(ProcessError.Unknown {message: message}) => assert "already requested" in message
     Err(error) => test.fail(f"unexpected duplicate wait error: ${error.message}")?
     Ok(_) => test.fail("duplicate wait succeeded")?
   }
@@ -280,7 +289,7 @@ test test_process_wait_and_handle_contracts {
   let alias_copy = alias
   let _ = wait alias?
   match wait alias_copy {
-    Err(ProcessError.Unknown {message: message}) => assert ("no longer live" in message)
+    Err(ProcessError.Unknown {message: message}) => assert "no longer live" in message
     Err(error) => test.fail(f"unexpected alias wait error: ${error.message}")?
     Ok(_) => test.fail("alias wait succeeded")?
   }
@@ -289,14 +298,14 @@ test test_process_wait_and_handle_contracts {
 test test_process_spawn_setup_errors {
   env PATH="/bin:/usr/bin" {
     match spawn run xsh-definitely-missing-command {
-      Err(ProcessError.NotFound {message: message}) => assert ("not found" in message)
+      Err(ProcessError.NotFound {message: message}) => assert "not found" in message
       Err(error) => test.fail(f"unexpected spawn error: ${error.message}")?
       Ok(_) => test.fail("missing command spawned")?
     }
   }
 
   match spawn run true > /definitely/missing/xsh-spawn-output {
-    Err(ProcessError.Redirection {message: message}) => assert (message != "")
+    Err(ProcessError.Redirection {message: message}) => assert message != ""
     Err(error) => test.fail(f"unexpected redirection error: ${error.message}")?
     Ok(_) => test.fail("invalid redirection succeeded")?
   }
@@ -326,7 +335,7 @@ test test_process_spawn_timeout_and_return_transfer {
   let handle = spawn command?
   time.sleep(50ms)?
   match wait handle {
-    Err(ProcessError.Timeout {message: message}) => assert ("timed out" in message)
+    Err(ProcessError.Timeout {message: message}) => assert "timed out" in message
     Err(error) => test.fail(f"unexpected spawn timeout error: ${error.message}")?
     Ok(_) => test.fail("spawn timeout did not expire")?
   }
@@ -397,19 +406,25 @@ print \${status.exit_code()?}
 test test_bytes_stdin_redirection_is_exact_and_explicit {
   let payload = b"a\0\xff\n"
   let echoed = run.bytes cat < $payload ?
-  assert (echoed) == (payload)
-  assert (run.bytes cat < b"" ?) == (b"")
+  assert echoed == payload
+  assert run.bytes cat < b""? == b""
   let text = "text without a newline"
-  assert (run.text cat < (bytes.from_text(text)) ?) == (text)
+  assert run.text cat < bytes.from_text(text)? == text
 }
 
 test test_bytes_stdin_rejects_invalid_targets_and_sources { |ctx|
   for source in [
-    "run cat > b\"output\"\n",
-    "run cat < b\"first\" < b\"second\"\n",
-    "run cat | run cat < b\"second\"\n",
-    "let payload: Result[Bytes] = Ok(b\"input\")\nrun cat < (payload)\n",
-    "let command = process.command {stdout = b\"output\"; run cat}\n",
+    """run cat > b"output"
+""",
+    """run cat < b"first" < b"second"
+""",
+    """run cat | run cat < b"second"
+""",
+    """let payload: Result[Bytes] = Ok(b"input")
+run cat < (payload)
+""",
+    """let command = process.command {stdout = b"output"; run cat}
+""",
   ] {
     let checked = test.run_xsh(ctx, source)?
     {
@@ -426,22 +441,31 @@ test test_bytes_stdin_path_strings_and_once_only_expression { |ctx|
   let input = fp"${root}/input"
   input.write("file content")?
   let file_name = input.display()
-  assert (run.text cat < $file_name ?) == ("file content")
-  let result = test.run_script(ctx, r"""proc payload() [io] -> Bytes {print preparing; return b"content"}
+  assert run.text cat < $file_name? == "file content"
+  let result = test.run_script(
+    ctx,
+    r"""proc payload() [io] -> Bytes {print preparing; return b"content"}
 let copied = run.bytes cat < (payload()) ?
 print ${copied.utf8()?}
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  assert (result.stdout) == ("preparing\ncontent\n")
+  assert result.stdout == """preparing
+content
+"""
 }
 
 test test_bytes_stdin_trace_does_not_include_payload { |ctx|
-  let result = test.run_xsht_trace(ctx, r"""let copied = run.bytes cat < b"private-input-payload" ?
+  let result = test.run_xsht_trace(
+    ctx,
+    r"""let copied = run.bytes cat < b"private-input-payload" ?
 print ${copied.len()}
-""", ["--trace", "--raw", "--trace-format", "jsonl"])?
+""",
+    ["--trace", "--raw", "--trace-format", "jsonl"],
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message

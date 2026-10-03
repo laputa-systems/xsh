@@ -6,12 +6,12 @@ test test_unix_dry_run_covers_module_surface { |ctx|
   let command = process.command_argv("demo", ["demo", "arg"])
 
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_SIGNAL=USR1 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=$log {
-    assert (unix.reap_child_events()?.collect().len()) == (0)
+    assert unix.reap_child_events()?.collect().len() == 0
     unix.pid1_setup(["TERM"], subreaper: true, allow_non_pid1: true)?
     let event = unix.wait_pid1_event()?
     assert event.kind == "signal"
     let shutdown = unix.shutdown_process_groups([1000], 1ms, kill_timeout: 1ms)?
-    assert (shutdown.term_sent >= 0)
+    assert shutdown.term_sent >= 0
     assert unix.uptime_seconds()? == 17
     assert unix.tty()? == "/dev/tty"
     assert unix.id()?.groups[0].name == "root"
@@ -21,7 +21,7 @@ test test_unix_dry_run_covers_module_surface { |ctx|
     unix.set_hostname("xsh")?
     let child = unix.spawn_process_group(command)?
     let notify_child = unix.spawn_process_group(command, notify: true)?
-    assert (notify_child.notify_fd > 0)
+    assert notify_child.notify_fd > 0
     assert unix.notify_ready(notify_child.notify_fd)?
     unix.notify_close(notify_child.notify_fd)?
     assert ! unix.notify_ready(child.notify_fd)?
@@ -123,9 +123,9 @@ test test_unix_uptime_seconds_reads_the_host_text {
   # emptied so the surrounding environment cannot decide what is read.
   env XSH_UNIX_DRY_RUN="" {
     let first = unix.uptime_seconds()?
-    assert (first >= 0)
+    assert first >= 0
     let second = unix.uptime_seconds()?
-    assert (second >= first)
+    assert second >= first
   } ?
 }
 

@@ -8,18 +8,27 @@ test test_git_digest_counts_integer_statistics_and_binary_placeholders { |ctx|
   run git -C $repo init --quiet ?
   run git -C $repo config user.name Tester ?
   run git -C $repo config user.email "tester@example.invalid" ?
-  fp"${repo}/text.txt".write("base\n")?
+  fp"${repo}/text.txt".write("""base
+""")?
   run git -C $repo add -A ?
   run git -C $repo -c core.hooksPath=/dev/null commit --quiet -m base ?
   run git -C $repo branch base ?
-  fp"${repo}/text.txt".write("base\nextra\n")?
-  fp"${repo}/binary.dat".write(b"\x00binary")?
+  fp"${repo}/text.txt".write("""base
+extra
+""")?
+  fp"${repo}/binary.dat".write(b"\0binary")?
   run git -C $repo add -A ?
   run git -C $repo -c core.hooksPath=/dev/null commit --quiet -m changed ?
   let script = fp"${fs.cwd()?}/showcase/git-digest.xsh"
   let output_file = fp"${repo}/digest.out"
   let error_file = fp"${repo}/digest.err"
-  let command = process.command_argv("xsh", ["xsh", script, "--", "--base", "base"], cwd: repo, stdout: output_file, stderr: error_file)
+  let command = process.command_argv(
+    "xsh",
+    ["xsh", script, "--", "--base", "base"],
+    cwd: repo,
+    stdout: output_file,
+    stderr: error_file,
+  )
   let status = process.run(command)?
   let succeeded = status.exited_with(0)
   let failure_message = error_file.read_text()?

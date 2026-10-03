@@ -8,9 +8,9 @@ use targets as target_policy
 
 test test_supported_target_records_and_default {
   assert target_policy.default_triple == "x86_64-unknown-linux-musl"
-  assert (target_policy.host_default_triple(target_policy.Linux, target_policy.X86_64)?) == "x86_64-unknown-linux-musl"
-  assert (target_policy.host_default_triple(target_policy.Linux, target_policy.Aarch64)?) == "aarch64-unknown-linux-musl"
-  assert (target_policy.host_default_triple(target_policy.Darwin, target_policy.Aarch64)?) == "aarch64-apple-darwin"
+  assert target_policy.host_default_triple(target_policy.Linux, target_policy.X86_64)? == "x86_64-unknown-linux-musl"
+  assert target_policy.host_default_triple(target_policy.Linux, target_policy.Aarch64)? == "aarch64-unknown-linux-musl"
+  assert target_policy.host_default_triple(target_policy.Darwin, target_policy.Aarch64)? == "aarch64-apple-darwin"
   match target_policy.host_default_triple(target_policy.Darwin, target_policy.X86_64) {
     Ok(_) => test.fail("unsupported host default resolved")?
     Err(error) => assert error.message == "TargetError.Unsupported"
@@ -24,14 +24,14 @@ test test_supported_target_records_and_default {
   assert arm.docker_platform == "linux/arm64"
   assert arm.elf_machine == "AArch64"
   assert darwin.executable_format == "Mach-O"
-  assert ("target-cpu=apple-m1" in darwin.cpu_rustflags)
+  assert "target-cpu=apple-m1" in darwin.cpu_rustflags
 }
 
 test test_host_classification {
-  assert (target_policy.host_os("Linux")?) == "linux"
-  assert (target_policy.host_os("Darwin")?) == "darwin"
-  assert (target_policy.host_arch("amd64")?) == "x86_64"
-  assert (target_policy.host_arch("arm64")?) == "aarch64"
+  assert target_policy.host_os("Linux")? == "linux"
+  assert target_policy.host_os("Darwin")? == "darwin"
+  assert target_policy.host_arch("amd64")? == "x86_64"
+  assert target_policy.host_arch("arm64")? == "aarch64"
   match target_policy.host_arch("mips64") {
     Ok(_) => test.fail("unsupported host architecture resolved")?
     Err(error) => assert error.message == "TargetError.Unsupported"
@@ -87,22 +87,22 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
     [],
   )
   assert argv[0] == "docker"
-  assert ("--init" in argv)
-  assert ("--privileged" in argv)
-  assert ("/repo:/work" in argv)
-  assert ("/repo/target:/work/target" in argv)
-  assert ("TARGET=aarch64-unknown-linux-musl" in argv)
-  assert ("DIST_PROFILE=dev" in argv)
-  assert ("XSH_OS_STRESS_REPEAT=25" in argv)
-  assert ("dev/main.xsh" in argv)
-  assert ("sh" not in argv)
-  assert ("-c" not in argv)
+  assert "--init" in argv
+  assert "--privileged" in argv
+  assert "/repo:/work" in argv
+  assert "/repo/target:/work/target" in argv
+  assert "TARGET=aarch64-unknown-linux-musl" in argv
+  assert "DIST_PROFILE=dev" in argv
+  assert "XSH_OS_STRESS_REPEAT=25" in argv
+  assert "dev/main.xsh" in argv
+  assert "sh" not in argv
+  assert "-c" not in argv
 }
 
 test test_release_names_and_core_paths_are_deterministic {
-  assert (target_policy.release_suffix("x86_64-unknown-linux-musl")?) == "x86_64-linux-musl"
-  assert (target_policy.release_suffix("aarch64-unknown-linux-musl")?) == "aarch64-linux-musl"
-  assert (target_policy.release_suffix("aarch64-apple-darwin")?) == "aarch64-apple-darwin"
+  assert target_policy.release_suffix("x86_64-unknown-linux-musl")? == "x86_64-linux-musl"
+  assert target_policy.release_suffix("aarch64-unknown-linux-musl")? == "aarch64-linux-musl"
+  assert target_policy.release_suffix("aarch64-apple-darwin")? == "aarch64-apple-darwin"
   assert releases.core_install_path(p"bin/hello.xsh").display() == "core/bin/hello"
   assert releases.core_install_path(p"top.xsh").display() == "core/top"
   assert releases.core_install_path(p"system-report.xsh").display() == "core/system-report"
@@ -128,19 +128,19 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   let entries = archive.tar_list(archive_path)?.collect()
   let members = entries |> map .path.display()
   assert members.len() == 2
-  assert ("core/bin/report.xsh-helper" in members)
-  assert ("core/lib/report.xsh-helper.xsh" in members)
+  assert "core/bin/report.xsh-helper" in members
+  assert "core/lib/report.xsh-helper.xsh" in members
   assert (entries |> where .path.display() == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
   assert (entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
   let extracted = fp"${root}/extracted"
   archive.tar_extract(archive_path, extracted)?
-  assert (fp"${extracted}/core/bin/report.xsh-helper".read_text()?) == """print "command"
+  assert fp"${extracted}/core/bin/report.xsh-helper".read_text()? == """print "command"
 """
-  assert (fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()?) == """print "library"
+  assert fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()? == """print "library"
 """
   assert ! fp"${extracted}/core/tests/ignored".exists()?
   assert """  dist/core-fixture.tar.xz
-""" in (fp"${root}/dist/core-fixture.sha256".read_text()?)
+""" in fp"${root}/dist/core-fixture.sha256".read_text()?
 }
 
 test test_core_archive_rejects_conflicting_artifact_before_writing { |ctx|
@@ -157,7 +157,7 @@ test test_core_archive_rejects_conflicting_artifact_before_writing { |ctx|
     Err(error) => assert "StageError.Failed" in error.message
   }
 
-  assert (stale.read_text()?) == "existing artifact"
+  assert stale.read_text()? == "existing artifact"
   assert ! fp"${root}/dist/core-fixture.tar.xz".exists()?
   assert ! fp"${root}/dist/core-fixture.sha256".exists()?
 }
@@ -185,8 +185,8 @@ test test_core_archive_contains_current_system_report { |ctx|
   assert installed[0].mode.bit_and(0o777) == 0o755
   let extracted = fp"${artifact_dir}/extracted"
   archive.tar_extract(archive_path, extracted)?
-  assert (fp"${extracted}/core/system-report".read_bytes()?) == (fp"${repository}/core/system-report.xsh".read_bytes()?)
-  assert (fp"${extracted}/core/lib/system_report.xsh".exists()?)
+  assert fp"${extracted}/core/system-report".read_bytes()? == fp"${repository}/core/system-report.xsh".read_bytes()?
+  assert fp"${extracted}/core/lib/system_report.xsh".exists()?
 }
 
 test test_release_checksum_sidecars_keep_a_relative_artifact_name { |ctx|
@@ -226,7 +226,7 @@ test test_release_validation_requires_exactly_the_nine_expected_products { |ctx|
 
   match releases.validate_artifacts(release_ctx, tag) {
     Ok(_) => test.fail("unexpected artifact passed validation")?
-    Err(error) => { assert "StageError.Failed" in error.message, error.message }
+    Err(error) => assert "StageError.Failed" in error.message, error.message
   }
 }
 
@@ -366,7 +366,7 @@ test test_dev_main_target_override_reaches_context { |ctx|
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  assert "system-report coverage manifest" in (output.read_text()?)
+  assert "system-report coverage manifest" in output.read_text()?
 }
 
 test test_rustybench_override_stays_a_direct_argv_prefix { |ctx|

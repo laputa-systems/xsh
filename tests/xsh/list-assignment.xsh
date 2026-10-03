@@ -78,22 +78,29 @@ test test_list_assignment_preserves_contextual_element_schema {
 
 test test_list_assignment_rejects_indexing_bounds_after_rhs { |ctx|
   for index in [-1, 2, 9223372036854775807] {
-    let output = test.run_script(ctx, f"""
+    let output = test.run_script(
+      ctx,
+      f"""
 var values = [1, 2]
 defer { print (json.encode(values)?) }
 values[${index}] = if true {
   print "rhs"
   9
 } else { 0 }
-""")?
+""",
+    )?
     assert ! output.success
     assert "index-out-of-range" in output.stderr
-    assert output.stdout == "rhs\n[1,2]\n"
+    assert output.stdout == """rhs
+[1,2]
+"""
   }
 }
 
 test test_list_assignment_failed_arithmetic_keeps_ancestors { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 var rows = [{count: 7, untouched: [3]}]
 let alias = rows
 defer { print (json.encode(rows)?) (json.encode(alias)?) }
@@ -102,21 +109,37 @@ rows[0].count /= if true {
   print "rhs"
   0
 } else { 1 }
-""")?
+""",
+  )?
   assert ! output.success
   assert "division" in output.stderr
-  assert output.stdout == "rhs\n[{\"count\":7,\"untouched\":[9]}] [{\"count\":7,\"untouched\":[3]}]\n"
+  assert output.stdout == """rhs
+[{"count":7,"untouched":[9]}] [{"count":7,"untouched":[3]}]
+"""
 }
 
 test test_list_assignment_rejects_immutable_temporary_and_non_list_roots { |ctx|
   for source in [
-    "let values = [1]\nvalues[0] = 2\n",
-    "var values = [1]\nvalues[\"first\"] = 2\n",
-    "var values = [1]\nvalues[0] = \"two\"\n",
-    "var text = \"abc\"\ntext[0] = \"z\"\n",
-    "var data = b\"abc\"\ndata[0] = 0\n",
-    "[1, 2][0] = 3\n",
-    "var values = [1]\nvalues[0..1] = [2]\n",
+    """let values = [1]
+values[0] = 2
+""",
+    """var values = [1]
+values["first"] = 2
+""",
+    """var values = [1]
+values[0] = "two"
+""",
+    """var text = "abc"
+text[0] = "z"
+""",
+    """var data = b"abc"
+data[0] = 0
+""",
+    """[1, 2][0] = 3
+""",
+    """var values = [1]
+values[0..1] = [2]
+""",
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success
@@ -125,7 +148,9 @@ test test_list_assignment_rejects_immutable_temporary_and_non_list_roots { |ctx|
 }
 
 test test_existing_lvalue_failure_retains_rhs_root_effects { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 var row = {count: 7, untouched: 3}
 defer { print $row.count $row.untouched }
 row.count /= if true {
@@ -133,10 +158,13 @@ row.count /= if true {
   print "rhs"
   0
 } else { 1 }
-""")?
+""",
+  )?
   assert ! output.success
   assert "division" in output.stderr
-  assert output.stdout == "rhs\n8 9\n"
+  assert output.stdout == """rhs
+8 9
+"""
 }
 
 test test_list_assignment_evaluates_each_selector_and_rhs_once {
@@ -162,7 +190,9 @@ test test_list_assignment_evaluates_each_selector_and_rhs_once {
 }
 
 test test_list_assignment_propagates_original_result_before_commit { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 error AssignmentError = Failed(code: Int)
 pure failed() -> Result[Int, AssignmentError] {
   return Err(AssignmentError.Failed(code: 7))
@@ -182,10 +212,13 @@ proc main() [io, error] {
     Err(AssignmentError.Failed {code}) => print $code
   }
 }
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "9\n7\n"
+  assert output.stdout == """9
+7
+"""
 }
 
 type ListAssignmentStats = {blanks: Int = 0, code: Int = 0, comments: Int = 0}

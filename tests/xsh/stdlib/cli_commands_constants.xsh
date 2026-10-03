@@ -1,5 +1,7 @@
 test cli_commands_constants_preserve_known_shape { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 const commands = {
   build: {positionals: ["root"], types: {root: "Path"}, rest: "raw", options: {jobs: {kind: "Int", default: 4}, verbose: "Bool", tag: "List[Str]", label: {kind: "Str", required: false}}},
   clean: {positionals: ["root"], types: {root: "Path"}, rest: "raw", options: {jobs: {kind: "Int", default: 4}, verbose: "Bool", tag: "List[Str]", label: {kind: "Str", required: false}}},
@@ -13,29 +15,37 @@ let tags: List[Str] = parsed.tag
 let label: Str? = parsed.label
 print root.display() ${raw[0]} $jobs $flag ${tags[0]}
 print (label == null)
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("workspace extra 6 false one\ntrue\n")
+  assert output.stdout == """workspace extra 6 false one
+true
+"""
 }
 
 test cli_commands_constants_reject_unreachable_invalid_descriptor { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 const commands = {build: {positionals: ["root"], types: {root: "NotAType"}}}
 if false { let _ = cli.commands(["build", "workspace"], commands) }
-""")?
+""",
+  )?
   {
-    let assertion_condition = !output.success
+    let assertion_condition = ! output.success
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  assert ("check.cli-descriptor" in output.stderr)
+  assert "check.cli-descriptor" in output.stderr
 }
 
 test cli_commands_constants_preserve_fallback_and_rootless_selection { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 const commands = {build: {aliases: ["compile"], positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
 const fallback = {positionals: ["action", "root"], types: {root: "Path"}, rest: "raw", command_like: true}
 let fallback_args = cli.commands(["deploy", "target/demo", "extra"], "build", commands, fallback)?
@@ -49,12 +59,16 @@ print $command
 let rootless = cli.commands(["target/demo"], "build", commands, fallback)?
 let root: Path = rootless.root
 print root.name()
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("deploy demo extra\nbuild\ndemo\n")
+  assert output.stdout == """deploy demo extra
+build
+demo
+"""
 }
 
 test cli_commands_constants_import_projection_and_named_spread { |ctx|
@@ -63,7 +77,9 @@ test cli_commands_constants_import_projection_and_named_spread { |ctx|
 ## Prepared command records.
 export const descriptor = {commands: {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}}
 """)?
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 use config as c
 const commands = {...c.descriptor.commands, clean: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
 const invocation = {argv: ["clean", "workspace", "extra"], commands: commands}
@@ -71,16 +87,22 @@ let parsed = cli.commands(...invocation)?
 let root: Path = parsed.root
 let rest: List[Str] = parsed.raw
 print root.display() ${rest[0]}
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("workspace extra\n")
+  assert output.stdout == """workspace extra
+"""
 }
 
 test cli_commands_constants_keep_dynamic_validation_and_command_fields { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc descriptor() [] -> Record { {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}} }
 type ParsedCommand = {command: Str, action: Str, root: Path, raw: List[Str]}
 let parsed = cli.commands(["build", "workspace"], descriptor())?.require(ParsedCommand)?
@@ -91,16 +113,23 @@ print (clean.get("count")?.require(Int)?)
 proc fallback() [] -> Record { print "fallback once"; {positionals: ["action", "root"], types: {root: "Path"}, rest: "raw"} }
 let dynamic_fallback = cli.commands(["deploy", "workspace"], "build", commands, fallback())?.require(ParsedCommand)?
 print dynamic_fallback.root.display()
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("workspace\n3\nfallback once\nworkspace\n")
+  assert output.stdout == """workspace
+3
+fallback once
+workspace
+"""
 }
 
 test cli_dynamic_full_descriptor_preserves_outcome_envelope { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc descriptor() [] -> Record { {count: {kind: "Int", default: 2, deprecated: "use jobs"}} }
 type ParsedValues = {count: Int}
 let full = cli.parse_full(["--count", "4"], descriptor())?
@@ -108,16 +137,20 @@ let values = full.values.require(ParsedValues)?
 let warnings: List[Str] = full.warnings
 let source = full.sources.get("count")?.require(Str)?
 print ${values.count} $source warnings.len()
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("4 argv 1\n")
+  assert output.stdout == """4 argv 1
+"""
 }
 
 test cli_prepared_descriptors_check_annotated_result_after_refinement { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 type ParsedValues = {count: Int}
 type CommandValues = {command: Str, action: Str, root: Path, raw: List[Str]}
 const schema = {count: {kind: "Int", default: 2}}
@@ -126,17 +159,22 @@ let parsed: ParsedValues = cli.parse([], schema)?
 let applet_values: ParsedValues = cli.applet([], schema)?
 let command: CommandValues = cli.commands(["build", "workspace"], commands)?
 print ${parsed.count} ${applet_values.count} command.root.display()
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("2 2 workspace\n")
-  let mismatch = test.run_script(ctx, r"""
+  assert output.stdout == """2 2 workspace
+"""
+  let mismatch = test.run_script(
+    ctx,
+    r"""
 type IncorrectValues = {count: Str}
 const schema = {count: {kind: "Int", default: 2}}
 let parsed: IncorrectValues = cli.parse([], schema)?
-""")?
-  assert (!mismatch.success)
-  assert ("check.type-mismatch" in mismatch.stderr)
+""",
+  )?
+  assert ! mismatch.success
+  assert "check.type-mismatch" in mismatch.stderr
 }

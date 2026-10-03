@@ -12,12 +12,20 @@ pure missing_info() -> MimeInfo {
 
 # The `type` field of a successful parse, or `rejected` when it was refused.
 pure parsed_type(result: Result[MimeParse]) -> Str {
-  if let Ok(parsed) = result { parsed.type } else { "rejected" }
+  if let Ok(parsed) = result {
+    parsed.type
+  } else {
+    "rejected"
+  }
 }
 
 # A parse's parameter map, empty when the parse was refused.
 pure parsed_params(result: Result[MimeParse]) -> Map[Str] {
-  if let Ok(parsed) = result { parsed.params } else { {} }
+  if let Ok(parsed) = result {
+    parsed.params
+  } else {
+    {}
+  }
 }
 
 test test_mime_lookup_and_parse {
@@ -25,12 +33,12 @@ test test_mime_lookup_and_parse {
   assert info.mime == "application/tar+gzip"
   assert info.exts[0] == "tar.gz"
 
-  assert (mime.lookup_path(p"archive.tar.gz")?.mime) == ("application/tar+gzip")
-  assert (mime.lookup_ext("definitelymissingxsh")) == (null)
-  assert (mime.lookup_path(p"no-extension")) == (null)
+  assert mime.lookup_path(p"archive.tar.gz")?.mime == "application/tar+gzip"
+  assert mime.lookup_ext("definitelymissingxsh") == null
+  assert mime.lookup_path(p"no-extension") == null
   let parsed = mime.parse("Text/Plain; Charset=UTF-8")?
-  assert (parsed.type) == ("text/plain")
-  assert ((parsed.params.get("charset") ?? "")) == ("UTF-8")
+  assert parsed.type == "text/plain"
+  assert (parsed.params.get("charset") ?? "") == "UTF-8"
   test.error_kind(mime.parse("not a media type"), "mime-parse")?
 }
 
@@ -99,14 +107,14 @@ test test_mime_lookup_path_uses_only_the_final_component {
   assert (mime.lookup_path(p"dir.d/file.txt") ?? missing_info()).mime == "text/plain"
 
   # A path with no extension at all, and one whose extension no row carries.
-  assert (mime.lookup_path(p"noext")) == (null)
-  assert (mime.lookup_path(p"a/b/README")) == (null)
-  assert (mime.lookup_path(p"dir/")) == (null)
+  assert mime.lookup_path(p"noext") == null
+  assert mime.lookup_path(p"a/b/README") == null
+  assert mime.lookup_path(p"dir/") == null
 
   # A dot that ends the name, and a leading dot, offer no usable suffix.
-  assert (mime.lookup_path(p"file.")) == (null)
-  assert (mime.lookup_path(p".hidden")) == (null)
-  assert (mime.lookup_path(p"..")) == (null)
+  assert mime.lookup_path(p"file.") == null
+  assert mime.lookup_path(p".hidden") == null
+  assert mime.lookup_path(p"..") == null
 }
 
 test test_mime_parse_lowercases_the_type_and_parameter_names {
@@ -116,9 +124,9 @@ test test_mime_parse_lowercases_the_type_and_parameter_names {
 
   # Parameter names are ASCII-lowercased; parameter values keep their case.
   let parsed = parsed_params(mime.parse("text/plain; Charset=UTF-8; NAME=\"A B\""))
-  assert ((parsed.get("charset") ?? "absent")) == ("UTF-8")
-  assert ((parsed.get("name") ?? "absent")) == ("A B")
-  assert ((parsed.get("NAME") ?? "absent")) == ("absent")
+  assert (parsed.get("charset") ?? "absent") == "UTF-8"
+  assert (parsed.get("name") ?? "absent") == "A B"
+  assert (parsed.get("NAME") ?? "absent") == "absent"
 }
 
 test test_mime_parse_splits_on_semicolons_before_interpreting_quotes {
@@ -129,38 +137,38 @@ test test_mime_parse_splits_on_semicolons_before_interpreting_quotes {
 
   # The other consequence of splitting first: a value is quoted only when its
   # own part starts with a quote.
-  assert ((parsed_params(mime.parse("text/plain; a=1; b=2")).get("b") ?? "absent")) == ("2")
-  assert ((parsed_params(mime.parse("text/plain; a=\"q\"")).get("a") ?? "absent")) == ("q")
+  assert (parsed_params(mime.parse("text/plain; a=1; b=2")).get("b") ?? "absent") == "2"
+  assert (parsed_params(mime.parse("text/plain; a=\"q\"")).get("a") ?? "absent") == "q"
 
   # Empty parts between semicolons are skipped, and semicolons alone are not
   # parameters.
-  assert (parsed_type(mime.parse("text/plain;"))) == ("text/plain")
-  assert (parsed_type(mime.parse("text/plain;;"))) == ("text/plain")
-  assert ((parsed_params(mime.parse("text/plain;;")).get("a") ?? "absent")) == ("absent")
+  assert parsed_type(mime.parse("text/plain;")) == "text/plain"
+  assert parsed_type(mime.parse("text/plain;;")) == "text/plain"
+  assert (parsed_params(mime.parse("text/plain;;")).get("a") ?? "absent") == "absent"
 }
 
 test test_mime_parse_keeps_the_last_repeated_parameter {
   # A repeated name replaces the earlier value, and the names collide only
   # after ASCII case folding.
-  assert ((parsed_params(mime.parse("text/plain; a=1; a=2")).get("a") ?? "absent")) == ("2")
-  assert ((parsed_params(mime.parse("text/plain; a=1; A=2")).get("a") ?? "absent")) == ("2")
-  assert ((parsed_params(mime.parse("text/plain; a=1; b=2; a=3")).get("b") ?? "absent")) == ("2")
+  assert (parsed_params(mime.parse("text/plain; a=1; a=2")).get("a") ?? "absent") == "2"
+  assert (parsed_params(mime.parse("text/plain; a=1; A=2")).get("a") ?? "absent") == "2"
+  assert (parsed_params(mime.parse("text/plain; a=1; b=2; a=3")).get("b") ?? "absent") == "2"
 }
 
 test test_mime_parse_reads_quoted_parameter_values {
   # The outer quotes are removed; a backslash keeps the next character
   # literally, so an escaped quote or backslash survives as data.
-  assert ((parsed_params(mime.parse("text/plain; name=\"a b\"")).get("name") ?? "absent")) == ("a b")
-  assert ((parsed_params(mime.parse("text/plain; name=\"a\\\"b\"")).get("name") ?? "absent")) == ("a\"b")
-  assert ((parsed_params(mime.parse("text/plain; name=\"a\\\\b\"")).get("name") ?? "absent")) == ("a\\b")
+  assert (parsed_params(mime.parse("text/plain; name=\"a b\"")).get("name") ?? "absent") == "a b"
+  assert (parsed_params(mime.parse("text/plain; name=\"a\\\"b\"")).get("name") ?? "absent") == "a\"b"
+  assert (parsed_params(mime.parse("text/plain; name=\"a\\\\b\"")).get("name") ?? "absent") == "a\\b"
 
   # An empty quoted value is a value; the parameter is not dropped.
-  assert ((parsed_params(mime.parse("text/plain; name=\"\"")).get("name") ?? "absent")) == ("")
+  assert (parsed_params(mime.parse("text/plain; name=\"\"")).get("name") ?? "absent") == ""
 
   # Whitespace around the name and the value is trimmed before either is
   # interpreted, so a quoted value need not start at the `=`.
-  assert ((parsed_params(mime.parse("text/plain ;  charset = UTF-8 ")).get("charset") ?? "absent")) == ("UTF-8")
-  assert ((parsed_params(mime.parse("text/plain; name= \"a b\"")).get("name") ?? "absent")) == ("a b")
+  assert (parsed_params(mime.parse("text/plain ;  charset = UTF-8 ")).get("charset") ?? "absent") == "UTF-8"
+  assert (parsed_params(mime.parse("text/plain; name= \"a b\"")).get("name") ?? "absent") == "a b"
 }
 
 test test_mime_parse_rejects_invalid_media_types {

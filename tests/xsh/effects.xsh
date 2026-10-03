@@ -124,7 +124,11 @@ test test_linter_infers_fs_error { |ctx|
 }
 
 test test_linter_infers_net { |ctx|
-  let src = test.temp_file(ctx, name: "t.xsh", contents: b"export proc fetch() {\n  let _ = dns.lookup(\"x.test\")\n}\n")?
+  let src = test.temp_file(
+    ctx,
+    name: "t.xsh",
+    contents: b"export proc fetch() {\n  let _ = dns.lookup(\"x.test\")\n}\n",
+  )?
   let out = run_lint(src)?
   assert "lint.unannotated-effects" in out
   assert "[net]" in out

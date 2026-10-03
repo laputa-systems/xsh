@@ -92,7 +92,7 @@ pure add_unique(items: List[Str], item: Str) -> List[Str] {
 pure glob_match(pattern: Str, text: Str) -> Bool {
   return true when pattern == "*"
 
-  return pattern == text unless ("*" in pattern)
+  return pattern == text unless "*" in pattern
 
   let parts = pattern.split("*")
 
@@ -114,7 +114,7 @@ pure append_current(config: Config, current: Interface) -> Config {
 proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config] {
   let path_value = fp"${source}"
 
-  return parse_interfaces_file(path_value, config)? unless ("*" in source)
+  return parse_interfaces_file(path_value, config)? unless "*" in source
 
   let dir = path_value.parent()
   let pattern = path_value.name()
@@ -339,10 +339,18 @@ pure hex_nibble(code: Int) -> Int {
 }
 
 pure parse_mac(mac: Str) -> List[Int] {
-  [hex_nibble((part.byte_at(0) ?? -1)) * 16 + hex_nibble((part.byte_at(1) ?? -1)) for part in mac.split(":") if part != ""]
+  [hex_nibble(part.byte_at(0) ?? -1) * 16 + hex_nibble(part.byte_at(1) ?? -1) for part in mac.split(":") if part != ""]
 }
 
-type DhcpLease = {valid: Bool, message_type: Int, yiaddr: List[Int], netmask: Str, gateway: Str, dns: List[Str], server_id: List[Int]}
+type DhcpLease = {
+  valid: Bool,
+  message_type: Int,
+  yiaddr: List[Int],
+  netmask: Str,
+  gateway: Str,
+  dns: List[Str],
+  server_id: List[Int],
+}
 
 pure empty_lease() -> DhcpLease {
   let yiaddr = []

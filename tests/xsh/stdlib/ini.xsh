@@ -6,11 +6,11 @@ message = hello
   world
 """)?
 
-  assert (config.global) == ("root")
-  assert (config.server.host) == ("example.test")
+  assert config.global == "root"
+  assert config.server.host == "example.test"
 
-  assert (config.server.message) == ("""hello
-world""")
+  assert config.server.message == """hello
+world"""
 
   let encoded = ini.encode({server: {message: config.server.message, host: config.server.host}, global: config.global})?
   assert "global = root" in encoded
@@ -19,12 +19,12 @@ world""")
   let config_path = test.temp_path(ctx, name: "app.ini")
   ini.write(config_path, {global: "root", server: {host: "example.test"}})?
   let read_back = ini.read(config_path)?
-  assert (read_back.server.host) == ("example.test")
+  assert read_back.server.host == "example.test"
   test.error_kind(ini.write(config_path, {global: "again"}, overwrite: false), "ini-write")?
 
   # Encoding fails before overwrite policy examines the existing destination.
   test.error_kind(ini.write(config_path, {global: 1}, overwrite: false), "ini-encode")?
-  assert (ini.read(config_path)?.global) == ("root")
+  assert ini.read(config_path)?.global == "root"
 }
 
 # The message of a rejected encode, or the empty string when the record encoded.
@@ -197,7 +197,7 @@ test test_ini_encode_rejects_non_string_values {
   # A map is not a section record.
   let empty_map: Map[Str] = {}
   test.error_kind(ini.encode({s: empty_map}), "ini-encode")?
-  assert (encode_message(ini.encode({s: empty_map}))) == ("INI records may contain only global string keys or section records")
+  assert encode_message(ini.encode({s: empty_map})) == "INI records may contain only global string keys or section records"
 
   # A section field must be a string.
   test.error_kind(ini.encode({s: {a: 1}}), "ini-encode")?
@@ -218,25 +218,25 @@ test test_ini_encode_writes_multiline_values {
   # Embedded newlines become two-space continuation lines, so the value reads
   # back as the same string.
   assert ini.encode({
-  a: """hello
+    a: """hello
 world""",
-})? == """a = hello
+  })? == """a = hello
   world
 """
   assert ini.encode({
-  s: {
-    message: """hello
+    s: {
+      message: """hello
 world""",
-  },
-})? == """[s]
+    },
+  })? == """[s]
 message = hello
   world
 """
   assert ini.encode({
-  a: """x
+    a: """x
 
 y""",
-})? == """a = x
+  })? == """a = x
   
   y
 """
@@ -244,12 +244,13 @@ y""",
   # A value that ends in a newline emits a continuation line holding only the
   # indent, and an empty value keeps the key line with an empty right side.
   assert ini.encode({
-  a: """x
+    a: """x
 """,
-})? == """a = x
+  })? == """a = x
   
 """
-  assert ini.encode({a: ""})? == "a = \n"
+  assert ini.encode({a: ""})? == """a = 
+"""
 
   # The last line ends with exactly one newline, and the result re-decodes to
   # the value it was built from.
@@ -267,7 +268,7 @@ world""",
   },
 })?,
   )?
-  assert (round_trip.global) == ("root")
-  assert (round_trip.server.message) == ("""hello
-world""")
+  assert round_trip.global == "root"
+  assert round_trip.server.message == """hello
+world"""
 }

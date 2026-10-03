@@ -3,5 +3,6 @@ let unit = f"""
   [service]
   name=$name
   """
-const expected = "[service]\nname=demo"
+const expected = """[service]
+name=demo"""
 print ${unit == expected}

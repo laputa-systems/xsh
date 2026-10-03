@@ -91,9 +91,17 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   let input_paths = if delete {
-    if values.len() == 2 { [values[1]] } else { [] }
+    if values.len() == 2 {
+      [values[1]]
+    } else {
+      []
+    }
   } else {
-    if values.len() == 3 { [values[2]] } else { [] }
+    if values.len() == 3 {
+      [values[2]]
+    } else {
+      []
+    }
   }
 
   let input = text_input.read_text(input_paths)?

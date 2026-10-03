@@ -75,7 +75,7 @@ pure variant_name(line: Str) -> Str {
 
   return "" when trimmed == "" or trimmed.starts_with("}") or trimmed.starts_with("//")
 
-  (trimmed.replace("{", " ").replace("(", " ").replace(",", " ").fields().get(0) ?? "")
+  trimmed.replace("{", " ").replace("(", " ").replace(",", " ").fields().get(0) ?? ""
 }
 
 pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
@@ -147,7 +147,7 @@ pure quoted_tokens(line: Str) -> List[Str] {
   var index = 1
 
   while index < parts.len() {
-    let token = (parts.get(index) ?? "")
+    let token = parts.get(index) ?? ""
 
     if token != "" {
       values += [token]
@@ -218,7 +218,7 @@ pure standard_record_names(source: Str) -> List[Str] {
     let line = raw.trim()
 
     if line.starts_with("(\"") and "\"," in line {
-      let name = (line.split("\"").get(1) ?? "")
+      let name = line.split("\"").get(1) ?? ""
 
       if name != "" and ! (name in names) {
         names += [name]
@@ -241,13 +241,13 @@ pure starts_proc(line: Str) -> Bool {
 
 pure pure_name(signature: Str) -> Str {
   let trimmed = signature.trim().replace("export pure ", "pure ")
-  let after_pure = (trimmed.split("pure ").get(1) ?? trimmed)
+  let after_pure = trimmed.split("pure ").get(1) ?? trimmed
   (after_pure.split("(").get(0) ?? after_pure).trim()
 }
 
 pure proc_name(signature: Str) -> Str {
   let trimmed = signature.trim().replace("export proc ", "proc ")
-  let after_proc = (trimmed.split("proc ").get(1) ?? trimmed)
+  let after_proc = trimmed.split("proc ").get(1) ?? trimmed
   (after_proc.split("(").get(0) ?? after_proc).trim()
 }
 
@@ -340,12 +340,12 @@ pure qualified_names(namespace: Str, names: List[Str]) -> List[Str] {
 pure module_namespace(path_text: Str) -> Str {
   return "" when ! path_text.ends_with(".xsh")
 
-  let without_ext = (path_text.split(".xsh").get(0) ?? path_text)
+  let without_ext = path_text.split(".xsh").get(0) ?? path_text
   let parts = without_ext.split("/")
 
   return "" when parts.len() < 2
 
-  (parts.get(parts.len() - 1) ?? "")
+  parts.get(parts.len() - 1) ?? ""
 }
 
 pure extend_unique(values: List[Str], extra: List[Str]) -> List[Str] {
@@ -370,7 +370,7 @@ pure error_variant_names(source: Str) -> List[Str] {
       let variants = (line.split("=").get(1) ?? "").split("|")
 
       for raw_variant in variants {
-        let name = (raw_variant.trim().replace("(", " ").fields().get(0) ?? "")
+        let name = raw_variant.trim().replace("(", " ").fields().get(0) ?? ""
 
         if name != "" and ! (name in names) {
           names += [name]
@@ -387,7 +387,7 @@ pure lowerable_named_type(raw: Str, record_types: List[Str]) -> Bool {
 
   return true when raw in record_types
 
-  let short = (raw.split(".").get(raw.split(".").len() - 1) ?? raw)
+  let short = raw.split(".").get(raw.split(".").len() - 1) ?? raw
   short in record_types
 }
 
@@ -399,7 +399,7 @@ pure lowerable_type(raw: Str, allow_result: Bool, record_types: List[Str]) -> Bo
   return true when ty.starts_with("List[") or ty.starts_with("Map[")
 
   if allow_result and ty.starts_with("Result[") {
-    let inner = ((ty.split("Result[").get(1) ?? "").split("]").get(0) ?? "")
+    let inner = (ty.split("Result[").get(1) ?? "").split("]").get(0) ?? ""
     return lowerable_type(inner, false, record_types)
   }
 
@@ -419,8 +419,8 @@ pure signature_reasons(signature: Str, record_types: List[Str]) -> List[Str] {
   var index = 0
 
   while index < tokens.len() {
-    let token = (tokens.get(index) ?? "")
-    let next = (tokens.get(index + 1) ?? "")
+    let token = tokens.get(index) ?? ""
+    let next = tokens.get(index + 1) ?? ""
 
     if token.ends_with(":") and next != "" and ! lowerable_type(next, false, record_types) {
       reasons = add_reason(reasons, f"type.param.${next}")
@@ -447,11 +447,11 @@ pure method_reasons(
   var index = 1
 
   while index < parts.len() {
-    let part = (parts.get(index) ?? "")
+    let part = parts.get(index) ?? ""
 
     if "(" in part {
       let method = (part.split("(").get(0) ?? "").trim()
-      let receiver = receiver_name((parts.get(index - 1) ?? ""))
+      let receiver = receiver_name(parts.get(index - 1) ?? "")
       let qualified = f"${receiver}.${method}"
 
       if ! known_module_receiver(receiver) and plausible_field_call_name(method) and ! (method in lowered_methods) and ! (method in error_variants) and ! (qualified in pure_functions) {
@@ -470,7 +470,7 @@ pure receiver_name(raw: Str) -> Str {
 
   return "" when fields.len() == 0
 
-  (fields.get(fields.len() - 1) ?? "")
+  fields.get(fields.len() - 1) ?? ""
 }
 
 pure known_module_receiver(name: Str) -> Bool {
@@ -901,7 +901,7 @@ pure add_reason_count(counts: Map[Int], reason: Str) -> Map[Int] {
 }
 
 pure reason_rows(counts: Map[Int]) -> List[ReasonCount] {
-  [{reason: reason, count: (counts.get(reason) ?? 0)} for reason in counts.keys() |> sort]
+  [{reason: reason, count: counts.get(reason) ?? 0} for reason in counts.keys() |> sort]
 }
 
 pure reason_group(reason: Str) -> Str {
@@ -1028,7 +1028,9 @@ pure script_shape(line: Str) -> Str {
 
   return "Use" when normalized.starts_with("use ")
 
-  return "" when normalized.starts_with("type ") or normalized.starts_with("error ") or normalized.starts_with("proc ") or normalized.starts_with("pure ")
+  return "" when normalized.starts_with("type ") or normalized.starts_with("error ") or normalized.starts_with("proc ") or normalized.starts_with(
+    "pure ",
+  )
 
   return "SignalHook" when normalized.starts_with("signal ") or normalized.starts_with("on ")
 
@@ -1058,7 +1060,9 @@ pure script_shape(line: Str) -> Str {
 
   return "Continue" when normalized.starts_with("continue")
 
-  return "Command" when normalized.starts_with("print ") or normalized.starts_with("eprint ") or normalized.starts_with("run ")
+  return "Command" when normalized.starts_with("print ") or normalized.starts_with("eprint ") or normalized.starts_with(
+    "run ",
+  )
 
   return "Assign" when " = " in normalized or " += " in normalized or " -= " in normalized or " *= " in normalized or " /= " in normalized or " %= " in normalized
 

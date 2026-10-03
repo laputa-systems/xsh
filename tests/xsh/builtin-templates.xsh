@@ -1,5 +1,7 @@
 test test_builtin_templates_keep_positional_defaults_errors_and_value_semantics { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc main() [error] {
   let words = ["one", "two"]
   print words.join()
@@ -18,13 +20,26 @@ proc main() [error] {
   print groups.get("group")?.join(":")
   print empty.len()
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "onetwo\none:two\n7\ntrue\ntrue\n0\n9\ntwo\none:two\n0\n"
+  assert output.stdout == """onetwo
+one:two
+7
+true
+true
+0
+9
+two
+one:two
+0
+"""
 }
 
 test test_builtin_templates_preserve_nested_values_across_call_spellings { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 error NestedError = Missing(code: Int)
 pure wrap(value: Int) -> Result[List[Int], NestedError] { return [value] }
 proc main() [error] {
@@ -45,13 +60,23 @@ proc main() [error] {
   print updated.values().len()
   print updated.keys().join(separator: ",")
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "7\n7\n7\n3\n9\n2\none,two\n"
+  assert output.stdout == """7
+7
+7
+3
+9
+2
+one,two
+"""
 }
 
 test test_builtin_templates_evaluate_named_arguments_in_source_order { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc key() [] -> Str { print "key"; return "two" }
 proc value() [] -> Int { print "value"; return 2 }
 proc receiver() [] -> Map[Int] { print "receiver"; return {one: 1} }
@@ -64,9 +89,16 @@ proc main() [] {
   let untouched = absent?.set(value: value(), key: key())
   print ${untouched == null}
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "receiver\nvalue\nkey\n2\nfalse\ntrue\n"
+  assert output.stdout == """receiver
+value
+key
+2
+false
+true
+"""
 }
 
 test test_builtin_templates_reject_incompatible_concrete_operands { |ctx|
@@ -82,13 +114,15 @@ test test_builtin_templates_reject_incompatible_concrete_operands { |ctx|
     r"""let values: Map[Int] = {one: 1}; let _ = values.push("one", 2)""",
   ] {
     let output = test.run_script(ctx, source)?
-    assert !output.success, source
+    assert ! output.success, source
     assert "check.type-mismatch" in output.stderr, output.stderr
   }
 }
 
 test test_builtin_templates_instantiate_empty_maps_from_independent_contexts { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc discard() [] -> Unit { let _ = map.empty(); map.empty() }
 proc main() [error] {
   discard()
@@ -102,13 +136,20 @@ proc main() [error] {
   print dynamic.len()
   let _ = map.empty()
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "0\n7\ntwo\n0\n"
+  assert output.stdout == """0
+7
+two
+0
+"""
 }
 
 test test_builtin_templates_keep_result_return_contracts_under_success_contexts { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 pure parsed_tail(value: Str) -> Result[Int] { value.parse_int() }
 pure parsed_return(value: Str) -> Result[Int] { return value.parse_int() }
 pure encoded_tail(value: Int) -> Result[Str] { json.encode(value) }
@@ -119,16 +160,23 @@ proc main() [error] {
   print encoded_tail(9)?
   print encoded_return(10)?
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "7\n8\n9\n10\n"
+  assert output.stdout == """7
+8
+9
+10
+"""
   let invalid = test.run_script(ctx, r"""let text: Str = json.encode(1)""")?
-  assert !invalid.success, invalid.stderr
+  assert ! invalid.success, invalid.stderr
   assert "check.type-mismatch" in invalid.stderr, invalid.stderr
 }
 
 test test_builtin_templates_match_materialized_line_and_collection_values { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 pure text_lines(value: Str) -> Int {
   let lines: List[Str] = value.lines()
   let retained: List[Str] = lines.collect()
@@ -148,9 +196,14 @@ proc main() [] {
   print stream_values()
   print "one\n".lines().len()
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "2\n1\n3\n1\n"
+  assert output.stdout == """2
+1
+3
+1
+"""
 }
 
 test test_builtin_templates_do_not_certify_dynamic_receiver_domains { |ctx|
@@ -160,31 +213,41 @@ test test_builtin_templates_do_not_certify_dynamic_receiver_domains { |ctx|
   ] {
     let candidate = test.temp_file(ctx, name: "dynamic-receiver.xsh", contents: bytes.from_text(source))?
     let output = run.capture --text "xsht" check $candidate ?
-    assert !output.status.exited_with(0), source
+    assert ! output.status.exited_with(0), source
     assert "check.dynamic-boundary" in output.stderr, output.stderr
   }
 }
 
 test test_builtin_templates_carry_typed_map_key_and_value_parameters { |ctx|
-  let declaration = "let table: Map[Int, Str] = {[1]: \"one\"}\n"
-  let accepted = test.run_script(ctx, declaration + r"""let keys: List[Int] = table.keys()
+  let declaration = """let table: Map[Int, Str] = {[1]: "one"}
+"""
+  let accepted = test.run_script(
+    ctx,
+    declaration + r"""let keys: List[Int] = table.keys()
 let values: List[Str] = table.values()
 let found: Result[Str] = table.get(1)
 let updated: Map[Int, Str] = table.set(2, "two")
 let removed: Map[Int, Str] = updated.remove(1)
 print ${keys[0]} ${values[0]} ${found?} ${updated.len()} ${removed.keys()[0]}
-""")?
+""",
+  )?
   assert accepted.success, accepted.stderr
-  assert accepted.stdout == "1 one one 2 2\n"
+  assert accepted.stdout == """1 one one 2 2
+"""
   for source in [
-    "let wrong: List[Str] = table.keys()\n",
-    "let wrong: List[Int] = table.values()\n",
-    "for {key, value} in table { let wrong: Str = key }\n",
-    "let _ = table.remove(\"one\")\n",
-    "let _ = \"one\" in table\n",
+    """let wrong: List[Str] = table.keys()
+""",
+    """let wrong: List[Int] = table.values()
+""",
+    """for {key, value} in table { let wrong: Str = key }
+""",
+    """let _ = table.remove("one")
+""",
+    """let _ = "one" in table
+""",
   ] {
     let rejected = test.run_script(ctx, declaration + source)?
-    assert !rejected.success, source
+    assert ! rejected.success, source
     assert "check.type-mismatch" in rejected.stderr, rejected.stderr
   }
 }

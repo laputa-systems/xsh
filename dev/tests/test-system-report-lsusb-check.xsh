@@ -24,21 +24,21 @@ Device Descriptor:
   assert exact.matched_devices == 2
   assert exact.matched_tree_rows == 2
   assert exact.matched_descriptor_fields == 4
-  assert (exact.mismatches.len() == 0 and exact.partial.len() == 0)
+  assert exact.mismatches.len() == 0 and exact.partial.len() == 0
   let wrong = lsusb_reference.compare_lsusb(
     candidate.replace("\"driver\":\"hub\"", "\"driver\":\"wrong\""),
     devices,
     tree,
     descriptor,
   )?
-  assert ("1:2.driver" in wrong.mismatches)
+  assert "1:2.driver" in wrong.mismatches
   let wrong_port = lsusb_reference.compare_lsusb(
     candidate.replace("\"port_path\":\"2\"", "\"port_path\":\"3\""),
     devices,
     tree,
     descriptor,
   )?
-  assert ("1:2.port" in wrong_port.mismatches)
+  assert "1:2.port" in wrong_port.mismatches
 }
 
 test test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows {
@@ -114,5 +114,5 @@ printf '{"source_mode":"live_linux","usb":{"devices":[{"bus_number":1,"device_nu
   assert result.comparison.matched_devices == 1
   assert result.comparison.matched_tree_rows == 1
   assert result.comparison.matched_descriptor_fields == 4
-  assert (result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0)
+  assert result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0
 }

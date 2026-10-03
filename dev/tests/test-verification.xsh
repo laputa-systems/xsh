@@ -34,7 +34,7 @@ test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("missing product passed verification")?
-    Err(error) => { assert "StageError.Failed" in error.message, error.message }
+    Err(error) => assert "StageError.Failed" in error.message, error.message
   }
 
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
@@ -47,7 +47,7 @@ test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("non-ELF product passed verification")?
-    Err(error) => { assert "StageError.Failed" in error.message, error.message }
+    Err(error) => assert "StageError.Failed" in error.message, error.message
   }
 }
 

@@ -1,9 +1,10 @@
 test test_fold_and_reduce_reject_callback_result_lifting { |ctx|
   for stage in ["fold", "reduce"] {
-    let source = "let total = [1, 2] |> " + stage + "(0) { |acc, item| Ok(acc + item) }\n"
+    let source = "let total = [1, 2] |> " + stage + """(0) { |acc, item| Ok(acc + item) }
+"""
     let output = test.run_script(ctx, source)?
     {
-      let assertion_condition = !output.success
+      let assertion_condition = ! output.success
       let assertion_message = stage
       assert assertion_condition, assertion_message
     }
@@ -17,13 +18,16 @@ test test_fold_and_reduce_reject_callback_result_lifting { |ctx|
 
 test test_fold_and_reduce_allow_explicit_callback_propagation { |ctx|
   for stage in ["fold", "reduce"] {
-    let source = "let total = [1, 2] |> " + stage + "(0) { |acc, item| Ok(acc + item)? }\nprint $total\n"
+    let source = "let total = [1, 2] |> " + stage + """(0) { |acc, item| Ok(acc + item)? }
+print $total
+"""
     let output = test.run_script(ctx, source)?
     {
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    assert (output.stdout) == ("3\n")
+    assert output.stdout == """3
+"""
   }
 }
 
@@ -47,12 +51,15 @@ match outcome {
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    assert (output.stdout) == ("retained\n")
+    assert output.stdout == """retained
+"""
   }
 }
 
 test test_fold_explicit_callback_error_closes_scopes_before_next_pull { |ctx|
-  let output = test.run_script(ctx, r"""error CombineError = Stop(item: Int)
+  let output = test.run_script(
+    ctx,
+    r"""error CombineError = Stop(item: Int)
 pure combine(acc: Int, item: Int) -> Result[Int, CombineError] {
   if item == 2 { Err(CombineError.Stop(item)) } else { acc + item }
 }
@@ -73,21 +80,31 @@ match outcome {
   Err(CombineError.Stop {item: 2}) => print "caught"
   _ => print "unexpected"
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("pull 1\ncallback closed 1\npull 2\ncallback closed 2\nsource closed\ncaught\n")
+  assert output.stdout == """pull 1
+callback closed 1
+pull 2
+callback closed 2
+source closed
+caught
+"""
 }
 
 test test_reduce_by_requires_explicit_record_callback_propagation { |ctx|
-  let rejected = test.run_script(ctx, r"""let totals = [1, 2] |> reduce-by(sum: true) { |item|
+  let rejected = test.run_script(
+    ctx,
+    r"""let totals = [1, 2] |> reduce-by(sum: true) { |item|
   Ok({key: "total", value: item})
 }
-""")?
+""",
+  )?
   {
-    let assertion_condition = !rejected.success
+    let assertion_condition = ! rejected.success
     let assertion_message = rejected.stderr
     assert assertion_condition, assertion_message
   }
@@ -96,14 +113,18 @@ test test_reduce_by_requires_explicit_record_callback_propagation { |ctx|
     let assertion_message = rejected.stderr
     assert assertion_condition, assertion_message
   }
-  let accepted = test.run_script(ctx, r"""let totals = [1, 2] |> reduce-by(sum: true) { |item|
+  let accepted = test.run_script(
+    ctx,
+    r"""let totals = [1, 2] |> reduce-by(sum: true) { |item|
   Ok({key: "total", value: item})?
 }
 print ${totals.get("total")?}
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = accepted
     assert assertion_condition, assertion_message
   }
-  assert (accepted.stdout) == ("3\n")
+  assert accepted.stdout == """3
+"""
 }

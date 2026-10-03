@@ -147,6 +147,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[C
 
     for api_id in raw_hits.keys() {
       let raw = raw_hits.get(api_id)?.require(Record)?
+
       # Missing counters retain zero before their values are checked together.
       let hits = {
         tests: raw.get("tests") ?? 0,
@@ -172,7 +173,10 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[C
     for group_name in totals.keys() |> sort
   ]
 
-  let uncovered = sorted_standard |> where { |api| api not in api_hits }
+  let uncovered = sorted_standard
+    |> where { |api|
+      api not in api_hits
+    }
   var covered_rows: List[CoveredApiRow] = []
 
   for api_id in api_hits.keys() |> sort {

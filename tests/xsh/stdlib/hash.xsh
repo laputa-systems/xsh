@@ -12,8 +12,8 @@ test test_hash_digests_checksums_and_digest_methods { |ctx|
   assert hash.crc32(b"123456789") == 3421780262
   assert hash.crc32c(b"123456789") == 3808858755
   let check = hash.parse_check_line(f"${digest.hex()}  ${data_path.name()}")?
-  assert (check.hex) == (digest.hex())
-  assert (check.path) == (data_path.name())
+  assert check.hex == digest.hex()
+  assert check.path == data_path.name()
   hash.verify_file(data_path, sha256: digest.hex())?
   test.error_kind(hash.verify_file(data_path, sha256: "00"), "checksum-format")?
 
@@ -67,8 +67,8 @@ test test_hash_verify_file_policy { |ctx|
   # A checksum of the right byte length that is not hexadecimal reports the
   # hexadecimal rejection, not a length one.
   assert verify_message(
-      hash.verify_file(data_path, sha256: "zz00000000000000000000000000000000000000000000000000000000000000"),
-    ) == "checksum must be hexadecimal"
+    hash.verify_file(data_path, sha256: "zz00000000000000000000000000000000000000000000000000000000000000"),
+  ) == "checksum must be hexadecimal"
 
   # A well-formed checksum of something else reports both spellings, with the
   # expected one as the caller wrote it.
@@ -80,7 +80,9 @@ test test_hash_verify_file_policy { |ctx|
   assert verify_message(hash.verify_file(data_path, sha1: hash.sha1(data_path)?.hex())) == ""
   assert verify_message(hash.verify_file(data_path, sha512: hash.sha512(data_path)?.hex())) == ""
   let zeros32 = "00000000000000000000000000000000"
-  assert verify_message(hash.verify_file(data_path, md5: zeros32)) == f"md5 digest mismatch: expected ${zeros32}, got ${hash.md5(data_path)?.hex()}"
+  assert verify_message(hash.verify_file(data_path, md5: zeros32)) == f"md5 digest mismatch: expected ${zeros32}, got ${hash.md5(
+    data_path,
+  )?.hex()}"
 
   # The file is hashed before the checksum is validated, so a path that cannot
   # be read reports its read failure even when the checksum is malformed.
@@ -162,19 +164,19 @@ test test_parse_check_line_reads_both_gnu_separators {
   let digest = "900150983cd24fb0d6963f7d28e17f72"
 
   let two_space = hash.parse_check_line(f"${digest}  docs/readme.txt")?
-  assert (two_space.hex) == (digest)
-  assert (two_space.path) == ("docs/readme.txt")
-  assert (two_space.binary) == (false)
+  assert two_space.hex == digest
+  assert two_space.path == "docs/readme.txt"
+  assert two_space.binary == false
 
   let space_star = hash.parse_check_line(f"${digest} *readme.bin")?
-  assert (space_star.hex) == (digest)
-  assert (space_star.path) == ("readme.bin")
-  assert (space_star.binary) == (true)
+  assert space_star.hex == digest
+  assert space_star.path == "readme.bin"
+  assert space_star.binary == true
 
   # A path may contain spaces: everything after the separator is kept, and
   # only trailing carriage returns are trimmed.
   let spaced = hash.parse_check_line(f"${digest}  my file.txt ")?
-  assert (spaced.path) == ("my file.txt ")
+  assert spaced.path == "my file.txt "
 }
 
 test test_parse_check_line_handles_path_star_and_marker {
@@ -183,37 +185,37 @@ test test_parse_check_line_handles_path_star_and_marker {
   # The marker comes from the separator, so a star that begins a double-space
   # path is stripped as part of the path and does not set the marker.
   let starred = hash.parse_check_line(f"${digest}  *readme.bin")?
-  assert (starred.path) == ("readme.bin")
-  assert (starred.binary) == (false)
+  assert starred.path == "readme.bin"
+  assert starred.binary == false
 
   # Exactly one leading star is dropped; a second one stays in the path.
   let twice = hash.parse_check_line(f"${digest}  **readme.bin")?
-  assert (twice.path) == ("*readme.bin")
-  assert (twice.binary) == (false)
+  assert twice.path == "*readme.bin"
+  assert twice.binary == false
 }
 
 test test_parse_check_line_normalizes_case_and_carriage_returns {
   let upper = hash.parse_check_line("900150983CD24FB0D6963F7D28E17F72  readme.txt")?
-  assert (upper.hex) == ("900150983cd24fb0d6963f7d28e17f72")
-  assert (upper.path) == ("readme.txt")
+  assert upper.hex == "900150983cd24fb0d6963f7d28e17f72"
+  assert upper.path == "readme.txt"
 
   let crlf = hash.parse_check_line("900150983CD24FB0D6963F7D28E17F72 *readme.bin\r")?
-  assert (crlf.hex) == ("900150983cd24fb0d6963f7d28e17f72")
-  assert (crlf.path) == ("readme.bin")
-  assert (crlf.binary) == (true)
+  assert crlf.hex == "900150983cd24fb0d6963f7d28e17f72"
+  assert crlf.path == "readme.bin"
+  assert crlf.binary == true
 
   # Every trailing carriage return is trimmed, not just the last one.
   let doubled = hash.parse_check_line("900150983CD24FB0D6963F7D28E17F72  readme.txt\r\r")?
-  assert (doubled.hex) == ("900150983cd24fb0d6963f7d28e17f72")
-  assert (doubled.path) == ("readme.txt")
+  assert doubled.hex == "900150983cd24fb0d6963f7d28e17f72"
+  assert doubled.path == "readme.txt"
 }
 
 test test_parse_check_line_prefers_the_double_space_separator {
   # Digest length is a `hash.verify_file` policy: the line parser accepts any
   # non-empty hexadecimal field.
   let short = hash.parse_check_line("abc  readme.txt")?
-  assert (short.hex) == ("abc")
-  assert (short.path) == ("readme.txt")
+  assert short.hex == "abc"
+  assert short.path == "readme.txt"
 
   # The whole line is searched for the double-space separator first, so a
   # space-star pair that appears earlier does not win. The digest field then

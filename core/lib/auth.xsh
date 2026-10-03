@@ -312,7 +312,12 @@ export pure shadow_rest_with_defaults(rest: List[Str], last_change: Str) -> List
 }
 
 ## Public authentication helper for shipped core applets.
-export pure upsert_shadow(records: List[ShadowRecord], username: Str, password: Str, last_change: Str) -> List[ShadowRecord] {
+export pure upsert_shadow(
+  records: List[ShadowRecord],
+  username: Str,
+  password: Str,
+  last_change: Str,
+) -> List[ShadowRecord] {
   var out: List[ShadowRecord] = []
   var found = false
 

@@ -8,8 +8,16 @@ test test_json_diff { |ctx|
 }
 
 test test_json_diff_preserves_nested_and_null_values { |ctx|
-  let a = test.temp_file(ctx, name: "before.json", contents: b"{\"nested\":{\"items\":[null,true,1.5,\"old\"]},\"same\":null,\"removed\":null}")?
-  let b = test.temp_file(ctx, name: "after.json", contents: b"{\"nested\":{\"items\":[null,false,1.5,\"new\"]},\"same\":null,\"added\":[null,{\"value\":2}]}")?
+  let a = test.temp_file(
+    ctx,
+    name: "before.json",
+    contents: b"{\"nested\":{\"items\":[null,true,1.5,\"old\"]},\"same\":null,\"removed\":null}",
+  )?
+  let b = test.temp_file(
+    ctx,
+    name: "after.json",
+    contents: b"{\"nested\":{\"items\":[null,false,1.5,\"new\"]},\"same\":null,\"added\":[null,{\"value\":2}]}",
+  )?
   let output = run.text "xsh" "showcase/json-diff.xsh" -- $a $b ?
   assert "  - removed: null" in output
   assert "  + added: [null,{\"value\":2}]" in output
@@ -25,7 +33,7 @@ test test_json_diff_rejects_non_object_roots { |ctx|
     let left = run.capture --text "xsh" "showcase/json-diff.xsh" -- $invalid $object ?
     let right = run.capture --text "xsh" "showcase/json-diff.xsh" -- $object $invalid ?
     for captured in [left, right] {
-      let rejected = !captured.status.exited_with(0)
+      let rejected = ! captured.status.exited_with(0)
       let rejection_message = f"accepted root ${root}"
       assert rejected, rejection_message
       assert captured.stdout == ""

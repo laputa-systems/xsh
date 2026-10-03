@@ -3,6 +3,8 @@ proc choose() -> Path? {
   for destination in [p"release"] {
     selected = destination
   }
+
   selected
 }
+
 print ${choose()?.display() ?? ""}

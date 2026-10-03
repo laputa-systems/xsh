@@ -111,11 +111,19 @@ pure has_same_named_user_parent(row: Process, name: Str) -> Bool {
 pure connector(last: Bool, ascii: Bool) -> Str {
   return if last { "`-" } else { "|-" } when ascii
 
-  if last { "\u{2514}\u{2500}" } else { "\u{251c}\u{2500}" }
+  if last {
+    "\u{2514}\u{2500}"
+  } else {
+    "\u{251c}\u{2500}"
+  }
 }
 
 pure vertical(ascii: Bool) -> Str {
-  if ascii { "| " } else { "\u{2502} " }
+  if ascii {
+    "| "
+  } else {
+    "\u{2502} "
+  }
 }
 
 proc print_help() [error] {

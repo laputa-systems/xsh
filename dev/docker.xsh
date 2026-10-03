@@ -5,13 +5,21 @@ use stage as stages
 ## Computes the Docker image name from the supported environment override.
 export proc image_name() [env, error] -> Result[Str] {
   let image = env.get_or("XSH_TEST_IMAGE", "xsh-test")?.trim()
-  if image == "" { "xsh-test" } else { image }
+  if image == "" {
+    "xsh-test"
+  } else {
+    image
+  }
 }
 
 ## Computes the Docker platform while allowing the explicit environment override.
 export proc platform(ctx: context.Context) [env, error] -> Result[Str] {
   let override_value = env.get_or("DOCKER_PLATFORM", "")?.trim()
-  if override_value == "" { ctx.target.docker_platform } else { override_value }
+  if override_value == "" {
+    ctx.target.docker_platform
+  } else {
+    override_value
+  }
 }
 
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.

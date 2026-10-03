@@ -35,7 +35,11 @@ pure octal_mode(raw: Str) -> Result[Int] {
 }
 
 pure who_classes(who: Str) -> Str {
-  if who == "" or "a" in who { "ugo" } else { who }
+  if who == "" or "a" in who {
+    "ugo"
+  } else {
+    who
+  }
 }
 
 pure class_mask(who: Str) -> Int {

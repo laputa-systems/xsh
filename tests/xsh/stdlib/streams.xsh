@@ -5,8 +5,8 @@ beta
 
   assert lines == ["alpha", "beta"]
   let chunks = b"abcdef" |> bytes.chunks(2)
-  assert (chunks[0] == b"ab")
-  assert (chunks[2] == b"ef")
+  assert chunks[0] == b"ab"
+  assert chunks[2] == b"ef"
 
   let json_lines = """{"name":"alpha","size":2}
 {"name":"beta","size":1}
@@ -14,49 +14,49 @@ beta
   |> json.lines
   |> sort-by .size
 
-  assert (json_lines[0].name) == ("beta")
+  assert json_lines[0].name == "beta"
 
   let json_stream = """{"ok":true}
 {"ok":false}
 """ |> json.stream
 
-  assert (json_stream[1].ok) == (false)
+  assert json_stream[1].ok == false
 
-  assert [3, 1, 2, 2]
-      |> where . > 1
-      |> sort
-      |> unique-by .
-      |> map { |n|
-        n * 2
-      } == [4, 6]
+  assert ([3, 1, 2, 2]
+    |> where . > 1
+    |> sort
+    |> unique-by .
+    |> map { |n|
+      n * 2
+    }) == [4, 6]
 
-  assert [1, 2, 3, 4] |> take(2) == [1, 2]
-  assert [1, 2, 3, 4] |> drop(2) == [3, 4]
-  assert [1, 2] |> repeat(2) == [1, 2, 1, 2]
-  assert [0] |> range(1, 4) == [1, 2, 3]
-  assert [0] |> range(4, 1) == [4, 3, 2]
+  assert ([1, 2, 3, 4] |> take(2)) == [1, 2]
+  assert ([1, 2, 3, 4] |> drop(2)) == [3, 4]
+  assert ([1, 2] |> repeat(2)) == [1, 2, 1, 2]
+  assert ([0] |> range(1, 4)) == [1, 2, 3]
+  assert ([0] |> range(4, 1)) == [4, 3, 2]
 
-  assert ["ab", "c"]
-      |> flat-map { |word|
-        word.split("")
-      } == ["a", "b", "c"]
+  assert (["ab", "c"]
+    |> flat-map { |word|
+      word.split("")
+    }) == ["a", "b", "c"]
 
-  assert [1, 2, 3]
-      |> fold(0) { |acc|
-        acc + .
-      } == 6
+  assert ([1, 2, 3]
+    |> fold(0) { |acc|
+      acc + .
+    }) == 6
 
   # Accumulator-plus-item form: the block binds the accumulator (typed by the
   # initial value) before the stream item, and the tail produces the accumulator.
-  assert [1, 2, 3]
-      |> fold(0) { |acc, it|
-        acc + it
-      } == 6
+  assert ([1, 2, 3]
+    |> fold(0) { |acc, it|
+      acc + it
+    }) == 6
 
-  assert [1, 2, 3]
-      |> reduce(10) { |acc, it|
-        acc + it
-      } == 16
+  assert ([1, 2, 3]
+    |> reduce(10) { |acc, it|
+      acc + it
+    }) == 16
 
   # A postfix `?` inside a stream-stage closure, followed by a method call on
   # the unwrapped value, must compile and propagate normally instead of
@@ -82,10 +82,10 @@ beta
 
   # A bare accumulator-ident tail no longer trips the indexed IR builder; it
   # returns the running accumulator unchanged.
-  assert [1, 2, 3]
-      |> fold(0) { |x|
-        x
-      } == 0
+  assert ([1, 2, 3]
+    |> fold(0) { |x|
+      x
+    }) == 0
 
   # Counting through fold without group-by: the accumulator is a Map and the
   # item a Str, which the two-parameter binding types correctly.
@@ -93,36 +93,36 @@ beta
     |> fold(map.empty()) { |acc, it|
       acc.set(it, (acc.get(it) ?? 0) + 1)
     }
-  assert ((fold_counts.get("a") ?? 0)) == (2)
-  assert ((fold_counts.get("b") ?? 0)) == (1)
-  assert ((fold_counts.get("c") ?? 0)) == (1)
-  assert (fold_counts.len()) == (3)
+  assert (fold_counts.get("a") ?? 0) == 2
+  assert (fold_counts.get("b") ?? 0) == 1
+  assert (fold_counts.get("c") ?? 0) == 1
+  assert fold_counts.len() == 3
 
-  assert [1, 2, 3]
-      |> reduce(10) { |acc|
-        acc + .
-      } == 16
+  assert ([1, 2, 3]
+    |> reduce(10) { |acc|
+      acc + .
+    }) == 16
 
-  assert [1, 2, 3] |> sum == 6
-  assert (([3, 1, 2] |> min)?) == 1
-  assert (([3, 1, 2] |> max)?) == 3
-  assert (([3, 1, 2] |> first())?) == 3
-  assert (([3, 1, 2] |> last())?) == 2
+  assert ([1, 2, 3] |> sum) == 6
+  assert ([3, 1, 2] |> min)? == 1
+  assert ([3, 1, 2] |> max)? == 3
+  assert ([3, 1, 2] |> first())? == 3
+  assert ([3, 1, 2] |> last())? == 2
   assert [1, 2, 3] |> any . == 2
   assert [1, 2, 3] |> all . > 0
   let expected_counts: Map[Int] = {["1"]: 2, ["2"]: 1}
 
-  assert ["a", "bb", "c"]
-      |> count { |word|
-        word.count_chars()
-      } == expected_counts
+  assert (["a", "bb", "c"]
+    |> count { |word|
+      word.count_chars()
+    }) == expected_counts
 
-  assert [1, 2, 3]
-      |> par-map { |value|
-        value * 2
-      } == [2, 4, 6]
+  assert ([1, 2, 3]
+    |> par-map { |value|
+      value * 2
+    }) == [2, 4, 6]
 
-  assert ([1, 2, 3, 4] |> batch(count: 2)) == ([[1, 2], [3, 4]])
+  assert ([1, 2, 3, 4] |> batch(count: 2)) == [[1, 2], [3, 4]]
   let enumerated = ["x", "y"] |> enumerate()
   assert enumerated[1].index == 1
   assert enumerated[1].value == "y"
@@ -150,20 +150,20 @@ beta
 
   let shuffled = [1, 2, 3, 4] |> shuffle(7)
   assert shuffled.len() == 4
-  assert shuffled |> sort == [1, 2, 3, 4]
+  assert (shuffled |> sort) == [1, 2, 3, 4]
 
   [1, 2]
     |> each { |value|
-      assert (value > 0)
+      assert value > 0
     }
 
-  assert [1, 2]
-      |> tee { |value|
-        assert (value > 0)
-      }
-      |> map { |value|
-        value + 1
-      } == [2, 3]
+  assert ([1, 2]
+    |> tee { |value|
+      assert value > 0
+    }
+    |> map { |value|
+      value + 1
+    }) == [2, 3]
 
   [{name: "small", size: 1}, {name: "large", size: 4}] |> table.print(columns: ["name", "size"])
 }
@@ -285,8 +285,8 @@ proc main() [fs, error] {
     let assertion_message = output.stdout
     assert assertion_condition, assertion_message
   }
-  assert (pulled.read_text()?) == "pull 1"
-  assert (closed.read_text()?) == "closed"
+  assert pulled.read_text()? == "pull 1"
+  assert closed.read_text()? == "closed"
 }
 
 test test_sum_rejects_unchecked_stream_before_pulling_source { |ctx|
@@ -309,9 +309,9 @@ proc main() [io] {
 }
 """,
   )?
-  assert (output.status) == (2)
+  assert output.status == 2
   assert "check.dynamic-boundary" in output.stderr
-  assert (output.stdout) == ("")
+  assert output.stdout == ""
 }
 
 test test_keyed_stages_errors_stop_live_source { |ctx|
@@ -641,8 +641,8 @@ proc main() [fs, error] {
     let assertion_message = output.stdout
     assert assertion_condition, assertion_message
   }
-  assert (pulled.read_text()?) == "pull 1"
-  assert (closed.read_text()?) == "closed"
+  assert pulled.read_text()? == "pull 1"
+  assert closed.read_text()? == "closed"
 }
 
 test test_if_else_is_a_stream_stage_tail_value {
@@ -717,10 +717,10 @@ test test_predicate_stage_blocks_bind_local_lets {
   assert all_block == all_expr
   assert ! all_block
   assert [2, 4, 6]
-      |> all { |n|
-        let rem = n % 2
-        rem == 0
-      }
+    |> all { |n|
+      let rem = n % 2
+      rem == 0
+    }
 }
 
 test test_implicit_standard_read_helpers_and_pipe_shorthand { |ctx|
@@ -740,7 +740,7 @@ test test_implicit_standard_read_helpers_and_pipe_shorthand { |ctx|
   assert warnings[0] == "warn one"
   assert warnings[1] == "warn two"
   assert names == ["a", "b"]
-  assert (cpu.count() > 0)
+  assert cpu.count() > 0
 }
 
 test test_core_commands_and_byte_pipeline { |ctx|
@@ -751,10 +751,10 @@ test test_core_commands_and_byte_pipeline { |ctx|
     fs.write(p"inside.txt", "cwd")?
   }
 
-  assert (fp"${root}/inside.txt".read_text()?) == "cwd"
+  assert fp"${root}/inside.txt".read_text()? == "cwd"
   eprint "covered stderr"
   run printf "%s" "abc" | run tr a-z A-Z > output ?
-  assert (output.read_text()?) == "ABC"
+  assert output.read_text()? == "ABC"
 }
 
 test test_reduce_by_stream_aggregates {
@@ -776,10 +776,10 @@ test test_reduce_by_stream_aggregates {
       {key: "all", value: n}
     }
 
-  assert ((agg.get("even") ?? {count: 0, total: 0})) == ({count: 3, total: 12})
-  assert ((agg.get("odd") ?? {count: 0, total: 0})) == ({count: 3, total: 9})
-  assert ((lo.get("all") ?? 0)) == (1)
-  assert ((hi.get("all") ?? 0)) == (6)
+  assert (agg.get("even") ?? {count: 0, total: 0}) == {count: 3, total: 12}
+  assert (agg.get("odd") ?? {count: 0, total: 0}) == {count: 3, total: 9}
+  assert (lo.get("all") ?? 0) == 1
+  assert (hi.get("all") ?? 0) == 6
 }
 
 test test_reduce_by_live_source_folds_each_item_before_next_pull { |ctx|
@@ -849,8 +849,8 @@ proc main() [fs, error] {
     let assertion_message = output.stdout
     assert assertion_condition, assertion_message
   }
-  assert (pulled.read_text()?) == "pull 1"
-  assert (closed.read_text()?) == "closed"
+  assert pulled.read_text()? == "pull 1"
+  assert closed.read_text()? == "closed"
 }
 
 test test_reduce_by_jobs_hint_preserves_results {
@@ -868,20 +868,20 @@ test test_reduce_by_jobs_hint_preserves_results {
     }
 
   for k in serial.keys() {
-    assert ((par.get(k) ?? {count: 0, total: 0})) == ((serial.get(k) ?? {count: 0, total: 0}))
+    assert (par.get(k) ?? {count: 0, total: 0}) == (serial.get(k) ?? {count: 0, total: 0})
   }
 
   assert par.keys().len() == 3
 
   assert ((nums
-      |> reduce-by(min: true, jobs: 8) { |n|
-        {key: "all", value: n}
-      }).get("all") ?? -1) == 0
+    |> reduce-by(min: true, jobs: 8) { |n|
+      {key: "all", value: n}
+    }).get("all") ?? -1) == 0
 
   assert ((nums
-      |> reduce-by(max: true, jobs: 8) { |n|
-        {key: "all", value: n}
-      }).get("all") ?? -1) == 49999
+    |> reduce-by(max: true, jobs: 8) { |n|
+      {key: "all", value: n}
+    }).get("all") ?? -1) == 49999
 }
 
 test test_jobs_options_evaluate_once_before_stage { |ctx|
@@ -971,7 +971,7 @@ proc main() [fs, error] {
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  assert (evaluated.read_text()?) == "evaluated"
+  assert evaluated.read_text()? == "evaluated"
   assert ! pulled.exists()?
 }
 
@@ -1049,11 +1049,11 @@ test test_par_map_reduce_by_fuses_to_worker_aggregation {
     }
 
   for k in unfused.keys() {
-    assert ((fused.get(k) ?? {count: 0, total: 0})) == ((unfused.get(k) ?? {count: 0, total: 0}))
+    assert (fused.get(k) ?? {count: 0, total: 0}) == (unfused.get(k) ?? {count: 0, total: 0})
   }
 
-  assert (fused.keys().len()) == (4)
-  assert ((fused.get("a") ?? {count: 0, total: 0})) == ({count: 12500, total: 624950000})
+  assert fused.keys().len() == 4
+  assert (fused.get("a") ?? {count: 0, total: 0}) == {count: 12500, total: 624950000}
 }
 
 test test_flat_map_identity_reduce_by_matches_direct_rows {
@@ -1078,8 +1078,8 @@ test test_flat_map_identity_reduce_by_matches_direct_rows {
       {key: row.key, value: {count: row.count, total: row.total}}
     }
 
-  assert ((nested.get("even") ?? {count: 0, total: 0})) == ((direct.get("even") ?? {count: 0, total: 0}))
-  assert ((nested.get("odd") ?? {count: 0, total: 0})) == ({count: 500, total: 250000})
+  assert (nested.get("even") ?? {count: 0, total: 0}) == (direct.get("even") ?? {count: 0, total: 0})
+  assert (nested.get("odd") ?? {count: 0, total: 0}) == {count: 500, total: 250000}
 }
 
 test test_live_files_flat_map_reduce_by_matches_collected_rows { |ctx|
@@ -1107,9 +1107,9 @@ test test_live_files_flat_map_reduce_by_matches_collected_rows { |ctx|
     |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  assert (streamed) == (collected)
-  assert ((streamed.get("txt") ?? {count: 0, size: 0})) == ({count: 2, size: 5})
-  assert ((streamed.get("md") ?? {count: 0, size: 0})) == ({count: 1, size: 4})
+  assert streamed == collected
+  assert (streamed.get("txt") ?? {count: 0, size: 0}) == {count: 2, size: 5}
+  assert (streamed.get("md") ?? {count: 0, size: 0}) == {count: 1, size: 4}
 }
 
 test test_live_files_par_map_for_matches_collected_rows { |ctx|
@@ -1149,10 +1149,10 @@ test test_live_files_par_map_for_matches_collected_rows { |ctx|
     |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  assert ({count: streamed_txt_count, size: streamed_txt_size}) == ((collected.get("txt") ?? {count: 0, size: 0}))
-  assert ({count: streamed_md_count, size: streamed_md_size}) == ((collected.get("md") ?? {count: 0, size: 0}))
-  assert ({count: streamed_txt_count, size: streamed_txt_size}) == ({count: 2, size: 5})
-  assert ({count: streamed_md_count, size: streamed_md_size}) == ({count: 1, size: 4})
+  assert {count: streamed_txt_count, size: streamed_txt_size} == (collected.get("txt") ?? {count: 0, size: 0})
+  assert {count: streamed_md_count, size: streamed_md_size} == (collected.get("md") ?? {count: 0, size: 0})
+  assert {count: streamed_txt_count, size: streamed_txt_size} == {count: 2, size: 5}
+  assert {count: streamed_md_count, size: streamed_md_size} == {count: 1, size: 4}
 }
 
 test test_par_map_filesystem_reads_preserve_all_results { |ctx|
@@ -1168,7 +1168,7 @@ test test_par_map_filesystem_reads_preserve_all_results { |ctx|
       entry.path.read_text()?.count_chars()
     }
   assert lengths.len() == 32
-  assert lengths |> sum == 86
+  assert (lengths |> sum) == 86
 }
 
 test test_projected_reduce_by_sums_output_fields { |ctx|
@@ -1615,7 +1615,7 @@ proc main() [fs, io, error] {
   assert "parse-int: invalid integer `bad`" in output.stderr
   assert output.stderr.split("kind=stream.stage.enter", -1).len() == 2
   assert output.stderr.split("kind=stream.stage.exit", -1).len() == 2
-  assert (marker.read_text()?) == "closed"
+  assert marker.read_text()? == "closed"
 }
 
 test test_live_flat_map_take_stops_within_expanded_row { |ctx|
@@ -1743,7 +1743,7 @@ proc main() [io, fs, error] {
   )?
   assert ! output.success
   assert "invalid" in output.stderr
-  assert (marker.read_text()?) == "closed"
+  assert marker.read_text()? == "closed"
 }
 
 test test_live_tee_any_and_where_first_stop_upstream { |ctx|
@@ -1818,7 +1818,7 @@ proc main() [fs, io, error] {
   )?
   assert ! output.success
   assert "empty-stream" in output.stderr
-  assert (marker.read_text()?) == "closed"
+  assert marker.read_text()? == "closed"
 }
 
 test test_zero_argument_stream_producers_run_from_every_call_position { |ctx|
@@ -1902,17 +1902,17 @@ test test_count_and_group_by_preserve_large_group_counts_and_order {
       g.items
     }
 
-  assert ((counts.get("even") ?? 0)) == (10000)
-  assert ((counts.get("odd") ?? 0)) == (10000)
-  assert (groups.len()) == (3)
-  assert (groups[0].len()) == (6667)
-  assert (groups[0][0]) == (0)
-  assert (groups[0][1]) == (3)
-  assert (groups[0][6666]) == (19998)
-  assert (groups[1].len()) == (6667)
-  assert (groups[1][6666]) == (19999)
-  assert (groups[2].len()) == (6666)
-  assert (groups[2][6665]) == (19997)
+  assert (counts.get("even") ?? 0) == 10000
+  assert (counts.get("odd") ?? 0) == 10000
+  assert groups.len() == 3
+  assert groups[0].len() == 6667
+  assert groups[0][0] == 0
+  assert groups[0][1] == 3
+  assert groups[0][6666] == 19998
+  assert groups[1].len() == 6667
+  assert groups[1][6666] == 19999
+  assert groups[2].len() == 6666
+  assert groups[2][6665] == 19997
 }
 
 test test_stream_adapters_bridge_text_bytes_and_json_lines {
@@ -1940,9 +1940,9 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
   assert paths[1].name == "b.log"
   assert chunks[0] == b"ab"
   assert chunks[2] == b"e"
-  assert (rows[1].name) == ("b")
-  assert (rows[0].size) == (1)
-  assert (streamed[0].name) == ("c")
+  assert rows[1].name == "b"
+  assert rows[0].size == 1
+  assert streamed[0].name == "c"
   assert words[1] == "two"
 }
 
@@ -1955,13 +1955,13 @@ beta
 gamma
 """)?
 
-  assert ((input.lines()? |> first())?) == "alpha"
+  assert (input.lines()? |> first())? == "alpha"
 
-  assert (("""one
+  assert ("""one
 two
 """.lines()
   |> drop(1)
-  |> first())?) == "two"
+  |> first())? == "two"
 
   assert ("""red
 blue
@@ -1969,13 +1969,13 @@ blue
   |> text.lines
   |> take(1))[0] == "red"
 
-  assert ("""x
+  assert """x
 y
 """.lines()
-  .collect()[1]) == ("y")
+  .collect()[1] == "y"
 
-  assert (b"a\nb\n".lines().collect().len()) == (2)
-  assert (input.bytes_lines()?.collect()[1]) == (b"beta")
+  assert b"a\nb\n".lines().collect().len() == 2
+  assert input.bytes_lines()?.collect()[1] == b"beta"
 }
 
 test test_terminal_newline_does_not_add_empty_line_for_round_trip {
@@ -1984,7 +1984,7 @@ b
 """.lines()
   .collect()
 
-  assert (lines) == (["a", "b"])
+  assert lines == ["a", "b"]
   assert f"""${lines.join("\n")}
 """ == """a
 b
@@ -2259,23 +2259,23 @@ test test_sort_by_map_accumulator_any_typed_fields {
 
   let by_count = keys
     |> map { |k|
-      {count: (acc.get(k) ?? 0), ext: k}
+      {count: acc.get(k) ?? 0, ext: k}
     }
     |> sort-by .count
   assert [row.ext for row in by_count] == ["b", "a"]
   assert [row.count.require(Int)? for row in by_count] == [1, 2]
 
   # The list-comprehension equivalent accepts and sorts identically.
-  let by_count_comp = [{count: (acc.get(k) ?? 0), ext: k} for k in keys] |> sort-by .count
-  assert (by_count_comp) == (by_count)
+  let by_count_comp = [{count: acc.get(k) ?? 0, ext: k} for k in keys] |> sort-by .count
+  assert by_count_comp == by_count
 }
 
 test test_structured_stream_batch_count_and_argv_limits {
   let by_count = [1, 2, 3, 4, 5] |> batch(count: 2)
   let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch(max_bytes: 10)
-  assert (by_count) == ([[1, 2], [3, 4], [5]])
-  assert (by_size[0]) == ([p"aaaa", p"bbbb"])
-  assert (by_size[1]) == ([p"cccc"])
+  assert by_count == [[1, 2], [3, 4], [5]]
+  assert by_size[0] == [p"aaaa", p"bbbb"]
+  assert by_size[1] == [p"cccc"]
 
   [p"one", p"two"]
     |> batch(max_argv: true)
@@ -2283,10 +2283,10 @@ test test_structured_stream_batch_count_and_argv_limits {
       run true @files ?
     }
 
-  assert [1]
-      |> where false
-      |> batch(count: 2)
-      |> count() == 0
+  assert ([1]
+    |> where false
+    |> batch(count: 2)
+    |> count()) == 0
 }
 
 test test_batch_max_bytes_error_stops_and_closes_live_source { |ctx|
@@ -2413,10 +2413,10 @@ test test_live_serial_count_after_map_where_and_flat_map {
 }
 
 test test_parallel_stream_stages_are_bounded_and_deterministic {
-  assert [1, 2, 3, 4]
-      |> par-map { |x|
-        x * 2
-      } == [2, 4, 6, 8]
+  assert ([1, 2, 3, 4]
+    |> par-map { |x|
+      x * 2
+    }) == [2, 4, 6, 8]
 
   var seen = []
 
@@ -2452,11 +2452,11 @@ item=2
 }
 
 test test_parallel_stream_preserves_filtered_order {
-  assert [0, 1, 2, 3, 4, 5]
-      |> where . >= 2
-      |> par-map(jobs: 3) { |x|
-        x * 10
-      } == [20, 30, 40, 50]
+  assert ([0, 1, 2, 3, 4, 5]
+    |> where . >= 2
+    |> par-map(jobs: 3) { |x|
+      x * 10
+    }) == [20, 30, 40, 50]
 }
 
 test test_structured_streams_walk_filter_map_collect_and_count { |ctx|
@@ -2671,46 +2671,51 @@ test test_fs_files_lazy_folding_terminals_match_eager_results { |ctx|
   fp"${root}/a.txt".write("a")?
   fp"${root}/bb.txt".write("bb")?
   fp"${root}/ccc.txt".write("ccc")?
-  assert fs.files(root) |> count() == 3
+  assert (fs.files(root) |> count()) == 3
 
-  assert fs.files(root)
-      |> map .size
-      |> sum == 6
+  assert (fs.files(root)
+    |> map .size
+    |> sum) == 6
 
-  assert ((fs.files(root)
-      |> map .size
-      |> min)?) == 1
+  assert (fs.files(root)
+    |> map .size
+    |> min)? == 1
 
-  assert ((fs.files(root)
-      |> map .size
-      |> max)?) == 3
+  assert (fs.files(root)
+    |> map .size
+    |> max)? == 3
 
-  assert fs.files(root)
-      |> map .size
-      |> fold(0) { |acc|
-        acc + .
-      } == 6
+  assert (fs.files(root)
+    |> map .size
+    |> fold(0) { |acc|
+      acc + .
+    }) == 6
 }
 
-
 test test_keyed_count_result_retains_map_type_through_later_pipelines { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 let stats = ["rs", "md", "rs"] |> count { |ext| ext }
 let counts = stats.keys()
   |> map { |ext| {count: stats.get(ext) ?? 0, ext: ext} }
   |> sort-by .count
 for row in counts { print f"${row.ext}:${row.count}" }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("md:1\nrs:2\n")
+  assert output.stdout == """md:1
+rs:2
+"""
 }
 
-
 test test_pipeline_stage_facts_retain_terminal_and_callback_types_in_procedures { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc summarize() [error] {
   let folded = [1, 2] |> fold(0) { |acc, value| acc + value }
   let grouped = ["a", "a"] |> group-by { |value| value }
@@ -2719,18 +2724,22 @@ proc summarize() [error] {
   print f"${folded.float()}:${sizes[0]}:${batched[0]}"
 }
 summarize()
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("3:2:2\n")
+  assert output.stdout == """3:2:2
+"""
 }
 
 type StreamLabelRow = {name: Str, unit: Str}
 
 test test_stream_where_string_views_match_ordinary_record_comparison {
-  let source = " MemFree :bytes\nVendorCounter:widgets\n"
+  let source = """ MemFree :bytes
+VendorCounter:widgets
+"""
   var viewed: List[StreamLabelRow] = []
   for line in source.lines() {
     let fields = line.split(":")
@@ -2738,15 +2747,18 @@ test test_stream_where_string_views_match_ordinary_record_comparison {
   }
 
   let owned: List[StreamLabelRow] = [{name: "MemFree", unit: "bytes"}, {name: "VendorCounter", unit: "widgets"}]
-  assert (viewed[0].name == "MemFree")
-  assert (viewed[1].name != "MemFree")
-  assert ((viewed |> where .name == "MemFree").len()) == (1)
-  assert ((viewed |> where "MemFree" == .name).len()) == (1)
-  assert ((viewed |> where .name != "MemFree").len()) == (1)
-  assert ((viewed |> where "MemFree" != .name).len()) == (1)
-  assert ((viewed |> where .name == "MemFree" and .unit == "bytes").len()) == (1)
-  assert ((viewed |> where .name == "MemFree" or .unit == "widgets").len()) == (2)
+  assert viewed[0].name == "MemFree"
+  assert viewed[1].name != "MemFree"
+  assert (viewed |> where .name == "MemFree").len() == 1
+  assert (viewed |> where "MemFree" == .name).len() == 1
+  assert (viewed |> where .name != "MemFree").len() == 1
+  assert (viewed |> where "MemFree" != .name).len() == 1
+  assert (viewed |> where .name == "MemFree" and .unit == "bytes").len() == 1
+  assert (viewed |> where .name == "MemFree" or .unit == "widgets").len() == 2
   assert (viewed |> where .name == "MemFree") == (owned |> where .name == "MemFree")
   assert (viewed |> where .name != "MemFree") == (owned |> where .name != "MemFree")
-  assert (viewed |> where .name == "MemFree") == (viewed |> where { |row| row.name == "MemFree" })
+  assert (viewed |> where .name == "MemFree") == (viewed
+    |> where { |row|
+      row.name == "MemFree"
+    })
 }

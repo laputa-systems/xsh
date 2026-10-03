@@ -57,7 +57,11 @@ pure selected_by_glob(globs: List[Str], file_path: Path) -> Bool {
 pure regex_pattern(pattern: Str, ignore_case: Bool, word: Bool, line: Bool) -> Str {
   let word_pattern = if word { f"\\b(?:${pattern})\\b" } else { pattern }
   let line_pattern = if line { f"^(?:${word_pattern})$" } else { word_pattern }
-  if ignore_case { f"(?i:${line_pattern})" } else { line_pattern }
+  if ignore_case {
+    f"(?i:${line_pattern})"
+  } else {
+    line_pattern
+  }
 }
 
 proc search_file(
@@ -225,27 +229,11 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let pattern = if opts.pattern_option != "" {
     opts.pattern_option
   } else {
-    (opts.operands.get(0) ?? "")
+    opts.operands.get(0) ?? ""
   }
   let path_args = if opts.pattern_option != "" { opts.operands } else { opts.operands |> drop(1) }
   var paths: List[Path] = [fp"${arg}" for arg in path_args]
-  let {
-    ignore_case,
-    fixed,
-    word,
-    line_match,
-    invert,
-    line_numbers,
-    with_filename,
-    no_filename,
-    list_files,
-    count,
-    quiet,
-    hidden,
-    ignore,
-    globs,
-    ..
-  } = opts
+  let {ignore_case, fixed, word, line_match, invert, line_numbers, with_filename, no_filename, list_files, count, quiet, hidden, ignore, globs, ..} = opts
   let color = opts.color == "always"
 
   return Err(AppletError.Usage("rg: missing pattern")) when pattern == ""

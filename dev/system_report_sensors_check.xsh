@@ -163,11 +163,11 @@ export pure compare_sensors_json(
     continue when scale == null
     reference_count += 1
     let key = f"${reading.chip_key}:${reading.subfeature}"
-    let before_chip_matches = (before_chip_counts.get(f"${reading.chip}:${reading.subfeature}") ?? 0)
-    let after_matches = (after_counts.get(key) ?? 0)
-    let following = (after_values.get(key) ?? reading.value)
+    let before_chip_matches = before_chip_counts.get(f"${reading.chip}:${reading.subfeature}") ?? 0
+    let after_matches = after_counts.get(key) ?? 0
+    let following = after_values.get(key) ?? reading.value
     let candidate_key = f"${reading.chip}:${channel}"
-    let candidate_matches = (candidate_counts.get(candidate_key) ?? 0)
+    let candidate_matches = candidate_counts.get(candidate_key) ?? 0
     var raw: Int? = null
     if candidate_matches == 1 {
       raw = candidate.channels[candidate_indices.get(candidate_key)?].value
@@ -189,7 +189,7 @@ export pure compare_sensors_json(
       continue
     }
 
-    if (reading.value - value.float() / (scale).float()).abs() > 0.000001 {
+    if (reading.value - value.float() / scale.float()).abs() > 0.000001 {
       partial += [key]
     } else {
       compared += 1
@@ -240,7 +240,7 @@ export proc compare_live_sensors_json(
     return Err(sensors_check_failure("sensors version probe output is incomplete"))
   }
 
-  let version = (version_source.data).utf8()?.trim()
+  let version = version_source.data.utf8()?.trim()
   if version == "" {
     return Err(sensors_check_failure("sensors version probe returned no version"))
   }
@@ -295,7 +295,7 @@ export proc compare_live_sensors_json(
 
   let before_bytes = before_source.data
   let after_bytes = after_source.data
-  let candidate_text = (candidate_source.data).utf8()?
+  let candidate_text = candidate_source.data.utf8()?
   let candidate_mode = json.get(json.decode(candidate_text)?, ["source_mode"])?.require(Str)?
   if candidate_mode != "live_linux" {
     return Err(sensors_check_failure("candidate is not a live Linux report"))

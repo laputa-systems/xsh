@@ -20,20 +20,37 @@ eprint diagnostic
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  assert output == "word\n7\n1.5\ntrue\nrelative/../path\n1s\n7\nerased\n"
-  assert diagnostics == "diagnostic\n"
-  let inherited = test.run_script(ctx, "print --flush inherited\n")?
+  assert output == """word
+7
+1.5
+true
+relative/../path
+1s
+7
+erased
+"""
+  assert diagnostics == """diagnostic
+"""
+  let inherited = test.run_script(
+    ctx,
+    """print --flush inherited
+""",
+  )?
   assert inherited.success
-  assert inherited.stdout == "inherited\n"
+  assert inherited.stdout == """inherited
+"""
 }
 
 test test_display_and_wait_reject_invalid_boundaries_before_execution { |ctx|
   for source in [
     r"print ${[7]}" + "\n",
     r"eprint prefix${[7]}suffix" + "\n",
-    "let result = wait 7\n",
-    "proc denied(handle: ProcessHandle) [] { wait handle }\n",
-    "pure denied(handle: ProcessHandle) { wait handle }\n",
+    """let result = wait 7
+""",
+    """proc denied(handle: ProcessHandle) [] { wait handle }
+""",
+    """pure denied(handle: ProcessHandle) { wait handle }
+""",
   ] {
     let result = test.run_script(ctx, source)?
     let {success: succeeded, stderr: diagnostics, ..} = result

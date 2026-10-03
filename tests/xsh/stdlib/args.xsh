@@ -67,8 +67,8 @@ test test_args_parse_tokens_and_commands {
     {count: {kind: "Int", required: true}, file: {kind: "Path", positional: true}},
   )?
 
-  assert (full.values.count) == (2)
-  assert (full.sources.count) == ("argv")
+  assert full.values.count == 2
+  assert full.sources.count == "argv"
   let usage = cli.usage({count: {kind: "Int", required: true}}, "demo")
   assert "usage: demo" in usage
 
@@ -280,7 +280,7 @@ test test_cli_applet_parses_cp_compatibility_flags {
 
   assert ! parsed.no_clobber
   assert parsed.force
-  assert (parsed.target.name()) == ("dest")
+  assert parsed.target.name() == "dest"
   assert parsed.operands.join(",") == "src1,src2"
 
   let reversed: CpAppletOptions = cli.applet(
@@ -409,15 +409,15 @@ test test_cli_parse_advanced_descriptors {
 
   let full = cli.parse_full(["--color", "-v", "--left", "a"], schema)?
   let values = full.values.require(AdvancedArgs)?
-  assert (values.color) == ("always")
-  assert (values.config.name()) == ("config.toml")
-  assert (values.workspace.name()) == (root.name())
-  assert (values.count) == (1)
-  assert (f"${values.timeout}") == ("1s")
-  assert (values.verbose)
-  assert (full.sources.get("color")?.require(Str)?) == ("argv")
-  assert (full.sources.get("mode")?.require(Str)?) == ("default")
-  assert (full.warnings.len()) == (1)
+  assert values.color == "always"
+  assert values.config.name() == "config.toml"
+  assert values.workspace.name() == root.name()
+  assert values.count == 1
+  assert f"${values.timeout}" == "1s"
+  assert values.verbose
+  assert full.sources.get("color")?.require(Str)? == "argv"
+  assert full.sources.get("mode")?.require(Str)? == "default"
+  assert full.warnings.len() == 1
 
   let env_full = cli.parse_full(
     [],
@@ -425,42 +425,42 @@ test test_cli_parse_advanced_descriptors {
     {XSH_PROFILE: "prod"},
   )?
 
-  assert (env_full.values.profile) == ("prod")
-  assert (env_full.sources.get("profile")?.require(Str)?) == ("env")
+  assert env_full.values.profile == "prod"
+  assert env_full.sources.get("profile")?.require(Str)? == "env"
   let usage = cli.usage(schema, "demo")
-  assert ("usage: demo [OPTIONS]" in usage)
-  assert ("--mode MODE" in usage)
-  assert ("-h, --help" in usage)
+  assert "usage: demo [OPTIONS]" in usage
+  assert "--mode MODE" in usage
+  assert "-h, --help" in usage
   assert ! ("--secret" in usage)
 
   match cli.parse(["--help"], schema, "demo sub") {
     Ok(_) => test.fail("implicit help should stop parsing")?
-    Err(error) => assert ("usage: demo sub [OPTIONS]" in error.message)
+    Err(error) => assert "usage: demo sub [OPTIONS]" in error.message
   }
 
   match cli.parse(["--mode", "xml", "--left", "a"], schema) {
     Ok(_) => test.fail("choice validation should fail")?
-    Err(error) => assert ("expects one of" in error.message)
+    Err(error) => assert "expects one of" in error.message
   }
 
   match cli.parse(["--json", "--table", "--left", "a"], schema) {
     Ok(_) => test.fail("conflict validation should fail")?
-    Err(error) => assert ("conflicts" in error.message)
+    Err(error) => assert "conflicts" in error.message
   }
 
   match cli.parse([], schema) {
     Ok(_) => test.fail("required group validation should fail")?
-    Err(error) => assert ("required group" in error.message)
+    Err(error) => assert "required group" in error.message
   }
 
   match cli.parse(["--count", "-1", "--left", "a"], schema) {
     Ok(_) => test.fail("UInt validation should fail")?
-    Err(error) => assert ("expects UInt" in error.message)
+    Err(error) => assert "expects UInt" in error.message
   }
 
   match cli.parse(["--config", f"${root}/missing.toml", "--left", "a"], schema) {
     Ok(_) => test.fail("file path validation should fail")?
-    Err(error) => assert ("expects a file path" in error.message)
+    Err(error) => assert "expects a file path" in error.message
   }
 }
 
@@ -501,13 +501,13 @@ test test_cli_parse_positional_default_is_optional {
   assert explicit.kind == "xsh"
 
   let usage = cli.usage({kind: {form: "KIND", default: "rust"}}, "dev")
-  assert ("[KIND]" in usage)
+  assert "[KIND]" in usage
 
   match cli.parse([], {action: {form: "ACTION", required: true}}) {
     Ok(_) => test.fail("required positional should fail when absent")?
-    Err(error) => assert ("missing required argument ACTION" in error.message)
+    Err(error) => assert "missing required argument ACTION" in error.message
   }
 
   let relaxed = cli.parse([], {file: {form: "FILE", required: false}})?
-  assert (relaxed.file) == (null)
+  assert relaxed.file == null
 }

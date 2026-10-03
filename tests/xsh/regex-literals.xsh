@@ -14,7 +14,7 @@ test test_regex_literals_preserve_raw_patterns_and_existing_operations {
     (b+) $
 """.matches("aabb")
   for index in range(10) {
-    assert assignment_regex().matches(f"COUNT=$index")
+    assert assignment_regex().matches(f"COUNT=${index}")
   }
 }
 
@@ -23,8 +23,8 @@ pure default_regex(pattern = rx"^é+$") -> Regex {
 }
 
 test test_regex_literal_defaults_and_dynamic_compile_errors {
-  assert default_regex().matches("éé")
-  assert default_regex().find("éé")[0].end == 4
+  assert default_regex().matches("\u{e9}\u{e9}")
+  assert default_regex().find("\u{e9}\u{e9}")[0].end == 4
   let dynamic_pattern = "[0-9]+"
   let dynamic = regex.compile(dynamic_pattern)?
   assert dynamic.matches("42")
@@ -33,8 +33,12 @@ test test_regex_literal_defaults_and_dynamic_compile_errors {
 
 test test_regex_literal_errors_fail_preparation_before_execution { |ctx|
   for source in [
-    "print \"must not execute\"\npure unused() -> Regex { rx\"(\" }\n",
-    "print \"must not execute\"\nif false { let _ = rx\"\"\"[\"\"\" }\n",
+    """print "must not execute"
+pure unused() -> Regex { rx"(" }
+""",
+    """print "must not execute"
+if false { let _ = rx\"""[\""" }
+""",
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source

@@ -58,10 +58,10 @@ WJj""".base64_decode()? == b"abc"
   assert b"abc".len() == 3
   let report = b"  Header\r\nalpha\nTODO item\nomega  "
   assert report.trim() == b"Header\r\nalpha\nTODO item\nomega"
-  assert (b"TODO" in report)
+  assert b"TODO" in report
   assert report.trim().starts_with(b"Header")
   assert report.trim().ends_with(b"omega")
-  assert (report.lines().collect()) == ([b"  Header", b"alpha", b"TODO item", b"omega  "])
+  assert report.lines().collect() == [b"  Header", b"alpha", b"TODO item", b"omega  "]
   assert report.count_lines() == 4
   assert b"AbC\xff".lower() == b"abc\xff"
   assert (report.byte_at(2) ?? -1) == 72

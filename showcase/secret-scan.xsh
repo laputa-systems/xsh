@@ -27,7 +27,11 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   let root = if opts.root.display() == "." {
-    if let Ok(r) = fs.gitroot() { r } else { fs.cwd()? }
+    if let Ok(r) = fs.gitroot() {
+      r
+    } else {
+      fs.cwd()?
+    }
   } else {
     opts.root.resolve()?
   }

@@ -1,14 +1,27 @@
 type IRReasonCount = {reason: Str, count: Int}
+
 type IRReasonGroup = {group: Str, total: Int, reasons: List[IRReasonCount]}
+
 type IRPureScan = {path: Str, line: Int, name: Str, lowerable: Bool, reasons: List[Str]}
+
 type IRProcScan = {path: Str, line: Int, name: Str, effects: List[Str], lowerable: Bool, reasons: List[Str]}
+
 type IRScriptScan = {path: Str, line: Int, shape: Str, lowerable: Bool, reasons: List[Str]}
+
 type IRCorpusReport[T] = {
-  roots: List[Str], total: Int, lowerable: Int, percent: Int,
-  reasons: List[IRReasonCount], groups: List[IRReasonGroup], samples: List[T],
+  roots: List[Str],
+  total: Int,
+  lowerable: Int,
+  percent: Int,
+  reasons: List[IRReasonCount],
+  groups: List[IRReasonGroup],
+  samples: List[T],
 }
+
 type IRRow = {name: Str, covered: Int, total: Int, percent: Int, supported: List[Str], unsupported: List[Str]}
+
 type IRLoweredCounts = {statements: Int, expressions: Int, pipeline_stages: Int, types: Int}
+
 type IRWireReport = {
   rows: List[IRRow],
   lowered_nodes: IRLoweredCounts,
@@ -104,7 +117,7 @@ let values = [1, 2] |> batch(count: 1)
     stderr = stderr_path
     run $xsh $tool -- --root fp"${root}/absent"
   }
-  assert !process.run(invalid)?.exited_with(0)
+  assert ! process.run(invalid)?.exited_with(0)
   assert stderr_path.read_text()? != ""
 }
 

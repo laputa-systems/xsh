@@ -37,7 +37,15 @@ proc main(...argv: List[Str]) [fs, process, error] {
     let raw = caps[2].trim()
     let dquote = dquote_re.captures(raw)
     let squote = squote_re.captures(raw)
-    let val = if dquote.len() >= 2 { dquote[1] } else { if squote.len() >= 2 { squote[1] } else { raw } }
+    let val = if dquote.len() >= 2 {
+      dquote[1]
+    } else {
+      if squote.len() >= 2 {
+        squote[1]
+      } else {
+        raw
+      }
+    }
     pairs = pairs.push({key: key, val: val})
   }
 

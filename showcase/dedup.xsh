@@ -62,7 +62,15 @@ proc main(...argv: List[Str]) [fs, error] {
     print f"${grp.key}  ${size} bytes  ×${cnt}"
 
     for item in grp.items |> enumerate() {
-      let marker = if item.index == 0 { "keep" } else { if opts.dry_run { "dup " } else { "DEL " } }
+      let marker = if item.index == 0 {
+        "keep"
+      } else {
+        if opts.dry_run {
+          "dup "
+        } else {
+          "DEL "
+        }
+      }
       print f"  [${marker}] ${item.value.rel}"
 
       if item.index > 0 and ! opts.dry_run {

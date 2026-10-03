@@ -1,4 +1,5 @@
 type WireEntry = {type: Str, in: Int, match: Bool = true}
+
 error WireError = Invalid(type: Str, in: Int)
 
 test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
@@ -21,6 +22,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
   } else {
     test.fail("keyword error payload labels must match")?
   }
+
   if let {type: kind, in: number, match: enabled} = bare {
     assert kind == "file"
     assert number == 2
@@ -28,6 +30,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
   } else {
     test.fail("keyword field labels must match")?
   }
+
   var mutable = bare
   mutable.type = "directory"
   assert mutable.type == "directory"
@@ -35,6 +38,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
 }
 
 type WireMeta = {type: Str, in: Int}
+
 type WireRow = {name: Str, meta: WireMeta}
 
 test test_keyword_field_labels_in_update_paths_and_constant_map_keys { |ctx|
@@ -46,32 +50,95 @@ test test_keyword_field_labels_in_update_paths_and_constant_map_keys { |ctx|
   let bare: Map[Int] = {type: 1, match: 2}
   assert bare.get("type")? == 1
   assert bare.keys() == ["match", "type"]
-  let duplicate = test.run_script(ctx, "let row = {type: 1, \"type\": 2}\n")?
+  let duplicate = test.run_script(
+    ctx,
+    """let row = {type: 1, "type": 2}
+""",
+  )?
   assert ! duplicate.success, duplicate.stderr
   assert "check.duplicate-record-field" in duplicate.stderr
 }
 
 test test_keyword_field_labels_across_keyword_spellings { |ctx|
-  for label in ["and", "assert", "break", "const", "continue", "defer", "else", "enum", "export", "false", "for", "guard", "if", "in", "let", "loop", "match", "not", "null", "or", "proc", "pure", "retry", "return", "run", "spawn", "stream", "test", "true", "try", "type", "unless", "use", "var", "wait", "when", "with", "yield"] {
-    let source = "type Wire = {" + label + ": Int}\nlet row = Wire(" + label + ": 1)\nlet {" + label + ": selected, ..} = row\nprint $selected\nprint $row." + label + "\n"
+  for label in [
+    "and",
+    "assert",
+    "break",
+    "const",
+    "continue",
+    "defer",
+    "else",
+    "enum",
+    "export",
+    "false",
+    "for",
+    "guard",
+    "if",
+    "in",
+    "let",
+    "loop",
+    "match",
+    "not",
+    "null",
+    "or",
+    "proc",
+    "pure",
+    "retry",
+    "return",
+    "run",
+    "spawn",
+    "stream",
+    "test",
+    "true",
+    "try",
+    "type",
+    "unless",
+    "use",
+    "var",
+    "wait",
+    "when",
+    "with",
+    "yield",
+  ] {
+    let source = "type Wire = {" + label + """: Int}
+let row = Wire(""" + label + """: 1)
+let {""" + label + """: selected, ..} = row
+print $selected
+print $row.""" + label + "\n"
     let executed = test.run_script(ctx, source)?
     assert executed.success, executed.stderr
-    assert executed.stdout == "1\n1\n"
+    assert executed.stdout == """1
+1
+"""
   }
 }
 
 test test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing { |ctx|
   for source in [
-    "let type = 1\n",
-    "pure value(in: Int) -> Int { 1 }\n",
-    "type match = {value: Int}\n",
-    "use fs as type\n",
-    "let row = {type}\n",
-    "let row = {type: 1}\nlet {type} = row\n",
-    "type Entry = {type: Int}\nlet row = Entry(type:)\n",
-    "let row = {type: 1}\nmatch row { {type} => { print 1 }, _ => { print 2 } }\n",
-    "let {json: json} = {json: 1}\n",
-    "let row = {json: 1}\nmatch row { {json} => { print 1 }, _ => { print 2 } }\n",
+    """let type = 1
+""",
+    """pure value(in: Int) -> Int { 1 }
+""",
+    """type match = {value: Int}
+""",
+    """use fs as type
+""",
+    """let row = {type}
+""",
+    """let row = {type: 1}
+let {type} = row
+""",
+    """type Entry = {type: Int}
+let row = Entry(type:)
+""",
+    """let row = {type: 1}
+match row { {type} => { print 1 }, _ => { print 2 } }
+""",
+    """let {json: json} = {json: 1}
+""",
+    """let row = {json: 1}
+match row { {json} => { print 1 }, _ => { print 2 } }
+""",
   ] {
     let rejected = test.run_script(ctx, source)?
     assert ! rejected.success, source + rejected.stderr
@@ -81,15 +148,24 @@ test test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing
 test test_keyword_field_labels_reject_introducer_bindings_and_puns { |ctx|
   for label in ["assert", "const", "enum", "test", "try"] {
     for source in [
-      "let " + label + " = 1\n",
-      "let row = {" + label + "}\n",
-      "let row = {" + label + ": 1}\nlet {" + label + "} = row\n",
-      "type Entry = {" + label + ": Int}\nlet row = Entry(" + label + ":)\n",
-      "let row = {" + label + ": 1}\nmatch row { {" + label + "} => {}, _ => {} }\n",
+      "let " + label + """ = 1
+""",
+      "let row = {" + label + """}
+""",
+      "let row = {" + label + """: 1}
+let {""" + label + """} = row
+""",
+      "type Entry = {" + label + """: Int}
+let row = Entry(""" + label + """:)
+""",
+      "let row = {" + label + """: 1}
+match row { {""" + label + """} => {}, _ => {} }
+""",
     ] {
       let rejected = test.run_script(ctx, source)?
       assert ! rejected.success, source + rejected.stderr
     }
+
     let argv = test.run_script(ctx, "run printf \"%s\\n\" " + label + "\n")?
     assert argv.success, argv.stderr
     assert argv.stdout == label + "\n"
@@ -105,14 +181,21 @@ print $row.in
 """
   let executed = test.run_script(ctx, source)?
   assert executed.success, executed.stderr
-  assert executed.stdout == "file\n2\n"
+  assert executed.stdout == """file
+2
+"""
   for invalid in [
     r"""let raw = json.decode("{\"type\":\"wrong\"}")?
 let selected: Int = raw.type
 """,
-    "type Entry = {type: Int, type: Str}\n",
-    "type Entry = {type: Int}\nlet row = Entry(type: 1, type: 2)\n",
-    "pure selected(value: Int) -> Int { value }\nlet result = selected(type: 1)\n",
+    """type Entry = {type: Int, type: Str}
+""",
+    """type Entry = {type: Int}
+let row = Entry(type: 1, type: 2)
+""",
+    """pure selected(value: Int) -> Int { value }
+let result = selected(type: 1)
+""",
   ] {
     let rejected = test.run_script(ctx, invalid)?
     assert ! rejected.success, invalid + rejected.stderr

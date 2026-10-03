@@ -1,5 +1,7 @@
 test test_wire_enum_nested_json_round_trip { |ctx|
-  let executed = test.run_script(ctx, r"""enum State: Str { Seen = "seen", Missing = "", Unsupported = "unsupported" }
+  let executed = test.run_script(
+    ctx,
+    r"""enum State: Str { Seen = "seen", Missing = "", Unsupported = "unsupported" }
 type Row = {state: State, history: List[State], optional: State?}
 let raw = json.decode("{\"state\":\"seen\",\"history\":[\"\",\"unsupported\"],\"optional\":null}")?
 let row = raw.require(Row)?
@@ -8,16 +10,24 @@ print (row.history[0] == Missing)
 print json.encode(row)?
 print json.encode(Seen)?
 print ("seen".require(State)? == Seen)
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert (executed.stdout) == ("true\ntrue\n{\"history\":[\"\",\"unsupported\"],\"optional\":null,\"state\":\"seen\"}\n\"seen\"\ntrue\n")
+  assert executed.stdout == """true
+true
+{"history":["","unsupported"],"optional":null,"state":"seen"}
+"seen"
+true
+"""
 }
 
 test test_wire_enum_require_is_atomic_and_type_patterns_do_not_convert { |ctx|
-  let executed = test.run_script(ctx, r"""enum State: Str { Seen = "seen", Missing = "missing" }
+  let executed = test.run_script(
+    ctx,
+    r"""enum State: Str { Seen = "seen", Missing = "missing" }
 type Row = {states: List[State], state: State}
 let raw = json.decode("{\"states\":[\"seen\",\"unknown\"],\"state\":\"seen\"}")?
 match raw.require(Row) {
@@ -29,14 +39,17 @@ let text: Any = "seen"
 match text { _ is State => print "converted"; _ => print "raw string" }
 let tag: Any = Seen
 match tag { _ is State => print "actual enum"; _ => print "wrong tag" }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert ("states[1]" in executed.stdout)
-  assert ("{\"state\":\"seen\",\"states\":[\"seen\",\"unknown\"]}" in executed.stdout)
-  assert ("raw string\nactual enum\n" in executed.stdout)
+  assert "states[1]" in executed.stdout
+  assert "{\"state\":\"seen\",\"states\":[\"seen\",\"unknown\"]}" in executed.stdout
+  assert """raw string
+actual enum
+""" in executed.stdout
   {
     let assertion_condition = "unexpected success" not in executed.stdout
     let assertion_message = executed.stdout
@@ -46,14 +59,25 @@ match tag { _ is State => print "actual enum"; _ => print "wrong tag" }
 
 test test_wire_enum_rejects_ambient_coercion_and_invalid_declarations { |ctx|
   for source in [
-    "enum State: Str { Seen = \"seen\" }\nlet state: State = \"seen\"\n",
-    "enum State: Int { Seen = 1 }\n",
-    "enum State: Str { Seen }\n",
-    "enum State: Str { Seen = \"same\", Missing = \"same\" }\n",
-    "enum State: Str { Seen(Int) = \"seen\" }\n",
-    "enum State: Str { Seen = 1 }\n",
-    "enum State: Str { Upper = \"A\", Lower = \"a\" }\nlet state: Str = Upper\n",
-    "let spelling = \"ready\"\nenum State: Str { Ready = spelling }\n",
+    """enum State: Str { Seen = "seen" }
+let state: State = "seen"
+""",
+    """enum State: Int { Seen = 1 }
+""",
+    """enum State: Str { Seen }
+""",
+    """enum State: Str { Seen = "same", Missing = "same" }
+""",
+    """enum State: Str { Seen(Int) = "seen" }
+""",
+    """enum State: Str { Seen = 1 }
+""",
+    """enum State: Str { Upper = "A", Lower = "a" }
+let state: Str = Upper
+""",
+    """let spelling = "ready"
+enum State: Str { Ready = spelling }
+""",
   ] {
     let rejected = test.run_script(ctx, source)?
     {
@@ -66,9 +90,21 @@ test test_wire_enum_rejects_ambient_coercion_and_invalid_declarations { |ctx|
 
 test test_wire_enum_import_identity_and_ordinary_enum_rejection { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-imports")?
-  fp"${root}/first.xsh".write_atomic("##! First nominal state.\n## Stable wire spelling.\nexport const spelling = \"same\"\n## First state.\nexport enum State: Str { Seen = spelling }\n## Prepared state.\nexport const prepared = Seen\n")?
-  fp"${root}/second.xsh".write_atomic("##! Second nominal state.\n## Second state.\nexport enum State: Str { Seen = \"same\" }\n")?
-  let executed = test.run_script(ctx, r"""use first as a
+  fp"${root}/first.xsh".write_atomic("""##! First nominal state.
+## Stable wire spelling.
+export const spelling = "same"
+## First state.
+export enum State: Str { Seen = spelling }
+## Prepared state.
+export const prepared = Seen
+""")?
+  fp"${root}/second.xsh".write_atomic("""##! Second nominal state.
+## Second state.
+export enum State: Str { Seen = "same" }
+""")?
+  let executed = test.run_script(
+    ctx,
+    r"""use first as a
 use second as b
 let left: Any = a.Seen
 let right: Any = b.Seen
@@ -79,30 +115,53 @@ print (a.prepared == a.Seen)
 print ("same".require(a.State)? == a.Seen)
 match right { _ is a.State => print "wrong identity"; _ => print "different identity" }
 match right.require(a.State) { Err(_) => print "require rejected"; Ok(_) => print "incorrectly accepted" }
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert (executed.stdout) == ("false\n\"same\"\n\"same\"\ntrue\ntrue\ndifferent identity\nrequire rejected\n")
-  let rejected = test.run_script(ctx, "enum State { Seen }\nprint json.encode(Seen)?\n")?
+  assert executed.stdout == """false
+"same"
+"same"
+true
+true
+different identity
+require rejected
+"""
+  let rejected = test.run_script(
+    ctx,
+    """enum State { Seen }
+print json.encode(Seen)?
+""",
+  )?
   {
     let assertion_condition = ! rejected.success
     let assertion_message = rejected.stderr
     assert assertion_condition, assertion_message
   }
-  assert ("check.json-compatible" in rejected.stderr)
-  let dynamic = test.run_script(ctx, "enum State { Seen }\nlet value: Any = Seen\nprint json.encode(value)?\n")?
+  assert "check.json-compatible" in rejected.stderr
+  let dynamic = test.run_script(
+    ctx,
+    """enum State { Seen }
+let value: Any = Seen
+print json.encode(value)?
+""",
+  )?
   {
     let assertion_condition = ! dynamic.success
     let assertion_message = dynamic.stderr
     assert assertion_condition, assertion_message
   }
-  assert ("json-compatible" in dynamic.stderr)
+  assert "json-compatible" in dynamic.stderr
 }
 
 test test_wire_enum_map_values_and_missing_defaults { |ctx|
-  let executed = test.run_script(ctx, r"""enum State: Str { Seen = "seen", Missing = "missing" }
+  let executed = test.run_script(
+    ctx,
+    r"""enum State: Str { Seen = "seen", Missing = "missing" }
 type Row = {states: Map[State], note: Str = "default"}
 let raw = json.decode("{\"states\":{\"a\":\"seen\",\"b\":\"missing\"},\"note\":\"supplied\"}")?
 let row = raw.require(Row)?
@@ -112,42 +171,57 @@ let missing = json.decode("{\"states\":{\"a\":\"seen\"}}")?
 match missing.require(Row) { Err(_) => print "missing rejected"; Ok(_) => print "default incorrectly filled" }
 let invalid = json.decode("{\"states\":{\"a\":\"unknown\"},\"note\":\"supplied\"}")?
 match invalid.require(Row) { Err(failure) => print $failure.message; Ok(_) => print "unexpected success" }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert ("true\n{\"note\":\"supplied\",\"states\":{\"a\":\"seen\",\"b\":\"missing\"}}\nmissing rejected\n" in executed.stdout)
-  assert ("states[\"a\"]" in executed.stdout)
+  assert """true
+{"note":"supplied","states":{"a":"seen","b":"missing"}}
+missing rejected
+""" in executed.stdout
+  assert "states[\"a\"]" in executed.stdout
 }
 
-
 test test_wire_enum_constant_mappings_and_values { |ctx|
-  let executed = test.run_script(ctx, r"""const prefix = "rea"
+  let executed = test.run_script(
+    ctx,
+    r"""const prefix = "rea"
 const ready_text = prefix + "dy"
 enum State: Str { Ready = ready_text, Empty = "" }
 const prepared = Ready
 const packet = {state: prepared, states: [prepared, Empty]}
 print json.encode(packet)?
 print ("ready".require(State)? == prepared)
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert (executed.stdout) == ("{\"state\":\"ready\",\"states\":[\"ready\",\"\"]}\ntrue\n")
-  let duplicate = test.run_script(ctx, "const same = \"same\"\nenum State: Str { First = same, Second = \"same\" }\n")?
+  assert executed.stdout == """{"state":"ready","states":["ready",""]}
+true
+"""
+  let duplicate = test.run_script(
+    ctx,
+    """const same = "same"
+enum State: Str { First = same, Second = "same" }
+""",
+  )?
   {
     let assertion_condition = ! duplicate.success
     let assertion_message = duplicate.stderr
     assert assertion_condition, assertion_message
   }
-  assert ("check.enum-wire-mapping" in duplicate.stderr)
+  assert "check.enum-wire-mapping" in duplicate.stderr
 }
 
 test test_wire_enum_json_write_pretty_and_raw_decode { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-json-write")?
-  let executed = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Empty = "" }
+  let executed = test.run_script(
+    ctx,
+    r"""enum State: Str { Ready = "ready", Empty = "" }
 type Packet = {state: State, history: List[State]}
 proc main(destination: Path) [fs, error] {
 let packet = Packet(state: Ready, history: [Empty, Ready])
@@ -159,19 +233,32 @@ print (restored == packet)
 print json.encode(restored)?
 print ("\"ready\"" in json.encode(restored, pretty: true)?)
 }
-""", [fp"${root}/packet.json".display()])?
+""",
+    [fp"${root}/packet.json".display()],
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert (executed.stdout) == ("ready\ntrue\n{\"history\":[\"\",\"ready\"],\"state\":\"ready\"}\ntrue\n")
+  assert executed.stdout == """ready
+true
+{"history":["","ready"],"state":"ready"}
+true
+"""
 }
 
 test test_wire_enum_static_import_and_dynamic_module_load_share_identity { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-dynamic-identity")?
   let source = fp"${root}/state.xsh"
-  source.write_atomic("##! State identity fixture.\n## External state.\nexport enum State: Str { Ready = \"ready\" }\n## Prepared state.\nexport const prepared = Ready\n")?
-  let executed = test.run_script(ctx, r"""use state as model
+  source.write_atomic("""##! State identity fixture.
+## External state.
+export enum State: Str { Ready = "ready" }
+## Prepared state.
+export const prepared = Ready
+""")?
+  let executed = test.run_script(
+    ctx,
+    r"""use state as model
 type Loaded = module { export let prepared: model.State }
 proc main(source: Path) [fs, error] {
   let loaded = module.load(source)?.require(Loaded)?
@@ -179,18 +266,35 @@ proc main(source: Path) [fs, error] {
   print json.encode(loaded.prepared)?
   match loaded.prepared { model.Ready => print "same constructor" }
 }
-""", [source.display()], {XSH_MODULE_PATH: root.display()})?
+""",
+    [source.display()],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert (executed.stdout) == ("true\n\"ready\"\nsame constructor\n")
+  assert executed.stdout == """true
+"ready"
+same constructor
+"""
 }
 
 test test_wire_enum_imported_generic_records_keep_declaring_mapping { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-generic-records")?
-  fp"${root}/state.xsh".write_atomic("##! Generic state schema.\n## Stable external spelling.\nexport const spelling = \"ready\"\n## Declared state.\nexport enum State: Str { Ready = spelling, Empty = \"\" }\n## Generic packet.\nexport type Packet[T] = {state: State, values: List[T], optional: State?}\n## Concrete packet alias.\nexport type States = Packet[State]\n")?
-  let executed = test.run_script(ctx, r"""use state as model
+  fp"${root}/state.xsh".write_atomic("""##! Generic state schema.
+## Stable external spelling.
+export const spelling = "ready"
+## Declared state.
+export enum State: Str { Ready = spelling, Empty = "" }
+## Generic packet.
+export type Packet[T] = {state: State, values: List[T], optional: State?}
+## Concrete packet alias.
+export type States = Packet[State]
+""")?
+  let executed = test.run_script(
+    ctx,
+    r"""use state as model
 type Box[T] = {value: T}
 type Nested = Box[model.States]
 let raw = json.decode("{\"value\":{\"state\":\"ready\",\"values\":[\"\",\"ready\"],\"optional\":null}}")?
@@ -201,19 +305,26 @@ print json.encode(packet)?
 let invalid = json.decode("{\"value\":{\"state\":\"ready\",\"values\":[\"\",\"unknown\"],\"optional\":null}}")?
 match invalid.require(Nested) { Err(failure) => print $failure.message; Ok(_) => print "unexpected success" }
 print json.encode(invalid)?
-""", [], {XSH_MODULE_PATH: root.display()})?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert ("true\ntrue\n{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"ready\"]}}\n" in executed.stdout)
-  assert ("value.values[1]" in executed.stdout)
-  assert ("{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"unknown\"]}}" in executed.stdout)
+  assert """true
+true
+{"value":{"optional":null,"state":"ready","values":["","ready"]}}
+""" in executed.stdout
+  assert "value.values[1]" in executed.stdout
+  assert "{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"unknown\"]}}" in executed.stdout
 }
 
-
 test test_wire_enum_strings_preserve_case_escapes_and_unicode { |ctx|
-  let executed = test.run_script(ctx, r"""enum State: Str { Upper = "Ready", Lower = "ready", Escaped = "\0\\\"日本語" }
+  let executed = test.run_script(
+    ctx,
+    r"""enum State: Str { Upper = "Ready", Lower = "ready", Escaped = "\0\\\"日本語" }
 let values = [Upper, Lower, Escaped]
 let encoded = json.encode(values)?
 let decoded = json.decode(encoded)?
@@ -222,16 +333,24 @@ print ("Ready".require(State)? == Upper)
 print ("ready".require(State)? == Lower)
 match "READY".require(State) { Err(_) => print "case rejected"; Ok(_) => print "unexpected success" }
 print (json.encode(decoded.require(List[State])?)? == encoded)
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert (executed.stdout) == ("true\ntrue\ntrue\ncase rejected\ntrue\n")
+  assert executed.stdout == """true
+true
+true
+case rejected
+true
+"""
 }
 
 test test_wire_enum_typed_map_values_preserve_key_domains { |ctx|
-  let executed = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Empty = "" }
+  let executed = test.run_script(
+    ctx,
+    r"""enum State: Str { Ready = "ready", Empty = "" }
 const prepared: Map[Int, State] = {[1]: Ready, [2]: Empty}
 print (prepared.get(1)? == Ready)
 let source: Map[Int, Str] = {[1]: "ready", [2]: ""}
@@ -252,14 +371,23 @@ let converted = flags.require(Map[Bool, State])?
 print (converted.get(false)? == Ready)
 let actual: Any = source
 match actual { _ is Map[UInt, State] => print "unexpected type conversion"; _ => print "actual values checked" }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  assert ("true\ntrue\n[\"ready\",\"\"]\nnon-Str JSON keys rejected\nraw keys rejected\n" in executed.stdout)
-  assert ("UInt key" in executed.stdout)
-  assert ("unknown wire string" in executed.stdout)
-  assert ("$[2]" in executed.stdout)
-  assert ("true\ntrue\nactual values checked\n" in executed.stdout)
+  assert """true
+true
+["ready",""]
+non-Str JSON keys rejected
+raw keys rejected
+""" in executed.stdout
+  assert "UInt key" in executed.stdout
+  assert "unknown wire string" in executed.stdout
+  assert "$[2]" in executed.stdout
+  assert """true
+true
+actual values checked
+""" in executed.stdout
 }

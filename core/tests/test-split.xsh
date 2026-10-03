@@ -16,7 +16,6 @@ b""" in fp"${root}/chunk-aa".read_text()?
   assert "c" in fp"${root}/chunk-ab".read_text()?
 }
 
-
 test test_split_bytes_clamps_final_chunk { |ctx|
   let root = test.temp_dir(ctx, name: "split-bytes")?
   let input = fp"${root}/input.bin"
@@ -39,5 +38,5 @@ test test_split_bytes_large_count_preserves_entire_input { |ctx|
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/split.xsh" -- -b 9223372036854775807 $input $prefix ?
 
   assert fp"${root}/chunk-aa".read_bytes()? == b"abcdefg"
-  assert !fp"${root}/chunk-ab".exists()?
+  assert ! fp"${root}/chunk-ab".exists()?
 }

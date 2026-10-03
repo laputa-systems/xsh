@@ -1,3 +1,3 @@
 test test_cpu_count {
-  assert (cpu.count() > 0)
+  assert cpu.count() > 0
 }

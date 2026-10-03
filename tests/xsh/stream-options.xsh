@@ -1,5 +1,7 @@
 test test_stream_options_preserve_stage_entry_and_pull_timing { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 stream numbers() [] -> Stream[Int] {
   print "pull:1"
   yield 1
@@ -19,16 +21,29 @@ proc main() [] {
   let empty = numbers() |> take(0) |> par-map(jobs: jobs()) { |item| item }
   print empty.len()
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("create\npull:1\nmap:1\npull:2\nmap:2\nclose\njobs\n2\njobs\n0\n")
+  assert output.stdout == """create
+pull:1
+map:1
+pull:2
+map:2
+close
+jobs
+2
+jobs
+0
+"""
 }
 
 test test_stream_options_preserve_positional_order_and_failure_before_pull { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 stream numbers() [] -> Stream[Int] { print "pull"; yield 1 }
 proc argument(label: Str, value: Int) [] -> Int { print $label; return value }
 proc descending() [error] -> Bool {
@@ -41,17 +56,24 @@ proc main() [error] {
   print values.len()
   let _ = numbers() |> sort-by(desc: descending()) { |item| item }
 }
-""")?
+""",
+  )?
   {
     let assertion_condition = ! output.success
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("start\nend\n2\ndesc\n")
+  assert output.stdout == """start
+end
+2
+desc
+"""
 }
 
 test test_stream_named_options_cover_defaults_modes_and_combined_limits { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc flag(label: Str, value: Bool) [] -> Bool { print $label; return value }
 proc number(label: Str, value: Int) [] -> Int { print $label; return value }
 proc main() [error] {
@@ -75,16 +97,35 @@ proc main() [error] {
   let dynamic = [1, 2] |> reduce-by(jobs: number("jobs", 1), max: flag("max", false), sum: flag("sum", true)) { |item| {key: "all", value: item} }
   print (dynamic.get("all") ?? 0)
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("2\n1\n3\n1\n2\n1\n2\n2\n1\n3\n1\n2\njobs\nmax\nsum\n3\n")
+  assert output.stdout == """2
+1
+3
+1
+2
+1
+2
+2
+1
+3
+1
+2
+jobs
+max
+sum
+3
+"""
 }
 
 test test_stream_named_positionals_preserve_source_order_and_spread_once { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc number(label: Str, value: Int) [] -> Int { print $label; return value }
 type Bounds = {start: Int, end: Int}
 proc bounds() [] -> Bounds { print "bounds"; return {start: 1, end: 3} }
@@ -101,13 +142,27 @@ proc main() [error] {
   print ${([1, 2] |> shuffle(seed: 1)).len()}
   [{name: "row"}] |> table.print(columns: ["name"])
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert ("end\nstart\n2\nbounds\n2\n1\n2\n4\n2\n3\n3\n3\n2\n" in output.stdout)
-  assert ("row" in output.stdout)
+  assert """end
+start
+2
+bounds
+2
+1
+2
+4
+2
+3
+3
+3
+2
+""" in output.stdout
+  assert "row" in output.stdout
 }
 
 test test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread { |ctx|
@@ -138,7 +193,7 @@ test test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread { |
       assert assertion_condition, assertion_message
     }
     {
-      let assertion_condition = ("unsupported-indexed" not in output.stderr)
+      let assertion_condition = "unsupported-indexed" not in output.stderr
       let assertion_message = output.stderr
       assert assertion_condition, assertion_message
     }
@@ -146,7 +201,9 @@ test test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread { |
 }
 
 test test_stream_named_options_preserve_materialization_and_live_cleanup { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 stream rows() [] -> Stream[Row] { defer { print "close" }; print "pull"; yield {name: "row"} }
 type Row = {name: Str}
 proc direction() [] -> Bool { print "desc"; return true }
@@ -158,27 +215,41 @@ proc main() [] {
   let _ = [1, 2] |> shuffle
   [{name: "row"}] |> table.print
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert ("desc\ncolumns\npull\nclose\n" in output.stdout)
-  assert ("row" in output.stdout)
-  let failure = test.run_script(ctx, r"""
+  assert """desc
+columns
+pull
+close
+""" in output.stdout
+  assert "row" in output.stdout
+  let failure = test.run_script(
+    ctx,
+    r"""
 stream values() [] -> Stream[Int] { defer { print "close" }; print "pull"; yield 1; print "later"; yield 2 }
 proc direction() [] -> Bool { print "desc"; return true }
 proc main() [] { let _ = values() |> sort(desc: direction()) }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = failure
     assert assertion_condition, assertion_message
   }
-  assert (failure.stdout) == ("pull\nlater\nclose\ndesc\n")
+  assert failure.stdout == """pull
+later
+close
+desc
+"""
 }
 
 test test_stream_named_spreads_bind_each_configuration_role { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc main() [] {
   let workers = {jobs: 1}
   let descending = {desc: true}
@@ -202,29 +273,39 @@ proc main() [] {
   let _ = [1, 2] |> shuffle(...{seed: 1})
   [{name: "row"}] |> table.print(...{columns: ["name"]})
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert ("2\n3\n3\n" in output.stdout)
-  assert ("row" in output.stdout)
+  assert """2
+3
+3
+""" in output.stdout
+  assert "row" in output.stdout
 }
 
 test test_stream_dynamic_modes_and_combined_batch_failure_preserve_cleanup { |ctx|
-  let modes = test.run_script(ctx, r"""
+  let modes = test.run_script(
+    ctx,
+    r"""
 stream numbers() [] -> Stream[Int] { print "pull"; yield 1 }
 proc disabled() [] -> Bool { print "mode"; return false }
 proc main() [] { let _ = numbers() |> reduce-by(sum: disabled()) { |item| {key: "all", value: item} } }
-""")?
+""",
+  )?
   {
     let assertion_condition = ! modes.success
     let assertion_message = modes.stderr
     assert assertion_condition, assertion_message
   }
-  assert (modes.stdout) == ("mode\n")
-  assert ("stream-reduce-mode" in modes.stderr)
-  let batches = test.run_script(ctx, r"""
+  assert modes.stdout == """mode
+"""
+  assert "stream-reduce-mode" in modes.stderr
+  let batches = test.run_script(
+    ctx,
+    r"""
 stream words() [] -> Stream[Str] {
   defer { print "close" }
   print "pull"
@@ -233,26 +314,32 @@ stream words() [] -> Stream[Str] {
   yield "a"
 }
 proc main() [] { let _ = words() |> batch(count: 2, max_bytes: 2, max_argv: true) }
-""")?
+""",
+  )?
   {
     let assertion_condition = ! batches.success
     let assertion_message = batches.stderr
     assert assertion_condition, assertion_message
   }
-  assert (batches.stdout) == ("pull\nclose\n")
-  assert ("argv-limit" in batches.stderr)
+  assert batches.stdout == """pull
+close
+"""
+  assert "argv-limit" in batches.stderr
 }
 
 test test_stream_option_migration_is_fatal_and_tooling_fix_is_narrow { |ctx|
-  let source = "# café\nlet values = [1, 2] |> par-map --jobs=2 { |item| item + 1 } # keep\nprint values.len()\n"
+  let source = """# café
+let values = [1, 2] |> par-map --jobs=2 { |item| item + 1 } # keep
+print values.len()
+"""
   let rejected = test.run_script(ctx, source)?
   {
     let assertion_condition = ! rejected.success
     let assertion_message = rejected.stderr
     assert assertion_condition, assertion_message
   }
-  assert (rejected.stdout) == ("")
-  assert ("parse.stream-option-migration" in rejected.stderr)
+  assert rejected.stdout == ""
+  assert "parse.stream-option-migration" in rejected.stderr
   let candidate = test.temp_file(ctx, name: "stage-option-migration.xsh", contents: bytes.from_text(source))?
   let diagnosed = run.capture --text "xsht" lint $candidate ?
   {
@@ -267,29 +354,44 @@ test test_stream_option_migration_is_fatal_and_tooling_fix_is_narrow { |ctx|
     assert assertion_condition, assertion_message
   }
   let fixed = candidate.read_text()?
-  assert (fixed) == (source.replace("--jobs=2", "(jobs: 2)"))
+  assert fixed == source.replace("--jobs=2", "(jobs: 2)")
   let output = test.run_script(ctx, fixed)?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("2\n")
+  assert output.stdout == """2
+"""
   let _ = run.capture --text "xsht" lint --fix $candidate ?
-  assert (candidate.read_text()?) == (fixed)
-  let external = test.run_script(ctx, "proc main() [process, error] { run printf \"%s\\n\" --jobs --desc --max-bytes ? }")?
+  assert candidate.read_text()? == fixed
+  let external = test.run_script(
+    ctx,
+    "proc main() [process, error] { run printf \"%s\\n\" --jobs --desc --max-bytes ? }",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = external
     assert assertion_condition, assertion_message
   }
-  assert (external.stdout) == ("--jobs\n--desc\n--max-bytes\n")
+  assert external.stdout == """--jobs
+--desc
+--max-bytes
+"""
 }
 
 test test_stream_option_migration_refuses_comments_and_unrelated_errors { |ctx|
   for source in [
-    "let values = [1] |> reduce-by --sum # preserve\n --jobs=1 { |item| {key: \"all\", value: item} }\nprint values.len()\n",
-    "let values = [1] |> par-map --jobs=2 { |item| missing + item }\nprint values.len()\n",
-    "let values = [1] |> par-map --jobs=2 { |item| item }\nlet broken = (\n",
-    "let values = [1] |> sort-by --desc (.size)\n",
+    """let values = [1] |> reduce-by --sum # preserve
+ --jobs=1 { |item| {key: "all", value: item} }
+print values.len()
+""",
+    """let values = [1] |> par-map --jobs=2 { |item| missing + item }
+print values.len()
+""",
+    """let values = [1] |> par-map --jobs=2 { |item| item }
+let broken = (
+""",
+    """let values = [1] |> sort-by --desc (.size)
+""",
   ] {
     let candidate = test.temp_file(ctx, name: "stage-option-no-fix.xsh", contents: bytes.from_text(source))?
     let refused = run.capture --text "xsht" lint --fix $candidate ?
@@ -298,7 +400,7 @@ test test_stream_option_migration_refuses_comments_and_unrelated_errors { |ctx|
       let assertion_message = refused.stderr
       assert assertion_condition, assertion_message
     }
-    assert (candidate.read_text()?) == (source)
+    assert candidate.read_text()? == source
     assert refused.stderr != "", "diagnostics must remain visible"
   }
 }

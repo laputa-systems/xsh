@@ -30,11 +30,11 @@ test test_shlex_join_quotes_each_argument_independently {
   assert shlex.join(["a", "b"]) == "a b"
   assert shlex.join(["install", "two words", "can't"]) == "install 'two words' 'can'\\''t'"
   assert shlex.join(
-  [
+    [
   """a
 b""",
   "c",
 ],
-) == """'a
+  ) == """'a
 b' c"""
 }

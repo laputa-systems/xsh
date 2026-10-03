@@ -1,5 +1,7 @@
 test test_bare_blocks_preserve_values_and_cleanup { |ctx|
-  let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
+  let output = test.run_script(
+    ctx,
+    """proc mark(message: Str) [] { print $message }
 var count = 0
 {
   let increment = 1
@@ -14,28 +16,37 @@ let negative = { false }
 let grouped = { (answer) }
 let shorthand = {answer}
 print \${answer} \${negative} \${grouped} \${shorthand.answer}
-""")?
+""",
+  )?
   assert output.success
-  assert output.stdout == "statement cleanup\nvalue cleanup\n42 false 42 42\n"
+  assert output.stdout == """statement cleanup
+value cleanup
+42 false 42 42
+"""
 }
 
 test test_bare_statement_blocks_assert_false { |ctx|
-  let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
+  let output = test.run_script(
+    ctx,
+    """proc mark(message: Str) [] { print $message }
 {
   defer mark("cleanup")
   assert false
 }
 
 print unreachable
-""")?
+""",
+  )?
   assert ! output.success
-  assert output.stdout == "cleanup\n"
+  assert output.stdout == """cleanup
+"""
   assert "assertion" in output.stderr
 }
 
-
 pure lexical_tail() -> Bool {
-  { false }
+  {
+    false
+  }
 }
 
 test test_bare_value_tail_preserves_false {
@@ -43,7 +54,9 @@ test test_bare_value_tail_preserves_false {
 }
 
 test test_bare_blocks_preserve_lexical_transfers { |ctx|
-  let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
+  let output = test.run_script(
+    ctx,
+    """proc mark(message: Str) [] { print $message }
 proc answer() [error] -> Int {
   {
     defer mark("return cleanup")
@@ -63,14 +76,23 @@ proc visit() [error] {
 }
 print \${answer()}
 visit()
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "return cleanup\n7\n1\nloop cleanup\nloop cleanup\nloop cleanup\n"
+  assert output.stdout == """return cleanup
+7
+1
+loop cleanup
+loop cleanup
+loop cleanup
+"""
 }
 
 test test_bare_blocks_preserve_literal_and_callable_tails { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 pure calculated() -> Int { 9 }
 type Row = {value: Int}
 pure row() -> Row { {value: 3} }
@@ -82,40 +104,57 @@ let called = { calculated() }
 let selected = { let value = 5; {value} }
 let indexed = { [6][0] }
 print ${empty.len()} ${named.if} ${updated.get("next")?} ${called} ${selected.value} ${indexed} ${row().value}
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "0 1 4 9 5 6 3\n"
+  assert output.stdout == """0 1 4 9 5 6 3
+"""
 }
 
 test test_bare_blocks_keep_checker_and_result_boundaries { |ctx|
   for source in [
-    "{ let hidden = 1 }\nprint $hidden\n",
-    "let value = { |input| input }\n",
-    "{ Ok(7) }\nprint unreachable\n",
-    "{ break }\n",
-    "{ continue }\n",
+    """{ let hidden = 1 }
+print $hidden
+""",
+    """let value = { |input| input }
+""",
+    """{ Ok(7) }
+print unreachable
+""",
+    """{ break }
+""",
+    """{ continue }
+""",
   ] {
     let output = test.run_script(ctx, source)?
     let rejected = ! output.success
     let rejection_details = source + output.stderr
     assert rejected, rejection_details
   }
-  let output = test.run_script(ctx, r"""
+
+  let output = test.run_script(
+    ctx,
+    r"""
 error BlockError = Failed(message: Str)
 pure failed() -> Result[Unit, BlockError] { Err(BlockError.Failed(message: "identity")) }
 let captured = try { { failed()? }; "unreachable" }
 print ${captured ?? {|failure| failure.message}}
 let data = { Err(BlockError.Failed(message: "data")) }
 print ${data ?? {|failure| failure.message}}
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "identity\ndata\n"
+  assert output.stdout == """identity
+data
+"""
 }
 
 test test_bare_blocks_run_cleanup_before_exposing_values { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc mark(message: Str) [] { print $message }
 error BlockError = Failed(message: Str)
 pure failed() -> Result[Unit, BlockError] { Err(BlockError.Failed(message: "cleanup failure")) }
@@ -126,10 +165,13 @@ let captured = try { { defer failed()?; "value" } }
 print ${captured ?? {|failure| failure.message}}
 let primary = try { { defer failed()?; assert false }; "value" }
 print ${primary ?? {|failure| failure.message}}
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert "1 2\ncleanup failure\n" in output.stdout
+  assert """1 2
+cleanup failure
+""" in output.stdout
   assert "assertion" in output.stdout
 }
 
@@ -170,9 +212,14 @@ print $selected
 
 test test_lexical_block_lint_declines_changed_value_and_comment_boundaries { |ctx|
   for source in [
-    "if true # condition rationale\n{ let value = 1; print $value }\n",
-    "if true { print yes } else { print no }\n",
-    "let value = if true { 7 } else { 8 }\nprint $value\n",
+    """if true # condition rationale
+{ let value = 1; print $value }
+""",
+    """if true { print yes } else { print no }
+""",
+    """let value = if true { 7 } else { 8 }
+print $value
+""",
   ] {
     let candidate = test.temp_file(ctx, name: "lexical-block-no-fix.xsh", contents: bytes.from_text(source))?
     let inspected = run.capture --text "xsht" lint $candidate ?
@@ -186,7 +233,9 @@ test test_lexical_block_lint_declines_changed_value_and_comment_boundaries { |ct
 }
 
 test test_bare_blocks_preserve_stream_cancellation_cleanup { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 stream values() [] -> Stream[Int] {
   defer { print outer }
   {
@@ -197,16 +246,25 @@ stream values() [] -> Stream[Int] {
 }
 for value in values() { print $value; break }
 print done
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "1\ninner\nouter\ndone\n"
+  assert output.stdout == """1
+inner
+outer
+done
+"""
 }
 
 test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions { |ctx|
   let root = test.temp_dir(ctx, name: "lexical-module")?
   let module_path = fp"${root}/invalid.xsh"
-  module_path.write("##! Invalid executable module.\n{ print forbidden }\n## Exported name.\nexport let name = \"invalid\"\n")?
+  module_path.write("""##! Invalid executable module.
+{ print forbidden }
+## Exported name.
+export let name = "invalid"
+""")?
   let source = f"""
     let _ = module.load(p\"${module_path.display()}\")?
 
@@ -219,7 +277,13 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions { |ctx|
   let load_silent = "forbidden" not in loaded.stdout
   let load_stdout = loaded.stdout
   assert load_silent, load_stdout
-  let imported = test.run_script(ctx, "use invalid\n", [], {XSH_MODULE_PATH: root.display()})?
+  let imported = test.run_script(
+    ctx,
+    """use invalid
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
   let import_rejected = ! imported.success
   let import_details = imported.stderr
   assert import_rejected, import_details
@@ -227,7 +291,11 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions { |ctx|
   let import_silent = "forbidden" not in imported.stdout
   let import_stdout = imported.stdout
   assert import_silent, import_stdout
-  let bare = test.run_script(ctx, "{ 7 }\n")?
+  let bare = test.run_script(
+    ctx,
+    """{ 7 }
+""",
+  )?
   let succeeded = bare.success
   let failure_details = f"bare status=${bare.status}: ${bare.stderr}"
   assert succeeded, failure_details
@@ -239,10 +307,14 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions { |ctx|
 
 test test_bare_statement_discard_preserves_callable_return_contracts { |ctx|
   for source in [
-    "pure value() -> Unit { 7 }\n",
-    "pure value() -> Unit { { 7 } }\n",
-    "proc value() [] -> Unit { 7 }\n",
-    "proc value() [] -> Unit { { 7 } }\n",
+    """pure value() -> Unit { 7 }
+""",
+    """pure value() -> Unit { { 7 } }
+""",
+    """proc value() [] -> Unit { 7 }
+""",
+    """proc value() [] -> Unit { { 7 } }
+""",
   ] {
     let output = test.run_script(ctx, source)?
     let {success: succeeded, stderr: diagnostics, ..} = output
@@ -250,14 +322,23 @@ test test_bare_statement_discard_preserves_callable_return_contracts { |ctx|
     let wrong_return = "expected Unit, found Int" in diagnostics
     assert wrong_return, diagnostics
   }
-  let output = test.run_script(ctx, "proc value() [] { { 7 }; print retained }\nvalue()\n")?
+
+  let output = test.run_script(
+    ctx,
+    """proc value() [] { { 7 }; print retained }
+value()
+""",
+  )?
   let {success: succeeded, stderr: diagnostics, stdout: written, ..} = output
   assert succeeded, diagnostics
-  assert written == "retained\n"
+  assert written == """retained
+"""
 }
 
 test test_bare_block_resource_escape_keeps_explicit_cleanup_validity { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 let live = { fs.tempdir()? }
 print ${live.exists(p".")?}
 live.close()?
@@ -268,10 +349,13 @@ let closed = {
 }
 let inspected = closed.exists(p".")
 print ${inspected ?? false}
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "true\nfalse\n"
+  assert output.stdout == """true
+false
+"""
 }
 
 test test_bare_block_grep_and_refactor_preserve_literal_distinctions { |ctx|
@@ -307,15 +391,20 @@ print $answer ${row.answer}
   let checked = test.run_script(ctx, fixed)?
   let {success: checked_succeeded, stderr: checked_failure_details, ..} = checked
   assert checked_succeeded, checked_failure_details
-  assert checked.stdout == "9 9\n"
+  assert checked.stdout == """9 9
+"""
 }
 
 test test_bare_blocks_preserve_implicit_stream_item_values { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 let selected = [{value: 7}] |> map { { .value } }
 print ${selected[0]}
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "7\n"
+  assert output.stdout == """7
+"""
 }

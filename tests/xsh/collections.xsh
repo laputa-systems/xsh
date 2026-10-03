@@ -15,7 +15,7 @@ test test_list_comprehension_with_guard_filters_elements {
 test test_list_comprehension_guard_can_produce_empty_list {
   let nums = [1, 3, 5]
   let evens = [x for x in nums if x % 2 == 0]
-  assert evens |> count() == 0
+  assert (evens |> count()) == 0
 }
 
 test test_list_comprehension_with_record_destructuring {
@@ -154,7 +154,8 @@ proc main() [io] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "2,3,10\n"
+  assert output.stdout == """2,3,10
+"""
 }
 
 test test_multi_clause_map_comprehension_later_entries_win {
@@ -189,7 +190,12 @@ proc main() [io] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n"
+  assert output.stdout == """iter 1
+value 1:1
+iter 3
+value 3:1
+2
+"""
 }
 
 test test_multi_clause_comprehension_pulls_streams_lazily_and_closes { |ctx|
@@ -216,7 +222,16 @@ proc main() [io] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n"
+  assert output.stdout == """pull outer:1
+pull inner:1
+value 1:1
+pull inner:2
+value 1:2
+close inner
+pull outer:2
+close outer
+2
+"""
 }
 
 test test_multi_clause_comprehension_failure_closes_nested_streams { |ctx|
@@ -242,12 +257,20 @@ proc main() [io, error] {
 """,
   )?
   assert ! output.success
-  assert output.stdout == "pull outer:1\npull inner:1\nclose inner\nclose outer\n"
+  assert output.stdout == """pull outer:1
+pull inner:1
+close inner
+close outer
+"""
   assert "failure" in output.stderr
 }
 
 test test_multi_clause_comprehension_rejects_forward_bindings { |ctx|
-  let output = test.run_script(ctx, "let values = [inner for outer in [1] if inner == 1 for inner in [outer]]\n")?
+  let output = test.run_script(
+    ctx,
+    """let values = [inner for outer in [1] if inner == 1 for inner in [outer]]
+""",
+  )?
   assert ! output.success
   assert "inner" in output.stderr
 }
@@ -293,7 +316,10 @@ proc main() [io, error] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "close inner\nclose outer\nfailure\n"
+  assert output.stdout == """close inner
+close outer
+failure
+"""
 }
 
 pure list_splice_default(values = [1, @[2, 3]]) -> List[Int] {
@@ -319,9 +345,10 @@ test test_list_literal_splicing_preserves_types_nesting_and_aliases {
   let inferred = [@[], 8, @[]]
   assert inferred == [8]
   let typed = [
-    @(
-      [1, 2]
-    ),
+    @[
+      1,
+      2,
+    ],
     3,
   ]
   assert typed == [1, 2, 3]
@@ -349,7 +376,12 @@ print result.len()
   )?
   let {success: succeeded, stderr: failure_details, ..} = result
   assert succeeded, failure_details
-  assert result.stdout == "item 1\nsplice 2\nitem 4\nsplice 5\n6\n"
+  assert result.stdout == """item 1
+splice 2
+item 4
+splice 5
+6
+"""
 }
 
 test test_list_literal_splicing_propagates_before_later_elements { |ctx|
@@ -372,18 +404,29 @@ print values.len()
   let rejection_details = result.stderr
   assert rejected, rejection_details
   assert "stop building" in result.stderr
-  assert result.stdout == "item 1\nflags\n"
+  assert result.stdout == """item 1
+flags
+"""
 }
 
 test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements { |ctx|
   for source in [
-    "let value = [@\"text\"]\n",
-    "let value = [@b\"bytes\"]\n",
-    "let value = [@map.empty()]\n",
-    "let value = [@Ok([1])]\n",
-    "let items: Any = [1]\nlet value = [@items]\n",
-    "stream rows() -> Stream[Int] { yield 1 }\nlet value = [@rows()]\n",
-    "let value = [1, @[\"wrong\"]]\n",
+    """let value = [@"text"]
+""",
+    """let value = [@b"bytes"]
+""",
+    """let value = [@map.empty()]
+""",
+    """let value = [@Ok([1])]
+""",
+    """let items: Any = [1]
+let value = [@items]
+""",
+    """stream rows() -> Stream[Int] { yield 1 }
+let value = [@rows()]
+""",
+    """let value = [1, @["wrong"]]
+""",
   ] {
     let result = test.run_script(ctx, source)?
     let rejected = ! result.success
@@ -391,7 +434,12 @@ test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements { |c
     assert rejected, rejection_details
     assert "check." in result.stderr
   }
-  let ambiguous = test.run_script(ctx, "let value = [@[1] for x in [2]]\n")?
+
+  let ambiguous = test.run_script(
+    ctx,
+    """let value = [@[1] for x in [2]]
+""",
+  )?
   let rejected = ! ambiguous.success
   let rejection_details = ambiguous.stderr
   assert rejected, rejection_details
@@ -400,13 +448,15 @@ test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements { |c
 
 test test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv {
   let loaded = Ok(["-O2", "-g"])
-  let argv = ["cc", @(loaded?), "-o", "app"]
+  let argv = ["cc", @loaded?, "-o", "app"]
   let _ = process.command_argv("true", ["true", @argv])
   assert argv == ["cc", "-O2", "-g", "-o", "app"]
 }
 
 test test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 error FixtureError = Failure(message: Str)
 stream numbers(label: Str) [io] -> Stream[Int] {
   defer { print f"close ${label}" }
@@ -429,8 +479,14 @@ proc main() [io, error] {
     Err(FixtureError.Failure {message}) => print $message
   }
 }
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  assert output.stdout == "close inner\nclose outer\nblock\nfunction\nfailure\n"
+  assert output.stdout == """close inner
+close outer
+block
+function
+failure
+"""
 }

@@ -4,10 +4,10 @@ test test_path_absolute {
 }
 
 test test_membership_operator_supports_strings_lists_bytes_and_paths {
-  assert ("lib" in "usr/lib/libz.so")
-  assert ("libz.so" in ["libz.so", "libc.so"])
-  assert (b"TODO" in b"one TODO two")
-  assert (p"usr/lib" in p"usr/lib/libz.so")
+  assert "lib" in "usr/lib/libz.so"
+  assert "libz.so" in ["libz.so", "libc.so"]
+  assert b"TODO" in b"one TODO two"
+  assert p"usr/lib" in p"usr/lib/libz.so"
   assert (p"bin" in p"usr/lib/libz.so") == false
 }
 
@@ -37,7 +37,7 @@ test test_path_methods { |ctx|
   assert file.resolve()?.display().ends_with("file.txt")
   assert file.exists()?
   assert ! file.executable()?
-  assert (file.du()? >= 0)
+  assert file.du()? >= 0
   assert file.metadata()?.kind == "file"
   file.chmod(0o600)?
   file.truncate(2)?
@@ -87,7 +87,7 @@ name"""
   let meta = spaced.metadata()?
   assert path_entry_name(meta) == "space name"
   let raw_path = Path.parse_bytes(b"bad\xffname")?
-  assert ("bad" in raw_path.display())
+  assert "bad" in raw_path.display()
 
   let raw = test.run_script(
     ctx,
@@ -140,10 +140,13 @@ test test_path_interpolation_retains_native_bytes_and_text_boundaries { |ctx|
   assert fp"${raw:>12}" == Path.parse_bytes(b"   raw\xff name")?
   assert f"${raw}" == raw.display()
   assert fp"${raw.display()}" != raw
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 let raw = Path.parse_bytes(b"raw\xff name/'\"")?
 run printf "%s" "--target=$raw" ?
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
@@ -152,7 +155,9 @@ run printf "%s" "--target=$raw" ?
 }
 
 test test_path_text_conversions_remain_distinct_from_native_arguments { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 let raw = Path.parse_bytes(b"raw\xff name")?
 run printf "%s\n" "--target=${raw.display()}" ?
 run printf "%s\n" f"${raw.display()}" ?
@@ -160,40 +165,59 @@ run printf "%s\n" f"${raw}" ?
 run printf "%s\n" (Path(raw.display())) ?
 run printf "%s\n" (Path(f"${raw}/child")) ?
 run printf "%s\n" (raw) ?
-""")?
+""",
+  )?
   assert output.success
   assert output.stdout_bytes == b"--target=raw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name/child\nraw\xff name\n"
 }
 
 test test_path_interpolation_rejects_nul_and_keeps_effect_order { |ctx|
-  let failed = test.run_script(ctx, r"""
+  let failed = test.run_script(
+    ctx,
+    r"""
 let text = "\0"
 let invalid = fp"prefix/${text}"
 print "unexpected"
-""")?
-  assert !failed.success
+""",
+  )?
+  assert ! failed.success
   assert "NUL" in failed.stderr
-  let argv_failed = test.run_script(ctx, r"""
+  let argv_failed = test.run_script(
+    ctx,
+    r"""
 let text = "\0"
 run printf "%s" "value=$text" ?
-""")?
-  assert !argv_failed.success
+""",
+  )?
+  assert ! argv_failed.success
   assert "NUL" in argv_failed.stderr
   assert argv_failed.stdout_bytes == b""
-  let bytes_failed = test.run_script(ctx, r"""
+  let bytes_failed = test.run_script(
+    ctx,
+    r"""
 let invalid = fp"${b"raw"}"
-""")?
-  assert !bytes_failed.success
+""",
+  )?
+  assert ! bytes_failed.success
   assert "display" in bytes_failed.stderr
-  let ordered = test.run_script(ctx, r"""
+  let ordered = test.run_script(
+    ctx,
+    r"""
 proc piece(label: Str) [io] -> Path { print --flush $label; return Path(label) }
 let result = fp"${piece("first")}/${piece("second")}/../last"
 print --flush $result
 run printf "%s\n" "${piece("third")}/${piece("fourth")}" ?
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = ordered
     assert assertion_condition, assertion_message
   }
-  assert ordered.stdout == "first\nsecond\nfirst/second/../last\nthird\nfourth\nthird/fourth\n"
+  assert ordered.stdout == """first
+second
+first/second/../last
+third
+fourth
+third/fourth
+"""
 }

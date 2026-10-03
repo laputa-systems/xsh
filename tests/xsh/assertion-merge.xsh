@@ -1,5 +1,7 @@
 test test_assertion_forms_share_nominal_capture_inference { |ctx|
-  let output = test.run_script(ctx, r"""pure checked(failure: AssertionError) -> AssertionError { failure }
+  let output = test.run_script(
+    ctx,
+    r"""pure checked(failure: AssertionError) -> AssertionError { failure }
 pure captured() -> Result[Unit, AssertionError] {
   try { assert false, "private capture" }
 }
@@ -15,7 +17,8 @@ for result in [bare, explicit, chain, captured()] {
     Ok(_) => print "unexpected"
   }
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
   assert "false" in output.stdout
   assert "explicit context" in output.stdout
@@ -25,7 +28,9 @@ for result in [bare, explicit, chain, captured()] {
 }
 
 test test_assertion_nominal_filter_runs_attempt_cleanup { |ctx|
-  let output = test.run_script(ctx, r"""var attempts = 0
+  let output = test.run_script(
+    ctx,
+    r"""var attempts = 0
 proc attempt() -> Int { attempts += 1; attempts }
 proc cleanup() [io] -> Unit { print "cleaned" }
 let result: Result[Unit, AssertionError] = retry [0ms] on (AssertionError) {
@@ -34,13 +39,20 @@ let result: Result[Unit, AssertionError] = retry [0ms] on (AssertionError) {
 }
 match result { Ok(_) => print "done"; Err(_) => print "unexpected" }
 print $attempts
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "cleaned\ncleaned\ndone\n2\n"
+  assert output.stdout == """cleaned
+cleaned
+done
+2
+"""
 }
 
 test test_assertion_message_failure_keeps_its_nominal_type { |ctx|
-  let output = test.run_script(ctx, r"""error MessageError = Failed(message: Str)
+  let output = test.run_script(
+    ctx,
+    r"""error MessageError = Failed(message: Str)
 proc message() [error, io] -> Result[Str, MessageError] {
   print "message"
   Err(MessageError.Failed(message: "message failure"))
@@ -57,13 +69,20 @@ match failure {
   Err(AssertionError.Failed {message}) => print f"unexpected assertion: $message"
   _ => print "unexpected"
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "message\ncleaned\npassed\nmessage failure\n"
+  assert output.stdout == """message
+cleaned
+passed
+message failure
+"""
 }
 
 test test_membership_assertions_preserve_typed_map_key_domains { |ctx|
-  let output = test.run_script(ctx, r"""let integers: Map[Int, Str] = {[1]: "one"}
+  let output = test.run_script(
+    ctx,
+    r"""let integers: Map[Int, Str] = {[1]: "one"}
 let flags: Map[Bool, Int] = {[true]: 1}
 let delays: Map[Duration, Int] = {[3ms]: 1}
 let paths: Map[Path, Int] = {[p"src"]: 1}
@@ -79,28 +98,47 @@ assert "present" in fields
 assert "present" in erased
 assert "absent" not in erased
 print "checked"
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "checked\n"
+  assert output.stdout == """checked
+"""
   for statement in ["let _ = \"bad\" in values", "assert \"bad\" in values, \"key\"", "values.has(\"bad\")"] {
-    let invalid = test.run_script(ctx, "let values: Map[Int, Str] = {[1]: \"one\"}\n" + statement + "\n")?
+    let invalid = test.run_script(
+      ctx,
+      """let values: Map[Int, Str] = {[1]: "one"}
+""" + statement + "\n",
+    )?
     assert invalid.status == 2, invalid.stderr
     assert "check.type-mismatch" in invalid.stderr
     assert "Int" in invalid.stderr
   }
-  let removed = test.run_script(ctx, "let values: Map[Int, Str] = {[1]: \"one\"}\nvalues.has(1)\n")?
+
+  let removed = test.run_script(
+    ctx,
+    """let values: Map[Int, Str] = {[1]: "one"}
+values.has(1)
+""",
+  )?
   assert removed.status == 2, removed.stderr
   assert "check.removed-membership" in removed.stderr
   assert "check.type-mismatch" not in removed.stderr, removed.stderr
 }
 
 test test_membership_assertions_accept_checked_module_exports { |ctx|
-  fp"${ctx.temp_root}/membership_merge.xsh".write("##! Provides a checked export.\n## A public field.\nexport let present = 1\n")?
-  let output = test.run_script(ctx, r"""use membership_merge
+  fp"${ctx.temp_root}/membership_merge.xsh".write("""##! Provides a checked export.
+## A public field.
+export let present = 1
+""")?
+  let output = test.run_script(
+    ctx,
+    r"""use membership_merge
 assert "present" in membership_merge.keys()
 assert "absent" not in membership_merge.keys(), "module export absence"
 print "checked"
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "checked\n"
+  assert output.stdout == """checked
+"""
 }

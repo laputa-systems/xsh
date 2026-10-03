@@ -23,7 +23,13 @@ test test_list_pattern_exact_and_trailing_rest {
 
 test test_list_pattern_nested_records_and_constructors {
   let values: List[ListEntry] = [
-    {labels: ["build", "kernel"], result: Ok(7)},
+    {
+      labels: [
+        "build",
+        "kernel",
+      ],
+      result: Ok(7),
+    },
   ]
   let selected = if let [{labels: ["build", target], result: Ok(count)}, ..rest] = values {
     let typed_rest: List[ListEntry] = rest
@@ -36,15 +42,15 @@ test test_list_pattern_nested_records_and_constructors {
 
 test test_list_pattern_mismatch_does_not_index_or_publish_bindings {
   let short = match [1] {
-    [first, 99] => first
-    [matched] => matched + 10
-    _ => 0
+    [first, 99] => first,
+    [matched] => matched + 10,
+    _ => 0,
   }
   assert short == 11
   let nested = match [[1, 2], [3]] {
-    [[first, ..tail], [99]] => first + tail.len()
-    [[first, ..tail], [last]] => first + tail.len() + last
-    _ => 0
+    [[first, ..tail], [99]] => first + tail.len(),
+    [[first, ..tail], [last]] => first + tail.len() + last,
+    _ => 0,
   }
   assert nested == 5
 }
@@ -89,11 +95,17 @@ test test_list_pattern_dynamic_elements_keep_type_narrowing {
 
 test test_list_pattern_rejects_unsupported_subjects_and_bindings { |ctx|
   for source in [
-    "let selected = match \"abc\" { [_, ..] => 1 _ => 0 }\n",
-    "let selected = match b\"abc\" { [_, ..] => 1 _ => 0 }\n",
-    "let selected = match {name: \"x\"} { [_, ..] => 1 _ => 0 }\n",
-    "let selected = match Ok([1]) { [_, ..] => 1 _ => 0 }\n",
-    "stream numbers() [] -> Stream[Int] { yield 1 }\nlet selected = match numbers() { [_, ..] => 1 _ => 0 }\n",
+    """let selected = match "abc" { [_, ..] => 1 _ => 0 }
+""",
+    """let selected = match b"abc" { [_, ..] => 1 _ => 0 }
+""",
+    """let selected = match {name: "x"} { [_, ..] => 1 _ => 0 }
+""",
+    """let selected = match Ok([1]) { [_, ..] => 1 _ => 0 }
+""",
+    """stream numbers() [] -> Stream[Int] { yield 1 }
+let selected = match numbers() { [_, ..] => 1 _ => 0 }
+""",
   ] {
     let result = test.run_script(ctx, source)?
     let rejected = ! result.success
@@ -101,9 +113,12 @@ test test_list_pattern_rejects_unsupported_subjects_and_bindings { |ctx|
     assert rejected, rejection_details
     assert "check.pattern-type" in result.stderr
   }
+
   for source in [
-    "let selected = [1, 2] is [first, _]\n",
-    "let selected = [1, 2] is [_, ..tail]\n",
+    """let selected = [1, 2] is [first, _]
+""",
+    """let selected = [1, 2] is [_, ..tail]
+""",
   ] {
     let result = test.run_script(ctx, source)?
     let rejected = ! result.success
@@ -111,7 +126,12 @@ test test_list_pattern_rejects_unsupported_subjects_and_bindings { |ctx|
     assert rejected, rejection_details
     assert "check.pattern-test-binding" in result.stderr
   }
-  let ordinary = test.run_script(ctx, "let [first, second] = [1, 2]\n")?
+
+  let ordinary = test.run_script(
+    ctx,
+    """let [first, second] = [1, 2]
+""",
+  )?
   let rejected = ! ordinary.success
   let rejection_details = ordinary.stderr
   assert rejected, rejection_details
@@ -119,8 +139,10 @@ test test_list_pattern_rejects_unsupported_subjects_and_bindings { |ctx|
 
 test test_list_pattern_rejects_middle_and_duplicate_rests { |ctx|
   for source in [
-    "let selected = match [1, 2] { [..tail, last] => last _ => 0 }\n",
-    "let selected = match [1, 2] { [first, ..tail, ..other] => first _ => 0 }\n",
+    """let selected = match [1, 2] { [..tail, last] => last _ => 0 }
+""",
+    """let selected = match [1, 2] { [first, ..tail, ..other] => first _ => 0 }
+""",
   ] {
     let result = test.run_script(ctx, source)?
     let rejected = ! result.success
@@ -132,17 +154,23 @@ test test_list_pattern_rejects_middle_and_duplicate_rests { |ctx|
 
 test test_list_pattern_exhaustiveness_is_conservative { |ctx|
   for source in [
-    "pure selected(values: List[Int]) -> Int { match values { [] => 0, [_, ..] => 1 } }\n",
-    "pure selected(values: List[Int]) -> Int { match values { [..tail] => tail.len() } }\n",
+    """pure selected(values: List[Int]) -> Int { match values { [] => 0, [_, ..] => 1 } }
+""",
+    """pure selected(values: List[Int]) -> Int { match values { [..tail] => tail.len() } }
+""",
   ] {
     let result = test.run_script(ctx, source)?
     let {success: succeeded, stderr: failure_details, ..} = result
     assert succeeded, failure_details
   }
+
   for source in [
-    "pure selected(values: List[Int]) -> Int { match values { [] => 0 } }\n",
-    "pure selected(values: List[Int]) -> Int { match values { [] => 0, [7, ..] => 1 } }\n",
-    "pure selected(values: List[Any]) -> Int { match values { [] => 0, [{}, ..] => 1 } }\n",
+    """pure selected(values: List[Int]) -> Int { match values { [] => 0 } }
+""",
+    """pure selected(values: List[Int]) -> Int { match values { [] => 0, [7, ..] => 1 } }
+""",
+    """pure selected(values: List[Any]) -> Int { match values { [] => 0, [{}, ..] => 1 } }
+""",
   ] {
     let result = test.run_script(ctx, source)?
     let rejected = ! result.success
@@ -154,17 +182,25 @@ test test_list_pattern_exhaustiveness_is_conservative { |ctx|
 
 test test_list_pattern_rejects_duplicates_and_honors_guards { |ctx|
   let guarded = match [1, 2] {
-    [head, ..tail] if head == 9 => tail.len()
-    [head, ..tail] => head + tail.len()
-    [] => 0
+    [head, ..tail] if head == 9 => tail.len(),
+    [head, ..tail] => head + tail.len(),
+    [] => 0,
   }
   assert guarded == 2
-  let duplicate = test.run_script(ctx, "let selected = match [1, 2] { [same, same] => same _ => 0 }\n")?
+  let duplicate = test.run_script(
+    ctx,
+    """let selected = match [1, 2] { [same, same] => same _ => 0 }
+""",
+  )?
   let rejected = ! duplicate.success
   let rejection_details = duplicate.stderr
   assert rejected, rejection_details
   assert "check.pattern-binding" in duplicate.stderr
-  let unreachable = test.run_script(ctx, "let selected = match [1] { [..] => 1, [] => 0 }\n")?
+  let unreachable = test.run_script(
+    ctx,
+    """let selected = match [1] { [..] => 1, [] => 0 }
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = unreachable
   assert succeeded, failure_details
 }

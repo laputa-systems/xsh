@@ -3,7 +3,8 @@ test test_block_strings_remove_structural_breaks_and_exact_margin {
     first
       second
     """
-  assert value == "first\n  second"
+  assert value == """first
+  second"""
   let empty = """
     """
   assert empty == ""
@@ -11,7 +12,8 @@ test test_block_strings_remove_structural_breaks_and_exact_margin {
     first
 
     """
-  assert newline == "first\n"
+  assert newline == """first
+"""
   let raw = r"""
     \n ${literal}
     """
@@ -25,17 +27,23 @@ test test_block_strings_keep_blank_line_whitespace_and_raw_backslashes {
       
     last
     """
-  assert blank_lines == "first\n\n  \nlast"
+  assert blank_lines == """first
+
+  
+last"""
   let unicode_blank = """
     first
  
     last
     """
-  assert unicode_blank == "first\n\u{a0}\nlast"
+  assert unicode_blank == """first
+ 
+last"""
   let escapes = """
     \tword\nnext
     """
-  assert escapes == "\tword\nnext"
+  assert escapes == """	word
+next"""
   let raw = r"""
     \tword\nnext
     """
@@ -43,20 +51,25 @@ test test_block_strings_keep_blank_line_whitespace_and_raw_backslashes {
 }
 
 test test_block_strings_keep_interpolated_newlines_and_nested_source {
-  let inserted = "one\nno source margin"
+  let inserted = """one
+no source margin"""
   let formatted = f"""
     before
     $inserted
     after
     """
-  assert formatted == "before\none\nno source margin\nafter"
+  assert formatted == """before
+one
+no source margin
+after"""
   let marker = r"${not_an_expression}"
   let rendered = f"""
     before
     $marker
     after
     """
-  assert rendered == "before\n" + marker + "\nafter"
+  assert rendered == """before
+""" + marker + """\nafter"""
   let nested = f"""
     before
     ${if true {
@@ -65,38 +78,53 @@ test test_block_strings_keep_interpolated_newlines_and_nested_source {
 } else { "other" }}
     after
     """
-  assert nested == "before\nnested\n  exact\nafter"
-
+  assert nested == """before
+nested
+  exact
+after"""
 }
 
 test test_block_strings_leave_nonblock_and_other_literal_domains_exact {
   let inline_opening = """first
     last
     """
-  assert inline_opening == "first\n    last\n    "
+  assert inline_opening == """first
+    last
+    """
   let inline_closing = """
     first
     """ + ""
-  assert inline_closing == "\n    first\n    "
-  let data = b"""
-    first
+  assert inline_closing == """\n    first
     """
+  let data = b"\n    first\n    "
   assert data == b"\n    first\n    "
-  let path_value = p"""
-    first
+  let path_value = p"\n    first\n    "
+  assert path_value.display() == """\n    first
     """
-  assert path_value.display() == "\n    first\n    "
   let formatted_path = fp"""
     ${"first"}
     """
-  assert formatted_path.display() == "\n    first\n    "
+  assert formatted_path.display() == """\n    first
+    """
 }
 
 test test_block_strings_reject_missing_exact_space_tab_prefix { |ctx|
   for source in [
-    "let value = \"\"\"\n  good\n bad\n  \"\"\"\n",
-    "let value = \"\"\"\n\tgood\n good\n\t\"\"\"\n",
-    "let value = f\"\"\"\n  \${1}\n wrong\n  \"\"\"\n",
+    """let value = \"""
+  good
+ bad
+  \"""
+""",
+    """let value = \"""
+	good
+ good
+	\"""
+""",
+    """let value = f\"""
+  \${1}
+ wrong
+  \"""
+""",
   ] {
     let rejected = test.run_script(ctx, source)?
     assert ! rejected.success, rejected.stderr
@@ -105,21 +133,53 @@ test test_block_strings_reject_missing_exact_space_tab_prefix { |ctx|
 }
 
 test test_block_strings_keep_interpolation_evaluation_order { |ctx|
-  let source = "proc part(label: Str) [io] -> Str { print $label; label + \"\\nnext\" }\nlet value = f\"\"\"\n  \${part(\"left\")}\n  \${part(\"right\")}\n  \"\"\"\nprint $value\n"
+  let source = """proc part(label: Str) [io] -> Str { print $label; label + "\\nnext" }
+let value = f\"""
+  \${part("left")}
+  \${part("right")}
+  \"""
+print $value
+"""
   let executed = test.run_script(ctx, source)?
   assert executed.success, executed.stderr
-  assert executed.stdout == "left\nright\nleft\nnext\nright\nnext\n"
+  assert executed.stdout == """left
+right
+left
+next
+right
+next
+"""
 }
 
 test test_block_strings_preserve_crlf_tabs_and_explicit_final_newlines { |ctx|
-  let source = "let value = \"\"\"\r\n\t first\r\n\t   second\r\n\t \"\"\"\nprint $value\n"
+  let source = """let value = \"""\r
+	 first\r
+	   second\r
+	 \"""
+print $value
+"""
   let executed = test.run_script(ctx, source)?
   assert executed.success, executed.stderr
-  assert executed.stdout == "first\r\n  second\n"
+  assert executed.stdout == """first\r
+  second
+"""
 }
 
 test test_block_string_formatter_preserves_values_and_converges { |ctx|
-  let source = "let text = \"\"\"\n  first\n    second\n\n  \"\"\"\nlet leading = \"\\nfirst\\n\"\nlet inserted = \"left\\nright\"\nlet formatted = f\"\"\"\n  before\n  $inserted\n  after\n  \"\"\"\nprint \${json.encode(text)?} \${json.encode(leading)?} \${json.encode(formatted)?}\n"
+  let source = """let text = \"""
+  first
+    second
+
+  \"""
+let leading = "\\nfirst\\n"
+let inserted = "left\\nright"
+let formatted = f\"""
+  before
+  $inserted
+  after
+  \"""
+print \${json.encode(text)?} \${json.encode(leading)?} \${json.encode(formatted)?}
+"""
   let before = test.run_script(ctx, source)?
   assert before.success, before.stderr
   let candidate = test.temp_file(ctx, name: "block-string-format.xsh", contents: bytes.from_text(source))?
@@ -135,14 +195,17 @@ test test_block_string_formatter_preserves_values_and_converges { |ctx|
 }
 
 test test_block_string_lint_preserves_literal_bytes_and_converges { |ctx|
-  let source = "let value = \"first\\n\" + \"  second\\n\"\nprint \${json.encode(value)?}\n"
+  let source = """let value = "first\\n" + "  second\\n"
+print \${json.encode(value)?}
+"""
   let before = test.run_script(ctx, source)?
   assert before.success, before.stderr
   let candidate = test.temp_file(ctx, name: "block-string-fix.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
-  assert "value = \"\"\"\n" in fixed
+  assert """value = \"""
+""" in fixed
   let after = test.run_script(ctx, fixed)?
   assert after.success, after.stderr
   assert after.stdout == before.stdout
@@ -152,12 +215,23 @@ test test_block_string_lint_preserves_literal_bytes_and_converges { |ctx|
 }
 
 test test_block_strings_share_layout_with_quoted_command_words { |ctx|
-  let source = "let name = \"demo\"\nprint \"\"\"\n  hello $name\n  \${if true { \"inside\" } else { \"other\" }}\n  \"\"\"\n"
+  let source = """let name = "demo"
+print \"""
+  hello $name
+  \${if true { "inside" } else { "other" }}
+  \"""
+"""
   let executed = test.run_script(ctx, source)?
   assert executed.success, executed.stderr
-  assert executed.stdout == "hello demo\ninside\n"
-  let raw_source = "print r\"\"\"\n  literal $name\n  \"\"\"\n"
+  assert executed.stdout == """hello demo
+inside
+"""
+  let raw_source = """print r\"""
+  literal $name
+  \"""
+"""
   let raw_executed = test.run_script(ctx, raw_source)?
   assert raw_executed.success, raw_executed.stderr
-  assert raw_executed.stdout == "literal $name\n"
+  assert raw_executed.stdout == """literal $name
+"""
 }

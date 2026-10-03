@@ -313,8 +313,8 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
       return Ok({records: records, complete: false, invalid_indices: invalid_indices})
     }
 
-    let record_type = (data.byte_at(cursor) ?? -1)
-    let length = (data.byte_at(cursor + 1) ?? -1)
+    let record_type = data.byte_at(cursor) ?? -1
+    let length = data.byte_at(cursor + 1) ?? -1
     if length < 4 or cursor + length > data.len() {
       return Ok({records: records, complete: false, invalid_indices: invalid_indices})
     }
@@ -582,7 +582,11 @@ export proc capture_smbios_bundle(
     errno: first.errno,
     error_kind: first.error_kind,
     byte_count: first.data?.len() ?? 0,
-    sha256_hex: if first.data == null { null } else { hash.sha256(first.data).hex() },
+    sha256_hex: if first.data == null {
+      null
+    } else {
+      hash.sha256(first.data).hex()
+    },
   )
   let entry_observation = SmbiosCaptureSource(
     path: "sys/firmware/dmi/tables/smbios_entry_point",
@@ -591,7 +595,11 @@ export proc capture_smbios_bundle(
     errno: entry_first.errno,
     error_kind: entry_first.error_kind,
     byte_count: entry_first.data?.len() ?? 0,
-    sha256_hex: if entry_first.data == null { null } else { hash.sha256(entry_first.data).hex() },
+    sha256_hex: if entry_first.data == null {
+      null
+    } else {
+      hash.sha256(entry_first.data).hex()
+    },
   )
   let captured_unix_ms = time.now()
   let capture = SmbiosCapture(
@@ -615,17 +623,17 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
     return Err(smbios_check_failure("SMBIOS capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(SmbiosCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(SmbiosCapture)?
   let relative = p"sys/firmware/dmi/tables/DMI"
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "smbios-raw-rooted-v1" or ! capture.stable or capture.source.path != "sys/firmware/dmi/tables/DMI" or capture.entry_point.path != "sys/firmware/dmi/tables/smbios_entry_point" or capture.source.state != "observed" or capture.source.truncated or capture.source.errno != null or capture.source.error_kind != null or capture.source.sha256_hex == null or capture.entry_point.state == "observed" and (capture.entry_point.truncated or capture.entry_point.errno != null or capture.entry_point.error_kind != null or capture.entry_point.sha256_hex == null) or capture.entry_point.state == "absent" and capture.entry_point.sha256_hex != null {
     return Err(smbios_check_failure("SMBIOS capture metadata cannot support exact replay"))
   }
 
   let raw = bundle.read_result(relative, max_bytes: 1048576)?
-  if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != capture.source.byte_count or hash.sha256(
+  if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != capture.source.byte_count or hash.sha256(
     raw.data,
   )
-    .hex() != (capture.source.sha256_hex) {
+    .hex() != capture.source.sha256_hex {
     return Err(smbios_check_failure("SMBIOS capture bytes differ from metadata"))
   }
 
@@ -637,10 +645,10 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
     }
   } else {
     let entry = bundle.read_result(entry_relative, max_bytes: 64)?
-    if entry.state != "observed" or entry.truncated or entry.data == null or (entry.data).len() != capture.entry_point.byte_count or hash.sha256(
+    if entry.state != "observed" or entry.truncated or entry.data == null or entry.data.len() != capture.entry_point.byte_count or hash.sha256(
       entry.data,
     )
-      .hex() != (capture.entry_point.sha256_hex) {
+      .hex() != capture.entry_point.sha256_hex {
       return Err(smbios_check_failure("SMBIOS entry point bytes differ from metadata"))
     }
 
@@ -677,7 +685,7 @@ pure smbios_checksum_is_zero(data: Bytes, offset: Int, length: Int) -> Bool {
 
   var sum = 0
   for index in range(offset, offset + length) {
-    sum += (data.byte_at(index) ?? -1)
+    sum += data.byte_at(index) ?? -1
   }
 
   sum % 256 == 0
@@ -695,7 +703,7 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
     return Err(smbios_check_failure("SMBIOS entry point has an unsupported signature or length"))
   }
 
-  let entry_length = (entry_point.byte_at(if is_v3 { 6 } else { 5 }) ?? -1)
+  let entry_length = entry_point.byte_at(if is_v3 { 6 } else { 5 }) ?? -1
   let minimum_length = if is_v3 { 24 } else { 30 }
   let table_capacity = if is_v3 { bytes.unpack_le(entry_point, 4, 12)? } else { bytes.unpack_le(entry_point, 2, 22)? }
   if entry_length < minimum_length or entry_length > entry_point.len() or table_capacity < table.len() or ! smbios_checksum_is_zero(
@@ -711,13 +719,13 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
   let checksum_offset = if is_v3 { 5 } else { 21 }
   var prior_address_sum = 0
   for index in range(address_start, address_start + address_width) {
-    prior_address_sum += (entry_point.byte_at(index) ?? -1)
+    prior_address_sum += entry_point.byte_at(index) ?? -1
   }
 
   let relocated_checksum = ((entry_point.byte_at(checksum_offset) ?? -1) + prior_address_sum - 32 + 256) % 256
   var header: List[Int] = []
   for index in range(32) {
-    var value = if index < entry_point.len() { (entry_point.byte_at(index) ?? -1) } else { 0 }
+    var value = if index < entry_point.len() { entry_point.byte_at(index) ?? -1 } else { 0 }
     if index == checksum_offset {
       value = relocated_checksum
     } else if index == address_start {
@@ -765,6 +773,7 @@ pure dmidecode_hex_row(line: Str) -> Result[List[Int]] {
       if value < 0 or value > 255 {
         return Err(smbios_check_failure("dmidecode hex byte is out of range"))
       }
+
       octets += [value]
     } else {
       return Err(smbios_check_failure("dmidecode hex row contains a nonhexadecimal byte"))
@@ -1181,7 +1190,7 @@ export proc corroborate_smbios_bundle(
     return Err(smbios_check_failure("dmidecode version probe failed"))
   }
 
-  let version = (version_source.data).utf8()?.trim()
+  let version = version_source.data.utf8()?.trim()
   if version == "" {
     return Err(smbios_check_failure("dmidecode version probe returned no version"))
   }

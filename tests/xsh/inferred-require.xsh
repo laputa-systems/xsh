@@ -1,4 +1,5 @@
 type RequirementManifest = {name: Str, jobs: UInt}
+
 type RequirementEnvelope = {manifest: RequirementManifest}
 
 test test_require_tail_propagation_consumes_success_unit {
@@ -22,17 +23,25 @@ proc require_manifest_return(raw: Any, choose = true) [error] -> Result[Requirem
 }
 
 proc require_manifest_branch(raw: Any, choose: Bool) [error] -> Result[RequirementManifest] {
-  if choose { raw.require()? } else { raw.require()? }
+  if choose {
+    raw.require()?
+  } else {
+    raw.require()?
+  }
 }
 
-pure require_manifest_name(manifest: RequirementManifest) -> Str { manifest.name }
+pure require_manifest_name(manifest: RequirementManifest) -> Str {
+  manifest.name
+}
 
 test test_require_uses_returns_branches_blocks_and_parameters {
   let raw: Any = {name: "ready", jobs: 4}
   assert require_manifest(raw)?.name == "ready"
   assert require_manifest_return(raw)?.name == "ready"
   assert require_manifest_branch(raw, true)?.jobs == 4
-  let block: RequirementManifest = { raw.require()? }
+  let block: RequirementManifest = {
+    raw.require()?
+  }
   assert block.name == "ready"
   assert require_manifest_name(raw.require()?) == "ready"
   assert require_manifest_name(...{manifest: raw.require()?}) == "ready"
@@ -54,13 +63,26 @@ test test_require_keeps_validation_and_unsigned_conversion {
 
 test test_require_rejects_unanchored_targets { |ctx|
   for source in [
-    "let raw: Any = 1\nlet value = raw.require()\n",
-    "let raw: Any = 1\nlet value: Any = raw.require()?\n",
-    "let raw: Any = {}\nlet value: Record = raw.require()?\n",
-    "proc choose(raw: Any) [error] -> Int { if raw.require()? { 1 } else { 2 } }\n",
-    "let raw: Any = 1\nlet value = raw.require()? ?? 0\n",
-    "let raw: Any = p\".\"\nlet value = fs.executable(raw.require()?)\n",
-    "let raw: Any = 1\nassert true, raw.require()?\n",
+    """let raw: Any = 1
+let value = raw.require()
+""",
+    """let raw: Any = 1
+let value: Any = raw.require()?
+""",
+    """let raw: Any = {}
+let value: Record = raw.require()?
+""",
+    """proc choose(raw: Any) [error] -> Int { if raw.require()? { 1 } else { 2 } }
+""",
+    """let raw: Any = 1
+let value = raw.require()? ?? 0
+""",
+    """let raw: Any = p"."
+let value = fs.executable(raw.require()?)
+""",
+    """let raw: Any = 1
+assert true, raw.require()?
+""",
   ] {
     let rejected = test.run_script(ctx, source)?
     let failed = ! rejected.success
@@ -71,7 +93,9 @@ test test_require_rejects_unanchored_targets { |ctx|
 }
 
 test test_require_preserves_wire_enum_conversion_and_nested_contexts { |ctx|
-  let executed = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Missing = "" }
+  let executed = test.run_script(
+    ctx,
+    r"""enum State: Str { Ready = "ready", Missing = "" }
 type Envelope[T] = {value: T, items: List[T]}
 let raw: Any = "ready"
 let state: State = raw.require()?
@@ -80,16 +104,23 @@ let mapping: Map[State] = {item: raw.require()?}
 print (state == Ready)
 print (nested.items[0] == Ready)
 print (mapping.get("item")? == Ready)
-""")?
+""",
+  )?
   let {success: succeeded, stderr: failure_details, ..} = executed
   assert succeeded, failure_details
-  assert executed.stdout == "true\ntrue\ntrue\n"
+  assert executed.stdout == """true
+true
+true
+"""
 }
 
 test test_require_evaluates_receiver_once_and_matches_explicit_failure {
   var calls = 0
   let input: Any = {name: "ready", jobs: 4}
-  let manifest: RequirementManifest = (if true { calls += 1; input } else { input }).require()?
+  let manifest: RequirementManifest = (if true {
+    calls += 1
+    input
+  } else { input }).require()?
   assert calls == 1
   assert manifest.jobs == 4
   let invalid: Any = {name: "ready", jobs: -1}
@@ -107,7 +138,7 @@ test test_require_preserves_each_result_layer {
   let inner: Result[Int] = raw.require()?
   assert inner? == 7
   let nested: Result[Result[Int]] = raw.require()
-  assert (nested?)? == 7
+  assert nested?? == 7
   let source: Result[Any] = Ok({name: "ready", jobs: 4})
   let manifest: Result[RequirementManifest] = source?.require()
   assert manifest?.name == "ready"
@@ -115,9 +146,18 @@ test test_require_preserves_each_result_layer {
 
 test test_require_keeps_actual_error_contract_and_rejects_future_evidence { |ctx|
   for source in [
-    "error Narrow = Bad(message: Str)\ntype Row = {name: Str}\nproc validate(raw: Any) [error] -> Result[Row, Narrow] { raw.require()? }\n",
-    "let raw: Any = {name: \"ready\"}\nlet value = raw.require()?\nprint value.name\n",
-    "type Box[T] = {value: T, anchor: T}\nlet raw: Any = 1\nlet value = Box(value: raw.require()?, anchor: 1)\n",
+    """error Narrow = Bad(message: Str)
+type Row = {name: Str}
+proc validate(raw: Any) [error] -> Result[Row, Narrow] { raw.require()? }
+""",
+    """let raw: Any = {name: "ready"}
+let value = raw.require()?
+print value.name
+""",
+    """type Box[T] = {value: T, anchor: T}
+let raw: Any = 1
+let value = Box(value: raw.require()?, anchor: 1)
+""",
   ] {
     let rejected = test.run_script(ctx, source)?
     let failed = ! rejected.success

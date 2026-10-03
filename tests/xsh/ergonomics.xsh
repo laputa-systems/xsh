@@ -28,18 +28,20 @@ pure ergonomics_pattern_name(value: Any) -> Str {
 }
 
 test test_ergonomics_boolean_branch_tails_and_pattern_values {
-  assert !ergonomics_result_flag(Ok(1))
+  assert ! ergonomics_result_flag(Ok(1))
   let outcome = Ok(1)
   let accepted = outcome is Ok(_)
   assert accepted, "Ok pattern recognizes the successful outcome"
-  let filtered = [1, 2, 3] |> where { |value|
-    if value == 2 {
-      let keep = false
-      keep
-    } else {
-      true
+  let filtered = [1, 2, 3]
+    |> where { |value|
+      if value == 2 {
+        let keep = false
+        keep
+      } else {
+        true
+      }
     }
-  } |> collect()
+    |> collect()
   assert filtered == [1, 3]
 }
 
@@ -61,7 +63,7 @@ test test_ergonomics_retry_branch_false_is_a_value {
       true
     }
   }?
-  assert !value
+  assert ! value
 }
 
 test test_ergonomics_optional_method_retains_result_layer {
@@ -84,8 +86,24 @@ test test_ergonomics_nullable_bytes_slice_and_fallback {
 
 test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
   let packages = [
-    {name: "first", build: {jobs: [1, 2]}},
-    {name: "second", build: {jobs: [3, 4]}},
+    {
+      name: "first",
+      build: {
+        jobs: [
+          1,
+          2,
+        ],
+      },
+    },
+    {
+      name: "second",
+      build: {
+        jobs: [
+          3,
+          4,
+        ],
+      },
+    },
   ]
   let selected = [
     f"${label}:${job}"
@@ -121,7 +139,10 @@ print (skipped_effect ?? "absent")
 """,
   )?
   assert output.success, output.stderr
-  assert output.stdout == "1\nabsent\nabsent\n"
+  assert output.stdout == """1
+absent
+absent
+"""
 }
 
 test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
@@ -159,8 +180,12 @@ check_branch()?
 
 test test_ergonomics_list_concatenation_does_not_merge_maps { |ctx|
   for source in [
-    "let table: Map[Int] = {x: 1}\nlet merged = table + table\n",
-    "var table: Map[Int] = {x: 1}\ntable += {y: 2}\n",
+    """let table: Map[Int] = {x: 1}
+let merged = table + table
+""",
+    """var table: Map[Int] = {x: 1}
+table += {y: 2}
+""",
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source

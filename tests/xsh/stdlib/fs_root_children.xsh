@@ -5,9 +5,9 @@ test test_fs_root_children_reads_newly_created_directory { |ctx|
   root.mkdir(p"nested")?
   root.write(p"nested/child", "data")?
   let result = root.children(p"nested")?
-  assert (result.state) == ("complete")
-  assert (result.enumeration_succeeded)
-  assert (result.children) == ([p"nested/child"])
+  assert result.state == "complete"
+  assert result.enumeration_succeeded
+  assert result.children == [p"nested/child"]
 }
 
 test test_fs_root_children_rejects_regular_file_as_directory { |ctx|
@@ -16,8 +16,8 @@ test test_fs_root_children_rejects_regular_file_as_directory { |ctx|
   defer root.close()?
   root.write(p"ordinary-file", "data")?
   let result = root.children(p"ordinary-file")?
-  assert (result.state) == ("read_failure")
-  assert (! result.enumeration_succeeded)
-  assert (result.children) == ([])
-  assert (result.errno != null)
+  assert result.state == "read_failure"
+  assert ! result.enumeration_succeeded
+  assert result.children == []
+  assert result.errno != null
 }

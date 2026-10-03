@@ -77,12 +77,12 @@ pure median_ms_of(sorted_ns: List[Int]) -> Float {
   let n = sorted_ns.len()
 
   if n % 2 == 0 {
-    let lo = ns_to_ms((sorted_ns.get(n / 2 - 1) ?? 0))
-    let hi = ns_to_ms((sorted_ns.get(n / 2) ?? 0))
+    let lo = ns_to_ms(sorted_ns.get(n / 2 - 1) ?? 0)
+    let hi = ns_to_ms(sorted_ns.get(n / 2) ?? 0)
     return (lo + hi) / 2.0
   }
 
-  ns_to_ms((sorted_ns.get(n / 2) ?? 0))
+  ns_to_ms(sorted_ns.get(n / 2) ?? 0)
 }
 
 proc build_command(text: Str, opts: Opts) [] -> Command {
@@ -92,7 +92,7 @@ proc build_command(text: Str, opts: Opts) [] -> Command {
 
   # Direct execution: tokenize on whitespace and run argv through xsh's launcher.
   let argv = text.fields()
-  process.command_argv((argv.get(0) ?? text), argv)
+  process.command_argv(argv.get(0) ?? text, argv)
 }
 
 # Mean cost of `xsh --startup` (boot the interpreter and exit), used as a calibration

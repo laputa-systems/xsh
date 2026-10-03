@@ -44,5 +44,5 @@ ${right.display()}
   let err = test.temp_path(ctx, name: "tree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -z $left 2> $err
   assert ! status.exited_with(0)
-  assert "unknown argument" in (err.read_text()?)
+  assert "unknown argument" in err.read_text()?
 }

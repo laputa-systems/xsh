@@ -16,7 +16,9 @@ test test_guarded_return_narrows_selected_branch_and_falls_through {
 }
 
 test test_guarded_control_checks_condition_before_lazy_payload { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc condition(selected: Bool) [] -> Bool {
   print "condition"
   return selected
@@ -41,13 +43,28 @@ let value = loop {
   break payload() when condition(true)
 }
 print $value
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "condition\nfallback\ncleanup\n9\ncondition\npayload\ncleanup\n7\ncondition\ncondition\npayload\n7\n"
+  assert output.stdout == """condition
+fallback
+cleanup
+9
+condition
+payload
+cleanup
+7
+condition
+condition
+payload
+7
+"""
 }
 
 test test_guarded_yield_skips_unselected_items { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 stream guarded_items() [] -> Stream[Int] {
   yield 99 when false
   yield 1 unless false
@@ -57,13 +74,18 @@ stream guarded_items() [] -> Stream[Int] {
 for item in guarded_items() {
   print $item
 }
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "1\n2\n"
+  assert output.stdout == """1
+2
+"""
 }
 
 test test_guarded_run_payload_keeps_literal_argv_and_status_conditions { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc capture(selected: Bool) [process, error] -> Str {
   return (run.text /usr/bin/printf "selected")? when selected
   return "fallback"
@@ -80,13 +102,22 @@ print ${capture(false)}
 print ${capture(true)}
 print ${literal_argv()}
 print ${status_condition()}
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "fallback\nselected\nwhen\nunless\n\n1\n"
+  assert output.stdout == """fallback
+selected
+when
+unless
+
+1
+"""
 }
 
 test test_guarded_payload_propagation_and_result_wrapping { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc cleanup() [] {
   print "cleanup"
 }
@@ -101,13 +132,20 @@ proc pick(selected: Bool) [error] -> Result[Int] {
 }
 print ${pick(false)?}
 let _ = pick(true)?
-""")?
+""",
+  )?
   assert ! output.success, output.stderr
-  assert output.stdout == "cleanup\n9\npayload\ncleanup\n"
+  assert output.stdout == """cleanup
+9
+payload
+cleanup
+"""
 }
 
 test test_guarded_yield_keeps_cleanup_on_early_consumer_exit { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc cleanup() [] {
   print "cleanup"
 }
@@ -122,20 +160,54 @@ for value in values() {
   break
 }
 print "done"
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "1\ncleanup\ndone\n"
+  assert output.stdout == """1
+cleanup
+done
+"""
 }
 
 # Top-level code has no callable, loop, or producer to leave, so each
 # statement that would leave one is a checker error rather than a runtime one.
 test test_top_level_control_flow_is_rejected_during_checking { |ctx|
   let cases = [
-    ["let x = 1\nif x == 1 {\n  return\n}\nprint \"after\"\n", "check.return-outside-callable"],
-    ["return when true\n", "check.return-outside-callable"],
-    ["let x = 1\nif x == 1 {\n  break\n}\n", "check.loop-control"],
-    ["let x = 1\nif x == 1 {\n  continue\n}\n", "check.loop-control"],
-    ["yield 1\n", "check.yield"],
+    [
+      """let x = 1
+if x == 1 {
+  return
+}
+print "after"
+""",
+      "check.return-outside-callable",
+    ],
+    [
+      """return when true
+""",
+      "check.return-outside-callable",
+    ],
+    [
+      """let x = 1
+if x == 1 {
+  break
+}
+""",
+      "check.loop-control",
+    ],
+    [
+      """let x = 1
+if x == 1 {
+  continue
+}
+""",
+      "check.loop-control",
+    ],
+    [
+      """yield 1
+""",
+      "check.yield",
+    ],
   ]
   for case in cases {
     let output = test.run_script(ctx, case[0])?

@@ -209,12 +209,10 @@ test test_env_conversions_read_the_scoped_overlay {
       assert env.bool("XSH_ENV_OVERLAY_BOOL", true)? == true
       assert env.get_or("XSH_ENV_OVERLAY_ABSENT", "fallback")? == "fallback"
 
-      env ({
-        XSH_ENV_OVERLAY_BOOL: "off",
-      }) {
-        assert (env.bool("XSH_ENV_OVERLAY_BOOL", true)?) == (false)
-        assert (env.get_or("XSH_ENV_OVERLAY")?) == ("inner")
-      } ?
+      env ({XSH_ENV_OVERLAY_BOOL: "off"}) {
+        assert env.bool("XSH_ENV_OVERLAY_BOOL", true)? == false
+        assert env.get_or("XSH_ENV_OVERLAY")? == "inner"
+      }?
     } ?
 
     # The inner scopes are gone: the outer value is visible again, and the
@@ -251,7 +249,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     assert env.path("XSH_STDLIB_MISSING_PATH", root)? == root
     assert env.list()? |> any .name == "DESTDIR" and .value == "/tmp/xsh-stdlib-env"
     env.PATH.prepend(tool_dir)?
-    assert (tool_dir in env.path_list("PATH")?)
+    assert tool_dir in env.path_list("PATH")?
     assert tool_dir in env.path_list("PATH")?
     let path_entries = env.path_entries("PATH")?
     assert path_entries |> any .raw == tool_dir.display() and .path == tool_dir and ! .empty
@@ -284,7 +282,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
 
   tool.chmod(0o755)?
   env.PATH.append(root)?
-  assert (root in env.PATH)
+  assert root in env.PATH
 
   env XSH_ENV_SCOPE=block DESTDIR=/tmp/xsh-env-scope HOME=$root {
     let dest = env.Str.DESTDIR?
@@ -305,7 +303,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     assert default_bool == false
     assert default_count == 0
     assert home == root
-    assert (root in path_list)
+    assert root in path_list
     assert entries |> any .name == "DESTDIR" and .value == "/tmp/xsh-env-scope"
     assert fallback == "fallback"
     assert truthy == false
@@ -317,7 +315,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
 
   let removed_path = env.PATH.pop()?
   assert removed_path == root
-  assert (root not in env.PATH)
+  assert root not in env.PATH
 }
 
 test test_path_literals_method_sugar_and_expr_env_blocks { |ctx|
@@ -343,21 +341,21 @@ beta """.trim()
   .collect()
 
     assert home == root
-    assert ("child" in env.Path.CHILD?)
+    assert "child" in env.Path.CHILD?
     assert decoded == b"abc"
-    assert (lines[1]) == ("beta")
+    assert lines[1] == "beta"
     assert b"abc".compare(b"abd").byte == 3
     let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";" ?
     assert line == f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
-  } ?
+  }?
 }
 
 test test_env_path_membership_matches_exact_entries {
   env PATH="/opt/xsh-membership/bin:/opt/xsh-other" {
-    assert p"/opt/xsh-membership/bin" in env.PATH
-    assert p"/opt/xsh-other" in env.PATH
-    assert p"/opt/xsh-membership" not in env.PATH
-    assert p"/opt/xsh-membership/bin/tool" not in env.PATH
+    assert /opt/xsh-membership/bin in env.PATH
+    assert /opt/xsh-other in env.PATH
+    assert /opt/xsh-membership not in env.PATH
+    assert /opt/xsh-membership/bin/tool not in env.PATH
   }
 }
 
@@ -367,7 +365,12 @@ test test_env_path_rejects_str_literal_entries { |ctx|
     "env.PATH.append(\"/opt/xsh-literal\")?",
     "env.PATH.prepend(\"/opt/xsh-literal\")?",
   ] {
-    let rejected = test.run_script(ctx, "env PATH=/opt/xsh-literal {\n  " + statement + "\n}\n")?
+    let rejected = test.run_script(
+      ctx,
+      """env PATH=/opt/xsh-literal {
+  """ + statement + """\n}
+""",
+    )?
     assert rejected.status == 2, statement
     assert "requires Path" in rejected.stderr, rejected.stderr
   }

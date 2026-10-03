@@ -90,7 +90,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     },
   )?
   let operands = opts.operands
-  let pattern = (operands.get(0) ?? "")
+  let pattern = operands.get(0) ?? ""
   let {kind, ext, excludes, ..} = opts
   var roots = []
 

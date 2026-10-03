@@ -260,7 +260,7 @@ pure parse_integer(value: Str?) -> Int? {
     return null
   }
 
-  let source_text = (value).trim()
+  let source_text = value.trim()
   let signed_digits = source_text.starts_with("-") and decimal_identifier((source_text.split("") |> drop(1)).join(""))
   return null when ! decimal_identifier(source_text) and ! signed_digits
 
@@ -502,7 +502,11 @@ proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
 
   let mount_relative = (target.split("/") |> where .trim() != "").join("/")
   let source_path = if relative == "" {
-    if mount_relative == "" { p"." } else { fp"${mount_relative}" }
+    if mount_relative == "" {
+      p"."
+    } else {
+      fp"${mount_relative}"
+    }
   } else if mount_relative == "" {
     fp"${relative}"
   } else {
@@ -709,8 +713,8 @@ pure mount_usage_index(mountinfo: Str) -> MountUsageIndex {
     }
 
     let numbers = fields[2].split(":")
-    let major = parse_integer((numbers.get(0) ?? "")) ?? -1
-    let minor = parse_integer((numbers.get(1) ?? "")) ?? -1
+    let major = parse_integer(numbers.get(0) ?? "") ?? -1
+    let minor = parse_integer(numbers.get(1) ?? "") ?? -1
     let target = decode_mount_field(fields[4])
     if major < 0 or minor < 0 or major > 9007199254740991 or minor > 9007199254740991 or ! target.starts_with("/") {
       valid_graph = false
@@ -748,7 +752,7 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
     return false when key in seen
 
     seen = set.add(seen, key)
-    let row_index = (index.by_id.get(current_id) ?? -1)
+    let row_index = index.by_id.get(current_id) ?? -1
     return false when row_index < 0
 
     let entry = index.rows[row_index]
@@ -894,13 +898,13 @@ pure block_index(indices: Map[Int], major: Int, minor: Int) -> Int? {
   let key = f"${major}:${minor}"
   return null when key not in indices
 
-  (indices.get(key) ?? 0)
+  indices.get(key) ?? 0
 }
 
 pure block_name_index(indices: Map[Int], name: Str?) -> Int? {
-  return null when name == null or (name) not in indices
+  return null when name == null or name not in indices
 
-  (indices.get(name) ?? 0)
+  indices.get(name) ?? 0
 }
 
 ## Finds the last PCI function in a sysfs class-entry symlink target.
@@ -1337,7 +1341,7 @@ proc collect_storage(
   var block_indices_by_device: Map[Int] = {}
   for index in range(candidates.len()) {
     let device = candidates[index].device
-    if device.name != null and (device.name) not in block_indices_by_name {
+    if device.name != null and device.name not in block_indices_by_name {
       block_indices_by_name = block_indices_by_name.set(device.name, index)
     }
 
@@ -1404,8 +1408,8 @@ proc collect_storage(
       let ids = parse_integer(fields[0]) ?? -1
       let parent_id = parse_integer(fields[1]) ?? -1
       let device_ids = fields[2].split(":")
-      let major = parse_integer((device_ids.get(0) ?? "")) ?? -1
-      let minor = parse_integer((device_ids.get(1) ?? "")) ?? -1
+      let major = parse_integer(device_ids.get(0) ?? "") ?? -1
+      let minor = parse_integer(device_ids.get(1) ?? "") ?? -1
       if ids < 0 or parent_id < 0 or major < 0 or minor < 0 {
         issues = issues.push(
           issue("storage", f"mounts.line.${line_index}", report.Malformed, "invalid_mount_identity", null),
@@ -1773,7 +1777,7 @@ proc collect_sensors(
     for attribute in attributes.children {
       let attribute_name = attribute.name()
       continue when ! attribute_name.starts_with("trip_point_") or ! attribute_name.ends_with("_temp")
-      let trip_number = parse_integer((attribute_name.split("_").get(2) ?? "")) ?? -1
+      let trip_number = parse_integer(attribute_name.split("_").get(2) ?? "") ?? -1
       if trip_number < 0 or trip_number > 9007199254740991 or attribute_name != f"trip_point_${trip_number}_temp" or f"${trip_number}" in seen_trip_indices {
         issues = issues.push(
           issue(
@@ -1913,7 +1917,7 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     issues = append_number_issue(issues, "power", f"${prefix}.voltage_now", voltage_number)
     issues = append_number_issue(issues, "power", f"${prefix}.current_now", current_number)
     issues = append_number_issue(issues, "power", f"${prefix}.cycle_count", cycles_number)
-    let capacity_out_of_range = capacity_number.value != null and (capacity_number.value) > 100
+    let capacity_out_of_range = capacity_number.value != null and capacity_number.value > 100
     let capacity_value: Int? = if capacity_out_of_range { null } else { capacity_number.value }
     if capacity_out_of_range {
       issues = issues.push(issue("power", f"${prefix}.capacity", report.Malformed, "percent_out_of_range", null))
@@ -1968,7 +1972,7 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     var constraints: List[report.PowerCapConstraint] = []
     for attribute in cap_attributes.children {
       continue when ! attribute.name().starts_with("constraint_") or ! attribute.name().ends_with("_power_limit_uw")
-      let index_text = (attribute.name().split("_").get(1) ?? "")
+      let index_text = attribute.name().split("_").get(1) ?? ""
       let index_number = parse_integer(index_text)
       let parsed_index = index_number ?? -1
       if ! decimal_identifier(index_text) or index_number == null or parsed_index > 9007199254740991 or index_text != f"${parsed_index}" {
@@ -2506,8 +2510,8 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
 
 pure usb_device_index_from_target(indices: Map[Int], target: Path) -> Int? {
   for component in target.display().split("/") {
-    let candidate = (component.split(":").get(0) ?? "")
-    return (indices.get(candidate) ?? 0) when candidate in indices
+    let candidate = component.split(":").get(0) ?? ""
+    return indices.get(candidate) ?? 0 when candidate in indices
   }
 
   null
@@ -2762,95 +2766,95 @@ pure smbios_fields(record_type: Int, data: Bytes, offset: Int, length: Int) -> R
   var fields: List[report.MemoryCounter] = []
   if record_type == 0 {
     if length > 4 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 4) ?? -1), "vendor_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 4) ?? -1, "vendor_index"))
     }
 
     if length > 5 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 5) ?? -1), "version_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 5) ?? -1, "version_index"))
     }
 
     if length > 8 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 8) ?? -1), "release_date_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 8) ?? -1, "release_date_index"))
     }
 
     if length > 9 {
-      fields = fields.push(smbios_raw_field((data.byte_at(offset + 9) ?? -1), "rom_size_raw"))
+      fields = fields.push(smbios_raw_field(data.byte_at(offset + 9) ?? -1, "rom_size_raw"))
     }
   } else if record_type == 1 {
     if length > 4 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 4) ?? -1), "manufacturer_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 4) ?? -1, "manufacturer_index"))
     }
 
     if length > 5 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 5) ?? -1), "product_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 5) ?? -1, "product_index"))
     }
 
     if length > 6 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 6) ?? -1), "version_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 6) ?? -1, "version_index"))
     }
 
     if length > 7 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 7) ?? -1), "serial_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 7) ?? -1, "serial_index"))
     }
 
     if length > 24 {
-      fields = fields.push(smbios_raw_field((data.byte_at(offset + 24) ?? -1), "wake_up_type_raw"))
+      fields = fields.push(smbios_raw_field(data.byte_at(offset + 24) ?? -1, "wake_up_type_raw"))
     }
 
     if length > 25 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 25) ?? -1), "sku_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 25) ?? -1, "sku_index"))
     }
 
     if length > 26 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 26) ?? -1), "family_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 26) ?? -1, "family_index"))
     }
   } else if record_type == 2 {
     if length > 4 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 4) ?? -1), "manufacturer_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 4) ?? -1, "manufacturer_index"))
     }
 
     if length > 5 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 5) ?? -1), "product_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 5) ?? -1, "product_index"))
     }
 
     if length > 6 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 6) ?? -1), "version_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 6) ?? -1, "version_index"))
     }
 
     if length > 7 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 7) ?? -1), "serial_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 7) ?? -1, "serial_index"))
     }
 
     if length > 8 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 8) ?? -1), "asset_tag_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 8) ?? -1, "asset_tag_index"))
     }
 
     if length > 13 {
-      fields = fields.push(smbios_raw_field((data.byte_at(offset + 13) ?? -1), "board_type_raw"))
+      fields = fields.push(smbios_raw_field(data.byte_at(offset + 13) ?? -1, "board_type_raw"))
     }
   } else if record_type == 4 {
     if length > 4 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 4) ?? -1), "socket_designation_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 4) ?? -1, "socket_designation_index"))
     }
 
     if length > 7 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 7) ?? -1), "manufacturer_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 7) ?? -1, "manufacturer_index"))
     }
 
     if length > 16 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 16) ?? -1), "version_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 16) ?? -1, "version_index"))
     }
 
     if length > 23 {
-      fields = fields.push(smbios_raw_field((data.byte_at(offset + 23) ?? -1), "core_count_raw"))
+      fields = fields.push(smbios_raw_field(data.byte_at(offset + 23) ?? -1, "core_count_raw"))
     }
 
     if length > 24 {
-      fields = fields.push(smbios_raw_field((data.byte_at(offset + 24) ?? -1), "core_enabled_raw"))
+      fields = fields.push(smbios_raw_field(data.byte_at(offset + 24) ?? -1, "core_enabled_raw"))
     }
 
     if length > 25 {
-      fields = fields.push(smbios_raw_field((data.byte_at(offset + 25) ?? -1), "thread_count_raw"))
+      fields = fields.push(smbios_raw_field(data.byte_at(offset + 25) ?? -1, "thread_count_raw"))
     }
   } else if record_type == 16 {
     if length >= 11 {
@@ -2870,15 +2874,15 @@ pure smbios_fields(record_type: Int, data: Bytes, offset: Int, length: Int) -> R
     }
 
     if length > 16 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 16) ?? -1), "device_locator_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 16) ?? -1, "device_locator_index"))
     }
 
     if length > 17 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 17) ?? -1), "bank_locator_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 17) ?? -1, "bank_locator_index"))
     }
 
     if length > 26 {
-      fields = fields.push(smbios_string_index((data.byte_at(offset + 26) ?? -1), "part_number_index"))
+      fields = fields.push(smbios_string_index(data.byte_at(offset + 26) ?? -1, "part_number_index"))
     }
 
     if length >= 32 and bytes.unpack_le(data, 2, offset + 12)? == 32767 {
@@ -2912,8 +2916,8 @@ export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult] {
       return {records: records, issues: issues, truncated: true}
     }
 
-    let record_type = (data.byte_at(offset) ?? -1)
-    let formatted_length = (data.byte_at(offset + 1) ?? -1)
+    let record_type = data.byte_at(offset) ?? -1
+    let formatted_length = data.byte_at(offset + 1) ?? -1
     if formatted_length < 4 {
       issues = issues.push(f"SMBIOS record type ${record_type} has a formatted length below four bytes")
       return {records: records, issues: issues, truncated: false}
@@ -3118,7 +3122,11 @@ export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescript
     }
     let endpoint: report.UsbEndpoint = report.UsbEndpoint(
       address:,
-      direction: if address >= 128 { "in" } else { "out" },
+      direction: if address >= 128 {
+        "in"
+      } else {
+        "out"
+      },
       transfer_type:,
       max_packet_size: packet_size,
       interval:,
@@ -3211,9 +3219,9 @@ pure pci_function_indices(functions: List[report.PciFunction]) -> Map[Int] {
 }
 
 pure pci_function_index(indices: Map[Int], address: Str?) -> Int? {
-  return null when address == null or (address) not in indices
+  return null when address == null or address not in indices
 
-  (indices.get(address) ?? 0)
+  indices.get(address) ?? 0
 }
 
 pure live_source_observation_state(state: Str, truncated: Bool) -> report.ObservationState {
@@ -3344,7 +3352,7 @@ export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] ->
     let state = live_source_observation_state(observed.state, false)
     var value: Str? = null
     if observed.target != null {
-      value = (observed.target).name()
+      value = observed.target.name()
     }
 
     if state == report.Observed and value == null {
@@ -3378,7 +3386,7 @@ pure parse_hex_optional(value: Str?, width: Int) -> Int? {
     return null
   }
 
-  return null when (value).byte_len() != width
+  return null when value.byte_len() != width
 
   if let Ok(parsed) = collectors.parse_pci_hex_value(value) {
     parsed
@@ -3613,7 +3621,7 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
     for interface_path in listing.children {
       let interface_name = interface_path.name()
       continue unless interface_name.starts_with(f"${device_path.name()}:")
-      let interface_number_text = ((interface_name.split(":").get(1) ?? "").split(".").get(1) ?? "")
+      let interface_number_text = (interface_name.split(":").get(1) ?? "").split(".").get(1) ?? ""
       let interface_number = parse_integer(interface_number_text) ?? -1
       if interface_number < 0 {
         issues = issues.push(
@@ -4342,7 +4350,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
   var linked_cpus: List[report.Cpu] = []
   for cpu_item in cpus {
     var policy_name: Str? = null
-    let cache_ids = (cache_ids_by_cpu.get(f"${cpu_item.id}") ?? [])
+    let cache_ids = cache_ids_by_cpu.get(f"${cpu_item.id}") ?? []
     for policy in policies.policies {
       if cpu_item.id in policy.related_cpus {
         policy_name = policy.name
@@ -4813,7 +4821,7 @@ proc read_huge_page_pool(root: FsRoot, huge_path: Path, node_id: Int?, field: St
     return {pool: null, issues: [issue("memory", f"${field}.page_size", report.Malformed, "invalid_page_size", null)]}
   }
 
-  let size_text = (parts[1].split("kB").get(0) ?? "")
+  let size_text = parts[1].split("kB").get(0) ?? ""
   if f"${size_text}kB" != parts[1] {
     return {pool: null, issues: [issue("memory", f"${field}.page_size", report.Malformed, "invalid_page_size", null)]}
   }
@@ -4964,7 +4972,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
       let multiplier = if has_kib_unit { 1024 } else { 1 }
       let value = parsed_value * multiplier
-      let unit = if has_kib_unit { "bytes" } else { (values.get(1) ?? "count") }
+      let unit = if has_kib_unit { "bytes" } else { values.get(1) ?? "count" }
       counters = counters.push({name: name, value: value, unit: unit})
       match name {
         "MemTotal" => total = value
@@ -5172,7 +5180,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       continue
     }
 
-    if (pressure_source.observation.value).trim() == "" {
+    if pressure_source.observation.value.trim() == "" {
       issues = issues.push(issue("memory", f"pressure.${resource}", report.Malformed, "empty_psi_source", null))
       continue
     }
@@ -5284,7 +5292,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       }
 
       let labels = parse_words(pair[0].trim().replace("\t", " "))
-      let field_name = (labels.get(2) ?? "")
+      let field_name = labels.get(2) ?? ""
       if labels.len() != 3 or labels[0] != "Node" or labels[1] != f"${node_id}" or field_name == "" {
         let field = if field_name != "" {
           f"numa.${node_path.name()}.${field_name}"
@@ -5638,7 +5646,12 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
       let fields = parse_words(cpu_max.observation.value)
       if fields.len() == 2 {
         let unlimited = fields[0] == "max"
-        var quota_number: collectors.BoundedNumber = collectors.BoundedNumber(value: null, state: null, error_kind: null, errno: null)
+        var quota_number: collectors.BoundedNumber = collectors.BoundedNumber(
+          value: null,
+          state: null,
+          error_kind: null,
+          errno: null,
+        )
         if ! unlimited {
           quota_number = cgroup_token_number(cpu_max, fields[0])
         }
@@ -6172,7 +6185,7 @@ pure link_index_by_name(links: Map[Int], name: Str?) -> Int? {
   }
 
   let link_name = name
-  return (links.get(link_name) ?? 0) when link_name in links
+  return links.get(link_name) ?? 0 when link_name in links
 
   null
 }
@@ -6199,7 +6212,7 @@ export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection 
 
   var links: List[report.NetworkLink] = []
   for raw_link in value.links {
-    let addresses = (addresses_by_link.get(f"${raw_link.ifindex}") ?? [])
+    let addresses = addresses_by_link.get(f"${raw_link.ifindex}") ?? []
 
     var counters: List[report.MemoryCounter] = []
     if raw_link.rx_bytes != null {
@@ -6379,7 +6392,7 @@ export proc link_network_device_sources(
       )
       issues = issues.extend(driver_link.issues)
       if driver_link.target != null {
-        driver = (driver_link.target).name()
+        driver = driver_link.target.name()
       }
 
       let device_link = network_link_target(root, fp"sys/class/net/${name}/device", f"links.${link.ifindex}.parent")
@@ -6654,8 +6667,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
   var issues = value.issues
   issues = issues.push(unsupported_issue(name, "section"))
   match name {
-    "usb" => ({...value, usb: {status: empty_status(report.SectionUnsupported), devices: []}, issues: issues})
-    "storage" => ({
+    "usb" => {...value, usb: {status: empty_status(report.SectionUnsupported), devices: []}, issues: issues}
+    "storage" => {
       ...value,
       storage: {
         status: empty_status(report.SectionUnsupported),
@@ -6663,8 +6676,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         mounts: [],
       },
       issues: issues,
-    })
-    "network" => ({
+    }
+    "network" => {
       ...value,
       network: {
         status: empty_status(report.SectionUnsupported),
@@ -6673,8 +6686,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         rules: [],
       },
       issues: issues,
-    })
-    "sensors" => ({
+    }
+    "sensors" => {
       ...value,
       sensors: {
         status: empty_status(report.SectionUnsupported),
@@ -6682,8 +6695,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         thermal_zones: [],
       },
       issues: issues,
-    })
-    "power" => ({
+    }
+    "power" => {
       ...value,
       power: {
         status: empty_status(report.SectionUnsupported),
@@ -6691,8 +6704,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         cap_zones: [],
       },
       issues: issues,
-    })
-    "firmware" => ({
+    }
+    "firmware" => {
       ...value,
       firmware: {
         status: empty_status(report.SectionUnsupported),
@@ -6701,8 +6714,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         limitation: empty_text(report.Unsupported),
       },
       issues: issues,
-    })
-    "kernel" => ({
+    }
+    "kernel" => {
       ...value,
       kernel: {
         status: empty_status(report.SectionUnsupported),
@@ -6712,23 +6725,23 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         sysctls: [],
       },
       issues: issues,
-    })
-    "processes" => ({
+    }
+    "processes" => {
       ...value,
       processes: {
         status: empty_status(report.SectionUnsupported),
         processes: [],
       },
       issues: issues,
-    })
-    "devices" => ({
+    }
+    "devices" => {
       ...value,
       devices: {
         status: empty_status(report.SectionUnsupported),
         devices: [],
       },
       issues: issues,
-    })
+    }
     _ => value
   }
 }

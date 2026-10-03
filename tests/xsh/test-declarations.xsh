@@ -1,34 +1,70 @@
 test test_declaration_is_checked_without_execution { |ctx|
-  let result = test.run_xsh(ctx, "test registered {\n  assert false\n}\nrun printf ready\n")?
+  let result = test.run_xsh(
+    ctx,
+    """test registered {
+  assert false
+}
+run printf ready
+""",
+  )?
   assert result.status == 0
   assert result.stdout == "ready"
 }
 
 test test_declaration_bool_statement_is_rejected { |ctx|
-  let result = test.run_xsh(ctx, "test registered {\n  1 == 2\n}\n")?
+  let result = test.run_xsh(
+    ctx,
+    """test registered {
+  1 == 2
+}
+""",
+  )?
   assert result.status != 0
   assert "check.bool-statement" in result.stderr, result.stderr
 }
 
 test test_declaration_body_is_checked { |ctx|
-  let result = test.run_xsh(ctx, "test checked {\n  missing_name()\n}\n")?
+  let result = test.run_xsh(
+    ctx,
+    """test checked {
+  missing_name()
+}
+""",
+  )?
   assert result.status != 0
 }
 
 test context_parameter_is_immutable { |ctx|
-  let result = test.run_xsh(ctx, "test immutable { |ctx|\n  ctx = ctx\n}\n")?
+  let result = test.run_xsh(
+    ctx,
+    """test immutable { |ctx|
+  ctx = ctx
+}
+""",
+  )?
   assert result.status != 0
   assert "immutable" in result.stderr
 }
 
 test context_parameter_has_test_context_type { |ctx|
-  let result = test.run_xsh(ctx, "test typed { |ctx|\n  let name: Int = ctx.name\n}\n")?
+  let result = test.run_xsh(
+    ctx,
+    """test typed { |ctx|
+  let name: Int = ctx.name
+}
+""",
+  )?
   assert result.status != 0
   assert "check.type-mismatch" in result.stderr
 }
 
 test declarations_cannot_be_called { |ctx|
-  let result = test.run_xsh(ctx, "test hidden {}\nhidden()\n")?
+  let result = test.run_xsh(
+    ctx,
+    """test hidden {}
+hidden()
+""",
+  )?
   assert result.status != 0
 }
 
@@ -47,7 +83,12 @@ test declarations_enforce_effects_and_result_unit { |ctx|
 }
 
 test main_does_not_execute { |ctx|
-  let result = test.run_xsh(ctx, "test main { assert false }\nrun printf ready\n")?
+  let result = test.run_xsh(
+    ctx,
+    """test main { assert false }
+run printf ready
+""",
+  )?
   assert result.status == 0
   assert result.stdout == "ready"
 }
@@ -55,7 +96,14 @@ test main_does_not_execute { |ctx|
 test discard_context_is_allowed { |_| }
 
 test declaration_names_reject_duplicates_and_callable_collisions { |ctx|
-  for source in ["test same {}\ntest same {}\n", "pure same() -> Int { 1 }\ntest same {}\n"] {
+  for source in [
+    """test same {}
+test same {}
+""",
+    """pure same() -> Int { 1 }
+test same {}
+""",
+  ] {
     let result = test.run_xsh(ctx, source)?
     assert result.status != 0
     assert "check.duplicate-name" in result.stderr
@@ -72,7 +120,14 @@ test helper_test {
   assert false
 }
 """)?
-  let result = test.run_xsh(ctx, "use helper\nprint \${helper.value()}\n", env: {XSH_MODULE_PATH: root.display()})?
+  let result = test.run_xsh(
+    ctx,
+    """use helper
+print \${helper.value()}
+""",
+    env: {XSH_MODULE_PATH: root.display()},
+  )?
   assert result.status == 0
-  assert result.stdout == "7\n"
+  assert result.stdout == """7
+"""
 }

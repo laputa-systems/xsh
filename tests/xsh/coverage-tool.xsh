@@ -3,9 +3,9 @@ type CoverageReport = {standard_apis: List[Str], api_hits: Record}
 type CoverageHitCounts = {tests: Int, examples: Int}
 
 proc coverage_merge_script(source: Str, root: Path) [error] -> Result[Str] {
-  source.replace("proc main(", "proc coverage_main(")
-    + "\nlet root = p" + json.encode(root.display())?
-    + "\nlet report = merge_reports(root, [{name: \"sample\", path: \"input.json\"}])?\nprint json.encode(report)?\n"
+  source.replace("proc main(", "proc coverage_main(") + """\nlet root = p""" + json.encode(root.display())? + """\nlet report = merge_reports(root, [{name: "sample", path: "input.json"}])?
+print json.encode(report)?
+"""
 }
 
 test test_combined_coverage_report_includes_standard_api_hits { |ctx|
@@ -40,8 +40,8 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
 
   let report = json.read(report_path)?.require(CoverageReport)?
   let {standard_apis, api_hits} = report
-  assert (standard_apis.len() > 0)
-  assert (api_hits.keys().len() > 0)
+  assert standard_apis.len() > 0
+  assert api_hits.keys().len() > 0
   assert text_path.exists()?
 }
 
@@ -53,9 +53,21 @@ test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_v
   let script = coverage_merge_script(source, root)?
 
   for example in [
-    {json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{}}}""", tests: 0, examples: 0},
-    {json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{"tests":2}}}""", tests: 2, examples: 0},
-    {json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{"tests":2,"examples":3,"extra":true}}}""", tests: 2, examples: 3},
+    {
+      json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{}}}""",
+      tests: 0,
+      examples: 0,
+    },
+    {
+      json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{"tests":2}}}""",
+      tests: 2,
+      examples: 0,
+    },
+    {
+      json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{"tests":2,"examples":3,"extra":true}}}""",
+      tests: 2,
+      examples: 3,
+    },
   ] {
     input.write(example.json)?
     let output = test.run_script(ctx, script)?

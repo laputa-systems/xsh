@@ -27,7 +27,7 @@ proc main(...argv: List[Str]) [fs, error] {
     },
   )?
 
-  let file_arg = (opts.file.get(0) ?? "")
+  let file_arg = opts.file.get(0) ?? ""
   let fp = fp"${file_arg}"
   let data = fp.read_bytes()?
   let size = data.len()

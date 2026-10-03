@@ -44,7 +44,11 @@ test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports { |ctx|
   assert summary.grand_total == 1000
   assert summary.pct == 6
 
-  let dependencies = test.run_script(ctx, source, args: [input.display(), "--sum", "--all", "--filter", "dependency", "--json"])?
+  let dependencies = test.run_script(
+    ctx,
+    source,
+    args: [input.display(), "--sum", "--all", "--filter", "dependency", "--json"],
+  )?
   let {success: dependencies_succeeded, stderr: dependencies_failure_details, ..} = dependencies
   assert dependencies_succeeded, dependencies_failure_details
   let filtered = json.decode(dependencies.stdout)?.require(LlvmLinesIntegralSummary)?
@@ -59,13 +63,16 @@ test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals 
   let root = test.temp_dir(ctx, name: "llvm-lines-invalid")?
   let input = fp"${root}/capture.txt"
   let source = fp"${fs.cwd()?}/tools/llvm-lines-repeat-offenders.xsh".read_text()?
-  input.write("01 1% 1% 2 1% 1% xsh[abc]::work::<u8>\n")?
+  input.write("""01 1% 1% 2 1% 1% xsh[abc]::work::<u8>
+""")?
   let rejected = test.run_script(ctx, source, args: [input.display(), "--sum", "--json"])?
   assert rejected.status == 3
   assert rejected.stdout == ""
   assert "json" in rejected.stderr
 
-  input.write(llvm_lines_capture.replace(from: "1000 100% 100% 10 100% 100% (TOTAL)", to: "true 100% 100% 10 100% 100% (TOTAL)"))?
+  input.write(
+    llvm_lines_capture.replace(from: "1000 100% 100% 10 100% 100% (TOTAL)", to: "true 100% 100% 10 100% 100% (TOTAL)"),
+  )?
   let unknown = test.run_script(ctx, source, args: [input.display(), "--sum", "--json"])?
   let {success: succeeded, stderr: failure_details, ..} = unknown
   assert succeeded, failure_details

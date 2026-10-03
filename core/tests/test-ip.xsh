@@ -1,6 +1,6 @@
 test test_ip_addr_smoke { |ctx|
   let output = run.text XSH_LINUX_DRY_RUN=1 ${ctx.xsh_bin} fp"${ctx.core_dir}/ip.xsh" -- addr ?
-  assert (output.count_chars() >= 0)
+  assert output.count_chars() >= 0
 }
 
 test test_ip_route_list_patterns_accept_exact_command_forms { |ctx|
@@ -15,6 +15,7 @@ test test_ip_addr_alternatives_accept_address_show_and_device_forms { |ctx|
     let output = run.text XSH_LINUX_DRY_RUN=1 ${ctx.xsh_bin} fp"${ctx.core_dir}/ip.xsh" -- @argv ?
     assert output == short
   }
+
   let device = run.text XSH_LINUX_DRY_RUN=1 ${ctx.xsh_bin} fp"${ctx.core_dir}/ip.xsh" -- addr dev eth0 ?
   for argv in [["address", "dev", "eth0"], ["addr", "show", "dev", "eth0"], ["address", "show", "dev", "eth0"]] {
     let output = run.text XSH_LINUX_DRY_RUN=1 ${ctx.xsh_bin} fp"${ctx.core_dir}/ip.xsh" -- @argv ?

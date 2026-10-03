@@ -1,7 +1,7 @@
 test test_absence_lookup_find_preserves_zero_byte_offsets_and_empty_needles {
   assert "a:b".find("a") == 0
   assert "a:b".find(":") == 1
-  assert "é:x".find(":") == 2
+  assert "\u{e9}:x".find(":") == 2
   assert "a:b".find("missing") == null
   assert "a:b".find("", 3) == 3
   assert "a:b".find("", 4) == null
@@ -13,14 +13,14 @@ test test_absence_lookup_find_preserves_zero_byte_offsets_and_empty_needles {
 }
 
 test test_absence_lookup_byte_at_returns_null_outside_byte_domain {
-  assert "é".byte_at(index: 0) == 195
-  assert "é".byte_at(1) == 169
-  assert "é".byte_at(2) == null
-  assert "é".byte_at(-1) == null
-  assert b"\x00\xff".byte_at(0) == 0
-  assert b"\x00\xff".byte_at(1) == 255
-  assert b"\x00\xff".byte_at(2) == null
-  assert b"\x00\xff".byte_at(-1) == null
+  assert "\u{e9}".byte_at(index: 0) == 195
+  assert "\u{e9}".byte_at(1) == 169
+  assert "\u{e9}".byte_at(2) == null
+  assert "\u{e9}".byte_at(-1) == null
+  assert b"\0\xff".byte_at(0) == 0
+  assert b"\0\xff".byte_at(1) == 255
+  assert b"\0\xff".byte_at(2) == null
+  assert b"\0\xff".byte_at(-1) == null
 }
 
 test test_absence_lookup_collection_get_preserves_present_null_and_typed_errors {
@@ -35,9 +35,16 @@ test test_absence_lookup_collection_get_preserves_present_null_and_typed_errors 
 }
 
 test test_absence_lookup_removed_overloads_are_rejected { |ctx|
-  for source in ["let value = [1].get(0, 7)", "let value = {one: 1}.get(\"one\", 7)", "let value = \"a\".byte_at(0, -1)", "let value = b\"a\".byte_at(0, -1)", "let value = [1].get(index: 0, fallback: 7)", "let value = \"a\".byte_at(index: 0, default: 7)"] {
+  for source in [
+    "let value = [1].get(0, 7)",
+    "let value = {one: 1}.get(\"one\", 7)",
+    "let value = \"a\".byte_at(0, -1)",
+    "let value = b\"a\".byte_at(0, -1)",
+    "let value = [1].get(index: 0, fallback: 7)",
+    "let value = \"a\".byte_at(index: 0, default: 7)",
+  ] {
     let invalid = test.run_script(ctx, source)?
-    assert !invalid.success, invalid.stderr
+    assert ! invalid.success, invalid.stderr
   }
 }
 
@@ -53,15 +60,18 @@ pure absence_lookup_integer_byte(text: Str, index: Int) -> Int {
 
 test test_absence_lookup_nullable_and_integer_fast_paths_agree {
   for index in [-1, 0, 1, 2, 9223372036854775807] {
-    assert absence_lookup_nullable_byte("é", index) == "é".byte_at(index)
-    assert absence_lookup_integer_byte("é", index) == ("é".byte_at(index) ?? -1)
+    assert absence_lookup_nullable_byte("\u{e9}", index) == "\u{e9}".byte_at(index)
+    assert absence_lookup_integer_byte("\u{e9}", index) == ("\u{e9}".byte_at(index) ?? -1)
   }
-  assert "é:x".find(":", 1) == 2
-  assert "é:x".find("é", 1) == null
+
+  assert "\u{e9}:x".find(":", 1) == 2
+  assert "\u{e9}:x".find("\u{e9}", 1) == null
 }
 
 test test_absence_lookup_lazy_fallback_and_authored_eager_snapshots { |ctx|
-  let output = test.run_script(ctx, r"""proc receiver() [io] -> List[Int] { print "receiver"; [3] }
+  let output = test.run_script(
+    ctx,
+    r"""proc receiver() [io] -> List[Int] { print "receiver"; [3] }
 proc index() [io] -> Int { print "index"; 0 }
 proc fallback() [io] -> Int { print "fallback"; 7 }
 let lazy = receiver().get(index()) ?? fallback()
@@ -79,13 +89,28 @@ let byte = "a".byte_at(0) ?? fallback()
 print ${byte}
 let missing_byte = b"a".byte_at(1) ?? fallback()
 print ${missing_byte}
-""")?
+""",
+  )?
   assert output.success
-  assert output.stdout == "receiver\nindex\n3\nreceiver\nindex\nfallback\n3\nfallback\n7\n97\nfallback\n7\n"
+  assert output.stdout == """receiver
+index
+3
+receiver
+index
+fallback
+3
+fallback
+7
+97
+fallback
+7
+"""
 }
 
 test test_absence_lookup_eager_snapshots_keep_receiver_and_index_before_mutation { |ctx|
-  let output = test.run_script(ctx, r"""proc witness() [io] -> Int {
+  let output = test.run_script(
+    ctx,
+    r"""proc witness() [io] -> Int {
   var values = [3]
   var selected = 0
   let items = { print "receiver"; values }
@@ -96,7 +121,13 @@ test test_absence_lookup_eager_snapshots_keep_receiver_and_index_before_mutation
   answer
 }
 print ${witness()}
-""")?
+""",
+  )?
   assert output.success, output.stderr
-  assert output.stdout == "receiver\nindex\nfallback\n9 1\n3\n"
+  assert output.stdout == """receiver
+index
+fallback
+9 1
+3
+"""
 }

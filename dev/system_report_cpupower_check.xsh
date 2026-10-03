@@ -233,7 +233,7 @@ proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) 
     return Err(cpupower_failure(f"cpupower ${name} output is incomplete"))
   }
 
-  (raw.data).utf8()?
+  raw.data.utf8()?
 }
 
 ## Runs only explicit utility subcommands around one product collection.
@@ -249,7 +249,7 @@ export proc compare_live_cpupower(
   let scratch = fs.tempdir()?
   defer scratch.close()?
   let version_output = cpupower_output(scratch, executable, "version", [executable, "--version"])?
-  let version = ((version_output.lines() |> collect).get(0) ?? "").trim()
+  let version = ((version_output.lines() |> collect()).get(0) ?? "").trim()
   if ! version.starts_with("cpupower ") {
     return Err(cpupower_failure("cpupower version is unsupported"))
   }
@@ -299,7 +299,7 @@ export proc compare_live_cpupower(
     return Err(cpupower_failure("candidate CPU output is incomplete"))
   }
 
-  let candidate = (candidate_raw.data).utf8()?
+  let candidate = candidate_raw.data.utf8()?
   if json.get(json.decode(candidate)?, ["source_mode"])?.require(Str)? != "live_linux" {
     return Err(cpupower_failure("candidate is not a live Linux report"))
   }

@@ -1,5 +1,7 @@
 test test_try_captures_once_and_preserves_result_data { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 var calls = 0
 proc operation() -> Result[Int] {
   calls += 1
@@ -9,16 +11,20 @@ let value = try { operation()? }?
 let outer = try { operation() }?
 let nested = outer?
 print f"\${value} \${nested} \${calls}"
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("7 7 2\n")
+  assert output.stdout == """7 7 2
+"""
 }
 
 test test_try_captures_nearest_nominal_error_and_returns_lexically { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 proc fail() [] -> Result[Int, LocalError] { Err(LocalError.Failed(message: "local")) }
 proc local() [] -> Result[Int, LocalError] {
@@ -33,16 +39,22 @@ let outer = try { inner }
 print (outer? is Err(LocalError.Failed))
 print (local() is Err(LocalError.Failed))
 print escape()?
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\ntrue\nouter\n")
+  assert output.stdout == """true
+true
+outer
+"""
 }
 
 test test_try_bool_empty_cleanup_and_loop_targets { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 var cleaned = 0
 proc cleanup() -> Result[Unit] { print "cleanup"; cleaned += 1 }
 let value = try {
@@ -60,51 +72,70 @@ while rounds < 3 {
   }
 }
 print f"\${value} \${cleaned} \${rounds}"
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("cleanup\ncleanup\ncleanup\ncleanup\nfalse 4 3\n")
+  assert output.stdout == """cleanup
+cleanup
+cleanup
+cleanup
+false 4 3
+"""
 }
 
 test test_try_assertions_capture_but_trace_has_no_retry_events { |ctx|
-  let output = test.run_xsht_trace(ctx, """
+  let output = test.run_xsht_trace(
+    ctx,
+    """
 let result = try {
   assert false
   7
 }
 print (result is Err(_))
-""", ["--raw", "--trace-format", "jsonl"])?
+""",
+    ["--raw", "--trace-format", "jsonl"],
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\n")
-  assert ("retry.attempt" not in output.stderr)
+  assert output.stdout == """true
+"""
+  assert "retry.attempt" not in output.stderr
 }
 
 test test_try_outer_propagation_still_requires_error_effect { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 proc bad() [] -> Int {
   try { 7 }?
 }
-""")?
-  assert (!output.success)
-  assert ("check.effect-violation" in output.stderr)
+""",
+  )?
+  assert ! output.success
+  assert "check.effect-violation" in output.stderr
 }
 
 test test_try_error_only_requires_success_annotation { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 let result = try { Err(LocalError.Failed(message: "unknown success"))? }
-""")?
-  assert (!output.success)
-  assert ("check.try-success-type" in output.stderr)
+""",
+  )?
+  assert ! output.success
+  assert "check.try-success-type" in output.stderr
 }
 
 test test_try_unit_context_asserts_and_auto_propagates { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 proc unit_fail() [] -> Result[Unit, LocalError] { Err(LocalError.Failed(message: "unit")) }
 let assertion: Result[Unit] = try { assert false }
@@ -113,16 +144,22 @@ let success: Result[Unit] = try { assert true }
 print (assertion is Err(_))
 print (failure is Err(LocalError.Failed))
 print (success is Ok(_))
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\ntrue\ntrue\n")
+  assert output.stdout == """true
+true
+true
+"""
 }
 
 test test_try_cleanup_failure_is_captured_and_primary_error_wins { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 proc cleanup() [] -> Result[Unit, LocalError] { Err(LocalError.Failed(message: "cleanup")) }
 let cleanup_failure: Result[Int, LocalError] = try {
@@ -141,27 +178,35 @@ match primary {
   Err(error) => print \$error.message
   Ok(_) => print "unexpected"
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("cleanup\nprimary\n")
+  assert output.stdout == """cleanup
+primary
+"""
 }
 
 test test_try_rejects_incompatible_nominal_error_annotation { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error FirstError = Failed(message: Str)
 error SecondError = Failed(message: Str)
 proc fail() [] -> Result[Int, FirstError] { Err(FirstError.Failed(message: "first")) }
 let value: Result[Int, SecondError] = try { fail()? }
-""")?
-  assert (!output.success)
-  assert ("type mismatch" in output.stderr)
+""",
+  )?
+  assert ! output.success
+  assert "type mismatch" in output.stderr
 }
 
 test test_try_global_assignments_reach_cleanup_and_survive_transfer { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 var count = 0
 proc cleanup() -> Result[Unit] {
   print f"cleanup \${count}"
@@ -180,78 +225,108 @@ while rounds < 2 {
   continue
 }
 print \$count
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("cleanup 1\n1 11\ncleanup 11\ncleanup 21\n31\n")
+  assert output.stdout == """cleanup 1
+1 11
+cleanup 11
+cleanup 21
+31
+"""
 }
 
 test test_try_function_unit_tail_consumes_assertion { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 proc capture() [] -> Result[Unit] { try { assert false } }
 print (capture() is Err(_))
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\n")
+  assert output.stdout == """true
+"""
 }
 
 test test_try_error_data_needs_its_nested_success_annotation { |ctx|
-  let unknown = test.run_script(ctx, """
+  let unknown = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 let value = try { Err(LocalError.Failed(message: "nested")) }
-""")?
-  assert (!unknown.success)
-  assert ("check.try-success-type" in unknown.stderr)
-  let known = test.run_script(ctx, """
+""",
+  )?
+  assert ! unknown.success
+  assert "check.try-success-type" in unknown.stderr
+  let known = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 let value: Result[Result[Int, LocalError]] = try { Err(LocalError.Failed(message: "nested")) }
 print (value? is Err(LocalError.Failed))
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = known
     assert assertion_condition, assertion_message
   }
-  assert (known.stdout) == ("true\n")
+  assert known.stdout == """true
+"""
 }
 
 test test_try_captures_plain_return_error_effect_call { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 proc fail() [error] -> Int { "invalid".parse_int()? }
 proc capture() [] -> Result[Int] { try { fail() } }
 print (capture() is Err(_))
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\n")
+  assert output.stdout == """true
+"""
 }
 
 test test_try_plain_run_failure_captures_and_abort_escapes { |ctx|
-  let failed = test.run_script(ctx, """
+  let failed = test.run_script(
+    ctx,
+    """
 let value: Result[Unit] = try { run false }
 print (value is Err(_))
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = failed
     assert assertion_condition, assertion_message
   }
-  assert (failed.stdout) == ("true\n")
-  let aborted = test.run_script(ctx, """
+  assert failed.stdout == """true
+"""
+  let aborted = test.run_script(
+    ctx,
+    """
 let value: Result[Unit] = try { abort(9) }
 print "unexpected"
-""")?
-  assert (aborted.status) == (9)
-  assert (aborted.stdout) == ("")
+""",
+  )?
+  assert aborted.status == 9
+  assert aborted.stdout == ""
 }
 
 test test_try_producer_yields_suspend_inside_capture { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 stream rows() -> Stream[Int] {
   let value: Result[Unit] = try {
     yield 1
@@ -262,32 +337,40 @@ stream rows() -> Stream[Int] {
 let values = rows() |> collect()
 assert values == [1, 2]
 print "yielded"
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("yielded\n")
+  assert output.stdout == """yielded
+"""
 }
 
 test test_try_process_cleanup_preserves_process_error_data { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 proc cleanup() [process, error] -> Result[Unit, ProcessError] { run false }
 let value: Result[Int, ProcessError] = try {
   defer cleanup()?
   7
 }
 print (value is Err(_))
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\n")
+  assert output.stdout == """true
+"""
 }
 
 test test_try_producer_capture_and_cancellation_run_cleanup_once { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 proc cleanup() -> Result[Unit, LocalError] { print "cleanup" }
 stream rows() -> Stream[Int] {
@@ -304,16 +387,23 @@ assert values == [1, 3]
 let first = rows() |> take(1) |> collect()
 assert first == [1]
 print "finished"
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("cleanup\ntrue\ncleanup\nfinished\n")
+  assert output.stdout == """cleanup
+true
+cleanup
+finished
+"""
 }
 
 test test_try_recursive_calls_use_frames_and_err_return_stays_lexical { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 proc descend(n: Int) [] -> Result[Int] {
   if n == 0 { Ok(0) } else { try { descend(n - 1)? + 1 } }
@@ -329,16 +419,21 @@ match escape() {
   Err(error) => print \$error.message
   Ok(_) => print "unexpected"
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("4096\nouter\n")
+  assert output.stdout == """4096
+outer
+"""
 }
 
 test test_try_explicit_return_uses_result_annotation { |ctx|
-  let output = test.run_script(ctx, """
+  let output = test.run_script(
+    ctx,
+    """
 error LocalError = Failed(message: Str)
 proc assertion() [] -> Result[Unit] { return try { assert false } }
 proc success() [] -> Result[Unit] { return try { assert true } }
@@ -352,10 +447,16 @@ print (failure() is Err(LocalError.Failed))
 print (success() is Ok(_))
 print (predicate() is Ok(false))
 print (nested() is Ok(Ok(_)))
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("true\ntrue\ntrue\ntrue\ntrue\n")
+  assert output.stdout == """true
+true
+true
+true
+true
+"""
 }

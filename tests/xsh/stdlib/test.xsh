@@ -89,17 +89,20 @@ test test_native_script_arguments_preserve_a_leading_separator { |ctx|
     let {success: assertion_condition, stderr: assertion_message, ..} = script
     assert assertion_condition, assertion_message
   }
-  assert (script.stdout) == ("--,one\n")
+  assert script.stdout == """--,one
+"""
   let explicit = test.run_xsh(ctx, source, ["--"], ["--", "one"])?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = explicit
     assert assertion_condition, assertion_message
   }
-  assert (explicit.stdout) == ("--,one\n")
+  assert explicit.stdout == """--,one
+"""
   let traced = test.run_xsht_trace(ctx, source, [], ["--", "one"])?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = traced
     assert assertion_condition, assertion_message
   }
-  assert (traced.stdout) == ("--,one\n")
+  assert traced.stdout == """--,one
+"""
 }

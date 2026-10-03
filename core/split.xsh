@@ -103,8 +103,8 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
   return Err(usage_error("split", "[-l N|-b N] [FILE [PREFIX]]")) when paths.len() > 2
 
-  let input_path = (paths.get(0) ?? "-")
-  let prefix = (paths.get(1) ?? "x")
+  let input_path = paths.get(0) ?? "-"
+  let prefix = paths.get(1) ?? "x"
 
   if bytes_per_file > 0 {
     let input = read_bytes_input(input_path)?
@@ -113,7 +113,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
     while offset < input.len() {
       let remaining = input.len() - offset
-      let chunk_end = if bytes_per_file < remaining {offset + bytes_per_file} else {input.len()}
+      let chunk_end = if bytes_per_file < remaining { offset + bytes_per_file } else { input.len() }
       fp"${prefix}${suffix(chunk)}".write(input[offset..chunk_end])?
       offset += bytes_per_file
       chunk += 1

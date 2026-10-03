@@ -2,7 +2,7 @@ pure normalize_df_mount(line: Str) -> Str {
   let fields = line.words()
   return fields.join(" ") when (fields.get(0) ?? "") == "Filesystem"
 
-  f"${(fields.get(0) ?? "")} ${(fields.get(1) ?? "")} ${(fields.get(5) ?? "")}"
+  f"${fields.get(0) ?? ""} ${fields.get(1) ?? ""} ${fields.get(5) ?? ""}"
 }
 
 proc normalize_df_mounts(text: Str) [error] -> Str {

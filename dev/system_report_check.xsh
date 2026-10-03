@@ -2793,7 +2793,7 @@ export pure compare_lscpu_topology(
 
     if item.socket != null and item.core != null {
       let core_key = f"${item.socket ?? -1}/${item.core ?? -1}"
-      let expected_siblings = (reference_cores.get(core_key) ?? []) |> sort-by .
+      let expected_siblings = reference_cores.get(core_key) ?? [] |> sort-by .
       if actual.thread_siblings != expected_siblings {
         sibling_mismatches = sibling_mismatches.push(f"${item.cpu}.thread_siblings")
       }
@@ -3022,8 +3022,8 @@ export pure compare_cpu_cache_sharing(
   }
 
   for cpu_key in expected_by_cpu.keys() {
-    let expected = (expected_by_cpu.get(cpu_key) ?? []) |> sort-by .
-    let actual = (actual_by_cpu.get(cpu_key) ?? []) |> sort-by .
+    let expected = expected_by_cpu.get(cpu_key) ?? [] |> sort-by .
+    let actual = actual_by_cpu.get(cpu_key) ?? [] |> sort-by .
     if expected != actual {
       relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
     }
@@ -3094,7 +3094,7 @@ proc reference_cache_text(
     return Err(check_failure(f"cache reference source ${source_path} is incomplete"))
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
     Err(check_failure(f"cache reference source ${source_path} is not UTF-8"))
@@ -3671,7 +3671,7 @@ proc reference_usb_text(root: FsRoot, source_path: Path) [fs, error] -> Result[S
     return Err(check_failure(f"USB topology reference ${source_path} is incomplete"))
   }
 
-  let value = (raw.data).utf8()?.trim()
+  let value = raw.data.utf8()?.trim()
   if value == "" {
     return Err(check_failure(f"USB topology reference ${source_path} is empty"))
   }
@@ -3935,7 +3935,7 @@ proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Res
     return Ok({value: null, complete: false})
   }
 
-  let value = (raw.data).utf8()?.trim()
+  let value = raw.data.utf8()?.trim()
   if value == "" {
     return Err(check_failure(f"USB identity reference ${source_path} is empty"))
   }
@@ -4171,7 +4171,11 @@ export pure parse_usb_interface_descriptors(data: Bytes) -> Result[List[UsbInter
       let attributes = bytes.unpack_le(data, 1, offset + 3)?
       let endpoint = UsbInterfaceEndpointReference(
         address:,
-        direction: if address >= 128 { "in" } else { "out" },
+        direction: if address >= 128 {
+          "in"
+        } else {
+          "out"
+        },
         transfer_type: match attributes % 4 {
           0 => "control",
           1 => "isochronous",
@@ -4233,6 +4237,7 @@ proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, err
         if name == "" {
           return Err(check_failure("USB interface driver link has an empty target"))
         }
+
         return Ok({value: name, complete: true})
       } else {
         return Ok({value: null, complete: false})
@@ -4574,7 +4579,7 @@ proc reference_power_text(root: FsRoot, source_path: Path) [fs, error] -> Result
     return Ok({value: null, complete: false})
   }
 
-  let value = (raw.data).utf8()?.trim()
+  let value = raw.data.utf8()?.trim()
   if value == "" {
     return Err(check_failure(f"power supply attribute ${source_path} is empty"))
   }
@@ -4824,7 +4829,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
     }
   }
 
-  let scoreable = complete and stable_static and reference != null and (reference).len() > 0
+  let scoreable = complete and stable_static and reference != null and reference.len() > 0
   let capture = PowerSupplyBundleCapture(
     schema_version: 1,
     origin:,
@@ -4852,7 +4857,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
   if capture.schema_version != 1 or capture.reference_adapter != "power-supply-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
     "live_capture",
-  ] or ! capture.stable_static or ! capture.scoreable or capture.reference == null or (capture.reference).len() == 0 {
+  ] or ! capture.stable_static or ! capture.scoreable or capture.reference == null or capture.reference.len() == 0 {
     return Err(check_failure("power supply capture has no stable scoreable reference"))
   }
 
@@ -4891,15 +4896,15 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
     }
 
     let raw = bundle.read_result(relative, max_bytes: 4096)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"power supply capture ${item.path} bytes differ"))
     }
   }
 
-  if read_power_supply_reference(bundle)? != (capture.reference) {
+  if read_power_supply_reference(bundle)? != capture.reference {
     return Err(check_failure("power supply reference differs from raw sources"))
   }
 
@@ -5161,6 +5166,7 @@ proc reference_powercap_parent(
         return Ok({value: null, complete: false})
       }
     }
+
     Ok({value: null, complete: true})
   }
 }
@@ -5411,7 +5417,7 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
     }
   }
 
-  let scoreable = reference != null and (reference).len() > 0
+  let scoreable = reference != null and reference.len() > 0
   let capture = PowerCapCapture(
     schema_version: 1,
     origin:,
@@ -5460,10 +5466,10 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"powercap capture ${relative} bytes differ from metadata"))
     }
   }
@@ -5767,7 +5773,7 @@ proc device_class_reference_name(
     return Ok({value: null, complete: false})
   }
 
-  if let Ok(value) = (source.data).utf8() {
+  if let Ok(value) = source.data.utf8() {
     Ok({value: value.trim(), complete: true})
   } else {
     Ok({value: null, complete: false})
@@ -5888,7 +5894,7 @@ pure device_class_parent_ids(target: Str?) -> DeviceClassParentIds {
         pci = component
       }
 
-      let candidate = (component.split(":").get(0) ?? "")
+      let candidate = component.split(":").get(0) ?? ""
       match parse_usb_topology_name(candidate) {
         Ok(_) => usb = candidate
         Err(_) => {}
@@ -6138,7 +6144,7 @@ proc reference_hwmon_text(root: FsRoot, source_path: Path) [fs, error] -> Result
     return Ok({value: null, complete: false})
   }
 
-  if let Ok(value) = (source.data).utf8() {
+  if let Ok(value) = source.data.utf8() {
     Ok({value: value.trim(), complete: true})
   } else {
     Ok({value: null, complete: false})
@@ -6412,7 +6418,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     }
   }
 
-  let scoreable = complete and stable_static and reference != null and (reference).len() > 0
+  let scoreable = complete and stable_static and reference != null and reference.len() > 0
   let capture = HwmonBundleCapture(
     schema_version: 1,
     origin:,
@@ -6478,15 +6484,15 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"hwmon capture ${relative} bytes differ"))
     }
   }
 
-  if read_hwmon_reference(bundle)? != (capture.reference) {
+  if read_hwmon_reference(bundle)? != capture.reference {
     return Err(check_failure("hwmon reference differs from raw sources"))
   }
 
@@ -7075,7 +7081,7 @@ export pure compare_cpuidle(
       let lower = counter.before ?? -1
       let upper = counter.after ?? -1
       let observed = counter.candidate ?? -1
-      if counter.before == null != (counter.after == null) or upper < lower {
+      if (counter.before == null) != (counter.after == null) or upper < lower {
         unstable_fields = unstable_fields.push(f"${key}.${counter.name}")
       } else if counter.before == null {
         if counter.candidate != null {
@@ -7131,7 +7137,7 @@ proc reference_cpuidle_text(
     return Err(check_failure(f"CPUIdle reference source ${source_path} is incomplete"))
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
     Err(check_failure(f"CPUIdle reference source ${source_path} is not UTF-8"))
@@ -7271,7 +7277,7 @@ proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs
     return Err(check_failure(f"CPUFreq reference source ${source_path} is incomplete"))
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
     Err(check_failure(f"CPUFreq reference source ${source_path} is not UTF-8"))
@@ -7305,7 +7311,7 @@ proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Res
     return Err(check_failure(f"CPUFreq gauge ${source_path} is incomplete"))
   }
 
-  let value = (raw.data).utf8()?.trim()
+  let value = raw.data.utf8()?.trim()
   let number = reference_cpu_number(value)?
   if number < 0 or number > 9007199254740991 {
     return Err(check_failure(f"CPUFreq gauge ${source_path} exceeds the exact integer range"))
@@ -7403,7 +7409,7 @@ proc captured_cpu_set_text(root: FsRoot, name: Str) [fs, error] -> Result[Str] {
     return Err(check_failure(f"CPU set capture has no complete ${name} source"))
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok(value)
   } else {
     Err(check_failure(f"CPU set capture has non-UTF-8 ${name} source"))
@@ -7505,7 +7511,7 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
     return Err(check_failure("CPU set capture metadata is missing or incomplete"))
   }
 
-  let metadata_text = (metadata.data).utf8()?
+  let metadata_text = metadata.data.utf8()?
   let capture = json.decode(metadata_text)?.require(CpuSetCapture)?
   if capture.schema_version != 2 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "xsh-dev-sysfs-cpu-list-v1" or capture.sources.len() != 4 {
     return Err(check_failure("CPU set capture metadata has an unsupported contract"))
@@ -7524,10 +7530,10 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
     }
 
     let raw = bundle.read_result(fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or expected.sha256_hex == null or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or expected.sha256_hex == null or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"CPU set capture ${name} bytes differ from metadata"))
     }
   }
@@ -7743,7 +7749,7 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     }
   }
 
-  let scoreable = stable_static and sets != null and policies != null and (policies).len() > 0
+  let scoreable = stable_static and sets != null and policies != null and policies.len() > 0
   let capture = CpuFreqBundleCapture(
     schema_version: 1,
     origin:,
@@ -7805,10 +7811,10 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"CPUFreq capture ${relative} bytes differ"))
     }
   }
@@ -7907,7 +7913,7 @@ proc cpu_topology_reference_text(root: FsRoot, relative: Str, required: Bool) [f
     return Err(check_failure(f"CPU topology source ${relative} is incomplete"))
   }
 
-  let value = (raw.data).utf8()?.trim()
+  let value = raw.data.utf8()?.trim()
   return Err(check_failure(f"CPU topology source ${relative} is empty")) when value == ""
 
   value
@@ -8129,7 +8135,7 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
     }
   }
 
-  let scoreable = stable and sets != null and topology != null and (topology).len() > 0
+  let scoreable = stable and sets != null and topology != null and topology.len() > 0
   let capture = CpuTopologyBundleCapture(
     schema_version: 1,
     origin:,
@@ -8188,10 +8194,10 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
       4096
     }
     let raw = bundle.read_result(fp"${relative}", max_bytes: limit)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"CPU topology capture ${relative} bytes differ"))
     }
   }
@@ -8237,7 +8243,7 @@ proc memory_bundle_text(bundle: FsRoot, relative: Str, bound: Int) [fs, error] -
     return Err(check_failure(f"memory bundle has no complete ${relative} source"))
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok(value)
   } else {
     Err(check_failure(f"memory bundle ${relative} source is not UTF-8"))
@@ -8349,7 +8355,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     return Err(check_failure("memory capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(MemoryCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(MemoryCapture)?
   let paths = memory_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "xsh-dev-memory-raw-v1" or capture.sources.len() != paths.len() {
     return Err(check_failure("memory capture metadata has an unsupported contract"))
@@ -8376,10 +8382,10 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
 
     let bound = if index == 0 { 1048576 } else { 4096 }
     let raw = bundle.read_result(fp"${relative}", max_bytes: bound)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"memory capture ${relative} bytes differ from metadata"))
     }
   }
@@ -8554,7 +8560,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
       return Err(check_failure("meminfo reference has an invalid value column count"))
     }
 
-    let source_unit = (fields.get(1) ?? "")
+    let source_unit = fields.get(1) ?? ""
     if meminfo_byte_field(name) and source_unit != "kB" {
       return Err(check_failure("meminfo reference byte field has an invalid unit"))
     }
@@ -8627,7 +8633,7 @@ export pure compare_meminfo(
   }
 
   for item in before {
-    if item.name not in after_by_name or after[(after_by_name.get(item.name) ?? -1)].unit != item.unit {
+    if item.name not in after_by_name or after[after_by_name.get(item.name) ?? -1].unit != item.unit {
       return Err(check_failure("meminfo reference field or unit changed around candidate collection"))
     }
   }
@@ -8655,8 +8661,8 @@ export pure compare_meminfo(
     }
 
     matched_count += 1
-    let last = after[(after_by_name.get(first.name) ?? -1)]
-    let candidate = candidates[(candidate_by_name.get(first.name) ?? -1)]
+    let last = after[after_by_name.get(first.name) ?? -1]
+    let candidate = candidates[candidate_by_name.get(first.name) ?? -1]
     if candidate.unit != first.unit {
       mismatched_names = mismatched_names.push(first.name)
       continue
@@ -8772,7 +8778,7 @@ export pure compare_thp(
   }
 
   for item in before {
-    if item.name not in after_by_name or after[(after_by_name.get(item.name) ?? -1)].value != item.value {
+    if item.name not in after_by_name or after[after_by_name.get(item.name) ?? -1].value != item.value {
       return Err(check_failure("THP reference policy changed around collection"))
     }
   }
@@ -8882,7 +8888,7 @@ export pure compare_vulnerabilities(
     }
 
     matched_count += 1
-    let candidate = (candidate_by_name.get(item.name) ?? {state: "", value: null, raw_bytes_base64: null})
+    let candidate = candidate_by_name.get(item.name) ?? {state: "", value: null, raw_bytes_base64: null}
     if candidate.state != "observed" or candidate.value != item.description or candidate.raw_bytes_base64 != null {
       mismatched_names = mismatched_names.push(item.name)
     }
@@ -8940,7 +8946,7 @@ export proc capture_vulnerabilities_bundle(
       if raw.data != null {
         bundle.write(child, raw.data)?
         digest = hash.sha256(raw.data).hex()
-        captured_bytes += (raw.data).len()
+        captured_bytes += raw.data.len()
         if captured_bytes > 262144 {
           scoreable = false
         }
@@ -8958,7 +8964,7 @@ export proc capture_vulnerabilities_bundle(
       if raw.state != "observed" or raw.truncated or raw.errno != null or raw.error_kind != null or raw.data == null {
         scoreable = false
       } else if scoreable {
-        if let Ok(value) = (raw.data).utf8() {
+        if let Ok(value) = raw.data.utf8() {
           reference = reference.push({name: name, description: value.trim()})
         } else {
           scoreable = false
@@ -8998,7 +9004,11 @@ export proc capture_vulnerabilities_bundle(
     listing_errno: first.errno,
     listing_error_kind: first.error_kind,
     sources:,
-    reference: if scoreable and stable { reference } else { null },
+    reference: if scoreable and stable {
+      reference
+    } else {
+      null
+    },
   )
   let wire: Any = capture
   bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
@@ -9011,7 +9021,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     return Err(check_failure("vulnerability capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(VulnerabilityCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(VulnerabilityCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "vulnerability-sysfs-raw-v1" or ! capture.stable or capture.listing_state != "complete" or capture.listing_errno != null or capture.listing_error_kind != null or capture.sources.len() == 0 or capture.reference == null {
     return Err(check_failure("vulnerability capture has no stable complete reference"))
   }
@@ -9034,26 +9044,26 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
     expected_names = expected_names.push(item.name)
     let relative = fp"sys/devices/system/cpu/vulnerabilities/${item.name}"
     let raw = bundle.read_result(relative, max_bytes: 16384)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != item.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != item.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (item.sha256_hex) {
+      .hex() != item.sha256_hex {
       return Err(check_failure(f"vulnerability capture ${item.name} bytes differ from metadata"))
     }
 
-    captured_bytes += (raw.data).len()
+    captured_bytes += raw.data.len()
     if captured_bytes > 262144 {
       return Err(check_failure("vulnerability capture exceeds its aggregate source bound"))
     }
 
-    if let Ok(value) = (raw.data).utf8() {
+    if let Ok(value) = raw.data.utf8() {
       reference = reference.push({name: item.name, description: value.trim()})
     } else {
       return Err(check_failure(f"vulnerability capture ${item.name} is not UTF-8"))
     }
   }
 
-  if (names |> sort-by .) != (expected_names |> sort-by .) or reference != (capture.reference) {
+  if (names |> sort-by .) != (expected_names |> sort-by .) or reference != capture.reference {
     return Err(check_failure("vulnerability capture reference differs from saved files"))
   }
 
@@ -9149,8 +9159,8 @@ export pure compare_huge_pages(
     }
 
     matched_count += 1
-    let last = after[(after_by_key.get(key) ?? -1)]
-    let pool = candidates[(candidate_by_key.get(key) ?? -1)]
+    let last = after[after_by_key.get(key) ?? -1]
+    let pool = candidates[candidate_by_key.get(key) ?? -1]
     let fields: List[HugePageComparedField] = [
       {
         name: "total",
@@ -9362,7 +9372,7 @@ export pure compare_psi(
 
   for row in before {
     let key = psi_reference_key(row.resource, row.kind)
-    if key not in after_by_key or after[(after_by_key.get(key) ?? -1)].total_us < row.total_us {
+    if key not in after_by_key or after[after_by_key.get(key) ?? -1].total_us < row.total_us {
       return Err(check_failure("PSI reference identity changed or cumulative total decreased"))
     }
   }
@@ -9393,8 +9403,8 @@ export pure compare_psi(
     }
 
     matched_count += 1
-    let last = after[(after_by_key.get(key) ?? -1)]
-    let candidate = candidates[(candidate_by_key.get(key) ?? -1)]
+    let last = after[after_by_key.get(key) ?? -1]
+    let candidate = candidates[candidate_by_key.get(key) ?? -1]
     let total = candidate.total_us ?? -1
     if total < first.total_us or total > last.total_us {
       mismatched_fields = mismatched_fields.push(f"${key}.total_us")
@@ -9460,7 +9470,7 @@ proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiRef
     }
 
     var source_text = ""
-    if let Ok(value) = (raw.data).utf8() {
+    if let Ok(value) = raw.data.utf8() {
       source_text = value
     } else {
       return Err(check_failure(f"pressure capture ${resource} source is not UTF-8"))
@@ -9546,7 +9556,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     return Err(check_failure("pressure capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(PressureCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(PressureCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "pressure-procfs-raw-v1" or capture.sources.len() != 3 or capture.reference == null {
     return Err(check_failure("pressure capture has no complete reference"))
   }
@@ -9572,16 +9582,16 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: 16384)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"pressure capture ${relative} bytes differ from metadata"))
     }
   }
 
   let reference = pressure_bundle_reference(bundle)?
-  if reference != (capture.reference) {
+  if reference != capture.reference {
     return Err(check_failure("pressure capture reference differs from raw sources"))
   }
 
@@ -9740,7 +9750,7 @@ export proc capture_proc_swaps_bundle(source: FsRoot, bundle: FsRoot, origin: St
   let stable = first.state == second.state and first.truncated == second.truncated and first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
   var reference: List[SwapReferenceDevice]? = null
   if stable and first.state == "observed" and ! first.truncated and first.data != null {
-    if let Ok(text) = (first.data).utf8() {
+    if let Ok(text) = first.data.utf8() {
       if let Ok(parsed) = parse_proc_swaps_raw_reference(text) {
         reference = parsed
       }
@@ -9772,28 +9782,28 @@ export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[Lis
     return Err(check_failure("proc swap capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(ProcSwapsCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(ProcSwapsCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-swaps-raw-v1" or ! capture.stable or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference == null {
     return Err(check_failure("proc swap capture has no stable complete reference"))
   }
 
   let raw = bundle.read_result(p"proc/swaps", max_bytes: 262144)?
-  if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != capture.byte_count or hash.sha256(
+  if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != capture.byte_count or hash.sha256(
     raw.data,
   )
-    .hex() != (capture.sha256_hex) {
+    .hex() != capture.sha256_hex {
     return Err(check_failure("proc swap capture bytes differ from metadata"))
   }
 
   var text = ""
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     text = value
   } else {
     return Err(check_failure("proc swap capture is not UTF-8"))
   }
 
   let reference = parse_proc_swaps_raw_reference(text)?
-  if reference != (capture.reference) {
+  if reference != capture.reference {
     return Err(check_failure("proc swap capture oracle differs from saved bytes"))
   }
 
@@ -9984,7 +9994,7 @@ pure pci_reference_bdf(value: Str) -> Result[PciReferenceBdf] {
 pure pci_reference_optional_hex(fields: Map[Str], key: Str, width: Int) -> Result[Int?] {
   return Ok(null) when key not in fields
 
-  pci_reference_hex((fields.get(key) ?? ""), width)?
+  pci_reference_hex(fields.get(key) ?? "", width)?
 }
 
 pure pci_reference_argv() -> List[Str] {
@@ -10038,22 +10048,22 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       }
     }
 
-    if "Slot" not in fields or "Class" not in fields or "Vendor" not in fields or "Device" not in fields or "SVendor" in fields != "SDevice" in fields {
+    if "Slot" not in fields or "Class" not in fields or "Vendor" not in fields or "Device" not in fields or ("SVendor" in fields) != ("SDevice" in fields) {
       return Err(check_failure("lspci reference is missing a required numeric identity"))
     }
 
-    let bdf = pci_reference_bdf((fields.get("Slot") ?? ""))?
+    let bdf = pci_reference_bdf(fields.get("Slot") ?? "")?
     if bdf.address in seen {
       return Err(check_failure("lspci reference has a duplicate slot address"))
     }
 
     seen = set.add(seen, bdf.address)
-    let class_base = pci_reference_hex((fields.get("Class") ?? ""), 4)?
+    let class_base = pci_reference_hex(fields.get("Class") ?? "", 4)?
     let prog_if = pci_reference_optional_hex(fields, "ProgIf", 2)?
     let revision = pci_reference_optional_hex(fields, "Rev", 2)?
     var numa_node: Int? = null
     if "NUMANode" in fields {
-      let numa_text = (fields.get("NUMANode") ?? "")
+      let numa_text = fields.get("NUMANode") ?? ""
       for digit in numa_text {
         if digit not in "0123456789" {
           return Err(check_failure("lspci reference has a nondecimal NUMA node"))
@@ -10084,8 +10094,8 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       bus: bdf.bus,
       device: bdf.device,
       function: bdf.function,
-      vendor_id: pci_reference_hex((fields.get("Vendor") ?? ""), 4)?,
-      device_id: pci_reference_hex((fields.get("Device") ?? ""), 4)?,
+      vendor_id: pci_reference_hex(fields.get("Vendor") ?? "", 4)?,
+      device_id: pci_reference_hex(fields.get("Device") ?? "", 4)?,
       class_code: class_base * 256 + (prog_if ?? 0),
       prog_if: prog_if,
       revision: revision,
@@ -10932,7 +10942,7 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
     }
   }
 
-  let scoreable = reference != null and (reference).len() > 0
+  let scoreable = reference != null and reference.len() > 0
   let capture = ThermalCapture(
     schema_version: 1,
     origin:,
@@ -10955,7 +10965,7 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
     return Err(check_failure("thermal capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(ThermalCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(ThermalCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "thermal-raw-v1" or ! capture.scoreable or capture.reference == null or ! capture.layout.complete {
     return Err(check_failure("thermal capture has no stable scoreable reference"))
   }
@@ -10985,10 +10995,10 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"thermal capture ${relative} bytes differ from metadata"))
     }
   }
@@ -11114,7 +11124,7 @@ proc reference_pci_link_text(root: FsRoot, source_path: Path) [fs, error] -> Res
     return Err(check_failure(f"PCI link reference source ${source_path} is incomplete"))
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok(value.trim())
   } else {
     Err(check_failure(f"PCI link reference source ${source_path} is not UTF-8"))
@@ -11165,11 +11175,11 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
 
 proc pci_raw_hex(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Result[Int] {
   let raw = reference_pci_link_text(root, source_path)?
-  if raw == null or ! (raw).starts_with("0x") {
+  if raw == null or ! raw.starts_with("0x") {
     return Err(check_failure(f"PCI raw identity ${source_path} is absent or lacks a hex prefix"))
   }
 
-  pci_reference_hex((raw).replace("0x", ""), width)
+  pci_reference_hex(raw.replace("0x", ""), width)
 }
 
 ## Interprets fixed-width sysfs numbers independently from the collector's decoder.
@@ -11383,7 +11393,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     }
   }
 
-  let scoreable = stable and identity != null and binding != null and link != null and (identity).len() > 0
+  let scoreable = stable and identity != null and binding != null and link != null and identity.len() > 0
   let capture = PciBundleCapture(
     schema_version: 1,
     origin:,
@@ -11440,14 +11450,14 @@ export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleC
       return Err(check_failure(f"PCI capture ${relative} read is incomplete: ${raw.state}"))
     }
 
-    if (raw.data).len() != expected.byte_count or hash.sha256(raw.data).hex() != (expected.sha256_hex) {
+    if raw.data.len() != expected.byte_count or hash.sha256(raw.data).hex() != expected.sha256_hex {
       return Err(check_failure(f"PCI capture ${relative} bytes differ"))
     }
   }
 
-  if read_pci_raw_reference(bundle)? != (capture.identity) or read_pci_binding_reference(bundle)? != (capture.binding) or read_pci_link_reference(
+  if read_pci_raw_reference(bundle)? != capture.identity or read_pci_binding_reference(bundle)? != capture.binding or read_pci_link_reference(
     bundle,
-  )? != (capture.link) {
+  )? != capture.link {
     return Err(check_failure("PCI capture references differ from raw sources"))
   }
 
@@ -11716,7 +11726,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     }
   }
 
-  let scoreable = stable and topology != null and ids != null and power != null and interfaces != null and (topology).len() > 0
+  let scoreable = stable and topology != null and ids != null and power != null and interfaces != null and topology.len() > 0
   let capture = UsbBundleCapture(
     schema_version: 1,
     origin:,
@@ -11770,17 +11780,17 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"USB capture ${relative} bytes differ"))
     }
   }
 
-  if read_usb_topology_reference(bundle)? != (capture.topology) or read_usb_ids_reference(bundle)? != (capture.ids) or read_usb_power_reference(
+  if read_usb_topology_reference(bundle)? != capture.topology or read_usb_ids_reference(bundle)? != capture.ids or read_usb_power_reference(
     bundle,
-  )? != (capture.power) or read_usb_interface_reference(bundle)? != (capture.interfaces) {
+  )? != capture.power or read_usb_interface_reference(bundle)? != capture.interfaces {
     return Err(check_failure("USB capture references differ from raw sources"))
   }
 
@@ -11941,7 +11951,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
 
     matched_count += 1
-    let observed = candidate[(candidate_by_id.get(id_key) ?? 0)]
+    let observed = candidate[candidate_by_id.get(id_key) ?? 0]
     if observed.name.state != "observed" or observed.name.value != link.name {
       field_mismatches = field_mismatches.push(f"${link.ifindex}.name")
     }
@@ -12083,7 +12093,7 @@ proc network_raw_number(
     return Ok({value: null, complete: false})
   }
 
-  let decoded = (raw.data).utf8()
+  let decoded = raw.data.utf8()
   guard let value = decoded else { |_|
     return Ok({value: null, complete: false})
   }
@@ -12274,13 +12284,13 @@ export pure compare_network_link_raw(
       },
     ] {
       let field = f"${key}.${spec.name}"
-      if spec.first == null or spec.last == null or (spec.last) < (spec.first) {
+      if spec.first == null or spec.last == null or spec.last < spec.first {
         unstable_fields += [field]
       } else if spec.name not in counter_by_name {
         field_mismatches += [field]
       } else {
         let counter = observed.counters[counter_by_name.get(spec.name)?]
-        if counter.value < (spec.first) or counter.value > (spec.last) or counter.unit != "bytes" {
+        if counter.value < spec.first or counter.value > spec.last or counter.unit != "bytes" {
           field_mismatches += [field]
         }
       }
@@ -12589,9 +12599,9 @@ export pure compare_ip_address_lifetimes(
       },
     ] {
       let field_key = f"${key}.${field.name}"
-      if field.first == null or field.last == null or (field.last) > (field.first) {
+      if field.first == null or field.last == null or field.last > field.first {
         unstable_fields += [field_key]
-      } else if field.candidate == null or (field.candidate ?? -1) < (field.last) or (field.candidate ?? -1) > (field.first) {
+      } else if field.candidate == null or (field.candidate ?? -1) < field.last or (field.candidate ?? -1) > field.first {
         field_mismatches += [field_key]
       }
     }
@@ -12815,7 +12825,7 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
     let maximum = if family == "ipv4" { 32 } else { 128 }
     let source_prefix_length = source_length ?? (if source_address == null { 0 } else { maximum })
     let destination_prefix_length = destination_length ?? (if destination_address == null { 0 } else { maximum })
-    if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or goto_target != null and ((goto_target) < 0 or (goto_target) > 4294967295 or action != "goto") {
+    if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or goto_target != null and (goto_target < 0 or goto_target > 4294967295 or action != "goto") {
       return Err(check_failure("ip rule reference has an invalid selector"))
     }
 
@@ -12827,7 +12837,11 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
       destination: destination_address,
       destination_prefix_length:,
       fwmark: mark,
-      fwmask: if mask == 4294967295 { null } else { mask },
+      fwmask: if mask == 4294967295 {
+        null
+      } else {
+        mask
+      },
       table: ip_rule_table(table_name)?,
       action:,
       goto_target:,
@@ -12918,7 +12932,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       ] or attribute.data.state != "observed" or attribute.data.value == null {
         fully_represented = false
       } else {
-        match (attribute.data.value).base64_decode() {
+        match attribute.data.value.base64_decode() {
           Ok(_) => {}
           Err(error) => return Err(error)
         }
@@ -12969,7 +12983,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
         continue
       }
 
-      let raw = (attribute.data.value).base64_decode()?
+      let raw = attribute.data.value.base64_decode()?
       if raw.len() != 4 {
         return Err(check_failure("candidate rule goto target is not a 32-bit integer"))
       }
@@ -12990,7 +13004,11 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       destination: rule.destination.value,
       destination_prefix_length: rule.destination_prefix_length,
       fwmark: rule.fwmark,
-      fwmask: if rule.fwmask == 4294967295 { null } else { rule.fwmask },
+      fwmask: if rule.fwmask == 4294967295 {
+        null
+      } else {
+        rule.fwmask
+      },
       table: rule.table,
       action: rule.action,
       goto_target:,
@@ -13129,7 +13147,11 @@ pure ip_route_type(value: Str) -> Result[Str] {
     }
   }
 
-  if value == "xresolve" { "external_resolve" } else { value }
+  if value == "xresolve" {
+    "external_resolve"
+  } else {
+    value
+  }
 }
 
 pure ip_route_scope(value: Str) -> Result[Str] {
@@ -13477,7 +13499,7 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
         ] or data.state != "observed" {
           fully_represented = false
         } else if kind.bit_and(16383) == 9 {
-          if data.value == null or ! route_multipath_representable((data.value).base64_decode()?)? {
+          if data.value == null or ! route_multipath_representable(data.value.base64_decode()?)? {
             fully_represented = false
           }
         }
@@ -13814,7 +13836,7 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
     let partition_source_absent = source.kind == "part" and device.kind == "partition"
     let sector_bad = (device.logical_sector_bytes != null or ! partition_source_absent) and device.logical_sector_bytes != source.logical_sector_bytes or (device.physical_sector_bytes != null or ! partition_source_absent) and device.physical_sector_bytes != source.physical_sector_bytes
     let flag_bad = (device.removable != null or ! partition_source_absent) and device.removable != source.removable or (device.rotational != null or ! partition_source_absent) and device.rotational != source.rotational or device.read_only != source.read_only
-    let partition_bad = device.kind == "partition" != (source.kind == "part")
+    let partition_bad = (device.kind == "partition") != (source.kind == "part")
     if major_minor_bad {
       major_minor_mismatches += 1
     }
@@ -13952,10 +13974,8 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
 
 ## Checks whether two lsblk observations agree on device facts and tree relationships.
 export pure block_reference_stable(before: BlockReference, after: BlockReference) -> Bool {
-  let before_edges = before.edges
-    |> sort-by(block_edge_key)
-  let after_edges = after.edges
-    |> sort-by(block_edge_key)
+  let before_edges = before.edges |> sort-by(block_edge_key)
+  let after_edges = after.edges |> sort-by(block_edge_key)
   (before.devices |> sort-by .name) == (after.devices |> sort-by .name) and before_edges == after_edges
 }
 
@@ -14197,7 +14217,7 @@ proc bounded_block_reference_text(root: FsRoot, source_path: Path) [fs, error] -
     return Err(check_failure(f"block reference source ${source_path} is incomplete"))
   }
 
-  if let Ok(value) = (source.data).utf8() {
+  if let Ok(value) = source.data.utf8() {
     value.trim()
   } else {
     Err(check_failure(f"block reference source ${source_path} is not UTF-8"))
@@ -14469,7 +14489,7 @@ pure block_raw_scheduler(raw: Str?) -> Result[Str?] {
     return null
   }
 
-  let words = (raw).split(" ")
+  let words = raw.split(" ")
     |> where .trim() != ""
     |> collect()
   var selected: Str? = null
@@ -14650,8 +14670,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
 
   {
     devices: devices |> sort-by .name,
-    edges: edges
-      |> sort-by(block_edge_key),
+    edges: edges |> sort-by(block_edge_key),
     queue: queue |> sort-by .name,
   }
 }
@@ -14976,7 +14995,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     }
   }
 
-  let scoreable = complete and stable_static and reference != null and counters != null and (reference).devices.len() > 0
+  let scoreable = complete and stable_static and reference != null and counters != null and reference.devices.len() > 0
   let capture = BlockBundleCapture(
     schema_version: 1,
     origin:,
@@ -15043,19 +15062,19 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"block capture ${relative} bytes differ"))
     }
   }
 
   let reference = read_block_raw_reference(bundle)?
-  if reference != (capture.reference) or read_block_queue_sources(
+  if reference != capture.reference or read_block_queue_sources(
     bundle,
     reference.queue,
-  )? != (capture.counters) {
+  )? != capture.counters {
     return Err(check_failure("block reference differs from raw sources"))
   }
 
@@ -15532,22 +15551,22 @@ export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List
     return Err(check_failure("mountinfo capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(MountinfoCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(MountinfoCapture)?
   if capture.schema_version != 2 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "mountinfo-procfs-raw-v2" or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference == null {
     return Err(check_failure("mountinfo capture has no complete reference"))
   }
 
   let raw = bundle.read_result(p"proc/self/mountinfo", max_bytes: 4194304)?
-  if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != capture.byte_count or hash.sha256(
+  if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != capture.byte_count or hash.sha256(
     raw.data,
   )
-    .hex() != (capture.sha256_hex) {
+    .hex() != capture.sha256_hex {
     return Err(check_failure("mountinfo capture bytes differ from metadata"))
   }
 
-  let source = (raw.data).utf8()?
+  let source = raw.data.utf8()?
   let reference = parse_mountinfo_raw_reference(source)?
-  if reference.len() == 0 or reference != (capture.reference) {
+  if reference.len() == 0 or reference != capture.reference {
     return Err(check_failure("mountinfo capture oracle differs from saved bytes"))
   }
 
@@ -15608,7 +15627,9 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
     let fs_options = json.get(row, ["fs-options"])?.require(Str)?
     let propagation = json.get(row, ["propagation"])?.require(Str)?
     let identity = f"${mount_id}"
-    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or identity in seen or root == "" or ! target.starts_with("/") or filesystem == "" or source == "" or vfs_options == "" or fs_options == "" or propagation not in [
+    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or identity in seen or root == "" or ! target.starts_with(
+      "/",
+    ) or filesystem == "" or source == "" or vfs_options == "" or fs_options == "" or propagation not in [
       "private",
       "shared",
       "slave",
@@ -15713,7 +15734,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     let option_bad = mount.mount_options != reference_mount_sanitized_options(source.mount_options) or mount.super_options != reference_mount_sanitized_options(
       source.super_options,
     )
-    let propagation_bad = reference_mount_propagation(mount.optional_fields) != source.propagation or source.optional_fields != null and mount.optional_fields != (source.optional_fields)
+    let propagation_bad = reference_mount_propagation(mount.optional_fields) != source.propagation or source.optional_fields != null and mount.optional_fields != source.optional_fields
     if parent_bad {
       parent_mismatches += 1
     }
@@ -15813,7 +15834,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
       }
 
       seen = set.add(seen, key)
-      let current = mounts[(by_id.get(key) ?? -1)]
+      let current = mounts[by_id.get(key) ?? -1]
       if ! mount_usage_local_filesystem(current.filesystem) or (target_counts.get(current.target) ?? 0) != 1 {
         safe = false
         break
@@ -15934,8 +15955,8 @@ export pure compare_mount_usage(
     seen = set.add(seen, key)
     var matches = false
     if candidate.mount_id in eligible {
-      let first = before[(before_by_id.get(key) ?? -1)]
-      let last = after[(after_by_id.get(key) ?? -1)]
+      let first = before[before_by_id.get(key) ?? -1]
+      let last = after[after_by_id.get(key) ?? -1]
       let first_available = first.total_bytes != null
       let last_available = last.total_bytes != null
       if first_available != last_available or first.total_bytes != last.total_bytes {
@@ -16226,7 +16247,7 @@ export proc capture_kernel_modules_bundle(
   let stable = first.state == second.state and first.truncated == second.truncated and first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
   var reference: List[KernelModuleReference]? = null
   if stable and first.state == "observed" and ! first.truncated and first.data != null {
-    if let Ok(text) = (first.data).utf8() {
+    if let Ok(text) = first.data.utf8() {
       if let Ok(parsed) = parse_proc_modules_raw_reference(text) {
         reference = parsed
       }
@@ -16258,28 +16279,28 @@ export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result
     return Err(check_failure("kernel module capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(KernelModulesCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(KernelModulesCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-modules-raw-v1" or ! capture.stable or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference == null {
     return Err(check_failure("kernel module capture has no stable complete reference"))
   }
 
   let raw = bundle.read_result(p"proc/modules", max_bytes: 1048576)?
-  if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != capture.byte_count or hash.sha256(
+  if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != capture.byte_count or hash.sha256(
     raw.data,
   )
-    .hex() != (capture.sha256_hex) {
+    .hex() != capture.sha256_hex {
     return Err(check_failure("kernel module capture bytes differ from metadata"))
   }
 
   var text = ""
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     text = value
   } else {
     return Err(check_failure("kernel module capture is not UTF-8"))
   }
 
   let reference = parse_proc_modules_raw_reference(text)?
-  if reference != (capture.reference) {
+  if reference != capture.reference {
     return Err(check_failure("kernel module capture oracle differs from saved bytes"))
   }
 
@@ -16386,16 +16407,16 @@ export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> R
     return Err(check_failure("kernel command-line capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(KernelCommandLineCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(KernelCommandLineCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-cmdline-raw-v1" or ! capture.stable or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference_base64 == null {
     return Err(check_failure("kernel command-line capture has no stable complete reference"))
   }
 
   let raw = bundle.read_result(p"proc/cmdline", max_bytes: 65536)?
-  if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != capture.byte_count or hash.sha256(
+  if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != capture.byte_count or hash.sha256(
     raw.data,
   )
-    .hex() != (capture.sha256_hex) or (raw.data).base64() != (capture.reference_base64) {
+    .hex() != capture.sha256_hex or raw.data.base64() != capture.reference_base64 {
     return Err(check_failure("kernel command-line capture bytes differ from metadata"))
   }
 
@@ -16485,7 +16506,7 @@ export pure compare_kernel_parameters(
     }
 
     matched_count += 1
-    let source = reference[(reference_by_key.get(key) ?? -1)]
+    let source = reference[reference_by_key.get(key) ?? -1]
     if candidate.value.state != source.state or candidate.value.value != source.value or candidate.value.raw_bytes_base64 != source.raw_bytes_base64 {
       field_mismatches += [key]
     }
@@ -16648,7 +16669,7 @@ export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Res
     return Err(check_failure("kernel parameter capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(KernelParametersCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(KernelParametersCapture)?
   let sources = kernel_parameter_sources()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "kernel-parameters-raw-v1" or ! capture.stable or capture.sources.len() != sources.len() or capture.reference == null {
     return Err(check_failure("kernel parameter capture has no stable complete reference"))
@@ -16674,16 +16695,16 @@ export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Res
     }
 
     let raw = bundle.read_result(relative, max_bytes: 4096)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"kernel parameter capture ${sources[index].name} bytes differ from metadata"))
     }
   }
 
   let reference = kernel_parameter_bundle_reference(bundle)?
-  if reference != (capture.reference) {
+  if reference != capture.reference {
     return Err(check_failure("kernel parameter capture oracle differs from saved bytes"))
   }
 
@@ -16833,7 +16854,7 @@ export pure parse_reference_os_release(source: Str) -> Result[OsReleaseReference
     }
   }
 
-  if id == null or (id) == "" {
+  if id == null or id == "" {
     return Err(check_failure("os-release reference has no ID"))
   }
 
@@ -16951,7 +16972,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(OsReleaseCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(OsReleaseCapture)?
   let paths = os_release_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "os-release-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() {
     return Err(check_failure("os-release capture metadata has an unsupported contract"))
@@ -16980,10 +17001,10 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: 65536)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"os-release ${relative} bytes differ from metadata"))
     }
   }
@@ -17006,7 +17027,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
     return Err(check_failure("os-release selected source changed during validation"))
   }
 
-  let reference = parse_reference_os_release((selected.data).utf8()?)?
+  let reference = parse_reference_os_release(selected.data.utf8()?)?
   if reference != (capture.reference ?? reference) {
     return Err(check_failure("os-release reference differs from raw source"))
   }
@@ -17280,7 +17301,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     return Err(check_failure("device-tree capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(DeviceTreeCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(DeviceTreeCapture)?
   let paths = device_tree_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "device-tree-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() or capture.reference == null {
     return Err(check_failure("device-tree capture has no stable complete reference"))
@@ -17309,10 +17330,10 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
 
     let limit = if index == 0 { 4096 } else { 16384 }
     let raw = bundle.read_result(fp"${relative}", max_bytes: limit)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"device-tree ${relative} bytes differ from metadata"))
     }
 
@@ -17349,7 +17370,7 @@ proc reference_dmi_text(root: FsRoot, source_path: Path) [fs, error] -> Result[D
     return Ok({value: null, complete: false})
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok({value: value.trim(), complete: true})
   } else {
     Ok({value: null, complete: false})
@@ -17472,7 +17493,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     return Err(check_failure("DMI identity capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(DmiIdentityCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(DmiIdentityCapture)?
   let paths = dmi_identity_bundle_paths()
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "dmi-identity-raw-v1" or ! capture.stable or capture.sources.len() != paths.len() or capture.reference == null {
     return Err(check_failure("DMI identity capture has no stable complete reference"))
@@ -17498,10 +17519,10 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     }
 
     let raw = bundle.read_result(fp"${relative}", max_bytes: 4096)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"DMI identity ${relative} bytes differ from metadata"))
     }
   }
@@ -17768,21 +17789,21 @@ export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int] {
     return Err(check_failure("uptime capture metadata is missing or incomplete"))
   }
 
-  let capture = json.decode((metadata.data).utf8()?)?.require(UptimeCapture)?
+  let capture = json.decode(metadata.data.utf8()?)?.require(UptimeCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "proc-uptime-raw-v1" or capture.source_state != "observed" or capture.truncated or capture.errno != null or capture.error_kind != null or capture.sha256_hex == null or capture.reference_seconds == null {
     return Err(check_failure("uptime capture has no complete reference"))
   }
 
   let raw = bundle.read_result(p"proc/uptime", max_bytes: 4096)?
-  if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != capture.byte_count or hash.sha256(
+  if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != capture.byte_count or hash.sha256(
     raw.data,
   )
-    .hex() != (capture.sha256_hex) {
+    .hex() != capture.sha256_hex {
     return Err(check_failure("uptime capture bytes differ from metadata"))
   }
 
   var source_text = ""
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     source_text = value
   } else {
     return Err(check_failure("uptime capture source is not UTF-8"))
@@ -18171,7 +18192,11 @@ pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[Vi
   }
   let mount_relative = (chosen_point.split("/") |> where . != "").join("/")
   let source_path = if relative == "" {
-    if mount_relative == "" { "." } else { mount_relative }
+    if mount_relative == "" {
+      "."
+    } else {
+      mount_relative
+    }
   } else if mount_relative == "" {
     relative
   } else {
@@ -18406,7 +18431,7 @@ proc cgroup2_reference_text(
     return Err(check_failure(f"cgroup2 reference source ${source_path} is incomplete"))
   }
 
-  if let Ok(value) = (read.data).utf8() {
+  if let Ok(value) = read.data.utf8() {
     Ok(value)
   } else {
     Err(check_failure(f"cgroup2 reference source ${source_path} is not UTF-8"))
@@ -18497,7 +18522,7 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
       }
 
       let maximum = parse_cgroup2_limit(maximum_raw)?
-      let current = cgroup2_reference_number((current_raw).trim())?
+      let current = cgroup2_reference_number(current_raw.trim())?
       resources = resources.push(
         cgroup2_reference_resource(
           path_item.visible_path,
@@ -18841,10 +18866,10 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
     }
 
     let raw = bundle.read_result(relative, max_bytes: item.max_bytes)?
-    if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+    if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
       raw.data,
     )
-      .hex() != (expected.sha256_hex) {
+      .hex() != expected.sha256_hex {
       return Err(check_failure(f"cgroup2 capture ${item.path} bytes differ"))
     }
   }
@@ -19108,7 +19133,7 @@ proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs
     return Ok(null)
   }
 
-  if let Ok(value) = (source.data).utf8() {
+  if let Ok(value) = source.data.utf8() {
     Ok(value)
   } else {
     Ok(null)
@@ -19409,12 +19434,12 @@ export proc capture_process_bundle(
         continue
       }
 
-      guard let first_text = (first.data).utf8() else { |_|
+      guard let first_text = first.data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let last_text = (last.data).utf8() else { |_|
+      guard let last_text = last.data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
@@ -19523,7 +19548,7 @@ export proc capture_process_bundle(
     }
   }
 
-  let scoreable = identity != null and resources != null and (identity).processes.len() == pids.len() and (resources).processes.len() == pids.len() and (identity).skipped_count == 0 and (resources).skipped_count == 0
+  let scoreable = identity != null and resources != null and identity.processes.len() == pids.len() and resources.processes.len() == pids.len() and identity.skipped_count == 0 and resources.skipped_count == 0
   let capture = ProcessBundleCapture(
     schema_version: 1,
     origin:,
@@ -19638,7 +19663,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
       }
 
       let raw = bundle.read_result(fp"${relative}", max_bytes: field.max_bytes)?
-      if raw.state != "observed" or raw.truncated or raw.data == null or (raw.data).len() != expected.byte_count or hash.sha256(
+      if raw.state != "observed" or raw.truncated or raw.data == null or raw.data.len() != expected.byte_count or hash.sha256(
         raw.data,
       )
         .hex() != expected.sha256_hex {
@@ -19647,10 +19672,10 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
     }
   }
 
-  if read_process_identity_snapshot(bundle)? != (capture.identity) or read_process_resource_snapshot(
+  if read_process_identity_snapshot(bundle)? != capture.identity or read_process_resource_snapshot(
     bundle,
     capture.page_size_bytes,
-  )? != (capture.resources) {
+  )? != capture.resources {
     return Err(check_failure("process bundle reference differs from raw sources"))
   }
 
@@ -19737,7 +19762,7 @@ export pure compare_process_identity(
       continue
     }
 
-    let last = after[(after_by_pid.get(key) ?? -1)]
+    let last = after[after_by_pid.get(key) ?? -1]
     if first.start_ticks != last.start_ticks or first.parent_pid != last.parent_pid or first.uid != last.uid or first.command != last.command {
       unstable_count += 1
       continue
@@ -19749,7 +19774,7 @@ export pure compare_process_identity(
       continue
     }
 
-    let candidate = candidates[(candidate_by_pid.get(key) ?? -1)]
+    let candidate = candidates[candidate_by_pid.get(key) ?? -1]
     if candidate.start_ticks != first.start_ticks {
       missing_pids = missing_pids.push(first.pid)
       continue
@@ -19774,7 +19799,7 @@ export pure compare_process_identity(
 }
 
 pure valid_process_resource_reference(item: ProcessResourceReference) -> Bool {
-  item.pid > 0 and item.pid <= 9007199254740991 and item.start_ticks >= 0 and item.start_ticks <= 9007199254740991 and item.thread_count > 0 and item.thread_count <= 9007199254740991 and item.resident_bytes >= 0 and item.resident_bytes <= 9007199254740991 and item.virtual_bytes >= 0 and item.virtual_bytes <= 9007199254740991 and (item.cgroup == null or (item.cgroup).starts_with(
+  item.pid > 0 and item.pid <= 9007199254740991 and item.start_ticks >= 0 and item.start_ticks <= 9007199254740991 and item.thread_count > 0 and item.thread_count <= 9007199254740991 and item.resident_bytes >= 0 and item.resident_bytes <= 9007199254740991 and item.virtual_bytes >= 0 and item.virtual_bytes <= 9007199254740991 and (item.cgroup == null or item.cgroup.starts_with(
     "/",
   ))
 }
@@ -19828,19 +19853,19 @@ export pure compare_process_resources(
   var mismatched_fields: List[Str] = []
   for first in before {
     let key = f"${first.pid}"
-    if key not in after_by_pid or after[(after_by_pid.get(key) ?? -1)].start_ticks != first.start_ticks {
+    if key not in after_by_pid or after[after_by_pid.get(key) ?? -1].start_ticks != first.start_ticks {
       unstable_count += 1
       continue
     }
 
     stable_count += 1
-    if key not in candidate_by_pid or candidates[(candidate_by_pid.get(key) ?? -1)].start_ticks != first.start_ticks {
+    if key not in candidate_by_pid or candidates[candidate_by_pid.get(key) ?? -1].start_ticks != first.start_ticks {
       missing_pids = missing_pids.push(first.pid)
       continue
     }
 
-    let last = after[(after_by_pid.get(key) ?? -1)]
-    let candidate = candidates[(candidate_by_pid.get(key) ?? -1)]
+    let last = after[after_by_pid.get(key) ?? -1]
+    let candidate = candidates[candidate_by_pid.get(key) ?? -1]
     matched_count += 1
     if first.thread_count == last.thread_count {
       scored_fields += 1
@@ -20343,7 +20368,9 @@ export pure fixture_test_definition_exists(source: Str, test_name: Str) -> Bool 
   let declaration = f"test ${test_name}"
   for line in source.lines() {
     let trimmed = line.trim()
-    if trimmed.starts_with(f"${declaration} ") or trimmed.starts_with(f"${declaration}\t") or trimmed.starts_with(f"${declaration}{") or trimmed.starts_with(f"${declaration}[") {
+    if trimmed.starts_with(f"${declaration} ") or trimmed.starts_with(f"${declaration}\t") or trimmed.starts_with(
+      f"${declaration}{",
+    ) or trimmed.starts_with(f"${declaration}[") {
       return true
     }
   }
@@ -20611,7 +20638,7 @@ pure route_netlink_kernel_destination(destination: Str) -> Bool {
 
       pid_fields += 1
     } else if field.starts_with("nl_groups=") {
-      let group_bits = (field.split("=", maxsplit: 1).get(1) ?? "")
+      let group_bits = field.split("=", maxsplit: 1).get(1) ?? ""
       return false when group_bits == ""
 
       for bit in group_bits {
@@ -20737,7 +20764,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
         violations += ["incomplete file open trace"]
       }
 
-      let flags = if open_name == "open" { (arguments.get(1) ?? "") } else { (arguments.get(2) ?? "") }
+      let flags = if open_name == "open" { arguments.get(1) ?? "" } else { arguments.get(2) ?? "" }
       if "O_WRONLY" in flags or "O_RDWR" in flags or "O_CREAT" in flags or "O_TRUNC" in flags or "O_APPEND" in flags {
         violations += ["writable file open"]
       }
@@ -20745,13 +20772,10 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     for name in ["write", "writev"] {
       if traced_syscall(line, name) {
-        let descriptor = (((line.split(f"${name}(", maxsplit: 1)
-          .get(1) ?? "")
-          .split(",")
-          .get(0) ?? "")
-          .split("<")
-          .get(0) ?? "")
-          .trim()
+        let descriptor = (line.split(f"${name}(", maxsplit: 1)
+          .get(1) ?? "".split(",")
+            .get(0) ?? "".split("<")
+              .get(0) ?? "").trim()
         if descriptor != "1" and descriptor != "2" {
           violations += ["write to non-output descriptor"]
         }
@@ -20765,7 +20789,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "ioctl") {
-      let request = (traced_call_arguments(line, "ioctl").get(1) ?? "")
+      let request = traced_call_arguments(line, "ioctl").get(1) ?? ""
       if request not in [
         "TIOCGWINSZ",
         "TCGETS",
@@ -20784,9 +20808,9 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     if traced_syscall(line, "socket") {
       let arguments = traced_call_arguments(line, "socket")
-      let family = (arguments.get(0) ?? "")
-      let socket_type = (arguments.get(1) ?? "")
-      let protocol = (arguments.get(2) ?? "")
+      let family = arguments.get(0) ?? ""
+      let socket_type = arguments.get(1) ?? ""
+      let protocol = arguments.get(2) ?? ""
       if family == "AF_NETLINK" and protocol not in ["NETLINK_ROUTE", "0"] {
         violations += ["unexpected netlink protocol"]
       } else if family == "AF_NETLINK" and ! socket_type.starts_with("SOCK_RAW") and ! socket_type.starts_with(
@@ -20813,7 +20837,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "connect") {
-      let destination = (traced_call_arguments(line, "connect").get(1) ?? "")
+      let destination = traced_call_arguments(line, "connect").get(1) ?? ""
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations += ["external network syscall"]
       } else if destination.starts_with("{sa_family=AF_UNIX") {
@@ -20824,7 +20848,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "bind") {
-      let destination = (traced_call_arguments(line, "bind").get(1) ?? "")
+      let destination = traced_call_arguments(line, "bind").get(1) ?? ""
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations += ["external network syscall"]
       } else if ! destination.starts_with("{sa_family=AF_NETLINK") and ! destination.starts_with(
@@ -20836,13 +20860,13 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     if traced_syscall(line, "sendto") {
       let arguments = traced_call_arguments(line, "sendto")
-      let destination = (arguments.get(4) ?? "")
+      let destination = arguments.get(4) ?? ""
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations += ["external network syscall"]
       } else if destination.starts_with("{sa_family=AF_NETLINK") or destination.starts_with("{nl_family=AF_NETLINK") {
         if ! route_netlink_kernel_destination(destination) {
           violations += ["non-kernel netlink destination"]
-        } else if ! route_netlink_query_only((arguments.get(1) ?? "")) {
+        } else if ! route_netlink_query_only(arguments.get(1) ?? "") {
           violations += ["non-query netlink request"]
         }
       } else {
@@ -20859,13 +20883,13 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 # A relative source path needs either the known root cwd or a decoded absolute directory descriptor.
 pure unresolved_source_directory(line: Str, name: Str) -> Bool {
   let arguments = traced_call_arguments(line, name)
-  let source_argument = (arguments.get(1) ?? "")
+  let source_argument = arguments.get(1) ?? ""
   return false unless source_argument.starts_with("\"")
 
-  let source_path = (source_argument.split("\"").get(1) ?? "")
+  let source_path = source_argument.split("\"").get(1) ?? ""
   return false when source_path.starts_with("/")
 
-  let directory = (arguments.get(0) ?? "")
+  let directory = arguments.get(0) ?? ""
   return false when directory == "AT_FDCWD"
 
   let descriptor_parts = directory.split("<", maxsplit: 1)
@@ -20890,7 +20914,7 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
     return []
   }
 
-  let traced_path = (argument.split("\"").get(1) ?? "")
+  let traced_path = argument.split("\"").get(1) ?? ""
   var components: List[Str] = []
   for component in traced_path.split("/") {
     continue when component == "" or component == "."
@@ -20909,10 +20933,10 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
 # Resolves relative paths against a decoded descriptor path when strace provides one.
 pure normalized_traced_call_path(line: Str, name: Str, path_index: Int) -> List[Str] {
   let arguments = traced_call_arguments(line, name)
-  let argument = (arguments.get(path_index) ?? "")
+  let argument = arguments.get(path_index) ?? ""
   return [] unless argument.starts_with("\"")
 
-  let traced_path = (argument.split("\"").get(1) ?? "")
+  let traced_path = argument.split("\"").get(1) ?? ""
   if traced_path.starts_with("/") or path_index != 1 {
     return normalized_traced_path(argument)
   }
@@ -20920,7 +20944,7 @@ pure normalized_traced_call_path(line: Str, name: Str, path_index: Int) -> List[
   let descriptor_parts = (arguments.get(0) ?? "").split("<", maxsplit: 1)
   return normalized_traced_path(argument) when descriptor_parts.len() != 2
 
-  let directory = (descriptor_parts[1].split(">", maxsplit: 1).get(0) ?? "")
+  let directory = descriptor_parts[1].split(">", maxsplit: 1).get(0) ?? ""
   return normalized_traced_path(argument) unless directory.starts_with("/")
 
   normalized_traced_path(f"\"${directory}/${traced_path}\"")
@@ -21052,7 +21076,7 @@ export pure replay_host_read_violations_after_baseline(trace: Str, baseline: Str
 
   var violations: List[Str] = []
   for key in replay_host_read_keys(trace) {
-    let remaining = (allowed.get(key) ?? 0)
+    let remaining = allowed.get(key) ?? 0
     if remaining > 0 {
       allowed = allowed.set(key, remaining - 1)
     } else {
@@ -21103,7 +21127,11 @@ proc audit_no_subprocess_case(
   let trace = scratch.read_text(trace_name)?
   let output = scratch.read_text(stdout_name)?
   let candidate_error = scratch.read_text(stderr_name)?
-  let violations = [@process_trace_violations(trace), @host_effect_trace_violations(trace), @forbidden_process_read_violations(trace)]
+  let violations = [
+    @process_trace_violations(trace),
+    @host_effect_trace_violations(trace),
+    @forbidden_process_read_violations(trace),
+  ]
 
   if status.exited_with(0) != expected_success {
     return Err(check_failure(f"${label} command had unexpected exit status: ${candidate_error.trim()}"))
@@ -21314,7 +21342,7 @@ export proc read_device_tree_raw_reference(
     return Err(check_failure(f"device-tree od reference output is incomplete for ${source_path}"))
   }
 
-  let decoded = (output.data).utf8()
+  let decoded = output.data.utf8()
   match decoded {
     Ok(_) => {}
     Err(_) => return Err(check_failure("device-tree od reference output is not UTF-8"))
@@ -21380,9 +21408,9 @@ proc read_reference_tool_version(
   let output = scratch.read_text(output_name)?
   let error_output = scratch.read_text(error_name)?
   let busybox_lines = error_output.lines() |> where .starts_with("BusyBox")
-  return ((output.lines() |> collect).get(0) ?? "unavailable") when status.exited_with(0)
+  return (output.lines() |> collect()).get(0) ?? "unavailable" when status.exited_with(0)
 
-  (busybox_lines.get(0) ?? "unavailable")
+  busybox_lines.get(0) ?? "unavailable"
 }
 
 # Brackets a candidate report with independent kernel identity observations.
@@ -21529,13 +21557,29 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     var device_tree_argv: List[List[Str]] = []
     if before_device_tree_model.data != null {
       device_tree_argv += [
-        ["od", "-An", "-tx1", "-v", "-N", "4097", "/sys/firmware/devicetree/base/model"],
+        [
+          "od",
+          "-An",
+          "-tx1",
+          "-v",
+          "-N",
+          "4097",
+          "/sys/firmware/devicetree/base/model",
+        ],
       ]
     }
 
     if before_device_tree_compatible.data != null {
       device_tree_argv += [
-        ["od", "-An", "-tx1", "-v", "-N", "16385", "/sys/firmware/devicetree/base/compatible"],
+        [
+          "od",
+          "-An",
+          "-tx1",
+          "-v",
+          "-N",
+          "16385",
+          "/sys/firmware/devicetree/base/compatible",
+        ],
       ]
     }
 
@@ -21744,7 +21788,7 @@ proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, erro
   }
 
   var output = ""
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     output = value
   } else {
     return Err(check_failure("meminfo raw reference is not UTF-8"))
@@ -21839,7 +21883,7 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
     }
 
     var output = ""
-    if let Ok(value) = (raw.data).utf8() {
+    if let Ok(value) = raw.data.utf8() {
       output = value
     } else {
       return Err(check_failure(f"THP ${name} raw reference is not UTF-8"))
@@ -21950,7 +21994,7 @@ pure parse_huge_page_size_reference(name: Str) -> Result[Int] {
     return Err(check_failure("huge-page reference has an invalid pool name"))
   }
 
-  let size_text = (parts[1].split("kB").get(0) ?? "")
+  let size_text = parts[1].split("kB").get(0) ?? ""
   if f"${size_text}kB" != parts[1] {
     return Err(check_failure("huge-page reference has an invalid size suffix"))
   }
@@ -21972,7 +22016,7 @@ proc read_huge_page_counter_reference(root: FsRoot, source_path: Path, required:
   }
 
   var value = ""
-  if let Ok(text) = (raw.data).utf8() {
+  if let Ok(text) = raw.data.utf8() {
     value = text
   } else {
     return Err(check_failure(f"huge-page reference source ${source_path} is not UTF-8"))
@@ -22148,7 +22192,7 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
     }
 
     var output = ""
-    if let Ok(value) = (raw.data).utf8() {
+    if let Ok(value) = raw.data.utf8() {
       output = value
     } else {
       return Err(check_failure(f"PSI ${resource} raw reference is not UTF-8"))
@@ -22291,7 +22335,7 @@ proc read_vulnerability_reference(
     }
 
     var output = ""
-    if let Ok(value) = (raw.data).utf8() {
+    if let Ok(value) = raw.data.utf8() {
       output = value
     } else {
       return Err(check_failure(f"vulnerability ${name} raw reference is not UTF-8"))
@@ -22498,7 +22542,7 @@ proc read_lspci_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Resu
     return Err(check_failure("lspci reference output is incomplete"))
   }
 
-  if let Ok(value) = (raw.data).utf8() {
+  if let Ok(value) = raw.data.utf8() {
     Ok(value)
   } else {
     Err(check_failure("lspci reference output is not UTF-8"))
@@ -23190,7 +23234,7 @@ proc read_ip_json_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Re
     return Err(check_failure("ip JSON reference output is incomplete"))
   }
 
-  let decoded = (raw.data).utf8()
+  let decoded = raw.data.utf8()
   match decoded {
     Ok(_) => {}
     Err(_) => return Err(check_failure("ip JSON reference output is not UTF-8"))
@@ -23236,7 +23280,11 @@ proc ip_reference_version(binary: Str, scratch: FsRoot) [fs, process, error] -> 
 
   let version_stdout = scratch.read_text(p"ip-version")?.trim()
   let version_stderr = scratch.read_text(p"ip-version-error")?.trim()
-  if version_stdout != "" { version_stdout } else { version_stderr }
+  if version_stdout != "" {
+    version_stdout
+  } else {
+    version_stderr
+  }
 }
 
 # Brackets one network report with iproute2 identity and bounded kernel link attributes.
@@ -24574,7 +24622,7 @@ proc read_proc_status_affinity_reference(
   }
 
   var raw = ""
-  if let Ok(value) = (raw_read.data).utf8() {
+  if let Ok(value) = raw_read.data.utf8() {
     raw = value
   } else {
     return Err(check_failure("proc status affinity reference is not UTF-8"))
@@ -25195,7 +25243,7 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
 export pure fixture_single_test_passed(output: Str) -> Bool {
   return false when output.trim() == ""
 
-  let lines = output.trim().lines() |> collect
+  let lines = output.trim().lines() |> collect()
   """running 1 tests
 """ in output and (lines.get(lines.len() - 1) ?? "") == "test result: ok. 1 passed; 0 failed; 0 skipped"
 }
@@ -25204,20 +25252,21 @@ export pure fixture_single_test_passed(output: Str) -> Bool {
 export pure rust_fixture_single_test_passed(output: Str) -> Bool {
   return false when output.trim() == ""
 
-  let lines = output.trim().lines() |> collect
+  let lines = output.trim().lines() |> collect()
   """running 1 test
-""" in output and (lines.get(lines.len() - 1) ?? "")
-  .starts_with("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;")
+""" in output and (lines.get(lines.len() - 1) ?? "").starts_with(
+  "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;",
+)
 }
 
 ## Reports a failed test summary or the diagnostic from a command that could not start its test.
 export pure fixture_failure_summary(output: Str, stderr_output: Str) -> Str {
-  let result_lines = output.trim().lines() |> collect
-  let result = (result_lines.get(result_lines.len() - 1) ?? "")
+  let result_lines = output.trim().lines() |> collect()
+  let result = result_lines.get(result_lines.len() - 1) ?? ""
   return result when result.starts_with("test result:")
 
-  let error_lines = stderr_output.trim().lines() |> collect
-  return (error_lines.get(error_lines.len() - 1) ?? "") when error_lines.len() > 0
+  let error_lines = stderr_output.trim().lines() |> collect()
+  return error_lines.get(error_lines.len() - 1) ?? "" when error_lines.len() > 0
 
   return result when result != ""
 
@@ -25327,7 +25376,7 @@ proc run_fixture_cases(
       if test_name in test_results {
         if ! (test_results.get(test_name) ?? false) {
           case_passed = false
-          print f"fixture ${fixture_case.scenario}: failed ${test_name} (${(test_failures.get(test_name) ?? "cached failure")})"
+          print f"fixture ${fixture_case.scenario}: failed ${test_name} (${test_failures.get(test_name) ?? "cached failure"})"
         }
 
         continue

@@ -10,17 +10,17 @@ test test_tui_helpers {
   assert styled == "\u{1b}[31mx\u{1b}[0m"
   assert tui.left_pad(styled, 3) == f"  ${styled}"
   assert tui.right_pad(styled, 3) == f"${styled}  "
-  assert ("\u{1b}[" in tui.reset())
-  assert ("\u{1b}[" in tui.red())
-  assert ("\u{1b}[" in tui.green())
-  assert ("\u{1b}[" in tui.blue())
-  assert ("\u{1b}[" in tui.cyan())
-  assert ("\u{1b}[" in tui.magenta())
-  assert ("\u{1b}[" in tui.yellow())
-  assert ("\u{1b}[" in tui.white())
-  assert ("\u{1b}[" in tui.gray())
-  assert ("\u{1b}[" in tui.bold())
-  assert ("\u{1b}[" in tui.dim())
+  assert "\u{1b}[" in tui.reset()
+  assert "\u{1b}[" in tui.red()
+  assert "\u{1b}[" in tui.green()
+  assert "\u{1b}[" in tui.blue()
+  assert "\u{1b}[" in tui.cyan()
+  assert "\u{1b}[" in tui.magenta()
+  assert "\u{1b}[" in tui.yellow()
+  assert "\u{1b}[" in tui.white()
+  assert "\u{1b}[" in tui.gray()
+  assert "\u{1b}[" in tui.bold()
+  assert "\u{1b}[" in tui.dim()
 }
 
 # Every sequence producer, asserted against its exact bytes rather than a shape
@@ -111,34 +111,34 @@ test test_tui_pad_counts_unicode_scalars {
 # characters and keeps its line breaks in place.
 test test_tui_pad_treats_cr_and_lf_as_zero_width {
   assert tui.left_pad(
-  """a\r
+    """a\r
 b""",
-  4,
-) == """  a\r
+    4,
+  ) == """  a\r
 b"""
   assert tui.right_pad(
-  """a\r
+    """a\r
 b""",
-  4,
-) == """a\r
+    4,
+  ) == """a\r
 b  """
   assert tui.left_pad(
-  """\r
+    """\r
 """,
-  0,
-) == """\r
+    0,
+  ) == """\r
 """
   assert tui.left_pad(
-  """\r
+    """\r
 """,
-  2,
-) == """  \r
+    2,
+  ) == """  \r
 """
   assert tui.right_pad(
-  """\r
+    """\r
 """,
-  3,
-) == """\r
+    3,
+  ) == """\r
    """
 }
 
@@ -163,6 +163,6 @@ test test_tui_read_secret_piped_lines { |ctx|
 
   let input = test.temp_file(ctx, name: "secret.in", contents: b"alpha\nbeta\n")?
 
-  assert (run.text "xsh" $script < ${input}?) == """One: Two: alpha:beta
+  assert run.text "xsh" $script < ${input}? == """One: Two: alpha:beta
 """
 }

@@ -34,7 +34,9 @@ proc main(...argv: List[Str]) [process, error] {
 
   match operands {
     ["addr"] | ["address"] | ["addr", "show"] | ["address", "show"] => print_addr("")?
-    ["addr", "show", "dev", name] | ["address", "show", "dev", name] | ["addr", "dev", name] | ["address", "dev", name] => print_addr(name)?
+    ["addr", "show", "dev", name] | ["address", "show", "dev", name] | ["addr", "dev", name] | ["address", "dev", name] => print_addr(
+      name,
+    )?
     ["route"] | ["route", "show"] => print_route()?
     _ => return Err(AppletError.Usage("ip: expected addr or route"))
   }

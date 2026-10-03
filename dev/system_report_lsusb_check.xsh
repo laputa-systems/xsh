@@ -344,7 +344,7 @@ export pure compare_lsusb(
     }
 
     let port_parts = (candidate.port_path ?? "").split(".")
-    if (decimal((port_parts.get(port_parts.len() - 1) ?? "")) ?? -1) != row.port {
+    if (decimal(port_parts.get(port_parts.len() - 1) ?? "") ?? -1) != row.port {
       mismatches = mismatches.push(f"${key}.port")
       continue
     }
@@ -433,7 +433,7 @@ proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs
     return Err(lsusb_failure(f"lsusb ${name} output is incomplete"))
   }
 
-  (raw.data).utf8()?
+  raw.data.utf8()?
 }
 
 ## Selects one verbose device from the independent list and brackets identity and tree shape.
@@ -448,7 +448,7 @@ export proc compare_live_lsusb(
 
   let scratch = fs.tempdir()?
   defer scratch.close()?
-  let version = ((lsusb_output(scratch, executable, "version", [executable, "--version"])?.lines() |> collect).get(0) ?? "").trim()
+  let version = ((lsusb_output(scratch, executable, "version", [executable, "--version"])?.lines() |> collect()).get(0) ?? "").trim()
   if ! version.starts_with("lsusb ") {
     return Err(lsusb_failure("lsusb version is unsupported"))
   }
@@ -485,7 +485,7 @@ export proc compare_live_lsusb(
     return Err(lsusb_failure("candidate USB output is incomplete"))
   }
 
-  let candidate = (candidate_raw.data).utf8()?
+  let candidate = candidate_raw.data.utf8()?
   if json.get(json.decode(candidate)?, ["source_mode"])?.require(Str)? != "live_linux" {
     return Err(lsusb_failure("candidate is not a live Linux report"))
   }

@@ -1,5 +1,7 @@
 test test_stage_functions_use_one_item_calls_and_per_call_defaults { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc add(item: Int, amount: Int = 10) [] -> Int { print "call"; return item + amount }
 pure positive(item: Int) -> Bool { item > 0 }
 pure duplicate(item: Int) -> List[Int] { [item, item] }
@@ -14,16 +16,28 @@ proc main() [] {
   print ${([0, 1] |> any(positive))}
   print ${([1, 2] |> all(positive))}
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("0\ncall\ncall\n11\n12\n1\n4\ntrue\ntrue\n")
+  assert output.stdout == """0
+call
+call
+11
+12
+1
+4
+true
+true
+"""
 }
 
 test test_stage_functions_supply_independent_aggregate_defaults { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc size(item: Int, values: List[Int] = []) [] -> Int {
   var copy = values
   copy = copy.push(item)
@@ -34,16 +48,21 @@ proc main() [] {
   print sizes[0]
   print sizes[1]
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("1\n1\n")
+  assert output.stdout == """1
+1
+"""
 }
 
 test test_stage_functions_cover_keys_sinks_named_configuration_and_results { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 pure key(item: Int) -> Int { 0 - item }
 pure bucket(item: Int) -> Str { if item > 1 { "large" } else { "small" } }
 proc observe(item: Int) [] { print f"seen:${item}" }
@@ -62,16 +81,30 @@ proc main() [] {
   print ${patterns[0] is Ok(_)}
   print ${patterns[1] is Err(_)}
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("direction\n1\n3\n2\n2\nseen:1\nseen:2\ntrue\nseen:3\ntrue\ntrue\n")
+  assert output.stdout == """direction
+1
+3
+2
+2
+seen:1
+seen:2
+true
+seen:3
+true
+true
+"""
 }
 
 test test_stage_functions_short_circuit_and_cancel_child_cleanup { |ctx|
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] {
   defer cleanup()
@@ -87,17 +120,30 @@ proc main() [error] {
   print ${numbers() |> any(predicate)}
   print ${numbers() |> all(predicate)}
 }
-""")?
+""",
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("pull:1\ntest:1\npull:2\ntest:2\ncleanup\ntrue\npull:1\ntest:1\ncleanup\nfalse\n")
+  assert output.stdout == """pull:1
+test:1
+pull:2
+test:2
+cleanup
+true
+pull:1
+test:1
+cleanup
+false
+"""
 }
 
 test test_stage_functions_for_break_matches_explicit_wrapper_pull_order { |ctx|
   for body in ["map(add)", "map { |item| add(item) }"] {
-    let output = test.run_script(ctx, r"""
+    let output = test.run_script(
+      ctx,
+      r"""
 proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] { defer cleanup(); print "pull:1"; yield 1; print "pull:2"; yield 2 }
 proc add(item: Int, amount: Int = 10) [] -> Int { print "call"; return item + amount }
@@ -107,18 +153,25 @@ proc main() [error] {
     break
   }
 }
-""")?
+""",
+    )?
     {
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    assert (output.stdout) == ("pull:1\ncall\n11\ncleanup\n")
+    assert output.stdout == """pull:1
+call
+11
+cleanup
+"""
   }
 }
 
 test test_stage_functions_side_effect_failure_and_late_source_failure { |ctx|
   for stage in ["each", "tee"] {
-    let output = test.run_script(ctx, r"""
+    let output = test.run_script(
+      ctx,
+      r"""
 proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] { defer cleanup(); yield 1; yield 2; print "unreached"; yield 3 }
 proc observe(item: Int) [] -> Result[Unit] {
@@ -126,48 +179,71 @@ proc observe(item: Int) [] -> Result[Unit] {
   if item == 2 { return error.fail("sink failed") }
   return Ok()
 }
-proc main() [error] { let _ = numbers() |> """ + stage + "(observe) }\n")?
+proc main() [error] { let _ = numbers() |> """ + stage + """(observe) }
+""",
+    )?
     {
       let assertion_condition = ! output.success
       let assertion_message = output.stderr
       assert assertion_condition, assertion_message
     }
-    assert (output.stdout) == ("seen:1\nseen:2\ncleanup\n")
+    assert output.stdout == """seen:1
+seen:2
+cleanup
+"""
     {
       let assertion_condition = "sink failed" in output.stderr
       let assertion_message = output.stderr
       assert assertion_condition, assertion_message
     }
   }
-  let late = test.run_script(ctx, r"""
+
+  let late = test.run_script(
+    ctx,
+    r"""
 proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] { defer cleanup(); yield 1; let _ = "late failure".parse_int()? }
 proc observe(item: Int) [] -> Int { print f"seen:${item}"; return item }
 proc main() [error] { let _ = numbers() |> map(observe) }
-""")?
+""",
+  )?
   {
     let assertion_condition = ! late.success
     let assertion_message = late.stderr
     assert assertion_condition, assertion_message
   }
-  assert (late.stdout) == ("seen:1\ncleanup\n")
+  assert late.stdout == """seen:1
+cleanup
+"""
 }
 
 test test_stage_functions_reject_erasure_shadowing_partial_methods_and_bad_contracts { |ctx|
   for source in [
-    "pure f(item: Int) -> Int { item }\nproc main() [] { let f: Pure = f; let _ = [1] |> map(f) }",
-    "pure f(item: Int) -> Int { item }\nproc apply(f: Pure) [] { let _ = [1] |> map(f) }",
+    """pure f(item: Int) -> Int { item }
+proc main() [] { let f: Pure = f; let _ = [1] |> map(f) }""",
+    """pure f(item: Int) -> Int { item }
+proc apply(f: Pure) [] { let _ = [1] |> map(f) }""",
     "proc apply(f: Any) [] { let _ = [1] |> map(f) }",
-    "pure f(item: Int) -> Int { item }\nproc factory() [] -> Pure { return f }\nlet _ = [1] |> map(factory())",
-    "let text = \"value\"\nlet _ = [\"a\"] |> map(text.lower)",
-    "pure f(item: Int, required: Int) -> Int { item + required }\nlet _ = [1] |> map(f)",
-    "pure f(item: Str) -> Str { item }\nlet _ = [1] |> map(f)",
-    "pure f(item: Int) -> Int { item }\nlet _ = [1] |> where(f)",
-    "pure f(item: Int) -> Bool { true }\nlet _ = [1] |> map(f, block: f)",
-    "pure f(item: Int) -> Int { item }\nlet _ = [1] |> map(f) { |item| item }",
-    "pure f(item: Int) -> Int { item }\nlet _ = [1] |> par-map(f)",
+    """pure f(item: Int) -> Int { item }
+proc factory() [] -> Pure { return f }
+let _ = [1] |> map(factory())""",
+    """let text = "value"
+let _ = ["a"] |> map(text.lower)""",
+    """pure f(item: Int, required: Int) -> Int { item + required }
+let _ = [1] |> map(f)""",
+    """pure f(item: Str) -> Str { item }
+let _ = [1] |> map(f)""",
+    """pure f(item: Int) -> Int { item }
+let _ = [1] |> where(f)""",
+    """pure f(item: Int) -> Bool { true }
+let _ = [1] |> map(f, block: f)""",
+    """pure f(item: Int) -> Int { item }
+let _ = [1] |> map(f) { |item| item }""",
+    """pure f(item: Int) -> Int { item }
+let _ = [1] |> par-map(f)""",
     "let _ = [1] |> map(_)",
-    "proc f(item: Int) [env] -> Int { let _ = env.get(\"HOME\"); return item }\nproc main() [] { let _ = [1] |> map(f) }",
+    """proc f(item: Int) [env] -> Int { let _ = env.get("HOME"); return item }
+proc main() [] { let _ = [1] |> map(f) }""",
   ] {
     let output = test.run_script(ctx, source + "\n")?
     {
@@ -202,12 +278,16 @@ print ${(["a"] |> map(helpers.surround))[0]}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("5\n[a\n")
+  assert output.stdout == """5
+[a
+"""
 }
 
 test test_stage_functions_select_standard_overloads_from_the_item_type { |ctx|
   let file = test.temp_file(ctx, name: "digest-input", contents: b"abc")?
-  let output = test.run_script(ctx, r"""
+  let output = test.run_script(
+    ctx,
+    r"""
 use hash
 proc main(...argv: List[Str]) [fs, error] {
   let byte_digests = [b"abc"] |> map(hash.md5)
@@ -216,13 +296,22 @@ proc main(...argv: List[Str]) [fs, error] {
   let digest = file_digests[0]?
   print digest.hex()
 }
-""", [file.display()])?
+""",
+    [file.display()],
+  )?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("900150983cd24fb0d6963f7d28e17f72\n900150983cd24fb0d6963f7d28e17f72\n")
-  let ambiguous = test.run_script(ctx, "use hash\nproc apply(items: List[Any]) [fs] { let _ = items |> map(hash.md5) }\n")?
+  assert output.stdout == """900150983cd24fb0d6963f7d28e17f72
+900150983cd24fb0d6963f7d28e17f72
+"""
+  let ambiguous = test.run_script(
+    ctx,
+    """use hash
+proc apply(items: List[Any]) [fs] { let _ = items |> map(hash.md5) }
+""",
+  )?
   {
     let assertion_condition = ! ambiguous.success
     let assertion_message = ambiguous.stderr
@@ -293,10 +382,12 @@ proc main() [error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert (output.stdout) == ("2\n")
+  assert output.stdout == """2
+"""
   let _ = run.capture --text "xsht" lint --fix $candidate ?
-  assert (candidate.read_text()?) == (fixed)
-  let broken = source + "missing_name()\n"
+  assert candidate.read_text()? == fixed
+  let broken = source + """missing_name()
+"""
   let invalid = test.temp_file(ctx, name: "stage-function-invalid.xsh", contents: bytes.from_text(broken))?
   let refused = run.capture --text "xsht" lint --fix $invalid ?
   {
