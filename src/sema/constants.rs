@@ -663,6 +663,20 @@ impl RecordConstructors {
         result
     }
 
+    /// Diagnostic spelling of a checked application such as `Observation[Int]`.
+    /// Structural record types do not retain application identity, so this
+    /// consults the instance cache and yields `None` unless exactly one
+    /// spelling produced `ty`.
+    pub fn application_label(&self, ty: &Type) -> Option<String> {
+        let instances = self.instances.lock().expect("schema instance cache");
+        let mut labels = instances.iter().filter(|(_, arguments, cached)| !arguments.is_empty() && cached == ty).filter_map(|(id, arguments, _)| {
+            let ((_, name), _) = self.definitions.iter().find(|(_, definition)| *definition == id)?;
+            Some(format!("{name}[{}]", arguments.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")))
+        });
+        let first = labels.next()?;
+        labels.all(|label| label == first).then_some(first)
+    }
+
     fn application_definition(&self, arena: &AstArena, base: TypeExprId, namespace: Option<Name>) -> Result<TypeDefId, SchemaTypeError> {
         let data = arena.type_expr_data[base.index()];
         let (owner, name) = match arena.type_expr_tags[base.index()] {

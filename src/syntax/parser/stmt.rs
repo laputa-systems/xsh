@@ -107,13 +107,7 @@ impl<'a> Parser<'a> {
                     self.parse_test_declaration_arena_only(start, arena)
                 } else if self.lookahead_is_ctx_block() {
                     self.parse_expr_statement_arena_only(start, arena)
-                } else if self.current_name().is_some_and(|name| name == "error")
-                    && matches!(
-                        self.peek_tag(1),
-                        Some(TokenTag::Ident | TokenTag::ProcIdent)
-                    )
-                    && self.peek_tag(2) == Some(TokenTag::Equals)
-                {
+                } else if self.lookahead_is_error_def() {
                     self.parse_error_def_arena_only(start, arena)
                 } else if self.current_name().is_some_and(|name| name == "on")
                     && self.lookahead_is_signal_hook()
@@ -212,12 +206,7 @@ impl<'a> Parser<'a> {
                 self.parse_signal_hook_arena_only(start, arena)?
             }
             (TokenTag::Ident, _)
-                if self.current_name().is_some_and(|name| name == "error")
-                    && matches!(
-                        self.peek_tag(1),
-                        Some(TokenTag::Ident | TokenTag::ProcIdent)
-                    )
-                    && self.peek_tag(2) == Some(TokenTag::Equals) =>
+                if self.lookahead_is_error_def() =>
             {
                 self.parse_error_def_arena_only(start, arena)?
             }
@@ -593,6 +582,18 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.bump();
         let name = self.expect_ident("expected error family name")?;
+        if self.at(TokenKindMatch::LBracket) {
+            // Recover past the parameter list so the variants still parse.
+            let parameters_start = self.current_start();
+            while !self.at(TokenKindMatch::Equals) && !self.at(TokenKindMatch::Eof) {
+                self.bump();
+            }
+            self.diagnostic_at(
+                self.span(parameters_start, self.previous_end()),
+                "generic error families are not supported; declare a concrete error family and give payload fields concrete types",
+                "parse.generic-error-family",
+            );
+        }
         self.expect(TokenKindMatch::Equals, "expected `=` in error definition");
         self.skip_newlines();
         let mut variants = Vec::new();
@@ -957,6 +958,36 @@ impl<'a> Parser<'a> {
             span,
         );
         Some(())
+    }
+
+    /// `error Name =` or `error Name[...] =`; the bracketed form is parsed
+    /// only to report that generic error families are unsupported.
+    fn lookahead_is_error_def(&self) -> bool {
+        if self.current_name() != Some(Name::intern("error"))
+            || !matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent))
+        {
+            return false;
+        }
+        let mut index = self.index + 2;
+        if self.token_table.tag_at(index) == Some(TokenTag::LBracket) {
+            let mut depth = 0usize;
+            loop {
+                match self.token_table.tag_at(index) {
+                    Some(TokenTag::LBracket) => depth += 1,
+                    Some(TokenTag::RBracket) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            index += 1;
+                            break;
+                        }
+                    }
+                    Some(TokenTag::Newline | TokenTag::Eof) | None => return false,
+                    Some(_) => {}
+                }
+                index += 1;
+            }
+        }
+        self.token_table.tag_at(index) == Some(TokenTag::Equals)
     }
 
     fn lookahead_is_signal_hook(&self) -> bool {

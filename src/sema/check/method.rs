@@ -61,6 +61,22 @@ impl Checker {
             );
         }
         if base_ty == Type::EnvPathList {
+            // The registered Path parameter would accept a Str literal through
+            // literal path promotion; env.PATH entries are not a promotion
+            // boundary, so require an explicit Path.
+            if matches!(name, "append" | "prepend")
+                && let Some(arg) = args.first()
+                && matches!(
+                    arena.arena.expr(super::args::call_arg_expr_id_arena(&arg.kind)).kind,
+                    crate::syntax::arena::ArenaExprKind::Str(_)
+                )
+            {
+                self.error(
+                    call_arg_span_arena(arena, &arg.kind),
+                    &format!("env.PATH.{name} requires Path; write a path literal such as p\"/opt/bin\""),
+                    "check.type-mismatch",
+                );
+            }
             return self.check_registered_method_arena(
                 arena,
                 source,

@@ -179,6 +179,7 @@ impl Checker {
             return;
         }
         if !actual.matches_expected(expected) {
+            let (expected, actual) = self.mismatch_labels(expected, actual);
             self.diagnostics.push(
                 Diagnostic::error("type mismatch")
                     .with_code("check.type-mismatch")
@@ -187,6 +188,24 @@ impl Checker {
                         format!("expected {expected}, found {actual}"),
                     )),
             );
+        }
+    }
+
+    /// `Record` alone cannot explain a mismatch between two records, so
+    /// records are spelled as their checked application (`Observation[Int]`)
+    /// or, failing that, their structural fields.
+    fn mismatch_labels(&self, expected: &Type, actual: &Type) -> (String, String) {
+        let label = |ty: &Type| match ty {
+            Type::Record(fields) => self.record_constructors.application_label(ty).unwrap_or_else(|| {
+                let fields = fields.iter().map(|(name, ty)| format!("{name}: {ty}")).collect::<Vec<_>>();
+                format!("{{{}}}", fields.join(", "))
+            }),
+            _ => ty.to_string(),
+        };
+        if matches!((expected, actual), (Type::Record(_), Type::Record(_))) {
+            (label(expected), label(actual))
+        } else {
+            (expected.to_string(), actual.to_string())
         }
     }
 
