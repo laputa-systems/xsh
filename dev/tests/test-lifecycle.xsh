@@ -103,7 +103,7 @@ match build.check_lint(ctx) {
   )?
   assert result.success, result.stderr
   assert "StageError.Failed" in result.stdout, result.stdout
-  assert cargo_marker.read_text()? == "test|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
+  assert cargo_marker.read_text()? == "test|--release|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
 test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
