@@ -935,3 +935,36 @@ test test_run_timeout_error { |ctx|
   assert output.status == 3
   assert "timeout" in output.stderr
 }
+
+proc run_capture_match_assignments(ok_cmd: Str) [process] -> Str {
+  var text = ""
+  var size = 0
+  var stdout = ""
+  var failure = ""
+  match run.text printf "%s " $ok_cmd {
+    Ok(body) => text = body.trim()
+    Err(err) => text = f"text failed: ${err.message}"
+  }
+  if let Ok(body) = run.bytes printf "%s" $ok_cmd {
+    size = body.len()
+  }
+  if let Ok(captured) = run.capture --text printf "%s " $ok_cmd {
+    stdout = captured.stdout.trim()
+  }
+  match run.text sh -c "exit 3" {
+    Ok(body) => failure = body.trim()
+    Err(err) => failure = f"failed ${err.message != ""}"
+  }
+  let label = if let Ok(body) = run.text printf " %s " $ok_cmd { body.trim() } else { "none" }
+  f"${text}|${size}|${stdout}|${failure}|${label}"
+}
+
+proc run_capture_propagated_method(value: Str) [process, error] -> Result[Str] {
+  let body = run.text printf "%s " $value ?
+  body.trim()
+}
+
+test test_run_capture_match_arm_bindings_keep_capture_types {
+  assert run_capture_match_assignments("hi") == "hi|2|hi|failed true|hi"
+  assert run_capture_propagated_method("ok")? == "ok"
+}

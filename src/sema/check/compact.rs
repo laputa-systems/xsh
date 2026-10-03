@@ -1412,11 +1412,7 @@ impl CompactBodyProbe<'_> {
     fn check_compact_expr_or_run(&mut self, value: ArenaExprOrRun) -> Type {
         match value {
             ArenaExprOrRun::Expr(expr) => self.check_compact_expr(expr),
-            ArenaExprOrRun::Run(run) => {
-                self.output.runs += 1;
-                self.check_compact_run(run);
-                Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError))
-            }
+            ArenaExprOrRun::Run(run) => self.check_compact_run_value(run),
         }
     }
 
@@ -1584,11 +1580,7 @@ impl CompactBodyProbe<'_> {
                     Type::Invalid
                 }
             }
-            ArenaExprKind::Run(run) => {
-                self.output.runs += 1;
-                self.check_compact_run(run);
-                Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError))
-            }
+            ArenaExprKind::Run(run) => self.check_compact_run_value(run),
             ArenaExprKind::Spawn(form) => {
                 match form.target {
                     crate::syntax::arena::ArenaSpawnTarget::Run(run) => {
@@ -2349,6 +2341,18 @@ impl CompactBodyProbe<'_> {
                     }
                 }
             }
+        }
+    }
+
+    /// Value type of a run form: capture kinds (`run.text`, `run.bytes`, ...)
+    /// produce their capture result, matching `check_run_arena`.
+    fn check_compact_run_value(&mut self, run: crate::syntax::arena::RunFormId) -> Type {
+        self.output.runs += 1;
+        self.check_compact_run(run);
+        match super::command::run_capture_result_type_arena(self.program, run) {
+            Some(result) if self.program.arena.run_form(run).propagate => result.result_ok().unwrap().clone(),
+            Some(result) => result,
+            None => Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
         }
     }
 
