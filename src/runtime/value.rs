@@ -1693,7 +1693,7 @@ pub fn run_error_from_status(status: ProcessStatus) -> Value {
 }
 
 fn run_error_status_summary(status: &ProcessStatus) -> (String, String) {
-    let Some(segment) = status.segments.iter().find(|segment| !segment.success) else {
+    let Some(segment) = crate::runtime::process::failed_segment(status) else {
         return (
             "process-success".to_string(),
             "process completed unsuccessfully".to_string(),

@@ -256,9 +256,7 @@ impl ProcessStatus {
 
     pub fn from_segments(segments: Vec<ProcessSegmentStatus>) -> Self {
         let success = !segments.is_empty() && segments.iter().all(|segment| segment.success);
-        let summary = segments
-            .iter()
-            .find(|segment| !segment.success)
+        let summary = first_rejected(&segments, |segment| !segment.success)
             .or_else(|| segments.last());
         let (kind, code) = summary.map_or((ProcessStatusKind::Exec, None), |segment| {
             (segment.kind.into(), segment.code)
@@ -337,13 +335,59 @@ impl AcceptedExitCodes {
     }
 }
 
+impl ProcessSegmentStatus {
+    pub(crate) fn is_sigpipe(&self) -> bool {
+        self.kind == ProcessSegmentStatusKind::Signal && self.code == Some(libc::SIGPIPE)
+    }
+}
+
+/// Pipefail with the `cmd | head` exception: an upstream segment killed by
+/// `SIGPIPE` is not a failure when some later segment exited and was accepted
+/// (code 0, or a code in its own `--accept` list), because that later segment
+/// chose to stop reading.
+fn tolerate_upstream_sigpipe(segments: &mut [ProcessSegmentStatus], invocations: &[ProcessInvocation]) {
+    let downstream_accepted = |segment: &ProcessSegmentStatus| {
+        segment.kind == ProcessSegmentStatusKind::Exit
+            && invocations
+                .get(segment.index)
+                .and_then(|invocation| invocation.accepted_exit_codes)
+                .map_or(segment.code == Some(0), |policy| policy.accepts(segment))
+    };
+    for position in 0..segments.len() {
+        if segments[position].is_sigpipe()
+            && segments[position + 1..].iter().any(downstream_accepted)
+        {
+            segments[position].success = true;
+        }
+    }
+}
+
+/// The segment a pipeline failure names: the first rejected segment that was
+/// not merely killed by `SIGPIPE`, else the first rejected segment.
+fn first_rejected(
+    segments: &[ProcessSegmentStatus],
+    rejected: impl Fn(&ProcessSegmentStatus) -> bool,
+) -> Option<&ProcessSegmentStatus> {
+    segments
+        .iter()
+        .find(|segment| rejected(segment) && !segment.is_sigpipe())
+        .or_else(|| segments.iter().find(|segment| rejected(segment)))
+}
+
+pub(crate) fn failed_segment(status: &ProcessStatus) -> Option<&ProcessSegmentStatus> {
+    first_rejected(&status.segments, |segment| !segment.success)
+}
+
 pub(crate) fn rejected_segment<'a>(
     status: &'a ProcessStatus,
     policies: &[Option<AcceptedExitCodes>],
     require_zero: bool,
 ) -> Option<&'a ProcessSegmentStatus> {
     let require_zero = require_zero || policies.len() > 1 && policies.iter().any(Option::is_some);
-    status.segments.iter().find(|segment| {
+    first_rejected(&status.segments, |segment| {
+        if segment.success && segment.is_sigpipe() {
+            return false;
+        }
         policies.get(segment.index).copied().flatten()
             .map_or(require_zero && !segment.success, |policy| !policy.accepts(segment))
     })
@@ -780,7 +824,8 @@ pub fn run_pipeline_inherit_with_policy(
         None
     };
 
-    let segments = segment_statuses.into_iter().flatten().collect();
+    let mut segments: Vec<_> = segment_statuses.into_iter().flatten().collect();
+    tolerate_upstream_sigpipe(&mut segments, invocations);
     let status = ProcessStatus::from_segments(segments);
     if let Some(cancellation) = cancellation {
         return Err(cancellation.error(Some(status)));

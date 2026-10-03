@@ -847,9 +847,7 @@ fn lowered_arena_run_status_type(
     id: crate::syntax::arena::RunFormId,
 ) -> Option<LoweredType> {
     let run = arena.run_form(id);
-    let [segment] = arena.run_segments(run.segments) else {
-        return None;
-    };
+    let segment = arena.run_segments(run.segments).first()?;
     lowered_run_status_type(segment.kind)
 }
 
@@ -5825,13 +5823,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let pipeline = push_build_row!(
                 self,
                 expr,
+                // A statement-position pipeline asserts success like a lone
+                // `run`: it yields a Result the statement row propagates.
                 BuildExprRow::RunPipeline {
                     segments: lowered_segments,
-                    propagate: run.propagate,
+                    propagate: run.propagate || assert_success,
                     span: self.program.arena.span(run.span),
                 }
             );
-            if run.propagate {
+            if run.propagate && !assert_success {
                 Some(push_build_row!(self, expr, BuildExprRow::Try(pipeline)))
             } else {
                 Some(pipeline)

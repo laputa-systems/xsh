@@ -704,6 +704,83 @@ test test_pipeline_failures_and_trace_are_visible { |ctx|
   assert "\"success\":false" in json_trace.stderr
 }
 
+test test_statement_pipeline_fails_on_any_failed_segment { |ctx|
+  let late = test.run_script(
+    ctx,
+    """run true | run false
+print "after"
+""",
+  )?
+  assert late.status == 3
+  assert "pipeline segment 1 `false` exited with status 1" in late.stderr
+  assert "after" not in late.stdout
+
+  let signaled = test.run_script(
+    ctx,
+    """run sh -c "kill -TERM $$" | run true
+""",
+  )?
+  assert signaled.status == 3
+  assert "pipeline segment 0 `sh` was terminated by signal" in signaled.stderr
+
+  let missing = test.run_script(
+    ctx,
+    """run true | run xsh-definitely-missing-command
+print "after"
+""",
+  )?
+  assert missing.status == 3
+  assert "pipeline segment 1" in missing.stderr
+  assert "after" not in missing.stdout
+
+  let marker = test.temp_path(ctx)
+  let drained = test.run_script(
+    ctx,
+    f"""run sh -c "exit 3" | run sh -c "cat >/dev/null; echo ran > ${marker}"
+""",
+  )?
+  assert drained.status == 3
+  assert "pipeline segment 0 `sh` exited with status 3" in drained.stderr
+  assert marker.read_text()? == "ran\n"
+}
+
+test test_pipeline_sigpipe_after_successful_downstream_exit_is_not_failure { |ctx|
+  let sink = test.temp_path(ctx)
+  run yes | run head -n 1 | run cat > $sink
+  assert sink.read_text()? == "y\n"
+
+  let status = run yes | run head -n 1 > $sink
+  assert status.success
+  assert status.segments[0].kind == "signal"
+
+  let downstream_failed = test.run_script(
+    ctx,
+    """run yes | run sh -c "head -n 1 >/dev/null; exit 4"
+""",
+  )?
+  assert downstream_failed.status == 3
+  assert "pipeline segment 1 `sh` exited with status 4" in downstream_failed.stderr
+}
+
+test test_pipeline_value_position_and_accept_rules { |ctx|
+  let status = run true | run false
+  assert !status.success
+  assert status.segments[1].code == 1
+
+  run.status false | run false
+  run true | run --accept=[0, 1] false
+
+  let rejected = test.run_script(
+    ctx,
+    """run --accept=[0] true | run false
+print "after"
+""",
+  )?
+  assert rejected.status == 3
+  assert "pipeline segment 1" in rejected.stderr
+  assert "after" not in rejected.stdout
+}
+
 test test_run_trace_reports_redirection_method_and_env_details { |ctx|
   let redirection = test.run_xsht_trace(
     ctx,

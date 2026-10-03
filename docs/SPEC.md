@@ -1427,9 +1427,19 @@ run (
 ### 11.2 Success and failure
 
 Plain `run` in statement position, and every byte pipeline in statement
-position, fails with `ProcessError` on a nonzero exit, a signal death, a setup
-failure, or a failed pipeline segment. In value position plain `run` and
-`run.status` yield the `Status` as data. `run.text`, `run.bytes`, and
+position whose first segment is plain `run`, fails with `ProcessError` on a
+nonzero exit, a signal death, a setup failure, or a failed pipeline segment.
+A pipeline is pipefail: every started segment runs to completion and is
+reaped, and the error is `PipelineFailure` naming the failing segment's index
+and target. One exception keeps `cmd | head` usable: a segment killed by
+`SIGPIPE` is not a failure when a later segment exited with an accepted code
+(`0`, or a code in its own `--accept` list); its `Status` segment still reports
+the signal. When several segments fail, the error names the first that was not
+killed by `SIGPIPE`. In value position plain `run` and `run.status` yield the
+`Status` as data, for a pipeline too: `status.success` is false when any
+segment failed under the same rule, and `status.segments` holds each segment.
+A pipeline whose first segment is `run.status` discards the status in
+statement position. `run.text`, `run.bytes`, and
 `run.stream` fail on an unsuccessful exit. `run.capture` returns `Ok(record)`
 even for a nonzero exit, and fails only on setup, timeout, cancellation,
 capture-limit, and decoding errors.
