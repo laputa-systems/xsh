@@ -61,7 +61,7 @@ test test_archive_unpack_cancellation_during_compression_cleans_staging { |ctx|
   let dest = fp"${source}.gz"
   let pending = fp"${dest.parent}/.${dest.name()}.xsh-stage"
   let writer_ready = test.temp_path(ctx, name: "writer-ready")
-  let executable = fp"${fs.cwd()?}/target/debug/xsh"
+  let executable = ctx.xsh_bin
   let archive_child = spawn process.command_argv(
     executable,
     [executable.display(), "showcase/archive-unpack.xsh", "--", "--compress", source, "--dry-run=false"],

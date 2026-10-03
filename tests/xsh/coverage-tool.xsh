@@ -21,8 +21,8 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
   let text_path = fp"${out_dir}/coverage.txt"
   let stdout = fp"${root}/stdout.txt"
   let stderr = fp"${root}/stderr.txt"
-  let xsh = fp"${repo}/target/debug/xsh"
-  let xsht = fp"${repo}/target/debug/xsht"
+  let xsh = ctx.xsh_bin
+  let xsht = fp"${ctx.xsh_bin.parent()}/xsht"
   let tool = fp"${repo}/tools/xsh-cov.xsh"
   let command = process.command {
     cwd = root

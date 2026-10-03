@@ -67,7 +67,7 @@ before editing.
 
 Choose the narrowest useful command first, then run the full relevant gate from
 `docs/TEST-MAP.md`. Run native XSH test suites on release binaries: build them
-with `cargo build --release -p xsh --bin xsh -p xsht --bin xsht`, then run
+with `cargo build --release -p xsh --bins -p xsht --bin xsht`, then run
 `target/release/xsht test ...`. They run several times faster than debug (the
 stdlib suite takes 6 s instead of 34 s), and `xsht` runs the sibling `xsh` from
 its own directory. `docs/TEST-MAP.md` commands that name `target/debug/xsht`

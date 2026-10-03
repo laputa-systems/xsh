@@ -69,7 +69,7 @@ test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries { |ctx|
   let tools = fp"${root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let module_path = fp"${repository}/dev".display()
 
   write_fake_tool(

@@ -13,7 +13,7 @@ test test_run_retry_exhaustion_exits_unsuccessfully { |ctx|
 test test_run_retry_cancellation_reaps_child_descendants { |ctx|
   let ready = test.temp_path(ctx, name: "retry-child-ready")
   let leaked = test.temp_path(ctx, name: "retry-child-leaked")
-  let executable = fp"${fs.cwd()?}/target/debug/xsh"
+  let executable = ctx.xsh_bin
   let wrapper = spawn process.command_argv(
     executable,
     [
