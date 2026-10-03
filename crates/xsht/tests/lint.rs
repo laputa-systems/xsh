@@ -1552,44 +1552,6 @@ proc work() {
 }
 
 #[test]
-fn linter_suggests_multiline_tag_union() {
-    let source = "enum Tok { A, B, C, D, E }\n";
-    let parsed = parse_lint_source(source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
-    let codes: Vec<_> = diagnostics
-        .iter()
-        .filter_map(|d| d.code.as_deref())
-        .collect();
-    assert!(
-        codes.contains(&"lint.multiline-tag-union"),
-        "expected lint.multiline-tag-union in {codes:?}"
-    );
-    let hint = diagnostics
-        .iter()
-        .find(|d| d.code.as_deref() == Some("lint.multiline-tag-union"))
-        .and_then(|d| d.fix_hints.first())
-        .expect("fix hint present");
-    let replacement = hint.replacement.as_ref().expect("fix hint has replacement");
-    assert!(
-        replacement.contains('\n'),
-        "replacement should be multi-line"
-    );
-    let fix_span = hint.span.expect("fix hint has span");
-    assert!(
-        fix_span.start() < fix_span.end(),
-        "fix span should be non-empty"
-    );
-    // The replacement applied to source text should produce the expected result
-    let mut fixed = source.to_string();
-    fixed.replace_range(fix_span.start()..fix_span.end(), replacement);
-    assert!(
-        fixed.contains("enum Tok {\n"),
-        "fixed text should contain multiline enum declaration, got:\n{fixed}"
-    );
-}
-
-#[test]
 fn linter_retains_explicit_path_display_in_command_args() {
     let source = "\
 proc main(foo: Path) {
@@ -2236,7 +2198,7 @@ fn linter_migrates_assertion_helpers_only_in_statement_use() {
 "#);
     assert!(fixed.contains("1 == 2"), "{fixed}");
     assert!(fixed.contains("1 != 2"), "{fixed}");
-    assert!(fixed.contains(r#"test.ok("\u{e9}" in text)"#), "{fixed}");
+    assert!(fixed.contains(r#"test.ok("é" in text)"#), "{fixed}");
     assert!(fixed.contains("message: \"custom\""), "{fixed}");
     assert!(fixed.contains("let retained = test.eq(1, 2)"), "{fixed}");
 }
@@ -2248,7 +2210,7 @@ fn linter_composes_nested_unicode_membership_and_grouped_receivers() {
   test.eq((-3.5).abs(), 3.5)?
 }
 "#);
-    assert!(fixed.contains(r#""\u{e9}" not in text"#), "{fixed}");
+    assert!(fixed.contains(r#""é" not in text"#), "{fixed}");
     assert!(fixed.contains("(-3.5).abs() == 3.5"), "{fixed}");
 }
 
@@ -3220,7 +3182,7 @@ fn linter_comparison_chain_coalesces_stable_operands_and_converges() {
     assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain")));
     let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
     assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
-    assert_eq!(formatted.formatted, fixed.replace("λ", "\\u{3bb}"));
+    assert_eq!(formatted.formatted, fixed);
     let stable = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(stable.formatted, formatted.formatted);
 }
@@ -3281,7 +3243,7 @@ let value = loop {
         fixed.replace_range(span.range(), replacement);
     }
     assert!(fixed.contains("return value when value != null"));
-    assert!(fixed.contains("yield 1 unless (false or false)"));
+    assert!(fixed.contains("yield 1 unless false or false"), "{fixed}");
     assert!(fixed.contains("break 2 when true"));
     assert_parse_check_standalone("guarded value fixes", &fixed);
     let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
@@ -3294,8 +3256,13 @@ let value = loop {
 
 #[test]
 fn linter_prefer_guard_preserves_comments_else_and_multiple_actions() {
+    // A comment is layout: the guard is still reported, without a rewrite that would drop it.
+    let source = "pure value() -> Int { if true { # keep\n return 1 }; return 2 }\n";
+    let parsed = parse_lint_source(source);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    let guard = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")).expect("commented guard is reported");
+    assert!(guard.fix_hints.is_empty(), "{guard:?}");
     for source in [
-        "pure value() -> Int { if true { # keep\n return 1 }; return 2 }\n",
         "pure value() -> Int { if true { return 1 } else { return 2 } }\n",
         "proc value() [] -> Int { if true { print 1; return 1 }; return 2 }\n",
     ] {
@@ -4458,12 +4425,30 @@ fn block_string_concatenation_fix_retains_dynamic_interpolation_comments_crlf_an
     for source in [
         "let value = \"first\\n\" + dynamic\n",
         "let value = \"first\\n\" + f\"${dynamic}\"\n",
-        "let value = \"first\\n\" + \"second\" # retain\n",
         "let value = \"first\\r\\n\" + \"second\"\n",
-        "print (\"first\\n\" + \"second\")\n",
     ] {
         let parsed = parse_lint_source(source);
         assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")), "{source}");
+    }
+    // Comments and expression consumers are layout: the constant chain is
+    // still reported, once at its outermost node, but no rewrite is offered.
+    // Redundant grouping is absorbed by the rewrite instead.
+    for (source, fixed) in [
+        ("let value = \"first\\n\" + \"second\" # retain\n", None),
+        ("let size = (\"first\\n\" + \"second\").count_chars()\n", None),
+        ("assert value == (\"first\\n\" + \"second\" + \"third\")\n", Some("assert value == \"\"\"\n  first\n  secondthird\n  \"\"\"\n")),
+        ("let value = \"\"\"\n  first\n  \"\"\" + \"second\" + \"\\n\"\n", Some("let value = \"\"\"\n  \n    first\n    second\n  \n  \"\"\"\n")),
+    ] {
+        let parsed = parse_lint_source(source);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+        let reported = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")).collect::<Vec<_>>();
+        assert_eq!(reported.len(), 1, "{source}: {diagnostics:?}");
+        let rewritten = reported[0].fix_hints.first().map(|fix| {
+            let mut text = source.to_owned();
+            text.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+            text
+        });
+        assert_eq!(rewritten.as_deref(), fixed, "{source}");
     }
 }
 

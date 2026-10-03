@@ -11,9 +11,6 @@ mod lint_try_capture;
 #[path = "lint_context_scope.rs"]
 mod context_scope;
 
-#[path = "lint_block_strings.rs"]
-mod block_strings;
-
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -63,6 +60,42 @@ fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Duration(_) | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
         ArenaExprKind::List(items) => arena.list_element_exprs(items).all(|item| list_update_argument_stable(arena, item)),
         _ => false,
+    }
+}
+
+/// Whether replacing `span` could drop a comment. Unlexable text counts as
+/// commented so callers stay conservative.
+fn span_may_contain_comment(source: &str, span: Span) -> bool {
+    let Some(text) = source.get(span.range()) else { return true; };
+    let lexed = xsh::frontend::syntax::lexer::Lexer::new(span.source_id, text).lex_compact();
+    !lexed.diagnostics.is_empty()
+        || (0..lexed.token_table.len()).any(|index| lexed.token_table.tag_at(index) == Some(xsh::frontend::syntax::token::TokenTag::Comment))
+}
+
+/// Widens `span` over grouping parentheses that enclose exactly it, so an edit
+/// that yields an atomic literal does not depend on redundant source grouping.
+/// Call and index parentheses, and groups holding comments, are never widened.
+fn widen_over_grouping(source: &str, mut span: Span) -> Span {
+    use xsh::frontend::syntax::token::TokenTag;
+    let tokens = xsh::frontend::syntax::lexer::Lexer::new(span.source_id, source).lex_compact().token_table;
+    let tag = |index: usize| tokens.tag_at(index);
+    loop {
+        let Some(first) = (0..tokens.len()).find(|&index| tokens.start_at(index) == Some(span.start())) else { return span; };
+        let Some(last) = (first..tokens.len()).find(|&index| tokens.end_at(index, source) == Some(span.end())) else { return span; };
+        let Some(open) = (0..first).rev().find(|&index| tag(index) != Some(TokenTag::Newline)) else { return span; };
+        let Some(close) = (last + 1..tokens.len()).find(|&index| tag(index) != Some(TokenTag::Newline)) else { return span; };
+        if tag(open) != Some(TokenTag::LParen) || tag(close) != Some(TokenTag::RParen) {
+            return span;
+        }
+        let callee = (0..open).rev().find(|&index| tag(index) != Some(TokenTag::Newline)).and_then(tag);
+        if matches!(callee, Some(
+            TokenTag::Ident | TokenTag::ProcIdent | TokenTag::DollarIdent | TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace
+            | TokenTag::Question | TokenTag::String | TokenTag::FmtString | TokenTag::PathString | TokenTag::PathFmtString
+        )) {
+            return span;
+        }
+        let (Some(start), Some(end)) = (tokens.start_at(open), tokens.end_at(close, source)) else { return span; };
+        span = Span::new(span.source_id, start, end);
     }
 }
 
@@ -122,7 +155,7 @@ pub const LINT_CODES: &[&str] = &[
     "lint.error-fallback-block", "lint.fs-root-receiver", "lint.identical-match-arms",
     "lint.inferred-require-target", "lint.interactive-command", "lint.json-roundtrip", "lint.legacy-test-proc",
     "lint.lexical-block", "lint.lookup-absence", "lint.lookup-fallback", "lint.missing-effects",
-    "lint.multiline-tag-union", "lint.needless-annotation", "lint.organize-top-level-consts",
+    "lint.needless-annotation", "lint.organize-top-level-consts",
     "lint.path-constructor", "lint.pattern-conditional",
     "lint.prefer-bare-field-label", "lint.prefer-block-string", "lint.prefer-callable-alias",
     "lint.prefer-comparison-chain", "lint.prefer-const", "lint.prefer-context-scope-value",
@@ -529,11 +562,6 @@ impl<'a> Linter<'a> {
                         self.record_type_names.insert(def.name.to_string());
                     }
                     if let ArenaTypeDefBody::TagUnion(variants) = &def.body {
-                        self.lint_single_line_tag_union(
-                            stmt.span,
-                            def.name.as_str().as_str(),
-                            *variants,
-                        );
                         for variant in self.arena.tag_variants(*variants) {
                             if variant.fields.is_empty() {
                                 self.tag_variants.insert(variant.name.to_string());
@@ -1664,15 +1692,26 @@ impl<'a> Linter<'a> {
             }
         }
         let span = self.arena.expr(expr).span;
-        let original = &self.source[span.range()];
         let mut value = String::new();
         let mut links = 0;
         if !collect(self.arena, expr, &mut value, &mut links) || links == 0
-            || !original.contains("\\n") || !value.contains('\n') || value.contains('\r')
-            || original.contains('#')
+            || !value.contains('\n') || value.contains('\r')
         { return; }
+        // Report the outermost literal chain once; its operands are part of the same rewrite.
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")
+            && diagnostic.labels.iter().any(|label| label.span.source_id == span.source_id && label.span.start() <= span.start() && span.end() <= label.span.end()))
+        { return; }
+        let diagnostic = Diagnostic::new(Severity::Warning, "constant multiline concatenation can use a block string")
+            .with_code("lint.prefer-block-string")
+            .with_label(Label::secondary(span, "all pieces are literal text in source order"));
+        // Comments and a closing delimiter that cannot stand alone are layout
+        // facts: they decide only whether the rewrite is offered.
+        let span = widen_over_grouping(self.source, span);
         let suffix = self.source[span.end()..].split(['\r', '\n']).next().unwrap_or("");
-        if !suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t')) { return; }
+        if span_may_contain_comment(self.source, span) || !suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+            self.diagnostics.push(diagnostic.with_note("comments, trailing code, and expression consumers need a manual rewrite"));
+            return;
+        }
         let line_start = self.source[..span.start()].rfind(['\r', '\n']).map_or(0, |offset| offset + 1);
         let indent: String = self.source[line_start..span.start()].chars().take_while(|ch| matches!(ch, ' ' | '\t')).collect();
         let margin = format!("{indent}  ");
@@ -1681,15 +1720,16 @@ impl<'a> Linter<'a> {
         let replacement = format!("\"\"\"\n{content}\n{margin}\"\"\"");
         let witness = format!("let block_value = {replacement}\n");
         let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &witness);
-        if !parsed.diagnostics.is_empty() { return; }
-        let Some(statement) = parsed.arena.statement_ids().next() else { return; };
-        let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(candidate), .. } = parsed.arena.arena.stmt(statement).kind else { return; };
-        let ArenaExprKind::Str(text) = parsed.arena.arena.expr(candidate).kind else { return; };
-        if parsed.arena.arena.string_literal(text).as_ref() != value { return; }
-        self.diagnostics.push(Diagnostic::new(Severity::Warning, "constant escaped-newline concatenation can use a block string")
-            .with_code("lint.prefer-block-string")
-            .with_label(Label::secondary(span, "all pieces are literal text in source order"))
-            .with_fix_hint(FixHint::replacement(span, "preserve the exact decoded text", replacement)));
+        let reproduced = parsed.diagnostics.is_empty() && parsed.arena.statement_ids().next().is_some_and(|statement| matches!(
+            parsed.arena.arena.stmt(statement).kind,
+            ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(candidate), .. }
+                if matches!(parsed.arena.arena.expr(candidate).kind, ArenaExprKind::Str(text) if parsed.arena.arena.string_literal(text).as_ref() == value)
+        ));
+        self.diagnostics.push(if reproduced {
+            diagnostic.with_fix_hint(FixHint::replacement(span, "preserve the exact decoded text", replacement))
+        } else {
+            diagnostic.with_note("a block literal at this indentation would not reproduce the decoded text")
+        });
     }
 
     fn lint_redundant_newline_triple_string(&mut self, expr: ExprId) {
@@ -2804,60 +2844,6 @@ impl<'a> Linter<'a> {
                 .source
                 .get(arena_expr.span.range())
                 .is_some_and(|source| source.trim() == "[]")
-    }
-
-    fn lint_single_line_tag_union(&mut self, stmt_span: Span, name: &str, variants: ArenaRange) {
-        let variant_spans: Vec<Span> = self
-            .arena
-            .tag_variants(variants)
-            .iter()
-            .map(|v| self.arena.span(v.span))
-            .collect();
-        if variant_spans.len() < 3 {
-            return;
-        }
-        let raw_end = stmt_span.end();
-        let body_end = if raw_end > 0 && self.source.as_bytes().get(raw_end - 1) == Some(&b'\n') {
-            raw_end - 1
-        } else {
-            raw_end
-        };
-        let src = &self.source[stmt_span.start()..body_end];
-        if src.contains('\n') {
-            return;
-        }
-        let line_start = self.source[..stmt_span.start()]
-            .rfind('\n')
-            .map_or(0, |p| p + 1);
-        let cur_indent = stmt_span.start() - line_start;
-        let variant_indent = " ".repeat(cur_indent + 4);
-        let cont_prefix = variant_indent.clone();
-        let variant_texts: Vec<&str> = variant_spans
-            .iter()
-            .map(|v| &self.source[v.start()..v.end()])
-            .collect();
-        let mut lines = vec![format!(
-            "enum {name} {{\n{variant_indent}{},",
-            variant_texts[0]
-        )];
-        for v_text in &variant_texts[1..] {
-            lines.push(format!("{cont_prefix}{v_text},"));
-        }
-        lines.push(format!("{}}}", " ".repeat(cur_indent)));
-        let replacement = lines.join("\n") + "\n";
-        self.diagnostics.push(
-            Diagnostic::new(
-                Severity::Warning,
-                "tag union fits on one line; prefer multi-line for readability",
-            )
-            .with_code("lint.multiline-tag-union")
-            .with_label(Label::secondary(stmt_span, "break across lines"))
-            .with_fix_hint(FixHint::replacement(
-                stmt_span,
-                "reformat to multi-line",
-                replacement,
-            )),
-        );
     }
 
     fn lint_return_value(&mut self, value: &ArenaExprOrRun) {
@@ -5574,9 +5560,7 @@ impl<'a> Linter<'a> {
             .with_code("lint.fs-root-receiver").with_label(Label::secondary(span, "preserve receiver and argument evaluation order"));
         let safe_receiver = match first.kind { ArenaCallArgKind::Positional(_) => true, ArenaCallArgKind::Named { name, .. } => name == "root", _ => false };
         let safe_args = entries.iter().all(|entry| !matches!(entry.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
-        let lexed = xsh::frontend::syntax::lexer::Lexer::new(span.source_id, &self.source[span.range()]).lex_compact();
-        let comments = (0..lexed.token_table.len()).any(|index| lexed.token_table.tag_at(index) == Some(xsh::frontend::syntax::token::TokenTag::Comment));
-        if safe_receiver && safe_args && lexed.diagnostics.is_empty() && !comments {
+        if safe_receiver && safe_args && !span_may_contain_comment(self.source, span) {
             let receiver_text = &self.source[receiver_span.range()];
             let receiver_text = match self.arena.expr(receiver).kind {
                 ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. } => receiver_text.to_string(),
@@ -5910,13 +5894,6 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Yield(_) => "yield",
             _ => return,
         };
-        let Some(original) = self.source.get(span.range()) else {
-            return;
-        };
-        // Replacing the whole branch would discard comments attached to its body.
-        if original.contains('#') {
-            return;
-        }
         // Preserve grouping that expression spans can omit around pipelines and runs.
         let Some(condition) = self.source
             .get(span.start() + 2..self.arena.span(self.arena.block(branch.block).span).start())
@@ -5943,23 +5920,26 @@ impl<'a> Linter<'a> {
             action.to_string()
         };
         let replacement = format!("{action} {guard_word} {condition}");
+        // Measure the formatter's spelling so source layout, such as redundant
+        // grouping or line breaks, never decides whether the guard is reported.
+        let canonical = super::format::Formatter::new().format_source(span.source_id, &replacement);
+        let replacement = canonical.formatted.trim_end();
         // Keep blocks whose condition or payload needs a readable multiline layout.
-        if replacement.contains('\n') || replacement.chars().count() > 88 {
+        if !canonical.diagnostics.is_empty() || replacement.contains('\n') || replacement.chars().count() > 88 {
             return;
         }
-        self.diagnostics.push(
-            Diagnostic::new(
-                Severity::Warning,
-                format!("use `{keyword} {guard_word}` instead of a single-action `if`"),
-            )
-            .with_code("lint.prefer-guard")
-            .with_label(Label::secondary(span, "replace with postfix guard"))
-            .with_fix_hint(FixHint::replacement(
-                span,
-                format!("use `{keyword} {guard_word}`"),
-                replacement,
-            )),
-        );
+        let diagnostic = Diagnostic::new(
+            Severity::Warning,
+            format!("use `{keyword} {guard_word}` instead of a single-action `if`"),
+        )
+        .with_code("lint.prefer-guard")
+        .with_label(Label::secondary(span, "replace with postfix guard"));
+        // Replacing the whole branch would discard comments attached to its body.
+        self.diagnostics.push(if span_may_contain_comment(self.source, span) {
+            diagnostic.with_note("comments inside the branch need a manual rewrite")
+        } else {
+            diagnostic.with_fix_hint(FixHint::replacement(span, format!("use `{keyword} {guard_word}`"), replacement))
+        });
     }
 
     fn lint_prefer_fs_files(&mut self, input: ExprId, stages: ArenaRange) {
@@ -7672,9 +7652,6 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_nested_value_pipeline(expr);
 
             self.linter.lint_block_string_concatenation(expr);
-            if let Some(diagnostic) = block_strings::lint_formatted_block_string(self.linter.arena, self.linter.source, expr) {
-                self.linter.diagnostics.push(diagnostic);
-            }
             self.linter.lint_list_splicing(expr);
             self.linter.lint_map_literal_chain(expr);
             self.linter.lint_prepared_regex(expr);

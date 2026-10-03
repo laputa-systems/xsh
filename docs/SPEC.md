@@ -340,10 +340,12 @@ retain exact behavior; an explicit escaped opening break can preserve an old
 leading newline and indentation without opting into block layout.
 `lint.redundant-newline-triple-string` converts an exact one-newline block
 (`"""` followed by three LF breaks and `"""`) to `"\n"`.
-`lint.prefer-block-string` rewrites constant escaped-newline concatenations only
-when a normally parsed candidate has the identical decoded `Str`. Dynamic or
-formatted operands, comments, CR-containing values, and expression positions
-where the closing delimiter cannot be alone receive no automatic rewrite.
+`lint.prefer-block-string` reports constant `Str` concatenations whose value
+contains a newline and no CR; dynamic or formatted operands are not reported.
+It rewrites the outermost chain, including redundant grouping around it, only
+when a normally parsed candidate has the identical decoded `Str`. Comments and
+expression positions where the closing delimiter cannot be alone produce a
+warning without a fix.
 
 Expression string literals do not interpolate. `${expr}` interpolation is
 recognized only in command words and quoted command word parts. `$name` and
@@ -4744,8 +4746,9 @@ Comments in the proposed edit produce a warning without a fix.
 
 `lint.prefer-guard` rewrites a single-action `if` without `else` to a guarded
 `return`, `break`, `continue`, or `yield`. It preserves condition-first payload
-laziness and groups run payloads. Comments, multiple actions, multiline payloads,
-and long proposed one-liners keep their readable blocks.
+laziness and groups run payloads. Multiple actions and guards whose formatted
+one-liner is multiline or longer than 88 characters keep their readable blocks;
+comments in the branch produce a warning without a fix.
 
 `lint.prefer-inferred-pure-return` is opt-in with
 `[lint] prefer-inferred-pure-returns = true` in `xsht-config.ini`. It removes a

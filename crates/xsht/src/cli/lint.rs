@@ -2258,12 +2258,15 @@ proc overlap(left: List[Str], right: List[Str]) -> List[Str] {
 
     #[test]
     fn lint_fix_preserves_grouped_pipeline_condition() {
-        let source = "proc choose(values: List[Str]) {\n  for value in values {\n    if value == \"\" or (value.split(\"\") |> any { |part| part == \"x\" }) { continue }\n    print ${value}\n  }\n}\nchoose([\"ok\"])\n";
-        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
-        assert!(
-            matches!(result.kind, LintResultKind::Write { .. }),
-            "grouped pipeline guard must stay parseable"
-        );
+        // The formatter breaks every pipeline stage onto its own line, so the
+        // guard would not be a one-liner in either layout and the block stays.
+        for source in [
+            "proc choose(values: List[Str]) {\n  for value in values {\n    if value == \"\" or (value.split(\"\") |> any { |part| part == \"x\" }) { continue }\n    print ${value}\n  }\n}\nchoose([\"ok\"])\n",
+            "proc choose(values: List[Str]) {\n  for value in values {\n    if value == \"\" or (value.split(\"\")\n      |> any { |part|\n        part == \"x\"\n      }) {\n      continue\n    }\n    print ${value}\n  }\n}\nchoose([\"ok\"])\n",
+        ] {
+            let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+            assert!(matches!(result.kind, LintResultKind::Clean), "grouped pipeline guard must keep its block: {source}");
+        }
     }
 
     #[test]
