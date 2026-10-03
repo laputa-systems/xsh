@@ -257,10 +257,14 @@ pub const LINT_CODES: &[(&str, &str)] = &[
 pub const FIXABLE_CHECK_CODES: &[&str] = &["check.bool-statement", "check.mixed-logical", "check.redundant-parens"];
 
 /// One-line summaries of `FIXABLE_CHECK_CODES` for `xsht lint --list`.
-pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[(
-    "check.bool-statement",
-    "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard",
-)];
+pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[
+    (
+        "check.bool-statement",
+        "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard",
+    ),
+    ("check.mixed-logical", "Group `and` mixed with `or`, or `??` mixed with either, around the tighter operand"),
+    ("check.redundant-parens", "Remove parentheses that do not change the parse"),
+];
 
 /// Whether `xsht lint --only` accepts `code`.
 pub fn lint_code_known(code: &str) -> bool {
