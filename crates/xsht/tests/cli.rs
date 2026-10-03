@@ -362,7 +362,7 @@ fn xsht_lint_short_help_is_accepted() {
     assert!(
         String::from_utf8(output.stdout)
             .unwrap()
-            .contains("xsht lint [--fix] [--runless] [FILE...]")
+            .contains("xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [FILE...]")
     );
 }
 
@@ -659,6 +659,44 @@ fn lint_directory_cycle_selects_one_component_root() {
         1,
         "cycle should be reported once through one selected root: {stderr}"
     );
+}
+
+#[test]
+fn lint_only_restricts_diagnostics_and_fixes_to_named_codes() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    let source = "let name: Str = \"x\"\nprint ${name.byte_len()}\n";
+    fs::write(&script, source).expect("write script");
+    let lint = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .arg("lint").args(args).arg("main.xsh")
+        .current_dir(root.path()).output().expect("run xsht lint");
+    let codes = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).lines()
+        .filter_map(|line| line.strip_prefix("warn[")?.split(']').next().map(str::to_owned))
+        .collect::<Vec<_>>();
+
+    let all = lint(&[]);
+    assert_eq!(codes(&all), ["lint.prefer-const", "lint.needless-annotation", "lint.redundant-command-interpolation"]);
+    let selected = lint(&["--only", "lint.needless-annotation,lint.redundant-command-interpolation"]);
+    assert_eq!(selected.status.code(), Some(1));
+    assert_eq!(codes(&selected), ["lint.needless-annotation", "lint.redundant-command-interpolation"]);
+
+    let fixed = lint(&["--only=lint.needless-annotation", "--fix"]);
+    assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
+    assert_eq!(fs::read_to_string(&script).expect("read fixed script"), "let name = \"x\"\nprint ${name.byte_len()}\n");
+    assert_eq!(codes(&lint(&[])), ["lint.prefer-const", "lint.redundant-command-interpolation"]);
+}
+
+#[test]
+fn lint_only_rejects_unknown_codes() {
+    for args in [&["lint", "--only", "lint.prefer-const,lint.no-such-rule", "."][..], &["lint", "--only"][..]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(args).output().expect("run xsht lint");
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("--only"), "{stderr}");
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--only", "check.unresolved-name", "."]).output().expect("run xsht lint");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown lint rule 'check.unresolved-name'"));
 }
 
 #[test]
@@ -1778,7 +1816,7 @@ fn lint_returns_interrupted_status_for_pending_sigint() {
     let kill_result = unsafe { libc::kill(libc::getpid(), libc::SIGINT) };
     assert_eq!(kill_result, 0);
 
-    let output = xsht::cli::lint_files(&["unused.xsh".to_string()], false, false);
+    let output = xsht::cli::lint_files(&["unused.xsh".to_string()], false, false, None);
     xsh::process::clear_cancellation_request();
 
     assert_eq!(output.status, 130);

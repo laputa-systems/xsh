@@ -59,7 +59,8 @@ pub fn main() -> ExitCode {
             files,
             fix,
             runless,
-        }) => finish_command(|| lint_files(&files, fix, runless)),
+            only,
+        }) => finish_command(|| lint_files(&files, fix, runless, only)),
         Ok(Command::Ast { script }) => finish_command(|| ast_script(&script)),
         Ok(Command::Trace { options }) => finish_command(|| trace_script(options)),
         Ok(Command::Api { options }) => finish_command(|| api_command(&options)),
@@ -93,6 +94,7 @@ enum Command {
         files: Vec<String>,
         fix: bool,
         runless: bool,
+        only: Option<Vec<String>>,
     },
     Ast {
         script: String,
@@ -477,8 +479,23 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
     let mut files = Vec::new();
     let mut fix = false;
     let mut runless = false;
+    let mut only: Option<Vec<String>> = None;
 
-    for arg in args {
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        let selection = match arg.as_str() {
+            "--only" => Some(args.next().ok_or("`xsht lint --only` requires RULE[,RULE...]")?.as_str()),
+            other => other.strip_prefix("--only="),
+        };
+        if let Some(selection) = selection {
+            for code in selection.split(',') {
+                if !crate::xsht::lint::LINT_CODES.contains(&code) {
+                    return Err(format!("unknown lint rule '{code}' for `xsht lint --only`"));
+                }
+                only.get_or_insert_with(Vec::new).push(code.to_owned());
+            }
+            continue;
+        }
         match arg.as_str() {
             "--help" | "-h" => return Ok(Command::Help(command_help_text("lint"))),
             "--fix" => fix = true,
@@ -494,6 +511,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
         files,
         fix,
         runless,
+        only,
     })
 }
 
