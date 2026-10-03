@@ -4,7 +4,7 @@ use crate::xsht::cli::{
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
 use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code};
-use crate::xsht::lint::{LintOptions, Linter};
+use crate::xsht::lint::{LintOptions, Linter, lint_code_selected};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ use xsh::frontend::syntax::arena::{
     ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId, UseStmtId,
 };
 use xsh::frontend::syntax::parser::Parser;
-pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
+pub fn lint_files(files: &[String], fix: bool, runless: bool, only: Option<Vec<String>>) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
     }
@@ -41,7 +41,7 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
         }
     };
 
-    let discovered = match discover_lint_files(files, &cwd_config) {
+    let mut discovered = match discover_lint_files(files, &cwd_config) {
         Ok(discovered) => discovered,
         Err(message) => {
             if let Some(output) = cancellation_output() {
@@ -57,6 +57,7 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
         }
     };
 
+    discovered.only = only;
     let config_cache = ConfigCache::default();
     let mut results = lint_workspace(&discovered, fix, runless, &cwd_config, &config_cache);
     if let Some(output) = cancellation_output() {
@@ -147,6 +148,7 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
 struct LintDiscovery {
     files: Vec<String>,
     explicit_roots: FxHashSet<String>,
+    only: Option<Vec<String>>,
 }
 
 fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDiscovery, String> {
@@ -183,6 +185,7 @@ fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDisco
     Ok(LintDiscovery {
         files,
         explicit_roots,
+        only: None,
     })
 }
 
@@ -532,6 +535,7 @@ fn lint_workspace_with_parallelism(
             config_cache,
         ) {
             module.config = config;
+            module.config.lint_options.only.clone_from(&discovery.only);
         }
     }
     let explicit_roots = discovery
@@ -704,8 +708,9 @@ fn lint_workspace_root(
         }];
     }
 
-    if fix && (!relevant_diagnostics.is_empty() || checked.diagnostics.iter().any(|diagnostic|
-        migration_lint_code(diagnostic.code.as_deref()).is_some())) {
+    let only = root_module.config.lint_options.only.as_deref();
+    if fix && relevant_diagnostics.iter().chain(&checked.diagnostics).any(|diagnostic|
+        migration_lint_code(diagnostic.code.as_deref()).is_some_and(|code| lint_code_selected(only, Some(code)))) {
         return migrate_workspace_syntax(workspace, root, &reachable, linted_modules, &checked.diagnostics);
     }
 
@@ -761,10 +766,12 @@ fn lint_workspace_root(
                 linted.diagnostics.push(diagnostic);
             }
         }
+        linted.diagnostics.retain(|diagnostic| lint_code_selected(only, diagnostic.code.as_deref()));
         let check_diagnostics = checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
+            .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id)
+                && lint_code_selected(only, diagnostic.code.as_deref()))
             .cloned()
             .collect::<Vec<_>>();
         let result = if fix {
@@ -1241,6 +1248,7 @@ fn lint_config_for_file(
             Path::new(file),
             &tool_config.config.dead_code.exclude,
         ),
+        only: None,
     };
     Ok(ResolvedLintConfig {
         lint_options,
@@ -2345,7 +2353,7 @@ pure empty() -> List[Str] {
     #[test]
     fn lint_fix_repairs_missing_effect_annotations_after_check_error() {
         let source = "\
-proc main() [fs] {
+proc load() [fs] {
   let _ = fs.read_text(Path(\"x\"))?
 }
 ";
@@ -2355,7 +2363,7 @@ proc main() [fs] {
             panic!("expected fixed source to be written");
         };
 
-        assert!(text.contains("proc main() [fs, error]"));
+        assert!(text.contains("proc load() [fs, error]"));
     }
 
     #[test]
@@ -2415,8 +2423,8 @@ proc timestamp() [time] -> Int {
   time.now()
 }
 
-proc main() [] -> Int {
-  timestamp()
+proc stamp() [] -> Int {
+  timestamp() + 1
 }
 ";
         let config = config();
@@ -2425,7 +2433,7 @@ proc main() [] -> Int {
             panic!("expected fixed source to be written");
         };
 
-        assert!(text.contains("proc main() [time] -> Int"));
+        assert!(text.contains("proc stamp() [time] -> Int"), "{text}");
     }
 
     #[test]
@@ -2448,7 +2456,7 @@ export proc image_task() [env] -> Int {
             let source = "\
 use ARGV
 
-proc main() [] -> Int {
+proc build() [] -> Int {
   ARGV.image_task()
 }
 ";
@@ -2463,7 +2471,7 @@ proc main() [] -> Int {
                 panic!("expected fixed source to be written");
             };
 
-            assert!(text.contains("proc main() [env] -> Int"));
+            assert!(text.contains("proc build() [env] -> Int"));
         });
     }
 
@@ -2492,7 +2500,7 @@ export proc unrelated_bad() {
             let source = "\
 use ARGV
 
-proc main() [] -> Int {
+proc build() [] -> Int {
   ARGV.image_task()
 }
 ";
@@ -2507,7 +2515,7 @@ proc main() [] -> Int {
                 panic!("expected fixed source to be written");
             };
 
-            assert!(text.contains("proc main() [env] -> Int"));
+            assert!(text.contains("proc build() [env] -> Int"));
         });
     }
 }

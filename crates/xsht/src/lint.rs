@@ -109,6 +109,49 @@ pub struct LintOptions {
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     pub dead_code: bool,
     pub native_test_file: bool,
+    /// `xsht lint --only`: retain only diagnostics with these codes, which
+    /// also restricts the fixes derived from them.
+    pub only: Option<Vec<String>>,
+}
+
+/// Every diagnostic code `xsht lint` can report, for validating `--only`.
+pub const LINT_CODES: &[&str] = &[
+    "lint.block-header", "lint.boolean-guard", "lint.boolean-pattern-test", "lint.command-value",
+    "lint.compatibility-vocabulary", "lint.core-assert", "lint.dead-code", "lint.default-param-type",
+    "lint.dollar-in-expression-string", "lint.duration-arithmetic", "lint.enum-declaration", "lint.env-scope",
+    "lint.error-fallback-block", "lint.fs-root-receiver", "lint.identical-match-arms",
+    "lint.inferred-require-target", "lint.interactive-command", "lint.json-roundtrip", "lint.legacy-test-proc",
+    "lint.lexical-block", "lint.lookup-absence", "lint.lookup-fallback", "lint.missing-effects",
+    "lint.multiline-tag-union", "lint.needless-annotation", "lint.organize-top-level-consts",
+    "lint.path-constructor", "lint.pattern-conditional", "lint.prefer-bare-assertion",
+    "lint.prefer-bare-field-label", "lint.prefer-block-string", "lint.prefer-callable-alias",
+    "lint.prefer-comparison-chain", "lint.prefer-const", "lint.prefer-context-scope-value",
+    "lint.prefer-defer-block", "lint.prefer-empty-map-literal", "lint.prefer-file-lines", "lint.prefer-fs-files",
+    "lint.prefer-generic-record-constructor", "lint.prefer-guard", "lint.prefer-in",
+    "lint.prefer-inferred-private-effects", "lint.prefer-inferred-pure-return", "lint.prefer-known-field-access",
+    "lint.prefer-list-comp", "lint.prefer-list-compound-assignment", "lint.prefer-list-element-assignment",
+    "lint.prefer-list-pattern", "lint.prefer-list-splicing", "lint.prefer-map-comp",
+    "lint.prefer-map-entry-iteration", "lint.prefer-map-literal", "lint.prefer-method",
+    "lint.prefer-named-argument-pun", "lint.prefer-named-argument-spread", "lint.prefer-nested-record-update",
+    "lint.prefer-optional-postfix", "lint.prefer-record-constructor", "lint.prefer-record-destructuring",
+    "lint.prefer-regex-literal", "lint.prefer-scalar-iteration", "lint.prefer-signature-cli", "lint.prefer-slice",
+    "lint.prefer-stream-producer", "lint.prefer-string-concat", "lint.prefer-try-capture",
+    "lint.prefer-value-pipeline", "lint.prefer-yield-delegation", "lint.redundant-bare-return",
+    "lint.redundant-command-fmt", "lint.redundant-command-interpolation", "lint.redundant-default",
+    "lint.redundant-display-parse", "lint.redundant-fmt-wrapper", "lint.redundant-main-call",
+    "lint.redundant-newline-triple-string", "lint.redundant-ok-return", "lint.redundant-ok-tail",
+    "lint.redundant-optional-fallback", "lint.redundant-path-display", "lint.redundant-path-interpolation",
+    "lint.redundant-path-parse", "lint.redundant-pipeline-stage", "lint.redundant-require",
+    "lint.redundant-result-unit", "lint.redundant-string-interpolation", "lint.redundant-tail-return-binding",
+    "lint.redundant-tail-return", "lint.removed-record-require", "lint.run-status", "lint.runless",
+    "lint.shadowing", "lint.stage-callable", "lint.stream-options", "lint.stringly-typed-match",
+    "lint.unannotated-effects", "lint.unsorted-imports", "lint.unused-callable", "lint.unused-local",
+    "lint.unused-type",
+];
+
+/// Whether `only` (the `--only` selection, if any) admits a diagnostic code.
+pub fn lint_code_selected(only: Option<&[String]>, code: Option<&str>) -> bool {
+    only.is_none_or(|only| code.is_some_and(|code| only.iter().any(|selected| selected == code)))
 }
 
 impl Default for LintOptions {
@@ -137,6 +180,7 @@ impl Default for LintOptions {
             definitely_exiting_block_spans: BTreeSet::default(),
             dead_code: true,
             native_test_file: false,
+            only: None,
         }
     }
 }
@@ -286,6 +330,7 @@ impl<'a> Linter<'a> {
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
+        let only = options.only;
         let checked_effects = if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
             check_effects().function_effect_facts
         } else { options.function_effect_facts };
@@ -356,6 +401,7 @@ impl<'a> Linter<'a> {
             linter.lint_declaration_reachability(program);
             linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
+        linter.diagnostics.retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code.as_deref()));
         LintOutput {
             diagnostics: linter.diagnostics,
         }
@@ -943,7 +989,16 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
                 self.lint_proc_function(def, exported, stmt.span);
-                self.lint_effect_annotation(def, stmt.span);
+                // Test declarations and program entrypoints are already
+                // unrestricted and have no restricted callers, so a clause adds
+                // no contract.
+                let function = self.arena.function_def(def);
+                let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
+                    || function.test_declaration
+                    || (!exported && self.scopes.len() == 1 && function.name == "main");
+                if !entrypoint {
+                    self.lint_effect_annotation(def, stmt.span);
+                }
             }
             ArenaStmtKind::PureDef(def) => {
                 self.lint_inferred_pure_return(def, exported);
@@ -10555,5 +10610,36 @@ mod user_type_reference_tests {
             diagnostic.code.as_deref() == Some("lint.unused-type"))
             .map(|diagnostic| diagnostic.message.as_str()).collect::<Vec<_>>();
         assert_eq!(unused, vec!["unused type declaration `Unused`"]);
+    }
+}
+
+#[cfg(test)]
+mod lint_code_registry_tests {
+    use super::LINT_CODES;
+    use std::collections::BTreeSet;
+
+    // `--only` validates against `LINT_CODES`; every code the lint sources
+    // emit must be registered there.
+    #[test]
+    fn lint_codes_cover_every_emitted_lint_code() {
+        fn visit(dir: &std::path::Path, codes: &mut BTreeSet<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() { visit(&path, codes); continue; }
+                if path.extension().is_none_or(|extension| extension != "rs") { continue; }
+                let text = std::fs::read_to_string(&path).unwrap();
+                for (start, _) in text.match_indices("\"lint.") {
+                    let rest = &text[start + 1..];
+                    let end = rest.find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')).unwrap();
+                    if rest[end..].starts_with('"') && end > "lint.".len() && !rest[..end].ends_with(".rs") {
+                        codes.insert(rest[..end].to_owned());
+                    }
+                }
+            }
+        }
+        let mut emitted = BTreeSet::new();
+        visit(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut emitted);
+        let registered = LINT_CODES.iter().map(|code| (*code).to_owned()).collect::<BTreeSet<_>>();
+        assert_eq!(emitted, registered);
     }
 }

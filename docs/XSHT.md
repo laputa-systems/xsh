@@ -239,6 +239,10 @@ program before writing source and preserves the rewrite invariants described in
 `xsht lint --fix` is conservative. Lints are allowed to analyze the checked AST,
 but fix application uses non-overlapping source edits guarded by the CST.
 
+`xsht lint --only RULE[,RULE...]` keeps only diagnostics with the named codes,
+so `--fix` applies only their fixes, including syntax migrations. Codes are
+validated against `lint::LINT_CODES`; an unknown code is a usage error.
+
 Safe fixes must satisfy all of these:
 
 - the original file loads, parses, and resolves imports; safe fixes may run when
@@ -284,6 +288,12 @@ literal values. Comments and record spreads prevent an automatic replacement.
 arguments to `name:`. The value must be that lexical identifier; another binding
 or a field selection does not qualify. Existing puns are stable, and an argument
 with an internal comment receives a warning without a destructive fix.
+
+`lint.unannotated-effects` and `lint.missing-effects` apply to exported procs,
+streams, and other procs whose effects are not inferred. They skip native `test`
+declarations, `cli main`, and an unexported top-level `proc main`: these entries
+are already unrestricted and no restricted caller can reach them. A clause that
+is present still bounds the body through the checker.
 
 When a lint can report a real issue but cannot safely preserve nearby comments,
 it should report the diagnostic without a fix hint. This is better than

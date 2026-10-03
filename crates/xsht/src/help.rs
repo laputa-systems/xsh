@@ -56,11 +56,15 @@ static COMMANDS: &[CommandHelp] = &[
         summary: "Run quality checks and optional fixes",
         quick_label: "Improve source",
         quick_usage: "lint [FILE...]",
-        usage: &["xsht lint [--fix] [--runless] [FILE...]"],
+        usage: &["xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [FILE...]"],
         options: &[
             HelpOption {
                 syntax: "--fix",
                 description: "Apply safe autofixes",
+            },
+            HelpOption {
+                syntax: "--only RULE[,RULE...]",
+                description: "Report and fix only the named lint codes",
             },
             HelpOption {
                 syntax: "--runless",

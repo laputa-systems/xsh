@@ -67,11 +67,11 @@ fn fs_root_receiver_cli_fix_checks_an_isolated_fixture_and_converges() {
     let path = temp.path().join("root-receiver.xsh");
     fs::write(&path, "proc old(root: FsRoot) [fs, error] {\n  fs.root_mkdir(root, p\"nested\", parents: true)?\n}\n").unwrap();
     let files = vec![path.to_string_lossy().into_owned()];
-    let result = xsht::lint_files(&files, true, false);
+    let result = xsht::lint_files(&files, true, false, None);
     assert_eq!(result.status, 0, "{}", String::from_utf8_lossy(&result.stderr));
     let first = fs::read_to_string(&path).unwrap();
     assert!(first.contains("root.mkdir(p\"nested\", parents: true)?"), "{first}");
-    let second = xsht::lint_files(&files, true, false);
+    let second = xsht::lint_files(&files, true, false, None);
     assert!(second.status <= 1, "{}", String::from_utf8_lossy(&second.stderr));
     assert!(!String::from_utf8_lossy(&second.stderr).contains("lint.fs-root-receiver"));
     assert_eq!(fs::read_to_string(&path).unwrap(), first);
@@ -377,7 +377,6 @@ main(args)?
             "lint.redundant-command-interpolation",
             "lint.unused-local",
             "lint.unused-local",
-            "lint.unannotated-effects",
         ]
     );
     assert!(
@@ -390,7 +389,7 @@ main(args)?
 #[test]
 fn linter_reports_missing_declared_effects_with_fix() {
     let source = "\
-proc main() [fs] {
+proc load() [fs] {
   let _ = fs.read_text(Path(\"x\"))?
 }
 ";
@@ -418,6 +417,69 @@ proc main() [fs] {
     );
 }
 
+fn effect_annotation_lints(source: &str) -> Vec<(String, String)> {
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    Linter::lint(&parsed.arena, source, LintOptions { native_test_file: true, ..LintOptions::default() })
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.unannotated-effects" | "lint.missing-effects")))
+        .map(|diagnostic| (diagnostic.code.unwrap(), diagnostic.message))
+        .collect()
+}
+
+#[test]
+fn effect_annotation_lints_skip_unrestricted_entrypoints() {
+    let test_and_main = "\
+test test_reads_clock { |_ctx|
+  let _ = time.now()
+}
+
+proc main() {
+  let _ = time.now()
+}
+";
+    assert_eq!(effect_annotation_lints(test_and_main), []);
+    let partial_clause = "test test_reads_clock [] { |_ctx|\n  let _ = time.now()\n}\n";
+    let parsed = parse_lint_source(partial_clause);
+    assert!(!Checker::check_arena(&parsed.arena, partial_clause).diagnostics.is_empty(), "present clauses remain upper bounds");
+    let cli_main = "cli main(count: Int) {\n  let _ = time.now()\n  print $count\n}\n";
+    assert_eq!(effect_annotation_lints(cli_main), []);
+}
+
+#[test]
+fn effect_annotation_lints_keep_exported_procs_streams_and_exported_main() {
+    let source = "\
+##! Effect contract fixture.
+## Reads the clock.
+export proc stamp() -> Int {
+  let _ = time.now()
+  1
+}
+
+stream ticks() -> Stream[Int] {
+  let _ = time.now()
+  yield 1
+}
+
+## Reads the clock under the conventional entry name.
+export proc main() {
+  let _ = time.now()
+}
+
+for tick in ticks() {
+  print ${stamp() + tick}
+}
+";
+    assert_eq!(effect_annotation_lints(source), [
+        ("lint.unannotated-effects".to_owned(), "proc `stamp` has effects but no annotation".to_owned()),
+        ("lint.unannotated-effects".to_owned(), "proc `ticks` has effects but no annotation".to_owned()),
+        ("lint.unannotated-effects".to_owned(), "proc `main` has effects but no annotation".to_owned()),
+    ]);
+}
+
 #[test]
 fn linter_reports_missing_effects_from_called_restricted_proc() {
     let source = "\
@@ -425,7 +487,7 @@ proc timestamp() [time] -> Int {
   time.now()
 }
 
-proc main() [] -> Int {
+proc stamp() [] -> Int {
   timestamp()
 }
 ";
@@ -465,7 +527,7 @@ export proc image_task() [env] -> Int {
         let main_source = "\
 use kbuild
 
-proc main() [] -> Int {
+proc build() [] -> Int {
   kbuild.image_task()
 }
 ";
@@ -2015,7 +2077,7 @@ fn needless_annotation_retains_result_constructor_contract() {
             assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
             let path = temp.path().join("result-constructor.xsh");
             fs::write(&path, &source).unwrap();
-            let result = xsht::lint_files(&[path.to_string_lossy().into_owned()], false, false);
+            let result = xsht::lint_files(&[path.to_string_lossy().into_owned()], false, false, None);
             assert!(!String::from_utf8_lossy(&result.stderr).contains("lint.needless-annotation"), "{source}: {}", String::from_utf8_lossy(&result.stderr));
         }
     }
@@ -2041,7 +2103,7 @@ fn needless_annotation_retains_imported_nominal_element_anchor() {
         assert!(loaded.parsed.diagnostics.is_empty(), "{:?}", loaded.parsed.diagnostics);
         let checked = loaded.checked.unwrap();
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let result = xsht::lint_files(&[entry.to_string_lossy().into_owned()], false, false);
+        let result = xsht::lint_files(&[entry.to_string_lossy().into_owned()], false, false, None);
         assert!(!String::from_utf8_lossy(&result.stderr).contains("lint.needless-annotation"), "{source}: {}", String::from_utf8_lossy(&result.stderr));
         assert_eq!(fs::read_to_string(entry).unwrap(), source);
     }
