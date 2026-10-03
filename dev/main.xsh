@@ -6,6 +6,7 @@ use build as builds
 use context as lifecycle
 use coverage as coverage_workflow
 use dist as distributions
+use docs as documentation
 use install as installations
 use internal as container_internal
 use release as releases
@@ -85,6 +86,7 @@ usage: cargo dev COMMAND [OPTIONS]
 commands:
   build
   check [lint]
+  docs [check]
   lint --fix
   test [xsh|linux|macos] [--ci]
   coverage [--backend native|docker]
@@ -201,6 +203,15 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       }
 
       return builds.check(ctx)
+    }
+    "docs" => {
+      let tools = documentation.release_tools(ctx)
+      return Err(usage("docs accepts only the optional check action")) unless args == [] or args == ["check"]
+
+      documentation.build_release(ctx)?
+      return documentation.check(ctx.root, tools) when args == ["check"]
+
+      return documentation.generate(ctx.root, tools)
     }
     "lint" => {
       let options = cli.parse(args, {fix: {form: "--fix", default: false}})?
