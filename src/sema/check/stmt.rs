@@ -305,12 +305,6 @@ impl Checker {
             self.expect_type(left, right, rhs_span);
             return left.clone();
         }
-        if op == AssignOp::Div
-            && matches!(left, Type::Path | Type::Unknown)
-            && matches!(right, Type::Str | Type::Path | Type::Unknown)
-        {
-            return Type::Path;
-        }
         if matches!(left, Type::Float) && op != AssignOp::Rem {
             if !matches!(right, Type::Float | Type::Unknown) {
                 self.error(
@@ -393,6 +387,25 @@ impl Checker {
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
         self.statement_positions.entry(stmt.span).or_insert(super::StatementPosition::Statement);
+        // Declarations bind module-level names; inside a body or block nothing
+        // could resolve them and preparation has no form for them.
+        if matches!(
+            stmt.kind,
+            ArenaStmtKind::Use(_)
+                | ArenaStmtKind::Export(_)
+                | ArenaStmtKind::TypeDef(_)
+                | ArenaStmtKind::ErrorDef(_)
+                | ArenaStmtKind::ProcDef(_)
+                | ArenaStmtKind::PureDef(_)
+                | ArenaStmtKind::StreamDef(_)
+        ) && (self.block_depth > 0 || self.current_return.is_some())
+        {
+            self.error(
+                stmt.span,
+                "declarations are allowed only at the top level of a script or module",
+                "check.nested-declaration",
+            );
+        }
         match stmt.kind {
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
                 let narrowings = self.check_condition_arena(arena, source, condition, "check.guard-condition");

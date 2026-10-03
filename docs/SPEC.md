@@ -576,6 +576,11 @@ yield_stmt   = "yield" (expr_or_run | "@" expr) (("when" | "unless") expr)? term
 assert_stmt  = "assert" expr ("," expr)? terminator ;
 ```
 
+`use`, `export`, `type`, `enum`, `error`, `proc`, `pure`, and `stream`
+declarations occur only at the top level of a script or module; inside a
+callable body or any block they are `check.nested-declaration`. Local `const`
+remains valid in bodies.
+
 Module path segments accept hyphenated identifiers (proc-ident form) in addition
 to ordinary identifiers. When the final module-path segment contains a hyphen, an
 explicit `as` alias is required because the hyphenated form is not a valid
@@ -733,7 +738,8 @@ annotated unless their boundaries and description evaluation timing coincide;
 such a migration requires review rather than a general automatic rewrite.
 
 
-Standard modules are built-in namespaces and cannot be aliased. User modules are
+Standard modules are built-in namespaces and cannot be aliased; their members
+are functions that must be called (`check.module-member`). User modules are
 imported from sibling `.xsh` files relative to the importing source file, then
 from each directory in `XSH_MODULE_PATH` when the file-relative path does not
 exist. `XSH_MODULE_PATH` uses the host platform's path-list separator. User

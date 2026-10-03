@@ -280,7 +280,7 @@ test test_cli_applet_parses_cp_compatibility_flags {
 
   assert ! parsed.no_clobber
   assert parsed.force
-  assert parsed.target.name() == "dest"
+  assert parsed.target?.name() == "dest"
   assert parsed.operands.join(",") == "src1,src2"
 
   let reversed: CpAppletOptions = cli.applet(

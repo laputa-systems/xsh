@@ -196,14 +196,21 @@ impl<'a> Lexer<'a> {
                         b'%' => self.push(TokenKind::Percent, start, self.offset),
                         b'|' => self.push(TokenKind::Pipe, start, self.offset),
                         b'&' => self.push(TokenKind::Amp, start, self.offset),
-                        _ => self.diagnostics.push(
-                            Diagnostic::error("unexpected character")
-                                .with_code("lex.unexpected-character")
-                                .with_label(Label::primary(
-                                    self.span(start, self.offset),
-                                    "not valid in source",
-                                )),
-                        ),
+                        _ => {
+                            // Skip the whole character so the span stays on a
+                            // character boundary and a multi-byte character is
+                            // reported once.
+                            self.offset = start
+                                + self.source.get(start..).and_then(|rest| rest.chars().next()).map_or(1, char::len_utf8);
+                            self.diagnostics.push(
+                                Diagnostic::error("unexpected character")
+                                    .with_code("lex.unexpected-character")
+                                    .with_label(Label::primary(
+                                        self.span(start, self.offset),
+                                        "not valid in source",
+                                    )),
+                            );
+                        }
                     }
                 }
                 None => break,

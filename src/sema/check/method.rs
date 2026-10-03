@@ -303,6 +303,25 @@ impl Checker {
         if base_ty == Type::Pure {
             return self.check_pure_call_method_arena(arena, source, name, args, span);
         }
+        // Every other concrete receiver has no methods. Accepting the call as
+        // Unknown let it through to preparation (an internal encode error) or
+        // to a runtime type error on a null Optional.
+        if matches!(base_ty, Type::Unknown | Type::Invalid | Type::Inference(_) | Type::BuiltinParameter(_) | Type::DynamicModule) {
+            return Type::Unknown;
+        }
+        for arg in args {
+            self.check_call_arg_arena(arena, source, &arg.kind, None);
+        }
+        let diagnostic = if let Type::Optional(inner) = &base_ty {
+            Diagnostic::error(format!("method `{name}` needs a present value, found {base_ty}"))
+                .with_code("check.optional-method")
+                .with_label(Label::primary(span, format!("use `?.{name}(...)` or test for null before calling a {inner} method")))
+        } else {
+            Diagnostic::error(format!("unknown method `{name}` on {base_ty}"))
+                .with_code("check.unknown-method")
+                .with_label(Label::primary(span, format!("{base_ty} has no methods")))
+        };
+        self.diagnostics.push(diagnostic);
         Type::Unknown
     }
 

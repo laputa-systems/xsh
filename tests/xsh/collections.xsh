@@ -105,7 +105,7 @@ test test_ergonomic_sugar_pass_forms { |ctx|
   var printed_path = ""
 
   for item in [pkg] {
-    printed_path = item.path.display
+    printed_path = item.path.display()
   }
 
   let jobs = env.Str.XSH_ERGONOMIC_SUGAR_MISSING ?? "1"

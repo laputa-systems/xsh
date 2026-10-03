@@ -133,3 +133,64 @@ print process.run(command)?.exited()
   assert "check.builder-call" in output.stderr, output.stderr
   assert "compact.indexed-build" not in output.stderr, output.stderr
 }
+
+test test_members_without_a_checked_type_are_checker_errors { |ctx|
+  # Each of these used to check as Unknown or Any, then failed preparation
+  # with an internal encode error or ran into a runtime type error.
+  for case in [
+    {source: "let flag = false\nlet value = flag.upper()", code: "check.unknown-method"},
+    {source: "enum Level { Low, High }\nlet level = Low\nlet value = level.upper()", code: "check.unknown-method"},
+    {source: "let value = null.upper()", code: "check.unknown-method"},
+    {source: "pure pick(flag: Bool) -> Str? {\n  if flag { \"x\" } else { null }\n}\nlet value = pick(false).upper()", code: "check.optional-method"},
+    {source: "let value = p\"a/b\".missing", code: "check.unknown-field"},
+    {source: "let value = rx\"a\".missing", code: "check.unknown-field"},
+    {source: "error Failure = Bad(message: Str)\nlet failure = Failure.Bad(message: \"m\")\nlet value = failure.missing", code: "check.unknown-field"},
+    {source: "let maybe: Int? = 3\nlet value = maybe?.missing", code: "check.field-access"},
+    {source: "let value = fs.cwd", code: "check.module-member"},
+    {source: "let value = fs.no_such_function", code: "check.module-member"},
+  ] {
+    let output = test.run_script(ctx, case.source + "\nprint ran\n")?
+    assert ! output.success, case.source
+    assert case.code in output.stderr, output.stderr
+    assert "compact.indexed-build" not in output.stderr, output.stderr
+    assert output.stdout == "", case.source
+  }
+}
+
+test test_nested_declarations_are_checker_errors { |ctx|
+  # Declarations inside a body or block bind nothing callers can resolve;
+  # the checker used to accept them and preparation then failed with an
+  # internal indexed-IR encode error.
+  for declaration in [
+    "use json",
+    "export let shared = 3",
+    "error Failure = Bad(message: Str)",
+    "stream items() -> Stream[Int] { yield 1 }",
+    "type Point = {x: Int}",
+    "enum Level { Low, High }",
+    "pure helper() -> Int { 1 }",
+    "proc step() -> Int { 1 }",
+  ] {
+    for lines in [
+      ["proc body() -> Int {", "  " + declaration, "  7", "}", r"print ${body()}"],
+      ["if true {", "  " + declaration, "}", "print done"],
+    ] {
+      let source = lines.join("\n") + "\n"
+      let output = test.run_script(ctx, source)?
+      assert ! output.success, source
+      assert "check.nested-declaration" in output.stderr, output.stderr
+      assert "compact.indexed-build" not in output.stderr, output.stderr
+    }
+  }
+  let local = test.run_script(
+    ctx,
+    r"""proc body() -> Int {
+  const limit = 7
+  limit
+}
+print ${body()}
+""",
+  )?
+  assert local.success, local.stderr
+  assert local.stdout == "7\n"
+}

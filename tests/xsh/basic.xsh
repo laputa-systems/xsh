@@ -54,6 +54,30 @@ value /= 0
   assert "division-by-zero" in division.stderr
 }
 
+test test_unexpected_multibyte_character_is_reported_once { |ctx|
+  # The lexer used to step one byte at a time, reporting each byte of `é`
+  # with a span that split the character.
+  let output = test.run_script(ctx, "let value = 1 é 2\n")?
+  assert ! output.success
+  assert output.stderr.split("lex.unexpected-character").len() == 2, output.stderr
+  assert "é" in output.stderr, output.stderr
+}
+
+test test_path_division_assignment_is_rejected_before_running { |ctx|
+  # `/` is numeric division only; the checker used to accept `/=` on a
+  # Path, which then failed at runtime as a type error.
+  let output = test.run_script(
+    ctx,
+    """var root = p"/opt"
+root /= "bin"
+print "ran"
+""",
+  )?
+  assert ! output.success
+  assert "check.operator-type" in output.stderr, output.stderr
+  assert output.stdout == ""
+}
+
 pure sibling_branch_value(choice: Str) -> Int {
   if choice == "first" {
     let value = 0
