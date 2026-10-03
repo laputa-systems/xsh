@@ -48,7 +48,7 @@ fn original_error_field_executes_exact_typed_receivers_on_both_routes_after_fron
                         ("exact", Value::Str(Arc::from("kept"))),
                     ] {
                         let value = evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern(function)), LoweredFunctionKind::Pure,
-                            &[argument], Span::new(source_id, 0, 0)).unwrap().unwrap();
+                            &[argument], Span::new(source_id, 0, 0)).unwrap().unwrap_or_else(|error| panic!("the prepared function {function} must execute on recursive route {recursive}: {error:?}"));
                         assert_eq!(value, Value::Str(Arc::from("kept")), "function={function} recursive={recursive}");
                     }
                 };

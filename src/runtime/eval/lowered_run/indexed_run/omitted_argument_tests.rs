@@ -3,6 +3,10 @@ mod omitted_argument_tests {
     use crate::runtime::eval::EvalOutput;
 
     fn execute_after_frontend_drop(source: &str, recursive: bool) -> EvalOutput {
+        execute_after_frontend_drop_observed(source, recursive, None)
+    }
+
+    fn execute_after_frontend_drop_observed(source: &str, recursive: bool, function: Option<&str>) -> EvalOutput {
         let mut sources = SourceMap::new();
         let source_id = sources.add_file("omitted-call-arguments.xsh", source.to_string());
         let parsed = Parser::parse_source_arena_only(source_id, source);
@@ -19,8 +23,13 @@ mod omitted_argument_tests {
         let symbols = evaluator.indexed_program.as_ref().unwrap().symbol_owner().clone();
         let run = || symbols.with_current(|| {
             assert_eq!(crate::runtime::eval::lowered_run::recursive_fast_path_forced(), recursive);
-            evaluator.try_eval_installed_compact_indexed_only_inner(plan)
-                .unwrap_or_else(|_| panic!("the prepared indexed program remains installed"))
+            let evaluate = || evaluator.try_eval_installed_compact_indexed_only_inner(plan)
+                .unwrap_or_else(|_| panic!("the prepared indexed program remains installed"));
+            if let Some(function) = function {
+                crate::runtime::eval::lowered_run::with_observed_indexed_call_route(
+                    LoweredFunctionKey::Name(Name::intern(function)), recursive, evaluate,
+                )
+            } else { evaluate() }
         });
         if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(run) } else { run() }
     }
@@ -55,6 +64,72 @@ print ${caller()}
     #[test]
     fn frame_interior_omission_executes_the_declaration_expression_once_after_supplied_arguments() {
         assert_interior_expression_default(false);
+    }
+
+    #[test]
+    fn loaded_module_callable_keeps_its_export_contract_after_frontend_disposal() {
+        struct ModuleFile(std::path::PathBuf);
+        impl Drop for ModuleFile {
+            fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+        }
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let file = ModuleFile(std::env::temp_dir().join(format!("xsh-callable-export-{}-{stamp}.xsh", std::process::id())));
+        std::fs::write(&file.0, "##! A loaded text renderer.\n## Return the supplied text.\nexport pure render(value: Str) -> Str { value }\n").unwrap();
+        let source = format!(r#"type Plugin = module {{ export pure render(value: Str) -> Str }}
+proc caller() [fs, error] -> Result[Str] {{
+  let plugin = module.load(p"{}")?.require(Plugin)?
+  plugin.render("hi")
+}}
+print ${{caller()?}}
+"#, file.0.display());
+        crate::runtime::eval::run_eval(|| {
+            for recursive in [false, true] {
+                let output = execute_after_frontend_drop_observed(&source, recursive, Some("caller"));
+                assert!(output.diagnostics.is_empty(), "recursive={recursive}: {:?}; {:?}", output.diagnostics, output.traceback);
+                assert_eq!(output.status, 0);
+                assert_eq!(output.stdout, b"hi\n", "recursive={recursive}: {:?}; {:?}; {:?}", output.diagnostics, output.traceback, output.stderr);
+                assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+            }
+        });
+    }
+
+    #[test]
+    fn loaded_module_results_and_proc_exports_keep_local_and_captured_sources_after_frontend_disposal() {
+        struct ModuleFiles(std::path::PathBuf);
+        impl Drop for ModuleFiles {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let files = ModuleFiles(std::env::temp_dir().join(format!("xsh-module-result-{}-{stamp}", std::process::id())));
+        std::fs::create_dir_all(&files.0).unwrap();
+        let module = files.0.join("renderer.xsh");
+        let output_path = files.0.join("rendered.txt");
+        std::fs::write(&module, "##! A loaded text renderer.\n## Return the supplied text.\nexport pure render(value: Str) -> Str { value }\n## Write the supplied text.\nexport proc write(destination: Path, value: Str) [fs, error] -> Result[Unit] { fs.write(destination, value)? }\n").unwrap();
+        let source = format!(r#"type Plugin = module {{
+  export pure render(value: Str) -> Str
+  export proc write(destination: Path, value: Str) [fs, error] -> Result[Unit]
+}}
+let shared = module.load(p"{}")?.require(Plugin)?
+proc caller() [fs, error] -> Result[Str] {{
+  let local = module.load(p"{}")?.require(Plugin)?
+  let first = local.render("retained")
+  let second = shared.render(first)
+  local.write(p"{}", second)?
+  second
+}}
+print ${{caller()?}}
+"#, module.display(), module.display(), output_path.display());
+        crate::runtime::eval::run_eval(|| {
+            for recursive in [false, true] {
+                let output = execute_after_frontend_drop_observed(&source, recursive, Some("caller"));
+                assert!(output.diagnostics.is_empty(), "recursive={recursive}: {:?}; {:?}", output.diagnostics, output.traceback);
+                assert_eq!(output.status, 0);
+                assert_eq!(output.stdout, b"retained\n", "recursive={recursive}: {:?}; {:?}; {:?}", output.diagnostics, output.traceback, output.stderr);
+                assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+                assert_eq!(std::fs::read(&output_path).unwrap(), b"retained");
+                std::fs::remove_file(&output_path).unwrap();
+            }
+        });
     }
 
     #[test]
@@ -238,6 +313,63 @@ caller(true, false)
 caller(false, true)
 "#;
         assert_both_routes(source, b"supplied\ndefault\n11\nsupplied\ndefault\n11\nsupplied\ndefault\n11\n");
+    }
+
+    #[test]
+    fn saved_conditional_captured_callable_branches_keep_original_defaults_and_supplied_order() {
+        let source = r#"pure initial() -> Int { 4 }
+let lexical = initial()
+proc marker(label: Str, value: Int) [io] -> Int { print $label; value }
+proc combine(left: Int = marker("default", lexical), right: Int = 2) [io] -> Int { left + right }
+let first = combine
+let second = combine
+proc caller(choice: Bool, nested: Bool) [io] -> Unit {
+    let alias = if choice { (if nested { (first) } else { (second) }) } else { (second) }
+    let first = 9
+    let lexical = 100
+    let _ = first
+    let _ = lexical
+    print ${alias.call(right: marker("supplied", 7))}
+}
+caller(true, true)
+caller(true, false)
+caller(false, true)
+"#;
+        crate::runtime::eval::run_eval(|| {
+            for recursive in [false, true] {
+                let output = execute_after_frontend_drop_observed(source, recursive, Some("caller"));
+                assert!(output.diagnostics.is_empty(), "recursive={recursive}: {:?}", output.diagnostics);
+                assert_eq!(output.status, 0);
+                assert_eq!(output.stdout, b"supplied\ndefault\n11\nsupplied\ndefault\n11\nsupplied\ndefault\n11\n");
+                assert!(output.stderr.is_empty());
+            }
+        });
+    }
+
+    #[test]
+    fn saved_conditional_captured_pure_callable_branches_keep_original_immutable_allocations() {
+        let source = r#"pure initial() -> Int { 4 }
+let lexical = initial()
+pure combine(left: Int = lexical, right: Int = 2) -> Int { left + right }
+let first = combine
+let second = combine
+pure caller(choice: Bool) -> Int {
+    let alias = if choice { (first) } else { (second) }
+    let lexical = 100
+    let _ = lexical
+    alias.call(right: 7)
+}
+print ${caller(true)} ${caller(false)}
+"#;
+        crate::runtime::eval::run_eval(|| {
+            for recursive in [false, true] {
+                let output = execute_after_frontend_drop_observed(source, recursive, Some("caller"));
+                assert!(output.diagnostics.is_empty(), "recursive={recursive}: {:?}", output.diagnostics);
+                assert_eq!(output.status, 0);
+                assert_eq!(output.stdout, b"11 11\n");
+                assert!(output.stderr.is_empty());
+            }
+        });
     }
 
     #[test]

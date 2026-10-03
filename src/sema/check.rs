@@ -75,6 +75,11 @@ mod generic;
 mod dependency;
 mod registry;
 mod registry_boundaries;
+#[cfg(test)]
+mod cli_boundaries;
+mod error_capture;
+pub(crate) use error_capture::SolvedErrorCapture;
+mod field_presence;
 mod standard_operation;
 mod stage_operation;
 mod callable;
@@ -95,12 +100,18 @@ mod producer;
 #[path = "check/producer_eval.rs"]
 pub(crate) mod producer_eval;
 pub use producer::{ProducerFlowField, ProducerFlowGraph, ProducerFlowId, ProducerFlowKind, ProducerFlowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
+pub use solved::OriginalEnvPathListGetter;
 pub use solved::{NominalDeclaration, QualifiedNominalIdentity, BindingIdentity, CallBinding, ComprehensionIdentity, DeclarationIdentity, ExpressionIdentity, StageIdentity, StageCallback, SolvedStage, SolvedComprehensionClause, ProducerEffects, ProducerPath, ProducerPathComponent, ProducerProfile, ReturnElaboration, SolvedBinding, SolvedCall, SolvedCallable, SolvedExpressionCallable, SolvedInvocation, SolvedOperation, SolvedArgumentSource, SolvedProjection, SolvedRecordUpdate, SolvedRecordUpdateReplacement, RecordUpdateValueSource, SolvedTypes, StatementIdentity};
 pub use solved::RegistryArgumentCoercion;
-pub use solved::{WithBindingIdentity, SolvedWithBinding, SolvedRefinedRead, SolvedRefinementAlias, SolvedRefinementWrite};
+pub use solved::{WithBindingIdentity, SolvedWithBinding, SolvedRefinedRead, SolvedRefinementAlias, SolvedRefinementWrite, SolvedFieldPresenceRead};
 pub use solved::{GuardErrorBindingIdentity, SolvedGuardErrorBinding};
 pub use solved::{PatternIdentity, PatternCaptureIdentity, SolvedPattern, SolvedPatternCapture, SolvedPatternDecision, SolvedPatternShape};
 pub use solved::{NominalMemberKind, SolvedNominalMember};
+mod tag_tail_constructor;
+mod record_get;
+mod null_safe_projection;
+pub(crate) use record_get::SolvedRecordGetProjection;
+pub use tag_tail_constructor::SolvedTagTailConstructor;
 pub use solved::PatternTypePosition;
 
 #[cfg(test)]
@@ -459,6 +470,7 @@ pub struct Checker {
     stage_callback_effects: Option<crate::sema::inference::EffectSummary>,
     current_expression: Option<crate::syntax::arena::ExprId>,
     current_statement: Option<crate::syntax::arena::StmtId>,
+    field_presence_branches: Vec<field_presence::FieldPresenceBranch>,
     constructor_spread_contexts: BTreeMap<ExpressionIdentity, constructor_arguments::ConstructorSpreadContext>,
     graph_argument_depth: usize,
     stage_ground_call_adapter: bool,
@@ -744,6 +756,7 @@ impl Checker {
             stage_callback_effects: None,
             current_expression: None,
             current_statement: None,
+            field_presence_branches: Vec::new(),
             constructor_spread_contexts: BTreeMap::new(),
             graph_argument_depth: 0,
             stage_ground_call_adapter: false,

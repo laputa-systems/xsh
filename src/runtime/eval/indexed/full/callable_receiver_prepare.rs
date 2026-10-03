@@ -1,16 +1,17 @@
 use super::*;
-use super::super::generic::OriginalCallableReceiver;
+use super::super::generic::{OriginalCallableReceiver, OriginalCapturedCallableSource};
 use super::super::generic::{ConditionalBody, ConditionalKind, ConditionalResultSource, ConditionalTerminalValue, UserCallableContract};
 use crate::sema::inference::TypeNode;
 
 enum ConditionalCallableAuthority {
     Creation(UserCallableContract),
+    Capture(UserCallableContract),
     Branches(UserCallableContract),
 }
 
 impl ConditionalCallableAuthority {
     fn contract(&self) -> UserCallableContract {
-        match self { Self::Creation(contract) | Self::Branches(contract) => *contract }
+        match self { Self::Creation(contract) | Self::Capture(contract) | Self::Branches(contract) => *contract }
     }
 }
 
@@ -46,6 +47,65 @@ fn original_conditional_callable_contract(
 }
 
 impl FullBuilder {
+    pub(super) fn stage_original_captured_callable_read(&mut self, instruction: u32, origin: crate::sema::check::ExpressionIdentity, owner: InstructionOwner, scratch: &BuildScratch) -> Result<(), IrBuildError> {
+        let Some(original) = scratch.captured_callable_reads.get(&origin) else { return Ok(()); };
+        if self.store.tags.get(instruction as usize) != Some(&FullTag::ExprParam)
+            || self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| IrBuildError::format("captured_callable_original_read_payload", None, 0, 0))? != [original.slot as u32]
+            || !matches!(scratch.expressions.get(original.expression.index()), Some(BuildExprRow::Param(slot)) if *slot == original.slot) {
+            return Err(IrBuildError::format("captured_callable_original_read_changed", None, 0, 0));
+        }
+        self.captured_callable_read_rows.push((instruction, original.clone(), owner));
+        Ok(())
+    }
+
+    pub(super) fn prepare_original_captured_callable_sources(&mut self, solved: &crate::sema::check::SolvedTypes) -> Result<(), IrBuildError> {
+        let problem = |message| IrBuildError::format(message, None, 0, 0);
+        for (instruction, original, owner) in self.captured_callable_read_rows.clone() {
+            let InstructionOwner::Function(target) = owner else { return Err(problem("captured_callable_read_owner_changed")); };
+            let allocations = self.original_callable_capture_rows.iter().filter(|(actual_target, declaration, _, allocation)| {
+                *actual_target == target && *declaration == original.caller && allocation.slot == original.slot
+            }).collect::<Vec<_>>();
+            if allocations.len() != 1 { return Err(problem("captured_callable_read_allocation_missing")); }
+            let (_, _, header_index, allocation) = allocations[0];
+            let binding = solved.bindings.get(&original.binding).ok_or_else(|| problem("captured_callable_read_binding_missing"))?;
+            let flow = *solved.expression_producer_flows.get(&original.origin).ok_or_else(|| problem("captured_callable_read_flow_missing"))?;
+            let node = solved.producer_flows.node(flow).map_err(|_| problem("captured_callable_read_flow_owner"))?;
+            let crate::sema::check::ProducerFlowKind::CapturedBinding { identity, version, input } = node.kind else { return Err(problem("captured_callable_read_flow_changed")); };
+            if identity != original.binding || node.source != crate::sema::check::ProducerFlowSource::Expression(original.origin)
+                || solved.binding_producer_flows.get(&(identity, version)) != Some(&input)
+                || binding.mutable || binding.owner == Some(original.caller)
+                || allocation.lexical_binding != Some(original.binding) || allocation.mutable
+                || solved.expression_owners.get(&original.origin) != Some(&original.caller)
+                || solved.expressions.get(&original.origin) != Some(&original.source_type.ty)
+                || solved.expression_scope(original.origin, Some(original.caller)).map_err(|_| problem("captured_callable_read_scope"))? != original.source_type.scope
+                || !self.generic_expression_rows.iter().any(|&(row, origin, actual_owner)| row == instruction && origin == original.origin && actual_owner == owner) {
+                return Err(problem("captured_callable_read_original_source_changed"));
+            }
+            solved.graph.validate_scoped(original.source_type).map_err(|_| problem("captured_callable_read_scope"))?;
+            let header_index = *header_index;
+            let allocation = allocation.clone();
+            let contract = self.checked_user_callable(solved, original.origin)?;
+            let descriptor = self.intern_checked_callable_type(&solved.graph, original.source_type.ty)?;
+            let header = self.store.captures.get(header_index as usize).ok_or_else(|| problem("captured_callable_read_header_missing"))?;
+            if header.slot_and_flags != original.slot as u32 || header.type_id != descriptor
+                || self.store.string(header.name).map_err(|_| problem("captured_callable_read_name"))? != allocation.name.as_str().as_str()
+                || self.store.semantic.callable_descriptor(descriptor).map_err(|_| problem("captured_callable_read_descriptor"))? != Some((contract.kind, contract.signature)) {
+                return Err(problem("captured_callable_read_original_header_changed"));
+            }
+            let capture = super::super::generic::CapturedCallableReceiver {
+                declaration: original.caller, definition_owner: binding.owner, header_index,
+                slot: u32::try_from(original.slot).map_err(|_| problem("captured_callable_read_slot_overflow"))?,
+                name: header.name, ty: header.type_id,
+                source_type: allocation.source_type.ok_or_else(|| problem("captured_callable_read_type_missing"))?,
+            };
+            self.generic_evidence_mut().add_original_captured_callable_source(OriginalCapturedCallableSource {
+                origin: original.origin, binding: original.binding, instruction, owner,
+                capture, source_type: original.source_type, contract,
+            }).map_err(|_| problem("captured_callable_read_allocation"))?;
+        }
+        Ok(())
+    }
+
     pub(super) fn stage_original_callable_capture(&mut self, target: IrFunctionId, declaration: Option<crate::sema::check::DeclarationIdentity>, header_index: u32, original: &LoweredTopLevelSlot) -> Result<(), IrBuildError> {
         let (Some(declaration), Some(binding), Some(root)) = (declaration, original.lexical_binding, original.source_type) else { return Ok(()); };
         if original.mutable || original.host_binding.is_some() { return Ok(()); }
@@ -75,6 +135,7 @@ impl FullBuilder {
         fn visit(builder: &FullBuilder, instruction: u32, origin: crate::sema::check::ExpressionIdentity, owner: InstructionOwner, active: &mut Vec<u32>) -> Result<ConditionalCallableAuthority, IrVerifyError> {
             if active.len() >= 256 || active.contains(&instruction) { return Err(IrVerifyError::new("conditional callable creation is cyclic or too deep")); }
             if let Some(contract) = builder.generic.as_ref().map(|generic| generic.original_callable_creation_contract(instruction, origin, owner)).transpose()?.flatten() { return Ok(ConditionalCallableAuthority::Creation(contract)); }
+            if let Some(contract) = builder.generic.as_ref().map(|generic| generic.original_captured_callable_source_contract(instruction, origin, owner)).transpose()?.flatten() { return Ok(ConditionalCallableAuthority::Capture(contract)); }
             let source = builder.conditional_result_rows.iter().find(|source| source.instruction == instruction).ok_or_else(|| IrVerifyError::new("conditional callable branch loses its original creation proof"))?;
             active.push(instruction);
             let contract = original_conditional_callable_contract(source, origin, owner, |instruction, origin, owner| visit(builder, instruction, origin, owner, active));
@@ -158,6 +219,50 @@ mod tests {
         drop(parsed); drop(declarations); drop(bodies);
         assert!(solved.upgrade().is_none());
         program
+    }
+
+    #[test]
+    fn saved_conditional_captured_callable_branches_refuse_foreign_equal_type_capture_and_branch_rewrites() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure combine(left: Int = 5, right: Int = 2) -> Int { left + right }\nlet first = combine\nlet second = combine\npure selected(choice: Bool) -> Int { let alias = if choice { (first) } else { (second) }; alias.call(right: 7) }\n";
+            let program = fixture_source(source);
+            FullVerifier::verify(&program).unwrap();
+            let generic = program.store.generic.as_deref().unwrap();
+            let first = generic.original_captured_callable_sources().find(|source| program.store.string(source.capture.name).unwrap() == "first").unwrap().clone();
+            let second = generic.original_captured_callable_sources().find(|source| program.store.string(source.capture.name).unwrap() == "second").unwrap().clone();
+            assert_eq!(first.contract, second.contract);
+            assert_eq!(first.capture.ty, second.capture.ty);
+            assert_ne!(first.binding, second.binding);
+            assert_ne!(first.capture.slot, second.capture.slot);
+            let (conditional, branches) = generic.conditional_sources().find(|(_, source)| source.kind == ConditionalKind::If).unwrap();
+            assert_eq!(callable_branch_value(&branches.arms[0].body).unwrap().material, first.instruction);
+            assert_eq!(callable_branch_value(branches.fallback.as_ref().unwrap()).unwrap().material, second.instruction);
+
+            let mut missing = program.clone();
+            missing.store.generic.as_deref_mut().unwrap().test_remove_original_captured_callable_sources();
+            assert!(FullVerifier::verify(&missing).is_err(), "the saved receiver cannot replace missing authored captured branch sources");
+            let other = fixture_source(source);
+            let mut foreign = program.clone();
+            foreign.store.generic.as_deref_mut().unwrap().test_replace_original_callable_receivers(other.store.generic.as_deref().unwrap());
+            assert!(FullVerifier::verify_original_captured_callable_source(&foreign.store, &first).unwrap_err().message.contains("foreign program"), "the captured source predicate independently refuses an equal-layout foreign arena");
+            assert!(FullVerifier::verify(&foreign).is_err(), "equal contracts and capture layouts cannot replace the original evidence owner");
+            let mut wrong_read = program.clone();
+            let raw = wrong_read.store.data[first.instruction as usize].range().start as usize;
+            wrong_read.store.extra[raw] = second.capture.slot;
+            assert!(FullVerifier::verify_original_captured_callable_source(&wrong_read.store, &first).is_err(), "a same-contract capture cannot replace the original authored read slot");
+            assert!(FullVerifier::verify(&wrong_read).is_err());
+            let mut wrong_header = program.clone();
+            wrong_header.store.captures[first.capture.header_index as usize].name = second.capture.name;
+            assert!(FullVerifier::verify_original_captured_callable_source(&wrong_header.store, &first).is_err(), "a same-type header cannot replace the original capture allocation");
+            let mut coforged = wrong_read;
+            coforged.store.generic.as_deref_mut().unwrap().test_original_captured_callable_source_mut(first.instruction).unwrap().capture = second.capture.clone();
+            assert!(FullVerifier::verify(&coforged).is_err(), "jointly rewriting a read and its dependent allocation cannot replace the original captured binding");
+            let mut changed_branch = program.clone();
+            let source = changed_branch.store.generic.as_deref_mut().unwrap().test_conditional_source_mut(conditional).unwrap();
+            let ConditionalBody::Authored { terminal: Some((_, _, ConditionalTerminalValue::Expression(value))), .. } = &mut source.arms[0].body else { panic!("the actual captured branch completes with its authored read"); };
+            value.material = second.instruction;
+            assert!(FullVerifier::verify(&changed_branch).is_err(), "an equal-contract branch cannot borrow another original capture read");
+        });
     }
 
     #[test]
@@ -286,6 +391,38 @@ mod tests {
 }
 
 impl FullVerifier {
+    pub(super) fn verify_original_captured_callable_source(store: &FullStore, source: &OriginalCapturedCallableSource) -> Result<(), IrVerifyError> {
+        let generic = store.generic.as_deref().ok_or_else(|| IrVerifyError::new("captured callable source has no original evidence"))?;
+        let original = generic.original_captured_callable_source(source.instruction)?.ok_or_else(|| IrVerifyError::new("captured callable source loses its original read receipt"))?;
+        let InstructionOwner::Function(target) = source.owner else { return Err(IrVerifyError::new("captured callable source has no receiving function")); };
+        let capture = &source.capture;
+        if source != original || generic.checked_function(capture.declaration)?.target != target
+            || capture.definition_owner == Some(capture.declaration)
+            || generic.checked_function(source.contract.declaration)?.target != source.contract.target
+            || generic.registered_instruction_origin(source.instruction, false) != Some((super::super::generic::OperationSourceOrigin::Expression(source.origin), source.owner)) {
+            return Err(IrVerifyError::new("captured callable source changes its original read or declaration authority"));
+        }
+        let function = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("captured callable source function is missing"))?;
+        let captures = function.captures.bounds(store.captures.len()).ok_or_else(|| IrVerifyError::new("captured callable source header range is invalid"))?;
+        let header = store.captures.get(capture.header_index as usize).filter(|_| captures.contains(&(capture.header_index as usize)))
+            .ok_or_else(|| IrVerifyError::new("captured callable source allocation belongs to another header"))?;
+        let instructions = store.function_instruction_range(target.index())?;
+        if !instructions.contains(&(source.instruction as usize))
+            || header.slot_and_flags != capture.slot || header.name != capture.name || header.type_id != capture.ty
+            || store.semantic.callable_descriptor(capture.ty)? != Some((source.contract.kind, source.contract.signature))
+            || store.tags.get(source.instruction as usize) != Some(&FullTag::ExprParam)
+            || store.payload(store.data[source.instruction as usize].range())? != [capture.slot] {
+            return Err(IrVerifyError::new("captured callable source changes its original allocation, type, or read slot"));
+        }
+        for instruction in instructions {
+            if matches!(store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtAssignInt | FullTag::StmtAssignBool)
+                && store.payload(store.data[instruction].range())?.first() == Some(&capture.slot) {
+                return Err(IrVerifyError::new("captured callable source's immutable allocation is written"));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn verify_saved_callable_receiver_authority(store: &FullStore, generic: &GenericEvidenceStore, receiver: &OriginalCallableReceiver, contract: UserCallableContract, origin: crate::sema::check::ExpressionIdentity, owner: InstructionOwner) -> Result<(), IrVerifyError> {
         if receiver.contract != contract || receiver.origin != origin || receiver.owner != owner {
             return Err(IrVerifyError::new("saved callable receiver changes its original declaration authority"));
@@ -345,6 +482,11 @@ impl FullVerifier {
                 let source = generic.callable_source(proof.source)?;
                 if store.tags.get(instruction as usize) != Some(&FullTag::ExprFunctionRef) || source.origin != origin || source.owner != owner || source.expected != proof.contract { return Err(IrVerifyError::new("conditional callable changes its original branch creation authority")); }
                 return Ok(ConditionalCallableAuthority::Creation(proof.contract));
+            }
+            if let Some(source) = generic.original_captured_callable_source(instruction)? {
+                if source.origin != origin || source.owner != owner { return Err(IrVerifyError::new("conditional callable changes its original captured branch read")); }
+                FullVerifier::verify_original_captured_callable_source(store, source)?;
+                return Ok(ConditionalCallableAuthority::Capture(source.contract));
             }
             let id = generic.conditional_source_at(instruction)?.ok_or_else(|| IrVerifyError::new("conditional callable branch loses its original creation proof"))?;
             let source = generic.conditional_source(id)?;

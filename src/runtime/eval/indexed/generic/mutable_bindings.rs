@@ -3,6 +3,58 @@ use crate::sema::check::{BindingIdentity, ExpressionIdentity, StatementIdentity}
 use crate::sema::inference::ScopedRoot;
 use super::super::full::{FullTag, FullDriverTag};
 
+// Nullary source enums have an inert storage invariant only when every member
+// belongs to the original qualified declaration and has no payload fields.
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct MutableNominalInvariant {
+    pub identity: crate::sema::check::QualifiedNominalIdentity,
+    pub family: Name,
+    pub root: ScopedRoot,
+    pub members: Box<[(crate::sema::check::QualifiedNominalIdentity, Arc<crate::sema::check::SolvedNominalMember>)]>,
+}
+
+impl MutableNominalInvariant {
+    pub(in crate::runtime::eval) fn from_checked(solved: &crate::sema::check::SolvedTypes, root: ScopedRoot) -> Result<Option<Self>, IrVerifyError> {
+        use crate::sema::check::{NominalDeclaration, NominalMemberKind, QualifiedNominalIdentity};
+        let ty = graph_ground_type(&solved.graph, root.ty).map_err(|_| failure("mutable nominal root is not closed"))?;
+        let Type::Tag(family) = ty else { return Ok(None); };
+        solved.graph.validate_scoped(root).map_err(|_| failure("mutable nominal root changes its original scope"))?;
+        let resolved = solved.graph.resolved(root.ty).map_err(|_| failure("mutable nominal root is invalid"))?;
+        let identity = *solved.nominals.get(&resolved).ok_or_else(|| failure("mutable nominal root lacks original declaration authority"))?;
+        let QualifiedNominalIdentity::Source { source, namespace, declaration: declaration @ NominalDeclaration::Type(_), member: None } = identity else { return Err(failure("mutable nominal root is not an original source enum")); };
+        let mut members = Vec::new();
+        for (&member_identity, original) in &solved.nominal_members {
+            let QualifiedNominalIdentity::Source { source: member_source, namespace: member_namespace, declaration: member_declaration, member: Some(member) } = member_identity else { continue; };
+            if (member_source, member_namespace, member_declaration) != (source, namespace, declaration) { continue; }
+            let checked = solved.checked_nominal_member(member_identity).map_err(|_| failure("mutable nominal member changes its original declaration"))?;
+            if checked.kind != NominalMemberKind::Tag || checked.family != family || checked.member != member || checked.scope.is_some() || !checked.fields.is_empty() || !checked.facets.is_empty()
+                || solved.graph.resolved(checked.tested).ok() != Some(resolved) { return Err(failure("mutable enum storage requires original nullary members")); }
+            members.push((member_identity, Arc::clone(original)));
+        }
+        if members.is_empty() { return Err(failure("mutable nominal root has no original members")); }
+        Ok(Some(Self { identity, family, root, members: members.into_boxed_slice() }))
+    }
+
+    fn retained_bytes(&self) -> usize {
+        self.members.len() * (std::mem::size_of::<(crate::sema::check::QualifiedNominalIdentity, Arc<crate::sema::check::SolvedNominalMember>)>() + std::mem::size_of::<crate::sema::check::SolvedNominalMember>() + 2 * std::mem::size_of::<usize>())
+    }
+
+    fn verify(&self, receipt: &MutableBindingReceipt, pools: &SemanticPools) -> Result<(), IrVerifyError> {
+        use crate::sema::check::{NominalDeclaration, NominalMemberKind, QualifiedNominalIdentity};
+        let QualifiedNominalIdentity::Source { source, namespace, declaration: declaration @ NominalDeclaration::Type(_), member: None } = self.identity else { return Err(failure("mutable nominal invariant loses its original declaration")); };
+        if self.root.ty != receipt.binding_root.ty || self.root.scope != receipt.binding_root.scope || self.members.is_empty() || receipt.capture.is_some() || receipt.captured_path.is_some()
+            || pools.to_type(receipt.binding_type)? != Type::Tag(self.family) || receipt.value_type.is_some_and(|ty| ty != receipt.binding_type)
+            || receipt.assignment.is_some_and(|op| op != crate::syntax::node::AssignOp::Set) { return Err(failure("mutable nominal invariant changes its original storage relationship")); }
+        let mut names = std::collections::BTreeSet::new();
+        for (identity, member) in &self.members {
+            if *identity != (QualifiedNominalIdentity::Source { source, namespace, declaration, member: Some(member.member) })
+                || member.kind != NominalMemberKind::Tag || member.family != self.family || member.scope.is_some() || !member.fields.is_empty() || !member.facets.is_empty()
+                || !names.insert(member.member) { return Err(failure("mutable nominal invariant changes its original member authority")); }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct MutableCompoundAssignment {
     pub operation: crate::sema::operation_graph::PreparedLanguageOperation,
@@ -44,6 +96,7 @@ impl MutableReadRefinement {
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct MutableBindingReceipt {
     pub binding: BindingIdentity,
+    pub nominal: Option<MutableNominalInvariant>,
     pub capture: Option<LexicalCaptureId>,
     // A captured path write refers to the original protected path receipt at
     // this instruction. It has no whole-binding producer version or allocation.
@@ -112,6 +165,7 @@ impl MutableBindingEvidence {
         self.entries.capacity() * std::mem::size_of::<Entry<Arc<MutableBindingReceipt>>>() + self.originals.capacity() * std::mem::size_of::<Arc<MutableBindingReceipt>>() + self.instructions.capacity() * std::mem::size_of::<(u32, usize)>()
             + self.entries.iter().map(|entry| std::mem::size_of::<MutableBindingReceipt>() + 2 * std::mem::size_of::<usize>() + entry.value.payload.len() * std::mem::size_of::<u32>() + entry.value.value_wrappers.iter().map(|(_, _, payload)| std::mem::size_of::<(u32, FullTag, Box<[u32]>)>() + payload.len() * std::mem::size_of::<u32>()).sum::<usize>()).sum::<usize>()
             + self.entries.iter().filter_map(|entry| entry.value.refinement.as_ref()).map(MutableReadRefinement::retained_bytes).sum::<usize>()
+            + self.entries.iter().filter_map(|entry| entry.value.nominal.as_ref()).map(MutableNominalInvariant::retained_bytes).sum::<usize>()
             + self.drivers.capacity() * std::mem::size_of::<Entry<Arc<MutableDriverReceipt>>>() + self.original_drivers.capacity() * std::mem::size_of::<Arc<MutableDriverReceipt>>() + self.driver_steps.capacity() * std::mem::size_of::<(u32, usize)>()
             + self.drivers.iter().map(|entry| std::mem::size_of::<MutableDriverReceipt>() + 2 * std::mem::size_of::<usize>() + entry.value.payload.len() * std::mem::size_of::<u32>() + entry.value.value_wrappers.iter().map(|(_, _, payload)| std::mem::size_of::<(u32, FullTag, Box<[u32]>)>() + payload.len() * std::mem::size_of::<u32>()).sum::<usize>()).sum::<usize>()
     }
@@ -224,6 +278,11 @@ impl GenericEvidenceStore {
                 Self::verify_type(pools, refinement.narrowed_type)?;
             }
             Self::verify_type(pools, receipt.binding_type)?;
+            match (&receipt.nominal, pools.to_type(receipt.binding_type)?) {
+                (Some(nominal), Type::Tag(_)) => nominal.verify(receipt, pools)?,
+                (None, Type::Tag(_)) | (Some(_), _) => return Err(failure("mutable enum storage loses its original nominal invariant")),
+                _ => {}
+            }
             if let Some(ty) = receipt.value_type { Self::verify_type(pools, ty)?; }
             if let Some(compound) = &receipt.compound {
                 if compound.effects != crate::sema::inference::EffectSet::EMPTY || compound.left != receipt.binding_type || Some(compound.right) != receipt.value_type || compound.result != receipt.binding_type

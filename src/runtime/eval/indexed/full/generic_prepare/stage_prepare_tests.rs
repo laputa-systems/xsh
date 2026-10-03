@@ -590,3 +590,88 @@ fn structured_group_by_result_row_refuses_missing_foreign_and_rewritten_stage_la
         });
     });
 }
+
+fn fused_par_map_callback_fixture() -> FullProgram {
+    let source = "enum Language { Unknown, Known }\nproc observed() [] -> Int { let counts = [{keep: true, language: Known, path: p\"missing\", rel: \"x\"}] |> par-map(jobs: 1) { |candidate| var amount = if candidate.language == Known { 1 } else { 0 }; amount = amount + 1; [{key: candidate.rel, value: amount}] } |> flat-map { |rows| rows } |> reduce-by(sum: true) { |row| row }; counts.get(\"x\") ?? 0 }\n";
+    let (builder, sources) = ground_builder_with_source(source);
+    let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+    symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap()
+}
+
+fn fused_par_map_callback_outer_fixture() -> FullProgram {
+    let source = "enum Language { Unknown, Known }\nproc observed() [] -> Int { let other = {keep: true, language: Known, path: p\"missing\", rel: \"x\"}; let counts = [other] |> par-map(jobs: 1) { |candidate| var amount = if candidate.language == Known { 1 } else { 0 }; amount = amount + 1; [{key: candidate.rel, value: amount}] } |> flat-map { |rows| rows } |> reduce-by(sum: true) { |row| row }; counts.get(\"x\") ?? 0 }\n";
+    let (builder, sources) = ground_builder_with_source(source);
+    let symbols = builder.solved.as_ref().unwrap().symbol_owner().clone();
+    symbols.clone().with_current(|| builder.finish(sources, symbols)).unwrap()
+}
+
+#[test]
+fn fused_par_map_original_candidate_port_executes_after_frontend_disposal_on_both_routes() {
+    super::super::tests::run_with_large_stack(|| {
+        let program = Arc::new(fused_par_map_callback_fixture());
+        program.symbol_owner().with_current(|| FullVerifier::verify(&program).unwrap());
+        for recursive in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let name = program.symbol_owner().with_current(|| Name::intern("observed"));
+            let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc, &[], Span::at(program.store.source_id, 0)).expect("fused callback function exists");
+            let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+            assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(2));
+        }
+    });
+}
+
+#[test]
+fn fused_par_map_original_composition_refuses_missing_foreign_erased_and_same_typed_port_rewrites() {
+    super::super::tests::run_with_large_stack(|| {
+        let program = fused_par_map_callback_outer_fixture();
+        let foreign_program = fused_par_map_callback_outer_fixture();
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let pipeline = generic.stage_pipelines().next().unwrap();
+            assert_eq!(pipeline.stages.len(), 3);
+            assert_eq!(pipeline.block_payload.len(), 2);
+            let first = &pipeline.stages[0];
+            let callback = first.callback.as_ref().unwrap();
+            let fusion = first.fusion.as_ref().unwrap();
+            assert_eq!(fusion.stages.len(), 3);
+            assert_eq!(fusion.identity_flat_map.as_ref().unwrap().stage, pipeline.stages[1].origin);
+            assert!(matches!(fusion.identity_flat_map.as_ref().unwrap().read, super::super::super::generic::OperationSourceOrigin::Statement(_)));
+            assert!(pipeline.stages[1].callback.is_none());
+            assert!(pipeline.stages.iter().all(|stage| stage.stage == first.stage));
+            let &(read, _, _) = callback.reads.first().unwrap();
+            let outer = generic.value_bindings().find(|(_, binding)| binding.contract.binding_type == callback.types[0] && binding.contract.slot != callback.slots[0]).expect("original outer candidate record allocation").1.contract.slot;
+            let mut slot = program.store.clone();
+            let words = slot.data[read as usize].range().bounds(slot.extra.len()).unwrap();
+            slot.extra[words.start] = outer;
+            assert!(FullVerifier::verify_generic_evidence(&slot).is_err(), "same typed outer candidate replaced original fused callback port");
+            let mut missing = program.store.clone();
+            missing.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap().stages[0].fusion = None;
+            assert!(FullVerifier::verify_generic_evidence(&missing).is_err());
+            let mut foreign = program.store.clone();
+            foreign.generic.as_deref_mut().unwrap().test_replace_stage_pipelines(foreign_program.generic_evidence().unwrap());
+            assert!(FullVerifier::verify_generic_evidence(&foreign).is_err());
+            let mut erased = program.store.clone();
+            let changed = erased.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            Arc::make_mut(changed.stages[0].fusion.as_mut().unwrap()).identity_flat_map = None;
+            assert!(FullVerifier::verify_generic_evidence(&erased).is_err(), "fused worker lost the original erased identity callback");
+            let mut read_origin = program.store.clone();
+            let changed = read_origin.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            Arc::make_mut(changed.stages[0].fusion.as_mut().unwrap()).identity_flat_map.as_mut().unwrap().read = super::super::super::generic::OperationSourceOrigin::Expression(pipeline.origin);
+            assert!(FullVerifier::verify_generic_evidence(&read_origin).is_err(), "an expression replaced the original erased statement port");
+            let mut origin = program.store.clone();
+            let changed = origin.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            Arc::make_mut(changed.stages[0].fusion.as_mut().unwrap()).stages[0] = pipeline.stages[2].origin;
+            assert!(FullVerifier::verify_generic_evidence(&origin).is_err(), "another authored operation replaced the fused map origin");
+            let mut rewritten = program.store.clone();
+            let changed = rewritten.generic.as_deref_mut().unwrap().test_stage_pipeline_mut(pipeline.instruction).unwrap();
+            changed.stages[0].callback.as_mut().unwrap().slots[0] = outer;
+            for stage in changed.stages.iter_mut() { stage.payload[0] = outer; }
+            let words = rewritten.stage_data[first.stage as usize].range().bounds(rewritten.extra.len()).unwrap();
+            rewritten.extra[words.start] = outer;
+            let words = rewritten.data[read as usize].range().bounds(rewritten.extra.len()).unwrap();
+            rewritten.extra[words.start] = outer;
+            assert!(FullVerifier::verify_generic_evidence(&rewritten).is_err(), "coordinated source and physical fused port edits bypassed original allocation");
+        });
+    });
+}

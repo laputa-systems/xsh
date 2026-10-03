@@ -941,7 +941,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
         (LoweredType::Pure|LoweredType::Proc,Value::Callable(value)) if matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc))=>Some(LoweredValue::Callable(value.clone())),
         (LoweredType::Pure|LoweredType::Proc,Value::NativeCallable(value)) if matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc))=>Some(LoweredValue::NativeCallable(value.clone())),
-        (LoweredType::Error, Value::Error(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
+        (LoweredType::Error, Value::Error(_) | Value::RunError(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
         (LoweredType::Record, Value::FsEntry(value)) => Some(LoweredValue::FsEntry(value.clone())),
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),

@@ -71,6 +71,10 @@ impl RuntimeCallableValue {
         }
         Ok(Self(Arc::new(RuntimeCallableValueData{program,id,contract,captures:captures.into()})))
     }
+    #[cfg(test)]
+    pub(in crate::runtime::eval) fn test_with_program(&self, program: Arc<FullProgram>) -> Self {
+        Self(Arc::new(RuntimeCallableValueData { program, id: self.0.id, contract: self.0.contract, captures: self.0.captures.clone() }))
+    }
     pub(in crate::runtime::eval) fn program(&self)->&Arc<FullProgram> {&self.0.program}
     pub(in crate::runtime::eval) fn id(&self)->CallableValueId {self.0.id}
     pub(in crate::runtime::eval) fn contract(&self)->UserCallableContract {self.0.contract}

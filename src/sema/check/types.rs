@@ -178,10 +178,14 @@ impl Checker {
     }
 
     pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>) -> Type {
+        self.end_error_boundary_recorded(expected, None)
+    }
+
+    pub(super) fn end_error_boundary_recorded(&mut self, expected: Option<&Type>, capture: Option<(super::ExpressionIdentity, crate::syntax::arena::BlockId)>) -> Type {
         self.retry_attempt_depth -= 1;
         let errors = self.error_boundary_errors.pop().expect("checked error boundary");
         self.error_boundary_producer_flows.pop().expect("checked producer error boundary");
-        if self.graph_generation && errors.iter().any(|(error, _)| error.contains_graph()) {
+        if self.graph_generation && (errors.iter().any(|(error, _)| error.contains_graph()) || capture.is_some() && !errors.is_empty()) {
             let span = errors[0].1;
             let outcome = (|| {
                 use crate::sema::inference::{ErrorJoin, InferenceError};
@@ -194,9 +198,12 @@ impl Checker {
                 // Multiple ports remain independent until the join is known.
                 let result = if inputs.len() == 1 && bound.is_none() { inputs[0] } else { graph.fresh(level, span)? };
                 let reason = graph.reason(span, None)?;
-                let requirement = graph.require_error_join(ErrorJoin { inputs, result, bound }, reason)?;
+                let requirement = graph.require_error_join(ErrorJoin { inputs: inputs.clone(), result, bound }, reason)?;
                 graph.solve()?;
                 if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).ok_or(InferenceError::InvalidScheme)?.requirements.push(requirement); }
+                if let Some((origin, block)) = capture {
+                    state.facts.record_error_capture(origin, block, self.current_generic, requirement, inputs, result, bound)?;
+                }
                 Ok(result)
             })();
             return match outcome {

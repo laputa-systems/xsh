@@ -3,10 +3,24 @@ use crate::sema::inference::{Atom, TypeNode};
 use std::collections::BTreeSet;
 
 impl<Graph> SolvedTypes<Graph> {
+    pub(crate) fn checked_nominal_family_members(&self, family: QualifiedNominalIdentity) -> Result<Vec<(QualifiedNominalIdentity, std::sync::Arc<SolvedNominalMember>)>, InferenceError> {
+        let QualifiedNominalIdentity::Source { declaration: NominalDeclaration::Type(_), member: None, .. } = family else { return Err(InferenceError::InvalidScheme); };
+        let mut members = Vec::new();
+        for (&identity, original) in &self.original_nominal_members {
+            let QualifiedNominalIdentity::Source { source, namespace, declaration, member: Some(_) } = identity else { continue; };
+            if (QualifiedNominalIdentity::Source { source, namespace, declaration, member: None }) != family { continue; }
+            self.checked_nominal_member(identity)?;
+            members.push((identity, std::sync::Arc::clone(original)));
+        }
+        if members.is_empty() { return Err(InferenceError::InvalidScheme); }
+        Ok(members)
+    }
+
     pub(crate) fn checked_nominal_member(&self, identity: QualifiedNominalIdentity) -> Result<&SolvedNominalMember, InferenceError> {
         let original = self.original_nominal_members.get(&identity).ok_or(InferenceError::InvalidScheme)?;
         let current = self.nominal_members.get(&identity).ok_or(InferenceError::InvalidScheme)?;
-        if !std::sync::Arc::ptr_eq(original, current) && original.as_ref() != current.as_ref() { return Err(InferenceError::InvalidScheme); }
+        if (!std::sync::Arc::ptr_eq(original, current) && original.as_ref() != current.as_ref())
+            || !match (&original.wire, &current.wire) { (None, None) => true, (Some(original), Some(current)) => std::sync::Arc::ptr_eq(original, current), _ => false } { return Err(InferenceError::InvalidScheme); }
         Ok(original.as_ref())
     }
 
@@ -20,11 +34,18 @@ impl<Graph> SolvedTypes<Graph> {
             std::mem::size_of::<SolvedNominalMember>() + 2 * std::mem::size_of::<usize>()
                 + member.fields.capacity() * std::mem::size_of::<(Option<Name>, TypeId)>()
                 + member.facets.capacity() * std::mem::size_of::<Name>()
-        }).sum()
+        }).sum::<usize>() + {
+            let mut mappings = BTreeSet::new();
+            self.nominal_members.values().chain(self.original_nominal_members.values()).filter_map(|member| member.wire.as_ref()).filter(|wire| mappings.insert(std::sync::Arc::as_ptr(wire) as usize)).map(|wire| {
+                std::mem::size_of::<crate::sema::wire_enums::WireEnumMapping>() + 2 * std::mem::size_of::<usize>()
+                    + wire.variants.len() * std::mem::size_of::<(Name, std::sync::Arc<str>)>()
+                    + wire.variants.values().map(|value| value.len() + 2 * std::mem::size_of::<usize>()).sum::<usize>()
+            }).sum::<usize>()
+        }
     }
 
     pub(super) fn nominal_member_source_work(&self) -> u64 {
-        self.nominal_members.values().map(|member| 2 + member.fields.len() + member.facets.len()).sum::<usize>() as u64
+        self.nominal_members.values().map(|member| 2 + member.fields.len() + member.facets.len() + member.wire.as_ref().map_or(0, |wire| wire.variants.len() + wire.variants.values().map(|value| value.len()).sum::<usize>())).sum::<usize>() as u64
     }
 
     pub(super) fn validate_nominal_members(&self, graph: &InferenceContext) -> Result<(), InferenceError> {
@@ -39,6 +60,11 @@ impl<Graph> SolvedTypes<Graph> {
                 _ => return Err(InferenceError::InvalidScheme),
             };
             if selected != Some(member.member) { return Err(InferenceError::InvalidScheme); }
+            if let Some(wire) = &member.wire {
+                if member.kind != NominalMemberKind::Tag || !member.fields.is_empty() || wire.type_name != member.family || !wire.variants.contains_key(&member.member) { return Err(InferenceError::InvalidScheme); }
+                let mut values = BTreeSet::new();
+                for (&name, value) in &wire.variants { if self.symbols.resolve(name).is_none() || !values.insert(value.as_ref()) { return Err(InferenceError::InvalidScheme); } }
+            }
             let expected = match (member.kind, identity) {
                 (NominalMemberKind::Tag, QualifiedNominalIdentity::Source { source, namespace, declaration, .. }) => QualifiedNominalIdentity::Source { source, namespace, declaration, member: None },
                 _ => identity,
@@ -70,10 +96,10 @@ impl<Graph> SolvedTypes<Graph> {
 impl SolvedTypes<InferenceContext> {
     pub(in crate::sema::check) fn publish_nominal_member(&mut self, identity: QualifiedNominalIdentity, member: SolvedNominalMember) -> Result<(), InferenceError> {
         if let Some(original) = self.original_nominal_members.get(&identity) {
-            return if original.as_ref() == &member { Ok(()) } else { Err(InferenceError::InvalidScheme) };
+            return if original.as_ref() == &member && match (&original.wire, &member.wire) { (None, None) => true, (Some(original), Some(current)) => std::sync::Arc::ptr_eq(original, current), _ => false } { Ok(()) } else { Err(InferenceError::InvalidScheme) };
         }
         self.graph.charge_source_fact_nodes(2)?;
-        self.graph.charge_source_fact_edges((3 + member.fields.len() + member.facets.len()) as u64)?;
+        self.graph.charge_source_fact_edges((3 + member.fields.len() + member.facets.len() + usize::from(member.wire.is_some())) as u64)?;
         let member = std::sync::Arc::new(member);
         self.nominal_members.insert(identity, std::sync::Arc::clone(&member));
         self.original_nominal_members.insert(identity, member);

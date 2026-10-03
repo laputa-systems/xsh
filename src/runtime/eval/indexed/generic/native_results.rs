@@ -71,7 +71,7 @@ impl PreparedNativeResultRecord {
 
 impl NativeCallSource {
     pub(in crate::runtime::eval) fn verify_result_record_layout(&self, pools: &SemanticPools) -> Result<(), IrVerifyError> {
-        let TypeRef::Ground(result) = self.expected.result else { return Err(failure("native result layout requires a closed result contract")); };
+        let TypeRef::Ground(result) = self.result_refinement.as_ref().map_or(self.expected.result, |refinement| refinement.producer_result) else { return Err(failure("native result layout requires a closed result contract")); };
         let ty = pools.to_type(result)?;
         let selected = PreparedNativeRecordCarrier::select(&ty);
         match (&self.result_record_layout, selected) {

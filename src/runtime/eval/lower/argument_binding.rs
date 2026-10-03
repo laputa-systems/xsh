@@ -62,7 +62,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         &self, call: ExprId, base: ExprId, carrier: BuildExprId, read: BuildExprId, slot: usize,
     ) -> Option<()> {
         let Some((metadata, _, _)) = self.original_native_static_plan(call) else { return Some(()); };
-        if metadata.owner != crate::sema::registry_graph::RegistryOwner::Method(MethodReceiver::Map) || metadata.entry != "set" { return Some(()); }
+        if !(metadata.owner == crate::sema::registry_graph::RegistryOwner::Method(MethodReceiver::Map) && metadata.operation == RuntimeOp::MapSet
+            || super::super::indexed::generic::is_fs_root_method_owner(metadata.owner)) { return Some(()); }
         let call = self.expression_identity(call);
         let origin = self.expression_identity(base);
         let solved = self.solved();

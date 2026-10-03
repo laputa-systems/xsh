@@ -150,6 +150,92 @@ fn byte_at_fallback_fixture() -> FullProgram {
         PreparedLanguageOperation::Equality { op: BinaryOp::Eq })
 }
 
+#[test]
+fn folded_bytes_byte_at_fallback_retains_original_bytes_domain_on_both_routes() {
+    on_large_stack(|| {
+        let program = Arc::new(super::super::operation_prepare::tests::source_fixture(
+            "pure byte(bytes: Bytes, index: Int) -> Int { let found = bytes.byte_at(index) ?? 7; found }\npure comparison(left: Int, right: Int) -> Bool { left == right }\n",
+            PreparedLanguageOperation::Equality { op: BinaryOp::Eq }));
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let (id, source) = generic.native_scalar_sources().find(|(_, source)| source.byte_at_fallback.is_some()).expect("the original Bytes lookup retains its folded composite");
+            assert_eq!(program.store.semantic.to_type(source.receiver_type).unwrap(), Type::Bytes);
+            assert!(matches!(source.contract.authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::BytesByteAt, .. }));
+            let mut changed = program.as_ref().clone();
+            changed.store.generic.as_deref_mut().unwrap().test_native_scalar_mut(id).unwrap().contract.registry_owner = crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str);
+            assert!(FullVerifier::verify(&changed).is_err(), "a Bytes lookup cannot use Str receiver authority");
+            for recursive in [false, true] {
+                for (index, expected) in [(-1, 7), (0, 0), (1, 255), (2, 7)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let key = LoweredFunctionKey::Name(Name::intern("byte"));
+                    let arguments = [Value::Bytes(vec![0, 255]), Value::Int(index)];
+                    let call = || evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::new(program.store.source_id, 0, 0)).unwrap();
+                    assert_eq!(crate::runtime::eval::lowered_run::with_observed_indexed_call_route(key, recursive, call).unwrap(), Value::Int(expected));
+                }
+            }
+        });
+    });
+}
+
+#[test]
+fn folded_bytes_iteration_byte_at_fallback_retains_original_loop_item_authority() {
+    on_large_stack(|| check_folded_bytes_iteration(
+        "pure summed(lines: List[Bytes], index: Int) -> Int { var total = 0; for line in lines { let current = line.byte_at(index) ?? 7; total += current }; total }\npure comparison(left: Int, right: Int) -> Bool { left == right }\n",
+        Value::List(vec![Value::Bytes(vec![0]), Value::Bytes(vec![255])]),
+    ));
+}
+
+#[test]
+fn folded_bytes_lines_byte_at_fallback_retains_original_loop_item_authority() {
+    on_large_stack(|| check_folded_bytes_iteration(
+        "pure summed(text: Bytes, index: Int) -> Int { var total = 0; for line in text.lines() { let current = line.byte_at(index) ?? 7; total += current }; total }\npure comparison(left: Int, right: Int) -> Bool { left == right }\n",
+        Value::Bytes(vec![0, b'\n', 255]),
+    ));
+}
+
+fn check_folded_bytes_iteration(source: &str, input: Value) {
+        let program = Arc::new(super::super::operation_prepare::tests::source_fixture(
+            source,
+            PreparedLanguageOperation::Equality { op: BinaryOp::Eq }));
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let (id, source) = generic.native_scalar_sources().find(|(_, source)| source.byte_at_fallback.is_some()).expect("folded lookup retains the original Bytes iteration item");
+            assert_eq!(program.store.semantic.to_type(source.receiver_type).unwrap(), Type::Bytes);
+            let NativeScalarReceiver::Iteration { binding, application, .. } = source.receiver else { panic!("the original loop owns the folded receiver") };
+            assert_eq!(generic.iteration_binding(application).unwrap().binding, binding);
+            let mut missing = program.as_ref().clone();
+            missing.store.generic.as_deref_mut().unwrap().test_remove_native_scalars();
+            assert!(FullVerifier::verify(&missing).is_err());
+            let mut missing_iteration = program.as_ref().clone();
+            missing_iteration.store.generic.as_deref_mut().unwrap().test_remove_iteration_bindings();
+            assert!(FullVerifier::verify(&missing_iteration).is_err(), "the folded receiver requires its original protected iteration binding");
+            let mut changed = program.as_ref().clone();
+            let range = changed.store.data[source.instruction as usize].range();
+            changed.store.extra[range.start as usize] = 0;
+            assert!(FullVerifier::verify(&changed).is_err(), "a function parameter cannot replace the original loop item slot");
+            changed.store.generic.as_deref_mut().unwrap().test_native_scalar_mut(id).unwrap().payload[0] = 0;
+            assert!(FullVerifier::verify(&changed).is_err(), "rewriting the physical receipt cannot replace original loop item authority");
+            let mut joint = program.as_ref().clone();
+            joint.store.extra[range.start as usize] = 0;
+            joint.store.generic.as_deref_mut().unwrap().test_iteration_binding_mut(application).unwrap().slot = 0;
+            let scalar = joint.store.generic.as_deref_mut().unwrap().test_native_scalar_mut(id).unwrap();
+            scalar.payload[0] = 0;
+            scalar.receiver = NativeScalarReceiver::Iteration { binding, application, slot: 0 };
+            assert!(FullVerifier::verify(&joint).is_err(), "joint scalar and iteration rewrites cannot replace original loop allocation");
+            for recursive in [false, true] {
+                for (index, expected) in [(0, 255), (1, 14)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let key = LoweredFunctionKey::Name(Name::intern("summed"));
+                    let arguments = [input.clone(), Value::Int(index)];
+                    let call = || evaluator.call_indexed_direct(key, LoweredFunctionKind::Pure, &arguments, Span::new(program.store.source_id, 0, 0)).unwrap();
+                    assert_eq!(crate::runtime::eval::lowered_run::with_observed_indexed_call_route(key, recursive, call).unwrap(), Value::Int(expected));
+                }
+            }
+        });
+}
+
 fn byte_at_expression_fixture() -> FullProgram {
     super::super::operation_prepare::tests::source_fixture(
         "pure nullable(first: Str, text: Str, earlier: Int, index: Int) -> Int? { let previous = first.byte_at(earlier); let byte = text.byte_at(index); byte }\npure copied(text: Str, index: Int) -> Int? { let copy = text; copy.byte_at(index) }\npure comparison(left: Int, right: Int) -> Bool { left == right }\n",

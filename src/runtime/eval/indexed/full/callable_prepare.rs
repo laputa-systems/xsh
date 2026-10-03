@@ -126,6 +126,7 @@ impl FullBuilder {
             let source = self.generic_evidence_mut().add_callable_source(CallableValueSource { origin, instruction, owner, scope: None, expected: contract }).map_err(|_| problem("callable_source_capacity"))?;
             self.generic_evidence_mut().add_callable_value(PreparedCallableValue { source, contract }).map_err(|_| problem("callable_value_capacity"))?;
         }
+        self.prepare_original_captured_callable_sources(&solved)?;
         for (binding, original, instruction, initializer, owner) in self.callable_binding_rows.clone() {
             let initializer_type = solved.expressions.get(&original.initializer_source).copied().ok_or_else(|| problem("callable_binding_original_initializer_missing"))?;
             let initializer_type = solved.graph.resolved(initializer_type).map_err(|_| problem("callable_binding_original_initializer_owner"))?;
@@ -157,6 +158,7 @@ impl FullBuilder {
         self.prepare_callable_receivers(&solved, &origins, &prepared_bindings)?;
         for (instruction, origin, owner) in self.generic_expression_rows.clone() {
             if self.store.tags[instruction as usize] != FullTag::ExprDynamicCall { continue; }
+            if self.generic.as_ref().map(|generic| generic.has_module_invocation_source(instruction)).transpose().map_err(|_| problem("module_invocation_original_source"))?.unwrap_or(false) { continue; }
             if solved.invocations.get(&origin).is_some_and(|invocation| solved.graph.invocation_evidence(invocation.requirement).ok().flatten().is_some_and(|evidence| !evidence.native_alternatives.is_empty())) { continue; }
             if self.generic.as_ref().is_some_and(|generic| generic.scoped_invocation_sources().any(|(_, source)| source.instruction == instruction)) { continue; }
             let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| problem("invocation_payload"))?;
@@ -270,6 +272,7 @@ impl FullVerifier {
                 || (metadata.flags & 1 != 0) != (contract.kind == CallableKind::Proc) { return Err(IrVerifyError::new("callable target changes its checked signature or kind")); }
             Ok((function, metadata))
         };
+        for source in generic.original_captured_callable_sources() { Self::verify_original_captured_callable_source(store, source)?; }
         for binding in generic.original_callable_bindings() { Self::verify_original_callable_initializer(store, generic, binding)?; }
         for (_, proof) in generic.callable_values() {
             let source = generic.callable_source(proof.source)?;
@@ -348,7 +351,7 @@ impl FullVerifier {
             if generic.registered_instruction_origin(instruction as u32, false).is_none() { continue; }
             match tag {
                 FullTag::ExprFunctionRef if generic.callable_value_at(instruction as u32)?.is_none() => return Err(IrVerifyError::new("original callable creation lacks its prepared value proof")),
-                FullTag::ExprDynamicCall if generic.invocation_plan_at(instruction as u32)?.is_none() && generic.scoped_invocation_source_at(instruction as u32)?.is_none() && generic.native_invocation_plan_at(instruction as u32)?.is_none() => return Err(IrVerifyError::new("original invocation lacks its prepared plan")),
+                FullTag::ExprDynamicCall if generic.invocation_plan_at(instruction as u32)?.is_none() && generic.scoped_invocation_source_at(instruction as u32)?.is_none() && generic.native_invocation_plan_at(instruction as u32)?.is_none() && generic.module_invocation_source(instruction as u32)?.is_none() => return Err(IrVerifyError::new("original invocation lacks its prepared plan")),
                 _ => {}
             }
         }

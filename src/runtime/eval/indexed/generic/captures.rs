@@ -24,6 +24,7 @@ pub(in crate::runtime::eval) struct TryCaptureSource {
     pub original_completion: crate::sema::types::Type,
     pub original_propagation: Option<crate::sema::types::Type>,
     pub retry: Option<RetryCapturePolicy>,
+    pub error_capture: Option<Arc<super::super::full::PreparedCaptureErrorRelation>>,
     pub body_words: Box<[u32]>,
     pub body: u32,
     pub statement: u32,
@@ -91,6 +92,7 @@ impl TryCaptureEvidence {
             + self.sources.iter().map(|entry| entry.value.tail_code.1.len() * size_of::<u32>()).sum::<usize>()
             + self.sources.iter().filter_map(|entry| entry.value.producer_code.as_ref()).map(|(_, payload)| payload.len() * size_of::<u32>()).sum::<usize>()
             + self.instructions.capacity() * size_of::<(u32, TryCaptureSourceId)>()
+            + self.sources.iter().filter_map(|entry| entry.value.error_capture.as_ref()).map(|relation| relation.retained_bytes()).sum::<usize>()
     }
     pub(super) fn shrink_to_fit(&mut self) { self.sources.shrink_to_fit(); self.originals.shrink_to_fit(); self.instructions.shrink_to_fit(); }
 }
@@ -134,6 +136,7 @@ impl GenericEvidenceStore {
                 return Err(failure("capture differs from its original checked result or error aggregate"));
             }
             let completion_is_result = source.retry.as_ref().is_some_and(|retry| retry.completion_is_result);
+            if let Some(relation) = &source.error_capture { relation.verify(source)?; }
             if pools.type_tag(source.carrier)? != TypeTag::Result || if completion_is_result { source.carrier != source.completion } else { success != source.completion } {
                 return Err(failure("try capture changes its original completion relationship"));
             }
@@ -148,7 +151,7 @@ impl GenericEvidenceStore {
                         return Err(failure("try capture changes its original propagated carrier relationship"));
                     }
                 }
-                (None, None, None, None, None) if completion_is_result || error.is_some_and(|error| pools.type_tag(error).is_ok_and(|tag| tag == TypeTag::Error)) => {},
+                (None, None, None, None, None) if source.error_capture.is_some() || completion_is_result || error.is_some_and(|error| pools.type_tag(error).is_ok_and(|tag| tag == TypeTag::Error)) => {},
                 _ => return Err(failure("try capture propagation proof is incomplete")),
             }
             if let Some(retry) = &source.retry {

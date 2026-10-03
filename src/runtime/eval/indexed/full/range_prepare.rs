@@ -49,7 +49,7 @@ impl FullBuilder {
             self.generic_evidence_mut().add_operation(PreparedOperation { source, authority, receiver: None, arguments: types.into_boxed_slice(), result,
                 effects: PreparedOperationEffects { creation: crate::sema::inference::EffectSet::EMPTY, inputs: Box::new([]), outputs: Box::new([]) },
                 binding: PreparedOperationBinding { supplied_slots: (0..arity as u32).collect::<Vec<_>>().into_boxed_slice(), default_slots: Box::new([]), rest_slot: None, dynamic: None, operands: operands.into_boxed_slice() },
-                fallback_lowering: None, original_integer_addition: None,
+                tag_equality: None, fallback_lowering: None, original_integer_addition: None,
                 literal_comparison_slot: None, membership_lowering: None, range_lowering: Some(PreparedRangeLowering { payload: words.into_boxed_slice(), endpoints, arguments: arguments.into_boxed_slice() }),
             }).map_err(|_| unprepared("range_proof_allocation"))?;
         }

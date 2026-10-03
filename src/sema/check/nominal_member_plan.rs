@@ -29,12 +29,14 @@ impl Checker {
         if !self.graph_generation { return; }
         let outcome = (|| {
             if fields.iter().any(|(_, ty)| ty.is_recovery()) { return Ok(()); }
+            let wire = if kind == NominalMemberKind::Tag { self.wire_enums.mappings.get(&family).cloned() } else { None };
             {
                 let mut state = self.generic.borrow_mut();
                 state.facts.graph.charge_source_fact_work((fields.len() + facets.len() + 1) as u64)?;
                 if let Some(original) = state.facts.nominal_members.get(&identity) {
                     if original.kind != kind || original.family != family || original.member != member
-                        || original.facets != facets || original.fields.len() != fields.len() {
+                        || original.facets != facets || original.fields.len() != fields.len()
+                        || !match (&original.wire, &wire) { (None, None) => true, (Some(original), Some(current)) => std::sync::Arc::ptr_eq(original, current), _ => false } {
                         return Err(InferenceError::InvalidScheme);
                     }
                     for ((label, ty), (original_label, original_ty)) in fields.iter().zip(&original.fields) {
@@ -75,7 +77,7 @@ impl Checker {
                 state.facts.nominals.insert(tested, identity);
             }
             state.facts.publish_nominal_member(identity, SolvedNominalMember {
-                kind, family, member, tested, fields: checked_fields, facets: facets.to_vec(), scope: None,
+                kind, family, member, tested, fields: checked_fields, facets: facets.to_vec(), wire, scope: None,
             })
         })();
         if let Err(error) = outcome { self.graph_error(span, error); }

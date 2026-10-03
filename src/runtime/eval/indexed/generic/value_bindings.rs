@@ -77,12 +77,32 @@ pub(in crate::runtime::eval) struct PreparedValueBinding {
     pub contract: ValueBindingContract,
 }
 
+/// The material record and a field-presence read have distinct checked types.
+/// The original predicate and its successful branch own that difference.
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct ValueFieldPresence {
+    pub original: crate::sema::check::SolvedFieldPresenceRead,
+    pub material_type: GroundTypeId,
+    pub narrowed_type: GroundTypeId,
+    pub predicate: u32,
+    pub subject: u32,
+    pub key: u32,
+    pub control: u32,
+    pub branch_body: u32,
+    pub predicate_payload: Box<[u32]>,
+    pub key_payload: Box<[u32]>,
+    pub control_payload: Box<[u32]>,
+    pub branch_payload: Box<[u32]>,
+    pub branch_body_payload: Box<[u32]>,
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct ValueBindingUse {
     pub origin: OperationSourceOrigin,
     pub application: ValueBindingId,
     pub instruction: u32,
     pub owner: InstructionOwner,
+    pub presence: Option<ValueFieldPresence>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -127,6 +147,11 @@ impl ValueBindingEvidence {
             + self.uses.len() * (size_of::<ValueBindingUse>() + 2 * size_of::<usize>()) + self.use_instructions.capacity() * size_of::<(u32, usize)>()
             + self.sources.iter().map(|entry| wrapper_bytes(&entry.value.expected)).sum::<usize>()
             + self.applications.iter().map(|entry| wrapper_bytes(&entry.value.contract)).sum::<usize>()
+            + self.uses.iter().map(|entry| entry.value.presence.as_ref().map_or(0, |presence| {
+                (presence.predicate_payload.len() + presence.key_payload.len() + presence.control_payload.len()
+                    + presence.branch_payload.len() + presence.branch_body_payload.len()) * size_of::<u32>()
+                    + presence.original.writes.capacity() * size_of::<crate::sema::check::SolvedRefinementWrite>()
+            })).sum::<usize>()
     }
     pub(super) fn shrink_to_fit(&mut self) { self.sources.shrink_to_fit(); self.originals.shrink_to_fit(); self.applications.shrink_to_fit(); self.original_applications.shrink_to_fit(); self.uses.shrink_to_fit(); self.original_uses.shrink_to_fit(); self.use_instructions.shrink_to_fit(); }
 }
@@ -212,6 +237,22 @@ impl GenericEvidenceStore {
                 || self.registered_instruction_origin(use_.instruction, false) != Some((use_.origin, use_.owner)) {
                 return Err(failure("value binding read changes its original source or owner"));
             }
+            if let Some(presence) = &use_.presence {
+                let original = &presence.original;
+                if use_.origin != OperationSourceOrigin::Expression(original.read)
+                    || source.binding.named() != Some(original.binding)
+                    || original.material.ty != source.source_type.ty || original.material.scope != source.source_type.scope
+                    || presence.material_type != application.contract.binding_type || !original.writes.is_empty()
+                    || [presence.predicate, presence.subject, presence.key, presence.control].iter().any(|&instruction| owners.get(instruction as usize) != Some(&Some(use_.owner)))
+                    || self.registered_instruction_origin(presence.predicate, false) != Some((OperationSourceOrigin::Expression(original.predicate), use_.owner))
+                    || self.registered_instruction_origin(presence.subject, false) != Some((OperationSourceOrigin::Expression(original.subject), use_.owner))
+                    || self.registered_instruction_origin(presence.key, false) != Some((OperationSourceOrigin::Expression(original.key), use_.owner))
+                    || self.registered_instruction_origin(presence.control, false) != Some((OperationSourceOrigin::Statement(original.control), use_.owner)) {
+                    return Err(failure("field-presence read changes its original material, predicate or branch owner"));
+                }
+                Self::verify_type(pools, presence.material_type)?;
+                Self::verify_type(pools, presence.narrowed_type)?;
+            }
             expected.push((use_.instruction, index));
         }
         expected.sort_unstable_by_key(|entry| entry.0);
@@ -235,6 +276,8 @@ impl GenericEvidenceStore {
 }
 
 impl GenericEvidenceBuilder {
+    pub(in crate::runtime::eval) fn value_binding(&self, id: ValueBindingId) -> Result<&PreparedValueBinding, IrVerifyError> { self.store.value_binding(id) }
+
     pub fn add_value_binding_source(&mut self, value: ValueBindingSource) -> Result<ValueBindingSourceId, IrVerifyError> {
         if self.store.values.sources.len() >= 2_000_000 { return Err(failure("value bindings exceed their work limit")); }
         let index = u32::try_from(self.store.values.sources.len()).map_err(|_| failure("value binding source id overflow"))?;

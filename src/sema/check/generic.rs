@@ -955,6 +955,7 @@ impl Checker {
             || self.generic.borrow().facts.registry_references.contains_key(&identity)
             || self.generic.borrow().facts.record_updates.contains_key(&identity)
             || self.generic.borrow().facts.projections.contains_key(&identity)
+            || self.generic.borrow().facts.record_get_projections.contains_key(&identity)
             || self.generic.borrow().facts.constructor_applications.contains_key(&identity)
             || self.generic.borrow().facts.schema_validations.contains_key(&identity)
             || self.generic.borrow().facts.spawn_operations.contains_key(&identity) { return; }

@@ -15,6 +15,11 @@ pub(in crate::runtime::eval) struct OriginalIndex {
     pub base: u32,
     pub index: u32,
     pub index_material: u32,
+    pub base_material: u32,
+    pub postfix_base: Option<PreparedResultReceiver>,
+    pub base_wrappers: Box<[ValueInitializerWrapper]>,
+    pub index_wrappers: Box<[ValueInitializerWrapper]>,
+    pub projection: Option<(Name, PhysicalLayoutId, u32)>,
     pub uint_key_validation: Option<(u32, Box<[u32]>)>,
     pub owner: InstructionOwner,
     pub base_parameter: Option<(crate::sema::check::DeclarationIdentity, u32)>,
@@ -44,6 +49,8 @@ impl IndexEvidence {
         use std::mem::size_of;
         self.receipts.capacity() * size_of::<Entry<Arc<OriginalIndex>>>() + self.originals.capacity() * size_of::<Arc<OriginalIndex>>()
             + self.instructions.capacity() * size_of::<(u32, usize)>() + self.receipts.len() * (size_of::<OriginalIndex>() + 2 * size_of::<usize>())
+            + self.receipts.iter().filter_map(|entry| entry.value.postfix_base.as_ref()).map(PreparedResultReceiver::retained_bytes).sum::<usize>()
+            + self.receipts.iter().map(|entry| entry.value.base_wrappers.iter().chain(entry.value.index_wrappers.iter()).map(|wrapper| size_of::<ValueInitializerWrapper>() + wrapper.payload.len() * size_of::<u32>()).sum::<usize>()).sum::<usize>()
             + self.receipts.iter().filter_map(|entry| entry.value.uint_key_validation.as_ref()).map(|(_, payload)| payload.len() * size_of::<u32>()).sum::<usize>()
     }
     pub(super) fn shrink_to_fit(&mut self) { self.receipts.shrink_to_fit(); self.originals.shrink_to_fit(); self.instructions.shrink_to_fit(); }
@@ -55,6 +62,12 @@ impl IndexEvidence {
 }
 
 impl GenericEvidenceStore {
+    pub(in crate::runtime::eval) fn supports_ground_index_operation(map: bool, field: Option<Name>, base: &Type, index: &Type, result: &Type) -> bool {
+        if let Some(field) = field {
+            return matches!(base, Type::Record(fields) if fields.get(&field) == Some(result)) && *index == Type::Str && Self::supports_list_index_item(result);
+        }
+        Self::supports_ground_index(map, base, index, result)
+    }
     pub(in crate::runtime::eval) fn supports_ground_index(map: bool, base: &Type, index: &Type, result: &Type) -> bool {
         if !Self::supports_list_index_item(result) { return false; }
         match (map, base) {
@@ -81,7 +94,8 @@ impl GenericEvidenceStore {
     }
     pub(in crate::runtime::eval) fn original_indices(&self) -> impl Iterator<Item = &OriginalIndex> { self.indices.receipts.iter().map(|entry| entry.value.as_ref()) }
     pub(in crate::runtime::eval) fn verify_index_operation_contract(pools: &SemanticPools, operation: &PreparedOperation) -> Result<(), IrVerifyError> {
-        let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Index { map }, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. } = operation.authority else { return Err(failure("selected index operation has another authority")); };
+        let PreparedOperationAuthority::Language { operation: language, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. } = operation.authority else { return Err(failure("selected index operation has another authority")); };
+        let (map, field) = match language { PreparedLanguageOperation::Index { map } => (map, None), PreparedLanguageOperation::ConstantKeyProjection { field } => (false, Some(field)), _ => return Err(failure("selected index operation has another authority")) };
         if operation.receiver.is_some()
             || operation.arguments.len() != 2 || operation.binding.supplied_slots.as_ref() != [0, 1]
             || !operation.binding.default_slots.is_empty() || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some()
@@ -91,7 +105,7 @@ impl GenericEvidenceStore {
         }
         let [Some(TypeRef::Ground(base)), Some(TypeRef::Ground(index))] = operation.arguments.as_ref() else { return Err(failure("selected List index operands are not ground")); };
         let TypeRef::Ground(result) = operation.result else { return Err(failure("selected List index result is not ground")); };
-        if !Self::supports_ground_index(map, &pools.to_type(*base)?, &pools.to_type(*index)?, &pools.to_type(result)?) {
+        if !Self::supports_ground_index_operation(map, field, &pools.to_type(*base)?, &pools.to_type(*index)?, &pools.to_type(result)?) {
             if !Self::supports_list_index_item(&pools.to_type(result)?) { return Err(failure("selected index lacks a plain value item ownership contract")); }
             return Err(failure("selected index changes its original operand, key domain, or item relationship"));
         }
@@ -112,7 +126,7 @@ impl GenericEvidenceStore {
                 || operation.binding.operands.as_ref() != [original.base, original.index] {
                 return Err(failure("index changes its original selected operation or operand packet"));
             }
-            for (instruction, origin) in [(original.instruction, original.origin), (original.base, original.base_origin), (original.index_material, original.index_origin)] {
+            for (instruction, origin) in [(original.instruction, original.origin), (original.base_material, original.base_origin), (original.index_material, original.index_origin)] {
                 if origin.source != original.origin.source || origin.namespace != original.origin.namespace
                     || owners.get(instruction as usize) != Some(&Some(original.owner))
                     || self.registered_instruction_origin(instruction, false) != Some((OperationSourceOrigin::Expression(origin), original.owner)) {
@@ -123,12 +137,20 @@ impl GenericEvidenceStore {
                 || original.uint_key_validation.as_ref().is_some_and(|(instruction, _)| owners.get(*instruction as usize) != Some(&Some(original.owner))) {
                 return Err(failure("index validation changes its lexical owner"));
             }
+            if let Some((field, layout, slot)) = original.projection {
+                let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::ConstantKeyProjection { field: selected }, .. } = operation.authority else { return Err(failure("index projection changes its selected field authority")); };
+                let layout = self.layout(layout)?;
+                let TypeRef::Ground(result) = operation.result else { return Err(failure("index projection result is not ground")); };
+                if selected != field || operation.arguments.first().copied().flatten() != Some(TypeRef::Ground(layout.record_type)) || layout.fields.get(slot as usize) != Some(&(field, result)) {
+                    return Err(failure("index projection changes its original physical layout or field"));
+                }
+            } else if matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::ConstantKeyProjection { .. }, .. }) { return Err(failure("index projection loses its original physical layout")); }
             expected.push((original.instruction, index));
         }
         expected.sort_unstable_by_key(|entry| entry.0);
         if expected.windows(2).any(|pair| pair[0].0 == pair[1].0) || expected != evidence.instructions { return Err(failure("original index lookup is incomplete or ambiguous")); }
         for (_, operation) in self.operations() {
-            if matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Index { .. }, .. })
+            if matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Index { .. } | PreparedLanguageOperation::ConstantKeyProjection { .. }, .. })
                 && self.original_index(self.operation_source(operation.source)?.instruction)?.is_none() {
                 return Err(failure("prepared index lacks its original operand authority"));
             }

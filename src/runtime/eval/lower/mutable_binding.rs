@@ -177,7 +177,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let source_type = ScopedRoot { ty: definition.ty, scope };
                 solved.graph.validate_scoped(source_type).ok()?;
                 let Ok(ground) = super::super::indexed::generic::graph_ground_type(&solved.graph, definition.ty) else { return Some(()); };
-                if !supports_mutable_binding_type(&ground) { return Some(()); }
+                if !supports_mutable_binding_type(&ground) && super::super::indexed::generic::MutableNominalInvariant::from_checked(solved, source_type).ok().flatten().is_none() { return Some(()); }
                 if !definition.mutable { return None; }
                 let slot = slots.resolve(name)?;
                 let value_source = self.expression_identity(value);

@@ -98,6 +98,19 @@ hydration path does not overwrite that environment. Typed values with no prepare
 invocation authority are refused. This entry path covers prepared monomorphic
 user Pure/Proc callables, independently of conditional/native/stream protocols.
 
+Loaded module invocations retain the promised export contract independently of
+an implementation declaration in the caller. `generic/module_invocations.rs`
+seals the original module projection, caller, signature and argument recipes.
+`indexed_run/module_invocation_run.rs` validates the actual published module and
+pins its implementation program before evaluating arguments. The implementation
+must match the promised kind, parameter modes, types and effects.
+
+Module receiver bindings and captures retain their original allocation, slot,
+initializer and declaration owner in `generic/module_invocations.rs`. Equal
+module schemas cannot substitute another receiver slot or capture header.
+Publication identity for a same-signature replacement remains a separate
+boundary from this allocation proof.
+
 Original immutable local callable `let` bindings retain a `BindingIdentity`
 through lowering. `BuildScratch::callable_binding_origins` pairs that identity
 with the original statement, emitted `Let` row and slot, actual initializer row
@@ -121,6 +134,20 @@ facts refuse supported data lowering. Ordinary `Let`, specialized `LetInt` and
 `LetBool`, and successful `Guard` continuations retain their actual physical
 allocation and lexical reads. `full/value_prepare.rs` validates those rows;
 equal storage kinds never replace the original binding identity.
+
+Literal field membership can refine an immutable record read inside its
+successful lexical branch. `sema/check/field_presence.rs` retains the original
+predicate, binding, checked roots and write stamp; `value_prepare/field_presence.rs`
+checks the actual membership instruction and branch ancestry. A sibling branch,
+changed field, rewritten predicate or intervening mutation cannot borrow that
+read authority.
+
+Optimized line scans retain the original line operation, trim and predicates,
+ordered checks, literal prefixes, and mutable counter allocation in
+`generic/iterations.rs`. `FullExecution::line_scan_counter_binding` authenticates
+that allocation before execution. Each increment uses checked arithmetic and
+the authored assignment span, then publishes the result to its original live
+cell when another closure captures the counter.
 
 Original simple `for` item bindings retain the selected iteration operation,
 qualified statement, binding and iterator identities, and independently checked
@@ -155,6 +182,31 @@ before dispatch by `FullExecution::ground_native_call` and
 `FullStore::original_generic_owner` preserves the original evidence owner
 outside the optional evidence store. Verification and both worker entry paths
 reject removal or replacement of that complete store.
+
+`lower/native_arguments.rs` transfers original selected argument recipes into
+native module packets. The expression Result root and operation Result root
+are checked independently; equality of their outer graph IDs is not required.
+Selected signatures, source ownership and any original registry boundary remain
+mandatory. `native_prepare/list_text_methods.rs` prepares Bytes string extraction
+and Record/Module keys. Module keys retain the original Module expression while
+the selected hidden receiver uses its declared Record erasure.
+
+`lower/hash_arguments.rs` retains the public two-argument Hash call and its
+original algorithm boundary independently of the private three-argument core
+implementation. `generic/bridges.rs` seals this adaptation inside the existing
+bridge store. `FullExecution::verify_hash_policy_call` checks the protected
+original instruction index and exact packet before either worker evaluates
+arguments or performs filesystem effects.
+
+`generic/stages.rs::OriginalStageFusion` preserves the actual contiguous authored
+stages when map/reduce or map/identity-flat-map/reduce share one physical stage.
+`full/stage_prepare.rs` checks each original callback's independent signature,
+effects and producer ports, including the erased identity tail's original
+statement. Fusion cannot synthesize an expression identity for that statement.
+
+`lowered_run/utils_cache.rs` keeps a cached callback's typed declaration and
+capture environment. Mutable captures compare allocation identity; equal values
+from distinct cells cannot identify the same callback result.
 
 Generated Result postfix receivers retain a separate
 `generic/result_receivers.rs::PreparedResultReceiver` inside the original
@@ -202,6 +254,37 @@ authorizes the existing backend's empty separator behavior; preparation does
 not synthesize a string operand. A named separator retains its authored source
 recipe and formal destination separately.
 
+`List.extend` retains the closed item type shared by its receiver, supplied
+list and result. Its native packet has one supplied argument and no default
+slots. The backend appends the supplied items in order, including shared list
+storage, after the original selected operation and operands are verified.
+
+`Record.get` retains its erased registry signature separately from a constant
+field's producer type. `sema/check/record_get.rs` seals the original receiver,
+key, field constraint and selected requirement; `full/native_prepare/record_get.rs`
+checks that the physical key still selects that visible field. The native
+source receipt preserves checked argument wrappers separately from their
+authored value recipes, including unsigned checks around saved reads.
+An unsigned argument's source descriptor remains Int while its checked
+material descriptor is UInt; the original selected formal authenticates the
+check target. Source verification consumes the authored descriptor, and
+signature validation consumes the checked descriptor.
+
+Closed `Regex` methods retain the compiled receiver and selected native member
+through `full/native_prepare/regex_methods.rs`. Captures and matches keep their
+original closed result types; find results use the same prepared record item
+layout as other native list results. Runtime backend selection uses the numeric
+operation and receiver domain in `indexed/native_methods.rs`.
+
+`Bytes.dump` preserves an omitted `format` argument as absence in its original
+native packet, authorizing the backend's canonical format. Its receiver receipt also retains an authored Result
+postfix when the bytes come from a fallible producer.
+
+`Map.push` retains its original `Map[K, List[T]]` receiver, key `K`, item `T`
+and unchanged map result in `full/native_prepare/map_methods.rs`. Authored
+argument order and formal destinations remain separate; an Int expression at a
+UInt item boundary retains its original checked validation before dispatch.
+
 `Str.byte_slice` retains its byte offset and an omitted trailing length as
 absence in the original method packet. Its selected backend preserves UTF-8
 boundary errors and does not reinterpret those bounds as character offsets.
@@ -228,6 +311,11 @@ Native `Result` success records retain their canonical selected schema in the
 sealed native source receipt. `FullExecution::materialize_native_result_record`
 uses that schema on `Ok` values before numeric projection. The existing `Err`
 value and opaque capability identity remain intact through the host bridge.
+
+Authored `?` field access on a native Result record retains the original
+checked success root through `sema/check/null_safe_projection.rs`. Its projection
+receipt includes the postfix carrier and prepared success layout; an unrelated
+record with equal storage cannot replace that producer.
 
 Native List and Stream record items retain their selected carrier and record
 layout in the same receipt. Materialized items receive that layout immediately;
@@ -517,6 +605,14 @@ walk; both execution routes validate and convert a private value before returnin
 it. Schemas and prepared constants register in the same declaring mapping pool
 as constructors; the verifier rejects independently altered mapping copies and
 checks schema and constructor metadata before execution.
+Scoped tag payloads retain a `ScopedTagConstructorRequirement` and the
+original constructor member, payload roots and declaring scheme in
+`full/tag_constructor_prepare.rs`. Concrete frames consume the corresponding
+unit witness and check the active declaration scope before payload evaluation.
+Nullary tag equality retains the complete original qualified family roster in
+`full/operation_prepare/tag_equality.rs`; transported operands must remain
+members of that family with the original wire mapping.
+
 Record validation uses `lowered_record_field_value`, the owned field view shared
 with ordinary record methods. Synthesized fields in compact Stats values remain
 visible to the same schema contract as stored record fields.
@@ -662,6 +758,12 @@ and lexical cleanup ownership.
 The parser retains ungrouped run argv boundaries; grouped expressions own their
 closing delimiter so a run-valued payload can precede a postfix guard.
 
+A fused line scanner retains its original iterable, selected byte operations,
+and counter assignments in `generic/iterations.rs::OriginalLineScan`. Its
+physical statement and checks block are validated before input reads. Counter
+updates use checked arithmetic and the same defining activation cells as ordinary
+assignments, including counters captured by another callable.
+
 `sema/check/run_operation.rs` retains each interpolated argv expression's
 original checked type port for rendering authority. Named splices own separate
 ports. A captured run command in a value tail already produces a Result;
@@ -707,6 +809,12 @@ Optional postfix receiver absence and Optional fallback lower through verified `
 with a hidden receiver slot. The null arm skips the whole selected operation;
 the present arm retains Result values. Result postfix receivers instead lower
 through one `Try` instruction before the ordinary operation.
+Unsigned fallback and conditional results retain their original creation checks
+separately from branch source types. `full/operation_prepare/fallback.rs` and
+`full/conditional_prepare.rs` authenticate the actual checked wrapper and selected
+UInt result, while the original Int parameter or branch root remains intact.
+The selected value is checked before later effects or outward use.
+
 Runtime changes should preserve source-visible order, explicit boundaries, and
 traceable failure paths before pursuing cleverness. List compound assignment
 uses the ordinary indexed assignment route. A singleton list right side is
@@ -1361,6 +1469,13 @@ and defer execution while preserving `StmtFlow::Return`, `Break`, and
 `Continue` separately from `Propagate`. Checked cleanup propagation carries
 an internal origin marker across runtime-error transport; defects and abort
 never acquire that marker.
+`SolvedErrorCapture` retains a capture's original reached error ports and
+`ErrorJoin` requirement independently of its output annotation. The sealed
+boundary receipt qualifies the source block and declaration owner;
+`full/capture_prepare/error_capture.rs` validates the published scoped roots
+before retaining their exact error domains. This supplies nominal error
+authority when a capture completes with a pipeline whose callback propagates
+an error, without treating the pipeline's success type as an error carrier.
 Explicit value pipeline arguments retain `ArenaExprKind::ValuePipelineCall`
 with the input, ordinary call, and sole immediate hole. Full and compact checkers
 bind the hole to the checked input type while checking that ordinary call.

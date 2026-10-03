@@ -65,13 +65,19 @@ impl FullBuilder {
             if self.store.string(field).map_err(|_| projection_problem("ground_projection_field"))? != projection.field.as_str().as_str() {
                 return Err(projection_problem("ground_projection_original_field"));
             }
-            let (receiver_source_instruction, receiver_wrappers) = self.argument_initializer_lineage(receiver_instruction, owner)?;
-            let &(receiver_origin, receiver_owner) = origins.get(&receiver_source_instruction).ok_or_else(|| projection_problem("ground_projection_receiver_origin"))?;
-            if receiver_owner != owner { return Err(projection_problem("ground_projection_receiver_owner")); }
-            let &original_receiver = solved.expressions.get(&receiver_origin).ok_or_else(|| projection_problem("ground_projection_receiver_type"))?;
-            if graph_ground_type(&solved.graph, original_receiver).map_err(|_| projection_problem("ground_projection_receiver_type"))? != receiver {
-                return Err(projection_problem("ground_projection_original_receiver"));
-            }
+            let postfix = self.prepare_projection_result_receiver(receiver_instruction, owner, &receiver, expression)?;
+            let (receiver_source_instruction, receiver_wrappers, receiver_origin) = if let Some(postfix) = &postfix {
+                (postfix.source_instruction, postfix.source_wrappers.clone(), postfix.origin)
+            } else {
+                let (source, wrappers) = self.argument_initializer_lineage(receiver_instruction, owner)?;
+                let &(origin, receiver_owner) = origins.get(&source).ok_or_else(|| projection_problem("ground_projection_receiver_origin"))?;
+                if receiver_owner != owner { return Err(projection_problem("ground_projection_receiver_owner")); }
+                let &original_receiver = solved.expressions.get(&origin).ok_or_else(|| projection_problem("ground_projection_receiver_type"))?;
+                if graph_ground_type(&solved.graph, original_receiver).map_err(|_| projection_problem("ground_projection_receiver_type"))? != receiver {
+                    return Err(projection_problem("ground_projection_original_receiver"));
+                }
+                (source, wrappers, origin)
+            };
             let &original_result = solved.expressions.get(&expression).ok_or_else(|| projection_problem("ground_projection_result_type"))?;
             if graph_ground_type(&solved.graph, original_result).map_err(|_| projection_problem("ground_projection_result_type"))? != result {
                 return Err(projection_problem("ground_projection_original_result"));
@@ -86,7 +92,7 @@ impl FullBuilder {
             let scope = solved.expression_owners.get(&expression).and_then(|declaration| self.generic_declarations.get(declaration).copied());
             let source = self.generic_evidence_mut().add_ground_projection_source(GroundProjectionSource {
                 origin: expression, instruction, owner, scope, receiver_origin, receiver_instruction, receiver_source_instruction, receiver_wrappers,
-                field: projection.field, receiver, result, layout, field_slot,
+                field: projection.field, receiver, result, layout, field_slot, postfix,
             }).map_err(|_| projection_problem("ground_projection_source_allocation"))?;
             self.generic_evidence_mut().add_ground_projection(PreparedGroundProjection {
                 source, receiver_instruction, receiver: TypeRef::Ground(receiver), result: TypeRef::Ground(result), layout, field_slot,
@@ -128,7 +134,6 @@ impl FullVerifier {
             || generic.registered_instruction_origin(source.receiver_source_instruction, false) != Some((super::super::generic::OperationSourceOrigin::Expression(source.receiver_origin), owner)) {
             return Err(IrVerifyError::new("ground projection disagrees with its original instruction or receiver"));
         }
-        Self::verify_argument_initializer_lineage(store, generic, source.receiver_instruction, source.receiver_source_instruction, &source.receiver_wrappers, owner)?;
         let words = store.payload(store.data[instruction as usize].range())?;
         if words.first() != Some(&projection.receiver_instruction) || words.get(1).copied().and_then(|field| store.string(field).ok()) != Some(source.field.as_str().as_str()) {
             return Err(IrVerifyError::new("ground projection receiver or field differs from its original source"));
@@ -142,7 +147,18 @@ impl FullVerifier {
         let already_active = active.last() == Some(&instruction);
         if active.len() >= 256 || (!already_active && active.contains(&instruction)) { return Err(IrVerifyError::new("ground projection receiver is cyclic or too deep")); }
         if !already_active { active.push(instruction); }
-        Self::verify_generic_source(store, generic, projection.receiver_instruction, owner, &store.semantic.to_type(receiver)?, None, active)?;
+        let receiver_type = store.semantic.to_type(receiver)?;
+        if let Some(postfix) = &source.postfix {
+            if postfix.instruction != projection.receiver_instruction || postfix.owner != owner
+                || postfix.origin != source.receiver_origin || postfix.source_instruction != source.receiver_source_instruction
+                || postfix.source_wrappers != source.receiver_wrappers {
+                return Err(IrVerifyError::new("ground projection changes its original Result success transport"));
+            }
+            Self::verify_result_receiver(store, generic, postfix, source.origin, &receiver_type, active)?;
+        } else {
+            Self::verify_argument_initializer_lineage(store, generic, source.receiver_instruction, source.receiver_source_instruction, &source.receiver_wrappers, owner)?;
+            Self::verify_generic_source(store, generic, projection.receiver_instruction, owner, &receiver_type, None, active)?;
+        }
         if !already_active { active.pop(); }
         Ok(())
     }
@@ -151,6 +167,10 @@ impl FullVerifier {
 #[cfg(test)]
 #[path = "projection_prepare/record_layout_tests.rs"]
 mod record_layout_tests;
+
+#[cfg(test)]
+#[path = "projection_prepare/native_result_tests.rs"]
+mod native_result_tests;
 
 #[cfg(test)]
 mod tests {

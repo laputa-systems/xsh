@@ -1,5 +1,6 @@
 use super::*;
 use crate::modules::RuntimeOp;
+use std::collections::BTreeMap;
 
 /// The normalized descriptor is the original checked constant authority.
 /// Sharing its allocation authenticates its defaults and validation policy;
@@ -76,4 +77,33 @@ impl PreparedCliDescriptor {
             _ => Err(crate::runtime::value::RuntimeError::new("indexed-ir", "CLI descriptor operation returned a value outside its prepared Result carrier").with_span(span)),
         }
     }
+}
+
+impl GroundNativeCallContract {
+    pub(in crate::runtime::eval) fn verify_dynamic_cli_carrier(&self, pools: &SemanticPools) -> Result<bool, IrVerifyError> {
+        let PreparedOperationAuthority::Registry { operation, semantic_rule, binding: crate::modules::signature::ImplBinding::Native, .. } = self.authority else { return Ok(false); };
+        if !matches!((semantic_rule, operation),
+            (crate::modules::signature::SemanticRule::CliDescriptor, RuntimeOp::CliParse | RuntimeOp::CliParseFull | RuntimeOp::CliApplet)
+            | (crate::modules::signature::SemanticRule::CliCommands, RuntimeOp::CliCommands)) || self.cli_descriptor.is_some() { return Ok(false); }
+        if self.registry_owner != crate::sema::registry_graph::RegistryOwner::Module("cli") || self.receiver.is_some() {
+            return Err(failure("dynamic CLI carrier loses its original module declaration"));
+        }
+        let TypeRef::Ground(result) = self.result else { return Err(failure("dynamic CLI carrier requires its original closed result")); };
+        if result != pools.signature_return_type(self.signature)? || pools.to_type(result)? != Self::dynamic_cli_result_type(operation) {
+            return Err(failure("dynamic CLI carrier changes its canonical result or promises unvalidated descriptor fields"));
+        }
+        Ok(true)
+    }
+}
+
+impl GroundNativeCallContract {
+    pub(in crate::runtime::eval::indexed) fn dynamic_cli_result_type(operation: RuntimeOp) -> crate::sema::types::Type {
+    use crate::sema::types::Type;
+    let success = if operation == RuntimeOp::CliParseFull {
+        Type::Record(BTreeMap::from(xsh_registry::types::cli_full_fields(
+            Type::ErasedRecord, Type::ErasedRecord, Type::List(Box::new(Type::Str)),
+        ).map(|(name, ty)| (Name::intern(name), ty))))
+    } else { Type::ErasedRecord };
+    Type::Result(Box::new(success), Box::new(Type::Error))
+}
 }

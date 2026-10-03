@@ -482,3 +482,159 @@ fn cold_immutable_driver_record_list_items_keep_original_initializer_and_record_
         assert!(FullVerifier::verify(&changed).is_err(), "a record item cannot replace its source list");
     });
 }
+
+#[test]
+fn cold_literal_record_list_items_keep_original_children_and_independent_container_receipts() {
+    crate::runtime::eval::run_eval(|| {
+        let program = fixture_source("proc shown() [io] { for first in [{name: \"one\", count: 2}] { print ${first.name} }; for second in [{name: \"two\", count: 3}] { print ${second.name} } }\nshown()\n", 2);
+        let _symbols = program.symbol_owner().enter();
+        let bindings = program.generic_evidence().unwrap().iteration_bindings().map(|(id, binding)| (id, binding.clone())).collect::<Vec<_>>();
+        let (id, binding) = &bindings[0];
+        let sibling = &bindings[1].1;
+        assert!(matches!(program.store.semantic.to_type(binding.input).unwrap(), Type::List(item) if matches!(*item, Type::Record(_))));
+        let producer = binding.producer.as_ref().unwrap();
+        assert_eq!(producer.tag, FullTag::ExprList);
+        assert!(producer.initializer.is_none() && producer.declaration.is_none() && producer.lines.is_none());
+        assert_eq!(binding.item, sibling.item);
+        let mut changed = program.clone();
+        change_word(&mut changed, binding.instruction, 1, sibling.iterator);
+        assert!(FullVerifier::verify(&changed).is_err(), "a same-layout literal cannot replace the authored source list");
+        let mut changed = program.clone();
+        let sibling_words = sibling.producer.as_ref().unwrap().words.clone();
+        let range = changed.store.data[binding.iterator as usize].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[range].copy_from_slice(&sibling_words);
+        assert!(FullVerifier::verify(&changed).is_err(), "same-layout record children cannot replace the original literal children");
+        let mut coupled = changed;
+        coupled.store.generic.as_mut().unwrap().test_iteration_binding_mut(*id).unwrap().producer.as_mut().unwrap().words = sibling_words;
+        assert!(FullVerifier::verify(&coupled).is_err(), "copied dense words cannot grant a new original literal source");
+        let mut coupled = program.clone();
+        let receipt = coupled.store.generic.as_mut().unwrap().test_iteration_binding_mut(*id).unwrap();
+        receipt.item = receipt.input; receipt.binding_type = receipt.input;
+        assert!(FullVerifier::verify(&coupled).is_err(), "item and binding roots cannot jointly acquire a container type");
+        let mut missing = program.clone();
+        missing.store.generic.as_mut().unwrap().test_remove_ground_containers();
+        assert!(FullVerifier::verify(&missing).is_err(), "iteration authority cannot replace independent list construction receipts");
+        let mut missing = program.clone();
+        assert_eq!(program.generic_evidence().unwrap().constructors().len(), 2);
+        missing.store.generic.as_mut().unwrap().test_remove_iteration_record_constructor_layouts();
+        assert!(FullVerifier::verify(&missing).is_err(), "iteration authority cannot replace independent record constructor layouts");
+    });
+}
+
+#[test]
+fn cold_optimized_line_items_keep_original_receiver_slot_member_and_body() {
+    crate::runtime::eval::run_eval(|| {
+        let program = fixture_source("proc shown(first: Str, second: Str) [io] { for line in first.lines() { print ${line} } }\nshown(\"one\", \"two\")\n", 1);
+        let _symbols = program.symbol_owner().enter();
+        let (id, binding) = program.generic_evidence().unwrap().iteration_bindings().next().unwrap();
+        let binding = binding.clone();
+        assert_eq!(program.store.tags[binding.instruction as usize], FullTag::StmtForStrLines);
+        assert_eq!(program.store.semantic.to_type(binding.item).unwrap(), Type::Str);
+        let lines = binding.producer.as_ref().unwrap().lines.as_ref().unwrap();
+        assert_eq!(program.store.semantic.to_type(lines.receiver_type).unwrap(), Type::Str);
+        assert_eq!(lines.parameter.1, 0);
+        let mut changed = program.clone();
+        change_word(&mut changed, binding.iterator, 0, 1);
+        assert!(FullVerifier::verify(&changed).is_err(), "a same-typed scalar receiver cannot replace the authored line source");
+        let mut coupled = program.clone();
+        let producer = coupled.store.generic.as_mut().unwrap().test_iteration_binding_mut(id).unwrap().producer.as_mut().unwrap();
+        producer.words[0] = 1; producer.lines.as_mut().unwrap().parameter.1 = 1;
+        change_word(&mut coupled, binding.iterator, 0, 1);
+        assert!(FullVerifier::verify(&coupled).is_err(), "matching dense words and copied receipt cannot change the formal producer port");
+        let mut changed = program.clone();
+        changed.store.tags[binding.instruction as usize] = FullTag::StmtFor;
+        assert!(FullVerifier::verify(&changed).is_err(), "line allocation cannot acquire an ordinary Stream iterator opcode");
+        let mut coupled = program.clone();
+        let source = coupled.store.generic.as_mut().unwrap().test_iteration_binding_mut(id).unwrap().producer.as_mut().unwrap().lines.as_mut().unwrap();
+        let PreparedOperationAuthority::Registry { operation, .. } = &mut source.authority else { unreachable!() };
+        *operation = RuntimeOp::BytesStreamLines;
+        assert!(FullVerifier::verify(&coupled).is_err(), "copied native authority cannot change the original item representation");
+        let read = program.generic_evidence().unwrap().iteration_uses().next().unwrap();
+        let mut changed = program.clone();
+        change_word(&mut changed, binding.instruction, 1, read.instruction);
+        assert!(FullVerifier::verify(&changed).is_err(), "a body item cannot become the optimized source receiver");
+    });
+}
+
+#[test]
+fn cold_line_scanner_keeps_original_members_prefixes_counter_allocations_and_source() {
+    crate::runtime::eval::run_eval(|| {
+        let program = fixture_source("proc shown(first: Bytes, second: Bytes) [io] { var blanks = 0; var comments = 0; for line in first.lines() { let trimmed = line.trim(); if trimmed == b\"\" { blanks += 1 } else if trimmed.starts_with(b\"#\") { comments += 1 } }; print ${blanks} ${comments} }\nshown(b\"#one\\n\\n\", b\"other\")\n", 0);
+        let _symbols = program.symbol_owner().enter();
+        let scan = program.generic_evidence().unwrap().line_scans().next().expect("the authored counter scanner retains an original fused receipt").clone();
+        assert_eq!(scan.checks.len(), 2);
+        assert_eq!(program.store.tags[scan.instruction as usize], FullTag::StmtScanLines);
+        assert!(matches!(scan.trim.as_ref().unwrap().authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::BytesTrim, .. }));
+        assert!(matches!(scan.checks[1].predicate.authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::BytesStartsWith, .. }));
+        let mut missing = program.clone();
+        missing.store.generic.as_mut().unwrap().test_remove_line_scans();
+        assert!(FullVerifier::verify(&missing).is_err(), "a fused scan cannot recreate its removed source members and counter writes");
+        let mut changed = program.clone();
+        change_word(&mut changed, scan.instruction, 0, 1);
+        assert!(FullVerifier::verify(&changed).is_err(), "a same-typed formal parameter cannot replace the original scan receiver");
+        let mut coupled = program.clone();
+        let copied = coupled.store.generic.as_mut().unwrap().test_line_scan_mut(scan.instruction).unwrap();
+        copied.text_slot = 1; copied.payload[0] = 1; copied.lines.parameter.1 = 1;
+        change_word(&mut coupled, scan.instruction, 0, 1);
+        assert!(FullVerifier::verify(&coupled).is_err(), "matching emitted and copied words cannot rewrite original receiver provenance");
+        let block = IrBlockId::from_raw(scan.checks_block.0).unwrap();
+        let bounds = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        assert_eq!(scan.checks_block.2.len(), 6);
+        let mut changed = program.clone();
+        changed.store.extra[bounds.start + 5] = scan.checks[0].slot;
+        assert!(FullVerifier::verify(&changed).is_err(), "counter order and dense storage remain tied to each original assignment");
+        let mut coupled = program.clone();
+        coupled.store.extra[bounds.start + 5] = scan.checks[0].slot;
+        let copied = coupled.store.generic.as_mut().unwrap().test_line_scan_mut(scan.instruction).unwrap();
+        copied.checks_block.2[5] = scan.checks[0].slot;
+        copied.checks[1].slot = scan.checks[0].slot; copied.checks[1].counter = scan.checks[0].counter; copied.checks[1].allocation = scan.checks[0].allocation;
+        assert!(FullVerifier::verify(&coupled).is_err(), "joint same-typed counter rewrites cannot replace the protected original scan");
+        let needle = scan.checks_block.2[4];
+        let bytes = program.store.bytes[super::super::super::IrBytesId::from_raw(needle).unwrap().index()].bounds(program.store.byte_data.len()).unwrap();
+        let mut changed = program.clone();
+        changed.store.byte_data[bytes.start] = b'!';
+        assert!(FullVerifier::verify(&changed).is_err(), "an unchanged pool ID cannot lend authority to different prefix bytes");
+        let mut coupled = program.clone();
+        let copied = coupled.store.generic.as_mut().unwrap().test_line_scan_mut(scan.instruction).unwrap();
+        let PreparedOperationAuthority::Registry { operation, .. } = &mut copied.checks[1].predicate.authority else { unreachable!() };
+        *operation = RuntimeOp::BytesEndsWith;
+        assert!(FullVerifier::verify(&coupled).is_err(), "a copied native selection cannot replace the original predicate member");
+        let mut missing = program.clone();
+        missing.store.generic.as_mut().unwrap().test_remove_mutable_binding_receipt(scan.checks[0].allocation);
+        assert!(FullVerifier::verify(&missing).is_err(), "scan counter writes require independently prepared original mutable storage");
+        let mut changed = program.clone();
+        changed.store.tags[scan.instruction as usize] = FullTag::StmtForStrLines;
+        assert!(FullVerifier::verify(&changed).is_err(), "a removed scanner body cannot acquire an ordinary line-loop operation");
+        let mut changed = program.clone();
+        let location = super::super::super::IrLocationId::from_raw(scan.payload[3]).unwrap();
+        changed.store.locations[location.index()].len += 1;
+        assert!(FullVerifier::verify(&changed).is_err(), "an unchanged location ID cannot replace the original fused source span");
+        let mut coupled = program.clone();
+        coupled.store.generic.as_mut().unwrap().test_line_scan_mut(scan.instruction).unwrap().checks[0].increment_span = scan.checks[1].increment_span;
+        assert!(FullVerifier::verify(&coupled).is_err(), "counter faults retain their own authored assignment span");
+    });
+}
+
+#[test]
+fn line_scanner_counter_overflow_keeps_authored_assignment_span_on_both_workers() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "pure overflow(text: Bytes) -> Int { var count = 9223372036854775807; for line in text.lines() { if line.starts_with(b\"x\") { count += 1 } }; return count }\n";
+        let program = Arc::new(fixture_source(source, 0));
+        program.symbol_owner().with_current(|| {
+            let scan = program.generic_evidence().unwrap().line_scans().next().expect("overflow uses the actual prepared scanner");
+            assert_eq!(program.store.tags[scan.instruction as usize], FullTag::StmtScanLines);
+            assert_eq!(&source[scan.checks[0].increment_span.range()], "count += 1");
+            for recursive in [false, true] {
+                let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let function = LoweredFunctionKey::Name(Name::intern("overflow"));
+                let arguments = [crate::runtime::value::Value::Bytes(b"x\n".to_vec())];
+                let execute = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure, &arguments, Span::new(program.store.source_id, 0, 0)).expect("the prepared overflow scanner exists");
+                let error = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, execute).expect_err("checked scanner counters refuse overflow");
+                assert_eq!(error.kind, "integer-overflow");
+                assert_eq!(error.span, Some(scan.checks[0].increment_span));
+                assert_eq!(&source[error.span.unwrap().range()], "count += 1");
+            }
+        });
+    });
+}

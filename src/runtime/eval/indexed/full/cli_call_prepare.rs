@@ -95,14 +95,31 @@ impl FullBuilder {
             let recipes = solved.argument_sources.get(&expression).ok_or_else(|| cli_problem("cli_original_recipes_missing"))?;
             if recipes.len() != operation.binding.supplied_slots.len() || recipes.len() != operation.actual_arguments.len() || selected.actual_arguments.len() + offset != arrow.params.len() { return Err(cli_problem("cli_original_binding_count")); }
             let mut arguments = Vec::with_capacity(recipes.len());
+            let mut record_arguments = Vec::new();
+            let mut descriptor_sources = vec![None; argument_sources.len()];
             let mut operands = Vec::with_capacity(recipes.len());
             for (ordinal, ((recipe, &slot), &checked)) in recipes.iter().zip(&operation.binding.supplied_slots).zip(&operation.actual_arguments).enumerate() {
-                let crate::sema::arguments::ArgumentValueSource::Expression(value) = recipe.value else { return Err(cli_problem("cli_argument_recipe_not_prepared")); };
                 let argument = argument_sources.get(slot + offset).copied().flatten().ok_or_else(|| cli_problem("cli_supplied_operand_missing"))?;
-                let actual = self.original_argument_expression(argument, expression, ordinal, recipe, owner)?;
-                if actual != (crate::sema::check::ExpressionIdentity { expression: value, ..expression }) { return Err(cli_problem("cli_operand_original_source_changed")); }
-                let original = solved.expressions.get(&actual).copied().ok_or_else(|| cli_problem("cli_operand_original_type_missing"))?;
-                let original = graph_ground_type(graph, original).map_err(|_| cli_problem("cli_operand_original_type_scope"))?;
+                let original = match recipe.value {
+                    crate::sema::arguments::ArgumentValueSource::Expression(value) => {
+                        let actual = self.original_argument_expression(argument, expression, ordinal, recipe, owner)?;
+                        if actual != (crate::sema::check::ExpressionIdentity { expression: value, ..expression }) { return Err(cli_problem("cli_operand_original_source_changed")); }
+                        let (material, _) = self.argument_initializer_lineage(argument, owner)?;
+                        descriptor_sources[slot + offset] = Some(self.prepared_saved_argument_bindings.get(&material)
+                            .map_or(material, |binding| binding.initializer_source_instruction));
+                        let original = solved.expressions.get(&actual).copied().ok_or_else(|| cli_problem("cli_operand_original_type_missing"))?;
+                        graph_ground_type(graph, original).map_err(|_| cli_problem("cli_operand_original_type_scope"))?
+                    }
+                    crate::sema::arguments::ArgumentValueSource::RecordField { .. } => {
+                        let (receipt, actual) = self.prepare_native_record_argument(expression, ordinal, slot + offset, recipe, argument, owner)?;
+                        // The authored spread record owns descriptor data; the
+                        // saved projection owns only its original field recipe.
+                        descriptor_sources[slot + offset] = Some(receipt.record_source_instruction);
+                        record_arguments.push(receipt);
+                        actual
+                    }
+                    _ => return Err(cli_problem("cli_argument_recipe_not_prepared")),
+                };
                 let selected_argument = selected.actual_arguments.get(slot).copied().flatten().ok_or_else(|| cli_problem("cli_selected_operand_missing"))?;
                 if graph_ground_type(graph, checked).map_err(|_| cli_problem("cli_operand_type_scope"))? != original
                     || graph_ground_type(graph, selected_argument).map_err(|_| cli_problem("cli_selected_operand_scope"))? != original { return Err(cli_problem("cli_original_operand_type_changed")); }
@@ -118,7 +135,7 @@ impl FullBuilder {
             let slots = |slots: &[usize]| slots.iter().map(|&slot| u32::try_from(slot + offset).map_err(|_| cli_problem("cli_slot_overflow"))).collect::<Result<Box<[_]>, _>>();
             let template = graph.candidate(selected.candidate).map_err(|_| cli_problem("cli_original_candidate_template"))?;
             let mut rows = Vec::new();
-            for (slot, argument) in argument_sources.iter().enumerate() {
+            for (slot, argument) in descriptor_sources.iter().enumerate() {
                 let label = self.store.semantic.signature_param(signature, slot).map_err(|_| cli_problem("cli_original_descriptor_slot"))?.0;
                 if matches!(label.as_str().as_str(), "schema" | "commands" | "fallback_command") {
                     if let Some(argument) = argument { capture_cli_descriptor_rows(&self.store, *argument, &mut rows, &mut Vec::new())
@@ -136,7 +153,7 @@ impl FullBuilder {
                 argument_sources: argument_sources.into_boxed_slice(), receiver: None,
             };
             let scope = operation.caller.and_then(|declaration| self.generic_declarations.get(&declaration).copied());
-            let source = self.generic_evidence_mut().add_native_call_source(NativeCallSource { origin: expression, instruction, owner, scope, expected: contract.clone(), result_record_layout: None, record_arguments: Box::new([]) }).map_err(|_| cli_problem("cli_source_allocation"))?;
+            let source = self.generic_evidence_mut().add_native_call_source(NativeCallSource { origin: expression, instruction, owner, scope, expected: contract.clone(), result_record_layout: None, record_arguments: record_arguments.into_boxed_slice(), argument_lineages: Box::new([]), result_refinement: None }).map_err(|_| cli_problem("cli_source_allocation"))?;
             self.generic_evidence_mut().add_ground_native_call(PreparedGroundNativeCall { source, contract }).map_err(|_| cli_problem("cli_proof_allocation"))?;
         }
         Ok(())
@@ -329,4 +346,18 @@ fn prepared_constant_data(value: &LoweredValue, depth: usize, work: &mut usize) 
         }
         _ => Ok(false),
     }
+}
+
+pub(super) fn original_dynamic_cli_candidate(solved: &crate::sema::check::SolvedTypes, origin: crate::sema::check::ExpressionIdentity,
+    metadata: &crate::sema::registry_graph::RegistryCandidate,
+) -> bool {
+    if metadata.owner != RegistryOwner::Module("cli") || metadata.binding != ImplBinding::Native
+        || !matches!((metadata.semantic_rule, metadata.operation),
+            (SemanticRule::CliDescriptor, RuntimeOp::CliParse | RuntimeOp::CliParseFull | RuntimeOp::CliApplet)
+            | (SemanticRule::CliCommands, RuntimeOp::CliCommands)) || solved.registry_boundaries.contains_key(&origin) { return false; }
+    let Some(operation) = solved.operations.get(&origin) else { return false; };
+    if operation.receiver.is_some() { return false; }
+    let expected = GroundNativeCallContract::dynamic_cli_result_type(metadata.operation);
+    graph_ground_type(&solved.graph, operation.result).is_ok_and(|result| result == expected)
+        && solved.expressions.get(&origin).is_some_and(|result| graph_ground_type(&solved.graph, *result).is_ok_and(|result| result == expected))
 }

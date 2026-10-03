@@ -45,6 +45,28 @@ pub(in crate::runtime::eval) struct OriginalStageBlockCallback {
 }
 
 #[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct OriginalStageIdentityFlatMap {
+    pub stage: crate::sema::check::StageIdentity,
+    pub block: crate::syntax::arena::BlockId,
+    pub parameter: Option<(Name, Span)>,
+    pub slot: u32,
+    pub read: OperationSourceOrigin,
+    pub parameter_root: crate::sema::inference::ScopedRoot,
+    pub parameter_type: GroundTypeId,
+}
+
+// The physical worker composes these original operations in source order.
+// The erased callback has no executable read row; its identity port survives
+// as source evidence rather than as an invented instruction.
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct OriginalStageFusion {
+    pub instruction: u32,
+    pub ordinal: u32,
+    pub stages: Box<[crate::sema::check::StageIdentity]>,
+    pub identity_flat_map: Option<OriginalStageIdentityFlatMap>,
+}
+
+#[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct OriginalPreparedStage {
     pub origin: crate::sema::check::StageIdentity,
     pub authority: PreparedOperationAuthority,
@@ -59,6 +81,7 @@ pub(in crate::runtime::eval) struct OriginalPreparedStage {
     pub payload: Box<[u32]>,
     pub callback: Option<OriginalStageBlockCallback>,
     pub result_record_layout: Option<PreparedStageResultRecord>,
+    pub fusion: Option<Arc<OriginalStageFusion>>,
 }
 
 impl OriginalPreparedStage {
@@ -131,7 +154,7 @@ impl StageEvidence {
     pub(super) fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
         self.receipts.capacity() * size_of::<Entry<Arc<OriginalStagePipeline>>>() + self.originals.capacity() * size_of::<Arc<OriginalStagePipeline>>() + self.instructions.capacity() * size_of::<(u32, usize)>() + self.callback_reads.capacity() * size_of::<(u32, usize, usize, usize)>()
-            + self.receipts.iter().map(|entry| size_of::<OriginalStagePipeline>() + 2 * size_of::<usize>() + (entry.value.instruction_payload.len() + entry.value.block_payload.len()) * size_of::<u32>() + entry.value.input_wrappers.len() * size_of::<ValueInitializerWrapper>() + entry.value.input_wrappers.iter().map(|wrapper| wrapper.payload.len() * size_of::<u32>()).sum::<usize>() + entry.value.stages.iter().map(|stage| size_of::<OriginalPreparedStage>() + stage.result_record_layout.as_ref().map_or(0, |layout| layout.schema.retained_bytes()) + stage.authority.retained_bytes() + (stage.effects.inputs.len() * size_of::<(crate::sema::inference::EffectRole, crate::sema::inference::EffectSet)>() + stage.effects.outputs.len() * size_of::<(crate::sema::inference::ProducerRole, crate::sema::inference::EffectSet)>()) + stage.callback.as_ref().map_or(0, |callback| size_of::<OriginalStageBlockCallback>() + callback.parameters.len() * size_of::<Option<(Name, Span)>>() + callback.slots.len() * size_of::<u32>() + callback.types.len() * size_of::<GroundTypeId>() + callback.reads.len() * size_of::<(u32, crate::sema::check::ExpressionIdentity, u32)>()) + stage.arguments.len() * size_of::<crate::sema::check::SolvedArgumentSource>() + (stage.payload.len() + stage.supplied_slots.len() + stage.default_slots.len()) * size_of::<u32>()).sum::<usize>()).sum::<usize>()
+            + self.receipts.iter().map(|entry| size_of::<OriginalStagePipeline>() + 2 * size_of::<usize>() + (entry.value.instruction_payload.len() + entry.value.block_payload.len()) * size_of::<u32>() + entry.value.input_wrappers.len() * size_of::<ValueInitializerWrapper>() + entry.value.input_wrappers.iter().map(|wrapper| wrapper.payload.len() * size_of::<u32>()).sum::<usize>() + entry.value.stages.iter().map(|stage| size_of::<OriginalPreparedStage>() + stage.fusion.as_ref().map_or(0, |fusion| if fusion.stages.first() == Some(&stage.origin) { size_of::<OriginalStageFusion>() + 2 * size_of::<usize>() + fusion.stages.len() * size_of::<crate::sema::check::StageIdentity>() } else { 0 }) + stage.result_record_layout.as_ref().map_or(0, |layout| layout.schema.retained_bytes()) + stage.authority.retained_bytes() + (stage.effects.inputs.len() * size_of::<(crate::sema::inference::EffectRole, crate::sema::inference::EffectSet)>() + stage.effects.outputs.len() * size_of::<(crate::sema::inference::ProducerRole, crate::sema::inference::EffectSet)>()) + stage.callback.as_ref().map_or(0, |callback| size_of::<OriginalStageBlockCallback>() + callback.parameters.len() * size_of::<Option<(Name, Span)>>() + callback.slots.len() * size_of::<u32>() + callback.types.len() * size_of::<GroundTypeId>() + callback.reads.len() * size_of::<(u32, crate::sema::check::ExpressionIdentity, u32)>()) + stage.arguments.len() * size_of::<crate::sema::check::SolvedArgumentSource>() + (stage.payload.len() + stage.supplied_slots.len() + stage.default_slots.len()) * size_of::<u32>()).sum::<usize>()).sum::<usize>()
     }
     pub(super) fn shrink_to_fit(&mut self) { self.receipts.shrink_to_fit(); self.originals.shrink_to_fit(); self.instructions.shrink_to_fit(); self.callback_reads.shrink_to_fit(); }
     fn receipt(&self, index: usize) -> Result<&OriginalStagePipeline, IrVerifyError> {

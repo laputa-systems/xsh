@@ -2,7 +2,7 @@ use super::*;
 use super::super::super::generic::PreparedNativeRecordFieldArgument;
 
 impl FullBuilder {
-    pub(super) fn prepare_native_record_argument(&mut self, call: crate::sema::check::ExpressionIdentity, ordinal: usize, formal_slot: usize,
+    pub(in crate::runtime::eval::indexed::full) fn prepare_native_record_argument(&mut self, call: crate::sema::check::ExpressionIdentity, ordinal: usize, formal_slot: usize,
         recipe: &crate::sema::check::SolvedArgumentSource, instruction: u32, owner: InstructionOwner,
     ) -> Result<(PreparedNativeRecordFieldArgument, Type), IrBuildError> {
         let crate::sema::arguments::ArgumentValueSource::RecordField { record, field } = recipe.value else { return Err(native_problem("native_record_argument_recipe_kind")); };

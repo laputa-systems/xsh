@@ -93,7 +93,7 @@ impl FullBuilder {
         self.generic_evidence_mut().add_mutable_path(MutablePathReceipt { binding: original.binding, statement: original.statement, target: original.target, instruction, owner, slot: original.slot as u32, payload: payload.clone(), encoding, steps: steps.into_boxed_slice(), binding_type, binding_root, selected_type, selected_root: original.selected_type, value, value_tag, value_payload, value_source: original.value_source, value_type, value_root: original.value_type, compound }).map_err(|_| path_problem("mutable_path_receipt"))?;
         if let Some(capture) = capture {
             self.generic_evidence_mut().add_mutable_binding_receipt(super::super::generic::MutableBindingReceipt {
-                binding: original.binding, capture: Some(capture), captured_path: Some(instruction), statement: Some(original.statement), read_origin: None, refinement: None, instruction, owner,
+                binding: original.binding, nominal: None, capture: Some(capture), captured_path: Some(instruction), statement: Some(original.statement), read_origin: None, refinement: None, instruction, owner,
                 tag: expected_tag, payload, binding_type, binding_root, value: Some(value), value_wrappers: Box::new([]), value_source: Some(original.value_source), value_type: Some(value_type), value_root: Some(original.value_type),
                 ordinal: 0, assignment: Some(original.op), compound: None,
             }).map_err(|_| path_problem("mutable_path_original_cell_receipt"))?;

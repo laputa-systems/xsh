@@ -2,6 +2,8 @@
 //! `eval.rs` as a separate `impl Evaluator` block. Registry/bridge methods
 //! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
 
+mod utils_cache;
+pub(super) use utils_cache::PreparedUtilsCache;
 use crate::map_key::{MapKey, MapKeyRef};
 use super::LoweredTypeCheck;
 
@@ -7618,6 +7620,13 @@ impl Evaluator {
             }
             RuntimeOp::UtilsCache if values.len() == 1 || values.len() == 2 => {
                 let callee = values.remove(0);
+                if let LoweredValue::Callable(handle) = callee {
+                    let arguments = if values.is_empty() { Vec::new() } else {
+                        let LoweredValue::List(arguments) = values.remove(0) else { return Err(RuntimeError::new("type-error", "utils.cache expected List args").with_span(span)); };
+                        arguments
+                    };
+                    return self.eval_prepared_utils_cache(handle, arguments, span).map(ControlFlow::Continue);
+                }
                 let call_args = if values.is_empty() {
                     Vec::new()
                 } else {

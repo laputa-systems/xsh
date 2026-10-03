@@ -1,6 +1,34 @@
 use super::*;
 
 impl GenericEvidenceStore {
+    pub(super) fn verify_run_packet_roots(&self, value: &PreparedRunProducer, pools: &SemanticPools, owners: &[Option<InstructionOwner>]) -> Result<(), IrVerifyError> {
+        let Some(packet) = &value.packet else { return Ok(()); };
+        let (source, namespace) = match value.source {
+            ProducerFlowSource::Expression(origin) => (origin.source, origin.namespace),
+            ProducerFlowSource::Statement(origin) => (origin.source, origin.namespace),
+            _ => return Err(failure("run packet has no original command parent")),
+        };
+        for environment in &packet.environment {
+            if environment.span.source_id != source || environment.argument_span.source_id != source
+                || owners.get(environment.instruction as usize) != Some(&Some(value.owner))
+                || !value.operands.iter().any(|operand| operand.instruction == environment.instruction) {
+                return Err(failure("run environment changes its original source or owner"));
+            }
+        }
+        for stdin in &packet.stdin {
+            let OperationSourceOrigin::Expression(origin) = stdin.root.origin else { return Err(failure("run stdin has no original expression")); };
+            if (origin.source, origin.namespace) != (source, namespace) || stdin.span.source_id != source || stdin.argument_span.source_id != source
+                || stdin.kind != crate::syntax::node::RedirectionKind::StdinRead || stdin.mode > 1
+                || owners.get(stdin.root.instruction as usize) != Some(&Some(value.owner))
+                || self.registered_instruction_origin(stdin.root.instruction, false) != Some((stdin.root.origin, value.owner))
+                || pools.to_type(stdin.root.ty)? != stdin.root.original_type || stdin.root.original_type != crate::sema::types::Type::Path
+                || !value.operands.iter().any(|operand| operand.instruction == stdin.root.instruction) {
+                return Err(failure("run stdin changes its original source, owner or checked Path type"));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn verify_run_argument_roots(&self, value: &PreparedRunProducer, pools: &SemanticPools, owners: &[Option<InstructionOwner>]) -> Result<(), IrVerifyError> {
         use crate::sema::check::RunArgumentMode;
         use crate::sema::types::Type;

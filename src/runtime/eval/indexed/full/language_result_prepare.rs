@@ -7,7 +7,11 @@ impl FullVerifier {
     pub(super) fn verify_language_result_operand(store: &FullStore, generic: &GenericEvidenceStore, instruction: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>) -> Result<bool, IrVerifyError> {
         if store.tags.get(instruction as usize) != Some(&FullTag::ExprBinary) { return Ok(false); }
         let Some(operation) = generic.operation_at(instruction)? else { return Ok(false); };
+        if operation.tag_equality.is_some() { return Self::verify_tag_equality_operand(store, generic, instruction, owner, expected, instance, active); }
         let PreparedOperationAuthority::Language { operation: language, .. } = operation.authority else { return Ok(false); };
+        if matches!(language, PreparedLanguageOperation::Membership { .. }) {
+            return Self::verify_membership_operand(store, generic, instruction, owner, expected, instance, active);
+        }
         let (op, domain, result) = match language {
             PreparedLanguageOperation::Arithmetic { op, domain: ArithmeticDomain::Float } => (op, Type::Float, Type::Float),
             PreparedLanguageOperation::Arithmetic { op, domain: ArithmeticDomain::Integer { left: Atom::Int, right: Atom::Int } } => (op, Type::Int, Type::Int),

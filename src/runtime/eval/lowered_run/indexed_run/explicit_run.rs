@@ -32,10 +32,11 @@ enum FrameFieldProjection {
     Slot(u32),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum FrameInvocationAuthority {
     User(UserInvocationAuthority),
     Native(NativeInvocationPlanId),
+    Module(super::module_invocation_run::PreparedModuleCallable),
 }
 
 // A prepared field slot indexes this storage directly; compact record forms
@@ -179,6 +180,7 @@ enum FrameContinuation {
     IndexValue { base: LoweredValue, span: Span, next: Box<FrameContinuation> },
     ModuleArguments { call_instruction: u32, op: super::RuntimeOp, cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>, descriptor: Option<super::super::super::indexed::generic::PreparedCliDescriptor>, args: Vec<Option<u32>>, position: usize, values: Vec<Option<LoweredValue>>, span: Span, next: Box<FrameContinuation> },
     BinaryLeft {
+        instruction: u32,
         op: BinaryOp,
         operation: Option<ConcreteOperationId>,
         right: u32,
@@ -186,6 +188,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     BinaryRight {
+        instruction: u32,
         op: BinaryOp,
         operation: Option<ConcreteOperationId>,
         left: LoweredValue,
@@ -259,6 +262,7 @@ enum FrameContinuation {
     YieldDelegate {
         span: Span,
     },
+    ModuleCallee { instruction: u32, args: Vec<(u32, u32)>, span: Span, next: Box<FrameContinuation> },
     DynamicCallee { plan: Option<FrameInvocationAuthority>, args: Vec<(u32, u32)>, span: Span, next: Box<FrameContinuation> },
     DynamicArguments { plan: Option<FrameInvocationAuthority>, callee: LoweredValue, args: Vec<(u32, u32)>, argument: usize, values: IndexedCallArguments, span: Span, next: Box<FrameContinuation> },
     CallArguments {
@@ -396,6 +400,7 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
             | FrameContinuation::MatchExprValue { next, .. }
             | FrameContinuation::MatchExprGuard { next, .. }
             | FrameContinuation::CallArguments { next, .. }
+            | FrameContinuation::ModuleCallee { next, .. }
             | FrameContinuation::DynamicCallee { next, .. }
             | FrameContinuation::DynamicArguments { next, .. }
             | FrameContinuation::Try { next, .. }
@@ -1213,6 +1218,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         self.evaluator.frame_scratch.recycle_call_args(args);
+        if let Some(FrameInvocationAuthority::Module(callable)) = plan {
+            let value = self.evaluator.eval_indexed_module_callable(callable, values, span)?;
+            self.push_value(index, FrameValue::Value(value), next);
+            return Ok(());
+        }
         if let Some(FrameInvocationAuthority::Native(plan)) = plan {
             let flow = self.evaluator.eval_indexed_native_callable(&self.calls[index].execution, plan, &callee, values, span)?;
             self.push_value(index, match flow { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) }, next);
@@ -2069,6 +2079,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_expr(index, first, span, FrameContinuation::ComparisonLeft { pairs, assertion, next: Box::new(next) });
             }
             FullTag::ExprBinary => {
+                self.calls[index].execution.tag_equality(instruction).map_err(|error| indexed_error(error, span))?;
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let left = indexed_raw(&mut payload, span)?;
                 let right = indexed_raw(&mut payload, span)?;
@@ -2084,6 +2095,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     left,
                     value_span,
                     FrameContinuation::BinaryLeft {
+                        instruction,
                         op,
                         operation,
                         right,
@@ -2129,6 +2141,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FullTag::ExprMatch => {
+                let next = if let Some((check, check_span)) = self.calls[index].execution.prepared_fallback(instruction).map_err(|error| indexed_error(error, span))? {
+                    FrameContinuation::CheckedValue { check, span: check_span, next: Box::new(next) }
+                } else { next };
+                self.calls[index].execution.tag_constructor_argument_wrapper(instruction).map_err(|error| indexed_error(error, span))?;
                 let value = indexed_raw(&mut payload, span)?;
                 let (_, mut arms) = self.calls[index]
                     .execution
@@ -2327,6 +2343,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprResultFallback => {
+                let next = if let Some((check, check_span)) = self.calls[index].execution.prepared_fallback(instruction).map_err(|error| indexed_error(error, span))? {
+                    FrameContinuation::CheckedValue { check, span: check_span, next: Box::new(next) }
+                } else { next };
                 let left = indexed_raw(&mut payload, span)?;
                 let right = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
@@ -2455,7 +2474,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(index, callee, value_span, FrameContinuation::DynamicCallee { plan, args, span: value_span, next: Box::new(next) });
+                let module_receiver = self.calls[index].execution.module_invocation_source(instruction).map_err(|error| indexed_error(error, value_span))?.map(|source| source.receiver_instruction);
+                if let Some(receiver) = module_receiver {
+                    self.push_expr(index, receiver, value_span, FrameContinuation::ModuleCallee { instruction, args, span: value_span, next: Box::new(next) });
+                } else {
+                    self.push_expr(index, callee, value_span, FrameContinuation::DynamicCallee { plan, args, span: value_span, next: Box::new(next) });
+                }
             }
             FullTag::ExprField => {
                 let base = indexed_raw(&mut payload, span)?;
@@ -2504,6 +2528,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.step_module_arguments(index, instruction, op, cli_plan, descriptor, args, 0, Vec::new(), value_span, next)?;
             }
             FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
+                if tag == FullTag::ExprCall { self.calls[index].execution.verify_hash_policy_call(instruction).map_err(|error| indexed_error(error, span))?; }
                 let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
                     indexed_decode(&mut payload, &self.calls[index].execution, span)?
                 } else {
@@ -2781,6 +2806,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
                         FrameContinuation::BinaryLeft {
+                instruction,
                 op,
                 operation,
                 right,
@@ -2805,6 +2831,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     right,
                     span,
                     FrameContinuation::BinaryRight {
+                        instruction,
                         op,
                         operation,
                         left,
@@ -2817,20 +2844,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::BinaryRight {
+                instruction,
                 op,
                 operation,
                 left,
                 span,
                 next,
             } => match value {
-                FrameValue::Value(right) => self.push_value(
-                    index,
-                    FrameValue::Value(match operation {
+                FrameValue::Value(right) => {
+                    self.calls[index].execution.tag_equality_values(instruction, &left, &right).map_err(|error| indexed_error(error, span))?;
+                    self.push_value(index, FrameValue::Value(match operation {
                         Some(operation) => execute_operation(operation, &left, &right, span)?,
                         None => lowered_binary_value(op, left, right, span)?,
-                    }),
-                    *next,
-                ),
+                    }), *next);
+                },
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
@@ -3111,6 +3138,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
+            },
+            FrameContinuation::ModuleCallee { instruction, args, span, next } => match value {
+                FrameValue::Value(receiver) => {
+                    let callable = self.evaluator.checked_indexed_module_callable(&self.calls[index].execution, instruction, &receiver, span)?;
+                    self.push_dynamic_arguments(index, Some(FrameInvocationAuthority::Module(callable)), receiver, args, 0, IndexedCallArguments::default(), span, *next)?;
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::DynamicCallee { plan, args, span, next } => match value {
                 FrameValue::Value(callee) => self.push_dynamic_arguments(index, plan, callee, args, 0, IndexedCallArguments::default(), span, *next)?,

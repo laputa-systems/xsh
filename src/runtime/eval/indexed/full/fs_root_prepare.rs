@@ -8,6 +8,8 @@ pub(super) fn fs_root_receiver_type(source: Type, saved: Option<&PreparedNativeR
     match source {
         Type::FsRoot if !propagation => Ok(Type::FsRoot),
         Type::Result(inner, error) if propagation && *inner == Type::FsRoot && *error == Type::Error => Ok(Type::FsRoot),
+        Type::Optional(inner) if !propagation && *inner == Type::FsRoot
+            && saved.is_some_and(|saved| saved.guarded_read.is_some()) => Ok(Type::FsRoot),
         _ => Err(IrVerifyError::new("filesystem root receiver changes its original capability or Result propagation")),
     }
 }

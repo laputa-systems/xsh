@@ -100,7 +100,7 @@ impl Evaluator {
         Ok(())
     }
 
-    pub(super) fn eval_indexed_prepared_callable(&mut self, handle: RuntimeCallableValue, arguments: IndexedCallArguments, span: Span) -> Result<LoweredValue, RuntimeError> {
+    pub(in crate::runtime::eval::lowered_run) fn eval_indexed_prepared_callable(&mut self, handle: RuntimeCallableValue, arguments: IndexedCallArguments, span: Span) -> Result<LoweredValue, RuntimeError> {
         let program = Arc::clone(handle.program());
         let view = program.function_view_by_id(handle.contract().target).map_err(|error| indexed_error(error, span))?;
         let header = view.header().map_err(|error| indexed_error(error, span))?;

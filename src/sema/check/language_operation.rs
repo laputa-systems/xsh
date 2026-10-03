@@ -1,6 +1,6 @@
 use super::{CallBinding, Checker, SolvedOperation, Type};
 use crate::sema::inference::{EffectSet, EffectSummary, InferenceError, OperationCall};
-use crate::syntax::arena::{ArenaProgram, ExprId};
+use crate::syntax::arena::{ArenaExprKind, ArenaProgram, ExprId};
 use crate::syntax::node::{BinaryOp, UnaryOp};
 
 #[derive(Clone, Copy)]
@@ -14,7 +14,25 @@ impl Checker {
             return self.generic.borrow().facts.operations.get(&identity).map(|operation| self.graph_view(operation.result)).unwrap_or(Type::Invalid);
         }
         let outcome = (|| {
-            let actuals = operands.iter().map(|operand| self.graph_type(operand, span)).collect::<Result<Vec<_>, _>>()?;
+            let equality_children = if matches!(operator, LanguageOperator::Binary(BinaryOp::Eq | BinaryOp::Ne))
+                && let ArenaExprKind::Binary { left, right, .. } = arena.arena.expr(expression).kind {
+                Some([left, right])
+            } else { None };
+            let empty_operands = equality_children.into_iter().flatten().enumerate().filter_map(|(index, child)| {
+                matches!(arena.arena.expr(child).kind, ArenaExprKind::List(items) if arena.arena.list_elements(items).next().is_none())
+                    .then(|| (index, self.expression_identity(arena, child)))
+            }).collect::<Vec<_>>();
+            let actuals = if !empty_operands.is_empty() {
+                let sources = equality_children.unwrap().map(|child| self.expression_identity(arena, child));
+                let state = self.generic.borrow();
+                sources.into_iter().map(|source| {
+                    if state.facts.expression_owners.get(&source).copied() != self.current_generic {
+                        return Err(InferenceError::Boundary("empty equality counterpart changes its original caller"));
+                    }
+                    state.facts.expressions.get(&source).copied()
+                        .ok_or(InferenceError::Boundary("empty equality counterpart requires its original checked type"))
+                }).collect::<Result<Vec<_>, _>>()?
+            } else { operands.iter().map(|operand| self.graph_type(operand, span)).collect::<Result<Vec<_>, _>>()? };
             let expected = expected.map(|expected| self.graph_type(expected, span)).transpose()?;
             let level = self.local_initializer_level.unwrap_or(if self.current_generic.is_some() { 1 } else { 0 });
             let mut state = self.generic.borrow_mut();
@@ -45,10 +63,30 @@ impl Checker {
             } else {
                 (arguments.iter().copied().map(Some).collect(), (0..arguments.len()).collect(), Vec::new())
             };
+            let empty_operands = empty_operands.into_iter().map(|(index, source)| {
+                state.facts.expressions.get(&source).copied().map(|original| (index, original))
+                    .ok_or(InferenceError::Boundary("empty equality operand requires its original checked type"))
+            }).collect::<Result<Vec<_>, _>>()?;
             let graph = &mut state.facts.graph;
             let result = graph.fresh(level, span)?;
             let effects = EffectSummary::Closed(EffectSet::EMPTY);
             let why = graph.reason(span, None)?;
+            for (index, original) in empty_operands {
+                if graph.resolved(original)? != graph.resolved(arguments[index])? {
+                    return Err(InferenceError::Boundary("empty equality operand changes its original checked type"));
+                }
+                let counterpart = arguments[1 - index];
+                // An authored empty literal has no element contributions. Its
+                // existing List counterpart supplies that element expectation;
+                // independent unknown operands retain their own identities.
+                match graph.node(graph.resolved(counterpart)?)? {
+                    crate::sema::inference::TypeNode::List(_) => graph.unify(original, counterpart, why)?,
+                    crate::sema::inference::TypeNode::Meta(_) | crate::sema::inference::TypeNode::Rigid { .. } => {
+                        return Err(InferenceError::Boundary("empty list equality needs an independently established List operand"));
+                    }
+                    _ => {},
+                }
+            }
             let requirement = graph.require_operation(family, OperationCall { binding: crate::sema::inference::OperationBinding::Slots, effect_mode: crate::sema::inference::OperationEffectMode::AvailableBudget, mono_authority: None, declared_error_bound: None, receiver, arguments: supplied, result, effects, effect_bindings: Vec::new(), output_effect_bindings: Vec::new() }, why)?;
             graph.solve()?;
             if let Some(expected) = expected { graph.assignable(expected, result, why)?; graph.solve()?; }
@@ -68,6 +106,51 @@ mod tests {
     use super::super::Checker;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn equality_empty_list_literals_retain_the_original_counterpart_element_type() {
+        use crate::sema::inference::{Atom, TypeNode};
+        for expression in ["[\"word\"] == []", "[] == [\"word\"]", "[\"word\"] != []", "[] != [\"word\"]", "\"\".wrap(5) == []", "\"\".fields() == []"] {
+            let source = format!("pure compared() -> Bool {{ {expression} }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{expression}: {:?}", parsed.diagnostics);
+            let output = Checker::check_arena(&parsed.arena, &source);
+            assert!(output.diagnostics.is_empty(), "{expression}: {:?}", output.diagnostics);
+            let empty = output.solved.expressions.iter().find_map(|(identity, ty)| {
+                matches!(parsed.arena.arena.expr(identity.expression).kind, crate::syntax::arena::ArenaExprKind::List(items) if parsed.arena.arena.list_elements(items).next().is_none()).then_some(*ty)
+            }).unwrap();
+            let graph = &output.solved.graph;
+            let TypeNode::List(item) = graph.node(graph.resolved(empty).unwrap()).unwrap() else { panic!("original empty literal remains a List") };
+            assert!(matches!(graph.node(graph.resolved(*item).unwrap()).unwrap(), TypeNode::Atom(Atom::Str)));
+            assert!(output.solved.operations.values().any(|operation| operation.actual_arguments.contains(&empty)), "equality retains the original literal root instead of importing another List shell");
+            drop(parsed);
+            output.solved.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn equality_empty_list_context_preserves_definition_owned_parameters_and_refusals() {
+        for calls in ["let number: Bool = forwarded(1)\nlet word: Bool = forwarded(\"one\")\n", "let word: Bool = forwarded(\"one\")\nlet number: Bool = forwarded(1)\n"] {
+            let source = format!("pure compared(value) {{ [value] == [] }}\npure forwarded(value) {{ compared(value) }}\n{calls}");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let output = Checker::check_arena(&parsed.arena, &source);
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert!(output.solved.declarations.values().all(|declaration| !output.solved.graph.scheme(declaration.scheme).unwrap().requirements.is_empty()));
+            drop(parsed);
+            output.solved.validate().unwrap();
+        }
+        for source in ["pure compared() -> Bool { [] == [] }\n", "pure compared(value) { value == [] }\n", "pure compared() -> Bool { [1] == [\"one\"] }\n", "pure compared() -> Bool { let empty: List[Int] = []; empty == [\"one\"] }\n"] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let output = Checker::check_arena(&parsed.arena, source);
+            assert!(!output.diagnostics.is_empty(), "{source}");
+            if source == "pure compared(value) { value == [] }\n" {
+                assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-relationship")
+                    && diagnostic.message.contains("empty list equality needs an independently established List operand")), "{:?}", output.diagnostics);
+            }
+        }
+    }
 
     fn selected_language_operations(output: &super::super::CheckOutput) -> Vec<crate::sema::operation_graph::OperationCandidate> {
         output.solved.calls.values().flat_map(|call| &call.requirements).filter_map(|requirement| {

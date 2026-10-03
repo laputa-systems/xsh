@@ -23,6 +23,7 @@ pub(in crate::runtime::eval) struct ConditionalValue {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum ConditionalTerminalValue {
     Expression(ConditionalValue),
+    StatementRead { instruction: u32, expected: TypeRef, parameter: Option<u32> },
     PatternCapture { instruction: u32, identity: PatternCaptureIdentity, expected: TypeRef },
 }
 
@@ -56,6 +57,8 @@ pub(in crate::runtime::eval) struct ConditionalResultSource {
     pub scope: Option<SchemeScopeId>,
     pub expected: TypeRef,
     pub kind: ConditionalKind,
+    pub creation_required: bool,
+    pub creation_check: Option<(u32, Box<[u32]>)>,
     pub subject: Option<ConditionalValue>,
     pub arms: Box<[ConditionalArm]>,
     pub fallback: Option<ConditionalBody>,
@@ -88,6 +91,17 @@ fn body_bytes(body: &ConditionalBody) -> usize {
     }
 }
 
+// A UInt conditional validates its selected value at creation. The branch
+// retains its authored Int domain until that original guard succeeds.
+fn conditional_result_relation(store: &GenericEvidenceStore, pools: &super::super::semantic::SemanticPools,
+    source: &ConditionalResultSource, actual: TypeRef, expected: TypeRef,
+) -> Result<(), IrVerifyError> {
+    if source.creation_check.is_some()
+        && store.normalized_reference(pools, source.scope, actual)? == NormalizedType::Scalar(crate::sema::types::Type::Int)
+        && store.normalized_reference(pools, source.scope, expected)? == NormalizedType::Scalar(crate::sema::types::Type::UInt) { return Ok(()); }
+    pattern_result_relation(store, pools, source.scope, actual, expected)
+}
+
 impl ConditionalEvidence {
     pub(super) fn checkpoint(&self) -> ConditionalCheckpoint { ConditionalCheckpoint { sources: self.sources.len() } }
     pub(super) fn validate_checkpoint(&self, checkpoint: ConditionalCheckpoint, serial_limit: u64) -> Result<(), IrVerifyError> {
@@ -110,7 +124,7 @@ impl ConditionalEvidence {
             + self.instructions.capacity() * size_of::<(u32, usize)>() + self.sources.len() * (size_of::<ConditionalResultSource>() + 2 * size_of::<usize>())
             + self.sources.iter().map(|entry| {
                 let source = &entry.value;
-                source.arms.len() * size_of::<ConditionalArm>() + (source.instruction_payload.len() + source.block_payload.len()) * size_of::<u32>()
+                source.creation_check.as_ref().map_or(0, |(_, payload)| payload.len() * size_of::<u32>()) + source.arms.len() * size_of::<ConditionalArm>() + (source.instruction_payload.len() + source.block_payload.len()) * size_of::<u32>()
                     + source.subject.as_ref().map(value_bytes).unwrap_or(0) + source.fallback.as_ref().map(body_bytes).unwrap_or(0)
                     + source.arms.iter().map(|arm| arm.condition.as_ref().map(value_bytes).unwrap_or(0)
                         + arm.guard.as_ref().map(value_bytes).unwrap_or(0) + body_bytes(&arm.body)).sum::<usize>()
@@ -162,7 +176,7 @@ impl GenericEvidenceStore {
                 match body {
                     ConditionalBody::Authored { value, terminal } => {
                         check_value(value)?;
-                        pattern_result_relation(self, pools, source.scope, value.expected, source.expected)?;
+                        conditional_result_relation(self, pools, source, value.expected, source.expected)?;
                         if let Some((statement, identity, tail)) = terminal {
                             if owners.get(*statement as usize) != Some(&Some(source.owner))
                                 || (identity.source, identity.namespace) != (source.origin.source, source.origin.namespace)
@@ -171,6 +185,15 @@ impl GenericEvidenceStore {
                             }
                             let expected = match tail {
                                 ConditionalTerminalValue::Expression(tail) => { check_value(tail)?; tail.expected }
+                                ConditionalTerminalValue::StatementRead { instruction, expected, parameter } => {
+                                    if owners.get(*instruction as usize) != Some(&Some(source.owner))
+                                        || self.registered_instruction_origin(*instruction, false) != Some((OperationSourceOrigin::Statement(*identity), source.owner))
+                                        || parameter.is_none() && self.value_binding_use(*instruction)?.is_none() {
+                                        return Err(failure("conditional bare tail loses its original lexical read"));
+                                    }
+                                    self.normalized_reference(pools, source.scope, *expected)?;
+                                    *expected
+                                }
                                 ConditionalTerminalValue::PatternCapture { instruction, identity: original, expected } => {
                                     let use_ = self.pattern_use(*instruction).ok_or_else(|| failure("conditional capture tail loses its original read"))?;
                                     let capture = self.pattern_capture(use_.capture)?;
@@ -184,7 +207,7 @@ impl GenericEvidenceStore {
                                     *expected
                                 }
                             };
-                            pattern_result_relation(self, pools, source.scope, expected, value.expected)?;
+                            conditional_result_relation(self, pools, source, expected, value.expected)?;
                         }
                     }
                     ConditionalBody::Boolean { instruction, .. } => {
@@ -197,6 +220,13 @@ impl GenericEvidenceStore {
                 }
                 Ok(())
             };
+            if source.creation_required != source.creation_check.is_some() { return Err(failure("conditional result loses its original creation boundary")); }
+            if let Some((instruction, payload)) = &source.creation_check {
+                if owners.get(*instruction as usize) != Some(&Some(source.owner)) || payload.len() < 2 || payload[0] != source.instruction
+                    || GroundTypeId::from_raw(payload[1]).and_then(|ty| pools.to_type(ty).ok()) != Some(crate::sema::types::Type::UInt) {
+                    return Err(failure("conditional creation changes its original guard owner or selected type"));
+                }
+            }
             check_origin(source.instruction, source.origin)?;
             self.normalized_reference(pools, source.scope, source.expected)?;
             if let Some(scope) = source.scope && source.owner != InstructionOwner::Function(self.scope(scope)?.owner) {

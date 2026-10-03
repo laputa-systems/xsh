@@ -148,13 +148,6 @@ struct LoweredModuleCallArgs {
     args: Vec<Option<ExprId>>,
 }
 
-struct LoweredHashVerifyFileArgs {
-    path: ExprId,
-    /// The algorithm the checksum argument's name selected.
-    algorithm: &'static str,
-    expected: ExprId,
-}
-
 struct LoweredAbortArgs {
     status: ExprId,
     force: Option<ExprId>,
@@ -355,100 +348,6 @@ fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProce
         ignore_hup: slots[12],
         cpu_max: slots[13],
         accept: slots[14],
-    })
-}
-
-fn lowered_module_call_args(
-    module: Name,
-    name: Name,
-    args: &[ArenaCallArg],
-) -> Option<LoweredModuleCallArgs> {
-    if module == "fs" && name == "hardlink" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 2 {
-            return Some(LoweredModuleCallArgs {
-                semantic_rule: crate::modules::signature::SemanticRule::Standard,
-                op: RuntimeOp::FsHardlink,
-                args: positional.into_iter().map(Some).collect(),
-            });
-        }
-    }
-    if module == "mime" && name == "lookup_ext" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 1 {
-            return Some(LoweredModuleCallArgs {
-                semantic_rule: crate::modules::signature::SemanticRule::Standard,
-                op: RuntimeOp::MimeLookupExt,
-                args: positional.into_iter().map(Some).collect(),
-            });
-        }
-    }
-    if module == "mime" && name == "lookup_path" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 1 {
-            return Some(LoweredModuleCallArgs {
-                semantic_rule: crate::modules::signature::SemanticRule::Standard,
-                op: RuntimeOp::MimeLookupPath,
-                args: positional.into_iter().map(Some).collect(),
-            });
-        }
-    }
-    let overloads = api_spec().module_overloads(&module.as_str(), &name.as_str())?;
-    let mut matched = None;
-    for sig in overloads {
-        // A script-backed entry must use its prepared implementation rather
-        // than the native operation slot carried by the same signature. The
-        // script route runs first and reports an unprepared module as a
-        // missing-target diagnostic.
-        if sig.script_impl().is_some() {
-            continue;
-        }
-        if lowered_module_sig_type(sig).is_none() {
-            continue;
-        }
-        if let Some(bindings) = compact_module_bindings(args, sig) {
-            matched = Some((sig, bindings));
-            break;
-        }
-    }
-    let (sig, bindings) = matched?;
-    let mut lowered_args = Vec::new();
-    for binding in bindings {
-        lowered_args.push(match binding { Some(index) => Some(compact_call_arg_expr(&args[index])?), None => None });
-    }
-    while lowered_args.last().is_some_and(Option::is_none) { lowered_args.pop(); }
-    Some(LoweredModuleCallArgs {
-        semantic_rule: sig.semantic_rule,
-        op: sig.op,
-        args: lowered_args,
-    })
-}
-
-fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerifyFileArgs> {
-    let [path, checksum] = args else {
-        return None;
-    };
-    let path = match path.kind {
-        ArenaCallArgKind::Positional(expr) => expr,
-        ArenaCallArgKind::Named { name, value, .. } if name == "path" => value,
-        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-    };
-    let ArenaCallArgKind::Named { name, value, .. } = checksum.kind else {
-        return None;
-    };
-    // The name is carried as text so the embedded implementation selects the
-    // algorithm; the digest primitive it then calls is chosen by that name.
-    let algorithm = match name.as_str().as_str() {
-        "md5" => "md5",
-        "sha1" => "sha1",
-        "sha256" => "sha256",
-        "sha512" => "sha512",
-        _ => return None,
-    };
-    Some(LoweredHashVerifyFileArgs {
-        path,
-        algorithm,
-        expected: value,
     })
 }
 
@@ -6380,28 +6279,35 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return self.record_pattern_statement_admissions(row, id, &conditions);
                 }
                 let lowered = lowered.into_iter().map(|(condition, body, _)| (condition, body)).collect::<Vec<_>>();
+                // Field-presence reads attest the original membership operands and successful branch.
+                let preserve_field_presence = self.solved().field_presence_reads.values()
+                    .any(|original| original.control == self.statement_identity(id));
                 let mut bool_branches = Vec::with_capacity(lowered.len());
                 for (condition, body) in &lowered {
-                    let Some(condition) = self.lower_bool_expr_candidate(condition) else {
-                        return Some(push_build_row!(
+                    let Some(condition) = (if preserve_field_presence { None } else { self.lower_bool_expr_candidate(condition) }) else {
+                        let row = push_build_row!(
                             self,
                             stmt,
                             BuildStmtRow::If {
                                 branches: lowered,
                                 else_body,
                             }
-                        ));
+                        );
+                        self.record_original_field_presence_control(id, row)?;
+                        return Some(row);
                     };
                     bool_branches.push((condition, body.clone()));
                 }
-                Some(push_build_row!(
+                let row = push_build_row!(
                     self,
                     stmt,
                     BuildStmtRow::IfBool {
                         branches: bool_branches,
                         else_body,
                     }
-                ))
+                );
+                self.record_original_field_presence_control(id, row)?;
+                Some(row)
             }
             ArenaStmtKind::While { condition, block } => {
                 let has_pattern = matches!(self.program.arena.expr(condition).kind, ArenaExprKind::PatternCondition { .. });
@@ -6524,20 +6430,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let span = self.program.arena.stmt(id).span;
                 if str_lines_base.is_some() {
                     let body = self.try_lower_scan_bytes(slot, &body, span).unwrap_or(body);
-                    if let Some(scan) = self.try_lower_scan_lines(&text_or_iter, slot, &body, span)
+                    if let Some(scan) = self.try_lower_original_scan_lines(id, target, &iteration, text_or_iter, slot, &body, span)
                     {
                         Some(scan)
                     } else {
-                        Some(push_build_row!(
-                            self,
-                            stmt,
-                            BuildStmtRow::ForStrLines {
-                                slot,
-                                text: text_or_iter,
-                                body,
-                                span,
-                            }
-                        ))
+                        let row = push_build_row!(self, stmt, BuildStmtRow::ForStrLines { slot, text: text_or_iter, body, span });
+                        self.record_checked_iteration_binding(id, target, &iteration, row, text_or_iter, slot)?;
+                        Some(row)
                     }
                 } else {
                     let row = push_build_row!(self, stmt, BuildStmtRow::For { slot, iter: text_or_iter, body, span });
@@ -7402,7 +7301,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             let capture = push_build_row!(self, expr, BuildExprRow::RunCapture(Box::new(capture)));
             let continuation = if run.propagate && capture_kind { push_build_row!(self, expr, BuildExprRow::Try(capture)) } else { capture };
             if let Some(original) = self.solved().run_operations.iter().find_map(|(key, operation)| (key.run == id && key.source == self.program.arena.span(run.span).source_id && key.namespace == self.current_namespace).then_some(operation)) {
-                self.scratch.borrow_mut().run_producer_origins.insert(continuation, super::indexed::full::BuildRunProducerOrigin { source: original.parent, run: id, capture, continuation, spawn: None });
+                self.scratch.borrow_mut().run_producer_origins.insert(continuation, super::indexed::full::BuildRunProducerOrigin { source: original.parent, run: id, capture, continuation, spawn: None, packet: self.original_run_packet_source(id) });
             }
             Some(continuation)
         } else {
@@ -7792,6 +7691,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         self.record_host_binding_read(id, lowered, slots)?;
         self.record_lexical_capture_read(id, lowered, slots)?;
+        self.record_original_captured_callable_read(id, lowered, slots)?;
         self.record_formatted_path(id, lowered)?;
         let solved = self.solved();
         let material = solved.calls.contains_key(&origin) || solved.invocations.contains_key(&origin) || solved.projections.contains_key(&origin)
@@ -7812,7 +7712,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         self.record_original_record_source(id, lowered)?;
         self.record_original_record_update(id, lowered)?;
-        self.record_conditional_result(id, self.original_source_instruction(lowered)?)?;
+        self.record_conditional_result(id, lowered)?;
         if let Some(&result) = self.solved().result_wrappings.get(&origin) {
             self.wrap_result_completion(lowered, result)
         } else { Some(lowered) }
@@ -7825,6 +7725,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        if self.original_tag_constructor_application(id) { return self.lower_original_tag_constructor_call(id, slots, current_function, item_slot); }
         if self.original_error_constructor_plan(id).is_some() { return self.lower_original_error_constructor_call(id, slots, current_function, item_slot); }
         if self.original_record_constructor_plan(id).is_some() {
             return self.lower_original_record_constructor_call(id, slots, current_function, item_slot);
@@ -7979,7 +7880,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     let source_type = crate::sema::inference::ScopedRoot { ty, scope: self.solved().expression_scope(origin, self.solved().expression_owners.get(&origin).copied()).ok()? };
                     self.scratch.borrow_mut().run_producer_origins.insert(row, super::indexed::full::BuildRunProducerOrigin {
                         source: crate::sema::check::ProducerFlowSource::Expression(origin), run, capture: row, continuation: row,
-                        spawn: Some(super::indexed::full::BuildSpawnRunOrigin { origin, source_type, target }),
+                        spawn: Some(super::indexed::full::BuildSpawnRunOrigin { origin, source_type, target }), packet: self.original_run_packet_source(run),
                     });
                 }
                 Some(row)
@@ -8152,18 +8053,27 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 let uint_key = matches!(op, BinaryOp::In | BinaryOp::NotIn) && matches!(self.infer_checked_expr_type_with_slots(right, slots), Some(Type::Map(key, _)) if *key == Type::UInt);
-                let lowered_left = self.lower_expr(left, slots, current_function, item_slot)?;
+                let material_left = self.lower_expr(left, slots, current_function, item_slot)?;
+                let lowered_left = material_left;
                 let lowered_left = if uint_key { self.require_uint_key(lowered_left, self.program.arena.expr(left).span) } else { lowered_left };
                 let duration_operands = self.bodies.expr_types.get(&left) == Some(&Type::Duration)
                     || self.bodies.expr_types.get(&right) == Some(&Type::Duration)
                     || self.infer_checked_expr_type_with_slots(left, slots) == Some(Type::Duration)
                     || self.infer_checked_expr_type_with_slots(right, slots) == Some(Type::Duration);
+                let lowered_right = self.lower_expr(right, slots, current_function, item_slot)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Binary {
                     op,
                     left: lowered_left,
-                    right: self.lower_expr(right, slots, current_function, item_slot)?,
+                    right: lowered_right,
                     span,
                 });
+                if let Some(original) = super::indexed::full::BuildMembershipSource::from_authored(self.program, self.solved(),
+                    self.expression_identity(id), material_left, lowered_left, lowered_right).ok()? {
+                    self.scratch.borrow_mut().membership_origins.insert(value, original);
+                }
+                if let Some(original) = super::indexed::full::BuildTagEqualitySource::from_authored(self.program, self.solved(), self.expression_identity(id), lowered_left, lowered_right).ok()? {
+                    self.scratch.borrow_mut().tag_equality_origins.insert(value, original);
+                }
                 if duration_operands { self.scratch.borrow_mut().duration_binary_expressions.insert(value.index()); }
                 let ty = if op == BinaryOp::Add { self.infer_checked_expr_type_with_slots(id, slots) } else { None };
                 Some(match ty { Some(ty) => self.checked_unsigned_value(value, &ty, span), None => value })
@@ -8318,7 +8228,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let lowered_index = self.lower_expr(index, slots, current_function, item_slot)?;
                 let lowered_index = if uint_key { self.require_uint_key(lowered_index, self.program.arena.expr(index).span) } else { lowered_index };
                 let value = push_build_row!(self, expr, BuildExprRow::Index { base: lowered_base, index: lowered_index, span });
-                if !guarded { self.record_original_index(id, base, index, lowered_base, lowered_index, value)?; }
+                self.record_original_index(id, base, index, lowered_base, lowered_index, value)?;
                 Some(value)
             },
             ArenaExprKind::Slice { base, start, end, guarded } => Some(push_build_row!(
@@ -8493,7 +8403,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         Some(self.original_source_instruction(producer)?)
                     } else { None }
                 } else { None };
-                self.scratch.borrow_mut().try_capture_origins.insert(row, super::indexed::full::BuildTryCaptureOrigin { origin, block, source_type: root(origin)?, body: body.into_boxed_slice(), completion, propagation, propagation_row, retry: None });
+                let error_capture = self.solved().error_capture_receipt(origin).ok()?;
+                self.scratch.borrow_mut().try_capture_origins.insert(row, super::indexed::full::BuildTryCaptureOrigin { origin, block, source_type: root(origin)?, body: body.into_boxed_slice(), completion, propagation, propagation_row, error_capture, retry: None });
                 Some(row)
             },
             ArenaExprKind::ValuePipelineCall { input, call, hole } => {
@@ -8599,6 +8510,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     Some(ty) => {
                         let wrapper = self.checked_unsigned_value(lowered, &ty, span);
                         self.record_original_container_creation_check(id, lowered, wrapper)?;
+                        if let Some(original) = super::indexed::full::BuildFallbackCreationCheck::from_original(self.program, self.solved(), self.expression_identity(id), lowered, &ty).ok()? {
+                            if self.scratch.borrow_mut().fallback_creation_checks.insert(wrapper, original).is_some() { return None; }
+                        }
                         wrapper
                     }
                     None => lowered,
@@ -9149,56 +9063,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         ))
     }
 
-    /// Lower a specialized `hash.verify_file` call to its embedded
-    /// implementation.
-    ///
-    /// The public form carries its algorithm in the checksum argument's *name*,
-    /// and a name is not a value, so the implementation function takes the
-    /// algorithm as an explicit third argument rather than mirroring the public
-    /// parameters. The file is hashed by the retained digest primitives the
-    /// implementation selects by that name, and everything after the digest —
-    /// length and hexadecimal validation, comparison, and the failure
-    /// composition — is the embedded function's own work.
-    fn lower_hash_verify_file_call(
-        &mut self,
-        options: &LoweredHashVerifyFileArgs,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-        span: Span,
-    ) -> Option<BuildExprId> {
-        let namespace = self.internal_namespace("hash")?;
-        let function = QualifiedName::new(namespace, Name::intern("verify_file"));
-        let path = self.lower_expr(options.path, slots, current_function, item_slot)?;
-        let expected = self.lower_expr(options.expected, slots, current_function, item_slot)?;
-        let algorithm = push_build_row!(self, expr, BuildExprRow::Str(options.algorithm.into()));
-        let args = vec![
-            LoweredCallArg::Single(path),
-            LoweredCallArg::Single(expected),
-            LoweredCallArg::Single(algorithm),
-        ];
-        if self.stdlib_linkage == StdlibLowerLinkage::External {
-            return Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::ExternalCall {
-                    function,
-                    args,
-                    span,
-                }
-            ));
-        }
-        Some(push_build_row!(
-            self,
-            expr,
-            BuildExprRow::Call {
-                function: LoweredFunctionKey::Qualified(function),
-                args,
-                span,
-            }
-        ))
-    }
-
     /// Route a public entry whose implementation is embedded XSH to the
     /// prepared implementation function.
     ///
@@ -9225,12 +9089,13 @@ impl CompactLowerConstructProbe<'_, '_> {
             // this is a preparation defect, so do not quietly fall back.
             return None;
         }
-        let args = self
+        let mut args = self
             .lower_function_call_args(id, 0, slots, current_function, item_slot)?
             .into_iter()
-            .collect();
-        if self.stdlib_linkage == StdlibLowerLinkage::External {
-            return Some(push_build_row!(
+            .collect::<Vec<_>>();
+        let policy = self.append_checked_hash_policy_arguments(id, &mut args)?;
+        let value = if self.stdlib_linkage == StdlibLowerLinkage::External {
+            push_build_row!(
                 self,
                 expr,
                 BuildExprRow::ExternalCall {
@@ -9238,9 +9103,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     args,
                     span,
                 }
-            ));
-        }
-        Some(push_build_row!(
+            )
+        } else { push_build_row!(
             self,
             expr,
             BuildExprRow::Call {
@@ -9248,7 +9112,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 args,
                 span,
             }
-        ))
+        ) };
+        if let Some(policy) = policy { self.scratch.borrow_mut().hash_policy_packets.insert(value, policy); }
+        Some(value)
     }
 
     /// The program's function index, built once per lowering pass.
@@ -9399,15 +9265,19 @@ impl CompactLowerConstructProbe<'_, '_> {
         &mut self, id: ExprId, callee: ExprId, args: crate::syntax::arena::ArenaRange,
         slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        if self.original_tag_constructor_application(id) { return self.lower_original_tag_constructor_call(id, slots, current_function, item_slot); }
         if self.original_record_constructor_plan(id).is_some() { return self.lower_original_record_constructor_call(id, slots, current_function, item_slot); }
         if self.original_fs_root_method(id) { return self.lower_original_fs_root_method(id, callee, slots, current_function, item_slot); }
         if self.original_fs_root_allocation(id) { return self.lower_original_native_named_call(id, callee, slots, current_function, item_slot); }
-        let identity = self.expression_identity(id);
-        if self.solved().calls.contains_key(&identity) || self.solved().invocations.contains_key(&identity) {
-            return self.lower_original_named_spread_call(id, callee, args, slots, current_function, item_slot);
+        if self.original_cli_static_plan(id).is_some() {
+            return self.lower_original_cli_named_call(id, slots, current_function, item_slot);
         }
         if self.original_native_static_plan(id).is_some() {
             return self.lower_original_native_named_call(id, callee, slots, current_function, item_slot);
+        }
+        let identity = self.expression_identity(id);
+        if self.solved().calls.contains_key(&identity) || self.solved().invocations.contains_key(&identity) {
+            return self.lower_original_named_spread_call(id, callee, args, slots, current_function, item_slot);
         }
         self.lower_legacy_named_spread_call(id, callee, args, slots, current_function, item_slot)
     }
@@ -9610,6 +9480,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        if self.original_tag_constructor_application(id) { return self.lower_original_tag_constructor_call(id, slots, current_function, item_slot); }
         if self.original_record_constructor_plan(id).is_some() { return self.lower_original_record_constructor_call(id, slots, current_function, item_slot); }
         if self.original_fs_root_method(id) { return self.lower_original_fs_root_method(id, callee, slots, current_function, item_slot); }
         if self.original_fs_root_allocation(id) { return self.lower_original_native_named_call(id, callee, slots, current_function, item_slot); }
@@ -9627,6 +9498,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             && !specialized_abort
             && args_vec.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. } | ArenaCallArgKind::Named { .. })) {
             return self.lower_named_spread_call(id, callee, args, slots, current_function, item_slot);
+        }
+        if self.checked_script_call(id, false).is_some() {
+            return self.lower_script_module_call(id, span, slots, current_function, item_slot);
         }
         if let Some(alias) = self.declarations.static_callable_aliases.get(&self.program.arena.expr(callee).span).cloned() {
             let args = self.lower_function_call_args(id, 0, slots, current_function, item_slot)?;
@@ -10179,7 +10053,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ) {
                         return Some(script_call);
                     }
-                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
+                    if let Some(module_call) = self.checked_native_module_call_args(id) {
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -10337,20 +10211,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ));
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && module == "hash"
-                    && name == "verify_file"
-                    && let Some(options) = lower_hash_verify_file_args(&args_vec)
-                {
-                    return self.lower_hash_verify_file_call(
-                        &options,
-                        slots,
-                        current_function,
-                        item_slot,
-                        span,
-                    );
-                }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && let Some(module_call) = lowered_module_call_args(module, name, &args_vec)
+                    && let Some(module_call) = self.checked_native_module_call_args(id)
                 {
                     return Some(push_build_row!(
                         self,
@@ -10473,18 +10334,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                             }
                         ));
                     }
-                    if module == "hash"
-                        && name == "verify_file"
-                        && let Some(options) = lower_hash_verify_file_args(&args_vec)
-                    {
-                        return self.lower_hash_verify_file_call(
-                            &options,
-                            slots,
-                            current_function,
-                            item_slot,
-                            span,
-                        );
-                    }
                     if let Some(script_call) = self.lower_script_module_call(
                         id,
                         span,
@@ -10494,7 +10343,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ) {
                         return Some(script_call);
                     }
-                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
+                    if let Some(module_call) = self.checked_native_module_call_args(id) {
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -10556,7 +10405,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                        && let Some(call_args) = lowered_module_call_args(module, name, &args_vec)
+                        && let Some(call_args) = self.checked_native_module_call_args(id)
                     {
                         let mut lowered = Vec::with_capacity(call_args.args.len());
                         for arg in call_args.args {
@@ -10622,6 +10471,20 @@ impl CompactLowerConstructProbe<'_, '_> {
                     let args: Vec<_> = method_args.iter().map(|(arg, _)| *arg).collect();
                     let types: Vec<_> = method_args.iter().enumerate().map(|(position, (_, ty))| if uint_key && position == 0 { Type::Int } else { ty.clone() }).collect();
                     let (values, argument_bindings) = self.lower_checked_call_values(&args, &types, slots, current_function, item_slot)?;
+                    if !argument_bindings.is_empty() {
+                        let reads = values.iter().map(|&value| {
+                            let scratch = self.scratch.borrow();
+                            match scratch.expressions.get(value.index())? {
+                                BuildExprRow::CheckedValue { value, .. } => Some(*value),
+                                BuildExprRow::Param(_) => Some(value),
+                                _ => None,
+                            }
+                        }).collect::<Option<Vec<_>>>()?;
+                        let sources = self.solved().argument_sources.get(&self.expression_identity(id))?.clone();
+                        self.record_original_argument_bindings(id, &sources, &LoweredArgumentValues {
+                            values: reads, bindings: argument_bindings.clone(), record_bindings: Vec::new(),
+                        })?;
+                    }
                     bindings.extend(argument_bindings);
                     (receiver, values)
                 } else {
@@ -10796,7 +10659,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let method_args = self.checked_method_call_args(id, base, &args_vec)?;
                 if !lowered_method_name(&name.as_str()) {
                     if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                        && let Some(call_args) = lowered_module_call_args(module, name, &args_vec)
+                        && let Some(call_args) = self.checked_native_module_call_args(id)
                     {
                         let mut lowered = Vec::with_capacity(call_args.args.len());
                         for arg in call_args.args {
@@ -11404,6 +11267,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn lower_bare_ident_stmt_inner(&self, statement: StmtId, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
+        if self.solved().tag_tail_constructor_originally_checked(self.statement_identity(statement)) { return self.lower_original_tag_tail_constructor(statement); }
         let prepared = &self.declarations.prepared_constants;
         if let Some(origin) = prepared.tail_bindings.get(&self.program.arena.stmt(statement).span) {
             let cached = self.scratch.borrow().prepared_constants.get(origin).cloned();
@@ -11462,6 +11326,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     && let Some((reduce_item_slot, reduce_body, reduce_value, op)) =
                         Self::lowered_reduce_by_parts(&stages[index + 2])
                 {
+                    if let Some(original) = self.original_stage_fusion(value, Some(&stages[index + 1]), reduce_value) {
+                        self.scratch.borrow_mut().stage_fusion_origins.insert(value, original);
+                    }
                     fused.push(LoweredPipelineStage::ParMapFlatMapReduceBy {
                         slot,
                         body,
@@ -11480,6 +11347,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     && let Some((reduce_item_slot, reduce_body, reduce_value, op)) =
                         Self::lowered_reduce_by_parts(&stages[index + 1])
                 {
+                    if let Some(original) = self.original_stage_fusion(value, None, reduce_value) {
+                        self.scratch.borrow_mut().stage_fusion_origins.insert(value, original);
+                    }
                     fused.push(LoweredPipelineStage::ParMapFlatMapReduceBy {
                         slot,
                         body,
@@ -13918,6 +13788,11 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn lower_bool_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildBoolId> {
         let candidate = self.lower_bool_expr_row_candidate(expr)?;
         self.record_fused_literal_comparison(*expr, candidate)?;
+        let membership = self.scratch.borrow().membership_origins.get(expr).cloned();
+        if let Some(original) = membership {
+            let folded = super::indexed::full::BuildFoldedMembership::from_original(&original, self.program, self.solved(), &self.scratch.borrow(), candidate).ok()?;
+            if let Some(folded) = folded { self.scratch.borrow_mut().folded_memberships.insert(candidate, folded); }
+        }
         {
             let mut scratch = self.scratch.borrow_mut();
             if let Some(&statement) = scratch.pattern_statement_use_sources.get(expr) {
@@ -15648,7 +15523,7 @@ mod call_argument_plan_tests;
 
 #[path = "lower/stage.rs"]
 mod stage;
-pub(super) use stage::BuildStageBlockCallbackOrigin;
+pub(super) use stage::{BuildStageBlockCallbackOrigin, BuildStageFusionOrigin};
 
 #[path = "lower/call_argument_plan.rs"]
 mod call_argument_plan;
@@ -15663,11 +15538,13 @@ pub(super) mod host_bindings;
 pub(super) mod lexical_captures;
 pub(super) mod paths;
 pub(super) mod error_constructor;
+pub(super) mod tag_constructor;
+mod cli_prepare;
 pub(super) mod record_binding;
 pub(super) mod record_update;
 pub(super) mod result_receiver;
 pub(super) use result_receiver::BuildResultReceiver;
-pub(super) use iteration::{BuildComprehensionOrigin, BuildComprehensionRoot, BuildIterationProducer};
+pub(super) use iteration::{BuildComprehensionOrigin, BuildComprehensionRoot, BuildIterationProducer, BuildLineScanOrigin, BuildLineScanOperation};
 pub(super) use iteration::{original_user_stream_call, original_top_level_iterator_binding};
 
 #[path = "lower/storage.rs"]
@@ -15684,7 +15561,11 @@ mod retry_capture;
 mod value_binding;
 #[path = "lower/argument_binding.rs"]
 mod argument_binding;
+mod native_arguments;
+pub(in crate::runtime::eval) mod hash_arguments;
 #[path = "lower/pattern_admission.rs"]
 mod pattern_admission;
+mod conditional_creation;
+mod run_sources;
 #[cfg(test)]
 mod pattern_transport_tests;

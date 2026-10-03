@@ -23,6 +23,8 @@ impl std::fmt::Debug for LiveCaptureCell {
 }
 
 impl LiveCaptureCell {
+    pub(in crate::runtime::eval) fn same_allocation(&self, other: &Self) -> bool { Arc::ptr_eq(&self.0, &other.0) }
+
     pub(in crate::runtime::eval) fn value(&self) -> LoweredValue {
         self.0.value.lock().expect("live capture lock is not poisoned").clone()
     }
@@ -56,6 +58,11 @@ pub(in crate::runtime::eval) struct LiveCaptureCells {
     roots: Vec<LiveCaptureCell>,
     frames: Vec<LiveCaptureFrame>,
     drivers: Vec<LiveCaptureDriver>,
+}
+
+enum IndexedLiveWrite {
+    Assignment(u32),
+    LineScan { instruction: u32, check: usize },
 }
 
 struct LiveCaptureDriver {
@@ -338,17 +345,26 @@ impl LiveCaptureCells {
         if let Some(value) = self.read_slot(slots.as_ptr() as usize, slot) { slots[slot] = value; }
     }
 
-    fn publish_slot(&self, program: &Arc<FullProgram>, execution: &FullExecution<'_>, instruction: u32, slots: &[LoweredValue], slot: usize, span: Span) -> Result<(), RuntimeError> {
+    fn publish_slot(&self, program: &Arc<FullProgram>, execution: &FullExecution<'_>, authority: IndexedLiveWrite, slots: &[LoweredValue], slot: usize, span: Span) -> Result<(), RuntimeError> {
         let address = slots.as_ptr() as usize;
         let Some(cell) = self.cell_for_slot(address, slot) else { return Ok(()); };
         let evidence = execution.generic_evidence().ok_or_else(|| failure("live mutable write has no original evidence", span))?;
         if !program.generic_evidence().is_some_and(|original| std::ptr::eq(original, evidence)) { return Err(failure("live mutable write belongs to another program", span)); }
-        let (original_binding, original_type, original_owner, original_slot, original_capture) = if let Some(original) = evidence.mutable_binding_receipt(instruction).map_err(|error| indexed_error(error, span))? {
+        let (original_binding, original_type, original_owner, original_slot, original_capture) = match authority {
+            IndexedLiveWrite::LineScan { instruction, check } => {
+                let binding = execution.line_scan_counter_binding(instruction, check, slot).map_err(|error| indexed_error(error, span))?;
+                let scan = evidence.line_scan(instruction).map_err(|error| indexed_error(error, span))?
+                    .ok_or_else(|| failure("live scanner write lacks its original source", span))?;
+                let counter = &scan.checks[check];
+                (binding, counter.counter_type, scan.owner, counter.slot, None)
+            },
+            IndexedLiveWrite::Assignment(instruction) => if let Some(original) = evidence.mutable_binding_receipt(instruction).map_err(|error| indexed_error(error, span))? {
             if original.assignment.is_none() { return Err(failure("live mutable write substitutes an original read or allocation", span)); }
             (original.binding, original.binding_type, original.owner, *original.payload.first().ok_or_else(|| failure("live mutable write lacks its original slot", span))?, original.capture)
         } else if let Some(original) = evidence.mutable_path_at(instruction).map_err(|error| indexed_error(error, span))? {
             (original.binding, original.binding_type, original.owner, original.slot, None)
-        } else { return Err(failure("live mutable write lacks its original assignment authority", span)); };
+        } else { return Err(failure("live mutable write lacks its original assignment authority", span)); },
+        };
         let (owner_program, owner) = if let Some(frame) = self.frames.iter().rev().find(|frame| frame.address == address) {
             if cell.0.definition_owner != Some(frame.declaration) {
                 let (id, _) = evidence.lexical_capture_for_slot(frame.target, slot as u32).map_err(|error| indexed_error(error, span))?
@@ -401,7 +417,21 @@ impl Evaluator {
             return Ok(());
         }
         let program = self.indexed_program.as_ref().ok_or_else(|| failure("live mutable write has no installed program", span))?;
-        registry.publish_slot(program, execution, instruction, slots, slot, span)
+        registry.publish_slot(program, execution, IndexedLiveWrite::Assignment(instruction), slots, slot, span)
+    }
+
+    pub(super) fn publish_indexed_line_scan_counter(&self, execution: &FullExecution<'_>, instruction: u32, check: usize, slots: &[LoweredValue], slot: usize, span: Span) -> Result<(), RuntimeError> {
+        let binding = execution.line_scan_counter_binding(instruction, check, slot).map_err(|error| indexed_error(error, span))?;
+        let registry = self.live_capture_cells.lock().expect("live capture registry is not poisoned");
+        if registry.cell_for_slot(slots.as_ptr() as usize, slot).is_none() {
+            let evidence = execution.generic_evidence().ok_or_else(|| failure("live scanner write has no original evidence", span))?;
+            if evidence.lexical_captures().any(|(_, capture)| capture.mutable && capture.binding == binding) {
+                return Err(failure("live scanner counter has no original active cell", span));
+            }
+            return Ok(());
+        }
+        let program = self.indexed_program.as_ref().ok_or_else(|| failure("live scanner write has no installed program", span))?;
+        registry.publish_slot(program, execution, IndexedLiveWrite::LineScan { instruction, check }, slots, slot, span)
     }
 
     pub(super) fn register_indexed_live_local(&self, execution: &FullExecution<'_>, instruction: u32, slots: &[LoweredValue], slot: usize, span: Span) -> Result<(), RuntimeError> {

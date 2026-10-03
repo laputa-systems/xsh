@@ -62,8 +62,10 @@ impl CompactLowerConstructProbe<'_, '_> {
         let source_value_type = self.solved_type(source_type.ty)?;
         let result_propagation = propagation && matches!(&source_value_type,
             Type::Result(inner, error) if **inner == Type::FsRoot && **error == Type::Error);
-        if source_value_type != Type::FsRoot && !result_propagation { return None; }
-        let receiver = if result_propagation {
+        let optional_receiver = propagation && matches!(&source_value_type,
+            Type::Optional(inner) if **inner == Type::FsRoot);
+        if source_value_type != Type::FsRoot && !result_propagation && !optional_receiver { return None; }
+        let receiver = if result_propagation || optional_receiver {
             self.lower_postfix_receiver(base, slots, current_function, item_slot)?
         } else { self.lower_expr(base, slots, current_function, item_slot)? };
         let receiver_slot = slots.reserve("filesystem root receiver");
@@ -77,6 +79,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 call: identity, origin: source, source_type, initializer: receiver, slot: receiver_slot, wrapper: None,
             });
             if scratch.native_receiver_initializers.insert((receiver, receiver_slot), read).is_some() { return None; }
+        } else if optional_receiver {
+            self.record_original_guarded_native_receiver(id, base, receiver, read, receiver_slot)?;
         } else { self.record_original_native_receiver(id, base, receiver, read, receiver_slot)?; }
         let lowered = self.lower_source_argument_values(sources.iter().map(|source| (source.entry_index, source.value, source.span)),
             slots, current_function, item_slot)?;

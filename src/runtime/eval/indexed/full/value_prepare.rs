@@ -2,6 +2,9 @@ use super::*;
 use super::super::generic::{PreparedValueBinding, ValueBindingContract, ValueBindingAllocation, ValueBindingIdentity, OperationSourceOrigin, ValueBindingSource, ValueBindingUse, ValueInitializerWrapper, ValueInitializerWrapperKind, graph_ground_type};
 use super::callable_prepare::CallableLexicalIndex;
 
+#[path = "value_prepare/field_presence.rs"]
+mod field_presence;
+
 fn value_problem(reason: &'static str) -> IrBuildError { IrBuildError::format(reason, None, 0, 0) }
 
 fn value_owner(raw: Option<u32>) -> Result<InstructionOwner, IrBuildError> {
@@ -75,6 +78,15 @@ impl FullBuilder {
     }
 
     pub(super) fn stage_value_statement_binding(&mut self, row: BuildStmtId, instruction: u32, scratch: &BuildScratch) -> Result<(), IrBuildError> {
+        for (&control, &original_row) in &scratch.field_presence_controls {
+            if original_row == row {
+                if self.store.tags.get(instruction as usize) != Some(&FullTag::StmtIf) { return Err(value_problem("field_presence_original_control_changed")); }
+                let owner = value_owner(self.current_owner)?;
+                self.generic_evidence_mut().register_instruction_origin(instruction, OperationSourceOrigin::Statement(control), owner)
+                    .map_err(|_| value_problem("field_presence_control_source_registration"))?;
+                self.field_presence_control_rows.push((control, instruction, owner));
+            }
+        }
         if let Some((binding, original)) = self.active_guard_error_bindings.get(&row).cloned() {
             if !matches!(scratch.statements.get(row.index()), Some(BuildStmtRow::Guard { target: LoweredCompTarget::Slot(_), value, else_param_slot: Some(slot), .. }) if *value == original.initializer && *slot == original.slot)
                 || binding.statement != original.statement { return Err(value_problem("guard_error_original_allocation_changed")); }
@@ -248,7 +260,8 @@ impl FullBuilder {
         }
         for (origin, binding, instruction, owner) in self.value_use_rows.clone() {
             let application = *applications.get(&binding).ok_or_else(|| value_problem("value_read_original_application_missing"))?;
-            self.generic_evidence_mut().add_value_binding_use(ValueBindingUse { origin, application, instruction, owner }).map_err(|_| value_problem("value_binding_read_allocation"))?;
+            let presence = self.prepare_value_field_presence(origin, binding, application, instruction, owner, &solved)?;
+            self.generic_evidence_mut().add_value_binding_use(ValueBindingUse { origin, application, instruction, owner, presence }).map_err(|_| value_problem("value_binding_read_allocation"))?;
         }
         Ok(())
     }
@@ -390,6 +403,7 @@ impl FullVerifier {
                 || !visible {
                 return Err(IrVerifyError::new("immutable value read is outside its original binding scope"));
             }
+            Self::verify_value_field_presence_dominance(store, tree, use_)?;
         }
         Ok(())
     }
@@ -440,8 +454,12 @@ impl FullVerifier {
         let binding = generic.value_binding(use_.application)?;
         let contract = &binding.contract;
         Self::verify_value_initializer_lineage(store, generic, contract)?;
-        if use_.owner != owner || contract.owner != owner || store.semantic.to_type(contract.binding_type)? != *expected {
-            return Err(IrVerifyError::new("immutable value read changes its original owner or checked type"));
+        let checked_type = if let Some(presence) = &use_.presence {
+            Self::verify_value_field_presence(store, generic, use_, presence, owner, active)?;
+            store.semantic.to_type(presence.narrowed_type)?
+        } else { store.semantic.to_type(contract.binding_type)? };
+        if use_.owner != owner || contract.owner != owner || checked_type != *expected {
+            return Err(IrVerifyError::new(format!("immutable value read changes its original owner or checked type: instruction {instruction}, use owner {:?}, binding owner {:?}, requested owner {owner:?}, binding type {:?}, expected {expected:?}, source {:?}", use_.owner, contract.owner, store.semantic.to_type(contract.binding_type)?, generic.value_binding_source(binding.source)?.binding)));
         }
         Self::verify_generic_source(store, generic, contract.initializer_source_instruction, owner, &store.semantic.to_type(contract.initializer_type)?, None, active)?;
         Ok(true)
@@ -473,6 +491,94 @@ mod tests {
         let program = prepared.unwrap();
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn immutable_record_membership_read_keeps_original_field_presence_refinement_after_frontend_disposal() {
+        execute_value_fixture(field_presence_source(), b"1\n", ValueBindingAllocation::Value, "selected");
+    }
+
+    fn field_presence_source() -> &'static str {
+        r#"type PackageName = {name: Str}
+proc selected() [error] -> Str {
+  let kept = json.decode("{\"name\":\"pkg\",\"version\":\"1\"}")?.require(PackageName)?
+  let _ = kept.name
+  if "version" in kept { return kept.get("version")?.require(Str)? }
+  "none"
+}
+proc main() [error] { print selected() }
+"#
+    }
+
+    #[test]
+    fn immutable_record_membership_read_refuses_missing_foreign_and_joint_type_receipts() {
+        let program = checked_value_fixture(field_presence_source());
+        let foreign = checked_value_fixture(field_presence_source());
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let read = generic.value_binding_uses().find(|use_| use_.presence.is_some()).unwrap().clone();
+            let presence = read.presence.as_ref().unwrap();
+            let binding = generic.value_binding(read.application).unwrap().clone();
+            assert_ne!(presence.material_type, presence.narrowed_type);
+            assert!(presence.original.writes.is_empty());
+            let mut missing = program.clone();
+            missing.store.generic.as_deref_mut().unwrap().test_value_binding_use_mut(read.instruction).unwrap().presence = None;
+            assert!(FullVerifier::verify(&missing).is_err());
+            let mut transplanted = program.clone();
+            transplanted.store.generic.as_deref_mut().unwrap().test_value_binding_use_mut(read.instruction).unwrap().presence =
+                foreign.generic_evidence().unwrap().value_binding_uses().find(|use_| use_.presence.is_some()).unwrap().presence.clone();
+            assert!(FullVerifier::verify(&transplanted).is_err());
+            let mut rewritten = program.clone();
+            let generic = rewritten.store.generic.as_deref_mut().unwrap();
+            generic.test_value_binding_mut(read.application).unwrap().contract.binding_type = presence.narrowed_type;
+            generic.test_value_binding_source_mut(binding.source).unwrap().expected.binding_type = presence.narrowed_type;
+            let forged = generic.test_value_binding_use_mut(read.instruction).unwrap().presence.as_mut().unwrap();
+            std::mem::swap(&mut forged.material_type, &mut forged.narrowed_type);
+            std::mem::swap(&mut forged.original.material, &mut forged.original.narrowed);
+            assert!(FullVerifier::verify(&rewritten).is_err());
+        });
+    }
+
+    #[test]
+    fn immutable_record_membership_read_refuses_changed_keys_and_undominated_reads() {
+        let program = checked_value_fixture(field_presence_source());
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let read = generic.value_binding_uses().find(|use_| use_.presence.is_some()).unwrap();
+            let presence = read.presence.as_ref().unwrap();
+            let mut changed = program.clone();
+            let other = (0..changed.store.strings.len()).map(|index| IrStringId::new(index).unwrap().raw())
+                .find(|&string| changed.store.string(string).unwrap() == "none").unwrap();
+            let key = changed.store.data[presence.key as usize].range();
+            changed.store.extra[key.start as usize] = other;
+            assert!(FullVerifier::verify(&changed).is_err());
+            let outer = generic.value_binding_uses().find(|other| other.application == read.application && other.instruction != read.instruction
+                && other.instruction != presence.subject && other.presence.is_none()).unwrap();
+            let inside_parent = program.store.tags.iter().enumerate().find(|(instruction, tag)| **tag == FullTag::ExprMethod
+                && program.store.payload(program.store.data[*instruction].range()).unwrap().first() == Some(&read.instruction)).unwrap().0;
+            let outside_parent = program.store.tags.iter().enumerate().find(|(instruction, tag)| **tag == FullTag::ExprField
+                && program.store.payload(program.store.data[*instruction].range()).unwrap().first() == Some(&outer.instruction)).unwrap().0;
+            let mut moved = program.clone();
+            let inside = moved.store.data[inside_parent].range();
+            let outside = moved.store.data[outside_parent].range();
+            moved.store.extra[inside.start as usize] = outer.instruction;
+            moved.store.extra[outside.start as usize] = read.instruction;
+            assert!(FullVerifier::verify(&moved).is_err());
+        });
+    }
+
+    #[test]
+    fn immutable_record_membership_read_refuses_writes_to_its_original_material_slot() {
+        let source = field_presence_source().replace("  let kept =", "  var replacement = {name: \"other\"}\n  replacement = {name: \"changed\"}\n  let kept =");
+        let program = checked_value_fixture(&source);
+        let generic = program.generic_evidence().unwrap();
+        let read = generic.value_binding_uses().find(|use_| use_.presence.is_some()).unwrap();
+        let slot = generic.value_binding(read.application).unwrap().contract.slot;
+        let assignment = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssign).unwrap();
+        let mut changed = program.clone();
+        let payload = changed.store.data[assignment].range();
+        changed.store.extra[payload.start as usize] = slot;
+        assert!(FullVerifier::verify(&changed).is_err());
     }
 
     fn execute_value_fixture(source: &str, expected: &[u8], allocation: ValueBindingAllocation, function_name: &str) {
@@ -781,7 +887,7 @@ mod tests {
 
     #[test]
     fn guard_failure_binding_refuses_error_reads_moved_into_the_success_continuation() {
-        let source = "pure selected(result: Result[Int], outer: Error) -> Error { guard let kept = result else { |failure| return failure }; let _ = kept; outer }\n";
+        let source = "pure selected(result: Result[Int], outer: Error) -> Error { guard let kept = result else { |failure| return failure }; let _ = kept; return outer }\n";
         let program = checked_value_fixture(source);
         program.symbol_owner().with_current(|| {
             let generic = program.generic_evidence().unwrap();
@@ -791,8 +897,8 @@ mod tests {
                 && program.store.payload(program.store.data[*instruction].range()).unwrap() == [1]).unwrap().0 as u32;
             let error_return = program.store.tags.iter().enumerate().find(|(instruction, tag)| **tag == FullTag::StmtReturn
                 && program.store.payload(program.store.data[*instruction].range()).unwrap() == [read.instruction]).unwrap().0;
-            let success_statement = program.store.tags.iter().enumerate().find(|(instruction, tag)| matches!(**tag, FullTag::StmtValue | FullTag::StmtExpr)
-                && program.store.payload(program.store.data[*instruction].range()).unwrap().first() == Some(&outer)).unwrap().0;
+            let success_statement = program.store.tags.iter().enumerate().find(|(instruction, tag)| **tag == FullTag::StmtReturn
+                && program.store.payload(program.store.data[*instruction].range()).unwrap() == [outer]).unwrap().0;
             let mut moved = program.clone();
             moved.store.extra[program.store.data[error_return].range().start as usize] = outer;
             moved.store.extra[program.store.data[success_statement].range().start as usize] = read.instruction;

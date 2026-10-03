@@ -1,5 +1,6 @@
 use super::*;
 use crate::sema::check::{ExpressionIdentity, ProducerFlowSource};
+use crate::source::Span;
 
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct ContextProducerRoot {
@@ -41,6 +42,7 @@ pub(in crate::runtime::eval) struct PreparedRunProducer {
     pub accept: Option<ContextProducerRoot>,
     pub spawn: Option<PreparedSpawnRunSource>,
     pub arguments: Vec<RunProducerArgument>,
+    pub packet: Option<PreparedRunPacket>,
     pub payload: Box<[u32]>,
     pub continuation_payload: Box<[u32]>,
     pub operands: Vec<RunProducerOperand>,
@@ -72,6 +74,31 @@ pub(in crate::runtime::eval) struct RunProducerArgument {
     pub source: crate::sema::inference::ScopedRoot,
     pub operand: GroundTypeId,
     pub original_operand: crate::sema::types::Type,
+    pub root: ContextProducerRoot,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct PreparedRunPacket {
+    pub environment: Vec<PreparedRunEnvironment>,
+    pub stdin: Vec<PreparedRunStdin>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct PreparedRunEnvironment {
+    pub name: Name,
+    pub instruction: u32,
+    pub span: Span,
+    pub argument_span: Span,
+    pub text: Arc<str>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct PreparedRunStdin {
+    pub kind: crate::syntax::node::RedirectionKind,
+    pub span: Span,
+    pub argument_span: Span,
+    pub mode: u32,
+    pub source: crate::sema::inference::ScopedRoot,
     pub root: ContextProducerRoot,
 }
 
@@ -118,6 +145,7 @@ impl ContextProducerEvidence {
                 PreparedProducer::Run(value) => (value.payload.len() + value.continuation_payload.len()) * size_of::<u32>() + value.authority.retained_bytes()
                     + value.arguments.capacity() * size_of::<RunProducerArgument>()
                     + value.arguments.iter().map(|argument| argument.root.original_type.retained_bytes().saturating_sub(size_of::<crate::sema::types::Type>()) + argument.original_operand.retained_bytes().saturating_sub(size_of::<crate::sema::types::Type>())).sum::<usize>()
+                    + value.packet.as_ref().map_or(0, |packet| packet.environment.capacity() * size_of::<PreparedRunEnvironment>() + packet.environment.iter().map(|environment| environment.text.len() + 2 * size_of::<usize>()).sum::<usize>() + packet.stdin.capacity() * size_of::<PreparedRunStdin>() + packet.stdin.iter().map(|stdin| stdin.root.original_type.retained_bytes().saturating_sub(size_of::<crate::sema::types::Type>())).sum::<usize>())
                     + value.accept.as_ref().map_or(0, |root| root.original_type.retained_bytes().saturating_sub(size_of::<crate::sema::types::Type>()))
                     + value.original_result.retained_bytes().saturating_sub(size_of::<crate::sema::types::Type>())
                     + value.original_carrier.retained_bytes().saturating_sub(size_of::<crate::sema::types::Type>())
@@ -229,6 +257,7 @@ impl GenericEvidenceStore {
         };
         if self.registered_instruction_origin(value.continuation, false) != Some((origin, value.owner)) { return Err(failure("run producer changes its original source parent")); }
         self.verify_run_argument_roots(value, pools, owners)?;
+        self.verify_run_packet_roots(value, pools, owners)?;
         if value.spawn.is_some() { return self.verify_spawn_run_evidence(value, pools); }
         let PreparedOperationAuthority::Language { operation: crate::sema::operation_graph::PreparedLanguageOperation::Run { kind, policy, propagate }, .. } = value.authority else { return Err(failure("run producer changes its original operation authority")); };
         if !matches!(kind, crate::syntax::node::RunKind::CaptureText | crate::syntax::node::RunKind::CaptureBytes | crate::syntax::node::RunKind::CaptureTextRecord | crate::syntax::node::RunKind::CaptureBytesRecord) { return Err(failure("run producer has an unprepared completion protocol")); }

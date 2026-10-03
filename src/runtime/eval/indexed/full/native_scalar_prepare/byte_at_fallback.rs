@@ -6,6 +6,7 @@ use crate::sema::operation_graph::{OperationArgumentOrder, PreparedLanguageOpera
 pub(in crate::runtime::eval) struct BuildByteAtFallbackOriginal {
     pub call: ExpressionIdentity,
     pub receiver: BuildFoldedNativeReceiver,
+    pub iteration: Option<BindingIdentity>,
     pub index_origin: ExpressionIdentity,
     pub fallback_origin: ExpressionIdentity,
     pub fallback_value: i64,
@@ -33,10 +34,15 @@ impl FullBuilder {
         let graph = &solved.graph;
         let origins = self.generic_expression_rows.iter().map(|&(instruction, origin, owner)| (instruction, (origin, owner))).collect::<FxHashMap<_, _>>();
         let mut bindings = BTreeMap::new();
+        let mut iterations = BTreeMap::new();
         if let Some(generic) = &self.generic {
             for row in generic.native_scalar_binding_sources() {
                 let (binding, application) = row.map_err(|_| problem("byte_at_fallback_binding_owner"))?;
                 if bindings.insert(binding, application).is_some() { return Err(problem("byte_at_fallback_binding_ambiguous")); }
+            }
+            for row in generic.native_scalar_iteration_sources() {
+                let (id, binding) = row.map_err(|_| problem("byte_at_fallback_iteration_owner"))?;
+                if iterations.insert(binding.binding, (id, binding)).is_some() { return Err(problem("byte_at_fallback_iteration_ambiguous")); }
             }
         }
         for (instruction, original, owner) in self.byte_at_fallback_rows.clone() {
@@ -53,15 +59,19 @@ impl FullBuilder {
             }
             let selected = graph.candidate_evidence(operation.requirement).map_err(|_| problem("byte_at_fallback_original_candidate"))?.ok_or_else(|| problem("byte_at_fallback_original_candidate_missing"))?;
             let crate::sema::check::SolvedOperationAuthority::Registry(metadata) = solved.operation_catalog.candidate(graph, selected.candidate).map_err(|_| problem("byte_at_fallback_original_authority"))? else { return Err(problem("byte_at_fallback_original_authority")); };
-            if metadata.operation != RuntimeOp::TextByteAt || metadata.owner != crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str)
-                || metadata.binding != crate::modules::signature::ImplBinding::Native || metadata.semantic_rule != crate::modules::signature::SemanticRule::Standard
+            let receiver_domain = match (metadata.operation, metadata.owner) {
+                (RuntimeOp::TextByteAt, crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str)) => Type::Str,
+                (RuntimeOp::BytesByteAt, crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Bytes)) => Type::Bytes,
+                _ => return Err(problem("byte_at_fallback_original_call_contract")),
+            };
+            if metadata.binding != crate::modules::signature::ImplBinding::Native || metadata.semantic_rule != crate::modules::signature::SemanticRule::Standard
                 || operation.binding.supplied_slots.as_slice() != [0] || !operation.binding.default_slots.is_empty() || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some()
                 || operation.actual_arguments.len() != 1 || !operation.argument_coercions.is_empty() || !selected.callback_invocations.is_empty() { return Err(problem("byte_at_fallback_original_call_contract")); }
             let RequirementTemplate::Operation { call, .. } = graph.requirement_template(operation.requirement).map_err(|_| problem("byte_at_fallback_original_requirement"))? else { return Err(problem("byte_at_fallback_original_requirement")); };
             let call = graph.operation_call(call).map_err(|_| problem("byte_at_fallback_original_call_owner"))?;
             if call.binding != OperationBinding::Slots || call.receiver.is_none() || operation.receiver.is_none() { return Err(problem("byte_at_fallback_original_receiver_missing")); }
             let optional_int = Type::Optional(Box::new(Type::Int));
-            for (identity, expected) in [(origin, Type::Int), (original.call, optional_int.clone()), (original.receiver.origin, Type::Str), (original.index_origin, Type::Int), (original.fallback_origin, Type::Int)] {
+            for (identity, expected) in [(origin, Type::Int), (original.call, optional_int.clone()), (original.receiver.origin, receiver_domain.clone()), (original.index_origin, Type::Int), (original.fallback_origin, Type::Int)] {
                 let checked = *solved.expressions.get(&identity).ok_or_else(|| problem("byte_at_fallback_original_expression_missing"))?;
                 let scope = solved.expression_scope(identity, operation.caller).map_err(|_| problem("byte_at_fallback_original_expression_scope"))?;
                 graph.validate_scoped(crate::sema::inference::ScopedRoot { ty: checked, scope }).map_err(|_| problem("byte_at_fallback_original_expression_certificate"))?;
@@ -69,23 +79,30 @@ impl FullBuilder {
             }
             if graph_ground_type(graph, operation.actual_arguments[0]).map_err(|_| problem("byte_at_fallback_original_index_type"))? != Type::Int
                 || selected.actual_arguments.len() != 1 || selected.actual_arguments[0].is_none() || graph_ground_type(graph, selected.actual_arguments[0].unwrap()).map_err(|_| problem("byte_at_fallback_original_selected_index"))? != Type::Int
-                || graph_ground_type(graph, operation.receiver.unwrap()).map_err(|_| problem("byte_at_fallback_original_receiver_type"))? != Type::Str
-                || graph_ground_type(graph, call.receiver.unwrap()).map_err(|_| problem("byte_at_fallback_original_receiver_type"))? != Type::Str
+                || graph_ground_type(graph, operation.receiver.unwrap()).map_err(|_| problem("byte_at_fallback_original_receiver_type"))? != receiver_domain
+                || graph_ground_type(graph, call.receiver.unwrap()).map_err(|_| problem("byte_at_fallback_original_receiver_type"))? != receiver_domain
                 || graph_ground_type(graph, selected.result).map_err(|_| problem("byte_at_fallback_original_result"))? != optional_int { return Err(problem("byte_at_fallback_original_call_types_changed")); }
             let signature_root = graph.resolved(selected.signature).map_err(|_| problem("byte_at_fallback_original_signature"))?;
             let TypeNode::Arrow(arrow) = graph.node(signature_root).map_err(|_| problem("byte_at_fallback_original_signature"))? else { return Err(problem("byte_at_fallback_original_signature_kind")); };
             if arrow.params.len() != 2 || arrow.params[0].label != Name::intern("<receiver>") || arrow.params.iter().any(|parameter| parameter.defaulted || parameter.rest)
-                || graph_ground_type(graph, arrow.params[0].ty).map_err(|_| problem("byte_at_fallback_original_signature_receiver"))? != Type::Str
+                || graph_ground_type(graph, arrow.params[0].ty).map_err(|_| problem("byte_at_fallback_original_signature_receiver"))? != receiver_domain
                 || graph_ground_type(graph, arrow.params[1].ty).map_err(|_| problem("byte_at_fallback_original_signature_index"))? != Type::Int { return Err(problem("byte_at_fallback_original_signature_changed")); }
             let recipes = solved.argument_sources.get(&original.call).ok_or_else(|| problem("byte_at_fallback_original_recipe_missing"))?;
             if recipes.len() != 1 || !matches!(recipes[0].value, crate::sema::arguments::ArgumentValueSource::Expression(expression) if expression == original.index_origin.expression) { return Err(problem("byte_at_fallback_original_recipe_changed")); }
             let descriptor = self.intern_checked_callable_type(graph, signature_root)?;
             let (kind, signature) = self.store.semantic.callable_descriptor(descriptor).map_err(|_| problem("byte_at_fallback_original_descriptor"))?.ok_or_else(|| problem("byte_at_fallback_original_descriptor"))?;
             let int = self.intern_generic_ground_type(&Type::Int)?;
-            let receiver_type = self.intern_generic_ground_type(&Type::Str)?;
+            let receiver_type = self.intern_generic_ground_type(&receiver_domain)?;
             let call_result = self.intern_generic_ground_type(&optional_int)?;
             let receiver_checked = *solved.expressions.get(&original.receiver.origin).ok_or_else(|| problem("byte_at_fallback_original_receiver_type"))?;
-            let receiver = if let Some(binding) = original.receiver.binding {
+            let receiver = if let Some(binding) = original.iteration {
+                if original.receiver.binding.is_some() { return Err(problem("byte_at_fallback_original_receiver_authority_ambiguous")); }
+                let (application, iteration) = iterations.get(&binding).ok_or_else(|| problem("byte_at_fallback_original_iteration_missing"))?;
+                if iteration.owner != owner || iteration.slot != slot || self.store.semantic.to_type(iteration.binding_type).map_err(|_| problem("byte_at_fallback_original_iteration_type"))? != receiver_domain {
+                    return Err(problem("byte_at_fallback_original_iteration_changed"));
+                }
+                NativeScalarReceiver::Iteration { binding, application: *application, slot }
+            } else if let Some(binding) = original.receiver.binding {
                 let application = *bindings.get(&binding).ok_or_else(|| problem("byte_at_fallback_original_binding_missing"))?;
                 NativeScalarReceiver::Binding { binding, application, slot }
             } else {
@@ -136,7 +153,7 @@ impl FullVerifier {
     pub(super) fn verify_byte_at_fallback_material(store: &FullStore, generic: &GenericEvidenceStore, source: &NativeScalarSource, composite: &ByteAtFallbackComposite, owner: InstructionOwner, active: &mut Vec<u32>) -> Result<u32, IrVerifyError> {
         GenericEvidenceStore::verify_byte_at_fallback_contract(&store.semantic, source, composite)?;
         let (slot, index, default, location) = folded_operands(store, source.instruction)?;
-        let receiver_slot = match source.receiver { NativeScalarReceiver::Parameter { slot, .. } | NativeScalarReceiver::ScopedParameter { slot, .. } | NativeScalarReceiver::Binding { slot, .. } => slot, _ => return Err(IrVerifyError::new("folded byte lookup lacks its original receiver slot")) };
+        let receiver_slot = match source.receiver { NativeScalarReceiver::Parameter { slot, .. } | NativeScalarReceiver::ScopedParameter { slot, .. } | NativeScalarReceiver::Binding { slot, .. } | NativeScalarReceiver::Iteration { slot, .. } => slot, _ => return Err(IrVerifyError::new("folded byte lookup lacks its original receiver slot")) };
         if slot != receiver_slot || index != composite.index_instruction || default != composite.fallback_instruction { return Err(IrVerifyError::new("folded byte lookup changes its original receiver index or literal alternative")); }
         Self::verify_generic_source(store, generic, index, owner, &Type::Int, None, active)?;
         if let Some(default) = default {

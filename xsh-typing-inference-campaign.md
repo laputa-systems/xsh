@@ -5,9 +5,131 @@ functional work. Fix existing-program regressions first, complete runtime
 integration and annotation removal, then consolidate the implementation.
 Benchmark only after all functional work and migration are complete.
 
-The latest library run has 56 failing tests. The command, test names, and failure
-diagnostics are in `bench/typing/wind-down-failures.json`. The primary checkout
-uses the existing `master` branch.
+## Handoff — 2026-10-02
+
+The user requested a wind-down: finish existing integrations, leave this handoff,
+commit, and stop. Implementation remains paused after that commit. Resume only
+on request. Work is integrated into the existing `master` checkout. This
+campaign used the shared checkout without creating task branches; no additional
+worktrees are present. The functional campaign is unfinished.
+
+### Integrated behavior
+
+The current changes preserve original checked source, scoped roots, declaration
+and allocation owners through preparation and both indexed workers. Focused
+execution and refusal tests cover frontend disposal, missing/foreign authority,
+changed packets, lexical dominance and mutation. Completed slices include:
+
+- Saved callable receivers and captured defaults; module receiver allocation,
+  captures, result transport, and post-selection implementation pinning.
+- Native argument lineage, declared JSON admission, Record.get, collection
+  methods, Regex, Digest, Bytes.dump/strings, Record/Module keys, Map.push,
+  optional FsRoot receivers, native result record projections and Result indexes.
+- Immutable field membership refinement, lexical and live mutable captures,
+  UInt mutation/creation, Tag construction/equality, pattern and iteration
+  transport, line scanners, original fused pipeline callbacks and nominal
+  callback capture.
+- Dynamic CLI full-result carriers, run/context packets, computed Duration
+  operands, finite mixed Str/Path command argv, typed UtilsCache callbacks, and
+  public Hash argument adaptation to the private implementation ABI.
+
+`lower/native_arguments.rs` replaces the old module argument AST rebinder.
+`lower/hash_arguments.rs` replaces the legacy Hash named-argument rebinder;
+Hash algorithm authority comes from the original registry boundary. Other
+legacy adapters remain where a genuine source protocol is missing. In particular,
+Tag adapter retirement is incomplete; the imported nullary producer test fails
+before any legacy maps are erased. No constructor identity is fabricated.
+
+### Verification at settlement
+
+Exact debug `xsh`, `xsht`, and `xshi` products build successfully. The library
+build uses `cargo test -p xsh --lib --offline --no-run`; execute its reported test
+binary with `RUST_MIN_STACK=16777216 XSH_MODULE_PATH=$PWD`, `--test-threads=1`,
+`--skip runtime::coverage`, and `--skip runtime::examples`. The final broad result
+is **1,615 passed, 5 failed, 1 ignored**. The failures are the three Tokei slice
+cases, imported nullary Tag applications, and static CLI postfix context.
+Running the test binary without the stack setting aborts at Tokei.
+
+`target/debug/xsht test --jobs 1 tests/xsh/stdlib` reports **96 passed, 25 failed,
+4 skipped**. `tests/xsh/empty-list-equality.xsh` passes 2/2 and
+`tests/xsh/tag-constructors.xsh` passes 3/3. Focused current integrations pass,
+including Hash 4/4, module 6/6, field presence 4/4, fused stages 23/23,
+ListText 2/2, capture/fallback controls 29/29, value binding controls 43/43, and
+process/Duration 14/14. These counts overlap the broader library suite.
+
+The filtered host runtime command was
+`cargo test -p xsh --test integration runtime:: --offline -- --skip runtime::coverage:: --skip runtime::examples::example_corpus_is_formatted --skip runtime::examples::example_corpus_lints_without_warnings --test-threads=1`.
+It completed **248 passing and 21 failing tests out of 400 selected**, then was
+terminated at `runtime::modules::native_xsh_net_download_many_over_https_http2`.
+`tests/runtime/modules.rs::LocalHttpsHttp2Server` blocks indefinitely in
+`listener.accept()` after its client fails checking. The gate is incomplete;
+131 selected tests have no result. Add bounded server cleanup on client failure
+before rerunning this gate. This host run establishes no Linux support result.
+
+Completed runtime failures cover collection accumulation/Map reads, example
+execution/traces, lazy streams/worker producers, one Ctrl-P screen parity case,
+six Unix process cases, three archive cases, Path command interpolation,
+raw argv/environment helper coverage, DNS transport and two Net batch cases.
+Keep those existing tests and observations; do not skip them to report a pass.
+
+The final capture regression and all 29 focused capture/fallback controls pass.
+The static CLI checker regression fails at its intended coarse Result boundary.
+Formatting, linting, hooks, benchmarks, Docker/Linux support verification,
+release builds, annotation migration and `make check` were not run in this
+wind-down. No dependencies were added and nothing was pushed.
+
+### First remaining boundaries
+
+- `tokei_showcase_contains_direct_pure_calls`,
+  `tokei_showcase_contains_scan_bytes_fast_paths`, and
+  `tokei_showcase_contains_scan_lines_fast_paths` fail at original Bytes slice
+  Expr1244, physical instruction 1264, Function 26. Fused callback ports now pass; the slice needs
+  its own original operand/result protocol. Owner: `full/index_prepare.rs` and
+  `generic/indexing.rs`; retain the original slice roots and packet.
+- `original_tag_constructor_import_aliases_do_not_require_legacy_payload_or_wire_declarations`
+  expects three checked constructor applications but receives one. Qualified
+  nullary fields `second.Empty` and `second.Seen` need actual checker receipts
+  before removing their lowerer fallback. Keep the original-member refusal
+  control and imported alias test intact.
+- Fold callback Result accumulators still fail the checker at nominal
+  `CombineError.Stop` versus `CombineError`. The original capture receipt and
+  data-error forwarding regressions pass independently; do not weaken their
+  join or effect contracts to address the accumulator mismatch.
+- Auth `render_shadow` reads Expr427 from formal parameter 0,
+  `List[ShadowRecord]`. The original parameter proof exists, but Record formal
+  iteration has no prepared item producer. Temporary diagnostics were removed.
+- Module publication before handle selection can substitute a same-signature
+  implementation in the mutable publication table. Allocation receipts and
+  post-selection pinning do not establish independent publication identity.
+- Static CLI postfix contexts still reject a descriptor-refined Result under
+  coarse Record context. `cli_static_descriptor_postfix_preserves_original_refined_boundary`
+  and the native `cli_static_descriptor_postfix_preserves_the_refined_result`
+  preserve the genuine regression. The attempted legacy-context helper was
+  unreachable: graph checking routes every canonical CLI candidate through
+  `registry_boundaries.rs` before that path. The unused helper and its hook were
+  removed. Fix the original graph/compact descriptor boundary without widening
+  ordinary user Results.
+- Native checker failures remain in Args, CLI, JSON Result[Any] validation,
+  nested Map methods, Net/Process contextual validation, and Streams inferred
+  callbacks. Native preparation failures remain in Auth, DNS record indexes,
+  Env/Fs record bindings, process Result carriers, Linux fields, module fields,
+  text producers, Test failure values, and Record field refinement.
+
+The stdlib failing modules are `args`, `auth`, `bytes`, `cli`,
+`cli_commands_constants`, `cli_constants`, `dns`, `env`, `fold-callbacks`, `fs`,
+`fs_root_methods`, `group`, `json`, `linux`, `map`, `methods`, `module`, `net`,
+`path`, `process`, `record`, `streams`, `test`, `text`, and `user`. Rerun each
+native module to obtain its first authentic diagnostic; fixing a focused
+boundary does not establish whole-module compatibility.
+
+The frozen `bench/typing/wind-down-failures.json` is historical input, not the
+current failure count. Recheck its remaining tests together with the current
+regressions. The 730-operation inventory has not been fully activated or audited.
+The joint annotation targets (740/778 locals and 2,386/2,807 internal sites) have
+not been attempted; all 5,529 protected sites and 40 stabilizers remain required.
+Migration under `core/`, `dev/`, and existing `examples/`, remaining adapter
+retirement, complete relevant gates, final performance work, and read-only
+`make check` under 60 seconds remain outstanding.
 
 Keep bookkeeping minimal: ordinary regression tests and one concise status
 update are enough. Keep a failure diagnostic only while it helps resolve an
@@ -126,34 +248,14 @@ repeatable regressions, using the same model and reasoning setting.
 
 ### Existing-program regressions
 
-- Resolve every failure listed in `bench/typing/wind-down-failures.json`, keeping
-  existing programs, expected observations, precise types, and proof refusal
-  controls intact. Distinguish an invalid synthetic verifier fixture from an
-  actual checker/preparation/runtime regression before changing a test.
-- Repair heterogeneous JSON-native input checking. The unchanged
-  `json.encode_lines([1, "two", null, true])` is accepted by the baseline but
-  currently trains the list item to Int. Preserve the canonical declared
-  `List[Any]` JSON admission boundary, each original child type, and its JSON
-  eligibility proof. Do not widen ordinary inferred lists or user annotations.
-  The source seam is `check_graph_special_module_call` in
-  `sema/check/registry_boundaries.rs`.
-- Complete saved `.call` receiver activation. The existing
-  `callable_alias_method_omissions_keep_prepared_defaults_after_frontend_drop`
-  still fails lowering. Authenticate the original immutable binding, saved
-  receiver initializer, wrapper, read, slot, and owner independently of supplied
-  argument recipes; preserve captured defaults and callee-before-argument order.
-- Finish direct-native declared-erasure integration. The wire-enum fixture now
-  reaches `full_ir_verification` after native argument admission. Preserve exact
-  candidate guards/relations, canonical nominal/wire owners, and record layout
-  established by validation; keep schema failures before host effects.
-- Finish cold initializer proof for the unchanged builtin template fixture.
-  Actual executed CheckedValue/compiler argument wrappers and the original
-  material expression have separate identities. Verify the sealed wrapper
-  lineage without giving generated reads or synthetic projections source IDs.
-- Repair the remaining ordinary function/block, CLI descriptor, run/context,
-  assignment/UInt, stage, producer/default/defer, embedded-stdlib, runner, and
-  Tokei regressions captured by the frozen library run. Do not hide them behind
-  exclusions, Any, relaxed effects, alternate execution modes, or AST fallback.
+Use the current handoff and rerun the named gates before assigning a repair.
+The frozen failure file remains useful for identifying unchanged programs;
+several listed failures are now resolved. Keep existing observations, precise
+types, original-source refusal controls and authentic checker roots intact.
+Distinguish invalid synthetic fixtures from actual checker, preparation or
+runtime regressions before changing a test. Restore compatibility before
+starting annotation migration. Do not hide failures with exclusions, `Any`,
+relaxed effects, alternate execution modes or AST fallback.
 
 ### Unactivated source and execution protocols
 

@@ -13,10 +13,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         let scratch = self.scratch.borrow();
         let BuildExprRow::Param(slot) = scratch.expressions.get(receiver.index())? else { return None; };
         let binding = scratch.value_binding_uses.get(&receiver_origin).copied();
+        let iteration = scratch.iteration_binding_uses.get(&receiver_origin).copied();
         let receiver = super::super::indexed::full::BuildFoldedNativeReceiver { origin: receiver_origin, name, slot: u32::try_from(*slot).ok()?, binding };
         drop(scratch);
         let fallback_value = self.lowered_inert_int_literal(fallback)?;
-        let original = super::super::indexed::full::BuildByteAtFallbackOriginal { call: call_origin, receiver, index_origin, fallback_origin, fallback_value };
+        let original = super::super::indexed::full::BuildByteAtFallbackOriginal { call: call_origin, receiver, iteration, index_origin, fallback_origin, fallback_value };
         if self.scratch.borrow_mut().byte_at_fallback_origins.insert(candidate, original).is_some() { return None; }
         Some(())
     }

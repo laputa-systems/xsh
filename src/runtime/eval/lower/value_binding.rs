@@ -1,6 +1,22 @@
 use super::*;
 
 impl CompactLowerConstructProbe<'_, '_> {
+    pub(super) fn record_original_field_presence_control(&self, statement: StmtId, row: BuildStmtId) -> Option<()> {
+        let control = self.statement_identity(statement);
+        let solved = self.solved();
+        if !solved.field_presence_reads.values().any(|original| original.control == control) { return Some(()); }
+        let ArenaStmtKind::If { branches, .. } = self.program.arena.stmt(statement).kind else { return None; };
+        let scratch = self.scratch.borrow();
+        let BuildStmtRow::If { branches: actual, .. } = scratch.statements.get(row.index())? else { return None; };
+        let authored = self.program.arena.if_branches(branches);
+        if actual.len() != authored.len() || actual.iter().zip(authored).any(|((condition, _), branch)| {
+            self.expression_origins.get(condition) != Some(&self.expression_identity(branch.condition))
+        }) { return None; }
+        drop(scratch);
+        self.scratch.borrow_mut().field_presence_controls.insert(control, row);
+        Some(())
+    }
+
     fn checked_guard_error_binding_roots(&self, statement: StmtId) -> Option<(crate::sema::check::GuardErrorBindingIdentity, ExpressionIdentity, crate::sema::inference::ScopedRoot, crate::sema::inference::ScopedRoot)> {
         let ArenaStmtKind::Guard { initializer: ArenaExprOrRun::Expr(initializer), else_block, .. } = self.program.arena.stmt(statement).kind else { return None; };
         let param = self.program.arena.block_params(self.program.arena.block(else_block).params).first()?;
@@ -207,6 +223,36 @@ mod tests {
     use super::*;
     use crate::sema::check::{BindingIdentity, Checker};
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn original_trimmed_line_binding_keeps_its_initializer_when_scanning() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure scan(text: Bytes) -> Int { var blanks = 0; var comments = 0; for line in text.lines() { let trimmed = line.trim(); if trimmed == b\"\" { blanks += 1 } else if trimmed.starts_with(b\"#\") { comments += 1 } }; return text.count_lines() - blanks - comments }\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("original-trimmed-line-binding.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let symbols = parsed.arena.symbol_owner().clone(); let _symbols = symbols.enter();
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let declarations = Checker::compact_declarations_from_checked(&parsed.arena, &checked);
+            let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+            let mut functions = Vec::new();
+            lower_compact_function_units_into(&parsed.arena, &declarations, &bodies, source, &sources,
+                StdlibLowerLinkage::Local, |unit| {
+                    assert!(unit.is_lowered(), "{:?}", unit.blocker_detail);
+                    functions.push(unit.body.unwrap()); Ok(())
+                }).unwrap();
+            let scratch = functions[0].scratch.borrow();
+            assert!(functions[0].body.iter().any(|row| matches!(scratch.statements[row.index()], BuildStmtRow::ScanLines { .. })), "statements: {:?}; booleans: {:?}; expressions: {:?}", scratch.statements, scratch.bools, scratch.expressions);
+            let original = scratch.value_binding_origins.values().find(|original| {
+                matches!(scratch.expressions[original.initializer.index()], BuildExprRow::Method { ref name, .. } if name.as_str() == "trim")
+            }).expect("the original immutable trim binding keeps its initializer");
+            let value = original.initializer;
+            assert!(matches!(scratch.expressions[value.index()], BuildExprRow::Method { ref name, .. } if name.as_str() == "trim"));
+            assert_eq!(functions[0].expression_origins.get(&value), Some(&original.initializer_source));
+        });
+    }
 
     #[test]
     fn original_guard_failure_binding_keeps_handler_and_result_error_roots() {

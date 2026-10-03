@@ -75,7 +75,7 @@ impl FullBuilder {
                     predicate: crate::sema::inference::Eligibility::Display, ty: self.reference(graph, declaration.scheme, ty)?,
                 },
                 RequirementTemplate::CallableInvocation { call } => self.prepare_scoped_invocation_requirement(graph, declaration.scheme, call)?,
-                RequirementTemplate::Operation { family, call } => match self.prepare_scoped_native_method_requirement(&solved, declaration.scheme, family, call)? { Some(requirement) => requirement, None => self.prepare_scoped_operation_requirement(&solved, declaration.scheme, family, call)? },
+                RequirementTemplate::Operation { family, call } => match self.prepare_scoped_tag_constructor_requirement(&solved, declaration.scheme, family, call)? { Some(requirement) => requirement, None => match self.prepare_scoped_native_method_requirement(&solved, declaration.scheme, family, call)? { Some(requirement) => requirement, None => self.prepare_scoped_operation_requirement(&solved, declaration.scheme, family, call)? } },
                 _ => return Err(problem("generic_runtime_requirement_not_prepared")),
             };
             requirements.push(requirement);
@@ -110,6 +110,7 @@ impl FullBuilder {
         for requirement in &requirements {
             match *requirement {
                 Requirement::Eligibility { ty, .. } => self.collect_row_prefixes(ty, &mut row_prefixes, &mut seen, 0)?,
+                Requirement::TagConstructor(ref constructor) => for reference in constructor.references() { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
                 Requirement::NativeMethod(ref method) => for reference in method.references() { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
                 Requirement::Operation(ref operation) => for reference in operation.references() { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
                 Requirement::Invocation { callable, ref arguments, result, .. } => for reference in [callable, result].into_iter().chain(arguments.iter().map(|argument| argument.ty)) { self.collect_row_prefixes(reference, &mut row_prefixes, &mut seen, 0)?; },
@@ -410,6 +411,7 @@ impl FullBuilder {
                     result: self.compose_reference(method.result, &call.substitutions, &mut cache, 0)?,
                     candidates: method.candidates.clone(), parameter_labels: method.parameter_labels,
                 }),
+                Requirement::TagConstructor(ref constructor) => Requirement::TagConstructor(constructor.rebase(|reference| self.compose_reference(reference, &call.substitutions, &mut cache, 0))?),
                 Requirement::Operation(ref operation) => Requirement::Operation(operation.rebase(|reference| self.compose_reference(reference, &call.substitutions, &mut cache, 0))?),
                 Requirement::Invocation { callable, ref arguments, result, domain } => Requirement::Invocation {
                     callable: self.compose_reference(callable, &call.substitutions, &mut cache, 0)?,
@@ -436,6 +438,10 @@ impl FullBuilder {
                 continue;
             }
             let witness = match rebased {
+                Requirement::TagConstructor(ref constructor) => {
+                    constructor.verify_supported().map_err(|_| problem("generic_forwarding_tag_constructor"))?;
+                    RequirementWitness::TagConstructor
+                }
                 Requirement::Eligibility { predicate, ty: TypeRef::Ground(ty) } => self.prepare_display_witness(predicate, ty)?,
                 Requirement::Projection { receiver: TypeRef::Ground(receiver), field, result: TypeRef::Ground(result), .. } => {
                     let layout = self.layout(receiver, layouts)?;
@@ -480,6 +486,10 @@ impl FullBuilder {
                     self.prepare_display_witness(predicate, ty)?
                 }
                 Requirement::Invocation { .. } => self.prepare_scoped_invocation_witness(call.target, index, contextual)?,
+                Requirement::TagConstructor(ref constructor) => {
+                    constructor.verify_supported().map_err(|_| problem("generic_tag_constructor_witness"))?;
+                    RequirementWitness::TagConstructor
+                }
                 Requirement::NativeMethod(_) => self.prepare_scoped_native_method_witness(call.target, index, contextual)?,
                 Requirement::Operation(_) => self.prepare_scoped_operation_witness(call.target, index, contextual)?,
                 Requirement::Projection { receiver_parameter, field, result, .. } => {

@@ -255,3 +255,117 @@ fn cli_inferred_defaults_reject_jointly_rewritten_constant_and_public_receipts()
         });
     });
 }
+
+#[test]
+fn cli_imported_command_named_spread_retains_original_recipes_after_frontend_disposal() {
+    crate::runtime::eval::run_eval(|| {
+        let source = include_str!("../../../../../../tests/fixtures/frontend-indexed/cli-imported-descriptor-recipes/entry.xsh");
+        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/frontend-indexed/cli-imported-descriptor-recipes/entry.xsh");
+        for recursive in [false, true] {
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(entry.to_str().unwrap(),
+                crate::loader::entry_source_from_text(entry.to_str().unwrap(), source.to_string()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let symbols = parsed.arena.symbol_owner().clone();
+            symbols.with_current(|| {
+                let checked = Checker::check_arena(&parsed.arena, source);
+                assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                let (origin, recipes) = checked.solved.argument_sources.iter().find(|(_, recipes)| recipes.iter().any(|recipe|
+                    matches!(recipe.value, crate::sema::arguments::ArgumentValueSource::RecordField { .. }))).unwrap();
+                let origin = *origin;
+                let recipes = recipes.clone();
+                let solved = Arc::downgrade(&checked.solved);
+                let source_id = sources.files()[0].id();
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked).unwrap();
+                let program = Arc::clone(evaluator.indexed_program.as_ref().unwrap());
+                drop(checked);
+                drop(parsed);
+                assert!(solved.upgrade().is_none(), "imported descriptors retain no inference authority");
+                let generic = program.generic_evidence().unwrap();
+                let (id, proof) = generic.ground_native_calls().find(|(_, proof)| proof.contract.cli_descriptor.is_some()).unwrap();
+                let original = generic.native_call_source(proof.source).unwrap();
+                assert_eq!(original.origin, origin);
+                assert_eq!(proof.contract.arguments.iter().map(|argument| &argument.original).collect::<Vec<_>>(), recipes.iter().collect::<Vec<_>>());
+                assert_eq!(original.record_arguments.len(), 2);
+                assert_eq!(proof.contract.binding.supplied_slots.as_ref(), &[0, 1]);
+                assert_eq!(proof.contract.arguments.iter().map(|argument| argument.original.name.unwrap()).collect::<Vec<_>>(), [Name::intern("argv"), Name::intern("commands")]);
+                FullVerifier::verify(&program).unwrap();
+                let mut changed = program.store.clone();
+                changed.generic.as_deref_mut().unwrap().test_ground_native_call_mut(id).unwrap().contract.arguments[1].original.entry_index += 1;
+                changed.generic.as_deref_mut().unwrap().test_native_call_source_mut(proof.source).unwrap().expected.arguments[1].original.entry_index += 1;
+                assert!(FullVerifier::verify_generic_evidence(&changed).is_err(), "agreeing public recipes cannot replace the authored spread entry");
+                let execute = || evaluator.try_eval_installed_compact_indexed_only_inner(plan).unwrap_or_else(|_| panic!("the original imported program remains installed"));
+                let output = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) } else { execute() };
+                assert_eq!(output.status, 0);
+                assert_eq!(output.stdout, b"workspace extra\n");
+                assert!(output.stderr.is_empty());
+            });
+        }
+    });
+}
+
+#[test]
+fn cli_dynamic_full_carrier_retains_original_result_and_operand_recipes_after_frontend_disposal() {
+    crate::runtime::eval::run_eval(|| {
+        let source = include_str!("../../../../../../tests/fixtures/frontend-indexed/cli-dynamic-full-carrier/entry.xsh");
+        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/frontend-indexed/cli-dynamic-full-carrier/entry.xsh");
+        for recursive in [false, true] {
+            let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(entry.to_str().unwrap(),
+                crate::loader::entry_source_from_text(entry.to_str().unwrap(), source.to_string()), Vec::new());
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let symbols = parsed.arena.symbol_owner().clone();
+            symbols.with_current(|| {
+                let checked = Checker::check_arena(&parsed.arena, source);
+                assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                let (origin, operation) = checked.solved.operations.iter().find(|(_, operation)| {
+                    let selected = checked.solved.graph.candidate_evidence(operation.requirement).unwrap().unwrap();
+                    matches!(checked.solved.operation_catalog.candidate(&checked.solved.graph, selected.candidate).unwrap(),
+                        crate::sema::check::SolvedOperationAuthority::Registry(metadata) if metadata.operation == RuntimeOp::CliParseFull)
+                }).unwrap();
+                let origin = *origin;
+                let original_result = checked.solved.graph.export_type(operation.result).unwrap();
+                let recipes = checked.solved.argument_sources[&origin].clone();
+                assert!(!checked.solved.registry_boundaries.contains_key(&origin));
+                let solved = Arc::downgrade(&checked.solved);
+                let source_id = sources.files()[0].id();
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked).unwrap();
+                let program = Arc::clone(evaluator.indexed_program.as_ref().unwrap());
+                drop(checked);
+                drop(parsed);
+                assert!(solved.upgrade().is_none(), "a dynamic CLI carrier keeps no inference authority");
+                let generic = program.generic_evidence().unwrap();
+                let (id, proof) = generic.ground_native_calls().find(|(_, proof)| matches!(proof.contract.authority,
+                    PreparedOperationAuthority::Registry { operation: RuntimeOp::CliParseFull, .. })).unwrap();
+                let original = generic.native_call_source(proof.source).unwrap();
+                assert_eq!(original.origin, origin);
+                assert!(proof.contract.cli_descriptor.is_none());
+                let TypeRef::Ground(result) = proof.contract.result else { panic!("canonical dynamic carrier remains closed"); };
+                assert_eq!(program.store.semantic.to_type(result).unwrap(), original_result);
+                assert_eq!(result, program.store.semantic.signature_return_type(proof.contract.signature).unwrap());
+                assert_eq!(proof.contract.arguments.iter().map(|argument| &argument.original).collect::<Vec<_>>(), recipes.iter().collect::<Vec<_>>());
+                let Type::Result(success, error) = &original_result else { panic!("original dynamic Result envelope"); };
+                assert_eq!(error.as_ref(), &Type::Error);
+                let Type::Record(fields) = success.as_ref() else { panic!("original dynamic full carrier fields"); };
+                assert_eq!(fields[&Name::intern("values")], Type::ErasedRecord);
+                assert_eq!(fields[&Name::intern("sources")], Type::ErasedRecord);
+                assert_eq!(fields[&Name::intern("warnings")], Type::List(Box::new(Type::Str)));
+                FullVerifier::verify(&program).unwrap();
+                let mut changed = program.store.clone();
+                changed.generic.as_deref_mut().unwrap().test_ground_native_call_mut(id).unwrap().contract.result = proof.contract.arguments[0].ty;
+                changed.generic.as_deref_mut().unwrap().test_native_call_source_mut(proof.source).unwrap().expected.result = proof.contract.arguments[0].ty;
+                assert!(FullVerifier::verify_generic_evidence(&changed).is_err(), "agreeing public carriers cannot replace the original canonical Result");
+                assert!(FullVerifier::native_call_result(&changed, changed.generic.as_deref().unwrap(), original.instruction, original.owner).is_err());
+                let mut changed = program.store.clone();
+                changed.generic.as_deref_mut().unwrap().test_ground_native_call_mut(id).unwrap().contract.arguments[1].original = proof.contract.arguments[0].original.clone();
+                changed.generic.as_deref_mut().unwrap().test_native_call_source_mut(proof.source).unwrap().expected.arguments[1].original = proof.contract.arguments[0].original.clone();
+                assert!(FullVerifier::verify_generic_evidence(&changed).is_err(), "a dynamic descriptor keeps its own authored operand recipe");
+                let execute = || evaluator.try_eval_installed_compact_indexed_only_inner(plan).unwrap_or_else(|_| panic!("the original dynamic CLI program remains installed"));
+                let output = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) } else { execute() };
+                assert_eq!(output.status, 0);
+                assert_eq!(output.stdout, b"4 argv 1\n");
+                assert!(output.stderr.is_empty());
+            });
+        }
+    });
+}

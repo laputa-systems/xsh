@@ -1,76 +1,6 @@
 use super::*;
 
 impl CompactLowerConstructProbe<'_, '_> {
-    pub(super) fn record_conditional_result(&self, original: ExprId, row: BuildExprId) -> Option<()> {
-        use super::super::indexed::full::{BuildConditionalArm, BuildConditionalBody, BuildConditionalResult};
-        use super::super::indexed::generic::ConditionalKind;
-        let actual = self.scratch.borrow().expressions.get(row.index())?.clone();
-        if !matches!(actual, BuildExprRow::MatchExpr { .. } | BuildExprRow::IfExpr { .. }) { return Some(()); }
-        let Some(source) = self.pattern_result_source(original) else { return Some(()); };
-        let mut subject = None;
-        let mut arms = Vec::new();
-        let mut fallback = None;
-        let kind = match (self.program.arena.expr(original).kind, actual) {
-            (ArenaExprKind::Match { value, arms: originals } | ArenaExprKind::PatternTest { value, arms: originals }, BuildExprRow::MatchExpr { value: actual, arms: lowered, .. }) => {
-                let pattern_test = matches!(self.program.arena.expr(original).kind, ArenaExprKind::PatternTest { .. });
-                let originals = self.program.arena.match_expr_arms(originals);
-                if originals.len() != lowered.len() { return None; }
-                let Some(original_subject) = self.pattern_result_source(value) else { return Some(()); };
-                subject = Some((actual, original_subject));
-                for (original, (pattern, guard, body)) in originals.iter().zip(lowered) {
-                    let identity = self.original_pattern_identity(original.pattern);
-                    if self.scratch.borrow().pattern_origins.get(&pattern) != Some(&identity) { return None; }
-                    let guard = match (original.guard, guard) {
-                        (None, None) => None,
-                        (Some(original), Some(actual)) => {
-                            let Some(source) = self.pattern_result_source(original) else { return Some(()); };
-                            Some((actual, source))
-                        }
-                        _ => return None,
-                    };
-                    let body = if pattern_test {
-                        let ArenaExprKind::Bool(value) = self.program.arena.expr(original.value).kind else { return None; };
-                        if !matches!(self.scratch.borrow().expressions.get(body.index()), Some(BuildExprRow::Bool(actual)) if *actual == value) { return None; }
-                        BuildConditionalBody::Boolean { instruction: body, value }
-                    } else {
-                        let Some(body) = self.pattern_result_body(original.value, body) else { return Some(()); };
-                        BuildConditionalBody::Authored(body)
-                    };
-                    arms.push(BuildConditionalArm { pattern: Some((pattern, identity)), condition: None, guard, body });
-                }
-                if pattern_test { ConditionalKind::PatternTest } else { ConditionalKind::Match }
-            }
-            (ArenaExprKind::If { branches, else_value }, BuildExprRow::IfExpr { branches: actual, else_value: actual_fallback, .. }) => {
-                let originals = self.program.arena.if_expr_branches(branches);
-                if originals.len() != actual.len() { return None; }
-                for (original, (condition, body)) in originals.iter().zip(actual) {
-                    let Some(condition_source) = self.pattern_result_source(original.condition) else { return Some(()); };
-                    let Some(body) = self.pattern_result_body(original.value, body) else { return Some(()); };
-                    arms.push(BuildConditionalArm { pattern: None, condition: Some((condition, condition_source)), guard: None, body: BuildConditionalBody::Authored(body) });
-                }
-                let Some(body) = self.pattern_result_body(else_value, actual_fallback) else { return Some(()); };
-                fallback = Some(BuildConditionalBody::Authored(body));
-                ConditionalKind::If
-            }
-            (ArenaExprKind::Unary { op: UnaryOp::Not, expr }, BuildExprRow::IfExpr { branches, else_value, .. }) => {
-                let [(condition, body)] = branches.as_slice() else { return None; };
-                let Some(condition_source) = self.pattern_result_source(expr) else { return Some(()); };
-                let scratch = self.scratch.borrow();
-                if !matches!(scratch.expressions.get(body.index()), Some(BuildExprRow::Bool(false)))
-                    || !matches!(scratch.expressions.get(else_value.index()), Some(BuildExprRow::Bool(true))) { return None; }
-                arms.push(BuildConditionalArm { pattern: None, condition: Some((*condition, condition_source)), guard: None,
-                    body: BuildConditionalBody::Boolean { instruction: *body, value: false } });
-                fallback = Some(BuildConditionalBody::Boolean { instruction: else_value, value: true });
-                ConditionalKind::Not
-            }
-            _ => return Some(()),
-        };
-        let result = BuildConditionalResult { instruction: row, source, kind, subject, arms: arms.into_boxed_slice(), fallback };
-        let mut scratch = self.scratch.borrow_mut();
-        if scratch.conditional_result_origins.insert(result.source.origin, result.clone()).is_some_and(|previous| previous != result) { return None; }
-        Some(())
-    }
-
     fn record_pattern_admission(
         &mut self, condition: ExprId, matcher: BuildExprId, control: super::super::BuildPatternControlRow,
         control_origin: super::super::indexed::generic::OperationSourceOrigin, branch: usize,
@@ -115,7 +45,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(row)
     }
 
-    fn pattern_result_source(&self, expression: ExprId) -> Option<super::super::BuildPatternResultSource> {
+    pub(super) fn pattern_result_source(&self, expression: ExprId) -> Option<super::super::BuildPatternResultSource> {
         let origin = self.expression_identity(expression);
         let solved = self.solved();
         if solved.non_completing_expressions.contains(&origin) { return None; }
@@ -126,7 +56,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(super::super::BuildPatternResultSource { origin, ty, scope, caller })
     }
 
-    fn pattern_result_body(&self, original: ExprId, instruction: BuildExprId) -> Option<super::super::BuildPatternResultBody> {
+    pub(super) fn pattern_result_body(&self, original: ExprId, instruction: BuildExprId) -> Option<super::super::BuildPatternResultBody> {
         let source = self.pattern_result_source(original)?;
         let terminal = if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(original).kind {
             let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last()?;

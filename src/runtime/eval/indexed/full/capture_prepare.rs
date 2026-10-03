@@ -3,6 +3,9 @@ use super::super::generic::{graph_ground_type, TryCaptureSource};
 use crate::sema::check::ExpressionIdentity;
 use crate::sema::inference::ScopedRoot;
 
+mod error_capture;
+pub(in crate::runtime::eval) use error_capture::PreparedCaptureErrorRelation;
+
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct BuildTryCaptureOrigin {
     pub origin: ExpressionIdentity,
@@ -12,6 +15,7 @@ pub(in crate::runtime::eval) struct BuildTryCaptureOrigin {
     pub completion: Option<(ExpressionIdentity, ScopedRoot)>,
     pub propagation: Option<(ExpressionIdentity, ScopedRoot)>,
     pub propagation_row: Option<BuildExprId>,
+    pub error_capture: Option<Arc<crate::sema::check::SolvedErrorCapture>>,
     pub retry: Option<BuildRetryCapturePolicy>,
 }
 
@@ -63,9 +67,10 @@ impl FullBuilder {
         if if completion_is_result { carrier_type != completion_type_tree } else { **success != completion_type_tree } { return Err(problem("try_capture_original_success_relation")); }
         let propagation_type = original.propagation.map(|(_, root)| graph_ground_type(&solved.graph, root.ty)
             .map_err(|_| problem("try_capture_propagation_requires_ground"))).transpose()?;
+        let error_capture = self.prepare_capture_error_relation(original, owner, &solved, &carrier_type)?;
         match &propagation_type {
             Some(Type::Result(ok, failure)) if **ok == completion_type_tree && (failure == error || original.retry.is_some() && failure.matches_expected(error)) => {},
-            None if completion_is_result || **error == Type::Error => {},
+            None if error_capture.is_some() || completion_is_result || **error == Type::Error => {},
             _ => return Err(problem("try_capture_original_error_relation")),
         }
         let body = match (scratch.expressions.get(expression.index()), &original.retry) {
@@ -115,7 +120,7 @@ impl FullBuilder {
             origin: original.origin, block: original.block, source_type: original.source_type, completion_origin, completion_type,
             propagation_origin: original.propagation, owner, instruction, carrier, completion, propagation,
             body, body_words, statement, tail, tail_code, producer, producer_source, producer_code, payload,
-            original_carrier: carrier_type, original_completion: completion_type_tree, original_propagation: propagation_type, retry,
+            original_carrier: carrier_type, original_completion: completion_type_tree, original_propagation: propagation_type, retry, error_capture,
         }).map_err(|_| problem("try_capture_source_allocation"))?;
         Ok(())
     }
@@ -140,6 +145,7 @@ impl FullVerifier {
             return Err(IrVerifyError::new("try capture changes its original completion body"));
         }
         Self::verify_retry_capture_policy(store, generic, source)?;
+        if let Some(relation) = &source.error_capture { relation.verify(source)?; }
         let mut active = vec![source.instruction];
         if let (Some(producer), Some(material), Some((origin, _)), Some(propagation)) = (source.producer, source.producer_source, source.propagation_origin, source.propagation) {
             if store.tags.get(source.tail as usize) != Some(&FullTag::ExprTry) || store.payload(store.data[source.tail as usize].range())? != [producer] {

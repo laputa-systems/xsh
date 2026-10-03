@@ -30,7 +30,10 @@ impl FullBuilder {
         for (slot, argument) in arguments.iter().enumerate() {
             let Some(read) = *argument else { continue; };
             if self.store.tags.get(read as usize) != Some(&FullTag::ExprParam) { continue; }
-            let Some(saved) = self.prepared_saved_argument_bindings.get(&read) else { return Ok(None); };
+            let Some(saved) = self.prepared_saved_argument_bindings.get(&read) else {
+                if slot == 9 { continue; }
+                return Ok(None);
+            };
             let payload = self.store.payload(self.store.data[read as usize].range()).map_err(|_| process_problem("command_argv_saved_read_payload"))?;
             if payload != [saved.slot] { return Err(process_problem("command_argv_saved_read_changed")); }
             let (material, wrappers) = self.argument_initializer_lineage(saved.initializer, saved.owner)?;
@@ -45,7 +48,7 @@ impl FullBuilder {
         let mut blocks = Vec::new();
         let mut texts = Vec::new();
         let mut bytes = Vec::new();
-        let mut snapshot = |instruction: u32, list: bool, integer: bool| -> Result<bool, IrBuildError> {
+        let mut snapshot = |instruction: u32, list: bool, integer: bool, argv_child: bool| -> Result<bool, IrBuildError> {
             let tag = *self.store.tags.get(instruction as usize).ok_or_else(|| process_problem("command_argv_operand_missing"))?;
             let payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| process_problem("command_argv_operand_payload"))?.to_vec().into_boxed_slice();
             if list {
@@ -61,10 +64,10 @@ impl FullBuilder {
                 let value = ((payload[1] as u64) << 32 | payload[0] as u64) as i64;
                 if !(0..=255).contains(&value) { return Ok(false); }
             } else {
-                if payload.len() != 1 { return Ok(false); }
-                match tag {
-                    FullTag::ExprStr => texts.push((payload[0], Arc::from(self.store.string(payload[0]).map_err(|_| process_problem("command_argv_literal_text"))?))),
-                    FullTag::ExprPath => bytes.push((payload[0], Arc::from(self.store.bytes(payload[0]).map_err(|_| process_problem("command_argv_literal_path"))?))),
+                match (tag, payload.as_ref()) {
+                    (FullTag::ExprStr, [literal]) => texts.push((*literal, Arc::from(self.store.string(*literal).map_err(|_| process_problem("command_argv_literal_text"))?))),
+                    (FullTag::ExprPath, [literal]) => bytes.push((*literal, Arc::from(self.store.bytes(*literal).map_err(|_| process_problem("command_argv_literal_path"))?))),
+                    _ if argv_child => {},
                     _ => return Ok(false),
                 }
             }
@@ -73,19 +76,20 @@ impl FullBuilder {
             Ok(true)
         };
         let target = material_arguments[0].ok_or_else(|| process_problem("command_argv_target_missing"))?;
-        if !snapshot(target, false, false)? { return Ok(None); }
+        if !snapshot(target, false, false, false)? { return Ok(None); }
         for (slot, integer) in [(1, false), (14, true)] {
             let Some(root) = material_arguments[slot] else { continue; };
-            if !snapshot(root, true, integer)? { return Ok(None); }
+            if !snapshot(root, true, integer, false)? { return Ok(None); }
             let list = self.store.payload(self.store.data[root as usize].range()).map_err(|_| process_problem("command_argv_list_payload"))?;
             let block = IrBlockId::from_raw(list[0]).ok_or_else(|| process_problem("command_argv_list_block"))?;
             let items = self.store.payload(self.store.blocks[block.index()].instructions).map_err(|_| process_problem("command_argv_list_payload"))?;
-            for &item in &items[1..] { if !snapshot(item, false, integer)? { return Ok(None); } }
+            for &item in &items[1..] { if !snapshot(item, false, integer, slot == 1)? { return Ok(None); } }
         }
         if let Some(timeout) = material_arguments[9] {
             let tag = *self.store.tags.get(timeout as usize).ok_or_else(|| process_problem("command_argv_timeout_missing"))?;
             let payload = self.store.payload(self.store.data[timeout as usize].range()).map_err(|_| process_problem("command_argv_timeout_payload"))?;
-            if tag != FullTag::ExprDuration || payload.len() != 2 { return Ok(None); }
+            // The timeout's native argument lineage retains its checked
+            // Duration producer, including arithmetic and immutable reads.
             if rows.len() >= 65536 { return Err(process_problem("command_argv_operand_receipt_limit")); }
             rows.push(PreparedProcessArgvRow { instruction: timeout, tag, payload: payload.to_vec().into_boxed_slice() });
         }
@@ -126,6 +130,23 @@ impl FullVerifier {
         }
         for (id, value) in &snapshot.texts { if store.string(*id)? != value.as_ref() { return Err(IrVerifyError::new("command argv factory changes its original text")); } }
         for (id, value) in &snapshot.bytes { if store.bytes(*id)? != value.as_ref() { return Err(IrVerifyError::new("command argv factory changes its original path")); } }
+        let (_, arguments, _) = encoded_process_command_argv_arguments(store, instruction, 15)?;
+        let id = generic.ground_native_call_at(instruction)?.ok_or_else(|| IrVerifyError::new("command argv lacks its original factory proof"))?;
+        let proof = generic.ground_native_call(id)?;
+        let source = generic.native_call_source(proof.source)?;
+        let argument = proof.contract.arguments.iter().zip(&proof.contract.binding.supplied_slots)
+            .find_map(|(argument, slot)| (*slot == 1).then_some(argument)).ok_or_else(|| IrVerifyError::new("command argv lacks its original argv type"))?;
+        let TypeRef::Ground(ty) = argument.ty else { return Err(IrVerifyError::new("command argv requires a closed argv producer")); };
+        if !generic.verify_process_argv_container(&store.semantic, source, &proof.contract, ty)? {
+            return Err(IrVerifyError::new("command argv loses its original finite Str or Path children"));
+        }
+        let argv = arguments[1].ok_or_else(|| IrVerifyError::new("command argv original argv is missing"))?;
+        let material = snapshot.transports.iter().find_map(|&(read, material)| (read == argv).then_some(material)).unwrap_or(argv);
+        Self::verify_generic_source(store, generic, material, source.owner, &store.semantic.to_type(ty)?, None, &mut vec![instruction])?;
+        if let Some(timeout) = arguments[9] {
+            let material = snapshot.transports.iter().find_map(|&(read, material)| (read == timeout).then_some(material)).unwrap_or(timeout);
+            Self::verify_generic_source(store, generic, material, source.owner, &Type::Duration, None, &mut vec![instruction])?;
+        }
         Ok(())
     }
 }

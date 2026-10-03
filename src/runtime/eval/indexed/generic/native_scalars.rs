@@ -9,6 +9,7 @@ pub(in crate::runtime::eval) enum NativeScalarReceiver {
     Parameter { declaration: DeclarationIdentity, signature: SignatureId, name: Name, slot: u32 },
     ScopedParameter { scope: SchemeScopeId, name: Name, slot: u32 },
     Binding { binding: BindingIdentity, application: ValueBindingId, slot: u32 },
+    Iteration { binding: BindingIdentity, application: IterationBindingId, slot: u32 },
     ByteLengthExpression { instruction: u32 },
     MethodExpression { instruction: u32, name: Name },
 }
@@ -81,12 +82,16 @@ impl GenericEvidenceStore {
     pub(in crate::runtime::eval) fn verify_byte_at_fallback_contract(pools: &SemanticPools, source: &NativeScalarSource, composite: &ByteAtFallbackComposite) -> Result<(), IrVerifyError> {
         use crate::sema::types::Type;
         let contract = &source.contract;
-        if !matches!(contract.authority, PreparedOperationAuthority::Registry { operation: crate::modules::signature::RuntimeOp::TextByteAt, binding: crate::modules::signature::ImplBinding::Native, semantic_rule: crate::modules::signature::SemanticRule::Standard, .. })
-            || contract.registry_owner != crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str) || contract.kind != CallableKind::Pure
+        let receiver_domain = match (&contract.authority, contract.registry_owner) {
+            (PreparedOperationAuthority::Registry { operation: crate::modules::signature::RuntimeOp::TextByteAt, binding: crate::modules::signature::ImplBinding::Native, semantic_rule: crate::modules::signature::SemanticRule::Standard, .. }, crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str)) => Type::Str,
+            (PreparedOperationAuthority::Registry { operation: crate::modules::signature::RuntimeOp::BytesByteAt, binding: crate::modules::signature::ImplBinding::Native, semantic_rule: crate::modules::signature::SemanticRule::Standard, .. }, crate::sema::registry_graph::RegistryOwner::Method(crate::modules::signature::MethodReceiver::Bytes)) => Type::Bytes,
+            _ => return Err(failure("folded byte lookup changes its original native call contract")),
+        };
+        if contract.kind != CallableKind::Pure
             || contract.receiver.is_some() || contract.cli_descriptor.is_some() || contract.process_command_argv.is_some() || contract.effects.creation != crate::sema::inference::EffectSet::EMPTY
             || !contract.effects.inputs.is_empty() || !contract.effects.outputs.is_empty() || pools.signature_closed_effects(contract.signature)? != contract.effects.creation
-            || pools.signature_param_count(contract.signature)? != 2 || pools.to_type(pools.signature_param(contract.signature, 0)?.1)? != Type::Str
-            || pools.to_type(pools.signature_param(contract.signature, 1)?.1)? != Type::Int || pools.to_type(source.receiver_type)? != Type::Str
+            || pools.signature_param_count(contract.signature)? != 2 || pools.to_type(pools.signature_param(contract.signature, 0)?.1)? != receiver_domain
+            || pools.to_type(pools.signature_param(contract.signature, 1)?.1)? != Type::Int || pools.to_type(source.receiver_type)? != receiver_domain
             || contract.result != TypeRef::Ground(pools.signature_return_type(contract.signature)?) || pools.to_type(pools.signature_return_type(contract.signature)?)? != Type::Optional(Box::new(Type::Int))
             || contract.arguments.len() != 1 || contract.arguments[0].instruction != composite.index_instruction || contract.arguments[0].ty != TypeRef::Ground(composite.index_type)
             || !matches!(contract.arguments[0].original.value, crate::sema::arguments::ArgumentValueSource::Expression(expression) if expression == composite.index_origin.expression)
@@ -173,6 +178,13 @@ impl GenericEvidenceStore {
                         return Err(failure("native scalar receiver changes its original immutable binding"));
                     }
                 }
+                NativeScalarReceiver::Iteration { binding, application, slot } => {
+                    let application = self.iteration_binding(application)?;
+                    if source.byte_at_fallback.is_none() || application.binding != binding || application.owner != source.owner
+                        || application.slot != slot || application.binding_type != source.receiver_type {
+                        return Err(failure("native scalar receiver changes its original iteration item"));
+                    }
+                }
                 NativeScalarReceiver::ByteLengthExpression { instruction } | NativeScalarReceiver::MethodExpression { instruction, .. } => {
                     if owners.get(instruction as usize) != Some(&Some(source.owner))
                         || self.registered_instruction_origin(instruction, false) != Some((OperationSourceOrigin::Expression(source.receiver_origin), source.owner)) {
@@ -204,6 +216,9 @@ impl GenericEvidenceBuilder {
             Ok(source) => source.binding.named().map(|binding| Ok((binding, id))),
             Err(error) => Some(Err(error)),
         })
+    }
+    pub(in crate::runtime::eval) fn native_scalar_iteration_sources(&self) -> impl Iterator<Item = Result<(IterationBindingId, OriginalIterationBinding), IrVerifyError>> {
+        self.store.iteration_bindings().map(|(id, _)| self.store.iteration_binding(id).map(|binding| (id, binding.clone())))
     }
 }
 

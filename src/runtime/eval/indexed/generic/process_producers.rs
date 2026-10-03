@@ -32,6 +32,37 @@ impl PreparedProcessCommandArgv {
 }
 
 impl GenericEvidenceStore {
+    // A heterogeneous argv keeps each original Str or Path child independently
+    // of its erased list carrier. The argv[0] value retains its authored position.
+    pub(in crate::runtime::eval::indexed) fn verify_process_argv_container(&self, pools: &SemanticPools,
+        source: &NativeCallSource, contract: &GroundNativeCallContract, ty: GroundTypeId,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(snapshot) = &contract.process_command_argv else { return Ok(false); };
+        let Some(argv) = contract.argument_sources.get(1).copied().flatten() else { return Ok(false); };
+        let material = snapshot.transports.iter().find_map(|&(read, material)| (read == argv).then_some(material)).unwrap_or(argv);
+        let Some(id) = self.ground_container_at(material)? else { return Ok(false); };
+        let container = self.ground_container_source(id)?;
+        if container.owner != source.owner || container.result != ty || container.kind != ContainerKind::List
+            || container.operands.is_empty() || container.operands.len() > 65535 {
+            return Ok(false);
+        }
+        let crate::sema::types::Type::List(item) = pools.to_type(ty)? else { return Ok(false); };
+        if !matches!(item.as_ref(), crate::sema::types::Type::Str | crate::sema::types::Type::Path | crate::sema::types::Type::Any) {
+            return Ok(false);
+        }
+        for (index, operand) in container.operands.iter().enumerate() {
+            let actual = pools.to_type(operand.source_type)?;
+            if operand.role != ContainerOperandRole::ListItem(index as u32) || operand.source_type != operand.ty
+                || !matches!(actual, crate::sema::types::Type::Str | crate::sema::types::Type::Path)
+                || item.as_ref() != &crate::sema::types::Type::Any && item.as_ref() != &actual
+                || !matches!(operand.origin, ContainerOperandOrigin::Expression(origin)
+                    if self.registered_instruction_origin(operand.source_instruction, false) == Some((OperationSourceOrigin::Expression(origin), source.owner))) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     pub(super) fn verify_process_command_argv_contract(&self, pools: &SemanticPools, source: &NativeCallSource, contract: &GroundNativeCallContract, owners: &[Option<InstructionOwner>]) -> Result<(), IrVerifyError> {
         let selected = matches!(contract.authority, PreparedOperationAuthority::Registry {
             operation: crate::modules::RuntimeOp::ProcessCommandArgv,
@@ -59,7 +90,7 @@ impl GenericEvidenceStore {
             let TypeRef::Ground(ty) = argument.ty else { return Err(failure("command argv operand requires its own scoped protocol")); };
             let valid = match slot {
                 0 => matches!(pools.type_tag(ty)?, TypeTag::Str | TypeTag::Path),
-                1 => pools.type_tag(ty)? == TypeTag::List && pools.type_children(ty)?.is_some_and(|(item, _)| pools.type_tag(item).is_ok_and(|tag| matches!(tag, TypeTag::Str | TypeTag::Path))),
+                1 => self.verify_process_argv_container(pools, source, contract, ty)?,
                 9 => pools.type_tag(ty)? == TypeTag::Duration,
                 14 => pools.to_type(ty)? == crate::sema::types::Type::List(Box::new(crate::sema::types::Type::Int)),
                 _ => false,

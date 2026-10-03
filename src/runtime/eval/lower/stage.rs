@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::eval::indexed::generic::OperationSourceOrigin;
 
 // Stage parameters belong to the authored callback block and ordinal. They
 // have no ordinary declaration binding target; retain their actual allocated
@@ -14,7 +15,50 @@ pub(in crate::runtime::eval) struct BuildStageBlockCallbackOrigin {
     pub reads: Box<[(BuildExprId, ExpressionIdentity, u32)]>,
 }
 
+// Fusion retains the exact authored operation sequence and the callback it
+// erases. An omitted identity callback must remain tied to its original port.
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildStageFusionOrigin {
+    pub stages: Box<[crate::sema::check::StageIdentity]>,
+    pub identity_flat_map: Option<BuildStageBlockCallbackOrigin>,
+    pub identity_read: Option<OperationSourceOrigin>,
+}
+
 impl CompactLowerConstructProbe<'_, '_> {
+    pub(super) fn original_stage_fusion(&self, map_value: BuildExprId, flat_map: Option<&LoweredPipelineStage>, reduce_value: BuildExprId) -> Option<BuildStageFusionOrigin> {
+        let scratch = self.scratch.borrow();
+        let identity = |value| scratch.stage_block_callback_origins.get(&value).map(|callback| callback.stage)
+            .or_else(|| self.stage_call_origins.get(&value).copied());
+        let map = identity(map_value)?;
+        let reduce = identity(reduce_value)?;
+        let identity_flat_map = if let Some(stage) = flat_map { Some((|| {
+            let (slot, value) = match stage {
+                LoweredPipelineStage::FlatMap { slot, value } => (*slot, *value),
+                LoweredPipelineStage::FlatMapBlock { slot, body, value } if body.is_empty() => (*slot, *value),
+                _ => return None,
+            };
+            let original = scratch.stage_block_callback_origins.get(&value)?;
+            if original.slots.as_ref() != [slot] || original.initial.is_some() || !matches!(scratch.expressions.get(value.index()), Some(BuildExprRow::Param(read)) if *read == slot) { return None; }
+            let read = if let [(row, origin, 0)] = original.reads.as_ref() {
+                if *row != value { return None; }
+                OperationSourceOrigin::Expression(*origin)
+            } else if original.reads.is_empty() {
+                let statements = self.program.arena.stmt_ids(self.program.arena.block(original.block).statements).collect::<Vec<_>>();
+                let [statement] = statements.as_slice() else { return None; };
+                let ArenaStmtKind::TailBareIdent(name) = self.program.arena.stmt(*statement).kind else { return None; };
+                if original.parameters.len() != 1 || original.parameters[0].map(|(parameter, _)| parameter) != Some(name) { return None; }
+                OperationSourceOrigin::Statement(self.statement_identity(*statement))
+            } else { return None; };
+            Some((original.clone(), read))
+        })()?) } else { None };
+        let mut stages = vec![map];
+        if let Some((callback, _)) = &identity_flat_map { stages.push(callback.stage); }
+        stages.push(reduce);
+        if stages.windows(2).any(|pair| pair[0].pipeline != pair[1].pipeline || pair[0].index.checked_add(1) != Some(pair[1].index)) { return None; }
+        let (identity_flat_map, identity_read) = match identity_flat_map { Some((callback, read)) => (Some(callback), Some(read)), None => (None, None) };
+        Some(BuildStageFusionOrigin { stages: stages.into_boxed_slice(), identity_flat_map, identity_read })
+    }
+
     // Legacy output-shape inspection can export only a closed declaration.
     // Callback lowering instead consumes the checked invocation instance.
     pub(super) fn stage_callable_return_type(&self, callee: ExprId) -> Option<Type> {

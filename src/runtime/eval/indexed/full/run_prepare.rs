@@ -1,7 +1,46 @@
 use super::*;
-use super::super::super::generic::{PreparedRunProducer, RunProducerOperand, RunProducerArgument};
+use super::super::super::generic::{PreparedRunProducer, RunProducerOperand, RunProducerArgument, PreparedRunPacket, PreparedRunEnvironment, PreparedRunStdin};
 
 impl FullBuilder {
+    pub(super) fn prepare_original_run_packet(&mut self, original: Option<&BuildRunPacketSource>, environment: &[crate::runtime::eval::LoweredRunEnv], redirects: &[crate::runtime::eval::LoweredRunRedirection], owner: InstructionOwner, caller: Option<crate::sema::check::DeclarationIdentity>, scratch: &BuildScratch, solved: &crate::sema::check::SolvedTypes, operands: &mut Vec<RunProducerOperand>, blocks: &mut Vec<(IrBlockId, Box<[u32]>)>, texts: &mut Vec<(u32, Arc<str>)>) -> Result<Option<PreparedRunPacket>, IrBuildError> {
+        use crate::runtime::eval::LoweredRunArgKind;
+        let Some(original) = original else {
+            if !environment.is_empty() || !redirects.is_empty() { return Err(context_problem("run_packet_original_source_missing")); }
+            return Ok(None);
+        };
+        if original.environment.len() != environment.len() || original.stdin.len() != redirects.len() { return Err(context_problem("run_packet_original_directive_count_changed")); }
+        let mut prepared = PreparedRunPacket { environment: Vec::new(), stdin: Vec::new() };
+        for (source, actual) in original.environment.iter().zip(environment) {
+            let LoweredRunArgKind::Single(row) = actual.value.kind else { return Err(context_problem("run_packet_environment_mode_changed")); };
+            let text = match &scratch.expressions[row.index()] {
+                BuildExprRow::Str(text) => text.to_string(),
+                BuildExprRow::PathFmtString { parts, .. } => parts.iter().map(|part| match part { crate::runtime::eval::LoweredFmtPart::Text(text) => Ok(text.as_ref()), _ => Err(context_problem("run_packet_environment_literal_changed")) }).collect::<Result<String, _>>()?,
+                _ => return Err(context_problem("run_packet_environment_literal_changed")),
+            };
+            if actual.name != source.name || actual.value.span != source.argument_span || text != source.text.as_ref() { return Err(context_problem("run_packet_environment_source_changed")); }
+            let (literal_operands, literal_blocks, literal_texts) = self.prepare_literal_run_operands(&actual.value, &[], scratch)?;
+            let instruction = *self.active_encoded_expressions.get(&row).ok_or_else(|| context_problem("run_packet_environment_not_encoded"))?;
+            operands.extend(literal_operands); blocks.extend(literal_blocks); texts.extend(literal_texts);
+            prepared.environment.push(PreparedRunEnvironment { name: source.name, instruction, span: source.span, argument_span: source.argument_span, text: source.text.clone() });
+        }
+        for (source, actual) in original.stdin.iter().zip(redirects) {
+            let (row, mode) = match actual.target.kind { LoweredRunArgKind::Single(row) => (row, 0), LoweredRunArgKind::SingleOrSplice(row) => (row, 1), _ => return Err(context_problem("run_packet_stdin_mode_changed")) };
+            if source.kind != crate::syntax::node::RedirectionKind::StdinRead || actual.kind != source.kind || actual.span != source.span || actual.target.span != source.argument_span || mode != source.mode
+                || self.active_expression_origins.get(&row) != Some(&source.origin) || solved.expressions.get(&source.origin) != Some(&source.source_type.ty)
+                || solved.expression_owners.get(&source.origin).copied() != caller || solved.expression_scope(source.origin, caller).ok() != Some(source.source_type.scope) {
+                return Err(context_problem("run_packet_stdin_original_relationship_changed"));
+            }
+            let original_type = super::super::super::generic::graph_ground_type(&solved.graph, source.source_type.ty).map_err(|_| context_problem("run_packet_stdin_type_not_ground"))?;
+            if original_type != Type::Path { return Err(context_problem("run_packet_stdin_domain_not_prepared")); }
+            let instruction = *self.active_encoded_expressions.get(&row).ok_or_else(|| context_problem("run_packet_stdin_not_encoded"))?;
+            let root = ContextProducerRoot { origin: super::super::super::generic::OperationSourceOrigin::Expression(source.origin), instruction, ty: self.context_ground_root(solved, source.source_type)?, original_type };
+            self.generic_evidence_mut().register_instruction_origin(instruction, root.origin, owner).map_err(|_| context_problem("run_packet_stdin_source_registration"))?;
+            operands.push(RunProducerOperand { instruction, tag: self.store.tags[instruction as usize], payload: self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| context_problem("run_packet_stdin_payload"))?.to_vec().into_boxed_slice() });
+            prepared.stdin.push(PreparedRunStdin { kind: source.kind, span: source.span, argument_span: source.argument_span, mode, source: source.source_type, root });
+        }
+        Ok(Some(prepared))
+    }
+
     pub(super) fn prepare_checked_run_operands(&mut self, target: &crate::runtime::eval::LoweredRunArg, args: &[crate::runtime::eval::LoweredRunArg], guards: &[crate::sema::check::RunArgumentGuard], owner: InstructionOwner, caller: Option<crate::sema::check::DeclarationIdentity>, scratch: &BuildScratch, solved: &crate::sema::check::SolvedTypes) -> Result<(Vec<RunProducerOperand>, Vec<(IrBlockId, Box<[u32]>)>, Vec<(u32, Arc<str>)>, Vec<RunProducerArgument>), IrBuildError> {
         use crate::runtime::eval::LoweredRunArgKind;
         use crate::sema::check::{RunArgumentMode, RunArgumentSource};
@@ -82,6 +121,54 @@ impl FullBuilder {
 }
 
 impl FullVerifier {
+    pub(super) fn validate_run_packet_encoding(store: &FullStore, value: &PreparedRunProducer) -> Result<(), IrVerifyError> {
+        let offset = if value.spawn.is_some() { 4 } else { 5 };
+        let packet_block = |offset| -> Result<&[u32], IrVerifyError> {
+            let id = value.payload.get(offset).copied().and_then(IrBlockId::from_raw).ok_or_else(|| IrVerifyError::new("run packet directive block is missing"))?;
+            let block = store.blocks.get(id.index()).ok_or_else(|| IrVerifyError::new("run packet directive block is missing"))?;
+            store.payload(block.instructions)
+        };
+        let environment = packet_block(offset)?;
+        let stdin = packet_block(offset + 1)?;
+        let Some(packet) = &value.packet else {
+            if environment != [0] || stdin != [0] { return Err(IrVerifyError::new("run packet directives have no original source receipt")); }
+            return Ok(());
+        };
+        let original_location = |word: u32, span: Span| -> bool {
+            let Some(id) = super::super::super::IrLocationId::from_raw(word) else { return false; };
+            store.location_sources.get(id.index()) == Some(&span.source_id)
+                && store.locations.get(id.index()).is_some_and(|location| location.start as usize == span.start() && location.len as usize == span.end() - span.start())
+        };
+        if environment.first().copied() != Some(packet.environment.len() as u32) || environment.len() != 1 + packet.environment.len() * 4
+            || stdin.first().copied() != Some(packet.stdin.len() as u32) || stdin.len() != 1 + packet.stdin.len() * 5 {
+            return Err(IrVerifyError::new("run packet changes its original directive sequence"));
+        }
+        for (words, source) in environment[1..].chunks_exact(4).zip(&packet.environment) {
+            if words[0] != source.name.symbol().raw() || words[1] != 0 || words[2] != source.instruction || !original_location(words[3], source.argument_span) {
+                return Err(IrVerifyError::new("run environment changes its original name, value or location"));
+            }
+            let payload = store.payload(store.data[source.instruction as usize].range())?;
+            let text = match store.tags[source.instruction as usize] {
+                FullTag::ExprStr => store.string(payload[0])?.to_owned(),
+                FullTag::ExprPathFmtString => {
+                    let id = payload.first().copied().and_then(IrBlockId::from_raw).ok_or_else(|| IrVerifyError::new("run environment text block is missing"))?;
+                    let parts = store.payload(store.blocks[id.index()].instructions)?;
+                    if parts.first().copied().is_none_or(|count| parts.len() != 1 + count as usize * 2) { return Err(IrVerifyError::new("run environment text shape changed")); }
+                    parts[1..].chunks_exact(2).map(|part| if part[0] == 0 { store.string(part[1]) } else { Err(IrVerifyError::new("run environment contains an unauthenticated expression")) }).collect::<Result<String, _>>()?
+                }
+                _ => return Err(IrVerifyError::new("run environment changes its original literal value")),
+            };
+            if text != source.text.as_ref() { return Err(IrVerifyError::new("run environment changes its original literal bytes")); }
+        }
+        for (words, source) in stdin[1..].chunks_exact(5).zip(&packet.stdin) {
+            if store.redirection_kinds.get(words[0] as usize) != Some(&source.kind) || words[1] != source.mode || words[2] != source.root.instruction
+                || !original_location(words[3], source.argument_span) || !original_location(words[4], source.span) {
+                return Err(IrVerifyError::new("run stdin changes its original directive, Path operand or location"));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn validate_run_argument_encoding(store: &FullStore, value: &PreparedRunProducer) -> Result<(), IrVerifyError> {
         use crate::sema::check::RunArgumentMode;
         let offset = if value.spawn.is_some() { 0 } else { 1 };
@@ -158,7 +245,7 @@ impl FullBuilder {
             return Err(context_problem("spawn_original_relationship_changed"));
         }
         let BuildExprRow::SpawnRun(row) = &scratch.expressions[expression.index()] else { return Err(context_problem("spawn_original_row_changed")); };
-        if row.timeout.is_some() || row.cpu_max.is_some() || !row.env.is_empty() || !row.redirections.is_empty() { return Ok(()); }
+        if row.timeout.is_some() || row.cpu_max.is_some() || (original.packet.is_none() && (!row.env.is_empty() || !row.redirections.is_empty())) { return Ok(()); }
         if let Some(accept) = row.accept {
             let BuildExprRow::List(items) = &scratch.expressions[accept.index()] else { return Ok(()); };
             if items.is_empty() || !items.iter().all(|item| matches!(scratch.expressions[item.index()], BuildExprRow::Int(value) if (0..=255).contains(&value))) { return Ok(()); }
@@ -185,16 +272,17 @@ impl FullBuilder {
             if self.declaration_functions.get(&caller).copied().map(InstructionOwner::Function) != Some(owner) { return Err(context_problem("spawn_original_declaration_owner_changed")); }
         } else if !matches!(owner, InstructionOwner::Driver(_)) { return Err(context_problem("spawn_original_declaration_owner_missing")); }
         let payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| context_problem("spawn_original_payload"))?.to_vec().into_boxed_slice();
-        let (mut operands, mut blocks, texts, arguments) = self.prepare_checked_run_operands(row.target.as_ref(), &row.args, &spawn.arguments, owner, operation.caller, scratch, &solved)?;
+        let (mut operands, mut blocks, mut texts, arguments) = self.prepare_checked_run_operands(row.target.as_ref(), &row.args, &spawn.arguments, owner, operation.caller, scratch, &solved)?;
         for offset in [3, 4, 5] {
             let id = payload.get(offset).copied().and_then(IrBlockId::from_raw).ok_or_else(|| context_problem("spawn_original_argument_block"))?;
             blocks.push((id, self.store.payload(self.store.blocks[id.index()].instructions).map_err(|_| context_problem("spawn_original_argument_payload"))?.to_vec().into_boxed_slice()));
         }
         let accept = self.prepare_literal_run_acceptance(row.accept, owner, operation.caller, scratch, &solved, &mut operands, &mut blocks)?;
+        let packet = self.prepare_original_run_packet(original.packet.as_ref(), &row.env, &row.redirections, owner, operation.caller, scratch, &solved, &mut operands, &mut blocks, &mut texts)?;
         let authority = PreparedOperationAuthority::Language { identity: metadata.identity, authority: metadata.authority, operation: metadata.operation, argument_order: metadata.argument_order, statement_result_is_unit: metadata.statement_result_is_unit };
         let receipt = PreparedRunProducer { source: original.source, run: target.run, capture: instruction, continuation: instruction, owner, result: carrier, carrier,
             original_result: original_carrier.clone(), original_carrier, authority, effects, accept, spawn: Some(PreparedSpawnRunSource { origin: source.origin, source_type: source.source_type, target }),
-            continuation_payload: payload.clone(), payload, operands, blocks, texts, arguments };
+            continuation_payload: payload.clone(), payload, operands, blocks, texts, arguments, packet };
         FullVerifier::validate_spawn_run_encoding(&self.store, &receipt).map_err(|error| IrBuildError::verification("spawn_original_encoding_changed", error))?;
         self.generic_evidence_mut().register_instruction_origin(instruction, super::super::super::generic::OperationSourceOrigin::Expression(source.origin), owner).map_err(|_| context_problem("spawn_original_parent_registration"))?;
         self.generic_evidence_mut().add_run_producer(receipt).map_err(|_| context_problem("spawn_original_receipt_capacity"))
@@ -214,6 +302,7 @@ impl FullVerifier {
         }
         Self::validate_run_acceptance_encoding(store, value)?;
         Self::validate_run_argument_encoding(store, value)?;
+        Self::validate_run_packet_encoding(store, value)?;
         for (id, original) in &value.blocks {
             let block = store.blocks.get(id.index()).ok_or_else(|| IrVerifyError::new("spawn run argument block is missing"))?;
             if block.flags != BLOCK_LIST || store.payload(block.instructions)? != original.as_ref() { return Err(IrVerifyError::new("spawn run changes its original argument sequence")); }
@@ -235,3 +324,7 @@ mod spawn_tests;
 #[cfg(test)]
 #[path = "run_prepare/dynamic_tests.rs"]
 mod dynamic_tests;
+
+#[cfg(test)]
+#[path = "run_prepare/packet_tests.rs"]
+mod packet_tests;

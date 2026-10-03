@@ -180,7 +180,13 @@ impl Checker {
                 if projection.is_some() { None } else { expected }, self.schema_expectation_for_expr(arena, base),
             );
             if let Type::Result(_, error) = &result && let Some(projection) = projection {
-                let refined = Type::Result(Box::new(projection.value_type.clone()), error.clone());
+                let refined = if self.graph_generation && matches!(base_ty, Type::Record(_))
+                    && args.first().is_some_and(|argument| matches!(argument.kind,
+                        crate::syntax::arena::ArenaCallArgKind::Positional(_) | crate::syntax::arena::ArenaCallArgKind::Named { .. })) {
+                    self.graph_record_get_projection(arena, &projection, &base_ty, span)
+                } else {
+                    Type::Result(Box::new(projection.value_type.clone()), error.clone())
+                };
                 if self.graph_generation && let Some(expression) = self.current_expression {
                     let identity = self.expression_identity(arena, expression);
                     let receiver = self.expression_identity(arena, projection.receiver);

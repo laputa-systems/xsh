@@ -1,5 +1,5 @@
 use super::*;
-use super::super::generic::{MutableBindingReceipt, MutableCompoundAssignment, MutableDriverReceipt, OperationSourceOrigin, graph_ground_type};
+use super::super::generic::{MutableBindingReceipt, MutableCompoundAssignment, MutableDriverReceipt, MutableNominalInvariant, OperationSourceOrigin, graph_ground_type};
 use super::callable_prepare::CallableLexicalIndex;
 use super::super::generic::MutableReadRefinement;
 
@@ -94,6 +94,8 @@ impl FullBuilder {
         solved.graph.validate_scoped(value_root).map_err(|_| mutable_problem("mutable_write_scope"))?;
         let binding_type = self.intern_generic_ground_type(&graph_ground_type(&solved.graph, source_type.ty).map_err(|_| mutable_problem("mutable_binding_requires_scope"))?)?;
         let value_type = self.intern_generic_ground_type(&graph_ground_type(&solved.graph, value_root.ty).map_err(|_| mutable_problem("mutable_write_requires_scope"))?)?;
+        let nominal = MutableNominalInvariant::from_checked(&solved, source_type).map_err(|_| mutable_problem("mutable_nominal_original_changed"))?;
+        if nominal.is_some() && (captured.is_some() || solved.graph.resolved(value_root.ty).ok() != solved.graph.resolved(source_type.ty).ok()) { return Err(mutable_problem("mutable_nominal_assignment_changes_original_family")); }
         let assignment = match emitted {
             crate::runtime::eval::lower::mutable_binding::BuildMutableStatement::Value { assignment, .. } | crate::runtime::eval::lower::mutable_binding::BuildMutableStatement::Integer { assignment, .. } => *assignment,
             crate::runtime::eval::lower::mutable_binding::BuildMutableStatement::Boolean { assignment, .. } => assignment.then_some(AssignOp::Set),
@@ -120,7 +122,7 @@ impl FullBuilder {
         self.generic_evidence_mut().register_instruction_origin(value, OperationSourceOrigin::Expression(value_source), owner).map_err(|_| mutable_problem("mutable_initializer_original_source"))?;
         self.generic_evidence_mut().register_instruction_origin(instruction, OperationSourceOrigin::Statement(statement), owner).map_err(|_| mutable_problem("mutable_binding_origin"))?;
         self.generic_evidence_mut().add_mutable_binding_receipt(MutableBindingReceipt {
-            binding, capture, captured_path: None, statement: Some(statement), read_origin: None, refinement: None, instruction, owner, tag, payload, binding_type,
+            binding, nominal, capture, captured_path: None, statement: Some(statement), read_origin: None, refinement: None, instruction, owner, tag, payload, binding_type,
             binding_root: source_type, value: Some(value), value_wrappers: value_wrappers.into_boxed_slice(), value_source: Some(value_source), value_type: Some(value_type), value_root: Some(value_root), ordinal, assignment, compound,
         }).map_err(|_| mutable_problem("mutable_binding_receipt"))
     }
@@ -222,6 +224,7 @@ impl FullBuilder {
         }
         let source_type = capture.as_ref().map(|(_, allocation)| allocation.source_type).or_else(|| scratch.mutable_binding_origins.get(&binding).map(|original| original.source_type)).or_else(|| scratch.mutable_driver_bindings.get(&binding).map(|original| original.source_type)).ok_or_else(|| mutable_problem("mutable_read_original_missing"))?;
         let binding_type = self.intern_generic_ground_type(&graph_ground_type(&solved.graph, source_type.ty).map_err(|_| mutable_problem("mutable_read_requires_scope"))?)?;
+        let nominal = MutableNominalInvariant::from_checked(&solved, source_type).map_err(|_| mutable_problem("mutable_nominal_read_original_changed"))?;
         let refinement = if let OperationSourceOrigin::Expression(read) = origin {
             if solved.refined_reads.contains_key(&read) {
                 let checked = solved.checked_refined_read(read).map_err(|_| mutable_problem("mutable_refinement_original_changed"))?;
@@ -233,7 +236,7 @@ impl FullBuilder {
         } else { None };
         let payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| mutable_problem("mutable_read_payload"))?.to_vec().into_boxed_slice();
         self.generic_evidence_mut().register_instruction_origin(instruction, origin, owner).map_err(|_| mutable_problem("mutable_read_origin"))?;
-        self.generic_evidence_mut().add_mutable_binding_receipt(MutableBindingReceipt { binding, capture: capture.map(|(id, _)| id), captured_path: None, statement: None, read_origin: Some(origin), refinement, instruction, owner, tag, payload, binding_type, binding_root: source_type, value: None, value_wrappers: Box::new([]), value_source: None, value_type: None, value_root: None, ordinal: 0, assignment: None, compound: None }).map_err(|_| mutable_problem("mutable_read_receipt"))
+        self.generic_evidence_mut().add_mutable_binding_receipt(MutableBindingReceipt { binding, nominal, capture: capture.map(|(id, _)| id), captured_path: None, statement: None, read_origin: Some(origin), refinement, instruction, owner, tag, payload, binding_type, binding_root: source_type, value: None, value_wrappers: Box::new([]), value_source: None, value_type: None, value_root: None, ordinal: 0, assignment: None, compound: None }).map_err(|_| mutable_problem("mutable_read_receipt"))
     }
 }
 
@@ -536,6 +539,103 @@ mod tests {
         drop(parsed); drop(checked); drop(declarations); drop(bodies);
         assert!(solved.upgrade().is_none());
         prepared.unwrap()
+    }
+
+    #[test]
+    fn mutable_nominal_enum_retains_original_assignment_and_read_after_disposal_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let program = Arc::new(fixture("enum Language { LangUnknown, LangRust }\npure selected() -> Int { var language = LangUnknown; language = LangRust; match language { LangUnknown => 0, LangRust => 1 } }\npure updated() -> Int { selected() }\n"));
+            program.symbol_owner().with_current(|| {
+                for recursive in [false, true] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let work = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("updated")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("original enum function exists");
+                    let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(LoweredFunctionKey::Name(Name::intern("selected")), recursive, work);
+                    assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(1));
+                }
+            });
+        });
+    }
+
+    #[test]
+    fn mutable_nominal_enum_refuses_missing_foreign_and_same_typed_assignment_authority() {
+        crate::runtime::eval::run_eval(|| {
+            let program = fixture("enum Language { LangUnknown, LangRust }\nenum Other { OtherUnknown, OtherReady }\npure selected() -> Int { var first = LangUnknown; var sibling = LangRust; var foreign = OtherUnknown; first = LangRust; sibling = LangUnknown; foreign = OtherReady; match first { LangUnknown => 0, LangRust => 1 } }\n");
+            program.symbol_owner().with_current(|| {
+                FullVerifier::verify(&program).unwrap();
+                let generic = program.generic_evidence().unwrap();
+                let write = generic.mutable_binding_receipts().find(|receipt| receipt.nominal.as_ref().is_some_and(|nominal| nominal.family == "Language") && receipt.assignment.is_some()).unwrap();
+                let sibling = generic.mutable_binding_receipts().find(|receipt| receipt.nominal.is_some() && receipt.ordinal == 0 && receipt.read_origin.is_none() && receipt.binding_type == write.binding_type && receipt.binding != write.binding).unwrap();
+                let foreign = generic.mutable_binding_receipts().find(|receipt| receipt.nominal.is_some() && receipt.ordinal == 0 && receipt.read_origin.is_none() && receipt.binding_type != write.binding_type).unwrap();
+                let read = generic.mutable_binding_receipts().find(|receipt| receipt.nominal.is_some() && receipt.read_origin.is_some()).unwrap();
+                let mut missing_write = program.clone();
+                missing_write.store.generic.as_deref_mut().unwrap().test_remove_mutable_binding_receipt(write.instruction);
+                assert!(FullVerifier::verify(&missing_write).is_err());
+                let mut missing_read = program.clone();
+                missing_read.store.generic.as_deref_mut().unwrap().test_remove_mutable_binding_receipt(read.instruction);
+                assert!(FullVerifier::verify(&missing_read).is_err());
+                let mut slot = program.clone();
+                let range = slot.store.data[write.instruction as usize].range();
+                slot.store.extra[range.start as usize] = sibling.payload[0];
+                slot.store.generic.as_deref_mut().unwrap().test_mutable_binding_receipt_mut(write.instruction).unwrap().payload[0] = sibling.payload[0];
+                assert!(FullVerifier::verify(&slot).is_err(), "same enum storage does not confer the sibling's assignment authority");
+                let mut rhs = program.clone();
+                let range = rhs.store.data[write.instruction as usize].range();
+                rhs.store.extra[range.start as usize + 2] = foreign.value.unwrap();
+                assert!(FullVerifier::verify(&rhs).is_err());
+                let mut declaration = program.clone();
+                declaration.store.generic.as_deref_mut().unwrap().test_mutable_binding_receipt_mut(write.instruction).unwrap().nominal = foreign.nominal.clone();
+                assert!(FullVerifier::verify(&declaration).is_err(), "same nullary representation does not confer foreign enum authority");
+                let mut member = program.clone();
+                let nominal = member.store.generic.as_deref_mut().unwrap().test_mutable_binding_receipt_mut(write.instruction).unwrap().nominal.as_mut().unwrap();
+                nominal.members[0] = foreign.nominal.as_ref().unwrap().members[0].clone();
+                assert!(FullVerifier::verify(&member).is_err());
+                let mut absent = program.clone();
+                absent.store.generic.as_deref_mut().unwrap().test_mutable_binding_receipt_mut(write.instruction).unwrap().nominal = None;
+                assert!(FullVerifier::verify(&absent).is_err());
+            });
+        });
+    }
+
+    #[test]
+    fn mutable_record_shorthand_retains_original_binding_read_after_disposal_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let program = Arc::new(fixture("type Count = {count: Int}\npure selected() -> Count { var count = 0; var spare = 10; count += 1; {count} }\npure updated() -> Int { selected().count }\n"));
+            program.symbol_owner().with_current(|| {
+                FullVerifier::verify(&program).unwrap();
+                for recursive in [false, true] {
+                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let work = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("updated")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("original shorthand function exists");
+                    let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(LoweredFunctionKey::Name(Name::intern("selected")), recursive, work);
+                    assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(1));
+                }
+            });
+        });
+    }
+
+    #[test]
+    fn mutable_byte_scanner_loop_index_retains_original_read_and_write_proofs_both_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let program = Arc::new(fixture("pure selected(text: Bytes) -> Int { var index = 0; var total = 0; while index < text.len() { let ch = (text.byte_at(index) ?? -1); total += ch; index += 1 }; total }\npure updated() -> Int { selected(b\"abc\") }\n"));
+            program.symbol_owner().with_current(|| {
+                assert!(program.store.tags.contains(&FullTag::IntStrByteAtSlot));
+                let generic = program.generic_evidence().unwrap();
+                let (_, native) = generic.native_scalar_sources().find(|(_, source)| source.byte_at_fallback.is_some()).unwrap();
+                let index = native.byte_at_fallback.as_ref().unwrap().index_instruction;
+                assert!(generic.mutable_binding_receipt(index).unwrap().is_some(), "folded byte index retains its independent original mutable read");
+                let mut missing = (*program).clone();
+                missing.store.generic.as_deref_mut().unwrap().test_remove_mutable_binding_receipt(index);
+                assert!(FullVerifier::verify(&missing).is_err());
+                for recursive in [false, true] {
+                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let work = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("updated")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("original scanner exists");
+                    let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(LoweredFunctionKey::Name(Name::intern("selected")), recursive, work);
+                    assert_eq!(result.unwrap(), crate::runtime::value::Value::Int(294));
+                }
+            });
+        });
     }
 
     #[test]

@@ -29,7 +29,16 @@ fn original_error_constructor_embedded_json_module_keeps_canonical_family_after_
         program.symbol_owner().with_current(|| {
         let generic = program.store.generic.as_deref().unwrap();
         let original = generic.error_constructors().find(|source| source.original.member == Name::intern("Lines")).unwrap();
-        assert_eq!(original.original.family, Name::intern("json.JsonError"));
+        let catalog = crate::stdlib::find("json").unwrap();
+        let source = program.sources.files().iter().find(|source| source.name() == catalog.label).unwrap();
+        assert_eq!(source.text(), catalog.source);
+        let namespace = Name::intern(&crate::stdlib::namespace_text(catalog.identity));
+        assert!(matches!(original.original.authority, crate::sema::check::QualifiedNominalIdentity::Source {
+            source: owner_source, namespace: Some(owner), declaration: crate::sema::check::NominalDeclaration::Error(_), member: Some(member),
+        } if owner_source == source.id() && owner == namespace && member == Name::intern("Lines")));
+        let family = format!("{namespace}.JsonError");
+        assert_eq!(original.original.family, Name::intern(&family));
+        assert_eq!(program.store.string(original.payload[1]).unwrap(), family);
         });
     });
 }

@@ -181,6 +181,7 @@ impl FullVerifier {
                 if store.tags.get(instruction as usize) != Some(&FullTag::IntStrByteLenSlot) || payload.len() != 2 || payload[0] != slot { return Err(IrVerifyError::new("native scalar changes its original folded receiver slot")); }
                 payload[1]
             }
+            NativeScalarReceiver::Iteration { .. } => return Err(IrVerifyError::new("iteration native scalar receiver requires its original folded byte lookup")),
             NativeScalarReceiver::ByteLengthExpression { instruction: receiver } => {
                 if store.tags.get(instruction as usize) != Some(&FullTag::ExprStrByteLen) || payload.len() != 2 || payload[0] != receiver { return Err(IrVerifyError::new("native scalar changes its original byte length receiver expression")); }
                 Self::verify_generic_source(store, generic, receiver, owner, &store.semantic.to_type(source.receiver_type)?, None, active)?;
@@ -214,6 +215,16 @@ impl FullVerifier {
         if generic.native_scalar_sources().next().is_none() { return Ok(()); }
         let index = super::callable_prepare::CallableLexicalIndex::new(store, tree)?;
         let owners = store.generic_instruction_owners()?;
+        let mut iteration_body_roots = FxHashMap::default();
+        for (id, _) in generic.iteration_bindings() {
+            let binding = generic.iteration_binding(id)?;
+            let block = store.blocks.get(binding.body.index()).ok_or_else(|| IrVerifyError::new("native scalar iteration body is missing"))?;
+            if block.flags != BLOCK_STATEMENTS { return Err(IrVerifyError::new("native scalar iteration body has another structural kind")); }
+            let roots = store.payload(block.instructions)?.get(1..).ok_or_else(|| IrVerifyError::new("native scalar iteration body roots are missing"))?;
+            for &root in roots {
+                if iteration_body_roots.insert(root, id).is_some() { return Err(IrVerifyError::new("native scalar iteration bodies share a structural root")); }
+            }
+        }
         let mut writes = std::collections::BTreeSet::new();
         let owner_key = |owner| match owner { InstructionOwner::Function(function) => (false, function.raw()), InstructionOwner::Driver(driver) => (true, driver) };
         for (instruction, tag) in store.tags.iter().enumerate() {
@@ -225,12 +236,25 @@ impl FullVerifier {
         for (id, _) in generic.native_scalar_sources() {
             let source = generic.native_scalar_source(id)?;
             let slot = match source.receiver {
-                NativeScalarReceiver::Parameter { slot, .. } | NativeScalarReceiver::ScopedParameter { slot, .. } | NativeScalarReceiver::Binding { slot, .. } => slot,
+                NativeScalarReceiver::Parameter { slot, .. } | NativeScalarReceiver::ScopedParameter { slot, .. } | NativeScalarReceiver::Binding { slot, .. } | NativeScalarReceiver::Iteration { slot, .. } => slot,
                 NativeScalarReceiver::ByteLengthExpression { .. } | NativeScalarReceiver::MethodExpression { .. } => continue,
             };
             if writes.contains(&(owner_key(source.owner), slot)) { return Err(IrVerifyError::new("native scalar receiver has an unprepared assignment")); }
             if let NativeScalarReceiver::Binding { application, .. } = source.receiver {
                 if !index.dominates(tree, generic.value_binding(application)?.contract.instruction, source.instruction)? { return Err(IrVerifyError::new("native scalar receiver is outside its original binding scope")); }
+            }
+            if let NativeScalarReceiver::Iteration { application, .. } = source.receiver {
+                let binding = generic.iteration_binding(application)?;
+                let mut visible = false;
+                let mut ancestor = Some(source.instruction);
+                for _ in 0..=512 {
+                    let Some(instruction) = ancestor else { break; };
+                    if iteration_body_roots.get(&instruction) == Some(&application) { visible = true; break; }
+                    ancestor = tree.parent(instruction)?;
+                }
+                if !visible || tree.is_descendant(binding.iterator, source.instruction)? {
+                    return Err(IrVerifyError::new("native scalar iteration item is outside its original loop body"));
+                }
             }
         }
         Ok(())

@@ -2,7 +2,7 @@ use super::*;
 use crate::runtime::eval::Evaluator;
 use crate::runtime::value::Value;
 
-const SOURCE: &str = "pure identity(value) { value }\npure typed(value: Bool) -> Bool { value }\npure text(needle: Str, container: Str) -> Bool { identity(typed(needle in container)) }\npure bytes(needle: Bytes, container: Bytes) -> Bool { typed(identity(needle not in container)) }\n";
+const SOURCE: &str = "pure identity(value) { value }\npure typed(value: Bool) -> Bool { value }\npure text(needle: Str, container: Str) -> Bool { identity(typed(needle in container)) }\npure bytes_membership(needle: Bytes, container: Bytes) -> Bool { typed(identity(needle not in container)) }\n";
 
 // Host fixtures can dispose the frontend and mutate sealed executable receipts.
 fn build_source(source: &str) -> FullProgram {
@@ -32,6 +32,103 @@ fn build_source(source: &str) -> FullProgram {
 
 fn fixture() -> FullProgram { build_source(SOURCE) }
 
+const FOLDED_SOURCE: &str = "pure list_present(container: List[Int]) -> Int { if 3 in container { 1 } else { 0 } }\npure list_absent(container: List[Int]) -> Int { if 3 not in container { 1 } else { 0 } }\npure text_present(container: Str) -> Int { if \"bc\" in container { 1 } else { 0 } }\npure text_absent(container: Str) -> Int { if \"bc\" not in container { 1 } else { 0 } }\n";
+
+#[test]
+fn original_folded_membership_conditions_keep_selected_source_authority_after_frontend_disposal_on_both_routes() {
+    crate::runtime::eval::run_eval(|| {
+        let program = Arc::new(build_source(FOLDED_SOURCE));
+        program.symbol_owner().with_current(|| {
+            let folded = program.store.tags.iter().filter(|tag| matches!(tag, FullTag::BoolContainsSlot | FullTag::BoolStrContainsSlot)).count();
+            assert_eq!(folded, 4);
+            let generic = program.generic_evidence().unwrap();
+            assert_eq!(generic.operations().filter(|(_, operation)| matches!(operation.authority,
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Membership { .. }, .. })).count(), 4,
+                "each original folded Membership condition needs its selected source proof");
+            for recursive in [false, true] {
+                for (name, arguments, expected) in [
+                    ("list_present", [Value::List(vec![Value::Int(3)])], 1),
+                    ("list_present", [Value::List(vec![Value::Int(2)])], 0),
+                    ("list_absent", [Value::List(vec![Value::Int(3)])], 0),
+                    ("list_absent", [Value::List(vec![Value::Int(2)])], 1),
+                    ("text_present", [Value::Str(Arc::from("abcd"))], 1),
+                    ("text_present", [Value::Str(Arc::from("z"))], 0),
+                    ("text_absent", [Value::Str(Arc::from("abcd"))], 0),
+                    ("text_absent", [Value::Str(Arc::from("z"))], 1),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let function = LoweredFunctionKey::Name(Name::intern(name));
+                    let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure, &arguments,
+                        Span::new(program.store.source_id, 0, 0)).expect("folded membership function exists");
+                    let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call);
+                    assert_eq!(result.unwrap(), Value::Int(expected));
+                }
+            }
+        });
+    });
+}
+
+#[test]
+fn original_folded_membership_refuses_missing_foreign_and_joint_opcode_literal_slot_and_source_rewrites() {
+    crate::runtime::eval::run_eval(|| {
+        let program = build_source(FOLDED_SOURCE);
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let (id, operation) = generic.operations().find(|(_, operation)| matches!(operation.authority,
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Membership { domain: MembershipDomain::List, negated: true }, .. })).unwrap();
+            let PreparedMembershipLowering::Folded(original) = operation.membership_lowering.as_ref().unwrap() else { panic!("original folded carrier required"); };
+            let source = generic.operation_source(operation.source).unwrap();
+            let mut missing = program.clone();
+            missing.store.generic.as_deref_mut().unwrap().test_remove_operations();
+            assert!(FullVerifier::verify(&missing).is_err());
+            let foreign = build_source(FOLDED_SOURCE);
+            assert!(foreign.generic_evidence().unwrap().operation(id).is_err());
+            let mut foreign_source = program.clone();
+            foreign_source.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().source = foreign.generic_evidence().unwrap().operations().next().unwrap().1.source;
+            assert!(FullVerifier::verify(&foreign_source).is_err());
+            let mut changed_opcode = program.clone();
+            changed_opcode.store.tags[original.positive_instruction as usize] = FullTag::BoolStrContainsSlot;
+            assert!(FullVerifier::verify(&changed_opcode).is_err());
+            let mut changed_slot = program.clone();
+            let range = changed_slot.store.data[original.positive_instruction as usize].range();
+            changed_slot.store.extra[range.start as usize] = 1;
+            assert!(FullVerifier::verify(&changed_slot).is_err());
+            let mut changed_literal = program.clone();
+            let value = original.positive_payload[1] as usize;
+            let range = changed_literal.store.value_data[value].range();
+            changed_literal.store.extra[range.start as usize] = 4;
+            assert!(FullVerifier::verify(&changed_literal).is_err());
+            let mut joint_literal = changed_literal;
+            let PreparedMembershipLowering::Folded(recipe) = joint_literal.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().membership_lowering.as_mut().unwrap() else { unreachable!() };
+            recipe.literal = PreparedComparisonLiteral::Int(4);
+            recipe.literal_payload[0] = 4;
+            assert!(FullVerifier::verify(&joint_literal).unwrap_err().message.contains("original receipt"));
+            let mut changed_source = program.clone();
+            let location = IrLocationId::from_raw(original.positive_payload[2]).unwrap().index();
+            changed_source.store.location_sources[location] = SourceId::new(999);
+            assert!(FullVerifier::verify(&changed_source).is_err());
+            let mut changed_span = program.clone();
+            changed_span.store.locations[location].start += 1;
+            assert!(FullVerifier::verify_generic_evidence(&changed_span.store).is_err());
+            let mut joint_negation = program.clone();
+            joint_negation.store.tags[source.instruction as usize] = original.positive_tag;
+            joint_negation.store.data[source.instruction as usize] = joint_negation.store.data[original.positive_instruction as usize];
+            let evidence = joint_negation.store.generic.as_deref_mut().unwrap();
+            let proof = evidence.test_operation_mut(id).unwrap();
+            let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Membership { negated, .. }, .. } = &mut proof.authority else { unreachable!() };
+            *negated = false;
+            let PreparedMembershipLowering::Folded(recipe) = proof.membership_lowering.as_mut().unwrap() else { unreachable!() };
+            recipe.tag = recipe.positive_tag;
+            recipe.payload = recipe.positive_payload.clone();
+            recipe.positive_instruction = source.instruction;
+            let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Membership { negated, .. }, .. } = &mut evidence.test_operation_source_mut(operation.source).unwrap().expected else { unreachable!() };
+            *negated = false;
+            assert!(FullVerifier::verify(&joint_negation).is_err());
+        });
+    });
+}
+
 #[test]
 fn original_membership_results_flow_through_typed_and_generic_callers_after_frontend_disposal_on_both_routes() {
     crate::runtime::eval::run_eval(|| {
@@ -44,8 +141,8 @@ fn original_membership_results_flow_through_typed_and_generic_callers_after_fron
                 for (name, arguments, expected) in [
                     ("text", [Value::Str(Arc::from("bc")), Value::Str(Arc::from("abcd"))], true),
                     ("text", [Value::Str(Arc::from("z")), Value::Str(Arc::from("abcd"))], false),
-                    ("bytes", [Value::Bytes(b"bc".to_vec()), Value::Bytes(b"abcd".to_vec())], false),
-                    ("bytes", [Value::Bytes(b"z".to_vec()), Value::Bytes(b"abcd".to_vec())], true),
+                    ("bytes_membership", [Value::Bytes(b"bc".to_vec()), Value::Bytes(b"abcd".to_vec())], false),
+                    ("bytes_membership", [Value::Bytes(b"z".to_vec()), Value::Bytes(b"abcd".to_vec())], true),
                 ] {
                     let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                     evaluator.indexed_program = Some(Arc::clone(&program));
@@ -63,13 +160,13 @@ fn original_membership_results_flow_through_typed_and_generic_callers_after_fron
 #[test]
 fn original_membership_preserves_all_closed_container_and_needle_domains() {
     crate::runtime::eval::run_eval(|| {
-    let mut source = String::from("pure identity(value) { value }\n");
+    let mut source = String::from("type Row = {left: Int}\npure identity(value) { value }\n");
     for operator in ["in", "not in"] {
         let suffix = if operator == "in" { "present" } else { "absent" };
         for (name, needle, container) in [
             ("list", "Int", "List[Int]"), ("map", "Int", "Map[Int, Str]"),
             ("text", "Str", "Str"), ("bytes", "Bytes", "Bytes"),
-            ("record", "Str", "Record"), ("row", "Str", "{left: Int}"),
+            ("record", "Str", "Record"), ("row", "Str", "Row"),
             ("path_text", "Str", "Path"), ("path_path", "Path", "Path"),
         ] {
             source.push_str(&format!("pure {name}_{suffix}(needle: {needle}, container: {container}) -> Bool {{ identity(needle {operator} container) }}\n"));
@@ -174,7 +271,7 @@ fn original_unsigned_map_membership_keeps_the_original_key_validation_and_materi
             let generic = program.generic_evidence().unwrap();
             let (id, operation) = generic.operations().find(|(_, operation)| matches!(operation.authority,
                 PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Membership { negated: false, domain: MembershipDomain::Map }, .. })).unwrap();
-            let original = operation.membership_lowering.as_ref().unwrap();
+            let original = operation.membership_lowering.as_ref().unwrap().as_binary().unwrap();
             let guard = original.uint_key.as_ref().unwrap();
             assert_ne!(original.needle_instruction, operation.binding.operands[0]);
             let mut replaced_material = (*program).clone();
@@ -198,6 +295,76 @@ fn original_unsigned_map_membership_keeps_the_original_key_validation_and_materi
                     let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call);
                     assert_eq!(result.unwrap(), Value::Bool(expected));
                 }
+            }
+        });
+    });
+}
+
+#[test]
+fn original_environment_membership_getters_keep_proc_and_driver_source_authority_after_frontend_disposal() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "pure identity(value) { value }\nproc env_present(needle: Path) [env] -> Bool { identity(needle in env.PATH) }\nproc env_absent(needle: Path) [env] -> Bool { identity(needle not in env.PATH) }\nlet driver_value = identity(p\"/xsh-membership-absent\" not in env.PATH)\n";
+        let program = Arc::new(build_source(source));
+        program.symbol_owner().with_current(|| {
+            FullVerifier::verify(&program).unwrap();
+            let generic = program.generic_evidence().unwrap();
+            let operations = generic.operations().filter(|(_, operation)| matches!(operation.authority,
+                PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Membership { domain: MembershipDomain::EnvPathList, .. }, .. })).collect::<Vec<_>>();
+            assert_eq!(operations.len(), 3);
+            assert!(operations.iter().any(|(_, operation)| matches!(generic.operation_source(operation.source).unwrap().owner, InstructionOwner::Driver(_))));
+            let (id, operation) = operations[0];
+            let getter = operation.membership_lowering.as_ref().unwrap().as_binary().unwrap().env_getter.as_ref().unwrap();
+            let mut replaced = (*program).clone();
+            let other = operations[1].1.membership_lowering.as_ref().unwrap().as_binary().unwrap().env_getter.as_ref().unwrap();
+            let range = replaced.store.data[generic.operation_source(operation.source).unwrap().instruction as usize].range();
+            replaced.store.extra[range.start as usize + 2] = other.instruction;
+            replaced.store.generic.as_deref_mut().unwrap().test_operation_mut(id).unwrap().binding.operands[1] = other.instruction;
+            assert!(FullVerifier::verify(&replaced).is_err());
+            let mut changed_getter = (*program).clone();
+            let packet = changed_getter.store.payload(changed_getter.store.data[getter.instruction as usize].range()).unwrap();
+            let index = packet[0] as usize;
+            changed_getter.store.runtime_ops[index] = RuntimeOp::EnvPathAppend;
+            assert!(FullVerifier::verify(&changed_getter).is_err());
+            let mut changed_location = (*program).clone();
+            let location = IrLocationId::from_raw(getter.instruction_payload[3]).unwrap().index();
+            changed_location.store.locations[location].len += 1;
+            assert!(FullVerifier::verify_generic_evidence(&changed_location.store).is_err());
+            for recursive in [false, true] {
+                let needle = crate::runtime::value::PathValue::new(format!("/xsh-membership-absent-{}", std::process::id()).into_bytes()).unwrap();
+                for (name, expected) in [("env_present", false), ("env_absent", true)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let function = LoweredFunctionKey::Name(Name::intern(name));
+                    let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Proc,
+                        &[Value::Path(needle.clone())], Span::new(program.store.source_id, 0, 0)).expect("environment membership procedure exists");
+                    let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call);
+                    assert_eq!(result.unwrap(), Value::Bool(expected));
+                }
+                let driver_source = format!("{source}print ${{driver_value}}\n");
+                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                    "membership-driver.xsh", crate::loader::entry_source_from_text("membership-driver.xsh", driver_source.clone()), Vec::new());
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let source_id = SourceMap::files(&sources).first().unwrap().id();
+                let checked = crate::sema::check::Checker::check_arena(&parsed.arena, &driver_source);
+                assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                let weak = Arc::downgrade(&checked.solved);
+                let counters = checked.solved.graph.counters().clone();
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                let plan = evaluator.prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked).unwrap();
+                assert_eq!(checked.solved.graph.counters(), &counters);
+                drop(checked); drop(parsed);
+                assert!(weak.upgrade().is_none());
+                let symbols = evaluator.indexed_program.as_ref().unwrap().symbol_owner().clone();
+                let output = symbols.with_current(|| {
+                    let function = LoweredFunctionKey::Name(Name::intern("identity"));
+                    crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, || {
+                        evaluator.try_eval_installed_compact_indexed_only_inner(plan).unwrap_or_else(|_| panic!("original membership driver remains installed"))
+                    })
+                });
+                assert_eq!(output.status, 0, "{:?}; {:?}", output.diagnostics, output.traceback);
+                assert_eq!(output.stdout, b"true\n");
+                assert!(output.stderr.is_empty());
+                assert!(output.diagnostics.is_empty());
             }
         });
     });

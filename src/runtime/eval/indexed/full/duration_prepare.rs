@@ -52,7 +52,7 @@ impl FullBuilder {
             self.generic_evidence_mut().add_operation(PreparedOperation {
                 source,
                 authority,
-                receiver, arguments: arguments.into_boxed_slice(), result, effects, fallback_lowering, original_integer_addition: None, range_lowering: None, literal_comparison_slot: None, membership_lowering: None,
+                receiver, arguments: arguments.into_boxed_slice(), result, effects, tag_equality: None, fallback_lowering, original_integer_addition: None, range_lowering: None, literal_comparison_slot: None, membership_lowering: None,
                 binding: PreparedOperationBinding { supplied_slots: slots(&operation.binding.supplied_slots)?,
                     default_slots: slots(&operation.binding.default_slots)?, rest_slot: None, dynamic: None, operands },
             }).map_err(|_| unprepared("operation_proof_allocation"))?;
@@ -95,7 +95,7 @@ impl FullBuilder {
                 source, authority, receiver: None, arguments: Box::new([Some(ty), Some(ty)]), result: ty,
                 effects: PreparedOperationEffects { creation: crate::sema::inference::EffectSet::EMPTY, inputs: Box::new([]), outputs: Box::new([]) },
                 binding: PreparedOperationBinding { supplied_slots: Box::new([0, 1]), default_slots: Box::new([]), rest_slot: None, dynamic: None, operands },
-                fallback_lowering: None, original_integer_addition: None, range_lowering: None, literal_comparison_slot: None, membership_lowering: None,
+                tag_equality: None, fallback_lowering: None, original_integer_addition: None, range_lowering: None, literal_comparison_slot: None, membership_lowering: None,
             }).map_err(|_| unprepared("duration_add_proof_allocation"))?;
         }
         Ok(())

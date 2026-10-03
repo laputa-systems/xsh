@@ -299,3 +299,23 @@ fn checked_nominal_member_pattern_owner_ports_reject_same_graph_substitution_and
     solved.nominals.insert(tested, original_tested);
     solved.validate().unwrap();
 }
+
+#[test]
+fn checked_nominal_wire_owner_refuses_erasure_and_equal_mapping_replacement() {
+    let source = "enum State: Str { Seen = \"seen\", Missing = \"missing\" }\npure selected() -> State { Seen }\n";
+    let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(92), source);
+    let mut checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let solved = std::sync::Arc::get_mut(&mut checked.solved).unwrap();
+    let identity = *solved.nominal_members.iter().find(|(_, member)| member.wire.is_some()).unwrap().0;
+    let original = std::sync::Arc::clone(solved.nominal_members.get(&identity).unwrap());
+    let wire = std::sync::Arc::clone(original.wire.as_ref().unwrap());
+    std::sync::Arc::make_mut(solved.nominal_members.get_mut(&identity).unwrap()).wire = None;
+    assert!(solved.checked_nominal_member(identity).is_err());
+    assert!(solved.validate().is_err());
+    solved.nominal_members.insert(identity, std::sync::Arc::clone(&original));
+    solved.validate().unwrap();
+    std::sync::Arc::make_mut(solved.nominal_members.get_mut(&identity).unwrap()).wire = Some(std::sync::Arc::new((*wire).clone()));
+    assert!(solved.checked_nominal_member(identity).is_err(), "equal mapping contents cannot replace the original declaring wire owner");
+    assert!(solved.validate().is_err());
+}

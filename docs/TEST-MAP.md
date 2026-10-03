@@ -1,5 +1,13 @@
 # Test Map
 
+`cargo test -p xsh --lib capture_prepare::error_capture::tests -- --test-threads=1`
+checks fold and par-map callback error capture after frontend disposal on both
+workers, exact nominal error domains, and missing, foreign, or rewritten
+boundary receipt refusal. The observable cleanup and callback contracts remain
+in `tests/xsh/stdlib/fold-callbacks.xsh` and
+`tests/xsh/stdlib/stage-result-contracts.xsh`; run those native modules after the
+focused host checks.
+
 Callable aliases: `tests/xsh/callable-aliases.xsh` covers defaults, named and
 spread arguments, alias chains, captured values, qualified exports, dynamic
 module contracts, and erased/effect rejection boundaries.
@@ -95,6 +103,26 @@ string-list receiver, empty lists, omitted and named separators, and refusal of
 missing, foreign, rewritten default packets and selected operation receipts
 on both workers after frontend disposal.
 
+`cargo test -p xsh --lib direct_native_list_extend_` checks closed item types,
+append order, empty operands and chaining into a prepared length read. It
+rejects missing, foreign and jointly rewritten selected operation receipts on
+both workers after frontend disposal.
+
+`cargo test -p xsh --lib direct_native_record_get_` checks constant field
+selection on a visible record row, preserves the erased selected result
+separately from the field producer, and rejects missing, foreign and rewritten
+field receipts on both workers after frontend disposal.
+
+`cargo test -p xsh --lib direct_native_unsigned_argument_` checks that an
+authored Int operand and its checked UInt material retain separate descriptors.
+It exercises positive and negative values and rejects removed, foreign and
+jointly rewritten unsigned wrappers on both workers after frontend disposal.
+
+`cargo test -p xsh --lib direct_native_regex_` checks all four closed Regex
+methods, compiled receiver ownership, named argument order, prepared find item
+layouts, and missing, foreign and jointly rewritten native receipts on both
+workers after frontend disposal.
+
 `cargo test -p xsh --lib direct_native_text_byte_slice_` checks byte offsets,
 omitted and named lengths, UTF-8 boundaries, and cold refusal of missing,
 foreign and jointly rewritten default receipts on both workers.
@@ -114,6 +142,13 @@ the same record layout through a stage callback.
 parameters and nested hash producers on both workers, including cold refusal
 of missing, foreign and jointly rewritten encoding receipts.
 
+`cargo test -p xsh --lib direct_native_bytes_dump_` checks omitted and supplied
+format options, fallible receivers, both workers after frontend disposal,
+and missing, foreign or changed operation and default receipts.
+`cargo test -p xsh --lib original_native_result_field` checks native record
+success projections, unchanged errors, frontend disposal, and missing, foreign
+or rewritten postfix producers.
+
 `cargo test -p xsh --lib direct_native_record_arguments_` checks finite native
 spread fields after frontend disposal on both execution routes. It preserves
 record entry and formal ordinals and refuses changed fields, missing receipts,
@@ -132,8 +167,8 @@ pins a real prepared projection and a nonfirst field among equal storage kinds,
 then executes both indexed routes after checking and parsing owners are dropped.
 `cargo test -p xsh --lib native_result_carrier_executes_prepared_authority_after_frontend_disposal_on_both_routes`
 checks selected native authority and Result propagation in both routes. Its MIME
-API retains the declared erased `Record` boundary; it does not claim a fixed
-field projection proof for that result.
+API retains the closed `MimeParse` record from the original registry signature;
+genuinely erased Record results retain their separate boundary.
 
 Choose the narrowest useful command first, then run the broader gate for the
 area touched. Agents do not run formatters or linters; leave gates that invoke
@@ -170,6 +205,16 @@ disposal, cold forgery refusals, and checkpoint retirement. The existing
 `cargo test -p xsh --lib saved_captured_callable_receiver_` checks original
 immutable capture allocations for saved `.call` receivers after frontend disposal,
 including missing receipts and substituted bindings, capture headers and reads.
+
+`cargo test -p xsh --lib saved_conditional_captured_` checks genuine captured
+user callable branches, supplied argument and captured default order, original
+read and header allocations, and missing, foreign and coupled branch rewrites.
+
+`cargo test -p xsh --lib line_scanner_` checks original byte member selections,
+ordered conditions and counter writes in fused line scanning, both execution
+workers after frontend disposal, and protected source, prefix and allocation
+refusals. Counter overflow retains the authored assignment span, including
+when another local closure captures the counter.
 
 `cargo test -p xsh --lib live_mutable_capture_` checks nested writes, deferred
 updates, reads after supplied argument evaluation, defaults, scalar reads
@@ -1456,3 +1501,39 @@ checks placeholder visibility, process results, nested restoration, and cleanup
 refusals. `cargo test -p xsht --lib literal_migration_tests` pins inert Path and
 Duration eligibility, literal-origin byte bounds, exported keyword spans, and
 one preparation per changed source during convergence.
+
+`cargo test -p xsh --lib original_module_invocation` checks export promises,
+loaded implementation signatures, original argument/projection receipts,
+frontend disposal, and module/program substitution. The prepared target remains
+pinned while arguments execute. Broaden with native auth and module suites.
+
+`cargo test -p xsh --lib tag_constructor_prepare::tests` checks original member
+and wire identity, payload order, creation checks, bare statement tails, and
+scoped generic instances with foreign-frame and coupled-source refusals.
+`cargo test -p xsh --lib original_nullary_tag_equality` checks enum field
+comparisons and transported values on both workers, including missing and
+foreign proofs and joint operator, field, member and source rewrites.
+`target/debug/xsht test --jobs 1 tests/xsh/tag-constructors.xsh` covers authored
+constructor values and concrete instances of a scoped payload.
+
+`cargo test -p xsh --lib unsigned_fallback_` and
+`cargo test -p xsh --lib uint_conditional_creation_` check original UInt creation
+guards, lazy selection, failure before later output, frontend disposal,
+and missing, foreign or jointly rewritten branch and wrapper receipts.
+`target/debug/xsht test --jobs 1 tests/xsh/empty-list-equality.xsh` checks
+context from an independently typed List, generic binders, and incompatible
+nonempty item rejection before effects.
+
+`cargo test -p xsh --lib field_presence` checks successful literal membership,
+extra validated fields, frontend disposal, lexical dominance, writes and joint
+predicate rewrites. `cargo test -p xsh --lib hash_policy` checks the original
+public Hash algorithm boundary, private ABI, both workers and refusal before
+filesystem effects. Broaden with native Hash and checker gates.
+`cargo test -p xsh --lib list_text_methods` checks Bytes defaults, finite Record
+and Module keys, original erasure authority and missing/foreign proof refusal.
+`cargo test -p xsh --lib stage_prepare` checks original fused callback ports and
+erased identity tails; broaden with native stage and Tokei modules.
+`cargo test -p xsh --lib utils_cache` checks typed callback environments and
+distinct mutable allocations. `cargo test -p xsh --lib command_argv_mixed`
+checks finite original Str/Path children, native Path bytes, authored order and
+process execution on both workers.

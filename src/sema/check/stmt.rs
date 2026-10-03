@@ -680,6 +680,7 @@ impl Checker {
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
+                self.record_graph_tag_tail_constructor(arena, id, name, &ty);
                 if !command_ty_auto_propagates(&ty) {
                     self.reject_ignored_result(&ty, stmt.span);
                 }
@@ -884,14 +885,16 @@ impl Checker {
         let original = self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>();
         let mut reaching = Vec::new();
         let mut previous_failure = Vec::new();
-        for branch in branch_list {
+        for (ordinal, branch) in branch_list.iter().enumerate() {
             self.push_scope();
             self.apply_narrowings(&previous_failure);
             let facts = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
             let failure_scopes = self.scopes.clone();
+            let presence_saved = self.push_checked_field_presence_branch(arena, branch.condition, ordinal as u32);
             self.apply_narrowings(&facts.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
             self.check_block_arena(arena, source, branch.block);
+            self.restore_checked_field_presence_branches(presence_saved);
             if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(branch.block).span)) {
                 if let Some(bindings) = self.block_exit_bindings.get(&branch.block) { reaching.push(bindings.clone()); }
             }
@@ -2533,6 +2536,7 @@ impl Checker {
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
+                self.record_graph_tag_tail_constructor(arena, id, name, &ty);
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
                 let ty = self.normalize_graph_result_completion(arena, None, Some(id), expected, ty, stmt.span);
                 if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())

@@ -6,6 +6,17 @@ use crate::modules::signature::{ImplBinding, SemanticRule};
 mod result_record;
 mod path_methods;
 mod record_arguments;
+mod argument_lineages;
+mod bytes_methods;
+mod map_methods;
+mod hash_policy;
+mod list_text_methods;
+mod record_get;
+#[cfg(test)]
+mod record_get_tests;
+#[cfg(test)]
+mod regex_methods_tests;
+mod regex_methods;
 mod text_methods;
 mod list_methods;
 mod fs_children;
@@ -13,6 +24,15 @@ mod fs_children;
 mod record_items_tests;
 
 fn native_problem(construct: &'static str) -> IrBuildError { IrBuildError::format(construct, None, 0, 0) }
+
+fn native_receiver_type(graph: &crate::sema::inference::InferenceContext, ty: crate::sema::inference::TypeId, record_keys: bool) -> Result<Type, IrVerifyError> {
+    if !record_keys { return graph_ground_type(graph, ty); }
+    let actual = graph.export_type(ty).map_err(|_| IrVerifyError::new("record keys receiver requires its original closed descriptor"))?;
+    if !matches!(actual, Type::Record(_) | Type::ErasedRecord | Type::Module(_) | Type::DynamicModule) {
+        return Err(IrVerifyError::new("record keys receiver has another original domain"));
+    }
+    Ok(actual)
+}
 
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct BuildSavedNativeReceiverOrigin {
@@ -123,21 +143,30 @@ impl FullBuilder {
             let fs_root = super::super::generic::is_fs_root_method_owner(metadata.owner);
             let path_method = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Path);
             let text_optional_tail = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str) && matches!(metadata.operation, RuntimeOp::TextSplit | RuntimeOp::TextByteSlice);
+            let bytes_optional = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Bytes) && bytes_methods::bytes_method_operation_is_supported(metadata.operation);
+            let list_text = list_text_methods::list_text_method_operation_is_supported(metadata.owner, metadata.operation);
+            let record_keys = list_text && metadata.operation == RuntimeOp::RecordKeys;
+            let record_get = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Record)
+                && metadata.operation == RuntimeOp::RecordGet && metadata.semantic_rule == SemanticRule::ConstantKeyProjection
+                && solved.record_get_projection(expression).map_err(|_| native_problem("record_get_original_refinement_changed"))?.is_some();
+            let dynamic_cli = super::cli_call_prepare::original_dynamic_cli_candidate(&solved, expression, &metadata);
             let list_join = metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) && metadata.operation == RuntimeOp::TextJoin;
             let method = method || fs_root || path_method;
             if !(matches!(metadata.owner, RegistryOwner::Module(_)) && !method
                 || method && match metadata.owner {
-                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::Map) => matches!(metadata.operation, RuntimeOp::MapKeys | RuntimeOp::MapValues | RuntimeOp::MapGet | RuntimeOp::MapSet | RuntimeOp::MapLen),
-                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) => matches!(metadata.operation, RuntimeOp::ListGet | RuntimeOp::ListPush | RuntimeOp::ListLen | RuntimeOp::StreamCollect | RuntimeOp::TextJoin),
+                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::Record) => record_get || record_keys,
+                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::Map) => matches!(metadata.operation, RuntimeOp::MapKeys | RuntimeOp::MapValues | RuntimeOp::MapGet | RuntimeOp::MapSet | RuntimeOp::MapPush | RuntimeOp::MapLen),
+                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) => matches!(metadata.operation, RuntimeOp::ListGet | RuntimeOp::ListPush | RuntimeOp::ListExtend | RuntimeOp::ListLen | RuntimeOp::StreamCollect | RuntimeOp::TextJoin),
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str) => text_optional_tail || super::super::native_methods::nondefault_method_spelling(crate::modules::signature::MethodReceiver::Str, metadata.operation).is_some(),
-                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::Bytes) => super::super::native_methods::nondefault_method_spelling(crate::modules::signature::MethodReceiver::Bytes, metadata.operation).is_some(),
+                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::Bytes) => bytes_optional || list_text || super::super::native_methods::nondefault_method_spelling(crate::modules::signature::MethodReceiver::Bytes, metadata.operation).is_some(),
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Stream) => metadata.operation == RuntimeOp::StreamCollect,
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Digest) => matches!(metadata.operation, RuntimeOp::DigestHex | RuntimeOp::DigestBase64),
+                    RegistryOwner::Method(crate::modules::signature::MethodReceiver::Regex) => regex_methods::regex_method_operation_is_supported(metadata.operation),
                     RegistryOwner::Method(crate::modules::signature::MethodReceiver::Path) => path_read || self.store.tags[instruction as usize] == FullTag::ExprModuleCall || path_methods::path_method_operation_is_supported(metadata.operation),
                     _ => fs_root,
                 })
                 || metadata.binding != ImplBinding::Native
-                || metadata.semantic_rule != SemanticRule::Standard {
+                || !(metadata.semantic_rule == SemanticRule::Standard || record_get || dynamic_cli) {
                 if process_factory { return Err(native_problem("native_process_original_registry_contract_not_prepared")); }
                 continue;
             }
@@ -158,7 +187,7 @@ impl FullBuilder {
             let TypeNode::Arrow(arrow) = graph.node(signature).map_err(|_| native_problem("native_signature_owner"))? else { return Err(native_problem("native_signature_kind")); };
             let offset = usize::from(method);
             if arrow.kind != metadata.kind || arrow.params.len() != metadata.parameters.len() + offset
-                || method && ((!fs_root && !path_method && !text_optional_tail && !list_join && arrow.params.iter().any(|parameter| parameter.defaulted || parameter.rest))
+                || method && ((!fs_root && !path_method && !text_optional_tail && !list_join && !bytes_optional && !list_text && arrow.params.iter().any(|parameter| parameter.defaulted || parameter.rest))
                     || arrow.params[0].defaulted || arrow.params[0].rest || arrow.params[0].label != Name::intern("<receiver>"))
                 || arrow.params[offset..].iter().zip(&metadata.parameters).any(|(formal, original)| formal.label != original.label || formal.defaulted != original.defaulted || formal.rest) {
                 return Err(native_problem("native_original_parameter_contract"));
@@ -191,6 +220,10 @@ impl FullBuilder {
                 super::fs_root_prepare::encoded_fs_root_method_arguments(&self.store, instruction, arrow.params.len()).map_err(|_| native_problem("native_encoded_fs_root_arguments"))?
             } else if path_method {
                 path_methods::encoded_path_method_arguments(&self.store, instruction, arrow.params.len(), Name::intern(metadata.entry), metadata.operation).map_err(|cause| IrBuildError::verification("native_encoded_path_method_arguments", cause))?
+            } else if list_text {
+                list_text_methods::encoded_list_text_method_arguments(&self.store, instruction, arrow.params.len(), metadata.operation).map_err(|cause| IrBuildError::verification("native_encoded_list_text_arguments", cause))?
+            } else if bytes_optional {
+                bytes_methods::encoded_bytes_method_arguments(&self.store, instruction, arrow.params.len(), metadata.operation).map_err(|cause| IrBuildError::verification("native_encoded_bytes_method_arguments", cause))?
             } else if text_optional_tail {
                 text_methods::encoded_text_method_arguments(&self.store, instruction, arrow.params.len(), metadata.operation).map_err(|cause| IrBuildError::verification("native_encoded_text_method_arguments", cause))?
             } else if list_join {
@@ -210,7 +243,7 @@ impl FullBuilder {
                     if guard.call != expression || guard.owner != owner || origins.get(&source) != Some(&(guard.origin, owner)) { return Err(native_problem("native_guarded_receiver_original_source")); }
                     (guard.origin, owner, source, wrappers, None, Some(guard), None)
                 } else if let Some(postfix) = self.prepare_result_receiver(instruction, owner,
-                    &graph_ground_type(graph, operation.receiver.ok_or_else(|| native_problem("native_postfix_selected_receiver_missing"))?).map_err(|_| native_problem("native_postfix_selected_receiver_scope"))?, expression)? {
+                    &native_receiver_type(graph, operation.receiver.ok_or_else(|| native_problem("native_postfix_selected_receiver_missing"))?, record_keys).map_err(|_| native_problem("native_postfix_selected_receiver_scope"))?, expression)? {
                     (postfix.origin, postfix.owner, postfix.source_instruction, postfix.source_wrappers.clone(), None, None, Some(postfix))
                 } else {
                     let (original, receiver_owner, resolved) = saved_receivers.get(&instruction).ok_or_else(|| {
@@ -247,13 +280,15 @@ impl FullBuilder {
                 };
                 if receiver_owner != owner || solved.expression_owners.get(&origin).copied() != operation.caller { return Err(native_problem("native_method_original_receiver_owner")); }
                 let original = *solved.expressions.get(&origin).ok_or_else(|| native_problem("native_method_original_receiver_type"))?;
-                let source_type = graph_ground_type(graph, original).map_err(|_| native_problem("native_method_original_receiver_scope"))?;
+                let source_type = native_receiver_type(graph, original, record_keys).map_err(|_| native_problem("native_method_original_receiver_scope"))?;
                 let actual = if let Some(guard) = &guarded {
                     let TypeRef::Ground(source) = guard.source_type else { return Err(native_problem("native_guarded_receiver_source_requires_scope")); };
                     let TypeRef::Ground(success) = guard.success_type else { return Err(native_problem("native_guarded_receiver_success_requires_scope")); };
                     let actual = self.store.semantic.to_type(success).map_err(|_| native_problem("native_guarded_receiver_success_type"))?;
                     if self.store.semantic.to_type(source).map_err(|_| native_problem("native_guarded_receiver_source_type"))? != source_type
-                        || !matches!(&source_type, Type::Optional(inner) if inner.as_ref() == &actual && matches!(actual, Type::Map(_, _))) { return Err(native_problem("native_guarded_receiver_original_narrowing")); }
+                        || !matches!(&source_type, Type::Optional(inner) if inner.as_ref() == &actual
+                            && (metadata.owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Map) && metadata.operation == RuntimeOp::MapSet && matches!(actual, Type::Map(_, _))
+                                || fs_root && actual == Type::FsRoot)) { return Err(native_problem("native_guarded_receiver_original_narrowing")); }
                     actual
                 } else if let Some(postfix) = &postfix {
                     let (TypeRef::Ground(carrier), TypeRef::Ground(success)) = (postfix.source_type, postfix.success_type) else { return Err(native_problem("native_postfix_receiver_requires_closed_type")); };
@@ -269,14 +304,18 @@ impl FullBuilder {
                     && !matches!(&actual, Type::Map(key, _) if matches!(key.as_ref(), Type::Int | Type::UInt | Type::Str)) {
                     continue;
                 }
-                if graph_ground_type(graph, call.receiver.unwrap()).map_err(|_| native_problem("native_method_receiver_scope"))? != actual
-                    || graph_ground_type(graph, operation.receiver.unwrap()).map_err(|_| native_problem("native_method_receiver_scope"))? != actual
-                    || graph_ground_type(graph, arrow.params[0].ty).map_err(|_| native_problem("native_method_receiver_signature_scope"))? != actual { return Err(native_problem("native_method_original_receiver_changed")); }
+                let formal = graph_ground_type(graph, arrow.params[0].ty).map_err(|_| native_problem("native_method_receiver_signature_scope"))?;
+                let relation = graph.candidate(selected.candidate).map_err(|_| native_problem("native_method_receiver_relation"))?.argument_relations.first().copied().unwrap_or(crate::sema::inference::ArgumentRelation::Assignable);
+                let erased_keys = record_keys && list_text_methods::record_keys_receiver_accepts(&formal, &actual, relation);
+                let selected_receiver = if erased_keys && matches!(actual, Type::Module(_) | Type::DynamicModule) { &formal } else { &actual };
+                if &native_receiver_type(graph, call.receiver.unwrap(), record_keys).map_err(|_| native_problem("native_method_receiver_scope"))? != selected_receiver
+                    || &native_receiver_type(graph, operation.receiver.unwrap(), record_keys).map_err(|_| native_problem("native_method_receiver_scope"))? != selected_receiver
+                    || !record_get && !erased_keys && formal != actual { return Err(native_problem("native_method_original_receiver_changed")); }
                 let ty = TypeRef::Ground(self.intern_generic_ground_type(&actual)?);
                 let source_type = TypeRef::Ground(self.intern_generic_ground_type(&source_type)?);
                 Some(PreparedNativeReceiver { origin, instruction, source_instruction, source_wrappers, ty, source_type, method_name: Name::intern(metadata.entry), saved, postfix })
             } else { None };
-            if original_result_type != result_type {
+            if original_result_type != result_type && !record_get {
                 let guard = receiver.as_ref().and_then(|receiver| receiver.saved.as_ref().and_then(|saved| saved.guarded_read).or(Some(receiver.instruction)))
                     .and_then(|read| self.optional_receiver_guard(read)).ok_or_else(|| native_problem("native_original_result_changed"))?;
                 let (TypeRef::Ground(source), TypeRef::Ground(result)) = (guard.call_source_type, guard.call_result_type) else { return Err(native_problem("native_guarded_call_result_requires_scope")); };
@@ -318,16 +357,21 @@ impl FullBuilder {
             }
             let slots = |slots: &[usize]| slots.iter().map(|&slot| u32::try_from(slot + offset).map_err(|_| native_problem("native_slot_overflow"))).collect::<Result<Box<[_]>, _>>();
             let template = graph.candidate(selected.candidate).map_err(|_| native_problem("native_original_candidate_template"))?;
+            let supplied_slots = slots(&operation.binding.supplied_slots)?;
+            let argument_lineages = self.prepare_native_argument_lineages(&mut arguments, owner, signature, &supplied_slots)?;
+            let result_refinement = self.prepare_record_get_refinement(&solved, expression, &receiver, &arguments, selected.result, original_result, owner)?;
             let contract = GroundNativeCallContract {
                 authority: PreparedOperationAuthority::Registry { identity: metadata.identity, operation: metadata.operation, binding: metadata.binding,
                     argument_check: metadata.argument_check, semantic_rule: metadata.semantic_rule, lifecycle: metadata.lifecycle, producer_transfer: metadata.producer_transfer.clone() },
                 registry_owner: metadata.owner, signature, kind, result: TypeRef::Ground(result), effects, argument_relations: template.argument_relations.clone().into_boxed_slice(), input_eligibility: template.actual_eligibility.clone().into_boxed_slice(), arguments: arguments.into_boxed_slice(),
-                binding: PreparedOperationBinding { supplied_slots: slots(&operation.binding.supplied_slots)?, default_slots: slots(&operation.binding.default_slots)?, rest_slot: None, dynamic: None, operands: operands.into_boxed_slice() },
+                binding: PreparedOperationBinding { supplied_slots, default_slots: slots(&operation.binding.default_slots)?, rest_slot: None, dynamic: None, operands: operands.into_boxed_slice() },
                 argument_sources: argument_sources.into_boxed_slice(), receiver, cli_descriptor: None, process_command_argv,
             };
+            regex_methods::verify_regex_method_contract(&contract, &self.store.semantic).map_err(|error| IrBuildError::verification("native_regex_original_contract", error))?;
+            list_text_methods::verify_list_text_method_contract(&contract, &self.store.semantic).map_err(|error| IrBuildError::verification("native_list_text_original_contract", error))?;
             let scope = operation.caller.and_then(|declaration| self.generic_declarations.get(&declaration).copied());
-            let result_record_layout = self.prepare_native_result_record(&result_type)?;
-            let source = self.generic_evidence_mut().add_native_call_source(NativeCallSource { origin: expression, instruction, owner, scope, expected: contract.clone(), result_record_layout, record_arguments: record_arguments.into_boxed_slice() }).map_err(|_| native_problem("native_source_allocation"))?;
+            let result_record_layout = self.prepare_native_result_record(if result_refinement.is_some() { &original_result_type } else { &result_type })?;
+            let source = self.generic_evidence_mut().add_native_call_source(NativeCallSource { origin: expression, instruction, owner, scope, expected: contract.clone(), result_record_layout, record_arguments: record_arguments.into_boxed_slice(), argument_lineages, result_refinement }).map_err(|_| native_problem("native_source_allocation"))?;
             self.generic_evidence_mut().add_ground_native_call(PreparedGroundNativeCall { source, contract }).map_err(|_| native_problem("native_proof_allocation"))?;
         }
         Ok(())
@@ -335,6 +379,9 @@ impl FullBuilder {
 }
 
 impl FullVerifier {
+    pub(in crate::runtime::eval::indexed) fn record_keys_receiver_accepts(formal: &Type, actual: &Type, relation: crate::sema::inference::ArgumentRelation) -> bool {
+        list_text_methods::record_keys_receiver_accepts(formal, actual, relation)
+    }
     pub(super) fn verify_native_nominal_source(store: &FullStore, source: u32, expected: &Type) -> Result<bool, IrVerifyError> {
         let Type::Tag(expected) = expected else { return Ok(false); };
         let words = store.payload(store.data[source as usize].range())?;
@@ -378,7 +425,13 @@ impl FullVerifier {
             || generic.registered_instruction_origin(instruction, false) != Some((OperationSourceOrigin::Expression(source.origin), owner)) { return Err(IrVerifyError::new("native call changes its original instruction or owner")); }
         let PreparedOperationAuthority::Registry { operation, .. } = proof.contract.authority else { return Err(IrVerifyError::new("native call lacks its selected registry authority")); };
         source.verify_result_record_layout(&store.semantic)?;
+        regex_methods::verify_regex_method_contract(&proof.contract, &store.semantic)?;
+        bytes_methods::verify_bytes_method_contract(&proof.contract, &store.semantic)?;
+        map_methods::verify_map_push_contract(&proof.contract, &store.semantic)?;
+        list_text_methods::verify_list_text_method_contract(&proof.contract, &store.semantic)?;
         Self::verify_native_record_argument_packets(store, generic, source)?;
+        if proof.contract.cli_descriptor.is_none() { Self::verify_native_argument_lineages(store, generic, source)?; }
+        Self::verify_record_get_key(store, generic, source)?;
         let count = store.semantic.signature_param_count(proof.contract.signature)?;
         let (encoded, arguments, location) = if let Some(process) = &proof.contract.process_command_argv {
             Self::verify_process_command_argv_descriptor(store, instruction, process)?;
@@ -402,7 +455,10 @@ impl FullVerifier {
                 let (TypeRef::Ground(original), TypeRef::Ground(success)) = (guard.source_type, guard.success_type) else { return Err(IrVerifyError::new("guarded native receiver lacks closed source and success types")); };
                 let actual = store.semantic.to_type(success)?;
                 if guard.call != source.origin || guard.origin != receiver.origin || store.semantic.to_type(original)? != original_type
-                    || !matches!(&original_type, Type::Optional(inner) if inner.as_ref() == &actual && matches!(actual, Type::Map(_, _)))
+                    || !matches!(&original_type, Type::Optional(inner) if inner.as_ref() == &actual
+                        && (proof.contract.registry_owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Map)
+                                && matches!(proof.contract.authority, PreparedOperationAuthority::Registry { operation: RuntimeOp::MapSet, .. }) && matches!(actual, Type::Map(_, _))
+                            || super::super::generic::is_fs_root_method_owner(proof.contract.registry_owner) && actual == Type::FsRoot))
                     || guard.call_result_type != proof.contract.result { return Err(IrVerifyError::new("guarded native receiver changes its original optional narrowing or selected result")); }
                 actual
             } else if let Some(postfix) = &receiver.postfix {
@@ -447,6 +503,10 @@ impl FullVerifier {
                 super::fs_root_prepare::encoded_fs_root_method_arguments(store, instruction, count)?
             } else if proof.contract.registry_owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Path) {
                 path_methods::encoded_path_method_arguments(store, instruction, count, receiver.method_name, operation)?
+            } else if list_text_methods::list_text_method_operation_is_supported(proof.contract.registry_owner, operation) {
+                list_text_methods::encoded_list_text_method_arguments(store, instruction, count, operation)?
+            } else if proof.contract.registry_owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Bytes) && bytes_methods::bytes_method_operation_is_supported(operation) {
+                bytes_methods::encoded_bytes_method_arguments(store, instruction, count, operation)?
             } else if proof.contract.registry_owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::Str) && matches!(operation, RuntimeOp::TextSplit | RuntimeOp::TextByteSlice) {
                 text_methods::encoded_text_method_arguments(store, instruction, count, operation)?
             } else if proof.contract.registry_owner == RegistryOwner::Method(crate::modules::signature::MethodReceiver::List) && operation == RuntimeOp::TextJoin {
@@ -460,7 +520,8 @@ impl FullVerifier {
         } else { encoded_native_arguments(store, instruction, count)? };
         if encoded != operation || arguments.as_slice() != proof.contract.argument_sources.as_ref()
             || IrLocationId::from_raw(location).and_then(|location| store.location_sources.get(location.index())) != Some(&source.origin.source) { return Err(IrVerifyError::new("native call changes its original opcode, operands, defaults, or source")); }
-        let TypeRef::Ground(result) = proof.contract.result else { return Err(IrVerifyError::new("native call result is not closed")); };
+        let result = source.result_refinement.as_ref().map_or(proof.contract.result, |refinement| refinement.producer_result);
+        let TypeRef::Ground(result) = result else { return Err(IrVerifyError::new("native call result is not closed")); };
         store.semantic.to_type(result)
     }
 
@@ -486,7 +547,16 @@ impl FullVerifier {
                 let field = source.record_arguments.iter().find(|field| field.ordinal as usize == ordinal).ok_or_else(|| IrVerifyError::new("native spread field loses its original source receipt"))?;
                 Self::verify_generic_source(store, generic, field.record_source_instruction, owner, &store.semantic.to_type(field.record_type)?, None, active)?;
             } else {
-                Self::verify_generic_source(store, generic, argument.instruction, owner, &store.semantic.to_type(ty)?, None, active)?;
+                let material = if proof.contract.cli_descriptor.is_some() { argument.instruction } else {
+                    source.argument_lineages.get(ordinal).ok_or_else(|| IrVerifyError::new("native call loses its original supplied argument lineage"))?.source_instruction
+                };
+                let source_ty = if proof.contract.cli_descriptor.is_some() { ty } else {
+                    let TypeRef::Ground(source_ty) = source.argument_lineages[ordinal].source_type else {
+                        return Err(IrVerifyError::new("native supplied argument source requires a ground type"));
+                    };
+                    source_ty
+                };
+                Self::verify_generic_source(store, generic, material, owner, &store.semantic.to_type(source_ty)?, None, active)?;
             }
         }
         if !already_active { active.pop(); }

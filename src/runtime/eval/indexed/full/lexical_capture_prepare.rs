@@ -23,6 +23,7 @@ impl FullBuilder {
         }
         solved.graph.validate_scoped(source_type).map_err(|_| problem("lexical_capture_original_scope"))?;
         self.stage_original_callable_capture(target, Some(declaration), header_index, original)?;
+        self.stage_original_module_capture(target, Some(declaration), header_index, original)?;
         let Ok(original_type) = graph_ground_type(&solved.graph, source_type.ty) else { return Ok(()); };
         let ty = self.intern_generic_ground_type(&original_type)?;
         let slot = u32::try_from(original.slot).map_err(|_| problem("lexical_capture_slot_overflow"))?;

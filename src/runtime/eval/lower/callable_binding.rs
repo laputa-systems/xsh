@@ -11,10 +11,63 @@ pub(in crate::runtime::eval) struct BuildCapturedCallableReceiver {
 }
 
 impl CompactLowerConstructProbe<'_, '_> {
+    pub(super) fn record_original_captured_callable_read(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<()> {
+        let ArenaExprKind::Ident(name) = self.program.arena.expr(id).kind else { return Some(()); };
+        if !slots.captures.contains(&name) { return Some(()); }
+        let slot = slots.resolve(name)?;
+        if slots.host_bindings_by_slot.contains_key(&slot) { return Some(()); }
+        let Some(binding) = self.top_level_known.get(&name)?.lexical_binding else { return Some(()); };
+        let solved = self.solved();
+        let origin = self.expression_identity(id);
+        let Some(callable) = solved.expression_callables.get(&origin) else { return Some(()); };
+        if callable.declaration.is_none() { return Some(()); }
+        let definition = solved.bindings.get(&binding)?;
+        if definition.mutable { return Some(()); }
+        let ty = *solved.expressions.get(&origin)?;
+        let resolved = solved.graph.resolved(ty).ok()?;
+        let user = match solved.graph.node(resolved).ok()? {
+            crate::sema::inference::TypeNode::Arrow(_) => true,
+            crate::sema::inference::TypeNode::NativeCallable(callable) => !callable.alternatives.is_empty()
+                && callable.alternatives.iter().all(|authority| matches!(authority, crate::sema::inference::CallableAuthority::User { .. })),
+            _ => false,
+        };
+        if !user { return Some(()); }
+        let caller = *solved.expression_owners.get(&origin)?;
+        let flow = *solved.expression_producer_flows.get(&origin)?;
+        let node = solved.producer_flows.node(flow).ok()?;
+        let crate::sema::check::ProducerFlowKind::CapturedBinding { identity, version, input } = node.kind else { return None; };
+        if identity != binding || definition.owner == Some(caller)
+            || node.source != crate::sema::check::ProducerFlowSource::Expression(origin)
+            || solved.binding_producer_flows.get(&(identity, version)) != Some(&input) { return None; }
+        let source_type = crate::sema::inference::ScopedRoot { ty, scope: solved.expression_scope(origin, Some(caller)).ok()? };
+        solved.graph.validate_scoped(source_type).ok()?;
+        {
+            let scratch = self.scratch.borrow();
+            if let Some(receiver) = scratch.callable_receiver_origins.get(&lowered) {
+                let original = scratch.captured_callable_reads.get(&origin)?;
+                let capture = receiver.capture.as_ref()?;
+                if receiver.origin != origin || receiver.binding != binding || receiver.initializer != original.expression
+                    || original.binding != binding || original.caller != caller || original.slot != slot || original.source_type != source_type
+                    || capture.caller != caller || capture.slot != slot || capture.name != name || capture.source_type != source_type
+                    || receiver.initializer.index() >= lowered.index() || receiver.slot == slot
+                    || !matches!(scratch.expressions.get(lowered.index()), Some(BuildExprRow::Param(actual)) if *actual == receiver.slot) { return None; }
+                // This saved read transports the already recorded authored
+                // source; its compiler slot cannot become another capture.
+                return Some(());
+            }
+            if !matches!(scratch.expressions.get(lowered.index()), Some(BuildExprRow::Param(actual)) if *actual == slot) { return None; }
+        }
+        self.scratch.borrow_mut().captured_callable_reads.insert(origin, super::lexical_captures::BuildLexicalCaptureRead {
+            binding, caller, origin, slot, expression: lowered, source_type,
+        });
+        Some(())
+    }
+
     pub(super) fn record_original_callable_binding(
         &self, statement: StmtId, initializer: ExprId, slot: usize,
         value: BuildExprId, row: BuildStmtId, slots: &mut SlotScope,
     ) -> Option<()> {
+        self.record_original_module_binding(statement, initializer, slot, value, row, slots)?;
         let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(original), .. } = self.program.arena.stmt(statement).kind else { return Some(()); };
         if original != initializer { return None; }
         let ArenaBindingTargetKind::Name(name) = self.program.arena.binding_target(target).kind else { return Some(()); };
@@ -55,6 +108,41 @@ impl CompactLowerConstructProbe<'_, '_> {
         };
         self.scratch.borrow_mut().callable_binding_origins.insert(binding_identity, origin);
         slots.callable_binding_authorities.insert(name, binding_identity);
+        Some(())
+    }
+
+    fn record_original_module_binding(&self, statement: StmtId, initializer: ExprId, slot: usize,
+        value: BuildExprId, row: BuildStmtId, slots: &SlotScope) -> Option<()> {
+        let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(actual), .. } = self.program.arena.stmt(statement).kind else { return Some(()); };
+        if actual != initializer { return None; }
+        let ArenaBindingTargetKind::Name(name) = self.program.arena.binding_target(target).kind else { return Some(()); };
+        let statement = self.statement_identity(statement);
+        let identity = crate::sema::check::BindingIdentity { source: statement.source, namespace: statement.namespace, target };
+        let initializer_source = self.expression_identity(initializer);
+        let solved = self.solved();
+        let module_type = |ty| -> Option<bool> {
+            Some(matches!(solved.graph.node(solved.graph.resolved(ty).ok()?).ok()?, crate::sema::inference::TypeNode::Module(_)))
+        };
+        let Some(binding) = solved.bindings.get(&identity) else {
+            return match solved.expressions.get(&initializer_source) { Some(ty) if module_type(*ty)? => None, _ => Some(()) };
+        };
+        if !module_type(binding.ty)? { return Some(()); }
+        if binding.mutable || slots.resolve(name) != Some(slot) || solved.expression_owners.get(&initializer_source).copied() != binding.owner { return None; }
+        let actual = *solved.expressions.get(&initializer_source)?;
+        if !module_type(actual)? { return None; }
+        let lexical = binding.owner.map(|owner| solved.declarations.get(&owner).map(|declaration| declaration.scheme)).flatten();
+        if binding.owner.is_some() && lexical.is_none() { return None; }
+        let source_type = crate::sema::inference::ScopedRoot { ty: binding.ty, scope: binding.scheme.or(lexical) };
+        let initializer_type = crate::sema::inference::ScopedRoot { ty: actual, scope: solved.expression_scope(initializer_source, binding.owner).ok()? };
+        solved.graph.validate_scoped(source_type).ok()?;
+        solved.graph.validate_scoped(initializer_type).ok()?;
+        let material = self.original_source_instruction(value)?;
+        if self.expression_origins.get(&material) != Some(&initializer_source) { return None; }
+        let mut scratch = self.scratch.borrow_mut();
+        if !matches!(scratch.statements.get(row.index()), Some(BuildStmtRow::Let { slot: actual_slot, value: actual }) if *actual_slot == slot && *actual == value) { return None; }
+        scratch.module_binding_origins.insert(identity, super::super::indexed::full::BuildModuleBindingOrigin {
+            statement, row, slot, initializer: value, initializer_source, source_type, initializer_type,
+        });
         Some(())
     }
     pub(super) fn record_original_callable_receiver(

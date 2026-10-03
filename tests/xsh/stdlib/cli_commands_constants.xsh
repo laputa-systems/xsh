@@ -140,3 +140,17 @@ let parsed: IncorrectValues = cli.parse([], schema)?
   (!mismatch.success)
   ("check.type-mismatch" in mismatch.stderr)
 }
+
+test cli_static_descriptor_postfix_preserves_the_refined_result [fs, error] { |ctx|
+  let output = test.run_script(ctx, r"""
+let operands = cli.parse(["--", "--name"], {name: {positional: true}}, "demo")?.get("name") ?? ""
+let applet = cli.applet(["--name", "a", "--name", "b"], {name: "Str"}, "demo")?.get("name") ?? ""
+let command = cli.commands(["my-command"], {my_command: {rest: "raw"}})?.get("command")?
+print $operands $applet $command
+""")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("--name b my_command\n")
+}

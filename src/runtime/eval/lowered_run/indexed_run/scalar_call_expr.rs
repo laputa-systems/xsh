@@ -106,7 +106,7 @@ impl Evaluator {
                     let RequirementWitness::Add { operation, .. } = witness else {
                         return Err(RuntimeError::new("indexed-ir", "binary instruction has projection evidence").with_span(span));
                     };
-                    return self.eval_indexed_binary_stack(execution, slots, call_span, op, left, right, span, Some(operation));
+                    return self.eval_indexed_binary_stack(execution, slots, call_span, instruction, op, left, right, span, Some(operation));
                 }
                 if op == BinaryOp::And {
                     let left = match self.eval_indexed_bool(execution, left, slots, span)? {
@@ -133,9 +133,10 @@ impl Evaluator {
                         .map(|flow| flow.map_continue(LoweredValue::Bool));
                 }
                 return self
-                    .eval_indexed_binary_stack(execution, slots, call_span, op, left, right, span, None);
+                    .eval_indexed_binary_stack(execution, slots, call_span, instruction, op, left, right, span, None);
             }
             FullTag::ExprCall => {
+                execution.verify_hash_policy_call(instruction).map_err(|error| indexed_error(error, call_span))?;
                 let function =
                     indexed_decode::<LoweredFunctionKey>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
@@ -175,6 +176,7 @@ impl Evaluator {
                     .map(ControlFlow::Continue);
             }
             FullTag::ExprExternalCall => {
+                execution.verify_hash_policy_call(instruction).map_err(|error| indexed_error(error, call_span))?;
                 let qualified =
                     indexed_decode::<QualifiedName>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
@@ -261,10 +263,13 @@ impl Evaluator {
                 let arg_count = indexed_raw(&mut args, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let callee = match self.eval_indexed_expr(execution, callee, slots, span)? {
+                let module_source = execution.module_invocation_source(instruction).map_err(|error| indexed_error(error, span))?;
+                let receiver_instruction = module_source.map_or(callee, |source| source.receiver_instruction);
+                let callee = match self.eval_indexed_expr(execution, receiver_instruction, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
+                let module_callable = if module_source.is_some() { Some(self.checked_indexed_module_callable(execution, instruction, &callee, span)?) } else { None };
                 let mut values = IndexedCallArguments::supplied(Vec::with_capacity(arg_count));
                 for _ in 0..arg_count {
                     let argument_kind = indexed_raw(&mut args, span)?;
@@ -298,6 +303,7 @@ impl Evaluator {
                     }
                 }
                 indexed_finish(args, span)?;
+                if let Some(callable) = module_callable { return self.eval_indexed_module_callable(callable, values, span).map(ControlFlow::Continue); }
                 if let Some(plan) = execution.native_invocation_plan(instruction).map_err(|error| indexed_error(error, span))? {
                     return self.eval_indexed_native_callable(execution, plan, &callee, values, span);
                 }

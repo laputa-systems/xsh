@@ -54,6 +54,9 @@ pub(crate) struct SolvedRegistryBoundary {
 }
 
 impl SolvedRegistryBoundary {
+    pub(crate) fn hash_algorithm(&self) -> Option<Name> {
+        if let RegistryBoundaryKind::HashAlgorithm { algorithm } = self.kind { Some(algorithm) } else { None }
+    }
     pub(crate) fn retained_bytes(&self) -> usize {
         match &self.kind {
             RegistryBoundaryKind::CommandArguments { argv_children } => argv_children.capacity() * std::mem::size_of::<CommandArgvChild>(),

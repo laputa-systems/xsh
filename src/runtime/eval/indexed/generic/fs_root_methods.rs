@@ -19,6 +19,10 @@ impl GroundNativeCallContract {
             if !matches!(source_type, Type::Result(inner, error) if *inner == Type::FsRoot && *error == Type::Error) {
                 return Err(failure("filesystem root Result receiver changes its original source carrier"));
             }
+        } else if matches!(&source_type, Type::Optional(inner) if inner.as_ref() == &Type::FsRoot) {
+            if receiver.saved.as_ref().is_none_or(|saved| saved.guarded_read.is_none()) {
+                return Err(failure("filesystem root optional receiver lacks its original present guard"));
+            }
         } else if source_type != Type::FsRoot { return Err(failure("filesystem root method changes its original opaque source")); }
         let (label, formal, _) = pools.signature_param(self.signature, 0)?;
         if label != Name::intern("<receiver>") || pools.to_type(formal)? != Type::FsRoot

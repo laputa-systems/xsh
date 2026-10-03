@@ -1,7 +1,7 @@
 use crate::modules::{RuntimeOp, signature::MethodReceiver};
 
-// Prepared text and byte methods choose their backend spelling from the
-// selected numeric operation and receiver domain, independently of source text.
+// Prepared native methods choose their backend spelling from the selected
+// numeric operation and receiver domain, independently of source text.
 pub(in crate::runtime::eval) fn nondefault_method_spelling(receiver: MethodReceiver, operation: RuntimeOp) -> Option<&'static str> {
     match (receiver, operation) {
         (MethodReceiver::Str, RuntimeOp::TextTrim) => Some("trim"),
@@ -45,6 +45,10 @@ pub(in crate::runtime::eval) fn nondefault_method_spelling(receiver: MethodRecei
         (MethodReceiver::Bytes, RuntimeOp::HashSha1) => Some("sha1"),
         (MethodReceiver::Bytes, RuntimeOp::HashSha256) => Some("sha256"),
         (MethodReceiver::Bytes, RuntimeOp::HashSha512) => Some("sha512"),
+        (MethodReceiver::Regex, RuntimeOp::RegexMatches) => Some("matches"),
+        (MethodReceiver::Regex, RuntimeOp::RegexFind) => Some("find"),
+        (MethodReceiver::Regex, RuntimeOp::RegexCaptures) => Some("captures"),
+        (MethodReceiver::Regex, RuntimeOp::RegexReplace) => Some("replace"),
         _ => None,
     }
 }

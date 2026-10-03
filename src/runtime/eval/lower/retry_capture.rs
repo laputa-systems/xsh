@@ -42,7 +42,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         } else { None };
         let source_type = root(self, origin)?;
         self.scratch.borrow_mut().try_capture_origins.insert(row, BuildTryCaptureOrigin { origin, block, source_type, body: body.into_boxed_slice(), completion, propagation, propagation_row,
-            retry: Some(BuildRetryCapturePolicy { delays: original_delays, selection }) });
+            error_capture: None, retry: Some(BuildRetryCapturePolicy { delays: original_delays, selection }) });
         Some(row)
     }
 }

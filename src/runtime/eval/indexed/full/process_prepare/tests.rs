@@ -29,7 +29,7 @@ fn fixture_source(source: &str, expected_factories: usize) -> FullProgram {
     drop(checked); drop(parsed);
     assert!(weak.upgrade().is_none());
     let program = evaluator.indexed_program.as_ref().unwrap().as_ref().clone();
-    FullVerifier::verify(&program).unwrap();
+    program.symbol_owner().with_current(|| FullVerifier::verify(&program).unwrap());
     assert_eq!(program.generic_evidence().unwrap().ground_native_calls().filter(|(_, proof)| proof.contract.process_command_argv.is_some()).count(), expected_factories);
     program
 }
@@ -118,5 +118,107 @@ proc timed() [process, error] -> Status {
         changed.store.extra[range.start] ^= 1;
         assert!(FullVerifier::verify(&changed).is_err(), "another nonnegative Duration cannot rewrite the authored timeout");
         assert!(changed.verify_process_command_argv_execution(instruction).is_err());
+    });
+}
+
+
+#[test]
+fn command_argv_computed_timeout_keeps_original_duration_source_on_both_workers() {
+    crate::runtime::eval::run_eval(|| {
+        for timeout in ["250ms * 2 + 1s", "budget"] {
+            let source = format!("proc timed() [process, error] -> Status {{ let budget = 250ms * 2 + 1s; let command = process.command_argv(\"true\", [\"true\"], timeout: {timeout}); process.run(command)? }}\n");
+            let program = Arc::new(fixture_source(&source, 1));
+            for recursive in [false, true] {
+                let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(program.clone());
+                let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("timed")));
+                let call = || evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0)).unwrap();
+                let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(key, recursive, call);
+                let crate::runtime::value::Value::Status(status) = result.unwrap() else { panic!("computed timeout retains the process status"); };
+                assert!(status.success);
+            }
+            let generic = program.generic_evidence().unwrap();
+            let (_, proof) = generic.ground_native_calls().find(|(_, proof)| proof.contract.process_command_argv.is_some()).unwrap();
+            let source = generic.native_call_source(proof.source).unwrap();
+            let snapshot = proof.contract.process_command_argv.as_ref().unwrap();
+            let timeout = proof.contract.argument_sources[9].unwrap();
+            let material = snapshot.transports.iter().find_map(|&(read, material)| (read == timeout).then_some(material)).unwrap_or(timeout);
+            let row = snapshot.rows.iter().find(|row| row.instruction == material).unwrap();
+            let mut changed = program.as_ref().clone();
+            let range = changed.store.data[row.instruction as usize].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[range.start] ^= 1;
+            assert!(FullVerifier::verify(&changed).is_err());
+            assert!(changed.verify_process_command_argv_execution(source.instruction).is_err());
+            let mut missing = program.as_ref().clone();
+            missing.store.generic.as_deref_mut().unwrap().test_remove_operations();
+            assert!(FullVerifier::verify(&missing).is_err());
+            assert!(missing.verify_process_command_argv_execution(source.instruction).is_err());
+        }
+    });
+}
+
+#[test]
+fn command_argv_driver_computed_timeout_retains_original_duration_addition() {
+    crate::runtime::eval::run_eval(|| {
+        for timeout in ["250ms * 2 + 1s", "budget"] {
+            let source = format!("let budget = 250ms * 2 + 1s\nlet command = process.command_argv(\"true\", [\"true\"], timeout: {timeout})\n");
+            let program = fixture_source(&source, 1);
+            let _symbols = program.symbol_owner().enter();
+            let generic = program.generic_evidence().unwrap();
+            assert!(generic.operations().any(|(_, operation)| matches!(operation.authority,
+                super::super::super::generic::PreparedOperationAuthority::Sealed { operation: crate::sema::inference::SealedOperation::AddDuration })));
+            let (_, proof) = generic.ground_native_calls().find(|(_, proof)| proof.contract.process_command_argv.is_some()).unwrap();
+            let instruction = generic.native_call_source(proof.source).unwrap().instruction;
+            program.verify_process_command_argv_execution(instruction).unwrap();
+            let mut missing = program.clone();
+            missing.store.generic.as_deref_mut().unwrap().test_remove_operations();
+            assert!(FullVerifier::verify(&missing).is_err());
+            assert!(missing.verify_process_command_argv_execution(instruction).is_err());
+        }
+    });
+}
+
+#[test]
+fn command_argv_mixed_original_path_children_keep_bytes_and_order_on_both_workers() {
+    crate::runtime::eval::run_eval(|| {
+        let program = Arc::new(fixture_source("pure make(item: Path) -> Command { process.command_argv(\"true\", [\"true\", item, \"tail\"]) }\nproc observed(item: Path) [process, error] -> Status { process.run(make(item))? }\n", 1));
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let (_, proof) = generic.ground_native_calls().find(|(_, proof)| proof.contract.process_command_argv.is_some()).unwrap();
+            let source = generic.native_call_source(proof.source).unwrap();
+            let snapshot = proof.contract.process_command_argv.as_ref().unwrap();
+            let argv = proof.contract.argument_sources[1].unwrap();
+            let material = snapshot.transports.iter().find_map(|&(read, material)| (read == argv).then_some(material)).unwrap_or(argv);
+            let container_id = generic.ground_container_at(material).unwrap().unwrap();
+            let container = generic.ground_container_source(container_id).unwrap();
+            assert_eq!(container.operands.len(), 3);
+            assert_eq!(container.operands.iter().map(|operand| program.store.semantic.to_type(operand.source_type).unwrap()).collect::<Vec<_>>(), [Type::Str, Type::Path, Type::Str]);
+            for recursive in [false, true] {
+                let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(program.clone());
+                let make = LoweredFunctionKey::Name(Name::intern("make"));
+                let item = crate::runtime::value::Value::Path(crate::runtime::value::PathValue::new(b"path-\xff".to_vec()).unwrap());
+                let create = || evaluator.call_indexed_direct(make, LoweredFunctionKind::Pure, &[item], Span::new(program.store.source_id, 0, 0)).unwrap();
+                let command = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(make, recursive, create).unwrap();
+                let crate::runtime::value::Value::Command(command) = command else { panic!("the checked factory returns its command plan"); };
+                assert_eq!(command.target, b"true");
+                // Command plans retain the executable separately from its arguments.
+                assert_eq!(command.argv, [b"path-\xff".to_vec(), b"tail".to_vec()]);
+                let key = LoweredFunctionKey::Name(Name::intern("observed"));
+                let item = crate::runtime::value::Value::Path(crate::runtime::value::PathValue::new(b"path-\xff".to_vec()).unwrap());
+                let call = || evaluator.call_indexed_direct(key, LoweredFunctionKind::Proc, &[item], Span::new(program.store.source_id, 0, 0)).unwrap();
+                let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(key, recursive, call);
+                let crate::runtime::value::Value::Status(status) = result.unwrap() else { panic!("mixed argv preserves its process status"); };
+                assert!(status.success);
+            }
+            let mut missing = program.as_ref().clone();
+            missing.store.generic.as_deref_mut().unwrap().test_remove_ground_containers();
+            assert!(FullVerifier::verify(&missing).is_err());
+            assert!(missing.verify_process_command_argv_execution(source.instruction).is_err());
+            let mut changed = program.as_ref().clone();
+            changed.store.generic.as_deref_mut().unwrap().test_ground_container_mut(container_id).unwrap().operands.swap(0, 1);
+            assert!(FullVerifier::verify(&changed).is_err());
+            assert!(changed.verify_process_command_argv_execution(source.instruction).is_err());
+        });
     });
 }

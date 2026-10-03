@@ -1,5 +1,5 @@
 use super::*;
-use super::super::generic::{graph_ground_type, OriginalStageBlockCallback, OriginalPreparedStage, OriginalStagePipeline, PreparedOperationAuthority, PreparedOperationEffects, PreparedStageResultRecord};
+use super::super::generic::{graph_ground_type, OriginalStageBlockCallback, OriginalPreparedStage, OriginalStagePipeline, OriginalStageFusion, OriginalStageIdentityFlatMap, PreparedOperationAuthority, PreparedOperationEffects, PreparedStageResultRecord};
 use crate::sema::check::{ProducerFlowSource, SolvedOperationAuthority};
 use crate::sema::inference::{EffectSummary, ScopedRequirementRoot, ScopedRoot};
 use crate::syntax::node::StreamStageKind;
@@ -24,6 +24,11 @@ fn selected_tag(kind: &StreamStageKind, tag: FullStageTag) -> bool {
 }
 
 fn block_callback_matches(tag: FullStageTag, payload: &[u32], callback: &OriginalStageBlockCallback) -> bool {
+    if tag == FullStageTag::ParMapFlatMapReduceBy {
+        let Some((map_slot, map_value, _, reduce_slot, reduce_value)) = fused_callback_ports(payload) else { return false; };
+        return callback.slots.len() == 1 && callback.initial.is_none()
+            && ((callback.slots[0] == map_slot && callback.value == map_value) || (callback.slots[0] == reduce_slot && callback.value == reduce_value));
+    }
     if tag == FullStageTag::Fold {
         return callback.slots.len() == 2 && payload.len() == 5 && payload[..2] == *callback.slots
             && Some(payload[2]) == callback.initial && payload[4] == callback.value;
@@ -40,7 +45,89 @@ fn block_callback_matches(tag: FullStageTag, payload: &[u32], callback: &Origina
     value == Some(&callback.value)
 }
 
+fn fused_callback_ports(payload: &[u32]) -> Option<(u32, u32, bool, u32, u32)> {
+    let mut words = payload.iter().copied();
+    let slot = words.next()?;
+    for _ in 0..2 {
+        match words.next()? { 0 => {}, 1 => { words.next()?; }, _ => return None }
+    }
+    let value = words.next()?;
+    let flatten = match words.next()? { 0 => false, 1 => true, _ => return None };
+    let reduce_slot = words.next()?;
+    words.next()?;
+    let reduce_value = words.next()?;
+    words.next()?;
+    if words.next().is_some() { return None; }
+    Some((slot, value, flatten, reduce_slot, reduce_value))
+}
+
+fn fusion_selected_tag(kind: &StreamStageKind, tag: FullStageTag, identity: crate::sema::check::StageIdentity, fusion: Option<&OriginalStageFusion>) -> bool {
+    if tag != FullStageTag::ParMapFlatMapReduceBy { return fusion.is_none() && selected_tag(kind, tag); }
+    let Some(fusion) = fusion else { return false; };
+    match kind {
+        StreamStageKind::ParMap => fusion.stages.first() == Some(&identity),
+        StreamStageKind::ReduceBy => fusion.stages.last() == Some(&identity),
+        StreamStageKind::FlatMap => fusion.stages.len() == 3 && fusion.stages[1] == identity && fusion.identity_flat_map.is_some(),
+        _ => false,
+    }
+}
+
 impl FullBuilder {
+
+    pub(super) fn stage_original_pipeline_fusions(&mut self, expression: BuildExprId, instruction: u32, scratch: &BuildScratch) -> Result<(), IrBuildError> {
+        let Some(BuildExprRow::ListPipeline { stages, .. }) = scratch.expressions.get(expression.index()) else { return Ok(()); };
+        let Some(origin) = self.active_expression_origins.get(&expression).copied() else { return Ok(()); };
+        let Some(solved) = self.solved.clone() else { return Ok(()); };
+        if !solved.stage_operations.keys().any(|stage| stage.pipeline == origin) { return Ok(()); }
+        for (ordinal, stage) in stages.iter().enumerate() {
+            let LoweredPipelineStage::ParMapFlatMapReduceBy { slot, value, flatten, reduce_item_slot, reduce_value, .. } = stage else { continue; };
+            let original = scratch.stage_fusion_origins.get(value).ok_or_else(|| problem("stage_fusion_original_source_missing"))?;
+            if original.stages.len() != if *flatten { 3 } else { 2 } || original.identity_flat_map.is_some() != *flatten || original.identity_read.is_some() != *flatten
+                || original.stages.iter().any(|stage| stage.pipeline != origin)
+                || original.stages.windows(2).any(|pair| pair[0].index.checked_add(1) != Some(pair[1].index)) { return Err(problem("stage_fusion_original_sequence_changed")); }
+            let callback_identity = |value, slot| scratch.stage_block_callback_origins.get(&value).filter(|callback| callback.slots.as_ref() == [slot]).map(|callback| callback.stage)
+                .or_else(|| self.active_stage_call_origins.get(&value).copied());
+            if callback_identity(*value, *slot) != original.stages.first().copied() || callback_identity(*reduce_value, *reduce_item_slot) != original.stages.last().copied() { return Err(problem("stage_fusion_original_callback_changed")); }
+            let identity_flat_map = if let Some(callback) = &original.identity_flat_map {
+                if callback.stage != original.stages[1] || callback.slots.len() != 1 || callback.parameters.len() != 1 || callback.initial.is_some()
+                    || !matches!(scratch.expressions.get(callback.value.index()), Some(BuildExprRow::Param(slot)) if *slot == callback.slots[0]) { return Err(problem("stage_fusion_original_identity_port_changed")); }
+                let source = solved.stage_operations.get(&callback.stage).ok_or_else(|| problem("stage_fusion_original_identity_stage_missing"))?;
+                if !matches!(source.callback, Some(crate::sema::check::StageCallback::Block(block)) if block == callback.block) { return Err(problem("stage_fusion_original_identity_block_changed")); }
+                let graph = &solved.graph;
+                let scope = solved.operation_scope(ProducerFlowSource::Stage(callback.stage), &source.operation).map_err(|_| problem("stage_fusion_original_identity_scope"))?;
+                graph.validate_requirement_scoped(ScopedRequirementRoot { requirement: source.operation.requirement, scope }).map_err(|_| problem("stage_fusion_original_identity_certificate"))?;
+                let signature = *source.operation.actual_arguments.last().ok_or_else(|| problem("stage_fusion_original_identity_signature"))?;
+                let crate::sema::inference::TypeNode::Arrow(arrow) = graph.node(graph.resolved(signature).map_err(|_| problem("stage_fusion_original_identity_signature"))?).map_err(|_| problem("stage_fusion_original_identity_signature"))? else { return Err(problem("stage_fusion_original_identity_signature")); };
+                if arrow.params.len() != 1 { return Err(problem("stage_fusion_original_identity_parameter_count")); }
+                if graph.closed_effect_summary(arrow.effects).map_err(|_| problem("stage_fusion_original_identity_effects"))? != EffectSummary::Closed(crate::sema::inference::EffectSet::EMPTY) { return Err(problem("stage_fusion_original_identity_not_effect_free")); }
+                let parameter = graph_ground_type(graph, arrow.params[0].ty).map_err(|_| problem("stage_fusion_original_identity_parameter_scope"))?;
+                let result = graph_ground_type(graph, arrow.result).map_err(|_| problem("stage_fusion_original_identity_result_scope"))?;
+                let parameter_root = ScopedRoot { ty: arrow.params[0].ty, scope };
+                graph.validate_scoped(parameter_root).map_err(|_| problem("stage_fusion_original_identity_parameter_certificate"))?;
+                graph.validate_scoped(ScopedRoot { ty: arrow.result, scope }).map_err(|_| problem("stage_fusion_original_identity_result_certificate"))?;
+                let read = original.identity_read.ok_or_else(|| problem("stage_fusion_original_identity_read_missing"))?;
+                let checked = match read {
+                    super::super::generic::OperationSourceOrigin::Expression(read) => {
+                        if callback.reads.as_ref() != [(callback.value, read, 0)] { return Err(problem("stage_fusion_original_identity_read_changed")); }
+                        let checked = *solved.expressions.get(&read).ok_or_else(|| problem("stage_fusion_original_identity_read_type"))?;
+                        let read_scope = solved.expression_scope(read, source.operation.caller).map_err(|_| problem("stage_fusion_original_identity_read_scope"))?;
+                        graph.validate_scoped(ScopedRoot { ty: checked, scope: read_scope }).map_err(|_| problem("stage_fusion_original_identity_read_certificate"))?;
+                        checked
+                    }
+                    super::super::generic::OperationSourceOrigin::Statement(read) => {
+                        if !callback.reads.is_empty() || solved.statements.get(&read) != Some(&crate::sema::check::StatementPosition::Value)
+                            || solved.statement_owners.get(&read).copied() != source.operation.caller { return Err(problem("stage_fusion_original_identity_statement_owner")); }
+                        parameter_root.ty
+                    }
+                    _ => return Err(problem("stage_fusion_original_identity_read_kind")),
+                };
+                if parameter != result || parameter != graph_ground_type(graph, checked).map_err(|_| problem("stage_fusion_original_identity_read_type"))? { return Err(problem("stage_fusion_original_identity_type_changed")); }
+                Some(OriginalStageIdentityFlatMap { stage: callback.stage, block: callback.block, parameter: callback.parameters[0], slot: u32::try_from(callback.slots[0]).map_err(|_| problem("stage_fusion_original_identity_slot_overflow"))?, read, parameter_root, parameter_type: self.intern_generic_ground_type(&parameter)? })
+            } else { None };
+            self.stage_fusion_rows.push(OriginalStageFusion { instruction, ordinal: u32::try_from(ordinal).map_err(|_| problem("stage_fusion_ordinal_overflow"))?, stages: original.stages.clone(), identity_flat_map });
+        }
+        Ok(())
+    }
 
     pub(super) fn stage_original_block_callback(&mut self, expression: BuildExprId, instruction: u32, scratch: &BuildScratch) -> Result<(), IrBuildError> {
         let Some(original) = scratch.stage_block_callback_origins.get(&expression) else { return Ok(()); };
@@ -94,7 +181,28 @@ impl FullBuilder {
             let block = instruction_payload.get(1).and_then(|raw| IrBlockId::from_raw(*raw)).and_then(|id| self.store.blocks.get(id.index())).copied().ok_or_else(|| problem("stage_pipeline_stage_block"))?;
             let block_payload = self.store.payload(block.instructions).map_err(|_| problem("stage_pipeline_stage_block"))?.to_vec();
             let original_stages = solved.stage_operations.iter().filter(|(identity, _)| identity.pipeline == origin).collect::<Vec<_>>();
-            if original_stages.len() != block_payload.len().saturating_sub(1) { continue; }
+            if original_stages.is_empty() { continue; }
+            let mut physical_stages = Vec::with_capacity(original_stages.len());
+            let mut original_index = 0;
+            for (ordinal, &stage) in block_payload.iter().skip(1).enumerate() {
+                let tag = *self.store.stages.get(stage as usize).ok_or_else(|| problem("stage_pipeline_stage_opcode"))?;
+                let sources = self.stage_fusion_rows.iter().filter(|fusion| fusion.instruction == instruction && fusion.ordinal as usize == ordinal).collect::<Vec<_>>();
+                if tag == FullStageTag::ParMapFlatMapReduceBy {
+                    let [source] = sources.as_slice() else { return Err(problem("stage_pipeline_original_fusion_source_missing")); };
+                    let fusion = Arc::new((**source).clone());
+                    if !matches!(fusion.stages.len(), 2 | 3) || fusion.identity_flat_map.is_some() != (fusion.stages.len() == 3) { return Err(problem("stage_pipeline_original_fusion_sequence")); }
+                    for &identity in &fusion.stages {
+                        if original_stages.get(original_index).map(|(original, _)| **original) != Some(identity) { return Err(problem("stage_pipeline_original_fusion_order")); }
+                        physical_stages.push((stage, Some(Arc::clone(&fusion))));
+                        original_index += 1;
+                    }
+                } else {
+                    if !sources.is_empty() || original_index >= original_stages.len() { return Err(problem("stage_pipeline_original_physical_order")); }
+                    physical_stages.push((stage, None));
+                    original_index += 1;
+                }
+            }
+            if original_index != original_stages.len() { return Err(problem("stage_pipeline_original_stage_sequence_missing")); }
             if let Some((_, first)) = original_stages.first() {
                 let flow = first.input_producer_flow.ok_or_else(|| problem("stage_pipeline_original_input_flow_missing"))?;
                 let node = solved.producer_flows.node(flow).map_err(|_| problem("stage_pipeline_original_input_flow"))?;
@@ -103,7 +211,7 @@ impl FullBuilder {
             let mut preceding_flow = original_stages.first().and_then(|(_, stage)| stage.input_producer_flow);
             let mut stages = Vec::new();
             let mut previous = input_type.clone();
-            for ((&identity, original), &stage) in original_stages.into_iter().zip(block_payload.iter().skip(1)) {
+            for ((&identity, original), (stage, fusion)) in original_stages.into_iter().zip(physical_stages) {
                 if original.input_producer_flow != preceding_flow { return Err(problem("stage_pipeline_original_producer_order")); }
                 if let Some(flow) = original.result_producer_flow { solved.producer_flows.node(flow).map_err(|_| problem("stage_pipeline_original_result_flow"))?; }
                 preceding_flow = original.result_producer_flow;
@@ -113,7 +221,7 @@ impl FullBuilder {
                 let selected = graph.candidate_evidence(operation.requirement).map_err(|_| problem("stage_pipeline_selection"))?.ok_or_else(|| problem("stage_pipeline_pending_selection"))?;
                 let SolvedOperationAuthority::Stage(metadata) = solved.operation_catalog.candidate(graph, selected.candidate).map_err(|_| problem("stage_pipeline_selected_authority"))? else { return Err(problem("stage_pipeline_selected_kind")); };
                 let tag = *self.store.stages.get(stage as usize).ok_or_else(|| problem("stage_pipeline_stage_opcode"))?;
-                if !selected_tag(&metadata.stage, tag) { return Err(problem("stage_pipeline_selected_opcode_changed")); }
+                if !fusion_selected_tag(&metadata.stage, tag, identity, fusion.as_deref()) { return Err(problem("stage_pipeline_selected_opcode_changed")); }
                 let receiver = operation.receiver.ok_or_else(|| problem("stage_pipeline_receiver_missing"))?;
                 graph.validate_scoped(ScopedRoot { ty: receiver, scope: stage_scope }).map_err(|_| problem("stage_pipeline_receiver_certificate"))?;
                 let stage_input = graph_ground_type(graph, receiver).map_err(|_| problem("stage_pipeline_receiver_requires_scope"))?;
@@ -139,7 +247,7 @@ impl FullBuilder {
                 if let Some(callback) = &callback {
                     if !block_callback_matches(tag, &payload, callback) { return Err(problem("stage_block_callback_original_stage_rows_changed")); }
                 }
-                stages.push(OriginalPreparedStage { origin: identity, authority: PreparedOperationAuthority::Stage { identity: metadata.identity, stage: metadata.stage.clone(), source: metadata.source, form: metadata.form, variant: metadata.variant, callback_slot: metadata.callback_slot, additional_producer: metadata.additional_producer }, input, result, effects, arguments, supplied_slots: operation.binding.supplied_slots.iter().map(|&slot| slot as u32).collect(), default_slots: operation.binding.default_slots.iter().map(|&slot| slot as u32).collect(), stage, tag, payload, callback, result_record_layout });
+                stages.push(OriginalPreparedStage { origin: identity, authority: PreparedOperationAuthority::Stage { identity: metadata.identity, stage: metadata.stage.clone(), source: metadata.source, form: metadata.form, variant: metadata.variant, callback_slot: metadata.callback_slot, additional_producer: metadata.additional_producer }, input, result, effects, arguments, supplied_slots: operation.binding.supplied_slots.iter().map(|&slot| slot as u32).collect(), default_slots: operation.binding.default_slots.iter().map(|&slot| slot as u32).collect(), stage, tag, payload, callback, result_record_layout, fusion });
             }
             // The expression consumes the final stage stream into a List.
             let materialized = match previous { Type::Stream(item) => Type::List(item), other => other };
@@ -154,6 +262,47 @@ impl FullBuilder {
 
 impl FullVerifier {
 
+    fn verify_stage_fusions(store: &FullStore, pipeline: &OriginalStagePipeline) -> Result<(), IrVerifyError> {
+        let mut logical = 0;
+        for (ordinal, &physical) in pipeline.block_payload.iter().skip(1).enumerate() {
+            let stage = pipeline.stages.get(logical).ok_or_else(|| IrVerifyError::new("stage fusion loses its original operation sequence"))?;
+            if stage.stage != physical { return Err(IrVerifyError::new("stage fusion changes its original physical order")); }
+            if stage.tag != FullStageTag::ParMapFlatMapReduceBy {
+                if stage.fusion.is_some() { return Err(IrVerifyError::new("ordinary stage borrows fused source authority")); }
+                logical += 1;
+                continue;
+            }
+            let fusion = stage.fusion.as_ref().ok_or_else(|| IrVerifyError::new("fused stage loses its original source authority"))?;
+            if fusion.instruction != pipeline.instruction || fusion.ordinal as usize != ordinal || !matches!(fusion.stages.len(), 2 | 3)
+                || fusion.identity_flat_map.is_some() != (fusion.stages.len() == 3) { return Err(IrVerifyError::new("fused stage changes its original source grouping")); }
+            let (_, _, flatten, _, _) = fused_callback_ports(&stage.payload).ok_or_else(|| IrVerifyError::new("fused stage callback payload is invalid"))?;
+            if flatten != fusion.identity_flat_map.is_some() { return Err(IrVerifyError::new("fused stage changes its original flattening action")); }
+            for &origin in &fusion.stages {
+                let source = pipeline.stages.get(logical).ok_or_else(|| IrVerifyError::new("fused stage source operation is missing"))?;
+                if source.origin != origin || source.stage != physical || source.tag != stage.tag || source.payload != stage.payload
+                    || !source.fusion.as_ref().is_some_and(|original| Arc::ptr_eq(original, fusion)) { return Err(IrVerifyError::new("fused stage changes an original composed operation")); }
+                let PreparedOperationAuthority::Stage { stage: kind, .. } = &source.authority else { return Err(IrVerifyError::new("fused stage has another operation authority")); };
+                if !fusion_selected_tag(kind, source.tag, origin, Some(fusion)) { return Err(IrVerifyError::new("fused stage changes its selected original operation order")); }
+                logical += 1;
+            }
+            if let Some(identity) = &fusion.identity_flat_map {
+                let (source_id, namespace) = match identity.read {
+                    super::super::generic::OperationSourceOrigin::Expression(read) => (read.source, read.namespace),
+                    super::super::generic::OperationSourceOrigin::Statement(read) => (read.source, read.namespace),
+                    _ => return Err(IrVerifyError::new("fused identity callback has another original source kind")),
+                };
+                if identity.stage != fusion.stages[1] || source_id != pipeline.origin.source || namespace != pipeline.origin.namespace { return Err(IrVerifyError::new("fused identity callback borrows another source port")); }
+                let source = &pipeline.stages[logical - 2];
+                let parameter = store.semantic.to_type(identity.parameter_type)?;
+                let Type::List(item) = &parameter else { return Err(IrVerifyError::new("fused identity callback changes its original list domain")); };
+                if source.callback.is_some() || store.semantic.to_type(source.input)? != Type::Stream(Box::new(parameter.clone()))
+                    || store.semantic.to_type(source.result)? != Type::Stream(item.clone()) { return Err(IrVerifyError::new("fused identity callback changes its original input or result port")); }
+            }
+        }
+        if logical != pipeline.stages.len() { return Err(IrVerifyError::new("stage fusion drops an original source operation")); }
+        Ok(())
+    }
+
     pub(super) fn verify_stage_block_callback_operand(store: &FullStore, generic: &GenericEvidenceStore, source: u32, owner: InstructionOwner, expected: &Type) -> Result<bool, IrVerifyError> {
         let Some((pipeline, callback, port)) = generic.stage_block_callback_read_at(source)? else { return Ok(false); };
         if pipeline.owner != owner || store.semantic.to_type(callback.types[port as usize])? != *expected { return Err(IrVerifyError::new("stage block callback read changes its original owner or parameter domain")); }
@@ -165,6 +314,7 @@ impl FullVerifier {
     }
     pub(super) fn verify_stage_pipeline_operand(store: &FullStore, generic: &GenericEvidenceStore, instruction: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>) -> Result<(), IrVerifyError> {
         let source = generic.stage_pipeline_at(instruction)?.ok_or_else(|| IrVerifyError::new("pipeline lacks its independently prepared stage proof"))?;
+        Self::verify_stage_fusions(store, source)?;
         if source.owner != owner || store.semantic.to_type(source.result)? != *expected { return Err(IrVerifyError::new("stage pipeline changes its original owner or result")); }
         if store.tags.get(instruction as usize) != Some(&FullTag::ExprPipeline) || store.payload(store.data[instruction as usize].range())? != source.instruction_payload.as_ref() { return Err(IrVerifyError::new("stage pipeline changes its original input or stage block")); }
         let block = IrBlockId::from_raw(source.instruction_payload[1]).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("stage pipeline block is invalid"))?;
@@ -221,6 +371,7 @@ impl FullExecution<'_> {
         };
         if source.owner != owner || source.instruction != instruction { return Err(IrVerifyError::new("stage pipeline changes its original execution owner")); }
         let store = self.decoder.store;
+        FullVerifier::verify_stage_fusions(store, source)?;
         if store.tags.get(instruction as usize) != Some(&FullTag::ExprPipeline) || store.payload(store.data[instruction as usize].range())? != source.instruction_payload.as_ref() { return Err(IrVerifyError::new("stage pipeline changes its original execution operands")); }
         let block = IrBlockId::from_raw(source.instruction_payload[1]).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("stage pipeline execution block is invalid"))?;
         if block.flags != source.block_flags || store.payload(block.instructions)? != source.block_payload.as_ref() { return Err(IrVerifyError::new("stage pipeline changes its original execution order")); }

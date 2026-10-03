@@ -607,6 +607,10 @@ call. A later update cannot widen a slot's established type.
 list to a mutable target. A scalar append is written `items += [item]`.
 Both operands use ordinary element compatibility, including expected types
 for empty lists; concatenation does not implicitly widen heterogeneous lists.
+For `==` and `!=`, an authored empty List receives the existing List type of
+its independently determined counterpart, including its generic item binder.
+Two unconstrained empty Lists do not determine an item type. Equality does not
+relax item compatibility for nonempty Lists.
 Within a function, an unannotated empty List has one unresolved element type.
 An explicit empty Map constructor has unresolved key and value types. Checked
 writes and independently determined parameter or return expectations solve

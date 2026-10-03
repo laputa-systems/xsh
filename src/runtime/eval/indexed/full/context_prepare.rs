@@ -169,6 +169,31 @@ pub(in crate::runtime::eval) struct BuildRunProducerOrigin {
     pub capture: BuildExprId,
     pub continuation: BuildExprId,
     pub spawn: Option<BuildSpawnRunOrigin>,
+    pub packet: Option<BuildRunPacketSource>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildRunPacketSource {
+    pub environment: Vec<BuildRunEnvironmentSource>,
+    pub stdin: Vec<BuildRunStdinSource>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildRunEnvironmentSource {
+    pub name: Name,
+    pub span: Span,
+    pub argument_span: Span,
+    pub text: Arc<str>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::runtime::eval) struct BuildRunStdinSource {
+    pub kind: crate::syntax::node::RedirectionKind,
+    pub span: Span,
+    pub argument_span: Span,
+    pub mode: u32,
+    pub origin: ExpressionIdentity,
+    pub source_type: ScopedRoot,
 }
 
 #[derive(Clone, Debug)]
@@ -195,12 +220,13 @@ impl FullBuilder {
         if run.arguments.iter().any(|argument| !matches!(argument.source, crate::sema::check::RunArgumentSource::Expression(_)) || !matches!(argument.mode, crate::sema::check::RunArgumentMode::Single | crate::sema::check::RunArgumentMode::Expansion | crate::sema::check::RunArgumentMode::Splice))
             || !matches!(run.kind, RunKind::CaptureText | RunKind::CaptureBytes | RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord) { return Ok(()); }
         let BuildExprRow::RunCapture(capture_row) = &scratch.expressions[original.capture.index()] else { return Err(context_problem("run_original_capture_changed")); };
+        if capture_row.timeout.is_some() || capture_row.cpu_max.is_some() || (original.packet.is_none() && (!capture_row.env.is_empty() || !capture_row.redirections.is_empty())) { return Ok(()); }
         if let Some(accept) = capture_row.accept {
             let BuildExprRow::List(items) = &scratch.expressions[accept.index()] else { return Ok(()); };
             if items.is_empty() || !items.iter().all(|item| matches!(scratch.expressions[item.index()], BuildExprRow::Int(value) if (0..=255).contains(&value))) { return Ok(()); }
         }
         if original.continuation != expression || run.parent != original.source || capture_row.kind != run.kind || capture_row.propagate
-            || capture_row.accept.is_some() != run.policy || capture_row.timeout.is_some() || capture_row.cpu_max.is_some() || !capture_row.env.is_empty() || !capture_row.redirections.is_empty() {
+            || capture_row.accept.is_some() != run.policy {
             return Err(context_problem("run_original_protocol_changed"));
         }
         if run.propagate {
@@ -226,16 +252,17 @@ impl FullBuilder {
         let capture = *self.active_encoded_expressions.get(&original.capture).ok_or_else(|| context_problem("run_original_capture_not_encoded"))?;
         let payload = self.store.payload(self.store.data[capture as usize].range()).map_err(|_| context_problem("run_original_payload"))?.to_vec().into_boxed_slice();
         let continuation_payload = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| context_problem("run_original_continuation_payload"))?.to_vec().into_boxed_slice();
-        let (mut operands, mut blocks, texts, arguments) = self.prepare_checked_run_operands(capture_row.target.as_ref(), &capture_row.args, &run.arguments, owner, operation.caller, scratch, &solved)?;
+        let (mut operands, mut blocks, mut texts, arguments) = self.prepare_checked_run_operands(capture_row.target.as_ref(), &capture_row.args, &run.arguments, owner, operation.caller, scratch, &solved)?;
         for offset in [4, 5, 6] {
             let id = payload.get(offset).copied().and_then(IrBlockId::from_raw).ok_or_else(|| context_problem("run_original_argument_block"))?;
             let words = self.store.payload(self.store.blocks[id.index()].instructions).map_err(|_| context_problem("run_original_argument_payload"))?.to_vec().into_boxed_slice();
             blocks.push((id, words));
         }
         let accept = self.prepare_literal_run_acceptance(capture_row.accept, owner, operation.caller, scratch, &solved, &mut operands, &mut blocks)?;
+        let packet = self.prepare_original_run_packet(original.packet.as_ref(), &capture_row.env, &capture_row.redirections, owner, operation.caller, scratch, &solved, &mut operands, &mut blocks, &mut texts)?;
         let crate::sema::inference::EffectSummary::Closed(effects) = operation.effects else { return Err(context_problem("run_original_effects_not_closed")); };
-        let receipt = PreparedRunProducer { source: original.source, run: original.run, capture, continuation: instruction, owner, result, carrier, original_result, original_carrier, authority, effects, accept, spawn: None, payload, continuation_payload, operands, blocks, texts, arguments };
-        FullVerifier::validate_run_producer_encoding(&self.store, &receipt).map_err(|_| context_problem("run_original_encoding_changed"))?;
+        let receipt = PreparedRunProducer { source: original.source, run: original.run, capture, continuation: instruction, owner, result, carrier, original_result, original_carrier, authority, effects, accept, spawn: None, payload, continuation_payload, operands, blocks, texts, arguments, packet };
+        FullVerifier::validate_run_producer_encoding(&self.store, &receipt).map_err(|error| IrBuildError::verification("run_original_encoding_changed", error))?;
         let source = match original.source {
             ProducerFlowSource::Expression(origin) => super::super::generic::OperationSourceOrigin::Expression(origin),
             ProducerFlowSource::Statement(origin) => super::super::generic::OperationSourceOrigin::Statement(origin),
@@ -262,6 +289,7 @@ impl FullVerifier {
         }
         Self::validate_run_acceptance_encoding(store, value)?;
         Self::validate_run_argument_encoding(store, value)?;
+        Self::validate_run_packet_encoding(store, value)?;
         if propagate {
             if value.capture == value.continuation || store.tags.get(value.continuation as usize) != Some(&FullTag::ExprTry) || value.continuation_payload.as_ref() != [value.capture] { return Err(IrVerifyError::new("run producer changes its original propagation wrapper")); }
         } else if value.capture != value.continuation { return Err(IrVerifyError::new("run producer introduces an unchecked continuation")); }

@@ -6,6 +6,8 @@ use crate::sema::check::{ExpressionIdentity, PatternIdentity};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::runtime::eval) enum BuildConditionalBody {
     Authored(BuildPatternResultBody),
+    StatementTail { body: BuildPatternResultBody, statement: crate::sema::check::StatementIdentity,
+        tail_statement: BuildStmtId, read: BuildExprId, read_type: crate::sema::inference::TypeId, read_scope: Option<crate::sema::inference::SchemeId>, parameter: Option<u32> },
     Boolean { instruction: BuildExprId, value: bool },
 }
 
@@ -24,6 +26,7 @@ pub(in crate::runtime::eval) struct BuildConditionalResult {
     pub instruction: BuildExprId,
     pub source: BuildPatternResultSource,
     pub kind: ConditionalKind,
+    pub creation_check: Option<BuildExprId>,
     pub subject: Option<(BuildExprId, BuildPatternResultSource)>,
     pub arms: Box<[BuildConditionalArm]>,
     pub fallback: Option<BuildConditionalBody>,
@@ -43,6 +46,16 @@ fn verify_layout(store: &FullStore, source: &ConditionalResultSource, snapshot: 
     if store.tags.get(source.instruction as usize) != Some(&tag) { return Err(invalid()); }
     let words = store.payload(store.data.get(source.instruction as usize).ok_or_else(invalid)?.range())?;
     if words != source.instruction_payload.as_ref() || words.len() != 3 { return Err(invalid()); }
+    if snapshot && source.creation_required != source.creation_check.is_some() { return Err(invalid()); }
+    if let Some((instruction, payload)) = &source.creation_check {
+        if store.tags.get(*instruction as usize) != Some(&FullTag::ExprCheckedValue)
+            || store.payload(store.data.get(*instruction as usize).ok_or_else(invalid)?.range())? != payload.as_ref()
+            || payload.len() < 2 || payload[0] != source.instruction
+            || payload.get(1).copied().and_then(TypeId::from_raw).and_then(|ty| store.semantic.to_type(ty).ok()) != Some(Type::UInt) {
+            return Err(invalid());
+        }
+        if !matches!(source.expected, TypeRef::Ground(ty) if store.semantic.to_type(ty)? == Type::UInt) { return Err(invalid()); }
+    }
     let block = conditional_block(store, source)?;
     let branches = store.payload(block.instructions)?;
     if block.flags & BLOCK_SEQUENCE_KIND_MASK != BLOCK_LIST
@@ -77,6 +90,11 @@ fn verify_layout(store: &FullStore, source: &ConditionalResultSource, snapshot: 
 }
 
 fn verify_body_layout(store: &FullStore, body: &ConditionalBody) -> Result<(), IrVerifyError> {
+    if let ConditionalBody::Authored { terminal: Some((_, _, ConditionalTerminalValue::StatementRead { instruction, parameter: Some(ordinal), .. })), .. } = body {
+        if store.tags.get(*instruction as usize) != Some(&FullTag::ExprParam)
+            || store.payload(store.data.get(*instruction as usize).ok_or_else(invalid)?.range())? != [*ordinal] { return Err(invalid()); }
+    }
+
     match body {
         ConditionalBody::Boolean { instruction, value } => {
             if store.tags.get(*instruction as usize) != Some(&FullTag::ExprBool)
@@ -87,7 +105,7 @@ fn verify_body_layout(store: &FullStore, body: &ConditionalBody) -> Result<(), I
             let words = store.payload(store.data[value.instruction as usize].range())?;
             let block = words.first().copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(invalid)?;
             let statements = store.payload(block.instructions)?;
-            let tail = match tail { ConditionalTerminalValue::Expression(value) => value.instruction, ConditionalTerminalValue::PatternCapture { instruction, .. } => *instruction };
+            let tail = match tail { ConditionalTerminalValue::Expression(value) => value.instruction, ConditionalTerminalValue::PatternCapture { instruction, .. } | ConditionalTerminalValue::StatementRead { instruction, .. } => *instruction };
             if statements.first().copied().map(|count| count as usize) != Some(statements.len() - 1)
                 || statements.last() != Some(statement) || store.tags.get(*statement as usize) != Some(&FullTag::StmtValue)
                 || store.payload(store.data.get(*statement as usize).ok_or_else(invalid)?.range())? != [tail] { return Err(invalid()); }
@@ -154,6 +172,23 @@ impl FullBuilder {
             BuildConditionalBody::Boolean { instruction, value } => Ok(ConditionalBody::Boolean {
                 instruction: *self.active_encoded_expressions.get(instruction).ok_or_else(|| problem("conditional_boolean_decision_not_encoded"))?, value: *value,
             }),
+            BuildConditionalBody::StatementTail { body, statement, tail_statement, read, read_type, read_scope, parameter } => {
+                let value = self.prepare_conditional_value(body.instruction, &body.source, caller, scope, owner)?;
+                let solved = self.solved.clone().ok_or_else(|| problem("conditional_checked_source_missing"))?;
+                if solved.statement_owners.get(statement).copied() != caller
+                    || solved.statements.get(statement) != Some(&crate::sema::check::StatementPosition::Value) {
+                    return Err(problem("conditional_bare_tail_original_owner"));
+                }
+                solved.graph.validate_scoped(crate::sema::inference::ScopedRoot { ty: *read_type, scope: *read_scope })
+                    .map_err(|_| problem("conditional_bare_tail_original_root"))?;
+                let expected = self.call_reference(&solved, scope, *read_type, false)?;
+                let statement_instruction = *self.active_pattern_statements.get(tail_statement).ok_or_else(|| problem("conditional_bare_tail_not_encoded"))?;
+                let instruction = *self.active_encoded_expressions.get(read).ok_or_else(|| problem("conditional_bare_read_not_encoded"))?;
+                self.generic_evidence_mut().register_instruction_origin(instruction, super::super::generic::OperationSourceOrigin::Statement(*statement), owner)
+                    .map_err(|_| problem("conditional_bare_read_original_source"))?;
+                Ok(ConditionalBody::Authored { value, terminal: Some((statement_instruction, *statement,
+                    ConditionalTerminalValue::StatementRead { instruction, expected, parameter: *parameter })) })
+            }
             BuildConditionalBody::Authored(original) => {
                 let value = self.prepare_conditional_value(original.instruction, &original.source, caller, scope, owner)?;
                 let terminal = original.terminal.as_ref().map(|(statement, instruction, original, identity)| {
@@ -218,7 +253,7 @@ impl FullBuilder {
         let instruction_payload = self.store.payload(self.store.data.get(instruction as usize).ok_or_else(|| problem("conditional_original_payload_missing"))?.range())
             .map_err(|_| problem("conditional_original_payload_invalid"))?.to_vec().into_boxed_slice();
         let mut source = ConditionalResultSource {
-            instruction, origin, owner, scope, expected, kind: original.kind, subject, arms: arms.into_boxed_slice(), fallback,
+            instruction, origin, owner, scope, expected, kind: original.kind, creation_required: original.creation_check.is_some(), creation_check: None, subject, arms: arms.into_boxed_slice(), fallback,
             instruction_payload, block_flags: 0, block_payload: Box::new([]),
         };
         verify_layout(&self.store, &source, false).map_err(|_| problem("conditional_encoded_branches_changed"))?;
@@ -226,6 +261,22 @@ impl FullBuilder {
         source.block_flags = block.flags;
         source.block_payload = self.store.payload(block.instructions).map_err(|_| problem("conditional_original_branches_invalid"))?.to_vec().into_boxed_slice();
         self.conditional_result_rows.push(source);
+        Ok(())
+    }
+
+    pub(super) fn stage_conditional_creation_check(&mut self, expression: BuildExprId, instruction: u32, scratch: &BuildScratch) -> Result<(), IrBuildError> {
+        if !matches!(scratch.expressions.get(expression.index()), Some(BuildExprRow::CheckedValue { check, .. }) if check.ty == Type::UInt) { return Ok(()); }
+        let Some(original) = scratch.conditional_result_origins.values().find(|original| original.creation_check == Some(expression)) else { return Ok(()); };
+        let raw = *self.active_encoded_expressions.get(&original.instruction).ok_or_else(|| problem("conditional_creation_original_material_missing"))?;
+        let BuildExprRow::CheckedValue { value, check, .. } = scratch.expressions.get(expression.index()).ok_or_else(|| problem("conditional_creation_original_guard_missing"))? else { return Err(problem("conditional_creation_original_guard_opcode")); };
+        if *value != original.instruction || check.ty != Type::UInt { return Err(problem("conditional_creation_original_guard_changed")); }
+        let source = self.conditional_result_rows.iter_mut().find(|source| source.instruction == raw && source.origin == original.source.origin)
+            .ok_or_else(|| problem("conditional_creation_original_source_missing"))?;
+        if source.creation_check.is_some() { return Err(problem("conditional_creation_guard_repeated")); }
+        let payload = self.store.payload(self.store.data.get(instruction as usize).ok_or_else(|| problem("conditional_creation_payload_missing"))?.range())
+            .map_err(|_| problem("conditional_creation_payload_invalid"))?.to_vec().into_boxed_slice();
+        source.creation_check = Some((instruction, payload));
+        verify_layout(&self.store, source, true).map_err(|_| problem("conditional_creation_guard_disagrees_with_source"))?;
         Ok(())
     }
 
@@ -266,7 +317,7 @@ impl FullVerifier {
                 if let Some((_, _, tail)) = terminal {
                     match tail {
                         ConditionalTerminalValue::Expression(value) => Self::verify_conditional_value(store, generic, source, value, instance, active)?,
-                        ConditionalTerminalValue::PatternCapture { instruction, expected, .. } => {
+                        ConditionalTerminalValue::PatternCapture { instruction, expected, .. } | ConditionalTerminalValue::StatementRead { instruction, expected, .. } => {
                             let expected = Self::conditional_type(store, generic, source, *expected, instance)?;
                             Self::verify_generic_source(store, generic, *instruction, source.owner, &expected, instance, active)?;
                         }
@@ -336,7 +387,7 @@ impl FullVerifier {
                             Self::verify_argument_initializer_lineage(store, generic, value.instruction, value.material, &value.wrappers, source.owner)?;
                             Self::verify_generic_symbolic_source(store, generic, value.instruction, scope, value.expected, active)?;
                         }
-                        ConditionalTerminalValue::PatternCapture { instruction, expected, .. } => {
+                        ConditionalTerminalValue::PatternCapture { instruction, expected, .. } | ConditionalTerminalValue::StatementRead { instruction, expected, .. } => {
                             Self::verify_generic_symbolic_source(store, generic, *instruction, scope, *expected, active)?;
                         }
                     }
@@ -351,6 +402,7 @@ impl FullVerifier {
 mod tests {
     use super::*;
     use crate::sema::check::Checker;
+    use crate::runtime::value::Value;
 
     fn prepared(source: &str) -> FullProgram {
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
@@ -392,6 +444,55 @@ mod tests {
             assert_eq!(output.stdout, expected, "recursive={recursive}: {:?}", output.diagnostics);
             assert!(output.stderr.is_empty()); assert!(output.diagnostics.is_empty());
         }
+    }
+
+    #[test]
+    fn uint_conditional_creation_keeps_actual_branch_domains_and_original_guard() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure branch_creation_failure(n: Int) -> Str {\n  let good: UInt = 1\n  return f\"${if false { good } else { n }}\"\n}\nprint ${branch_creation_failure(2)}\n";
+            let program = prepared(source);
+            let _symbols = program.symbol_owner().enter();
+            assert!(FullVerifier::verify(&program).is_ok());
+            let generic = program.store.generic.as_ref().unwrap();
+            let (id, receipt) = generic.conditional_sources().find(|(_, receipt)| receipt.kind == ConditionalKind::If).unwrap();
+            let TypeRef::Ground(result) = receipt.expected else { panic!("closed conditional result"); };
+            assert_eq!(program.store.semantic.to_type(result).unwrap(), Type::UInt);
+            let ConditionalBody::Authored { terminal: Some((_, _, ConditionalTerminalValue::StatementRead { expected: TypeRef::Ground(actual), parameter: Some(0), .. })), .. } = receipt.fallback.as_ref().unwrap() else { panic!("original Int parameter tail"); };
+            assert_eq!(program.store.semantic.to_type(*actual).unwrap(), Type::Int);
+            let (guard, _) = receipt.creation_check.as_ref().expect("original conditional creation guard");
+            let mut missing = program.clone();
+            missing.store.generic.as_mut().unwrap().test_clear_conditionals();
+            assert!(FullVerifier::verify(&missing).is_err());
+            let mut outsider = GenericEvidenceBuilder::default();
+            let foreign = outsider.add_conditional_source(receipt.clone()).unwrap();
+            assert!(generic.conditional_source(foreign).is_err());
+            let mut changed = program.clone();
+            let range = changed.store.data[*guard as usize].range().bounds(changed.store.extra.len()).unwrap();
+            changed.store.extra[range.start] = receipt.arms[0].body.instruction();
+            assert!(FullVerifier::verify(&changed).is_err());
+            let mut coupled = changed.clone();
+            coupled.store.generic.as_mut().unwrap().test_conditional_source_mut(id).unwrap().creation_check.as_mut().unwrap().1[0] = receipt.arms[0].body.instruction();
+            assert!(FullVerifier::verify(&coupled).is_err(), "rewritten guard and receipt cannot authorize one another");
+            let block = conditional_block(&program.store, receipt).unwrap().instructions;
+            let replacement = receipt.fallback.as_ref().unwrap().instruction();
+            let mut substituted = program.clone();
+            let branch_words = block.bounds(substituted.store.extra.len()).unwrap();
+            substituted.store.extra[branch_words.start + 2] = replacement;
+            let rewritten = substituted.store.generic.as_mut().unwrap().test_conditional_source_mut(id).unwrap();
+            rewritten.arms[0].body = rewritten.fallback.as_ref().unwrap().clone();
+            rewritten.block_payload[2] = replacement;
+            assert!(FullVerifier::verify(&substituted).is_err(), "matching rewritten branch storage does not replace the original branch source");
+            execute(source, b"2\n");
+            for recursive in [false, true] {
+                let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::new(program.clone()));
+                let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(Name::intern("branch_creation_failure")), LoweredFunctionKind::Pure, &[Value::Int(-1)], Span::new(program.store.source_id, 0, 0)).expect("original conditional function");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                let error = result.unwrap_err();
+                assert_eq!(error.kind, "type-error");
+                assert!(error.message.contains("UInt"));
+            }
+        });
     }
 
     #[test]

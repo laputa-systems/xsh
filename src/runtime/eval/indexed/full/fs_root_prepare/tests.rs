@@ -17,6 +17,13 @@ proc read_root(root: FsRoot) [fs] -> Result[Str] { return root.read_text(p"guard
 proc close_root(root: FsRoot) [fs] -> Result[Unit] { return root.close() }
 "#;
 
+const OPTIONAL_SOURCE: &str = r#"
+proc optional_children(root: FsRoot?) [fs] -> Bool { root?.children(p".") != null }
+proc other_optional_children(root: FsRoot?) [fs] -> Bool { root?.children(p".") != null }
+proc rejected_optional_path() [error] -> Path { error.fail("optional argument reached")?; p"guard" }
+proc optional_read(root: FsRoot?) [fs, error] -> Any { root?.read_bytes(rejected_optional_path()) }
+"#;
+
 fn invoke(evaluator: &mut Evaluator, program: &FullProgram, name: &str, arguments: &[Value], recursive: bool) -> Result<Value, RuntimeError> {
     let function = LoweredFunctionKey::Name(program_name(program, name));
     crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, || {
@@ -179,5 +186,78 @@ fn fs_root_prepared_result_receivers_keep_original_propagation_and_refuse_wrappe
             let root = allocate(&mut evaluator, &program, recursive);
             assert_eq!(invoke(&mut evaluator, &program, "close_result", &[Value::ok(root)], recursive).unwrap(), Value::ok(Value::Unit));
         }
+    });
+}
+
+#[test]
+fn fs_root_optional_receivers_keep_opaque_present_capability_and_absent_arguments_lazy_after_frontend_drop() {
+    run_with_large_stack(|| {
+        let source = format!("{SOURCE}\n{OPTIONAL_SOURCE}");
+        let program = Arc::new(fixture("fs-root-optional-receiver.xsh", &source));
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            assert_eq!(generic.original_optional_receiver_guards().count(), 3);
+            for (_, proof) in generic.ground_native_calls().filter(|(_, proof)| proof.contract.receiver.as_ref()
+                .is_some_and(|receiver| receiver.saved.as_ref().is_some_and(|saved| saved.guarded_read.is_some()))) {
+                assert!(proof.contract.verify_fs_root_method(&program.store.semantic).unwrap());
+                let receiver = proof.contract.receiver.as_ref().unwrap();
+                let TypeRef::Ground(source) = receiver.source_type else { panic!("original optional source remains closed"); };
+                let TypeRef::Ground(actual) = receiver.ty else { panic!("host capability remains closed"); };
+                assert_eq!(program.store.semantic.to_type(source).unwrap(), Type::Optional(Box::new(Type::FsRoot)));
+                assert_eq!(program.store.semantic.to_type(actual).unwrap(), Type::FsRoot);
+                assert!(receiver.source_wrappers.iter().all(|wrapper| wrapper.kind != ValueInitializerWrapperKind::FsRootReceiverTry));
+            }
+        });
+        for recursive in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(program.clone());
+            let root = allocate(&mut evaluator, &program, recursive);
+            assert_eq!(invoke(&mut evaluator, &program, "optional_children", &[Value::Null], recursive).unwrap(), Value::Bool(false));
+            assert_eq!(invoke(&mut evaluator, &program, "optional_children", std::slice::from_ref(&root), recursive).unwrap(), Value::Bool(true));
+            assert_eq!(invoke(&mut evaluator, &program, "optional_read", &[Value::Null], recursive).unwrap(), Value::Null);
+            let error = invoke(&mut evaluator, &program, "optional_read", std::slice::from_ref(&root), recursive)
+                .expect_err("present receivers evaluate their authored argument before the host read");
+            assert!(error.message.contains("optional argument reached"));
+            assert!(evaluator.call_stack.is_empty());
+            assert_eq!(invoke(&mut evaluator, &program, "close_root", &[root], recursive).unwrap(), Value::ok(Value::Unit));
+        }
+    });
+}
+
+#[test]
+fn fs_root_optional_receivers_refuse_missing_foreign_and_joint_guard_or_source_substitution() {
+    run_with_large_stack(|| {
+        let source = format!("{SOURCE}\n{OPTIONAL_SOURCE}");
+        let program = fixture("fs-root-optional-receiver.xsh", &source);
+        let foreign_program = fixture("fs-root-optional-receiver.xsh", &source);
+        program.symbol_owner().with_current(|| {
+            let generic = program.generic_evidence().unwrap();
+            let guards = generic.original_optional_receiver_guards().collect::<Vec<_>>();
+            let guard = guards[0];
+            let other = guards.iter().find(|other| other.owner != guard.owner).unwrap();
+            let (id, proof) = generic.ground_native_calls().find(|(_, proof)| proof.contract.receiver.as_ref()
+                .is_some_and(|receiver| receiver.saved.as_ref().and_then(|saved| saved.guarded_read) == Some(guard.read))).unwrap();
+            let mut missing = program.store.clone();
+            missing.generic.as_deref_mut().unwrap().test_remove_original_compiler_argument_wrappers();
+            assert!(FullVerifier::verify_generic_evidence(&missing).is_err());
+            let mut foreign = program.store.clone();
+            foreign.generic.as_deref_mut().unwrap().test_ground_native_call_mut(id).unwrap().source = foreign_program.generic_evidence().unwrap()
+                .ground_native_calls().find(|(_, proof)| proof.contract.receiver.as_ref().is_some_and(|receiver|
+                    receiver.saved.as_ref().is_some_and(|saved| saved.guarded_read.is_some()))).unwrap().1.source;
+            assert!(FullVerifier::verify_generic_evidence(&foreign).is_err());
+            let mut carrier = program.store.clone();
+            let range = carrier.data[guard.wrapper as usize].range();
+            carrier.extra[range.start as usize] = other.carrier;
+            let receipt = carrier.generic.as_deref_mut().unwrap().test_original_compiler_argument_wrapper_mut(guard.wrapper).unwrap();
+            receipt.initializer = other.carrier;
+            receipt.payload[0] = other.carrier;
+            receipt.optional_receiver_guard.as_mut().unwrap().carrier = other.carrier;
+            assert!(FullVerifier::verify_generic_evidence(&carrier).is_err(), "a same-typed carrier cannot replace the original opaque optional root");
+            let mut rewritten = program.store.clone();
+            let evidence = rewritten.generic.as_deref_mut().unwrap();
+            evidence.test_ground_native_call_mut(id).unwrap().contract.receiver.as_mut().unwrap().source_instruction = other.carrier;
+            evidence.test_native_call_source_mut(proof.source).unwrap().expected.receiver.as_mut().unwrap().source_instruction = other.carrier;
+            assert!(FullVerifier::verify_generic_evidence(&rewritten).is_err(), "joint public contract edits cannot replace the original root source");
+        });
     });
 }

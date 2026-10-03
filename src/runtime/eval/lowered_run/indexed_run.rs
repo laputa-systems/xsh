@@ -60,6 +60,7 @@ use smallvec::SmallVec;
 pub(in crate::runtime::eval) mod explicit_run;
 mod producer;
 mod callable_run;
+mod module_invocation_run;
 mod native_callable_run;
 mod scalar_call_expr;
 pub(in crate::runtime::eval) mod live_capture_cells;
@@ -169,7 +170,7 @@ fn assertion_comparison_op(op: BinaryOp) -> bool {
 
 enum BinaryWork {
     Expr(u32),
-    Apply { op: BinaryOp, span: Span, operation: Option<ConcreteOperationId> },
+    Apply { instruction: u32, op: BinaryOp, span: Span, operation: Option<ConcreteOperationId> },
 }
 
 enum IndexedItemPredicate<'a> {
@@ -355,17 +356,31 @@ impl Evaluator {
             let owner = match &receiver {
                 LoweredValue::Str(_) | LoweredValue::StrView(_) => Some(crate::modules::signature::MethodReceiver::Str),
                 LoweredValue::Bytes(_) | LoweredValue::BytesView(_) => Some(crate::modules::signature::MethodReceiver::Bytes),
+                LoweredValue::Regex(_) => Some(crate::modules::signature::MethodReceiver::Regex),
                 _ => None,
             };
             if let Some(spelling) = owner.and_then(|owner| crate::runtime::eval::indexed::native_methods::nondefault_method_spelling(owner, operation)) {
                 let value = match owner.unwrap() {
                     crate::modules::signature::MethodReceiver::Str => super::super::lowered_ops::lowered_str_method_value(&receiver, spelling, values, *span)?,
                     crate::modules::signature::MethodReceiver::Bytes => super::super::lowered_ops::lowered_bytes_method_value(&receiver, spelling, values, *span)?,
+                    crate::modules::signature::MethodReceiver::Regex => {
+                        let LoweredValue::Regex(regex) = receiver else { unreachable!() };
+                        super::super::lowered_ops::lowered_regex_method_value(*regex, spelling, values, *span)?
+                    },
                     _ => unreachable!(),
                 };
                 return Ok(ControlFlow::Continue(value));
             }
             return match (operation, receiver) {
+                (crate::modules::RuntimeOp::BytesDump, receiver) if matches!(receiver, LoweredValue::Bytes(_) | LoweredValue::BytesView(_)) => {
+                    super::super::lowered_ops::lowered_bytes_method_value(&receiver, "dump", values, *span).map(ControlFlow::Continue)
+                }
+                (crate::modules::RuntimeOp::BytesStrings, receiver) if matches!(receiver, LoweredValue::Bytes(_) | LoweredValue::BytesView(_)) => {
+                    super::super::lowered_ops::lowered_bytes_method_value(&receiver, "strings", values, *span).map(ControlFlow::Continue)
+                }
+                (crate::modules::RuntimeOp::RecordKeys, receiver) if matches!(receiver, LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::Module(_)) => {
+                    self.eval_lowered_method_dispatch(receiver, "keys", values, span)
+                }
                 (crate::modules::RuntimeOp::TextSplit, text) if matches!(values.len(), 1 | 2) => {
                     let text = super::super::lowered_ops::lowered_str_arg(&text, "split", *span)?;
                     let separator = super::super::lowered_ops::lowered_str_arg(&values[0], "split", *span)?;
@@ -412,6 +427,15 @@ impl Evaluator {
                 (crate::modules::RuntimeOp::MapKeys, LoweredValue::Map(map)) if values.is_empty() => Ok(ControlFlow::Continue(LoweredValue::List(map.keys().map(super::super::lowered_ops::lowered_map_key_value).collect()))),
                 (crate::modules::RuntimeOp::MapValues, LoweredValue::Map(map)) if values.is_empty() => Ok(ControlFlow::Continue(LoweredValue::List(map.values().cloned().collect()))),
                 (crate::modules::RuntimeOp::MapLen, LoweredValue::Map(map)) if values.is_empty() => Ok(ControlFlow::Continue(LoweredValue::Int(map.len() as i64))),
+                (crate::modules::RuntimeOp::RecordGet, LoweredValue::Record(record)) if values.len() == 1 =>
+                    super::super::lowered_ops::lowered_record_method_value(&record, "get", values, *span).map(ControlFlow::Continue),
+                (crate::modules::RuntimeOp::RecordGet, LoweredValue::RecordVec(record)) if values.len() == 1 => {
+                    let field = super::super::lowered_ops::lowered_str_arg(&values[0], "get", *span)?;
+                    Ok(ControlFlow::Continue(match lowered_record_vec_get(&record, field).cloned() {
+                        Some(value) => LoweredValue::ResultOk(Box::new(value)),
+                        None => super::super::lowered_ops::lowered_result_err("missing-field", format!("missing field `{field}`")),
+                    }))
+                }
                 (crate::modules::RuntimeOp::MapGet, LoweredValue::Map(map)) if values.len() == 1 => {
                     let key = super::super::lowered_ops::lowered_map_key_ref(&values[0], *span)?;
                     super::super::lowered_ops::require_lowered_map_key_domain(&map, key, *span)?;
@@ -428,7 +452,10 @@ impl Evaluator {
                     map.insert(key, values[1].clone());
                     Ok(ControlFlow::Continue(LoweredValue::Map(Arc::new(map))))
                 }
-                (crate::modules::RuntimeOp::ListGet | crate::modules::RuntimeOp::ListPush | crate::modules::RuntimeOp::ListLen | crate::modules::RuntimeOp::StreamCollect | crate::modules::RuntimeOp::TextJoin, list @ (LoweredValue::List(_) | LoweredValue::SharedList(_))) => {
+                (crate::modules::RuntimeOp::MapPush, LoweredValue::Map(map)) => {
+                    super::super::lowered_ops::lowered_map_method_value(super::super::lower::take_shared(map), "push", values, *span).map(ControlFlow::Continue)
+                }
+                (crate::modules::RuntimeOp::ListGet | crate::modules::RuntimeOp::ListPush | crate::modules::RuntimeOp::ListExtend | crate::modules::RuntimeOp::ListLen | crate::modules::RuntimeOp::StreamCollect | crate::modules::RuntimeOp::TextJoin, list @ (LoweredValue::List(_) | LoweredValue::SharedList(_))) => {
                     let mut items = match list { LoweredValue::List(items) => items, LoweredValue::SharedList(items) => super::super::lower::take_shared(items), _ => unreachable!() };
                     let value = match (operation, values.as_slice()) {
                         (crate::modules::RuntimeOp::TextJoin, arguments) if arguments.len() <= 1 => super::super::lowered_ops::lowered_join_list(&items, arguments, *span)?,
@@ -439,6 +466,8 @@ impl Evaluator {
                             None => super::super::lowered_ops::lowered_result_err("index-out-of-bounds", format!("list index {index} is out of bounds")),
                         },
                         (crate::modules::RuntimeOp::ListPush, [value]) => { items.push(value.clone()); LoweredValue::List(items) },
+                        (crate::modules::RuntimeOp::ListExtend, [LoweredValue::List(other)]) => { items.extend(other.iter().cloned()); LoweredValue::List(items) },
+                        (crate::modules::RuntimeOp::ListExtend, [LoweredValue::SharedList(other)]) => { items.extend(other.iter().cloned()); LoweredValue::List(items) },
                         _ => return Err(RuntimeError::new("indexed-verification", "prepared list method operands disagree with its selected operation").with_span(*span)),
                     };
                     Ok(ControlFlow::Continue(value))
@@ -3171,11 +3200,18 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let mut creation_checks = Vec::new();
         loop {
             let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
             if tag != FullTag::ExprMatch {
-                return self.eval_indexed_expr(execution, instruction, slots, call_span);
+                let flow = self.eval_indexed_expr(execution, instruction, slots, call_span)?;
+                if let ControlFlow::Continue(value) = &flow {
+                    for (check, span) in creation_checks.iter().rev() { super::checked_unsigned_value(value, check, *span)?; }
+                }
+                return Ok(flow);
             }
+            execution.tag_constructor_argument_wrapper(instruction).map_err(|error| indexed_error(error, call_span))?;
+            if let Some(check) = execution.prepared_fallback(instruction).map_err(|error| indexed_error(error, call_span))? { creation_checks.push(check); }
             self.sync_indexed_root_slots(slots, call_span)?;
             let value = indexed_raw(&mut payload, call_span)?;
             let (_, mut arms) = execution.block(&mut payload, BLOCK_LIST)
@@ -3500,10 +3536,11 @@ impl Evaluator {
                 return Err(lowered_match_no_arm(span));
             }
             FullTag::ExprResultFallback => {
+                let creation_check = execution.prepared_fallback(instruction).map_err(|error| indexed_error(error, call_span))?;
                 let left = indexed_raw(&mut payload, call_span)?;
                 let right = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
-                return match self.eval_indexed_expr(execution, left, slots, call_span)? {
+                let flow = match self.eval_indexed_expr(execution, left, slots, call_span)? {
                     ControlFlow::Continue(LoweredValue::ResultOk(value)) => {
                         Ok(ControlFlow::Continue(*value))
                     }
@@ -3512,7 +3549,9 @@ impl Evaluator {
                     }
                     ControlFlow::Continue(value) => Ok(ControlFlow::Continue(value)),
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
-                };
+                }?;
+                if let (Some((check, span)), ControlFlow::Continue(value)) = (creation_check, &flow) { super::checked_unsigned_value(value, &check, span)?; }
+                return Ok(flow);
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
                 let path = tag == FullTag::ExprPathFmtString;
@@ -3848,6 +3887,7 @@ impl Evaluator {
                 ControlFlow::Continue(super::super::indexed::full::range_stream(start, end))
             }
             FullTag::ExprTag => {
+                execution.tag_constructor(instruction).map_err(|error| indexed_error(error, call_span))?;
                 let type_name = indexed_decode::<Name>(&mut payload, execution, call_span)?;
                 let name = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
                 let (_, mut fields) = execution
@@ -7675,21 +7715,23 @@ impl Evaluator {
         execution: &FullExecution<'_>,
         slots: &mut [LoweredValue],
         call_span: Span,
+        instruction: u32,
         op: BinaryOp,
         left: u32,
         right: u32,
         span: Span,
         operation: Option<ConcreteOperationId>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        execution.tag_equality(instruction).map_err(|error| indexed_error(error, span))?;
         let mut work = vec![
-            BinaryWork::Apply { op, span, operation },
+            BinaryWork::Apply { instruction, op, span, operation },
             BinaryWork::Expr(right),
             BinaryWork::Expr(left),
         ];
         let mut values = Vec::new();
         while let Some(item) = work.pop() {
             match item {
-                BinaryWork::Apply { op, span, operation } => {
+                BinaryWork::Apply { instruction, op, span, operation } => {
                     let right = values.pop().ok_or_else(|| {
                         RuntimeError::new(
                             "indexed-ir",
@@ -7701,6 +7743,7 @@ impl Evaluator {
                         RuntimeError::new("indexed-ir", "binary expression is missing a left value")
                             .with_span(span)
                     })?;
+                    execution.tag_equality_values(instruction, &left, &right).map_err(|error| indexed_error(error, span))?;
                     values.push(match operation {
                         Some(operation) => super::generic_run::execute_operation(operation, &left, &right, span)?,
                         None => lowered_binary_value(op, left, right, span)?,
@@ -7734,7 +7777,8 @@ impl Evaluator {
                             None => None,
                             Some(_) => return Err(RuntimeError::new("indexed-ir", "binary instruction has projection evidence").with_span(span)),
                         };
-                        work.push(BinaryWork::Apply { op, span, operation });
+                        execution.tag_equality(instruction).map_err(|error| indexed_error(error, span))?;
+                        work.push(BinaryWork::Apply { instruction, op, span, operation });
                         work.push(BinaryWork::Expr(right));
                         work.push(BinaryWork::Expr(left));
                     }
@@ -8847,6 +8891,10 @@ impl Evaluator {
                 let checks = indexed_decode::<Vec<ScanCheck>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
+                for (ordinal, check) in checks.iter().enumerate() {
+                    execution.line_scan_counter_binding(instruction, ordinal, check.counter_slot).map_err(|error| indexed_error(error, span))?;
+                }
+                self.refresh_indexed_live_slots(slots);
                 let (text, start, end, bytes_mode) = if let Some((text, start, end)) =
                     lowered_str_parts(&slots[text_slot])
                 {
@@ -8884,7 +8932,7 @@ impl Evaluator {
                             .expect("source string slice remains UTF-8");
                         slots[line_slot] = LoweredValue::Str(Arc::from(line));
                     }
-                    for check in &checks {
+                    for (ordinal, check) in checks.iter().enumerate() {
                         let matches = match &check.condition {
                             ScanCondition::TrimEmpty => {
                                 lowered_trim_is_empty_value(&slots[line_slot], span)?
@@ -8905,9 +8953,13 @@ impl Evaluator {
                             )?,
                         };
                         if matches {
-                            if let LoweredValue::Int(ref mut value) = slots[check.counter_slot] {
-                                *value += 1;
-                            }
+                            self.refresh_indexed_live_slots(slots);
+                            let increment_span = execution.line_scan_counter_span(instruction, ordinal, check.counter_slot).map_err(|error| indexed_error(error, span))?;
+                            let LoweredValue::Int(value) = slots[check.counter_slot] else {
+                                return Err(RuntimeError::new("type-error", "line scan counter expected Int").with_span(increment_span));
+                            };
+                            slots[check.counter_slot] = LoweredValue::Int(checked_int_binary(BinaryOp::Add, value, 1, increment_span)?);
+                            self.publish_indexed_line_scan_counter(execution, instruction, ordinal, slots, check.counter_slot, increment_span)?;
                             break;
                         }
                     }
@@ -10059,7 +10111,46 @@ mod tests {
                     let (_, proof) = evidence.ground_native_calls().next().unwrap();
                     assert!(matches!(proof.contract.authority,
                         crate::runtime::eval::indexed::generic::PreparedOperationAuthority::Registry { operation: RuntimeOp::MimeParse, .. }));
-                    assert!(checked.solved.projections.is_empty(), "the native API returns an explicit erased Record");
+                    use crate::runtime::eval::indexed::generic::{graph_ground_type, PreparedNativeRecordCarrier, TypeRef};
+                    let native_source = evidence.native_call_source(proof.source).unwrap();
+                    let graph = &checked.solved.graph;
+                    let original = &checked.solved.operations[&native_source.origin];
+                    let selected = graph.candidate_evidence(original.requirement).unwrap().unwrap();
+                    let crate::sema::check::SolvedOperationAuthority::Registry(metadata) = checked.solved.operation_catalog.candidate(graph, selected.candidate).unwrap() else { panic!("MIME parsing retains its original registry authority"); };
+                    assert_eq!(metadata.owner, crate::sema::registry_graph::RegistryOwner::Module("mime"));
+                    assert_eq!(metadata.entry, "parse");
+                    assert_eq!(metadata.operation, RuntimeOp::MimeParse);
+                    let expected_carrier = Type::Result(Box::new(crate::sema::records::standard_record_type("MimeParse").unwrap()), Box::new(Type::Error));
+                    let original_scheme = graph.scheme(metadata.scheme).unwrap();
+                    assert!(original_scheme.binders.is_empty());
+                    let crate::sema::inference::TypeNode::Arrow(original_arrow) = graph.node(graph.resolved(original_scheme.body).unwrap()).unwrap() else { panic!("MIME parsing has its original callable signature"); };
+                    assert_eq!(graph_ground_type(graph, original_arrow.result).unwrap(), expected_carrier);
+                    let crate::sema::inference::TypeNode::Arrow(selected_arrow) = graph.node(graph.resolved(selected.signature).unwrap()).unwrap() else { panic!("MIME parsing retains its selected signature"); };
+                    assert_eq!(graph_ground_type(graph, selected_arrow.result).unwrap(), expected_carrier);
+                    assert_eq!(graph_ground_type(graph, selected.result).unwrap(), expected_carrier);
+                    program.test_verify_native_result_record_layout(native_source).unwrap();
+                    assert!(native_source.result_refinement.is_none());
+                    let native_layout = native_source.result_record_layout.as_ref().unwrap();
+                    assert_eq!(native_layout.carrier, PreparedNativeRecordCarrier::ResultRecord);
+                    assert_eq!(evidence.ground_projections().count(), 1);
+                    let (_, projection) = evidence.ground_projections().next().unwrap();
+                    let source = evidence.ground_projection_source(projection.source).unwrap();
+                    assert_eq!(source.receiver_origin, native_source.origin);
+                    assert_eq!(source.field, "type");
+                    assert_eq!(projection.receiver, TypeRef::Ground(native_layout.record));
+                    let postfix = source.postfix.as_ref().unwrap();
+                    assert_eq!(postfix.source_type, proof.contract.result);
+                    assert_eq!(postfix.success_type, projection.receiver);
+                    let layout = evidence.layout(projection.layout).unwrap();
+                    assert_eq!(layout.record_type, native_layout.record);
+                    assert_eq!(layout.fields[projection.field_slot as usize], (source.field, source.result));
+                    assert_eq!(program.test_semantic_type(source.result).unwrap(), Type::Str);
+                    let checked_projection = &checked.solved.projections[&source.origin];
+                    let original_carrier = checked.solved.expressions[&native_source.origin];
+                    let crate::sema::inference::TypeNode::Result(success, error) = graph.node(graph.resolved(original_carrier).unwrap()).unwrap() else { panic!("the original producer retains its Result carrier"); };
+                    assert_eq!(*success, checked_projection.receiver);
+                    assert_eq!(graph_ground_type(graph, *error).unwrap(), Type::Error);
+                    assert_eq!(graph_ground_type(graph, checked_projection.result).unwrap(), Type::Str);
                     drop(checked);
                     drop(parsed);
                     assert!(solved.upgrade().is_none(), "native execution cannot retain the inference bundle");

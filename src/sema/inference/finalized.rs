@@ -2,7 +2,7 @@ use super::*;
 use std::mem::size_of;
 use std::ops::Deref;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScopedRoot { pub ty: TypeId, pub scope: Option<SchemeId> }
 
 /// The context has no mutable accessor after publication. Its bound handles
@@ -15,7 +15,7 @@ pub struct ScopedEffectRoot { pub effect: EffectSummary, pub scope: Option<Schem
 
 /// Certificates inherit the lexical scope of the source operation. Selecting
 /// a catalog candidate does not authorize its caller to use foreign binders.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScopedRequirementRoot { pub requirement: RequirementId, pub scope: Option<SchemeId> }
 
 /// The exact instantiation handles survive publication so source facts can

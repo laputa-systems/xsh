@@ -143,7 +143,7 @@ impl FullBuilder {
         if self.prepared_argument_origins.get(&instruction) == Some(&(origin, owner)) { return Ok(origin); }
         let (source, _) = self.argument_initializer_lineage(instruction, owner)?;
         if self.prepared_argument_origins.get(&source) == Some(&(origin, owner)) { return Ok(origin); }
-        if self.prepared_saved_argument_bindings.get(&instruction).is_some_and(|saved| saved.call == call && saved.ordinal as usize == ordinal && saved.recipe == *recipe && saved.owner == owner) { return Ok(origin); }
+        if self.prepared_saved_argument_bindings.get(&source).is_some_and(|saved| saved.call == call && saved.ordinal as usize == ordinal && saved.recipe == *recipe && saved.owner == owner) { return Ok(origin); }
         Err(IrBuildError::verification("argument_operand_original_source_missing", IrVerifyError::new(format!(
             "original call {call:?} argument {ordinal} recipe {recipe:?} owner {owner:?} has operand {instruction} {:?}, lineage source {source} {:?}, saved source {:?}",
             self.store.tags.get(instruction as usize), self.store.tags.get(source as usize), self.prepared_saved_argument_bindings.get(&source).map(|saved| (saved.call, saved.ordinal)),

@@ -13,6 +13,9 @@ mod pattern_plan;
 #[path = "solved/refinement_plan.rs"]
 mod refinement_plan;
 pub use refinement_plan::{SolvedRefinedRead, SolvedRefinementAlias, SolvedRefinementWrite};
+#[path = "solved/field_presence.rs"]
+mod field_presence;
+pub use field_presence::SolvedFieldPresenceRead;
 #[path = "solved/nominal_member_plan.rs"]
 mod nominal_member_plan;
 
@@ -43,6 +46,7 @@ pub struct SolvedNominalMember {
     pub tested: TypeId,
     pub fields: Vec<(Option<Name>, TypeId)>,
     pub facets: Vec<Name>,
+    pub wire: Option<std::sync::Arc<crate::sema::wire_enums::WireEnumMapping>>,
     pub scope: Option<SchemeId>,
 }
 
@@ -390,6 +394,17 @@ pub struct SolvedRecordUpdate {
     pub caller: Option<DeclarationIdentity>,
 }
 
+/// An environment path getter retains its actual checked source before
+/// lowering turns it into a native transport packet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OriginalEnvPathListGetter {
+    pub origin: ExpressionIdentity,
+    pub span: crate::source::Span,
+    pub checked: TypeId,
+    pub caller: Option<DeclarationIdentity>,
+    pub creation: crate::sema::inference::EffectSet,
+}
+
 /// The graph and all of its consumer handles share one retained owner. Source
 /// spans are projected diagnostics and never select a semantic fact.
 #[derive(Debug)]
@@ -405,6 +420,7 @@ pub struct SolvedTypes<Graph = SolvedGraph> {
     pub nominal_members: BTreeMap<QualifiedNominalIdentity, std::sync::Arc<SolvedNominalMember>>,
     original_nominal_members: BTreeMap<QualifiedNominalIdentity, std::sync::Arc<SolvedNominalMember>>,
     pub expressions: BTreeMap<ExpressionIdentity, TypeId>,
+    env_path_list_getters: BTreeMap<ExpressionIdentity, std::sync::Arc<OriginalEnvPathListGetter>>,
     pub expression_schemes: BTreeMap<ExpressionIdentity, SchemeId>,
     pub non_completing_expressions: std::collections::BTreeSet<ExpressionIdentity>,
     /// Descendant instructions retain the initializer scheme that owns their
@@ -418,6 +434,10 @@ pub struct SolvedTypes<Graph = SolvedGraph> {
     pub bindings: BTreeMap<BindingIdentity, SolvedBinding>,
     pub with_bindings: BTreeMap<WithBindingIdentity, SolvedWithBinding>,
     pub guard_error_bindings: BTreeMap<GuardErrorBindingIdentity, SolvedGuardErrorBinding>,
+    pub(crate) error_captures: BTreeMap<ExpressionIdentity, std::sync::Arc<super::SolvedErrorCapture>>,
+    pub(super) original_error_captures: BTreeMap<ExpressionIdentity, std::sync::Arc<super::SolvedErrorCapture>>,
+    pub field_presence_reads: BTreeMap<ExpressionIdentity, std::sync::Arc<SolvedFieldPresenceRead>>,
+    original_field_presence_reads: BTreeMap<ExpressionIdentity, std::sync::Arc<SolvedFieldPresenceRead>>,
     pub refined_reads: BTreeMap<ExpressionIdentity, std::sync::Arc<SolvedRefinedRead>>,
     original_refined_reads: BTreeMap<ExpressionIdentity, std::sync::Arc<SolvedRefinedRead>>,
     pub patterns: BTreeMap<PatternIdentity, std::sync::Arc<SolvedPattern>>,
@@ -445,7 +465,11 @@ pub struct SolvedTypes<Graph = SolvedGraph> {
     pub record_updates: BTreeMap<ExpressionIdentity, SolvedRecordUpdate>,
     pub module_projections: BTreeMap<ExpressionIdentity, super::SolvedModuleProjection>,
     pub schema_validations: BTreeMap<ExpressionIdentity, super::SolvedSchemaValidation>,
+    pub(crate) record_get_projections: BTreeMap<ExpressionIdentity, std::sync::Arc<super::SolvedRecordGetProjection>>,
+    pub(super) original_record_get_projections: BTreeMap<ExpressionIdentity, std::sync::Arc<super::SolvedRecordGetProjection>>,
     pub constructor_applications: BTreeMap<ExpressionIdentity, super::SolvedConstructorApplication>,
+    pub tag_tail_constructors: BTreeMap<StatementIdentity, std::sync::Arc<super::SolvedTagTailConstructor>>,
+    pub(super) original_tag_tail_constructors: BTreeMap<StatementIdentity, std::sync::Arc<super::SolvedTagTailConstructor>>,
     pub constructor_defaults: BTreeMap<super::ConstructorDefaultIdentity, super::SolvedConstructorDefault>,
     pub constructor_nominals: BTreeMap<QualifiedNominalIdentity, Vec<(Option<Name>, TypeId)>>,
     pub additions: BTreeMap<ExpressionIdentity, RequirementId>,
@@ -548,12 +572,12 @@ impl<Graph> SolvedTypes<Graph> {
         Self {
             owner, graph, symbols: crate::symbol::SymbolOwner::current().unwrap_or_default(),
             producer_flows: super::ProducerFlowGraph::new(owner),
-            declarations: BTreeMap::new(), embedded_bridges: BTreeMap::new(), embedded_bridge_calls: BTreeMap::new(), nominals: BTreeMap::new(), nominal_members: BTreeMap::new(), original_nominal_members: BTreeMap::new(), expressions: BTreeMap::new(), expression_schemes: BTreeMap::new(), non_completing_expressions: std::collections::BTreeSet::new(), expression_value_scopes: BTreeMap::new(),
-            expression_callables: BTreeMap::new(), expression_producers: BTreeMap::new(), bindings: BTreeMap::new(), with_bindings: BTreeMap::new(), guard_error_bindings: BTreeMap::new(), refined_reads: BTreeMap::new(), original_refined_reads: BTreeMap::new(), binding_producers: BTreeMap::new(), patterns: BTreeMap::new(), original_patterns: BTreeMap::new(), original_pattern_nominals: BTreeMap::new(), pattern_value_scopes: BTreeMap::new(),
+            declarations: BTreeMap::new(), embedded_bridges: BTreeMap::new(), embedded_bridge_calls: BTreeMap::new(), nominals: BTreeMap::new(), nominal_members: BTreeMap::new(), original_nominal_members: BTreeMap::new(), expressions: BTreeMap::new(), env_path_list_getters: BTreeMap::new(), expression_schemes: BTreeMap::new(), non_completing_expressions: std::collections::BTreeSet::new(), expression_value_scopes: BTreeMap::new(),
+            expression_callables: BTreeMap::new(), expression_producers: BTreeMap::new(), bindings: BTreeMap::new(), with_bindings: BTreeMap::new(), guard_error_bindings: BTreeMap::new(), error_captures: BTreeMap::new(), original_error_captures: BTreeMap::new(), field_presence_reads: BTreeMap::new(), original_field_presence_reads: BTreeMap::new(), refined_reads: BTreeMap::new(), original_refined_reads: BTreeMap::new(), binding_producers: BTreeMap::new(), patterns: BTreeMap::new(), original_patterns: BTreeMap::new(), original_pattern_nominals: BTreeMap::new(), pattern_value_scopes: BTreeMap::new(),
             expression_producer_flows: BTreeMap::new(), statement_producer_flows: BTreeMap::new(), statement_owners: BTreeMap::new(), binding_producer_flows: BTreeMap::new(),
             argument_sources: BTreeMap::new(), stage_argument_sources: BTreeMap::new(), calls: BTreeMap::new(), invocations: BTreeMap::new(), operations: BTreeMap::new(), statement_operations: BTreeMap::new(), comprehension_operations: BTreeMap::new(), stage_operations: BTreeMap::new(), projections: BTreeMap::new(), record_updates: BTreeMap::new(),
             operation_catalog: super::SolvedOperationCatalog::new(owner), registry_boundaries: BTreeMap::new(), additions: BTreeMap::new(), statements: BTreeMap::new(),
-            module_projections: BTreeMap::new(), schema_validations: BTreeMap::new(), constructor_applications: BTreeMap::new(), constructor_defaults: BTreeMap::new(), constructor_nominals: BTreeMap::new(), registry_references: BTreeMap::new(), run_operations: BTreeMap::new(), spawn_operations: BTreeMap::new(),
+            module_projections: BTreeMap::new(), schema_validations: BTreeMap::new(), record_get_projections: BTreeMap::new(), original_record_get_projections: BTreeMap::new(), constructor_applications: BTreeMap::new(), tag_tail_constructors: BTreeMap::new(), original_tag_tail_constructors: BTreeMap::new(), constructor_defaults: BTreeMap::new(), constructor_nominals: BTreeMap::new(), registry_references: BTreeMap::new(), run_operations: BTreeMap::new(), spawn_operations: BTreeMap::new(),
             expression_owners: BTreeMap::new(),
             result_wrappings: BTreeMap::new(), result_statement_wrappings: BTreeMap::new(),
         }
@@ -588,10 +612,10 @@ impl<Graph> SolvedTypes<Graph> {
             + map_bytes(&self.expression_schemes) + map_bytes(&self.expression_value_scopes) + map_bytes(&self.expression_callables)
             + map_bytes(&self.expression_producers) + map_bytes(&self.expression_producer_flows)
             + map_bytes(&self.statement_producer_flows) + map_bytes(&self.statement_owners)
-            + map_bytes(&self.bindings) + map_bytes(&self.with_bindings) + map_bytes(&self.guard_error_bindings) + map_bytes(&self.refined_reads) + map_bytes(&self.original_refined_reads) + self.refined_read_payload_bytes() + map_bytes(&self.binding_producers) + map_bytes(&self.binding_producer_flows) + map_bytes(&self.patterns) + map_bytes(&self.original_patterns) + map_bytes(&self.original_pattern_nominals) + map_bytes(&self.pattern_value_scopes)
+            + map_bytes(&self.bindings) + map_bytes(&self.with_bindings) + map_bytes(&self.guard_error_bindings) + map_bytes(&self.error_captures) + map_bytes(&self.original_error_captures) + self.error_capture_retained_bytes() + map_bytes(&self.field_presence_reads) + map_bytes(&self.original_field_presence_reads) + self.field_presence_payload_bytes() + map_bytes(&self.refined_reads) + map_bytes(&self.original_refined_reads) + self.refined_read_payload_bytes() + map_bytes(&self.binding_producers) + map_bytes(&self.binding_producer_flows) + map_bytes(&self.patterns) + map_bytes(&self.original_patterns) + map_bytes(&self.original_pattern_nominals) + map_bytes(&self.pattern_value_scopes)
             + map_bytes(&self.argument_sources) + map_bytes(&self.stage_argument_sources) + map_bytes(&self.calls) + map_bytes(&self.invocations) + map_bytes(&self.operations) + map_bytes(&self.statement_operations) + map_bytes(&self.comprehension_operations) + map_bytes(&self.stage_operations) + map_bytes(&self.projections) + map_bytes(&self.record_updates) + map_bytes(&self.additions)
             + map_bytes(&self.statements) + map_bytes(&self.expression_owners) + map_bytes(&self.result_wrappings)
-            + map_bytes(&self.result_statement_wrappings) + map_bytes(&self.registry_boundaries) + map_bytes(&self.module_projections) + map_bytes(&self.schema_validations) + map_bytes(&self.constructor_applications) + map_bytes(&self.constructor_defaults) + map_bytes(&self.constructor_nominals) + map_bytes(&self.registry_references) + map_bytes(&self.run_operations) + map_bytes(&self.spawn_operations);
+            + map_bytes(&self.result_statement_wrappings) + map_bytes(&self.registry_boundaries) + map_bytes(&self.module_projections) + map_bytes(&self.schema_validations) + map_bytes(&self.record_get_projections) + map_bytes(&self.original_record_get_projections) + map_bytes(&self.constructor_applications) + map_bytes(&self.tag_tail_constructors) + map_bytes(&self.original_tag_tail_constructors) + map_bytes(&self.constructor_defaults) + map_bytes(&self.constructor_nominals) + map_bytes(&self.registry_references) + map_bytes(&self.run_operations) + map_bytes(&self.spawn_operations);
         let declarations = self.declarations.values().map(|declaration| {
             declaration.source_requirements.capacity() * size_of::<RequirementId>()
                 + declaration.parameter_producers.capacity() * size_of::<ProducerProfile>()
@@ -619,7 +643,7 @@ impl<Graph> SolvedTypes<Graph> {
         let run_arguments = self.run_operations.values().map(|run| &run.arguments).chain(self.spawn_operations.values().map(|spawn| &spawn.arguments)).map(|arguments| arguments.capacity() * size_of::<super::run_operation::RunArgumentGuard>()).sum::<usize>();
         maps + declarations + calls + operations + boundaries + updates + run_arguments + self.stage_callback_certificate_bytes() + self.pattern_payload_bytes()
             + self.nominal_member_payload_bytes()
-            + self.argument_sources.values().chain(self.stage_argument_sources.values()).map(|arguments| arguments.capacity() * size_of::<SolvedArgumentSource>()).sum::<usize>() + self.registry_references.values().map(|reference| reference.retained_bytes()).sum::<usize>() + self.schema_validation_payload_bytes() + self.constructor_application_payload_bytes() + self.producer_flows.retained_bytes() + self.operation_catalog.retained_bytes()
+            + self.argument_sources.values().chain(self.stage_argument_sources.values()).map(|arguments| arguments.capacity() * size_of::<SolvedArgumentSource>()).sum::<usize>() + self.registry_references.values().map(|reference| reference.retained_bytes()).sum::<usize>() + self.schema_validation_payload_bytes() + self.record_get_projection_payload_bytes() + self.constructor_application_payload_bytes() + self.tag_tail_constructor_payload_bytes() + self.producer_flows.retained_bytes() + self.operation_catalog.retained_bytes()
             + self.non_completing_expressions.len() * (size_of::<ExpressionIdentity>() + 3 * size_of::<usize>())
             + self.expression_producers.values().chain(self.binding_producers.values()).map(profile_bytes).sum::<usize>()
             + self.embedded_bridges.values().map(|bridge| bridge.retained_bytes()).sum::<usize>()
@@ -1122,6 +1146,7 @@ impl<Graph> SolvedTypes<Graph> {
         let mut roots = self.nominals.keys().map(|&ty| ScopedRoot { ty, scope: None }).collect::<Vec<_>>();
         roots.extend(self.pattern_roots()?);
         roots.extend(self.refined_reads.values().flat_map(|read| [read.invariant, read.narrowed]));
+        roots.extend(self.field_presence_reads.values().flat_map(|read| [read.material, read.subject_type, read.narrowed]));
         roots.extend(self.nominal_member_roots());
         for (argument, scope) in self.run_argument_roots()? { roots.extend([ScopedRoot { ty: argument.actual, scope }, ScopedRoot { ty: argument.operand, scope }]); }
         for (identity, reference) in &self.registry_references {
@@ -1207,6 +1232,20 @@ impl<Graph> SolvedTypes<Graph> {
 }
 
 impl SolvedTypes {
+    pub(crate) fn original_env_path_list_getter(&self, origin: ExpressionIdentity) -> Result<Option<std::sync::Arc<OriginalEnvPathListGetter>>, InferenceError> {
+        use crate::sema::inference::{Atom, EffectSet, TypeNode};
+        let Some(getter) = self.env_path_list_getters.get(&origin) else { return Ok(None); };
+        let root = ScopedRoot { ty: getter.checked, scope: self.expression_scope(origin, getter.caller)? };
+        self.graph.validate_scoped(root)?;
+        if getter.origin != origin || getter.span.source_id != origin.source || getter.creation != EffectSet::ENV
+            || self.expressions.get(&origin).copied() != Some(getter.checked)
+            || self.expression_owners.get(&origin).copied() != getter.caller
+            || self.graph.node(self.graph.resolved(getter.checked)?)? != &TypeNode::Atom(Atom::EnvPathList) {
+            return Err(InferenceError::InvalidScheme);
+        }
+        Ok(Some(std::sync::Arc::clone(getter)))
+    }
+
     pub(crate) fn from_graph(graph: SolvedGraph, symbols: crate::symbol::SymbolOwner) -> Self {
         let mut solved = Self::with_graph(graph.owner(), graph);
         solved.symbols = symbols;
@@ -1228,6 +1267,10 @@ impl SolvedTypes {
         self.validate_module_projections(&self.graph)?;
         self.validate_schema_validations(&self.graph)?;
         self.validate_constructor_applications(&self.graph)?;
+        self.validate_record_get_projections(&self.graph)?;
+        self.validate_error_captures(&self.graph)?;
+        self.validate_field_presence_reads()?;
+        self.validate_tag_tail_constructors(&self.graph)?;
         self.graph.validate_application_roots(&self.source_application_roots(&self.graph)?)?;
         self.operation_catalog.validate(&self.graph)?;
         for root in self.operation_catalog.scoped_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
@@ -1239,19 +1282,44 @@ impl SolvedTypes {
         for root in self.scoped_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
         for root in self.module_projection_roots()? { self.graph.validate_scoped(root)?; }
         for root in self.schema_validation_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
+        for root in self.record_get_projection_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
+        for root in self.error_capture_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
+        for root in self.error_capture_requirements()? { self.graph.validate_requirement_scoped(root)?; }
         for root in self.constructor_application_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
+        for root in self.tag_tail_constructor_roots(&self.graph)? { self.graph.validate_scoped(root)?; }
+        for root in self.tag_tail_constructor_requirement_roots()? { self.graph.validate_requirement_scoped(root)?; }
         Ok(())
     }
 }
 
 impl SolvedTypes<InferenceContext> {
+    pub(super) fn publish_env_path_list_getter(&mut self, getter: OriginalEnvPathListGetter) -> Result<(), InferenceError> {
+        use crate::sema::inference::{Atom, EffectSet, TypeNode};
+        if getter.span.source_id != getter.origin.source || getter.creation != EffectSet::ENV
+            || self.graph.node(self.graph.resolved(getter.checked)?)? != &TypeNode::Atom(Atom::EnvPathList)
+            || self.expressions.get(&getter.origin).copied() != Some(getter.checked)
+            || self.expression_owners.get(&getter.origin).copied() != getter.caller {
+            return Err(InferenceError::InvalidScheme);
+        }
+        if let Some(original) = self.env_path_list_getters.get(&getter.origin) {
+            if original.as_ref() != &getter { return Err(InferenceError::InvalidScheme); }
+            return Ok(());
+        }
+        self.graph.charge_source_fact_nodes(1)?;
+        self.graph.charge_source_fact_edges(2)?;
+        self.graph.charge_source_fact_work(2)?;
+        self.env_path_list_getters.insert(getter.origin, std::sync::Arc::new(getter));
+        Ok(())
+    }
+
     pub(super) fn retain_operation_catalog(&mut self, registry: &crate::sema::registry_graph::RegistryGraph, language: &crate::sema::operation_graph::OperationGraph, stages: &crate::sema::stage_graph::StageGraph) -> Result<(), InferenceError> {
         let mut candidates = std::collections::BTreeSet::new();
         for (_, operation) in self.source_operations() {
             let crate::sema::inference::RequirementTemplate::Operation { family, .. } = self.graph.requirement_template(operation.requirement)? else { return Err(InferenceError::InvalidScheme); };
             candidates.extend(self.graph.family(family)?.iter().copied());
         }
-        for requirement in self.constructor_applications.values().filter_map(|application| application.requirement) {
+        for requirement in self.constructor_applications.values().filter_map(|application| application.requirement)
+            .chain(self.tag_tail_constructors.values().filter_map(|source| source.application.requirement)) {
             self.graph.charge_source_fact_work(1)?;
             let crate::sema::inference::RequirementTemplate::Operation { family, .. } = self.graph.requirement_template(requirement)? else { return Err(InferenceError::InvalidScheme); };
             self.graph.charge_source_fact_work(self.graph.family(family)?.len() as u64)?;
@@ -1278,10 +1346,13 @@ impl SolvedTypes<InferenceContext> {
 
     pub(super) fn freeze(mut self) -> Result<SolvedTypes, InferenceError> {
         self.seal_refined_reads()?;
+        self.seal_field_presence_reads()?;
         self.seal_embedded_bridge_calls()?;
         self.capture_pattern_nominals()?;
         self.graph.charge_source_fact_work(self.nominal_member_source_work())?;
         self.validate_nominal_members(&self.graph)?;
+        self.graph.charge_source_fact_work(self.tag_tail_constructor_source_work())?;
+        self.graph.charge_source_fact_work(self.record_get_projection_work() as u64)?;
         let pattern_work = self.pattern_source_edges();
         self.graph.charge_source_fact_edges(pattern_work)?;
         self.graph.charge_source_fact_work(pattern_work)?;
@@ -1301,6 +1372,7 @@ impl SolvedTypes<InferenceContext> {
             + self.run_operations.len() as u64 * 3
             + self.spawn_operations.len() as u64 * 2
             + self.constructor_applications.values().filter(|application| application.requirement.is_some()).count() as u64
+            + self.tag_tail_constructors.len() as u64
             + self.run_operations.values().map(|run| run.arguments.len() as u64 * 3).sum::<u64>() + self.spawn_operations.values().map(|spawn| spawn.arguments.len() as u64 * 3).sum::<u64>()
             + self.operations.len() as u64 + self.statement_operations.len() as u64 + self.comprehension_operations.len() as u64 + self.stage_operations.len() as u64 + self.stage_operations.values().map(|stage| match stage.callback { Some(StageCallback::Callable { .. }) => 1, Some(StageCallback::Protocol { .. }) => 2, _ => 0 }).sum::<u64>() + self.invocations.len() as u64 + self.additions.len() as u64;
         self.graph.charge_source_fact_edges(requirement_edges)?;
@@ -1318,6 +1390,10 @@ impl SolvedTypes<InferenceContext> {
         self.validate_module_projections(&self.graph)?;
         self.validate_schema_validations(&self.graph)?;
         self.validate_constructor_applications(&self.graph)?;
+        self.validate_record_get_projections(&self.graph)?;
+        self.validate_error_captures(&self.graph)?;
+        self.validate_field_presence_reads()?;
+        self.validate_tag_tail_constructors(&self.graph)?;
         validate_call_requirement_origins(&self.graph, &self.calls)?;
         self.validate_producer_flow_roots()?;
         self.validate_native_producer_flows(&self.graph)?;
@@ -1325,6 +1401,9 @@ impl SolvedTypes<InferenceContext> {
         roots.extend(self.module_projection_roots()?);
         roots.extend(self.schema_validation_roots(&self.graph)?);
         roots.extend(self.constructor_application_roots(&self.graph)?);
+        roots.extend(self.record_get_projection_roots(&self.graph)?);
+        roots.extend(self.error_capture_roots(&self.graph)?);
+        roots.extend(self.tag_tail_constructor_roots(&self.graph)?);
         let mut effects = Vec::new();
         for (identity, reference) in &self.registry_references {
             let scope = self.expression_scope(*identity, reference.caller)?;
@@ -1372,7 +1451,9 @@ impl SolvedTypes<InferenceContext> {
             let scope = self.operation_scope(source, operation)?;
             effects.push(ScopedEffectRoot { effect: operation.effects, scope });
         }
-        let requirements = self.scoped_requirement_roots(&self.graph)?;
+        let mut requirements = self.scoped_requirement_roots(&self.graph)?;
+        requirements.extend(self.tag_tail_constructor_requirement_roots()?);
+        requirements.extend(self.error_capture_requirements()?);
         roots.extend(self.operation_catalog.scoped_roots(&self.graph)?);
         self.operation_catalog.validate(&self.graph)?;
         self.validate_registry_boundaries(&self.graph)?;
@@ -1394,11 +1475,11 @@ impl SolvedTypes<InferenceContext> {
         for profile in self.expression_producers.values_mut().chain(self.binding_producers.values_mut()) { normalize_profile_effects(profile, &graph)?; }
         for operation in self.operations.values_mut().chain(self.statement_operations.values_mut()).chain(self.comprehension_operations.values_mut().map(|clause| &mut clause.operation)).chain(self.stage_operations.values_mut().map(|stage| &mut stage.operation)) { operation.effects = graph.closed_effect_summary(operation.effects)?; }
         Ok(SolvedTypes {
-            owner: self.owner, graph, symbols: self.symbols, operation_catalog: self.operation_catalog, registry_boundaries: self.registry_boundaries, registry_references: self.registry_references, run_operations: self.run_operations, spawn_operations: self.spawn_operations, module_projections: self.module_projections, schema_validations: self.schema_validations, constructor_applications: self.constructor_applications, constructor_defaults: self.constructor_defaults, constructor_nominals: self.constructor_nominals,
+            owner: self.owner, graph, symbols: self.symbols, operation_catalog: self.operation_catalog, registry_boundaries: self.registry_boundaries, registry_references: self.registry_references, run_operations: self.run_operations, spawn_operations: self.spawn_operations, module_projections: self.module_projections, schema_validations: self.schema_validations, record_get_projections: self.record_get_projections, original_record_get_projections: self.original_record_get_projections, constructor_applications: self.constructor_applications, tag_tail_constructors: self.tag_tail_constructors, original_tag_tail_constructors: self.original_tag_tail_constructors, constructor_defaults: self.constructor_defaults, constructor_nominals: self.constructor_nominals,
             producer_flows: self.producer_flows,
             embedded_bridges: self.embedded_bridges, embedded_bridge_calls: self.embedded_bridge_calls,
-            declarations: self.declarations, nominals: self.nominals, nominal_members: self.nominal_members, original_nominal_members: self.original_nominal_members, expressions: self.expressions, expression_schemes: self.expression_schemes, non_completing_expressions: self.non_completing_expressions, expression_value_scopes: self.expression_value_scopes,
-            expression_callables: self.expression_callables, expression_producers: self.expression_producers, bindings: self.bindings, with_bindings: self.with_bindings, guard_error_bindings: self.guard_error_bindings, refined_reads: self.refined_reads, original_refined_reads: self.original_refined_reads, binding_producers: self.binding_producers, patterns: self.patterns, original_patterns: self.original_patterns, original_pattern_nominals: self.original_pattern_nominals, pattern_value_scopes: self.pattern_value_scopes,
+            declarations: self.declarations, nominals: self.nominals, nominal_members: self.nominal_members, original_nominal_members: self.original_nominal_members, expressions: self.expressions, env_path_list_getters: self.env_path_list_getters, expression_schemes: self.expression_schemes, non_completing_expressions: self.non_completing_expressions, expression_value_scopes: self.expression_value_scopes,
+            expression_callables: self.expression_callables, expression_producers: self.expression_producers, bindings: self.bindings, with_bindings: self.with_bindings, guard_error_bindings: self.guard_error_bindings, error_captures: self.error_captures, original_error_captures: self.original_error_captures, field_presence_reads: self.field_presence_reads, original_field_presence_reads: self.original_field_presence_reads, refined_reads: self.refined_reads, original_refined_reads: self.original_refined_reads, binding_producers: self.binding_producers, patterns: self.patterns, original_patterns: self.original_patterns, original_pattern_nominals: self.original_pattern_nominals, pattern_value_scopes: self.pattern_value_scopes,
             expression_producer_flows: self.expression_producer_flows, statement_producer_flows: self.statement_producer_flows, statement_owners: self.statement_owners, binding_producer_flows: self.binding_producer_flows,
             argument_sources: self.argument_sources, stage_argument_sources: self.stage_argument_sources, calls: self.calls, invocations: self.invocations, operations: self.operations, statement_operations: self.statement_operations, comprehension_operations: self.comprehension_operations, stage_operations: self.stage_operations, projections: self.projections, record_updates: self.record_updates,
             additions: self.additions, statements: self.statements,

@@ -135,7 +135,7 @@ fn original_list_index_refuses_missing_foreign_and_rewritten_operand_authority()
 #[test]
 fn original_list_index_executes_both_routes_with_frontend_disposed_in_the_worker() {
     crate::runtime::eval::run_eval(|| {
-        let source = "pure selected(values: List[Int], position: Int) -> Int { values[position] }\npure checked(values: List[Result[Int]], position: Int) -> Result[Int] { values[position] }\nprint ${selected([4, 7], 1)} ${checked([Ok(3)], 0) is Ok(3)}\n";
+        let source = "type Config = {workers: Int}\nconst field = \"workers\"\npure selected(values: List[Int], position: Int) -> Int { values[position] }\npure checked(values: List[Result[Int]], position: Int) -> Result[Int] { values[position] }\npure unsigned(values: List[UInt], position: UInt) -> UInt { values[position] }\npure record_count(config: Config) -> Int { config[field] }\nprint ${selected([4, 7], 1)} ${checked([Ok(3)], 0) is Ok(3)} ${unsigned([8], 0)} ${record_count({workers: 4})}\n";
         for recursive in [false, true] {
             let mut sources = SourceMap::new();
             let source_id = sources.add_file("original-index-execution.xsh", source);
@@ -155,9 +155,114 @@ fn original_list_index_executes_both_routes_with_frontend_disposed_in_the_worker
             });
             let output = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(execute) } else { execute() };
             assert_eq!(output.status, 0, "{:?}; {:?}", output.diagnostics, output.traceback);
-            assert_eq!(output.stdout, b"7 true\n");
+            assert_eq!(output.stdout, b"7 true 8 4\n");
             assert!(output.stderr.is_empty());
             assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         }
+    });
+}
+
+#[test]
+fn original_record_index_preserves_constant_field_and_refuses_changed_layout_after_frontend_drop() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "type Config = {workers: Int, retries: Int}\nconst field = \"workers\"\npure selected(config: Config) -> Int { config[field] }\n";
+        let program = fixture(source);
+        program.symbol_owner().with_current(|| {
+            FullVerifier::verify(&program).unwrap();
+            let original = program.store.generic.as_deref().unwrap().original_indices().next().unwrap().clone();
+            let (field, layout, slot) = original.projection.expect("constant record index retains its selected physical field");
+            assert_eq!(field, Name::intern("workers"));
+            assert_eq!(program.store.generic.as_deref().unwrap().layout(layout).unwrap().fields[slot as usize].0, field);
+            for mutation in 0..3 {
+                let mut changed = program.clone();
+                let original = changed.store.generic.as_deref_mut().unwrap().test_original_index_mut(original.instruction).unwrap();
+                match mutation {
+                    0 => original.projection = None,
+                    1 => original.projection.as_mut().unwrap().0 = Name::intern("retries"),
+                    _ => original.projection.as_mut().unwrap().2 = slot.wrapping_add(1),
+                }
+                assert!(FullVerifier::verify(&changed).is_err());
+            }
+            let mut changed_key = program.clone();
+            let raw = changed_key.store.data[original.index_material as usize].range().start as usize;
+            changed_key.store.extra[raw] = u32::MAX;
+            assert!(FullVerifier::verify(&changed_key).is_err());
+        });
+    });
+}
+
+#[test]
+fn original_index_retains_checked_uint_operand_lineage_after_frontend_drop() {
+    crate::runtime::eval::run_eval(|| {
+        let source = "pure list_return(n: Int) -> List[UInt] { return [n] }\npure selected(n: Int) -> Int { return list_return(n)[0] }\npure checked(values: Map[UInt, Int], position: UInt) -> Int { values[position] }\n";
+        let program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        let generic = program.store.generic.as_deref().unwrap();
+        assert_eq!(generic.original_indices().count(), 2);
+        assert!(generic.original_indices().any(|original| !original.base_wrappers.is_empty() || !original.index_wrappers.is_empty()), "the source must execute an actual checked operand wrapper");
+        for original in generic.original_indices() {
+            for wrapper in original.base_wrappers.iter().chain(original.index_wrappers.iter()) {
+                let mut changed = program.clone();
+                let raw = changed.store.data[wrapper.instruction as usize].range().start as usize;
+                changed.store.extra[raw] = original.base;
+                assert!(FullVerifier::verify(&changed).is_err(), "checked index operands retain their exact original wrapper child");
+            }
+        }
+    });
+}
+
+#[test]
+fn original_result_index_preserves_dns_record_carrier_and_refuses_rewritten_source() {
+    crate::runtime::eval::run_eval(|| {
+        let program = fixture("proc selected() [net, error] -> Str { dns.lookup(\"example.test\")?[0].value }\n");
+        program.symbol_owner().with_current(|| {
+            FullVerifier::verify(&program).unwrap();
+            let original = program.store.generic.as_deref().unwrap().original_indices().next().unwrap().clone();
+            assert_eq!(program.store.tags[original.base as usize], FullTag::ExprTry);
+            assert!(program.store.generic.as_deref().unwrap().registered_instruction_origin(original.base, false).is_none());
+            assert_eq!(program.store.tags[original.base_material as usize], FullTag::ExprModuleCall);
+            let postfix = original.postfix_base.as_ref().expect("guarded index retains its independent Result carrier authority");
+            assert_eq!(postfix.source_instruction, original.base_material);
+            let mut missing = program.clone();
+            missing.store.generic.as_deref_mut().unwrap().test_original_index_mut(original.instruction).unwrap().postfix_base = None;
+            assert!(FullVerifier::verify(&missing).is_err());
+            let mut changed = program.clone();
+            let raw = changed.store.data[original.base as usize].range().start as usize;
+            changed.store.extra[raw] = original.index;
+            changed.store.generic.as_deref_mut().unwrap().test_original_index_mut(original.instruction).unwrap().base_material = original.index;
+            assert!(FullVerifier::verify(&changed).is_err(), "agreeing rewritten carrier and index receipt cannot replace the authored DNS source");
+        });
+    });
+}
+
+#[test]
+fn original_result_index_executes_dns_schema_success_and_error_on_both_workers_after_frontend_drop() {
+    crate::runtime::eval::run_eval(|| {
+        let program = Arc::new(fixture("pure selected(values: Result[List[DnsLookup]]) -> Result[Str] { Ok(values?[0].value) }\n"));
+        program.symbol_owner().with_current(|| {
+            let function = LoweredFunctionKey::Name(Name::intern("selected"));
+            let row = crate::runtime::value::Value::Record(crate::runtime::value::RecordMap::from([
+                (Arc::from("name"), crate::runtime::value::Value::Str(Arc::from("example.test"))),
+                (Arc::from("record"), crate::runtime::value::Value::Str(Arc::from("A"))),
+                (Arc::from("value"), crate::runtime::value::Value::Str(Arc::from("127.0.0.1"))),
+                (Arc::from("ttl"), crate::runtime::value::Value::Int(60)),
+            ]));
+            for recursive in [false, true] {
+                for accepted in [false, true] {
+                    let argument = if accepted {
+                        crate::runtime::value::Value::ok(crate::runtime::value::Value::List(vec![row.clone()]))
+                    } else {
+                        crate::runtime::value::Value::err(crate::runtime::value::error_constructor("dns-name", "rejected"))
+                    };
+                    let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let call = || evaluator.call_indexed_direct(function, LoweredFunctionKind::Pure, &[argument],
+                        Span::new(program.store.source_id, 0, 0)).expect("selected DNS schema function remains installed");
+                    let result = crate::runtime::eval::lowered_run::with_observed_indexed_call_route(function, recursive, call).unwrap();
+                    if accepted { assert_eq!(result, crate::runtime::value::Value::ok(crate::runtime::value::Value::Str(Arc::from("127.0.0.1")))); }
+                    else { assert_eq!(result, crate::runtime::value::Value::err(crate::runtime::value::error_constructor("dns-name", "rejected"))); }
+                }
+            }
+        });
     });
 }

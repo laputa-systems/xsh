@@ -293,6 +293,7 @@ impl Checker {
             self.record_graph_prepared_constructor(arena, id);
             self.record_graph_expression(arena, id, &ty);
             self.record_checked_refined_read(arena, id);
+            self.record_checked_field_presence_read(arena, id);
             self.record_expression_producer_flow(arena, id, &ty);
             self.expr_types.insert(expr.span, ty.clone());
             return ty;
@@ -454,7 +455,7 @@ impl Checker {
                 self.check_field_arena(arena, source, id, *base, *name, expr.span)
             }
             ArenaExprKind::NullSafeField { base, name } => {
-                self.check_null_safe_field_arena(arena, source, *base, *name, expr.span)
+                self.check_null_safe_field_arena(arena, source, id, *base, *name, expr.span)
             }
             ArenaExprKind::Index { base, index, guarded } => {
                 self.check_index_arena(arena, source, id, *base, *index, *guarded, expr.span)
@@ -463,7 +464,11 @@ impl Checker {
                 self.check_slice_arena(arena, source, id, *base, *start, *end, *guarded, expr.span)
             }
             ArenaExprKind::EnvGet { kind, .. } => self.check_env_get(*kind, expr.span),
-            ArenaExprKind::EnvPathList => { self.require_effect(Effect::Env, expr.span, "environment path lookup"); Type::EnvPathList },
+            ArenaExprKind::EnvPathList => {
+                self.require_effect(Effect::Env, expr.span, "environment path lookup");
+                self.record_original_env_path_list_getter(arena, id, expr.span);
+                Type::EnvPathList
+            },
             ArenaExprKind::Pipeline { .. } => {
                 self.error(
                     expr.span,
@@ -571,6 +576,7 @@ impl Checker {
         let ty = self.record_graph_module_projection(arena, id, &ty).unwrap_or(ty);
         self.record_graph_expression(arena, id, &ty);
         self.record_checked_refined_read(arena, id);
+        self.record_checked_field_presence_read(arena, id);
             self.record_expression_producer_flow(arena, id, &ty);
         self.expr_types.insert(expr.span, ty.clone());
         if ty == Type::Bool {
@@ -1171,7 +1177,8 @@ impl Checker {
         self.begin_error_boundary();
         let body = self.check_tail_block_arena(arena, source, block, expected_ok);
         self.record_capture_completion_producer_flow(arena, block, false, span);
-        let error = self.end_error_boundary(expected_error);
+        let capture = self.current_expression.map(|id| (self.expression_identity(arena, id), block));
+        let error = self.end_error_boundary_recorded(expected_error, capture);
         self.pop_scope();
         let body = if let Some(expected_ok) = expected_ok { if capture_success_underconstrained(&body) && body.matches_expected(expected_ok) { expected_ok.clone() } else { body } } else { body };
         if capture_success_underconstrained(&body) || (expected_ok.is_none() && self.non_completing_block_tail(arena, block)) {
@@ -1660,7 +1667,7 @@ impl Checker {
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
                 if left_ty == Type::Any || right_ty == Type::Any { return Type::Any; }
-                if op == BinaryOp::Add && (self.current_generic.is_some() || matches!(left_ty, Type::Graph(_)) || matches!(right_ty, Type::Graph(_))) {
+                if op == BinaryOp::Add && (self.current_generic.is_some() || matches!(left_ty, Type::Graph(_)) || matches!(right_ty, Type::Graph(_)) || left_ty == Type::Duration && right_ty == Type::Duration) {
                     return self.graph_add(arena, id, &left_ty, &right_ty);
                 }
                 if op != BinaryOp::Add && !matches!(left_ty, Type::Unknown | Type::Invalid) && !matches!(right_ty, Type::Unknown | Type::Invalid) {
@@ -1706,6 +1713,24 @@ impl Checker {
         }
     }
 
+    // Called only after checking an actual environment path getter source form.
+    // A value merely typed EnvPathList cannot publish this source authority.
+    fn record_original_env_path_list_getter(&mut self, arena: &ArenaProgram, id: ExprId, span: Span) {
+        if !self.graph_generation { return; }
+        let published = (|| {
+            let identity = self.expression_identity(arena, id);
+            let checked = self.graph_type(&Type::EnvPathList, span)?;
+            let mut state = self.generic.borrow_mut();
+            state.facts.expressions.insert(identity, checked);
+            if let Some(caller) = self.current_generic { state.facts.expression_owners.insert(identity, caller); }
+            state.facts.publish_env_path_list_getter(super::solved::OriginalEnvPathListGetter {
+                origin: identity, span, checked, caller: self.current_generic,
+                creation: crate::sema::inference::EffectSet::ENV,
+            })
+        })();
+        if let Err(error) = published { self.graph_error(span, error); }
+    }
+
     fn check_field_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1730,6 +1755,7 @@ impl Checker {
             && name == "PATH"
         {
             self.require_effect(Effect::Env, span, "environment path lookup");
+            self.record_original_env_path_list_getter(arena, id, span);
             return Type::EnvPathList;
         }
         if let ArenaExprKind::Ident(namespace) = base_expr.kind {
@@ -1848,6 +1874,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        expression: ExprId,
         base: ExprId,
         name: Name,
         span: Span,
@@ -1867,6 +1894,9 @@ impl Checker {
                 return Type::Unknown;
             }
         };
+        if !wrap_optional && matches!(inner, Type::Record(_)) {
+            return self.graph_checked_result_record_projection(arena, expression, base, name);
+        }
         let field_ty = match &inner {
             Type::ErasedRecord => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
@@ -2015,7 +2045,11 @@ impl Checker {
                     &arena.arena, &self.prepared_constants, base, &receiver, index,
                     crate::sema::projection::ProjectionOperation::Index,
                 ) {
-                    let ty = projection.value_type.clone();
+                    let ty = if matches!(receiver, Type::Record(_)) {
+                        self.check_graph_language_operation(arena, expression,
+                            super::language_operation::LanguageOperator::Index { field: Some(projection.field) },
+                            &[receiver, index_ty], None)
+                    } else { projection.value_type.clone() };
                     self.projections.insert(span, projection);
                     ty
                 } else { Type::Any }

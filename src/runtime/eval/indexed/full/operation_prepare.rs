@@ -2,7 +2,12 @@ use super::*;
 mod literal_comparison;
 mod error_field;
 mod membership;
-pub(in crate::runtime::eval) use membership::PreparedMembershipLowering;
+mod tag_equality;
+pub(in crate::runtime::eval) use tag_equality::{BuildTagEqualitySource, PreparedTagEquality};
+mod fallback;
+use fallback::fallback_operands;
+pub(in crate::runtime::eval) use fallback::{BuildFallbackCreationCheck, PreparedFallbackCreationCheck};
+pub(in crate::runtime::eval) use membership::{PreparedMembershipLowering, BuildMembershipSource, BuildFoldedMembership};
 pub(in crate::runtime::eval::indexed) use error_field::error_field_receiver_type;
 #[cfg(test)]
 mod literal_comparison_tests;
@@ -20,54 +25,6 @@ pub(in crate::runtime::eval) struct PreparedIntegerAddition {
 use crate::sema::operation_graph::{ArithmeticDomain, PreparedLanguageOperation};
 
 fn unprepared(construct: &'static str) -> IrBuildError { IrBuildError::format(construct, None, 0, 0) }
-
-fn fallback_operands(store: &FullStore, instruction: u32, result: bool) -> Result<[u32; 2], IrVerifyError> {
-    let words = store.payload(store.data.get(instruction as usize).ok_or_else(|| IrVerifyError::new("fallback instruction is missing"))?.range())?;
-    if result {
-        if store.tags.get(instruction as usize) != Some(&FullTag::ExprResultFallback) || words.len() != 2 {
-            return Err(IrVerifyError::new("Result fallback changes its original lazy instruction"));
-        }
-        return Ok([words[0], words[1]]);
-    }
-    if store.tags.get(instruction as usize) != Some(&FullTag::ExprMatch) || words.len() != 3 {
-        return Err(IrVerifyError::new("Optional fallback changes its original lazy selection"));
-    }
-    let block = IrBlockId::from_raw(words[1]).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("Optional fallback arms are missing"))?;
-    let arms = store.payload(block.instructions)?;
-    if block.flags & BLOCK_SEQUENCE_KIND_MASK != BLOCK_LIST || arms.len() != 7 || arms[0] != 2 || arms[2] != 0 || arms[5] != 0 {
-        return Err(IrVerifyError::new("Optional fallback changes its lazy branch order"));
-    }
-    let null = arms[1] as usize;
-    let present = arms[4] as usize;
-    let literal = store.payload(store.pattern_data.get(null).ok_or_else(|| IrVerifyError::new("Optional fallback null pattern is missing"))?.range())?;
-    let slot = store.payload(store.pattern_data.get(present).ok_or_else(|| IrVerifyError::new("Optional fallback binding pattern is missing"))?.range())?;
-    if store.patterns.get(null) != Some(&FullPatternTag::Literal) || literal.len() != 1
-        || store.values.get(literal[0] as usize) != Some(&FullValueTag::Null)
-        || !store.payload(store.value_data.get(literal[0] as usize).ok_or_else(|| IrVerifyError::new("Optional fallback null value is missing"))?.range())?.is_empty()
-        || store.patterns.get(present) != Some(&FullPatternTag::Bind) || slot.len() != 1
-        || store.tags.get(arms[6] as usize) != Some(&FullTag::ExprParam)
-        || store.payload(store.data.get(arms[6] as usize).ok_or_else(|| IrVerifyError::new("Optional fallback present read is missing"))?.range())? != slot {
-        return Err(IrVerifyError::new("Optional fallback changes its original null or present branch"));
-    }
-    Ok([words[0], arms[3]])
-}
-
-// A matching bind/read pair can still overwrite another live slot. Retain the
-// original physical selection independently of its operand and result types.
-fn fallback_lowering(store: &FullStore, instruction: u32, result: bool) -> Result<PreparedFallbackLowering, IrVerifyError> {
-    fallback_operands(store, instruction, result)?;
-    let words = store.payload(store.data[instruction as usize].range())?;
-    let instruction_payload = words.to_vec().into_boxed_slice();
-    if result { return Ok(PreparedFallbackLowering::Result { instruction_payload }); }
-    let block = &store.blocks[IrBlockId::from_raw(words[1]).ok_or_else(|| IrVerifyError::new("Optional fallback arms are missing"))?.index()];
-    let arms = store.payload(block.instructions)?;
-    Ok(PreparedFallbackLowering::Optional {
-        instruction_payload, arms_flags: block.flags, arms_payload: arms.to_vec().into_boxed_slice(),
-        null_pattern_payload: store.payload(store.pattern_data[arms[1] as usize].range())?.to_vec().into_boxed_slice(),
-        present_pattern_payload: store.payload(store.pattern_data[arms[4] as usize].range())?.to_vec().into_boxed_slice(),
-        present_payload: store.payload(store.data[arms[6] as usize].range())?.to_vec().into_boxed_slice(),
-    })
-}
 
 type IntegerSlotKey = (bool, u32, u32);
 
@@ -132,19 +89,34 @@ impl FullBuilder {
             let Some(selected) = graph.candidate_evidence(operation.requirement).map_err(|_| unprepared("operation_candidate_owner"))? else { continue; };
             let crate::sema::check::SolvedOperationAuthority::Language(metadata) = solved.operation_catalog.candidate(graph, selected.candidate).map_err(|_| unprepared("operation_candidate_authority"))? else { continue; };
             let supported = match metadata.operation {
+                PreparedLanguageOperation::Membership { domain, .. } => (self.store.tags.get(instruction as usize) == Some(&FullTag::ExprBinary) || self.supports_original_folded_membership(instruction, expression, owner, domain))
+                    && selected.actual_arguments.len() == 1
+                    && operation.receiver.zip(selected.actual_arguments[0]).is_some_and(|(container, needle)| {
+                        match (graph_ground_type(graph, container), graph_ground_type(graph, needle), graph_ground_type(graph, selected.result)) {
+                            (Ok(container), Ok(needle), Ok(Type::Bool)) => membership::membership_types(domain, &container, &needle),
+                            _ => false,
+                        }
+                    }),
                 PreparedLanguageOperation::ErrorField { receiver, field } => field == "message"
                     && self.store.tags.get(instruction as usize) == Some(&FullTag::ExprField)
                     && selected.actual_arguments.len() == 1
                     && selected.actual_arguments[0].is_some_and(|ty| graph_ground_type(graph, ty).ok() == error_field_receiver_type(receiver))
                     && graph_ground_type(graph, selected.result).is_ok_and(|ty| ty == Type::Str),
-                PreparedLanguageOperation::Index { map } => self.store.tags.get(instruction as usize) == Some(&FullTag::ExprIndex)
-                    && selected.actual_arguments.len() == 2
-                    && selected.actual_arguments[0].zip(selected.actual_arguments[1]).is_some_and(|(base, index)| {
-                        match (graph_ground_type(graph, base), graph_ground_type(graph, index), graph_ground_type(graph, selected.result)) {
-                            (Ok(base), Ok(index), Ok(result)) => GenericEvidenceStore::supports_ground_index(map, &base, &index, &result),
-                            _ => false,
-                        }
-                    }),
+                PreparedLanguageOperation::Index { .. } | PreparedLanguageOperation::ConstantKeyProjection { .. } => {
+                    let (map, field) = match metadata.operation {
+                        PreparedLanguageOperation::Index { map } => (map, None),
+                        PreparedLanguageOperation::ConstantKeyProjection { field } => (false, Some(field)),
+                        _ => unreachable!(),
+                    };
+                    self.store.tags.get(instruction as usize) == Some(&FullTag::ExprIndex)
+                        && selected.actual_arguments.len() == 2
+                        && selected.actual_arguments[0].zip(selected.actual_arguments[1]).is_some_and(|(base, index)| {
+                            match (graph_ground_type(graph, base), graph_ground_type(graph, index), graph_ground_type(graph, selected.result)) {
+                                (Ok(base), Ok(index), Ok(result)) => GenericEvidenceStore::supports_ground_index_operation(map, field, &base, &index, &result),
+                                _ => false,
+                            }
+                        })
+                },
                 PreparedLanguageOperation::Fallback { result } => self.store.tags.get(instruction as usize) == Some(&if result { FullTag::ExprResultFallback } else { FullTag::ExprMatch })
                     && selected.actual_arguments.len() == 2
                     && selected.actual_arguments.iter().all(|argument| argument.is_some_and(|ty| graph_ground_type(graph, ty).is_ok()))
@@ -164,7 +136,7 @@ impl FullBuilder {
                     && graph_ground_type(graph, selected.result).is_ok_and(|ty| ty == Type::Bool),
                 PreparedLanguageOperation::Equality { op: BinaryOp::Eq | BinaryOp::Ne } => {
                     let types = selected.actual_arguments.iter().map(|argument| argument.and_then(|ty| graph_ground_type(graph, ty).ok())).collect::<Vec<_>>();
-                    (matches!(types.as_slice(), [Some(Type::Str), Some(Type::Str)]
+                    (self.supports_original_tag_equality(instruction, expression, owner) || matches!(types.as_slice(), [Some(Type::Str), Some(Type::Str)]
                         | [Some(Type::Null), Some(Type::Optional(_))] | [Some(Type::Optional(_)), Some(Type::Null)])
                         || self.store.tags.get(instruction as usize) == Some(&FullTag::BoolLiteralCompareSlot)
                             && matches!(types.as_slice(), [Some(Type::Int), Some(Type::Int)] | [Some(Type::Bool), Some(Type::Bool)]))
@@ -202,12 +174,12 @@ impl FullBuilder {
             let words = self.store.payload(self.store.data[instruction as usize].range()).map_err(|_| unprepared("operation_instruction_payload"))?.to_vec();
             let tag = self.store.tags[instruction as usize];
             let literal_comparison_slot = if tag == FullTag::BoolLiteralCompareSlot { Some(self.prepare_literal_comparison_slot(instruction, expression, owner, &selected.actual_arguments)?) } else { None };
-            let operands: Box<[u32]> = if literal_comparison_slot.is_some() { Box::new([]) } else if let PreparedLanguageOperation::ErrorField { field, .. } = metadata.operation {
+            let operands: Box<[u32]> = if literal_comparison_slot.is_some() || matches!(metadata.operation, PreparedLanguageOperation::Membership { domain, .. } if tag != FullTag::ExprBinary && self.supports_original_folded_membership(instruction, expression, owner, domain)) { Box::new([]) } else if let PreparedLanguageOperation::ErrorField { field, .. } = metadata.operation {
                 if tag != FullTag::ExprField || words.len() != 3 || self.store.string(words[1]).ok() != Some(field.as_str().as_str()) { return Err(unprepared("error_field_instruction_not_prepared")); }
                 Box::new([words[0]])
             } else if let PreparedLanguageOperation::Fallback { result } = metadata.operation {
                 Box::new(fallback_operands(&self.store, instruction, result).map_err(|_| unprepared("fallback_instruction_not_prepared"))?)
-            } else if matches!(metadata.operation, PreparedLanguageOperation::Index { .. }) {
+            } else if matches!(metadata.operation, PreparedLanguageOperation::Index { .. } | PreparedLanguageOperation::ConstantKeyProjection { .. }) {
                 if tag != FullTag::ExprIndex || words.len() != 3 { return Err(unprepared("index_instruction_not_prepared")); }
                 Box::new([words[0], words[1]])
             } else {
@@ -215,13 +187,17 @@ impl FullBuilder {
                 Box::new([words[1], words[2]])
             };
             let fallback_lowering = if let PreparedLanguageOperation::Fallback { result } = metadata.operation {
-                Some(fallback_lowering(&self.store, instruction, result).map_err(|_| unprepared("fallback_lowering_not_prepared"))?)
+                Some(self.prepare_fallback_lowering(instruction, expression, owner, result)?)
             } else { None };
+            let membership_lowering = if matches!(metadata.operation, PreparedLanguageOperation::Membership { .. }) {
+                Some(self.prepare_membership_lowering(instruction, expression, owner, operation)?)
+            } else { None };
+            let tag_equality = if self.supports_original_tag_equality(instruction, expression, owner) { Some(self.prepare_tag_equality(instruction, expression, owner, operation)?) } else { None };
             let slots = |slots: &[usize]| slots.iter().map(|&slot| u32::try_from(slot).map_err(|_| unprepared("operation_binding_slot_overflow"))).collect::<Result<Vec<_>, _>>().map(Vec::into_boxed_slice);
             self.generic_evidence_mut().add_operation(PreparedOperation {
                 source,
                 authority,
-                receiver, arguments: arguments.into_boxed_slice(), result, effects, fallback_lowering, original_integer_addition: None, range_lowering: None, literal_comparison_slot, membership_lowering: None,
+                receiver, arguments: arguments.into_boxed_slice(), result, effects, tag_equality, fallback_lowering, original_integer_addition: None, range_lowering: None, literal_comparison_slot, membership_lowering,
                 binding: PreparedOperationBinding { supplied_slots: slots(&operation.binding.supplied_slots)?,
                     default_slots: slots(&operation.binding.default_slots)?, rest_slot: None, dynamic: None, operands },
             }).map_err(|_| unprepared("operation_proof_allocation"))?;
@@ -282,7 +258,7 @@ impl FullBuilder {
                 source, authority, receiver: None, arguments, result,
                 effects: PreparedOperationEffects { creation: crate::sema::inference::EffectSet::EMPTY, inputs: Box::new([]), outputs: Box::new([]) },
                 binding: PreparedOperationBinding { supplied_slots: Box::new([0, 1]), default_slots: Box::new([]), rest_slot: None, dynamic: None, operands },
-                fallback_lowering: None, original_integer_addition: Some(original_integer_addition), range_lowering: None, literal_comparison_slot: None, membership_lowering: None,
+                tag_equality: None, fallback_lowering: None, original_integer_addition: Some(original_integer_addition), range_lowering: None, literal_comparison_slot: None, membership_lowering: None,
             }).map_err(|_| unprepared("integer_add_proof_allocation"))?;
         }
         Ok(())
@@ -416,63 +392,20 @@ impl FullVerifier {
         Ok(true)
     }
 
-    pub(in crate::runtime::eval::indexed) fn verify_prepared_fallback_contract(pools: &SemanticPools, operation: &PreparedOperation) -> Result<(), IrVerifyError> {
-        let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Fallback { result }, argument_order: crate::sema::operation_graph::OperationArgumentOrder::SourceOrder, statement_result_is_unit: false, .. } = operation.authority else {
-            return Err(IrVerifyError::new("fallback lacks its selected language authority"));
-        };
-        if operation.receiver.is_some() || operation.arguments.len() != 2 || operation.binding.supplied_slots.as_ref() != [0, 1]
-            || !operation.binding.default_slots.is_empty() || operation.binding.operands.len() != 2
-            || operation.binding.rest_slot.is_some() || operation.binding.dynamic.is_some()
-            || operation.effects.creation != crate::sema::inference::EffectSet::EMPTY
-            || !operation.effects.inputs.is_empty() || !operation.effects.outputs.is_empty() {
-            return Err(IrVerifyError::new("fallback changes its original operand, default or effect contract"));
-        }
-        if !matches!((&operation.fallback_lowering, result), (Some(PreparedFallbackLowering::Result { .. }), true) | (Some(PreparedFallbackLowering::Optional { .. }), false)) {
-            return Err(IrVerifyError::new("fallback lacks its original physical selection receipt"));
-        }
-        let ground = |reference| match reference { TypeRef::Ground(ty) => pools.to_type(ty), _ => Err(IrVerifyError::new("fallback lacks a ground type proof")) };
-        let carrier = ground(operation.arguments[0].ok_or_else(|| IrVerifyError::new("fallback carrier proof is missing"))?)?;
-        let output = ground(operation.result)?;
-        let success = match (&carrier, result) { (Type::Result(success, _), true) | (Type::Optional(success), false) => success.as_ref(), _ => return Err(IrVerifyError::new("fallback changes its selected carrier kind")) };
-        if success != &output { return Err(IrVerifyError::new("fallback result differs from its original carrier success type")); }
-        let right = ground(operation.arguments[1].ok_or_else(|| IrVerifyError::new("fallback right operand proof is missing"))?)?;
-        if !right.matches_expected(&output) || matches!((&right, &output), (Type::Int, Type::UInt)) {
-            return Err(IrVerifyError::new("fallback right operand differs from its checked result domain"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn verify_fallback_operand(store: &FullStore, generic: &GenericEvidenceStore, instruction: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>) -> Result<bool, IrVerifyError> {
-        let Some(operation) = generic.operation_at(instruction)? else { return Ok(false); };
-        let PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Fallback { result }, .. } = operation.authority else { return Ok(false); };
-        Self::verify_prepared_fallback_contract(&store.semantic, operation)?;
-        let source = generic.operation_source(operation.source)?;
-        if source.instruction != instruction || source.owner != owner || operation.authority != source.expected
-            || generic.registered_instruction_origin(instruction, false) != Some((source.origin, owner))
-            || fallback_operands(store, instruction, result)?.as_slice() != operation.binding.operands.as_ref()
-            || operation.fallback_lowering.as_ref() != Some(&fallback_lowering(store, instruction, result)?) {
-            return Err(IrVerifyError::new("fallback changes its original source, owner or lazy operands"));
-        }
-        if !result {
-            let OperationSourceOrigin::Expression(origin) = source.origin else { return Err(IrVerifyError::new("fallback source has another original identity kind")); };
-            let words = store.payload(store.data[instruction as usize].range())?;
-            if words.get(2).and_then(|&location| IrLocationId::from_raw(location)).and_then(|location| store.location_sources.get(location.index())) != Some(&origin.source) {
-                return Err(IrVerifyError::new("Optional fallback changes its original encoded source location"));
-            }
-        }
-        let TypeRef::Ground(output) = operation.result else { return Err(IrVerifyError::new("fallback result is not ground")); };
-        if store.semantic.to_type(output)? != *expected { return Err(IrVerifyError::new("fallback operand changes its checked result type")); }
-        for (&operand, reference) in operation.binding.operands.iter().zip(operation.arguments.iter()) {
-            let Some(TypeRef::Ground(ty)) = reference else { return Err(IrVerifyError::new("fallback operand is not ground")); };
-            Self::verify_generic_source(store, generic, operand, owner, &store.semantic.to_type(*ty)?, instance, active)?;
-        }
-        Ok(true)
-    }
-
     pub(super) fn verify_source_operations(store: &FullStore, generic: &GenericEvidenceStore) -> Result<(), IrVerifyError> {
         let mut storage = IntegerStorageIndex::build(store)?;
         for (_, operation) in generic.operations() {
             let source = generic.operation_source(operation.source)?;
+            if operation.tag_equality.is_some() {
+                if !Self::verify_tag_equality_operand(store, generic, source.instruction, source.owner, &Type::Bool, None, &mut vec![source.instruction])? { return Err(IrVerifyError::new("tag equality loses its original prepared authority")); }
+                continue;
+            }
+            if matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::Membership { .. }, .. }) {
+                if !Self::verify_membership_operand(store, generic, source.instruction, source.owner, &Type::Bool, None, &mut vec![source.instruction])? {
+                    return Err(IrVerifyError::new("membership loses its original prepared authority"));
+                }
+                continue;
+            }
             if matches!(operation.authority, PreparedOperationAuthority::Language { operation: PreparedLanguageOperation::ErrorField { .. }, .. }) {
                 if !Self::verify_error_field_operand(store, generic, source.instruction, source.owner, &Type::Str, None, &mut vec![source.instruction])? { return Err(IrVerifyError::new("error field loses its original prepared authority")); }
                 continue;
@@ -511,7 +444,7 @@ impl FullVerifier {
                 continue;
             }
             let PreparedOperationAuthority::Language { operation: language_operation, .. } = &operation.authority else { return Err(IrVerifyError::new("operation authority lacks an instruction verifier")); };
-            if matches!(language_operation, PreparedLanguageOperation::Index { .. }) {
+            if matches!(language_operation, PreparedLanguageOperation::Index { .. } | PreparedLanguageOperation::ConstantKeyProjection { .. }) {
                 let TypeRef::Ground(ty) = operation.result else { return Err(IrVerifyError::new("index result is not ground")); };
                 if !Self::verify_index_operand(store, generic, source.instruction, source.owner, &store.semantic.to_type(ty)?, &mut vec![source.instruction])? {
                     return Err(IrVerifyError::new("index is missing its original prepared proof"));
