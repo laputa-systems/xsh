@@ -120,7 +120,10 @@ impl Checker {
     // checking before representation probes can prepare runtime frames.
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
         program.symbol_owner().with_current(|| {
-            let checked = Checker::check_arena(program, "");
+            // Entry checking owns the `reveal_type` gate; `xsht check` admits it
+            // and runtime lowering skips it, so this replay must not reject it.
+            let options = super::CheckOptions { reveal_types: true, ..super::CheckOptions::default() };
+            let checked = Checker::check_arena_with_options(program, "", options);
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),
                 names: FxHashSet::default(),
