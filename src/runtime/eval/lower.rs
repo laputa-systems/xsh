@@ -11,7 +11,7 @@ use crate::symbol::{Name, QualifiedName, Symbol};
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
-    ArenaFmtPart, ArenaPatternKind, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind,
+    ArenaFmtPart, ArenaPatternKind, ArenaProgram, ArenaRecordFieldKind,
     ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaTypeExprTag, ArenaWordPart, AstArena,
     BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
 };
@@ -429,21 +429,6 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
         algorithm,
         expected: value,
     })
-}
-
-fn lowered_module_callee_type(module: Name, name: Name) -> Option<LoweredType> {
-    api_spec()
-        .module_overloads(&module.as_str(), &name.as_str())?
-        .iter()
-        .find_map(lowered_module_sig_type)
-}
-
-fn lowered_module_callee_result_ok_type(module: Name, name: Name) -> Option<LoweredType> {
-    api_spec()
-        .module_overloads(&module.as_str(), &name.as_str())?
-        .iter()
-        .filter(|sig| lowered_module_op_supported(sig.op))
-        .find_map(|sig| sig.return_ty.result_ok().and_then(lowered_checked_type))
 }
 
 fn compact_module_bindings(args: &[ArenaCallArg], sig: &ModuleFnSig) -> Option<Vec<Option<usize>>> {
@@ -4527,9 +4512,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 | ArenaExprKind::NullSafeField { base, name } => {
                     self.infer_checked_field_type(base, name, known)
                 }
-                ArenaExprKind::Call { callee, args } => {
-                    self.infer_checked_call_type(callee, args, known)
-                }
+                ArenaExprKind::Call { .. } => self.checked_expr_type(value),
                 ArenaExprKind::Try(expr) => self.infer_checked_try_type(expr, known),
                 ArenaExprKind::Spawn(_) => Some(Type::Result(
                     Box::new(Type::ProcessHandle),
@@ -4810,9 +4793,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .or_else(|| self.infer_checked_expr_type(left, &self.top_level_known))?;
                 match left { Type::Optional(inner) | Type::Result(inner, _) => Some(*inner), _ => None }
             }
-            ArenaExprKind::Pipeline { input, stages } => {
-                self.infer_checked_pipeline_type_with_slots(input, stages, slots)
-            }
             ArenaExprKind::StructuredPipeline { .. } => self.bodies.expr_types.get(&value).cloned(),
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 if let Some(ty) = self.infer_checked_env_field_type(base, name) {
@@ -4838,57 +4818,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))?;
                 Some(if guarded { match ty { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other } } else { ty })
             }
-            ArenaExprKind::Call { callee, args } => {
-                if let Some(_definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
-                    return Some(self.declarations.record_constructor_types.get(&callee).cloned().or_else(|| self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace))?);
-                }
-                let args_vec = self.program.arena.call_args(args);
-                if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind {
-                    if name == "Path" && single_positional_arena_call_arg(args_vec).is_some() {
-                        return Some(Type::Path);
-                    }
-                    return self.compact_unqualified_function_key(name)
-                        .and_then(|key| self.compact_function_return_type(key))
-                        .or_else(|| self.compact_unqualified_function_sig(name).map(|sig| sig.return_ty.clone()));
-                }
-                let (ArenaExprKind::Field { base, name }
-                | ArenaExprKind::NullSafeField { base, name }) =
-                    self.program.arena.expr(callee).kind
-                else {
-                    return None;
-                };
-                let base_ty = self.infer_checked_expr_type_with_slots(base, slots);
-                if name == "require" {
-                    let [arg] = args_vec else {
-                        return None;
-                    };
-                    let contract = compact_call_arg_expr(arg)?;
-                    let contract_ty = match self.program.arena.expr(contract).kind {
-                        ArenaExprKind::Ident(name) if name == "FsRoot" => Type::FsRoot,
-                        ArenaExprKind::Ident(name) => match self.declarations.types.get(&name) {
-                            Some(CompactTypeDefInfo::Module(exports)) => {
-                                Type::Module(exports.clone())
-                            }
-                            _ => self.infer_checked_expr_type(contract, &self.top_level_known)?,
-                        },
-                        _ => self.infer_checked_expr_type(contract, &self.top_level_known)?,
-                    };
-                    return Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)));
-                }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && let Some(return_ty) = self.compact_function_return_type(LoweredFunctionKey::Qualified(self.compact_qualified_function_key(module, name)))
-                {
-                    return Some(return_ty);
-                }
-                let base_ty = base_ty?;
-                if !lowered_method_supported_for_type(&base_ty, name, args_vec.len()) {
-                    if let Some(return_ty) = module_export_call_return_type(base_ty.clone(), name) {
-                        return Some(return_ty);
-                    }
-                    return None;
-                }
-                infer_checked_method_return_type(&base_ty, name, args_vec.len())
-            }
+            ArenaExprKind::Call { .. } => self.checked_expr_type(value),
             ArenaExprKind::Require { schema, .. } => {
                 // Validation retains the full schema type. Runtime storage
                 // categories cannot represent Optional or nested Result layers.
@@ -4988,181 +4918,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
-    fn infer_checked_pipeline_type_with_slots(
-        &self,
-        input: ExprId,
-        stages: crate::syntax::arena::ArenaRange,
-        slots: &SlotScope,
-    ) -> Option<Type> {
-        let mut current = self
-            .infer_checked_expr_type(input, &self.top_level_known)
-            .or_else(|| self.infer_checked_expr_type_with_slots(input, slots))?;
-        current = current.result_ok().cloned().unwrap_or(current);
-        for stage in self.program.arena.pipe_stages(stages) {
-            let ArenaPipeStageKind::Stream(stage) = &stage.kind else {
-                continue;
-            };
-            current = self.infer_checked_stream_stage_type_with_slots(&current, stage, slots)?;
-        }
-        Some(current)
-    }
-
-    fn infer_checked_stream_stage_type_with_slots(
-        &self,
-        input: &Type,
-        stage: &ArenaStreamStage,
-        slots: &SlotScope,
-    ) -> Option<Type> {
-        match stage.kind {
-            StreamStageKind::Map | StreamStageKind::ParMap => {
-                let item = match input {
-                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
-                    _ => return None,
-                };
-                let value = self.infer_checked_pipeline_stage_block_tail(stage, item, slots)?;
-                let item = if stage.kind == StreamStageKind::Map { value } else { value.result_ok().cloned().unwrap_or(value) };
-                Some(Type::List(Box::new(item)))
-            }
-            StreamStageKind::FlatMap => {
-                let item = match input {
-                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
-                    _ => return None,
-                };
-                let value = self.infer_checked_pipeline_stage_block_tail(stage, item, slots)?;
-                match value {
-                    Type::List(item) | Type::Stream(item) => Some(Type::List(item)),
-                    _ => None,
-                }
-            }
-            StreamStageKind::Count => {
-                if stage.block.is_some() {
-                    Some(Type::Map(Box::new(Type::Str), Box::new(Type::Int)))
-                } else {
-                    Some(Type::Int)
-                }
-            }
-            StreamStageKind::ReduceBy => Some(Type::Map(Box::new(Type::Str), Box::new(Type::Any))),
-            StreamStageKind::Any | StreamStageKind::All => Some(Type::Bool),
-            StreamStageKind::Sum => Some(Type::Int),
-            StreamStageKind::Where
-            | StreamStageKind::Sort
-            | StreamStageKind::SortBy
-            | StreamStageKind::UniqueBy
-            | StreamStageKind::Take
-            | StreamStageKind::Drop
-            | StreamStageKind::Repeat
-            | StreamStageKind::Shuffle => match input {
-                Type::List(item) | Type::Stream(item) => Some(Type::List(item.clone())),
-                _ => None,
-            },
-            StreamStageKind::Batch => match input {
-                Type::List(item) | Type::Stream(item) => {
-                    Some(Type::List(Box::new(Type::List(item.clone()))))
-                }
-                _ => None,
-            },
-            StreamStageKind::Enumerate => {
-                let value = match input {
-                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
-                    _ => return None,
-                };
-                let mut fields = BTreeMap::new();
-                fields.insert(Name::intern("index"), Type::Int);
-                fields.insert(Name::intern("value"), value);
-                Some(Type::List(Box::new(Type::Record(fields))))
-            }
-            StreamStageKind::Zip => {
-                let left = match input {
-                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
-                    _ => return None,
-                };
-                let expanded = crate::sema::arguments::expand_named_arguments(self.program, self.program.arena.call_args(stage.args), |expr| {
-                    self.bodies.expr_types.get(&expr).cloned().or_else(|| self.infer_checked_expr_type_with_slots(expr, slots))
-                }).ok()?;
-                let params = crate::sema::stage_arguments::stage_argument_params("zip");
-                let binding = crate::sema::arguments::bind_static_arguments(&params, &expanded).ok()?;
-                let index = binding.argument_slots.iter().position(|slot| *slot == 0)?;
-                let right = expanded[index].ty.clone();
-                let right = right.result_ok().cloned().unwrap_or(right);
-                let right = match right {
-                    Type::List(item) | Type::Stream(item) => *item,
-                    _ => return None,
-                };
-                let mut fields = BTreeMap::new();
-                fields.insert(Name::intern("left"), left);
-                fields.insert(Name::intern("right"), right);
-                Some(Type::List(Box::new(Type::Record(fields))))
-            }
-            StreamStageKind::First
-            | StreamStageKind::Last
-            | StreamStageKind::Min
-            | StreamStageKind::Max => {
-                // These terminals consume the stream and return a single item;
-                // in this build `first`/`last`/`min`/`max` yield a `Result`, so
-                // the pipeline carries a `Result<item, Error>` until a postfix
-                // `?` (or null-safe receiver) unwraps it. Without this the
-                // lightweight slot inference falls through to the input list
-                // type, so a null-safe method call such as
-                // `(s.split(".") |> last())?.lower()` is mistaken for a method
-                // on the list and wrongly rejected as an IR blocker.
-                let item = match input {
-                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
-                    _ => return None,
-                };
-                Some(Type::Result(Box::new(item), Box::new(Type::Error)))
-            }
-            StreamStageKind::Collect => match input {
-                Type::List(item) | Type::Stream(item) => Some(Type::List(item.clone())),
-                _ => None,
-            },
-            _ => lowered_checked_type(input).and_then(type_for_lowered_type),
-        }
-    }
-
-    fn infer_checked_pipeline_stage_block_tail(
-        &self,
-        stage: &ArenaStreamStage,
-        item: Type,
-        slots: &SlotScope,
-    ) -> Option<Type> {
-        if let Some((callee, _)) = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |expr| self.bodies.expr_types.get(&expr).cloned()).ok().flatten() {
-            return self.bodies.stage_callable_types.get(&callee).cloned();
-        }
-        let block = stage.block?;
-        let ids = self
-            .program
-            .arena
-            .stmt_ids(self.program.arena.block(block).statements)
-            .collect::<Vec<_>>();
-        let tail = *ids.last()?;
-        let mut scoped = slots.clone();
-        let saved = scoped.enter();
-        match self
-            .program
-            .arena
-            .block_params(self.program.arena.block(block).params)
-        {
-            [] => {}
-            [param] => {
-                if scoped.is_bound_non_capture(param.name) {
-                    return None;
-                }
-                scoped.declare_with_type(param.name, Some(item));
-            }
-            _ => return None,
-        }
-        let ty = match self.program.arena.stmt(tail).kind {
-            ArenaStmtKind::Expr(expr) => self.infer_checked_expr_type_with_slots(expr, &scoped),
-            ArenaStmtKind::TailBareIdent(name) => self.declarations.prepared_constants.tail_bindings
-                .get(&self.program.arena.stmt(tail).span)
-                .and_then(|expr| self.declarations.prepared_constants.types.get(expr)).cloned()
-                .or_else(|| scoped.binding_type(name).cloned()),
-            _ => None,
-        };
-        scoped.exit(saved);
-        ty
-    }
-
     fn infer_checked_try_type(
         &self,
         expr: ExprId,
@@ -5188,102 +4943,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                     EnvGetKind::PathList => Some(Type::EnvPathList),
                 },
                 ArenaExprKind::EnvPathList => Some(Type::EnvPathList),
-                ArenaExprKind::Call { callee, args } => self
-                    .infer_lowered_call_ok_type(callee, args, known)
-                    .and_then(type_for_lowered_type),
+                ArenaExprKind::Call { .. } => self.checked_call_ok_type(expr).and_then(type_for_lowered_type),
                 ArenaExprKind::Spawn(_) => Some(Type::ProcessHandle),
                 _ => None,
             })
     }
 
-    fn infer_checked_call_type(
-        &self,
-        callee: ExprId,
-        args: crate::syntax::arena::ArenaRange,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<Type> {
-        let args_vec = self.program.arena.call_args(args);
-        if let Some(_definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
-            return Some(self.declarations.record_constructor_types.get(&callee).cloned().or_else(|| self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace))?);
-        }
-        if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind
-            && name == "Path"
-            && single_positional_arena_call_arg(args_vec).is_some()
-        {
-            return Some(Type::Path);
-        }
-        if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind {
-            return self.compact_unqualified_function_key(name)
-                .and_then(|key| self.compact_function_return_type(key))
-                .or_else(|| self.compact_unqualified_function_sig(name).map(|sig| sig.return_ty.clone()));
-        }
-        let (ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name }) =
-            self.program.arena.expr(callee).kind
-        else {
-            return None;
-        };
-        if name == "require" {
-            let [arg] = args_vec else {
-                return None;
-            };
-            let contract = compact_call_arg_expr(arg)?;
-            let contract_ty = match self.program.arena.expr(contract).kind {
-                ArenaExprKind::Ident(name) if name == "FsRoot" => Type::FsRoot,
-                ArenaExprKind::Ident(name) => match self.declarations.types.get(&name) {
-                    Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
-                    _ => self.infer_checked_expr_type(contract, known)?,
-                },
-                _ => self.infer_checked_expr_type(contract, known)?,
-            };
-            return Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)));
-        }
-        if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
-            if let Some(return_ty) = self.compact_function_return_type(LoweredFunctionKey::Qualified(self.compact_qualified_function_key(module, name))) {
-                return Some(return_ty);
-            }
-            if module == "archive"
-                && (name == "tar_list" || name == "cpio_list" || name == "zip_list")
-                && let Some(entry) = standard_record_type("ArchiveEntry")
-            {
-                let collection = if name == "tar_list" {
-                    Type::Stream(Box::new(entry.clone()))
-                } else {
-                    Type::List(Box::new(entry))
-                };
-                return Some(Type::Result(Box::new(collection), Box::new(Type::Error)));
-            }
-            if module == "fs"
-                && (name == "files" || name == "walk" || name == "children")
-                && let Some(entry) = standard_record_type("FsEntry")
-            {
-                return Some(Type::List(Box::new(entry)));
-            }
-            if module == "bytes" && (name == "copy" || name == "copy_file") {
-                let mut fields = BTreeMap::new();
-                fields.insert(Name::intern("bytes"), Type::Int);
-                fields.insert(Name::intern("blocks"), Type::Int);
-                return Some(Type::Result(
-                    Box::new(Type::Record(fields)),
-                    Box::new(Type::Error),
-                ));
-            }
-            if module == "Path" && name == "parse_bytes" {
-                return Some(Type::Result(Box::new(Type::Path), Box::new(Type::Error)));
-            }
-        }
-        if let Some(return_ty) = self
-            .infer_checked_expr_type(base, known)
-            .and_then(|ty| infer_checked_method_return_type(&ty, name, args_vec.len()))
-        {
-            return Some(return_ty);
-        }
-        if let Some(return_ty) = self
-            .infer_checked_expr_type(base, known)
-            .and_then(|ty| module_export_call_return_type(ty, name))
-        {
-            return Some(return_ty);
-        }
-        None
+    /// The checker's published type for `value`. Embedded standard-library
+    /// bodies have no full-checker facts, so their compact body facts answer.
+    fn checked_expr_type(&self, value: ExprId) -> Option<Type> {
+        self.declarations.checked_expr_types.get(&value).filter(|ty| checked_fact_is_resolved(ty))
+            .or_else(|| self.bodies.expr_types.get(&value).filter(|ty| checked_fact_is_resolved(ty)))
+            .cloned()
     }
 
     fn infer_checked_field_type(
@@ -5401,24 +5072,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             .flatten()
     }
 
-    // A `fold`/`reduce` terminal produces a scalar of the accumulator's type, not
-    // a List. Infer it from the seed (the single positional arg) so downstream
-    // references to the binding are typed correctly; fall back to None (untyped)
-    // rather than the List default, which would poison scalar uses of the result.
-    fn infer_fold_result_type(
-        &self,
-        stage: &ArenaStreamStage,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        let [arg] = self.program.arena.call_args(stage.args) else {
-            return None;
-        };
-        let ArenaCallArgKind::Positional(initial) = arg.kind else {
-            return None;
-        };
-        self.infer_lowered_expr_type(initial, known)
-    }
-
     fn infer_lowered_expr_type(
         &self,
         value: ExprId,
@@ -5476,79 +5129,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 expected
             }
             ArenaExprKind::ComparisonChain(_) => Some(LoweredType::Bool),
-            ArenaExprKind::Binary { op, left, right } => {
-                self.infer_lowered_binary_type(op, left, right, known)
-            }
-            ArenaExprKind::Pipeline { stages, .. } => {
-                let pipe_stages = self.program.arena.pipe_stages(stages).to_vec();
-                let last_stream = pipe_stages.iter().rev().find_map(|ps| match &ps.kind {
-                    ArenaPipeStageKind::Stream(s) => Some(s),
-                    ArenaPipeStageKind::Expr(_) => None,
-                });
-                match last_stream.map(|s| s.kind.clone()) {
-                    Some(StreamStageKind::Count) => Some(
-                        if last_stream.is_some_and(|stage| stage.block.is_some()) {
-                            LoweredType::Map
-                        } else {
-                            LoweredType::Int
-                        },
-                    ),
-                    Some(StreamStageKind::Any | StreamStageKind::All) => Some(LoweredType::Bool),
-                    Some(StreamStageKind::Sum) => Some(LoweredType::Int),
-                    Some(
-                        StreamStageKind::First
-                        | StreamStageKind::Last
-                        | StreamStageKind::Min
-                        | StreamStageKind::Max,
-                    ) => Some(LoweredType::Result),
-                    Some(StreamStageKind::Fold | StreamStageKind::Reduce) => {
-                        last_stream.and_then(|stage| self.infer_fold_result_type(stage, known))
-                    }
-                    Some(StreamStageKind::ReduceBy) => Some(LoweredType::Map),
-                    _ => Some(LoweredType::List),
-                }
-            }
-            ArenaExprKind::StructuredPipeline { stages, .. } => {
-                let stages = self.program.arena.stream_stages(stages).to_vec();
-                match stages.last() {
-                    Some(stage) if stage.kind == StreamStageKind::Count => {
-                        if stage.block.is_some() {
-                            Some(LoweredType::Map)
-                        } else {
-                            Some(LoweredType::Int)
-                        }
-                    }
-                    Some(stage)
-                        if matches!(stage.kind, StreamStageKind::Any | StreamStageKind::All) =>
-                    {
-                        Some(LoweredType::Bool)
-                    }
-                    Some(stage) if stage.kind == StreamStageKind::Sum => Some(LoweredType::Int),
-                    Some(stage)
-                        if matches!(
-                            stage.kind,
-                            StreamStageKind::First
-                                | StreamStageKind::Last
-                                | StreamStageKind::Min
-                                | StreamStageKind::Max
-                        ) =>
-                    {
-                        Some(LoweredType::Result)
-                    }
-                    Some(stage)
-                        if matches!(
-                            stage.kind,
-                            StreamStageKind::Fold | StreamStageKind::Reduce
-                        ) =>
-                    {
-                        self.infer_fold_result_type(stage, known)
-                    }
-                    Some(stage) if stage.kind == StreamStageKind::ReduceBy => {
-                        Some(LoweredType::Map)
-                    }
-                    _ => Some(LoweredType::List),
-                }
-            }
+            ArenaExprKind::Binary { .. } => self.checked_expr_type(value).as_ref().and_then(lowered_checked_type),
             ArenaExprKind::Try(expr) => self
                 .bodies
                 .expr_types
@@ -5576,9 +5157,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .get(&value)
                     .and_then(lowered_checked_type),
             },
-            ArenaExprKind::Call { callee, args } => {
-                self.infer_lowered_call_expr_type(callee, args, known)
-            }
+            ArenaExprKind::Call { .. } => self.checked_expr_type(value).as_ref().and_then(lowered_checked_type),
             _ => self
                 .bodies
                 .expr_types
@@ -5587,186 +5166,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
-    fn infer_lowered_call_expr_type(
-        &self,
-        callee: ExprId,
-        args: crate::syntax::arena::ArenaRange,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        if self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace).is_some() {
-            return Some(LoweredType::Record);
-        }
-        let args_vec = self.program.arena.call_args(args);
-        if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind
-            && name == "Path"
-            && single_positional_arena_call_arg(args_vec).is_some()
-        {
-            return Some(LoweredType::Path);
-        }
-        if let ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } =
-            self.program.arena.expr(callee).kind
-        {
-            if name == "get" {
-                return match args_vec.len() {
-                    1 => Some(LoweredType::Result),
-                    _ => None,
-                };
-            }
-            if name == "set" {
-                return Some(LoweredType::Map);
-            }
-            if lowered_result_method_ok_type(name).is_some() {
-                return Some(LoweredType::Result);
-            }
-            if let Some(kind) = lowered_plain_method_type(name) {
-                return Some(kind);
-            }
-            if let Some(kind) = self
-                .infer_checked_expr_type(base, known)
-                .and_then(|ty| module_export_call_return_type(ty, name))
-                .as_ref()
-                .and_then(lowered_checked_type)
-            {
-                return Some(kind);
-            }
-            if self.infer_checked_expr_type(base, known).is_some() {
-                return self.infer_lowered_call_type(callee, args_vec);
-            }
-        }
-        self.infer_lowered_call_type(callee, args_vec)
-    }
-
     // Conditions and returned Bool values keep ordinary short-circuit behavior;
     // only statement assertions ask the chain to retain failed pair values.
     fn mark_comparison_chain_assertion(&mut self, value: BuildExprId) {
         if let BuildExprRow::ComparisonChain { assertion, .. } = &mut self.scratch.borrow_mut().expressions[value.index()] {
             *assertion = true;
-        }
-    }
-
-    fn infer_lowered_binary_type(
-        &self,
-        op: BinaryOp,
-        left: ExprId,
-        right: ExprId,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        if matches!(op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div) {
-            let a = self.infer_lowered_expr_type(left, known)?;
-            let b = self.infer_lowered_expr_type(right, known)?;
-            if a == LoweredType::Duration || b == LoweredType::Duration {
-                return match (op, a, b) {
-                    (BinaryOp::Add | BinaryOp::Sub, LoweredType::Duration, LoweredType::Duration)
-                    | (BinaryOp::Mul, LoweredType::Duration, LoweredType::Int)
-                    | (BinaryOp::Mul, LoweredType::Int, LoweredType::Duration)
-                    | (BinaryOp::Div, LoweredType::Duration, LoweredType::Int) => Some(LoweredType::Duration),
-                    (BinaryOp::Div, LoweredType::Duration, LoweredType::Duration) => Some(LoweredType::Int),
-                    _ => None,
-                };
-            }
-        }
-        match op {
-            BinaryOp::Eq
-            | BinaryOp::Ne
-            | BinaryOp::Lt
-            | BinaryOp::Le
-            | BinaryOp::Gt
-            | BinaryOp::Ge
-            | BinaryOp::And
-            | BinaryOp::Or
-            | BinaryOp::In
-            | BinaryOp::NotIn => Some(LoweredType::Bool),
-            BinaryOp::Add => {
-                let left = self.infer_lowered_expr_type(left, known)?;
-                let right = self.infer_lowered_expr_type(right, known)?;
-                (left == right
-                    && matches!(
-                        left,
-                        LoweredType::Int | LoweredType::Float | LoweredType::Str | LoweredType::List
-                    ))
-                .then_some(left)
-            }
-            BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                let left = self.infer_lowered_expr_type(left, known)?;
-                let right = self.infer_lowered_expr_type(right, known)?;
-                (left == right && matches!(left, LoweredType::Int | LoweredType::Float))
-                    .then_some(left)
-            }
-            BinaryOp::ResultFallback => self
-                .bodies
-                .expr_types
-                .get(&left)
-                .and_then(lowered_result_fallback_type)
-                .or_else(|| self.infer_lowered_expr_result_ok_type(left, known))
-                .or_else(|| self.infer_lowered_expr_type(left, known)),
-        }
-    }
-
-    fn infer_lowered_call_type(
-        &self,
-        callee: ExprId,
-        args: &[ArenaCallArg],
-    ) -> Option<LoweredType> {
-        match self.program.arena.expr(callee).kind {
-            ArenaExprKind::Ident(name) => {
-                if name == "Path" && single_positional_arena_call_arg(args).is_some() {
-                    return Some(LoweredType::Path);
-                }
-                if self.compact_tag_variant_arity(name).is_some() {
-                    return Some(LoweredType::Tag);
-                }
-                if name == "range" {
-                    return Some(LoweredType::List);
-                }
-                self.declarations
-                    .pures
-                    .get(&name)
-                    .or_else(|| self.declarations.procs.get(&name))
-                    .or_else(|| self.declarations.streams.get(&name))
-                    .and_then(|sig| lowered_checked_type(&sig.return_ty))
-            }
-            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
-                if lowered_result_method_ok_type(name).is_some() {
-                    return Some(LoweredType::Result);
-                }
-                if let Some(kind) = lowered_plain_method_type(name) {
-                    return Some(kind);
-                }
-                let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
-                    return None;
-                };
-                if self
-                    .compact_qualified_tag_variant_arity(module, name)
-                    .is_some()
-                {
-                    return Some(LoweredType::Tag);
-                }
-                if module == "process" && name == "command_argv" {
-                    return Some(LoweredType::Command);
-                }
-                if let Some(kind) = lowered_module_callee_type(module, name) {
-                    return Some(kind);
-                }
-                if module == "map" && name == "empty" {
-                    return Some(LoweredType::Map);
-                }
-                if lowered_builtin_call_ok_type(module, name).is_some() {
-                    return Some(LoweredType::Result);
-                }
-                if module == "bytes" && name == "concat" {
-                    return Some(LoweredType::Bytes);
-                }
-                if let Some(sig) = self.compact_qualified_function_sig(module, name) {
-                    return lowered_checked_type(&sig.return_ty);
-                }
-                let sig = self
-                    .declarations
-                    .pures
-                    .get(&name)
-                    .or_else(|| self.declarations.procs.get(&name));
-                sig.and_then(|sig| lowered_checked_type(&sig.return_ty))
-            }
-            _ => None,
         }
     }
 
@@ -5792,9 +5196,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ArenaExprKind::Ident(name) => {
                     known.get(&name).and_then(|binding| binding.result_ok)
                 }
-                ArenaExprKind::Call { callee, args } => {
-                    self.infer_lowered_call_ok_type(callee, args, known)
-                }
+                ArenaExprKind::Call { .. } => self.checked_call_ok_type(expr),
                 ArenaExprKind::Require { schema, .. } => {
                     match schema {
                         Some(schema) => lowered_arena_type(&self.program.arena, schema, self.declarations),
@@ -5827,131 +5229,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ArenaExprKind::Ident(name) => {
                     known.get(&name).and_then(|binding| binding.result_ok)
                 }
-                ArenaExprKind::Call { callee, args } => {
-                    self.infer_lowered_call_ok_type(callee, args, known)
-                }
+                ArenaExprKind::Call { .. } => self.checked_call_ok_type(value),
                 _ => None,
             })
     }
 
-    fn infer_lowered_call_ok_type(
-        &self,
-        callee: ExprId,
-        args: crate::syntax::arena::ArenaRange,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        match self.program.arena.expr(callee).kind {
-            ArenaExprKind::Ident(name) => self
-                .declarations
-                .pures
-                .get(&name)
-                .or_else(|| self.declarations.procs.get(&name))
-                .or_else(|| self.declarations.streams.get(&name))
-                .and_then(|sig| sig.return_ty.result_ok())
-                .and_then(lowered_checked_type),
-            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
-                if name == "require" {
-                    return Some(LoweredType::Module);
-                }
-                if name == "get"
-                    && let Some(kind) = self.infer_checked_get_ok_type(base, args, known)
-                {
-                    return Some(kind);
-                }
-                if let Some(kind) = lowered_result_method_ok_type(name) {
-                    return Some(kind);
-                }
-                if let Some(kind) = self
-                    .infer_checked_expr_type(base, known)
-                    .and_then(|ty| module_export_call_return_type(ty, name))
-                    .as_ref()
-                    .and_then(|ty| ty.result_ok())
-                    .and_then(lowered_checked_type)
-                {
-                    return Some(kind);
-                }
-                if let Some(kind) = self.infer_lowered_builtin_call_ok_type(base, name) {
-                    return Some(kind);
-                }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && let Some(kind) = lowered_module_callee_result_ok_type(module, name)
-                {
-                    return Some(kind);
-                }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && let Some(sig) = self.compact_qualified_function_sig(module, name)
-                {
-                    return sig.return_ty.result_ok().and_then(lowered_checked_type);
-                }
-                self.declarations
-                    .pures
-                    .get(&name)
-                    .or_else(|| self.declarations.procs.get(&name))
-                    .or_else(|| self.declarations.streams.get(&name))
-                    .and_then(|sig| sig.return_ty.result_ok())
-                    .and_then(lowered_checked_type)
-            }
-            _ => None,
-        }
-    }
-
-    fn infer_checked_get_ok_type(
-        &self,
-        base: ExprId,
-        args: crate::syntax::arena::ArenaRange,
-        known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<LoweredType> {
-        let args = self.program.arena.call_args(args);
-        let [arg] = args else {
-            return None;
-        };
-        let base_ty = self.infer_checked_expr_type(base, known)?;
-        match base_ty {
-            Type::List(item) | Type::Map(_, item) => lowered_checked_type(&item),
-            Type::Record(fields) => {
-                let key = compact_call_arg_expr(arg)?;
-                let ArenaExprKind::Str(key) = self.program.arena.expr(key).kind else {
-                    return None;
-                };
-                let key = Name::intern(self.program.arena.string_literal(key).as_ref());
-                fields.get(&key).and_then(lowered_checked_type)
-            }
-            _ => None,
-        }
-    }
-
-    fn infer_lowered_builtin_call_ok_type(&self, base: ExprId, name: Name) -> Option<LoweredType> {
-        if let Some(kind) = lowered_result_method_ok_type(name) {
-            return Some(kind);
-        }
-        let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
-            return None;
-        };
-        if module == "regex" && name == "compile" {
-            return Some(LoweredType::Regex);
-        }
-        if module == "fs" && name == "tempdir" {
-            return Some(LoweredType::Record);
-        }
-        if module == "fs" && (name == "write" || name == "mkdir" || name == "remove") {
-            return Some(LoweredType::Unit);
-        }
-        if module == "archive" && name == "tar_create" {
-            return Some(LoweredType::Unit);
-        }
-        if module == "archive" && name == "tar_list" {
-            return Some(LoweredType::Stream);
-        }
-        if module == "archive" && name == "tar_extract" {
-            return Some(LoweredType::Unit);
-        }
-        if module == "json" && name == "encode" {
-            return Some(LoweredType::Str);
-        }
-        if module == "json" && name == "decode" {
-            return Some(LoweredType::Any);
-        }
-        None
+    fn checked_call_ok_type(&self, call: ExprId) -> Option<LoweredType> {
+        self.checked_expr_type(call).as_ref().and_then(Type::result_ok).and_then(lowered_checked_type)
     }
 
     fn is_empty_record_in_map_context(&self, value: ExprId, ty: Option<TypeExprId>) -> bool {
@@ -7921,7 +7205,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. }
             | ArenaExprKind::Record(_) | ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
             | ArenaExprKind::Binary { op: BinaryOp::ResultFallback, .. } | ArenaExprKind::Call { .. }
-            | ArenaExprKind::Pipeline { .. }
         ).then(|| self.bodies.expr_types.get(&id).cloned()).flatten().filter(Type::has_unsigned_constraint);
         let lowered = match self.program.arena.expr(id).kind {
             ArenaExprKind::Null => Some(push_build_row!(self, expr, BuildExprRow::Null)),
@@ -8056,40 +7339,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 slots.exit(saved);
                 Some(push_build_row!(self, expr, BuildExprRow::MapComp { key, value, qualifiers, span }))
-            }
-            ArenaExprKind::Pipeline { input, stages } => {
-                let pipe_stages = self.program.arena.pipe_stages(stages).to_vec();
-                let mut lowered_stages = Vec::with_capacity(pipe_stages.len());
-                let mut current_ty = self
-                    .infer_checked_expr_type(input, &self.top_level_known)
-                    .or_else(|| self.infer_checked_expr_type_with_slots(input, slots))
-                    .map(|ty| ty.result_ok().cloned().unwrap_or(ty));
-                for pipe_stage in &pipe_stages {
-                    let ArenaPipeStageKind::Stream(ref stream_stage) = pipe_stage.kind else {
-                        lowered_stages.push(LoweredPipelineStage::Collect);
-                        continue;
-                    };
-                    let item_ty = current_ty.as_ref().and_then(stream_item_type);
-                    lowered_stages.push(self.lower_pipeline_stage(
-                        stream_stage,
-                        slots,
-                        current_function,
-                        item_ty,
-                    )?);
-                    current_ty = current_ty.and_then(|ty| {
-                        self.infer_checked_stream_stage_type_with_slots(&ty, stream_stage, slots)
-                    });
-                }
-                self.fuse_par_map_flat_map_reduce_by(&mut lowered_stages);
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::ListPipeline {
-                        input: self.lower_expr(input, slots, current_function, item_slot)?,
-                        stages: lowered_stages,
-                        span,
-                    }
-                ))
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
                 let stages = self.program.arena.stream_stages(stages).to_vec();
@@ -11150,27 +10399,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         self.compact_imported_unqualified_function_key(name)
     }
 
-    // Resolve declared return schemas before storing a call result in a slot.
-    // A syntactic signature alone cannot retain fields of a named record alias.
-    fn compact_function_return_type(&self, key: LoweredFunctionKey) -> Option<Type> {
-        let definitions = self.function_index();
-        let function = definitions.definition(key)?;
-        let def = self.program.arena.function_def(function.id);
-        let signature = match key {
-            LoweredFunctionKey::Name(name) => self.compact_unqualified_function_sig(name),
-            LoweredFunctionKey::Qualified(name) => self.declarations.qualified_pures.get(&name)
-                .or_else(|| self.declarations.qualified_procs.get(&name))
-                .or_else(|| self.declarations.qualified_streams.get(&name)),
-        };
-        if let Some(signature) = signature
-            && (def.return_ty_defaulted || signature.return_ty != Type::from_arena(&self.program.arena, def.return_ty))
-        {
-            return Some(signature.return_ty.clone());
-        }
-        if def.return_ty_defaulted { return None; }
-        Some(compact_runtime_type_in_namespace(&self.program.arena, def.return_ty, self.declarations, function.namespace))
-    }
-
     fn compact_unqualified_function_sig(
         &self,
         name: Name,
@@ -13787,43 +13015,14 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
     }
 }
 
-fn infer_checked_method_return_type(receiver: &Type, name: Name, arg_count: usize) -> Option<Type> {
-    let class = match receiver {
-        Type::Optional(inner) => return infer_checked_method_return_type(inner, name, arg_count),
-        Type::Result(inner, _) if name != "context" => return infer_checked_method_return_type(inner, name, arg_count),
-        Type::Result(_, _) => MethodReceiver::Result,
-        Type::Int | Type::UInt => MethodReceiver::Int, Type::Float => MethodReceiver::Float,
-        Type::Str => MethodReceiver::Str, Type::Bytes => MethodReceiver::Bytes,
-        Type::Path => MethodReceiver::Path, Type::FsRoot => MethodReceiver::FsRoot, Type::List(_) => MethodReceiver::List,
-        Type::Map(_, _) => MethodReceiver::Map, Type::Stream(_) => MethodReceiver::Stream,
-        Type::ErasedRecord | Type::Record(_) | Type::Module(_) | Type::DynamicModule => MethodReceiver::Record,
-        Type::Status => MethodReceiver::Status, Type::EnvPathList => MethodReceiver::EnvPathList,
-        Type::ProcessHandle => MethodReceiver::ProcessHandle, Type::NetJob => MethodReceiver::NetJob,
-        Type::Digest => MethodReceiver::Digest, Type::Regex => MethodReceiver::Regex, _ => return None,
-    };
-    let method = api_spec().method_overloads(class, &name.as_str())?.iter().find(|method| {
-        method.sig.params.iter().filter(|parameter| !parameter.defaulted).count() <= arg_count
-            && arg_count <= method.sig.params.len()
-    })?;
-    crate::sema::builtin_templates::concrete_method_signature(method, receiver).map(|signature| signature.return_ty)
-}
-
-fn module_export_call_return_type(ty: Type, name: Name) -> Option<Type> {
-    let Type::Module(exports) = ty else {
-        return None;
-    };
-    match exports.get(&name)? {
-        ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
-            Some(sig.return_ty.as_ref().clone())
-        }
-        ModuleExportType::Value { .. } => None,
+fn checked_fact_is_resolved(ty: &Type) -> bool {
+    !ty.contains_inference() && match ty {
+        Type::Unknown | Type::Invalid => false,
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => checked_fact_is_resolved(inner),
+        Type::Map(key, value) | Type::Result(key, value) => checked_fact_is_resolved(key) && checked_fact_is_resolved(value),
+        Type::Record(fields) => fields.values().all(checked_fact_is_resolved),
+        _ => true,
     }
-}
-
-fn lowered_result_fallback_type(ty: &Type) -> Option<LoweredType> {
-    ty.result_ok()
-        .or_else(|| ty.optional_inner())
-        .and_then(lowered_checked_type)
 }
 
 fn lowered_builtin_type_name(name: &str) -> Option<LoweredType> {
@@ -13981,195 +13180,6 @@ fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
             | LoweredType::Result
             | LoweredType::Any
     )
-}
-
-fn lowered_builtin_call_ok_type(module: Name, name: Name) -> Option<LoweredType> {
-    if module == "regex" && name == "compile" {
-        return Some(LoweredType::Regex);
-    }
-    if module == "fs" && name == "tempdir" {
-        return Some(LoweredType::Record);
-    }
-    if module == "fs" && (name == "write" || name == "mkdir" || name == "remove") {
-        return Some(LoweredType::Unit);
-    }
-    if module == "archive" && name == "tar_create" {
-        return Some(LoweredType::Unit);
-    }
-    if module == "archive" && name == "tar_list" {
-        return Some(LoweredType::List);
-    }
-    if module == "archive" && name == "tar_extract" {
-        return Some(LoweredType::Unit);
-    }
-    if module == "json" && name == "encode" {
-        return Some(LoweredType::Str);
-    }
-    if module == "json" && name == "decode" {
-        return Some(LoweredType::Any);
-    }
-    None
-}
-
-fn lowered_result_method_ok_type(name: Name) -> Option<LoweredType> {
-    if name == "read_text" {
-        return Some(LoweredType::Str);
-    }
-    if name == "read_bytes" {
-        return Some(LoweredType::Bytes);
-    }
-    if name == "exists" {
-        return Some(LoweredType::Bool);
-    }
-    if name == "executable" {
-        return Some(LoweredType::Bool);
-    }
-    if name == "du" {
-        return Some(LoweredType::Int);
-    }
-    if name == "metadata" {
-        return Some(LoweredType::Record);
-    }
-    if name == "readlink" || name == "resolve" {
-        return Some(LoweredType::Path);
-    }
-    if name == "mkdir"
-        || name == "remove"
-        || name == "write"
-        || name == "write_atomic"
-        || name == "copy"
-        || name == "rename"
-        || name == "remove_dir"
-        || name == "touch"
-        || name == "touch_from"
-        || name == "truncate"
-        || name == "chmod"
-        || name == "hardlink"
-        || name == "unlink"
-    {
-        return Some(LoweredType::Unit);
-    }
-    if name == "strip_prefix" {
-        return Some(LoweredType::Path);
-    }
-    if name == "parse_int"
-        || name == "parse_int_decimal"
-        || name == "parse_uint"
-        || name == "parse_uint_positive"
-    {
-        return Some(LoweredType::Int);
-    }
-    if name == "parse_float" {
-        return Some(LoweredType::Float);
-    }
-    if name == "utf8" {
-        return Some(LoweredType::Str);
-    }
-    if name == "base64_decode" || name == "base32_decode" {
-        return Some(LoweredType::Bytes);
-    }
-    if name == "cancel" {
-        return Some(LoweredType::Unit);
-    }
-    if name == "floor" || name == "ceil" || name == "round" {
-        return Some(LoweredType::Int);
-    }
-    if name == "exit_code" || name == "signal_number" {
-        return Some(LoweredType::Int);
-    }
-    None
-}
-
-fn lowered_plain_method_type(name: Name) -> Option<LoweredType> {
-    if name == "count_lines"
-        || name == "count_words"
-        || name == "count_chars"
-        || name == "byte_len"
-        || name == "len"
-        || name == "bit_and"
-        || name == "bit_or"
-        || name == "clear_bits"
-    {
-        return Some(LoweredType::Int);
-    }
-    if name == "float"
-        || name == "sqrt"
-        || name == "pow"
-        || name == "exp"
-        || name == "ln"
-        || name == "log"
-        || name == "sin"
-        || name == "cos"
-        || name == "tan"
-        || name == "abs"
-    {
-        return Some(LoweredType::Float);
-    }
-    if name == "exited"
-        || name == "signaled"
-        || name == "exited_with"
-        || name == "starts_with"
-        || name == "ends_with"
-        || name == "matches"
-    {
-        return Some(LoweredType::Bool);
-    }
-    if name == "display"
-        || name == "name"
-        || name == "ext"
-        || name == "byte_slice"
-        || name == "slice"
-        || name == "trim"
-        || name == "lower"
-        || name == "upper"
-        || name == "reverse"
-        || name == "replace"
-        || name == "translate"
-        || name == "delete"
-        || name == "squeeze"
-        || name == "format"
-        || name == "hex"
-        || name == "base64"
-        || name == "base32"
-        || name == "join"
-        || name == "dump"
-    {
-        return Some(LoweredType::Str);
-    }
-    if name == "words"
-        || name == "fields"
-        || name == "split"
-        || name == "captures"
-        || name == "collect"
-        || name == "keys"
-        || name == "values"
-        || name == "push"
-        || name == "extend"
-        || name == "wrap"
-        || name == "strings"
-        || name == "chunks"
-    {
-        return Some(LoweredType::List);
-    }
-    if name == "remove" {
-        return Some(LoweredType::Map);
-    }
-    if name == "normalize" || name == "parent" || name == "relative_to" || name == "with_ext" {
-        return Some(LoweredType::Path);
-    }
-    if name == "format" {
-        return Some(LoweredType::Str);
-    }
-    if name == "base64_decode" || name == "base32_decode" {
-        return Some(LoweredType::Result);
-    }
-    if name == "sha256" {
-        return Some(LoweredType::Digest);
-    }
-    if name == "compare" {
-        return Some(LoweredType::Record);
-    }
-    None
 }
 
 impl CompactLowerConstructProbe<'_, '_> {
