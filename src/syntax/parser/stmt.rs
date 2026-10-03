@@ -142,8 +142,10 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.bump();
         let condition = self.parse_expr_id_arena_only(arena)?;
-        self.expect(TokenKindMatch::Comma, "expected `,` and a message after assertion condition")?;
-        let message = self.parse_expr_id_arena_only(arena)?;
+        let message = match self.consume(TokenKindMatch::Comma) {
+            Some(_) => Some(self.parse_expr_id_arena_only(arena)?),
+            None => None,
+        };
         let end = self.expect_terminator();
         arena.push_assert(condition, message, self.span(start, end));
         Some(())

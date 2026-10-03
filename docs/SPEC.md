@@ -570,6 +570,7 @@ module_contract_kind = ("let")? IDENT ":" type_expr
 type_ann     = ":" type_expr ;
 defer_stmt   = "defer" (block | expr_or_run) terminator ;
 yield_stmt   = "yield" (expr_or_run | "@" expr) (("when" | "unless") expr)? terminator ;
+assert_stmt  = "assert" expr ("," expr)? terminator ;
 ```
 
 Module path segments accept hyphenated identifiers (proc-ident form) in addition
@@ -1848,13 +1849,16 @@ is classified. `let _ = predicate()` explicitly discards a boolean. There is
 no semicolon/newline distinction, truthiness, dynamic `Any` assertion, or
 implicit unwrapping of `Result[Bool]`.
 
-`assert condition, message` is a Unit statement requiring concrete `Bool` and
-`Str` expressions. A message is required; the message-free assertion is an
-ordinary bare Bool statement. For example, `assert actual == expected,
-f"package $name"` adds context to the failed comparison. The condition runs once. The message runs once
-only after a false condition, and supplements the expression and reached operand
-diagnostics. Reporting bounds operand rendering and identifies skipped operands
-without evaluating them. Containers are reported by type rather than traversed.
+`assert condition` and `assert condition, message` are Unit statements requiring
+a concrete `Bool` condition and, when present, a concrete `Str` message. For
+example, `assert actual == expected, f"package $name"` adds context to the
+failed comparison. The condition runs once. A failure reports the same detail
+as a bare Bool statement: the condition text and location, `left:`/`right:`
+operands of a failed top-level comparison, and the reached pair of an ordering
+chain. `and`/`or` conditions also report the failed operands and identify
+skipped operands without evaluating them. The message runs once only after a
+false condition and follows the condition text. Reporting bounds operand
+rendering; chain pairs and `and`/`or` operands report containers by type.
 
 Message expressions retain ordinary type, effect, and propagation checks even
 when the condition is true. A message failure propagates as its own failure;

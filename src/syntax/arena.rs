@@ -2566,7 +2566,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
-    pub fn push_assert(&mut self, condition: ExprId, message: ExprId, span: Span) -> StmtId {
+    pub fn push_assert(&mut self, condition: ExprId, message: Option<ExprId>, span: Span) -> StmtId {
         let id = self.lowerer.push_stmt_kind(ArenaStmtKind::Assert { condition, message }, span);
         self.push_current_statement(id);
         id
@@ -3910,7 +3910,11 @@ impl AstArena {
             }
             ArenaStmtTag::Assert => ArenaStmtKind::Assert {
                 condition: ExprId::new(data.lhs as usize),
-                message: ExprId::new(data.rhs as usize),
+                message: Some(ExprId::new(data.rhs as usize)),
+            },
+            ArenaStmtTag::AssertBare => ArenaStmtKind::Assert {
+                condition: ExprId::new(data.lhs as usize),
+                message: None,
             },
             ArenaStmtTag::BreakNone => ArenaStmtKind::Break { value: None },
             ArenaStmtTag::BreakValue => ArenaStmtKind::Break {
@@ -4815,6 +4819,7 @@ pub enum ArenaStmtTag {
     GuardedStmt,
     GuardedStmtNegated,
     Assert,
+    AssertBare,
     BreakNone,
     BreakValue,
     Continue,
@@ -4919,7 +4924,7 @@ pub enum ArenaStmtKind {
     },
     Assert {
         condition: ExprId,
-        message: ExprId,
+        message: Option<ExprId>,
     },
     Break {
         value: Option<ExprId>,
@@ -6290,9 +6295,13 @@ impl ArenaLowerer<'_> {
                     ArenaStmtData::new(raw_stmt_id(stmt), raw_expr_id(condition)),
                 )
             }
-            ArenaStmtKind::Assert { condition, message } => (
+            ArenaStmtKind::Assert { condition, message: Some(message) } => (
                 ArenaStmtTag::Assert,
                 ArenaStmtData::new(raw_expr_id(condition), raw_expr_id(message)),
+            ),
+            ArenaStmtKind::Assert { condition, message: None } => (
+                ArenaStmtTag::AssertBare,
+                ArenaStmtData::new(raw_expr_id(condition), 0),
             ),
             ArenaStmtKind::Break { value: None } => (ArenaStmtTag::BreakNone, ArenaStmtData::ZERO),
             ArenaStmtKind::Break { value: Some(value) } => (

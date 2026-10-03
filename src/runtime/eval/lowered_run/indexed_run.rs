@@ -138,6 +138,10 @@ fn checked_assertion_failure(message: impl Into<String>, span: Span) -> RuntimeE
 }
 
 fn comparison_chain_assertion_failure(op: BinaryOp, left: &LoweredValue, right: &LoweredValue, span: Span) -> Result<RuntimeError, RuntimeError> {
+    Ok(checked_assertion_failure(comparison_failure_text(op, left, right, span), span))
+}
+
+fn comparison_failure_text(op: BinaryOp, left: &LoweredValue, right: &LoweredValue, span: Span) -> String {
     let (left_text, right_text) = if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
         use crate::runtime::eval::lowered_ops::lowered_assertion_value_detail;
         (
@@ -149,7 +153,49 @@ fn comparison_chain_assertion_failure(op: BinaryOp, left: &LoweredValue, right: 
     };
     let operator = match op { BinaryOp::Eq => "==", BinaryOp::Ne => "!=", BinaryOp::Lt => "<", BinaryOp::Le => "<=", BinaryOp::Gt => ">", BinaryOp::Ge => ">=", BinaryOp::In => "in", BinaryOp::NotIn => "not in", _ => unreachable!() };
     let label = if matches!(op, BinaryOp::Eq | BinaryOp::Ne) { "comparison" } else if matches!(op, BinaryOp::In | BinaryOp::NotIn) { "membership comparison" } else { "ordering comparison" };
-    Ok(checked_assertion_failure(format!("{label} failed: {left_text} {operator} {right_text}"), span))
+    format!("{label} failed: {left_text} {operator} {right_text}")
+}
+
+// The one formatter for bare Bool statements and `assert`: the expression,
+// then the optional message, then the reached operands of the failure.
+fn assertion_failure_message(
+    expression: Option<&str>,
+    operands: Option<(&LoweredValue, &LoweredValue)>,
+    reached: Option<&str>,
+    context: Option<&str>,
+) -> String {
+    let mut message = "assertion failed".to_string();
+    if let Some(expression) = expression {
+        message.push_str(": ");
+        message.extend(expression.chars().take(512));
+    }
+    if let Some(context) = context {
+        message.push_str(": ");
+        message.push_str(context);
+    } else if operands.is_none() && reached.is_none() {
+        message.push_str(": evaluated to false");
+    }
+    if let Some(reached) = reached {
+        message.push('\n');
+        message.push_str(reached);
+    }
+    if let Some((left, right)) = operands {
+        use crate::runtime::eval::lowered_ops::lowered_assertion_value_detail;
+        message.push_str(&format!("\nleft: {}\nright: {}", lowered_assertion_value_detail(left), lowered_assertion_value_detail(right)));
+        if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
+            if left != right && left.len() <= 4096 && right.len() <= 4096 && (left.contains('\n') || right.contains('\n')) {
+                message.push_str("\ndiff:\n");
+                message.push_str(&diffy::create_patch(left, right).to_string());
+            }
+        }
+    }
+    message
+}
+
+enum AssertionFailure {
+    Operands(LoweredValue, LoweredValue),
+    Reached(String),
+    False,
 }
 
 enum AssertionWork {
@@ -2482,23 +2528,7 @@ impl Evaluator {
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         if passed { return Ok(ControlFlow::Continue(LoweredValue::Unit)); }
-        let mut message = "assertion failed".to_string();
-        if let Some(expression) = self.sources.span_text(span) {
-            message.push_str(": ");
-            message.extend(expression.chars().take(512));
-        }
-        if let Some((left, right)) = values {
-            use crate::runtime::eval::lowered_ops::lowered_assertion_value_detail;
-            message.push_str(&format!("\nleft: {}\nright: {}", lowered_assertion_value_detail(left), lowered_assertion_value_detail(right)));
-            if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
-                if left != right && left.len() <= 4096 && right.len() <= 4096 && (left.contains('\n') || right.contains('\n')) {
-                    message.push_str("\ndiff:\n");
-                    message.push_str(&diffy::create_patch(left, right).to_string());
-                }
-            }
-        } else {
-            message.push_str(": evaluated to false");
-        }
+        let message = assertion_failure_message(self.sources.span_text(span).as_deref(), values, None, None);
         let error = crate::runtime::eval::modules::assertion_error(message, Some(span));
         let propagated = self.lowered_question_propagation_value(lowered_result_err_value(error), span)?;
         Ok(ControlFlow::Break(propagated))
@@ -7481,7 +7511,7 @@ impl Evaluator {
         condition: u32,
         slots: &mut [LoweredValue],
         span: Span,
-    ) -> Result<ControlFlow<LoweredValue, (bool, Option<RuntimeError>)>, RuntimeError> {
+    ) -> Result<ControlFlow<LoweredValue, Option<AssertionFailure>>, RuntimeError> {
         let mut work = vec![AssertionWork::Expr(condition)];
         let mut result = (true, None);
         while let Some(item) = work.pop() {
@@ -7526,6 +7556,9 @@ impl Evaluator {
                                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                             };
                             let passed = crate::runtime::eval::lowered_ops::lowered_assertion_comparison(op, &left, &right, operand_span)?;
+                            if !passed && instruction == condition {
+                                return Ok(ControlFlow::Continue(Some(AssertionFailure::Operands(left, right))));
+                            }
                             result = (passed, if passed { None } else { Some(comparison_chain_assertion_failure(op, &left, &right, operand_span)?) });
                             continue;
                         }
@@ -7576,7 +7609,11 @@ impl Evaluator {
                 }
             }
         }
-        Ok(ControlFlow::Continue(result))
+        Ok(ControlFlow::Continue(match result {
+            (true, _) => None,
+            (false, Some(failure)) => Some(AssertionFailure::Reached(failure.message)),
+            (false, None) => Some(AssertionFailure::False),
+        }))
     }
 
     fn eval_indexed_binary_stack(
@@ -8240,25 +8277,30 @@ impl Evaluator {
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let failure = match self.eval_indexed_assertion(execution, value, slots, span)? {
-                    ControlFlow::Continue((true, _)) => return Ok(StmtFlow::None),
-                    ControlFlow::Continue((false, failure)) => failure,
+                    ControlFlow::Continue(None) => return Ok(StmtFlow::None),
+                    ControlFlow::Continue(Some(failure)) => failure,
                     ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
                 };
-                let mut failure = failure.unwrap_or_else(|| checked_assertion_failure("boolean assertion failed", span));
+                let mut context = None;
                 if let Some(message) = message {
-                    let context = match self.eval_indexed_expr(execution, message, slots, span)? {
+                    let value = match self.eval_indexed_expr(execution, message, slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
                     };
-                    let context = match context {
+                    context = Some(match value {
                         LoweredValue::Str(text) => bounded_assertion_text(&text, 1024),
                         LoweredValue::StrView(text) => bounded_assertion_text(text.as_str(), 1024),
                         _ => return Err(RuntimeError::new("type-error", "assert message requires Str").with_span(span)),
-                    };
-                    failure.message.push_str(": ");
-                    failure.message.push_str(&context);
+                    });
                 }
-                Err(checked_assertion_failure(failure.message, failure.span.unwrap_or(span)))
+                let expression = self.sources.span_text(span);
+                let (operands, reached) = match &failure {
+                    AssertionFailure::Operands(left, right) => (Some((left, right)), None),
+                    AssertionFailure::Reached(reached) => (None, Some(reached.as_str())),
+                    AssertionFailure::False => (None, None),
+                };
+                let message = assertion_failure_message(expression.as_deref(), operands, reached, context.as_deref());
+                Err(checked_assertion_failure(message, span))
             }
             FullTag::StmtExpr => {
                 let value = indexed_raw(&mut payload, call_span)?;

@@ -67,7 +67,7 @@ match result {
 }
 """)?
   assert result.success, result.stderr
-  "cleaned\nboolean assertion failed: retry context\n" in result.stdout
+  "cleaned\nassertion failed: false: retry context\n" in result.stdout
   "retry context" in result.stdout
 }
 
@@ -88,14 +88,15 @@ match result {
   assert "AssertionError" not in result.stdout, result.stdout
 }
 
-test test_assert_requires_bool_and_str_and_message [error] { |ctx|
+test test_assert_requires_bool_condition_and_str_message [error] { |ctx|
   for source in [
     "assert 1, \"message\"\n",
     "let value: Any = true\nassert value, \"message\"\n",
     "assert Ok(true), \"message\"\n",
     "assert true, 1\n",
     "let message: Any = \"message\"\nassert true, message\n",
-    "assert true\n",
+    "assert 1\n",
+    "assert true,\n",
   ] {
     let invalid = test.run_script(ctx, source)?
     assert ! invalid.success, invalid.stderr
@@ -163,7 +164,7 @@ let value = result?
 print $value
 """)?
   assert result.success, result.stderr
-  result.stdout == "boolean assertion failed: inner context\nouter success\n"
+  result.stdout == "assertion failed: false: inner context\nouter success\n"
 }
 
 test test_assert_message_propagation_is_captured_by_try [error] { |ctx|
@@ -192,4 +193,37 @@ print "accepted"
 """)?
   assert ! result.success, result.stderr
   "check.type-mismatch" in result.stderr
+}
+
+test test_assert_message_is_optional [error] { |ctx|
+  let result = test.run_script(ctx, "assert true\nassert 1 < 2 < 3\nprint \"passed\"\nassert false\n")?
+  assert ! result.success, result.stderr
+  result.stdout == "passed\n"
+  "AssertionError.Failed" in result.stderr
+  "assertion failed: false: evaluated to false" in result.stderr
+  ":4:8" in result.stderr
+}
+
+test test_assert_reports_bare_statement_detail [error] { |ctx|
+  let bare = test.run_script(ctx, "[1, 2] == [1, 3]\n")?
+  let plain = test.run_script(ctx, "assert [1, 2] == [1, 3]\n")?
+  let messaged = test.run_script(ctx, "assert [1, 2] == [1, 3], \"list context\"\n")?
+  for result in [bare, plain, messaged] {
+    assert ! result.success, result.stderr
+    "AssertionError.Failed" in result.stderr
+    "assertion failed: [1, 2] == [1, 3]" in result.stderr
+    "\nleft: [1, 2]\nright: [1, 3]" in result.stderr
+  }
+  "assertion failed: [1, 2] == [1, 3]: list context\nleft: [1, 2]" in messaged.stderr
+  ":1:8" in plain.stderr
+
+  let text = test.run_script(ctx, "assert \"a\\nold\\n\" == \"a\\nnew\\n\"\n")?
+  assert ! text.success, text.stderr
+  "diff:" in text.stderr
+  "-old" in text.stderr
+  "+new" in text.stderr
+
+  let chain = test.run_script(ctx, "assert 1 < 3 < 2\n")?
+  assert ! chain.success, chain.stderr
+  "assertion failed: 1 < 3 < 2\nordering comparison failed: 3 < 2" in chain.stderr
 }

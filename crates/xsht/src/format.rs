@@ -548,8 +548,10 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Assert { condition, message } => {
                 output.push_str("assert ");
                 self.write_expr(*condition, 0, output);
-                output.push_str(", ");
-                self.write_expr(*message, 0, output);
+                if let Some(message) = message {
+                    output.push_str(", ");
+                    self.write_expr(*message, 0, output);
+                }
             }
             ArenaStmtKind::GuardedStmt {
                 stmt: inner,

@@ -1201,7 +1201,7 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::Assert { condition, message } => {
                 self.output.supported_statements += 1;
                 self.check_compact_expr(condition);
-                self.check_compact_expr(message);
+                if let Some(message) = message { self.check_compact_expr(message); }
                 let facts = self.compact_guard_narrowings(condition, true);
                 self.apply_compact_guard_narrowings(facts);
             }
