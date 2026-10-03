@@ -1059,7 +1059,9 @@ dependencies in the declaring module. Duplicate and reserved parameter names,
 wrong arity, unknown types, and recursive or expanding applications are errors.
 Substitution produces an ordinary concrete record schema with existing
 assignability rules. Generic functions, error families, enums, and module
-contracts are not supported.
+contracts are not supported; `error Failure[T] = ...` reports
+`parse.generic-error-family`. Record mismatches name the checked application,
+such as `expected Observation[Str], found Observation[Int]`.
 
 Use `let value: Observation[Int] = {...}` for a direct application or the
 existing `CountObservation(...)` constructor for a concrete named alias.
@@ -3277,6 +3279,9 @@ Static typed environment access uses field syntax:
 `env.PATH` is a scoped mutable path-list view with
 `prepend(path: Path) -> Result[Unit]`, `append(path: Path) -> Result[Unit]`,
 and `pop() -> Result[Path]`. Membership with `in` and `not in` is supported.
+`env.PATH` is not a literal path-promotion boundary: `prepend`, `append`, and
+membership require a `Path` operand, so `"/opt/bin" in env.PATH` is a checker
+error; write `p"/opt/bin"`.
 
 `module`:
 

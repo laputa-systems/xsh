@@ -360,3 +360,15 @@ test test_env_path_membership_matches_exact_entries [env, error] {
     p"/opt/xsh-membership/bin/tool" not in env.PATH
   }
 }
+
+test test_env_path_rejects_str_literal_entries [error] { |ctx|
+  for statement in [
+    "let found = \"/opt/xsh-literal\" in env.PATH",
+    "env.PATH.append(\"/opt/xsh-literal\")?",
+    "env.PATH.prepend(\"/opt/xsh-literal\")?",
+  ] {
+    let rejected = test.run_script(ctx, "env PATH=/opt/xsh-literal {\n  " + statement + "\n}\n")?
+    assert rejected.status == 2, statement
+    assert "requires Path" in rejected.stderr, rejected.stderr
+  }
+}

@@ -313,3 +313,15 @@ match original_result {
   ("[exit 7]" in output.stderr)
   ("cleanup cause" in output.stderr)
 }
+
+test test_generic_error_family_declarations_are_rejected_by_name [error] { |ctx|
+  for source in [
+    "error Failure[T] = Bad(value: T)\n",
+    "export error Failure[T, U] = Bad(value: T)\n",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    assert rejected.status == 2, source
+    assert "parse.generic-error-family" in rejected.stderr, rejected.stderr
+    assert "unresolved-proc-command" not in rejected.stderr, rejected.stderr
+  }
+}

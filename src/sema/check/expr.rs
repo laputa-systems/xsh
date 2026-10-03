@@ -1426,12 +1426,14 @@ impl Checker {
                             );
                         }
                     }
+                    // env.PATH entries are exact Path values; a Str literal is
+                    // not promoted here, so `"/bin" in env.PATH` is rejected
+                    // instead of silently comparing Str against Path.
                     Type::EnvPathList => {
-                        let left_kind = arena.arena.expr(left).kind;
-                        if !is_path_like_arena_expr(&left_kind, &left_ty) {
+                        if !matches!(left_ty, Type::Path | Type::Any | Type::Unknown) {
                             self.error(
                                 left_span,
-                                "env.PATH membership requires Path",
+                                "env.PATH membership requires Path; write a path literal such as p\"/opt/bin\"",
                                 "check.membership-type",
                             );
                         }
