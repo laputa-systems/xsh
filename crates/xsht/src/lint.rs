@@ -254,10 +254,11 @@ pub const LINT_CODES: &[(&str, &str)] = &[
 
 /// Checker diagnostic codes that carry a source fix and may be selected with
 /// `xsht lint --only`, for scoped migrations such as `--only check.bool-statement --fix`.
-pub const FIXABLE_CHECK_CODES: &[&str] = &["check.bool-statement", "check.mixed-logical", "check.redundant-parens"];
+pub const FIXABLE_CHECK_CODES: &[&str] = &["check.ambiguous-grouping", "check.bool-statement", "check.mixed-logical", "check.redundant-parens"];
 
 /// One-line summaries of `FIXABLE_CHECK_CODES` for `xsht lint --list`.
 pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[
+    ("check.ambiguous-grouping", "Group an `if` or `match` operand, or a pipeline that an operator or suffix applies to"),
     (
         "check.bool-statement",
         "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard",

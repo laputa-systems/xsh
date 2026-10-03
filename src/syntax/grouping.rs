@@ -491,7 +491,25 @@ pub fn needs_parens(arena: &AstArena, expr: ExprId, context: Context) -> bool {
         _ => context.slot == Slot::Open && follow.token == FollowToken::Brace && accepts_builder_block(arena, &kind),
     };
     let level_needs = (matches!(kind, ArenaExprKind::PatternTest { .. }) && context.level > PATTERN_TEST) || (closed_pipeline && context.level > 0);
-    slot_needs || follow_needs || level_needs || context.lead.is_some_and(|lead| lead_needs_parens(arena, &kind, lead, context))
+    slot_needs
+        || follow_needs
+        || level_needs
+        || held_ambiguously(context.slot, &kind)
+        || context.lead.is_some_and(|lead| lead_needs_parens(arena, &kind, lead, context))
+}
+
+/// Whether `kind`, held by an operator or suffix in `slot`, must be grouped
+/// because a reader cannot see its extent (`check.ambiguous-grouping`): an
+/// `if` or `match` anywhere an operator, suffix, or `|>` holds it, and a
+/// pipeline whose result an operator or suffix applies to.
+pub fn held_ambiguously(slot: Slot, kind: &ArenaExprKind) -> bool {
+    match kind {
+        ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } => slot != Slot::Open,
+        ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } | ArenaExprKind::ValuePipelineCall { .. } => {
+            !matches!(slot, Slot::Open | Slot::PipelineInput { .. })
+        }
+        _ => false,
+    }
 }
 
 fn comparison_mixes(op: BinaryOp, kind: &ArenaExprKind) -> bool {
@@ -704,7 +722,8 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
     )
 }
 
-/// `check.redundant-parens` and `check.mixed-logical` for the root source.
+/// `check.redundant-parens`, `check.mixed-logical`, and
+/// `check.ambiguous-grouping` for the root source.
 pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
     let arena = &program.arena;
     let Some(source_id) = program.statement_ids().next().map(|id| arena.stmt(id).span.source_id) else { return Vec::new() };
@@ -724,8 +743,7 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
     for (index, tag) in arena.expr_tags.iter().enumerate() {
         use crate::syntax::arena::ArenaExprTag as Tag;
         let logical = matches!(tag, Tag::BinaryResultFallback | Tag::BinaryOr | Tag::BinaryAnd);
-        let holds_operand = !grouped.is_empty()
-            && !matches!(
+        let holds_operand = !matches!(
                 tag,
                 Tag::Null | Tag::BoolFalse | Tag::BoolTrue | Tag::Int | Tag::Float | Tag::Duration | Tag::Str | Tag::PathStr
                     | Tag::GlobStr | Tag::FmtString | Tag::PathFmtString | Tag::Bytes | Tag::Regex | Tag::Ident | Tag::Item
@@ -745,9 +763,16 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
         // them, which only the source layout decides.
         if holds_operand {
             for_each_operand(arena, parent, |child| {
-                parents.insert(child, parent);
+                if !grouped.is_empty() {
+                    parents.insert(child, parent);
+                }
+                if !grouped.contains_key(&child) && held_ambiguously(spelled_slot(arena, parent, child, source), &arena.expr(child).kind) {
+                    diagnostics.push(ambiguous_grouping(arena, child, source));
+                }
             });
-            if let ArenaExprKind::Match { arms, .. } = expr.kind {
+            if let ArenaExprKind::Match { arms, .. } = expr.kind
+                && !grouped.is_empty()
+            {
                 arm_bodies.extend(arena.match_expr_arms(arms).iter().map(|arm| arm.value));
             }
         }
@@ -994,6 +1019,30 @@ fn redundant_parens(span: Span, source: &str) -> Diagnostic {
         .with_code("check.redundant-parens")
         .with_label(Label::primary(span, "remove these parentheses"))
         .with_fix_hint(fix)
+}
+
+/// The slot `child` fills as the source spells it: a receiver followed by
+/// `|>` is the input of a method stage that the parser rebuilt as a call.
+fn spelled_slot(arena: &AstArena, parent: ExprId, child: ExprId, source: &str) -> Slot {
+    let after = source.get(arena.expr(child).span.end()..).unwrap_or_default();
+    match child_context(arena, parent, Context::open(Follow::END), child).slot {
+        Slot::Postfix { .. } if after.trim_start().starts_with("|>") => Slot::PipelineInput { structured: false },
+        slot => slot,
+    }
+}
+
+fn ambiguous_grouping(arena: &AstArena, operand: ExprId, source: &str) -> Diagnostic {
+    let span = arena.expr(operand).span;
+    let text = &source[span.range()];
+    let message = if matches!(arena.expr(operand).kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }) {
+        "group an `if` or `match` expression that an operator or suffix applies to"
+    } else {
+        "group a pipeline whose result an operator or suffix applies to"
+    };
+    Diagnostic::error(message)
+        .with_code("check.ambiguous-grouping")
+        .with_label(Label::primary(span, "add parentheses around this operand"))
+        .with_fix_hint(FixHint::replacement(span, "add parentheses", format!("({text})")))
 }
 
 fn mixed_logical(arena: &AstArena, operand: ExprId, source: &str) -> Diagnostic {
