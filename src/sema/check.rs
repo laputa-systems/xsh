@@ -809,6 +809,9 @@ impl Checker {
         self.prepare_effect_declarations(program, None);
         self.prepare_local_inference(program);
         self.diagnostics.extend(Self::prepare_regex_literals(program));
+        if !self.collecting_effects {
+            self.diagnostics.extend(crate::syntax::grouping::grouping_diagnostics(program, source));
+        }
         self.record_constructors = RecordConstructors::collect(program);
         self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
         self.diagnostics.extend(self.prepared_constants.diagnostics.clone());

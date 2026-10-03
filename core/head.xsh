@@ -45,7 +45,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   var first = true
-  let show_headers = opts.verbose or paths.len() > 1 and ! opts.quiet
+  let show_headers = opts.verbose or (paths.len() > 1 and ! opts.quiet)
 
   for item in paths {
     if show_headers {

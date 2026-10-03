@@ -135,6 +135,18 @@ pub fn refactor_scripts(
             for (start, end, new) in rev {
                 new_text.replace_range(start..end, &new);
             }
+            // Replacement templates group every operand; keep only the
+            // parentheses each spliced position requires.
+            let mut shift = 0isize;
+            let replaced = replacements
+                .iter()
+                .map(|(start, end, new)| {
+                    let begin = (*start as isize + shift) as usize;
+                    shift += new.len() as isize - (end - start) as isize;
+                    begin..begin + new.len()
+                })
+                .collect::<Vec<_>>();
+            new_text = xsh::frontend::syntax::grouping::remove_redundant_parens(&new_text, &replaced);
             if let Err(err) = fs::write(file, &new_text) {
                 stderr.push_str(&format!("xsht refactor: failed to write '{file}': {err}\n"));
                 status = 4;

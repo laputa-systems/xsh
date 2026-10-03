@@ -195,7 +195,7 @@ error SpreadFailure = Bad(message: Str)
 proc options() -> Result[Pair] { print failed; return Err(SpreadFailure.Bad(message: "stop")) }
 proc later() -> Int { print forbidden; return 3 }
 pure total(first: Int, second: Int, third: Int) -> Int { first + second + third }
-print ${total(...(options()?), third: later())}
+print ${total(...options()?, third: later())}
 """,
   )?
   {
@@ -244,7 +244,7 @@ test test_named_argument_spreads_native_method_signatures {
   assert "alphabet".ends_with(...{suffix: "bet"}) == true
   assert "alphabet".find(...{needle: "pha"}) == 2
   let failure = error.fail(...{message: "spread failure"})
-  assert (failure is Err(_)) == true
+  assert failure is Err(_) == true
 }
 
 test test_named_argument_spreads_preserve_native_omitted_slots { |ctx|

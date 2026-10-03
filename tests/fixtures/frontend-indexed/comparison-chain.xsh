@@ -3,7 +3,7 @@ pure increasing() -> Bool {
 }
 
 pure skipped() -> Bool {
-  return 3 < 2 < (1 / 0)
+  return 3 < 2 < 1 / 0
 }
 
 pure failed_last() -> Bool {

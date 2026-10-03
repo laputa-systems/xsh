@@ -2,7 +2,7 @@ use crate::diagnostic::{Diagnostic, Label};
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::literal::{self, QuotedLiteralKind, QuotedScan};
-use crate::syntax::token::{Keyword, TokenKind, TokenTable, TokenTableBuilder};
+use crate::syntax::token::{Keyword, TokenKind, TokenTable, TokenTableBuilder, TokenTag};
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactLexerOutput {
@@ -614,6 +614,80 @@ impl<'a> Lexer<'a> {
     }
 }
 
+/// The tokens of `source`, without the end-of-file token, with their text.
+pub fn lex_spellings(source: &str) -> Vec<(TokenTag, &str)> {
+    let table = Lexer::new(SourceId::new(0), source).lex_compact().token_table;
+    (0..table.len())
+        .filter_map(|index| {
+            let tag = table.tag_at(index)?;
+            let span = table.span_at(index, SourceId::new(0), source)?;
+            (tag != TokenTag::Eof).then(|| (tag, &source[span.range()]))
+        })
+        .collect()
+}
+
+/// Whether `left` written directly before `right` still lexes as the tokens
+/// of `left` followed by the tokens of `right`. Printers that join tokens
+/// without whitespace consult this instead of per-token rules.
+pub fn tokens_stay_separate(left: &str, right: &str) -> bool {
+    let joined = format!("{left}{right}");
+    let mut expected = lex_spellings(left);
+    expected.extend(lex_spellings(right));
+    lex_spellings(&joined) == expected
+}
+
+/// `right` appended to `left`, separated by a space when written directly
+/// after `left` its tokens would merge with `left`'s last token.
+pub fn join_tokens(left: &str, right: &str) -> String {
+    let last = lex_spellings(left).last().map_or("", |(_, text)| *text);
+    let first = lex_spellings(right).first().map_or("", |(_, text)| *text);
+    if tokens_stay_separate(last, first) { format!("{left}{right}") } else { format!("{left} {right}") }
+}
+
+/// Source spellings that cover every token kind and every lexer decision
+/// that depends on the bytes around a token: each fixed spelling, each
+/// keyword, an identifier for every identifier-start byte (so the `b"`,
+/// `p"`, `g"`, `r"`, `rx"`, `f"`, `fp"`, `E>`, exponent, and duration-suffix
+/// rules all meet a neighbor), and each literal form.
+pub fn representative_token_texts() -> Vec<(TokenTag, String)> {
+    let mut texts: Vec<(TokenTag, String)> = TokenTag::ALL
+        .iter()
+        .filter_map(|tag| tag.fixed_text().filter(|text| !text.is_empty()).map(|text| (*tag, text.to_owned())))
+        .collect();
+    texts.extend(Keyword::ALL.iter().map(|keyword| (TokenTag::Keyword, keyword.as_str().to_owned())));
+    for byte in (0u8..128).filter(|byte| is_ident_start(*byte)) {
+        texts.push((TokenTag::Ident, char::from(byte).to_string()));
+    }
+    for (tag, text) in [
+        (TokenTag::Ident, "rx"),
+        (TokenTag::Ident, "fp"),
+        (TokenTag::Ident, "name1"),
+        (TokenTag::ProcIdent, "proc-name"),
+        (TokenTag::Int, "1"),
+        (TokenTag::Int, "0"),
+        (TokenTag::Int, "0o7"),
+        (TokenTag::Float, "1.5"),
+        (TokenTag::Float, "1e3"),
+        (TokenTag::Duration, "1s"),
+        (TokenTag::Duration, "1ms"),
+        (TokenTag::String, "\"s\""),
+        (TokenTag::String, "r\"s\""),
+        (TokenTag::String, "\"\"\"s\"\"\""),
+        (TokenTag::PathString, "p\"s\""),
+        (TokenTag::GlobString, "g\"s\""),
+        (TokenTag::FmtString, "f\"s\""),
+        (TokenTag::PathFmtString, "fp\"s\""),
+        (TokenTag::Bytes, "b\"s\""),
+        (TokenTag::Regex, "rx\"s\""),
+        (TokenTag::Comment, "# c"),
+        (TokenTag::Newline, "\n"),
+        (TokenTag::DollarIdent, "$name"),
+    ] {
+        texts.push((tag, text.to_owned()));
+    }
+    texts
+}
+
 fn is_ident_start(byte: u8) -> bool {
     byte.is_ascii_alphabetic() || byte == b'_'
 }
@@ -624,8 +698,7 @@ fn is_ident_continue(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Keyword, Lexer, SourceId};
-    use crate::syntax::token::TokenTag;
+    use super::{Keyword, Lexer, SourceId, TokenTag};
 
     #[test]
     fn tokenizes_keywords_identifiers_strings_comments_and_eof() {

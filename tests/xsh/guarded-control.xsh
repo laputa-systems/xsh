@@ -94,8 +94,8 @@ proc literal_argv() [process, error] -> Str {
   return run.text /usr/bin/printf "%s\n" when unless ?
 }
 proc status_condition() [process] -> Int {
-  return 99 unless (run.status true)
-  return 1 when (run.status true)
+  return 99 unless run.status true
+  return 1 when run.status true
   return 2
 }
 print ${capture(false)}

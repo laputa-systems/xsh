@@ -10,7 +10,6 @@
 #
 # The source path is fixed: `/proc/uptime`. No environment variable, parameter,
 # or other switch changes which file is read.
-
 # The error kinds this entry reports.
 #
 # A declared error variant reports `Family.Variant` unless its payload carries
@@ -37,12 +36,8 @@ proc unix_dry_run() [env] -> Bool {
 # the baseline's dry-run environment reader replaces it.
 proc override_env(name: Str, fallback: Str) [env] -> Str {
   match env.get(name) {
-    Ok(text) => {
-      return text
-    }
-    Err(_) => {
-      return fallback
-    }
+    Ok(text) => return text
+    Err(_) => return fallback
   }
 }
 
@@ -61,46 +56,56 @@ pure parse_field_int(text: Str) -> Int? {
   if end == 0 {
     return null
   }
+
   # 43 is `+` and 45 is `-`.
-  let first = (text.byte_at(0) ?? 0)
+  let first = text.byte_at(0) ?? 0
   var start = 0
   var negative = false
   if first == 43 or first == 45 {
     start = 1
     negative = first == 45
   }
+
   if start == end {
     return null
   }
+
   var value = 0
   var index = start
   while index < end {
-    let byte = (text.byte_at(index) ?? 0)
+    let byte = text.byte_at(index) ?? 0
     if byte < 48 or byte > 57 {
       return null
     }
+
     let digit = byte - 48
+
     # 922337203685477580 is `Int` max without its last digit, so any value above
     # it is out of range on the next step.
     if value > 922337203685477580 {
       return null
     }
+
     if value == 922337203685477580 {
       if digit == 8 and negative and index + 1 == end {
         # The magnitude of `Int` min is one past `Int` max, so it is reported
         # here rather than built by the multiplication below.
         return 0 - 9223372036854775807 - 1
       }
+
       if digit > 7 {
         return null
       }
     }
+
     value = value * 10 + digit
     index = index + 1
   }
+
   if negative {
     return 0 - value
   }
+
   return value
 }
 
@@ -115,6 +120,7 @@ pure uptime_from_text(text: Str) -> Int {
   if fields.len() == 0 {
     return 0
   }
+
   return parse_field_int(fields[0].split(".", 1)[0]) ?? 0
 }
 
@@ -124,12 +130,8 @@ pure uptime_from_text(text: Str) -> Int {
 # still names a path, which the baseline opens and fails on.
 proc log_configured() [env] -> Bool {
   match env.get("XSH_UNIX_DRY_RUN_LOG") {
-    Ok(_) => {
-      return true
-    }
-    Err(failure) => {
-      return failure.message != "environment value is unset"
-    }
+    Ok(_) => return true
+    Err(failure) => return failure.message != "environment value is unset"
   }
 }
 
@@ -139,19 +141,16 @@ proc log_configured() [env] -> Bool {
 # skipped; a set value is a path, including an empty one, which the baseline
 # opens and fails on. The seconds count is logged as text, because the baseline
 # renders every field value as a JSON string.
-proc dry_run_log(seconds: Int) [env, fs, error] -> Result[Unit] {
-  if !log_configured() {
+proc dry_run_log(seconds: Int) [fs, env, error] -> Result[Unit] {
+  if ! log_configured() {
     return Ok()
   }
+
   let log_path = env.path("XSH_UNIX_DRY_RUN_LOG", p"")?
   let line = json.encode({op: "uptime_seconds", seconds: f"${seconds}"})?
   match append_line(log_path, line) {
-    Ok(_) => {
-      return Ok()
-    }
-    Err(failure) => {
-      return Err(UnixTextError.Failure(kind: "unix-dry-run-log", message: failure.message))
-    }
+    Ok(_) => return Ok()
+    Err(failure) => return Err(UnixTextError.Failure(kind: "unix-dry-run-log", message: failure.message))
   }
 }
 
@@ -165,6 +164,7 @@ proc append_line(target: Path, line: Str) [fs, error] -> Result[Unit] {
   if parent.display() != "" {
     fs.mkdir(parent, parents: true)?
   }
+
   let existing = fs.read_text(target) ?? ""
   return fs.write(target, existing + line + "\n")
 }
@@ -181,18 +181,15 @@ proc append_line(target: Path, line: Str) [fs, error] -> Result[Unit] {
 ## `XSH_UNIX_UPTIME_SECONDS` instead, defaulting to zero when that variable is
 ## unset, empty, or not an integer, and one line is appended to the
 ## `XSH_UNIX_DRY_RUN_LOG` file when that variable names one.
-export proc uptime_seconds() [env, fs, error] -> Result[Int] {
+export proc uptime_seconds() [fs, env, error] -> Result[Int] {
   if unix_dry_run() {
     let seconds = parse_field_int(override_env("XSH_UNIX_UPTIME_SECONDS", "0")) ?? 0
     dry_run_log(seconds)?
     return Ok(seconds)
   }
-  match fs.read_text(p"/proc/uptime") {
-    Ok(text) => {
-      return Ok(uptime_from_text(text))
-    }
-    Err(failure) => {
-      return Err(UnixTextError.Failure(kind: "unix-uptime", message: failure.message))
-    }
+
+  match fs.read_text(/proc/uptime) {
+    Ok(text) => return Ok(uptime_from_text(text))
+    Err(failure) => return Err(UnixTextError.Failure(kind: "unix-uptime", message: failure.message))
   }
 }

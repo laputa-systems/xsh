@@ -17,7 +17,7 @@ test test_optional_record_return_field_alias_preserves_receiver_type {
     let source = optional_postfix_observation(present)
     let target = source.target
     let displayed = target?.display() ?? ""
-    assert displayed == (if present { "/dev/example" } else { "" })
+    assert displayed == if present { "/dev/example" } else { "" }
   }
 }
 

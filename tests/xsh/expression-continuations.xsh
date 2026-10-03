@@ -40,3 +40,33 @@ index
   assert calls.len() == 2, traced.stderr
   assert results.len() == 2, traced.stderr
 }
+
+test test_leading_operators_continue_only_when_they_cannot_start_a_statement { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""pure sign(positive: Bool) -> Int {
+  return 1 when positive
+  -1
+}
+pure root(scratch: Bool) -> Path {
+  return /tmp/scratch when scratch
+  /tmp/continuation
+}
+let total = 1
+  + 2
+  * 3
+let missing: Str? = null
+let label = missing
+  # a comment line does not end the expression
+  ?? "fallback"
+let bounded = total > 0
+  and total < 10
+let trimmed = " x "
+  .trim()
+print ${sign(false)} ${root(false).display()} $total $label ${bounded} $trimmed
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """-1 /tmp/continuation 7 fallback true x
+"""
+}

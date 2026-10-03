@@ -127,7 +127,7 @@ test test_accept_invalid_policy_is_rejected_before_spawn { |ctx|
     ctx,
     """var codes = [0]
 codes = [256]
-run --accept=(codes) sh -c "printf spawned"
+run --accept=codes sh -c "printf spawned"
 """,
   )?
   assert ! dynamic.success
@@ -247,7 +247,7 @@ test test_accept_dynamic_configuration_stays_outside_completion_capture { |ctx|
 var codes = [0]
 codes = [256]
 let rejected = try {
-  let observed = run.status --accept=(codes) sh -c "printf spawned"
+  let observed = run.status --accept=codes sh -c "printf spawned"
 }
 print "unreachable"
 """,

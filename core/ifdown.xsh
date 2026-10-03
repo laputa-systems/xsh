@@ -68,7 +68,7 @@ pure rest_after_word(line: Str) -> Str {
 
   return "" when word == ""
 
-  (line.split("") |> drop(word.count_chars())).join("").trim()
+  line.split("") |> drop(word.count_chars()).join("").trim()
 }
 
 pure add_unique(items: List[Str], item: Str) -> List[Str] {

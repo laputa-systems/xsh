@@ -8,7 +8,7 @@ test test_membership_operator_supports_strings_lists_bytes_and_paths {
   assert "libz.so" in ["libz.so", "libc.so"]
   assert b"TODO" in b"one TODO two"
   assert p"usr/lib" in p"usr/lib/libz.so"
-  assert (p"bin" in p"usr/lib/libz.so") == false
+  assert p"bin" in p"usr/lib/libz.so" == false
 }
 
 test test_path_methods { |ctx|

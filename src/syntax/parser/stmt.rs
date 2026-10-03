@@ -1544,17 +1544,14 @@ impl<'a> Parser<'a> {
             None
         };
         self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
-        let block_id = if self.at(TokenKindMatch::LBrace) {
+        let block_id = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_field_record() {
             self.parse_block_arena_only(arena)?
         } else {
             let stmt_start = self.current_start();
             let previous = self.comma_is_terminator;
             self.comma_is_terminator = true;
             arena.begin_block();
-            let previous_arm = self.unbraced_match_arm_depth;
-            self.unbraced_match_arm_depth = Some((self.block_depth, self.parenthesized_expr_depth));
             let stmt = self.parse_statement_arena_only(arena);
-            self.unbraced_match_arm_depth = previous_arm;
             self.comma_is_terminator = previous;
             if stmt.is_none() {
                 arena.discard_block();

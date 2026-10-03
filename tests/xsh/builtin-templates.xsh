@@ -104,13 +104,13 @@ true
 test test_builtin_templates_reject_incompatible_concrete_operands { |ctx|
   for source in [
     r"""let values: List[Int] = [1]; let _ = values.push("bad")""",
-    r"""let values: List[Int] = [1]; let _ = (values.get(9) ?? "bad")""",
+    r"""let values: List[Int] = [1]; let _ = values.get(9) ?? "bad" """,
     r"""let values: List[Int] = [1]; let _ = values.extend(["bad"])""",
     r"""let values: List[Int] = [1]; let _ = values.join()""",
     r"""let values: List[Str] = ["one"]; let _ = values.push(Path("two"))""",
     r"""let values: Map[Str] = {one: "first"}; let _ = values.set("two", Path("second"))""",
     r"""let values: Map[Int] = {one: 1}; let _ = values.set("two", "bad")""",
-    r"""let values: Map[Int] = {one: 1}; let _ = (values.get("absent") ?? "bad")""",
+    r"""let values: Map[Int] = {one: 1}; let _ = values.get("absent") ?? "bad" """,
     r"""let values: Map[Int] = {one: 1}; let _ = values.push("one", 2)""",
   ] {
     let output = test.run_script(ctx, source)?

@@ -30,21 +30,21 @@ test test_slice_bytes_normalization_and_nested_views { |ctx|
     r"""
 proc witness() [error] {
   let data = b"a\0\xffbcd"
-  assert (data[1..3]) == (b"\0\xff")
-  assert (data[..2]) == (b"a\0")
-  assert (data[3..]) == (b"bcd")
-  assert (data[..]) == (data)
-  assert (data[-3..-1]) == (b"bc")
-  assert (data[-99..99]) == (data)
-  assert (data[4..1]) == (b"")
-  assert (data[99..]) == (b"")
-  assert (data[..-99]) == (b"")
-  assert (b""[-1..99]) == (b"")
-  assert (data[1..5][1..-1]) == (b"\xffb")
-  assert (b"  é🦀  ".trim()[..2]) == (b"\xc3\xa9")
-  assert ("  é🦀  ".trim()[..1][..]) == ("é")
-  assert (data[..3]) == (data.slice(0, length: 3))
-  assert (data[3..]) == (data.slice(3, length: data.len() - 3))
+  assert data[1..3] == b"\0\xff"
+  assert data[..2] == b"a\0"
+  assert data[3..] == b"bcd"
+  assert data[..] == data
+  assert data[-3..-1] == b"bc"
+  assert data[-99..99] == data
+  assert data[4..1] == b""
+  assert data[99..] == b""
+  assert data[..-99] == b""
+  assert b""[-1..99] == b""
+  assert data[1..5][1..-1] == b"\xffb"
+  assert b"  é🦀  ".trim()[..2] == b"\xc3\xa9"
+  assert "  é🦀  ".trim()[..1][..] == "é"
+  assert data[..3] == data.slice(0, length: 3)
+  assert data[3..] == data.slice(3, length: data.len() - 3)
 }
 witness()
 """,

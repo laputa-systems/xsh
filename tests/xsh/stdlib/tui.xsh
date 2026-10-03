@@ -163,6 +163,6 @@ test test_tui_read_secret_piped_lines { |ctx|
 
   let input = test.temp_file(ctx, name: "secret.in", contents: b"alpha\nbeta\n")?
 
-  assert (run.text "xsh" $script < ${input}?) == """One: Two: alpha:beta
+  assert run.text "xsh" $script < ${input}? == """One: Two: alpha:beta
 """
 }

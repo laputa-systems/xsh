@@ -77,7 +77,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let has_target_directory = opts.target != ""
   let paths = opts.operands
 
-  if paths.len() < 1 or ! has_target_directory and paths.len() < 2 {
+  if paths.len() < 1 or (! has_target_directory and paths.len() < 2) {
     return Err(usage_error("cp", "[-R|-r|-a|-p|-T] [-t DIR] SOURCE... DEST"))
   }
 

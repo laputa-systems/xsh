@@ -1,6 +1,7 @@
 use super::{Checker, Diagnostic, Label, Name, QualifiedName, Span, Type};
 use crate::diagnostic::FixHint;
 use crate::sema::constants::LiteralConstant;
+use crate::syntax::grouping;
 use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaTypeDefBody, ArenaTypeExprTag, ExprId};
 use std::collections::BTreeMap;
 
@@ -83,7 +84,15 @@ impl Checker {
             })
         })?;
         let receiver_span = arena.arena.expr(receiver).span;
-        let receiver = source.get(receiver_span.start()..receiver_span.end())?;
-        Some(format!("({receiver}).require({schema})"))
+        let text = source.get(receiver_span.start()..receiver_span.end())?;
+        let receiver_context = grouping::Context {
+            slot: grouping::Slot::Postfix { dotted: false },
+            ..grouping::Context::open(grouping::Follow::adjacent(grouping::FollowToken::Require))
+        };
+        Some(if grouping::needs_parens(&arena.arena, receiver, receiver_context) {
+            format!("({text}).require({schema})")
+        } else {
+            format!("{text}.require({schema})")
+        })
     }
 }

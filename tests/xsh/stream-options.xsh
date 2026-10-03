@@ -78,10 +78,10 @@ proc flag(label: Str, value: Bool) [] -> Bool { print $label; return value }
 proc number(label: Str, value: Int) [] -> Int { print $label; return value }
 proc main() [error] {
   let jobs = 1
-  print ${([1, 2] |> par-map(jobs:) { |item| item + 1 })[0]}
-  print ${([1] |> par-map { |item| item })[0]}
-  print ${([1, 3, 2] |> sort(desc: true))[0]}
-  print ${([3, 1, 2] |> sort)[0]}
+  print ${[1, 2] |> par-map(jobs:) { |item| item + 1 }[0]}
+  print ${[1] |> par-map { |item| item }[0]}
+  print ${[1, 3, 2] |> sort(desc: true)[0]}
+  print ${[3, 1, 2] |> sort[0]}
   print ${([{size: 1}, {size: 2}] |> sort-by(desc: true) .size)[0].size}
   print ${([{size: 2}, {size: 1}] |> sort-by .size)[0].size}
   let options = {max_bytes: 5, count: 2, max_argv: false}
@@ -130,16 +130,16 @@ proc number(label: Str, value: Int) [] -> Int { print $label; return value }
 type Bounds = {start: Int, end: Int}
 proc bounds() [] -> Bounds { print "bounds"; return {start: 1, end: 3} }
 proc main() [error] {
-  print ${([] |> range(end: number("end", 3), start: number("start", 1))).len()}
-  print ${([] |> range(...bounds())).len()}
-  print ${([1, 2] |> take(count: 1))[0]}
-  print ${([1, 2] |> drop(count: 1))[0]}
-  print ${([1, 2] |> repeat(count: 2)).len()}
-  print ${(b"abcd" |> bytes.chunks(size: 2)).len()}
-  print ${([1, 2] |> zip(other: [3, 4]))[0].right}
-  print ${([1, 2] |> fold(init: 0) { |sum, item| sum + item })}
-  print ${([1, 2] |> reduce(init: 0) { |sum, item| sum + item })}
-  print ${([1, 2] |> shuffle(seed: 1)).len()}
+  print ${[] |> range(end: number("end", 3), start: number("start", 1)).len()}
+  print ${[] |> range(...bounds()).len()}
+  print ${[1, 2] |> take(count: 1)[0]}
+  print ${[1, 2] |> drop(count: 1)[0]}
+  print ${[1, 2] |> repeat(count: 2).len()}
+  print ${b"abcd" |> bytes.chunks(size: 2).len()}
+  print ${[1, 2] |> zip(other: [3, 4])[0].right}
+  print ${[1, 2] |> fold(init: 0) { |sum, item| sum + item }}
+  print ${[1, 2] |> reduce(init: 0) { |sum, item| sum + item }}
+  print ${[1, 2] |> shuffle(seed: 1).len()}
   [{name: "row"}] |> table.print(columns: ["name"])
 }
 """,

@@ -239,15 +239,15 @@ ${padding}""",
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
   assert value.devices.devices.len() == 3
-  let input = (value.devices.devices
+  let input = value.devices.devices
     |> where .class == "input"
-    |> first())?
-  let sound = (value.devices.devices
+    |> first()?
+  let sound = value.devices.devices
     |> where .class == "sound"
-    |> first())?
-  let drm = (value.devices.devices
+    |> first()?
+  let drm = value.devices.devices
     |> where .class == "drm"
-    |> first())?
+    |> first()?
   assert input.name.value == "input0"
   assert sound.name.value == "card0"
   assert drm.name.value == "card0"
@@ -288,12 +288,12 @@ test test_system_report_device_classes_keep_sound_and_input_without_drm {
   assert value.devices.status.state == report_model.Complete
   assert value.devices.status.enumeration_succeeded
   assert value.devices.devices.len() == 2
-  let sound = (value.devices.devices
+  let sound = value.devices.devices
     |> where .class == "sound"
-    |> first())?
-  let input = (value.devices.devices
+    |> first()?
+  let input = value.devices.devices
     |> where .class == "input"
-    |> first())?
+    |> first()?
   assert sound.name.value == "fixture sound"
   assert input.name.value == "fixture keyboard"
   assert sound.parent_pci_function_index == null
@@ -4134,9 +4134,9 @@ ${padding}""",
   assert value.cpu.global_idle_driver == null
   assert value.cpu.global_idle_governor == null
   assert value.cpu.available_idle_governors == []
-  let malformed = (value.cpu.idle_states
+  let malformed = value.cpu.idle_states
     |> where .name == "state0"
-    |> first())?
+    |> first()?
   assert malformed.state_index == 0
   assert malformed.description == null
   assert malformed.disable_setting == null
@@ -4144,9 +4144,9 @@ ${padding}""",
   assert malformed.residency_us == 123
   assert malformed.usage_count == null
   assert malformed.time_us == null
-  let valid = (value.cpu.idle_states
+  let valid = value.cpu.idle_states
     |> where .name == "C1"
-    |> first())?
+    |> first()?
   assert valid.state_index == 1
   assert valid.disable_setting == 0
   assert valid.latency_us == 9
@@ -4172,9 +4172,9 @@ ${padding}""",
   root.remove(p"sys/devices/system/cpu/cpu0/cpuidle/state1/latency")?
   root.mkdir(p"sys/devices/system/cpu/cpu0/cpuidle/state1/latency")?
   let unreadable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  let idle_state = (unreadable.cpu.idle_states
+  let idle_state = unreadable.cpu.idle_states
     |> where .name == "C1"
-    |> first())?
+    |> first()?
   assert idle_state.disable_setting == 0
   assert idle_state.latency_us == null
   let failed_latency = unreadable.issues |> where .section == "cpu" and .field == "cpu0.state1.latency"
@@ -4788,9 +4788,9 @@ test test_system_report_storage_links_block_devices_to_pci_controllers {
   assert value.pci.functions[0].domain == 1
   if value.storage.devices.len() == 0 {
     test.fail(
-      (value.issues
+      value.issues
         |> where .section == "storage"
-        |> first())?.error_kind ?? "no storage issue",
+        |> first()?.error_kind ?? "no storage issue",
     )?
   }
 
@@ -5537,9 +5537,9 @@ Uid:	1234	1234	1234	1234
   assert value.scope.clock_ticks_per_second == 250
   if value.processes.processes.len() == 0 {
     test.fail(
-      (value.issues
+      value.issues
         |> where .section == "processes"
-        |> first())?.error_kind ?? "no process issue",
+        |> first()?.error_kind ?? "no process issue",
     )?
   }
 
@@ -5671,9 +5671,9 @@ VendorCounter: 12 widgets
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "", true)?
-  let process_item = (value.processes.processes
+  let process_item = value.processes.processes
     |> where .pid == 123
-    |> first())?
+    |> first()?
   assert process_item.cgroup.value == "/fixture/group"
   if process_item.cgroup_resource_index == null {
     test.fail("process cgroup relationship was not resolved")?
@@ -5800,28 +5800,28 @@ throttled_usec 450
   assert current_limit.maximum_unlimited == true
   assert current_limit.current_value == 1024
   assert current_limit.unit == "bytes"
-  let cpu_limit = (value.memory.cgroup
+  let cpu_limit = value.memory.cgroup
     |> where .resource == "cpu.max"
-    |> first())?
+    |> first()?
   assert cpu_limit.quota == 50000
   assert cpu_limit.period == 100000
-  let swap_limit = (value.memory.cgroup
+  let swap_limit = value.memory.cgroup
     |> where .resource == "memory.swap.max"
-    |> first())?
+    |> first()?
   assert swap_limit.maximum_value == 262144
   assert swap_limit.current_value == 65536
-  let cpu_usage = (value.memory.cgroup
+  let cpu_usage = value.memory.cgroup
     |> where .resource == "cpu.stat.usage_usec"
-    |> first())?
+    |> first()?
   assert cpu_usage.current_value == 9000
   assert cpu_usage.unit == "microseconds"
-  let cpuset = (value.memory.cgroup
+  let cpuset = value.memory.cgroup
     |> where .resource == "cpuset.cpus.effective"
-    |> first())?
+    |> first()?
   assert cpuset.effective_cpus == [0, 1]
-  let io_bytes = (value.memory.cgroup
+  let io_bytes = value.memory.cgroup
     |> where .resource == "io.stat.8:0.rbytes"
-    |> first())?
+    |> first()?
   assert io_bytes.current_value == 4096
   assert io_bytes.unit == "bytes"
   assert value.memory.host.counters |> any .name == "VendorCounter" and .value == 12 and .unit == "widgets"
@@ -5905,9 +5905,9 @@ test test_system_report_memory_preserves_colons_in_cgroup_membership_path {
 """,
   )?
   let selected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  let selected_limit = (selected.memory.cgroup
+  let selected_limit = selected.memory.cgroup
     |> where .resource == "memory.max" and .hierarchy_level == 0
-    |> first())?
+    |> first()?
   assert selected_limit.path.value == "/team:blue"
   assert selected_limit.maximum_value == 8192
   assert selected_limit.current_value == 2048
@@ -6041,19 +6041,19 @@ ${padding}""",
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   assert value.memory.huge_pages.len() == 3
-  let global = (value.memory.huge_pages
+  let global = value.memory.huge_pages
     |> where .node_id == null and .page_size_bytes == 2097152
-    |> first())?
+    |> first()?
   assert global.page_size_bytes == 2097152
   assert global.total == 2
   assert global.free == null
-  let safe_edge = (value.memory.huge_pages
+  let safe_edge = value.memory.huge_pages
     |> where .page_size_bytes == 9007199254739968
-    |> first())?
+    |> first()?
   assert safe_edge.total == 1
-  let node = (value.memory.huge_pages
+  let node = value.memory.huge_pages
     |> where .node_id == 0
-    |> first())?
+    |> first()?
   assert node.page_size_bytes == 2097152
   assert node.total == 3
   assert value.issues
@@ -6153,16 +6153,16 @@ ${padding}""",
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   assert value.memory.pressure.len() == 2
-  let cpu_pressure = (value.memory.pressure
+  let cpu_pressure = value.memory.pressure
     |> where .resource == "cpu"
-    |> first())?
+    |> first()?
   assert cpu_pressure.kind == "some"
   assert cpu_pressure.avg60 == "1.50"
   assert cpu_pressure.total_us == 9007199254740991
   assert value.issues |> any .field == "pressure.cpu.full" and .state == report_model.Malformed
-  let memory = (value.memory.pressure
+  let memory = value.memory.pressure
     |> where .resource == "memory"
-    |> first())?
+    |> first()?
   assert memory.kind == "full"
   assert memory.total_us == 4
   assert value.issues |> any .field == "pressure.memory.some" and .state == report_model.RangeFailure
@@ -6321,9 +6321,9 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   assert channels |> any .chip_entry_name == "hwmon0"
   assert channels |> any .chip_entry_name == "hwmon1"
   assert channels |> all .chip == "same_chip"
-  let attached = (channels
+  let attached = channels
     |> where .chip_entry_name == "hwmon0"
-    |> first())?
+    |> first()?
   assert attached.parent_pci_function_index == 0
   let sensitive = model.encode_report_json(snapshot, true, false)?
   let legacy = json.remove(json.decode(sensitive)?, ["sensors", "channels", 0, "chip_entry_name"])?
@@ -6337,9 +6337,9 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
 """,
   )?
   let with_unfamiliar_name = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
-  let unfamiliar = (with_unfamiliar_name.sensors.channels
+  let unfamiliar = with_unfamiliar_name.sensors.channels
     |> where .channel == "inputfoo"
-    |> first())?
+    |> first()?
   assert unfamiliar.kind == "unknown"
   assert unfamiliar.unit == "raw"
 }
@@ -6484,17 +6484,17 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
   assert no_thermal.sensors.thermal_zones == []
   assert no_thermal.sensors.status.state == report_model.Complete
   assert no_thermal.sensors.channels.len() == 2
-  let temperature = (no_thermal.sensors.channels
+  let temperature = no_thermal.sensors.channels
     |> where .channel == "temp1"
-    |> first())?
+    |> first()?
   assert temperature.value == 42000
   assert temperature.unit == "millidegrees_celsius"
   assert temperature.label.value == "CPU Package"
   assert temperature.maximum == 100000
   assert temperature.alarm == false
-  let unknown = (no_thermal.sensors.channels
+  let unknown = no_thermal.sensors.channels
     |> where .channel == "mystery0"
-    |> first())?
+    |> first()?
   assert unknown.kind == "unknown"
   assert unknown.value == 17
   assert unknown.unit == "raw"
@@ -6568,29 +6568,29 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
   assert power.power.supplies[0].current_now_ua == -250000
   assert power.power.supplies[0].energy_now_uwh == null
   assert power.power.cap_zones.len() == 2
-  let package_zone = (power.power.cap_zones
+  let package_zone = power.power.cap_zones
     |> where .name == "package-0"
-    |> first())?
+    |> first()?
   assert package_zone.entry_name == "intel-rapl:0"
   assert package_zone.parent == null
   assert package_zone.energy_uj == 123456
   assert package_zone.constraints.len() == 4
   assert (package_zone.constraints |> map .index) == [0, 1, 2, 10]
-  let long_term = (package_zone.constraints
+  let long_term = package_zone.constraints
     |> where .index == 0
-    |> first())?
+    |> first()?
   assert long_term.name == "long_term"
   assert long_term.power_limit_uw == 45000000
   assert long_term.time_window_us == 1000000
-  let short_term = (package_zone.constraints
+  let short_term = package_zone.constraints
     |> where .index == 1
-    |> first())?
+    |> first()?
   assert short_term.name == "short_term"
   assert short_term.power_limit_uw == 65000000
   assert short_term.time_window_us == 250000
-  let core_zone = (power.power.cap_zones
+  let core_zone = power.power.cap_zones
     |> where .name == "core-0"
-    |> first())?
+    |> first()?
   assert core_zone.entry_name == "intel-rapl:0:0"
   assert core_zone.parent == "intel-rapl:0"
 }
@@ -7027,21 +7027,21 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  let memory_limit = (value.memory.cgroup
+  let memory_limit = value.memory.cgroup
     |> where .resource == "memory.max"
-    |> first())?
+    |> first()?
   assert memory_limit.maximum_value == 1048576
   assert memory_limit.current_value == null
   assert memory_limit.state == report_model.Truncated
-  let swap_limit = (value.memory.cgroup
+  let swap_limit = value.memory.cgroup
     |> where .resource == "memory.swap.max"
-    |> first())?
+    |> first()?
   assert swap_limit.maximum_value == null
   assert swap_limit.current_value == 65536
   assert swap_limit.state == report_model.Malformed
-  let pids_limit = (value.memory.cgroup
+  let pids_limit = value.memory.cgroup
     |> where .resource == "pids.max"
-    |> first())?
+    |> first()?
   assert pids_limit.maximum_value == null
   assert pids_limit.current_value == 8
   assert pids_limit.state == report_model.RangeFailure
@@ -7098,9 +7098,9 @@ ${cpuset_padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  let cpu_limit = (value.memory.cgroup
+  let cpu_limit = value.memory.cgroup
     |> where .resource == "cpu.max"
-    |> first())?
+    |> first()?
   assert cpu_limit.quota == 50000
   assert cpu_limit.period == 100000
   assert value.memory.cgroup |> any .resource == "cpu.stat.user_usec" and .current_value == 3
@@ -7230,9 +7230,9 @@ test test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  let memory_limit = (value.memory.cgroup
+  let memory_limit = value.memory.cgroup
     |> where .resource == "memory.max"
-    |> first())?
+    |> first()?
   assert memory_limit.maximum_value == 1048576
   assert memory_limit.current_value == 512
   assert value.issues |> any .field == "cgroup.v1" and .state == report_model.Unsupported
@@ -7622,9 +7622,9 @@ test test_system_report_collects_swap_limit_without_memory_limit_files {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  let swap_limit = (value.memory.cgroup
+  let swap_limit = value.memory.cgroup
     |> where .resource == "memory.swap.max"
-    |> first())?
+    |> first()?
   assert swap_limit.maximum_value == 262144
   assert swap_limit.current_value == 65536
 }
@@ -7658,9 +7658,9 @@ test test_system_report_smbios_parser_preserves_records_and_reports_bad_string_i
   root.write(p"sys/firmware/dmi/tables/DMI", bad_index)?
   let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "firmware", true)?
   assert collected.firmware.status.state == report_model.Partial
-  let parser_issue = (collected.issues
+  let parser_issue = collected.issues
     |> where .field == "smbios.issue.0"
-    |> first())?
+    |> first()?
   assert parser_issue.detail.value != null
 }
 
@@ -7690,9 +7690,9 @@ test test_system_report_smbios_type16_reads_device_count_from_short_form {
   assert parsed.issues == []
   assert parsed.records.len() == 2
   assert parsed.records[0].formatted_length == 15
-  let count = (parsed.records[0].fields
+  let count = parsed.records[0].fields
     |> where .name == "number_of_devices"
-    |> first())?
+    |> first()?
   assert count.value == 2
   assert count.unit == "count"
 }
@@ -7711,9 +7711,9 @@ test test_system_report_smbios_sentinel_size_requires_complete_formatted_field {
   let short_record = collector.parse_smbios_table(short_table)?
   assert short_record.issues == []
   assert short_record.records.len() == 2
-  assert (short_record.records[0].fields
+  assert short_record.records[0].fields
     |> where .name == "size_raw"
-    |> first())?.value == 32767
+    |> first()?.value == 32767
   assert (short_record.records[0].fields |> where .name == "extended_size_raw").len() == 0
 
   let complete_table = bytes.concat(
@@ -7727,7 +7727,7 @@ test test_system_report_smbios_sentinel_size_requires_complete_formatted_field {
   )
   let complete_record = collector.parse_smbios_table(complete_table)?
   assert complete_record.issues == []
-  assert (complete_record.records[0].fields
+  assert complete_record.records[0].fields
     |> where .name == "extended_size_raw"
-    |> first())?.value == 65536
+    |> first()?.value == 65536
 }

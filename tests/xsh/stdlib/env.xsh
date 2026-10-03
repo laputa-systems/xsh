@@ -117,23 +117,23 @@ test test_env_int_parses_the_baseline_grammar {
     XSH_ENV_INT_MIN: "-9223372036854775808",
     XSH_ENV_INT_MIN_ZEROED: "-0009223372036854775808",
   }) {
-    assert (env.int("XSH_ENV_INT_ZERO")?) == (0)
-    assert (env.int("XSH_ENV_INT_PLAIN")?) == (42)
-    assert (env.int("XSH_ENV_INT_SPACED")?) == (42)
-    assert (env.int("XSH_ENV_INT_TABBED")?) == (7)
-    assert (env.int("XSH_ENV_INT_NBSP")?) == (42)
-    assert (env.int("XSH_ENV_INT_PLUS")?) == (42)
-    assert (env.int("XSH_ENV_INT_MINUS")?) == (-42)
-    assert (env.int("XSH_ENV_INT_PADDED")?) == (-42)
-    assert (env.int("XSH_ENV_INT_ZEROED")?) == (7)
-    assert (env.int("XSH_ENV_INT_MANY_ZEROS")?) == (42)
-    assert (env.int("XSH_ENV_INT_MAX")?) == (9223372036854775807)
-    assert (env.int("XSH_ENV_INT_MAX_ZEROED")?) == (9223372036854775807)
+    assert env.int("XSH_ENV_INT_ZERO")? == 0
+    assert env.int("XSH_ENV_INT_PLAIN")? == 42
+    assert env.int("XSH_ENV_INT_SPACED")? == 42
+    assert env.int("XSH_ENV_INT_TABBED")? == 7
+    assert env.int("XSH_ENV_INT_NBSP")? == 42
+    assert env.int("XSH_ENV_INT_PLUS")? == 42
+    assert env.int("XSH_ENV_INT_MINUS")? == -42
+    assert env.int("XSH_ENV_INT_PADDED")? == -42
+    assert env.int("XSH_ENV_INT_ZEROED")? == 7
+    assert env.int("XSH_ENV_INT_MANY_ZEROS")? == 42
+    assert env.int("XSH_ENV_INT_MAX")? == 9223372036854775807
+    assert env.int("XSH_ENV_INT_MAX_ZEROED")? == 9223372036854775807
 
     # The negative bound cannot be written as a literal: the indexed IR rejects
     # the `-9223372036854775808` spelling, so it is built from its neighbour.
-    assert env.int("XSH_ENV_INT_MIN")? == (-9223372036854775807 - 1)
-    assert env.int("XSH_ENV_INT_MIN_ZEROED")? == (-9223372036854775807 - 1)
+    assert env.int("XSH_ENV_INT_MIN")? == -9223372036854775807 - 1
+    assert env.int("XSH_ENV_INT_MIN_ZEROED")? == -9223372036854775807 - 1
 
     # An unset name is the only case that yields the fallback.
     assert env.int("XSH_ENV_INT_ABSENT")? == 0

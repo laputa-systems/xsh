@@ -4373,7 +4373,7 @@ fn dynamic_boundary_record_facts_agree_across_checked_representations() {
 
 #[test]
 fn yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts() {
-    let source = "stream lines(file: Path) [fs, error] -> Stream[Str] { yield @(file.lines()?); yield @[\"last\"] }\nstream batches() [] -> Stream[List[Int]] { yield @[[], [1]] }\n";
+    let source = "stream lines(file: Path) [fs, error] -> Stream[Str] { yield @file.lines()?; yield @[\"last\"] }\nstream batches() [] -> Stream[List[Int]] { yield @[[], [1]] }\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);

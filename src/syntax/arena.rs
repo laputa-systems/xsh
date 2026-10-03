@@ -493,6 +493,9 @@ pub struct ArenaProgram {
     /// A file loaded as a module keeps the same nominal identities as a static import.
     pub root_nominal_namespace: Option<Name>,
     pub docs: ArenaDocComments,
+    /// Each source parenthesized expression with the span of its parentheses,
+    /// innermost first. Only `grouping::grouping_diagnostics` reads it.
+    pub paren_groups: Vec<(ExprId, Span)>,
     symbols: crate::symbol::SymbolOwner,
 }
 
@@ -781,6 +784,7 @@ fn doc_comment_blocks(
 pub struct ArenaProgramBuilder<'a> {
     lowerer: ArenaLowerer<'a>,
     symbols: crate::symbol::SymbolOwner,
+    paren_groups: Vec<(ExprId, Span)>,
     statements: Vec<StmtId>,
     block_statements: Vec<StmtId>,
     block_statement_starts: Vec<usize>,
@@ -840,6 +844,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         Self {
             lowerer,
             symbols,
+            paren_groups: Vec::new(),
             statements: Vec::with_capacity(tokens / 16 + 1),
             block_statements: Vec::with_capacity(tokens / 12 + 1),
             block_statement_starts: Vec::new(),
@@ -900,6 +905,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         Self {
             lowerer,
             symbols,
+            paren_groups: Vec::new(),
             statements: Vec::with_capacity(tokens / 16 + 1),
             block_statements: Vec::with_capacity(tokens / 12 + 1),
             block_statement_starts: Vec::new(),
@@ -2094,10 +2100,14 @@ impl<'a> ArenaProgramBuilder<'a> {
             stmt_spans: self.lowerer.arena.stmt_spans.len(),
             type_expr_spans: self.lowerer.arena.type_expr_spans.len(),
             text_data: self.lowerer.arena.text_data.len(),
+            paren_groups: self.paren_groups.len(),
         }
     }
 
     pub fn shift_spans_since(&mut self, marks: ArenaSpanMarks, offset: usize) {
+        for (_, span) in &mut self.paren_groups[marks.paren_groups..] {
+            *span = Span::new(span.source_id, span.start() + offset, span.end() + offset);
+        }
         let offset = offset as u32;
         self.lowerer
             .arena
@@ -3195,6 +3205,11 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_expr_kind(ArenaExprKind::Require { value, schema: schema.into() }, span)
     }
 
+    /// Records that `expr` was written inside the parentheses spanning `span`.
+    pub fn record_paren_group(&mut self, expr: ExprId, span: Span) {
+        self.paren_groups.push((expr, span));
+    }
+
     pub fn finish(mut self) -> ArenaProgram {
         let statements = self.lowerer.lower_stmt_id_range(&self.statements);
         let source = self.lowerer.source;
@@ -3204,6 +3219,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             modules: self.modules,
             root_nominal_namespace: None,
             docs: self.docs,
+            paren_groups: self.paren_groups,
             symbols: self.symbols,
         };
         if program.docs.module.is_none()
@@ -3223,6 +3239,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             modules: self.modules,
             root_nominal_namespace: None,
             docs: self.docs,
+            paren_groups: self.paren_groups,
             symbols: self.symbols,
         };
         if program.docs.module.is_none()
@@ -5498,6 +5515,7 @@ pub struct ArenaSpanMarks {
     stmt_spans: usize,
     type_expr_spans: usize,
     text_data: usize,
+    paren_groups: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

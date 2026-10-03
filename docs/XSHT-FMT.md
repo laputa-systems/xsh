@@ -45,8 +45,11 @@ contract stays in `docs/SPEC.md`.
 - Output reparses to the input's syntax tree, ignoring positions.
   `verify_formatted_output` compares canonical walks and returns a
   `format-equivalence` error instead of writing, for both `fmt` and
-  `lint --fix`. Groupings the AST drops are restored where the parser needs
-  them.
+  `lint --fix`.
+- Output has exactly the parentheses `syntax::grouping::needs_parens` requires,
+  the same rule `check.redundant-parens` enforces on source, and adjacent
+  tokens are joined through `lexer::join_tokens`. `format_proofs` checks the
+  rule over every slot and expression form and over generated trees.
 - Formatting is idempotent.
 - Comments are never duplicated or dropped; `fmt: skip` source is preserved.
 - Expression continuations never become separate statements.

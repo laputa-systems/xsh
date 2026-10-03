@@ -118,18 +118,20 @@ shorthand or punning.
 
 ### 2.5 Statement terminators and line continuation
 
-A newline or `;` ends a statement. A newline continues the current expression
-only when the next line begins with a token that cannot start an expression:
+A newline or `;` ends a statement. An expression continues onto a following
+line, after any blank or comment lines, only when that line begins with one of
+these tokens, none of which can begin a statement:
 
 ```text
-|>  and  or  *  /  %  ==  !=  <  <=  >  >=  in  not in  ??  .
+.name  |>  ??  or  and  ==  !=  <  <=  >  >=  in  not in  +  *  %
 ```
 
-The final `.` means a line that begins with a method call or field access. A
-line beginning with `-` starts a new statement, because `-x` is a valid
-expression. A line that ends with a binary operator, or inside an open
-bracket, always continues; so to split around `+` or `-`, leave the operator at
-the end of the first line.
+So a line never silently extends the previous one: a line beginning with `-`
+(negation), `/` (an absolute path), `is`, `./`, or `../` starts a new
+statement. Inside an item expression, which cannot begin such a line, `.name`
+is always postfix. A line that ends with a binary operator or `is`, or inside
+an open bracket, also continues; so to split around `-` or `/`, leave the
+operator at the end of the first line.
 
 ```xsh
 let files = fs.files(p"src")?
@@ -683,14 +685,26 @@ intended meaning at a glance:
 
 - ordering or membership mixed with equality or `is`: write
   `(a < b) == expected`;
-- `and` mixed with `or`: write `(a and b) or c`;
-- `??` mixed with `and` or `or`: write `(flag ?? false) and ready`.
+- `and` mixed with `or`, or `??` mixed with `and` or `or`
+  (`check.mixed-logical`): write `(a and b) or c` or
+  `(flag ?? false) and ready`. Chains of one operator, such as
+  `a and b and c`, need no grouping.
 
-Parentheses that change nothing are errors (`parse.redundant-parens`).
-Parentheses are meaningful when they override precedence, provide a required
-grouping above, form a typed command argument `(expr)` or splice `@(expr)`,
-mark a value block `{ (value) }`, group a run-valued payload
-(`return (run.status make) when ready`), or group pattern alternatives.
+Parentheses are legal only where removing them would change the parse or break
+one of these grouping rules (`check.redundant-parens`, whose fix removes
+them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
+`(x?).name` (otherwise `?.`), `(-x).abs()`, a command form followed by more of
+its expression (`(run cat file).len()`), a statement that would otherwise start
+with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
+assignment value that starts with `run`, a pipeline before an operator or
+suffix it would take into its last stage, typed command arguments `(expr)`,
+splices `@(expr)`, and grouped pattern alternatives. `xsht fmt` writes exactly
+these parentheses.
+
+A `match` statement arm body that starts with `{` is the arm's block unless the
+brace opens a record whose first field is written out (`name:`, `"key":`,
+`[key]:`, or `...spread`): `=> {a: 1}` is a record, while `=> ({x})` and
+`=> ({})` need their parentheses.
 
 Ordering operators chain: `0 <= offset < limit` compares adjacent pairs left
 to right, evaluates each reached operand once, and stops at the first false

@@ -103,7 +103,7 @@ let result = value is Int < true
 test test_comparison_chain_skips_failing_last_operand { |ctx|
   let result = test.run_script(
     ctx,
-    r"""let result = 2 < 1 < (1 / 0)
+    r"""let result = 2 < 1 < 1 / 0
 print f"${result}"
 """,
   )?
@@ -112,7 +112,7 @@ print f"${result}"
 """
   let reached = test.run_script(
     ctx,
-    """let result = 0 < 1 < (1 / 0)
+    """let result = 0 < 1 < 1 / 0
 """,
   )?
   assert ! reached.success, reached.stderr
@@ -126,7 +126,7 @@ test test_comparison_chain_assertion_reports_reached_failed_pair { |ctx|
   print f"${n}"
   return n
 }
-assert observed(1) < observed(2) < observed(1) < (1 / 0)
+assert observed(1) < observed(2) < observed(1) < 1 / 0
 """,
   )?
   assert ! failed.success, failed.stderr

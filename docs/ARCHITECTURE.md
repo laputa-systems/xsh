@@ -198,8 +198,9 @@ then runs `xsht check` on the snippets and `xsht test` in the project.
 4. Lower it in `src/runtime/eval/lower.rs` from those facts. Add instruction
    tags and verifier rules in `src/runtime/eval/indexed/full.rs`; execute in
    `src/runtime/eval/lowered_run/indexed_run.rs` or the focused runtime owner.
-5. Format it in `crates/xsht/src/format.rs` (for a stream stage, set
-   `StreamStageKind::canonical_parens_when_empty`) and extend
+5. Format it in `crates/xsht/src/format.rs`, give its operands contexts in
+   `src/syntax/grouping.rs` (`child_context`, `needs_parens`, shared by the
+   printer and `check.redundant-parens`), and extend
    `crates/xsht/src/format_equivalence.rs` if the canonical walk needs it.
 6. There is no generic AST visitor. Update every arena/CST consumer that owns
    behavior for the surface, typically `crates/xsht/src/lint.rs`,

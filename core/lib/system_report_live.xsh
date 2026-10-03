@@ -261,7 +261,7 @@ pure parse_integer(value: Str?) -> Int? {
   }
 
   let source_text = value.trim()
-  let signed_digits = source_text.starts_with("-") and decimal_identifier((source_text.split("") |> drop(1)).join(""))
+  let signed_digits = source_text.starts_with("-") and decimal_identifier(source_text.split("") |> drop(1).join(""))
   return null when ! decimal_identifier(source_text) and ! signed_digits
 
   if let Ok(parsed) = source_text.parse_int() {
@@ -493,11 +493,11 @@ proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
 
   var relative = ""
   if root_path == "/" {
-    relative = (group_name.split("") |> drop(1)).join("")
+    relative = group_name.split("") |> drop(1).join("")
   } else if group_name == root_path {
     relative = ""
   } else if group_name.starts_with(f"${root_path}/") {
-    relative = (group_name.split("") |> drop(root_path.count_chars() + 1)).join("")
+    relative = group_name.split("") |> drop(root_path.count_chars() + 1).join("")
   }
 
   let mount_relative = (target.split("/") |> where .trim() != "").join("/")
@@ -809,7 +809,7 @@ pure proc_optional_number(raw: Str, positive: Bool = false) -> ProcOptionalNumbe
   }
 
   let number = parsed ?? -1
-  if number < 0 or positive and number == 0 {
+  if number < 0 or (positive and number == 0) {
     return {value: null, issue_state: report.Malformed}
   }
 
@@ -959,9 +959,9 @@ proc collect_storage(
       let parsed_major = parse_integer(dev_parts[0]) ?? -1
       let parsed_minor = parse_integer(dev_parts[1]) ?? -1
       if parsed_major < 0 or parsed_minor < 0 {
-        let out_of_range = parsed_major < 0 and decimal_identifier(dev_parts[0]) or parsed_minor < 0 and decimal_identifier(
+        let out_of_range = (parsed_major < 0 and decimal_identifier(dev_parts[0])) or (parsed_minor < 0 and decimal_identifier(
           dev_parts[1],
-        )
+        ))
         let state = if out_of_range { report.RangeFailure } else { report.Malformed }
         let error_kind = if out_of_range { "device_number_out_of_range" } else { "invalid_device_number" }
         issues = issues.push(issue("storage", f"devices.${name}.major_minor", state, error_kind, null))
@@ -1570,7 +1570,7 @@ pure sensor_kind(channel: Str) -> Str? {
     },
   ] {
     if channel.starts_with(spec.prefix) {
-      let suffix = (channel.split("") |> drop(spec.prefix.count_chars())).join("")
+      let suffix = channel.split("") |> drop(spec.prefix.count_chars()).join("")
       return spec.kind when decimal_identifier(suffix)
     }
   }
@@ -1675,7 +1675,7 @@ proc collect_sensors(
     for attribute in attribute_listing.children {
       let attribute_name = attribute.name()
       continue unless attribute_name.ends_with("_input")
-      let channel_name = (attribute_name.split("") |> take(attribute_name.count_chars() - 6)).join("")
+      let channel_name = attribute_name.split("") |> take(attribute_name.count_chars() - 6).join("")
       let kind = sensor_kind(channel_name)
       let sensor_kind_name = kind ?? "unknown"
       let value = read_value(root, attribute, max_bytes: 4096)
@@ -1746,7 +1746,7 @@ proc collect_sensors(
 
   for zone_path in thermal_listing.children {
     continue unless zone_path.name().starts_with("thermal_zone")
-    let id = parse_integer((zone_path.name().split("") |> drop("thermal_zone".count_chars())).join("")) ?? -1
+    let id = parse_integer(zone_path.name().split("") |> drop("thermal_zone".count_chars()).join("")) ?? -1
     if id < 0 or id > 9007199254740991 or zone_path.name() != f"thermal_zone${id}" {
       issues = issues.push(
         issue("sensors", f"thermal_zones.${zone_path.name()}", report.Malformed, "invalid_thermal_zone_id", null),
@@ -1840,7 +1840,7 @@ proc collect_sensors(
   var state = report.Complete
   if hwmon_listing.state == "absent" and thermal_listing.state == "absent" {
     state = report.SectionAbsent
-  } else if issues.len() > 0 or hwmon_listing.state != "complete" and hwmon_listing.state != "absent" or thermal_listing.state != "complete" and thermal_listing.state != "absent" {
+  } else if issues.len() > 0 or (hwmon_listing.state != "complete" and hwmon_listing.state != "absent") or (thermal_listing.state != "complete" and thermal_listing.state != "absent") {
     state = report.Partial
   }
 
@@ -2396,10 +2396,10 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
       let size = parse_integer(columns[1]) ?? -1
       let users_number = parse_integer(columns[2]) ?? -1
       let users_unavailable = columns[2] == "-"
-      if size < 0 or users_number < 0 and ! users_unavailable {
-        let out_of_range = size < 0 and decimal_identifier(columns[1]) or users_number < 0 and decimal_identifier(
+      if size < 0 or (users_number < 0 and ! users_unavailable) {
+        let out_of_range = (size < 0 and decimal_identifier(columns[1])) or (users_number < 0 and decimal_identifier(
           columns[2],
-        )
+        ))
         let state = if out_of_range { report.RangeFailure } else { report.Malformed }
         let error_kind = if out_of_range { "module_numeric_out_of_range" } else { "invalid_module_numeric_field" }
         issues = issues.push(issue("kernel", f"modules.line.${line_item.index}", state, error_kind, null))
@@ -3159,7 +3159,7 @@ pure usb_parent_name(name: Str, bus_number: Int?) -> Str? {
   let components = name.split(".")
   return f"usb${bus_id}" when components.len() <= 1
 
-  (components |> take(components.len() - 1)).join(".")
+  components |> take(components.len() - 1).join(".")
 }
 
 pure usb_port_path(name: Str) -> Str? {
@@ -3843,7 +3843,7 @@ proc collect_identity(root: FsRoot, base: report.SystemReport) [fs, error] -> re
       let key = pair[0]
       continue when key not in ["ID", "NAME", "PRETTY_NAME", "VERSION", "VERSION_ID"]
       let parsed = collectors.decode_os_release_value(pair[1])
-      if parsed == null or key == "ID" and ! collectors.valid_os_release_id(parsed) {
+      if parsed == null or (key == "ID" and ! collectors.valid_os_release_id(parsed)) {
         issues = issues.push(issue("identity", f"os_release.${key}", report.Malformed, "invalid_value", null))
         if key == "ID" {
           id_issue_recorded = true
@@ -4177,7 +4177,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
     var numa_node: Int? = null
     for node_path in node_listing.children {
       if node_path.name().starts_with("node") {
-        numa_node = parse_integer((node_path.name().split("") |> drop(4)).join(""))
+        numa_node = parse_integer(node_path.name().split("") |> drop(4).join(""))
         break when numa_node != null
       }
     }
@@ -4218,7 +4218,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
 
     for cache_path in cache_listing.children {
       continue unless cache_path.name().starts_with("index")
-      let sysfs_index = parse_integer((cache_path.name().split("") |> drop(5)).join("")) ?? -1
+      let sysfs_index = parse_integer(cache_path.name().split("") |> drop(5).join("")) ?? -1
       if sysfs_index < 0 {
         issues = issues.push(
           issue("cpu", f"${cpu_id}.cache.${cache_path.name()}", report.Malformed, "invalid_cache_index", null),
@@ -5021,9 +5021,9 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
         let size_count = size_kib ?? -1
         let used_count = used_kib ?? -1
         if size_count < 0 or used_count < 0 {
-          let overflow = size_kib == null and decimal_identifier(columns[2]) or used_kib == null and decimal_identifier(
+          let overflow = (size_kib == null and decimal_identifier(columns[2])) or (used_kib == null and decimal_identifier(
             columns[3],
-          )
+          ))
           let state = if overflow { report.RangeFailure } else { report.Malformed }
           let error_kind = if overflow { "swap_counter_out_of_range" } else { "invalid_swap_counter" }
           issues = issues.push(issue("memory", "swaps", state, error_kind, null))
@@ -5106,7 +5106,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
   for node_path in node_listing.children {
     continue unless node_path.name().starts_with("node")
-    let node_suffix = (node_path.name().split("") |> drop(4)).join("")
+    let node_suffix = node_path.name().split("") |> drop(4).join("")
     let node_id = parse_integer(node_suffix) ?? -1
     if node_id < 0 {
       issues = issues.push(issue("memory", f"numa.${node_path.name()}", report.Malformed, "invalid_node_id", null))
@@ -5239,7 +5239,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       let total_us = parse_integer(total_text)
       let total_count = total_us ?? -1
       if total_count < 0 or total_count > 9007199254740991 {
-        let range = total_us == null and decimal_identifier(total_text) or total_count > 9007199254740991
+        let range = (total_us == null and decimal_identifier(total_text)) or total_count > 9007199254740991
         let state = if range { report.RangeFailure } else { report.Malformed }
         issues = issues.push(issue("memory", field, state, "invalid_psi_total", null))
         continue
@@ -5259,7 +5259,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
   var numa: List[report.MemoryCounter] = []
   for node_path in node_listing.children {
     continue unless node_path.name().starts_with("node")
-    let node_id = parse_integer((node_path.name().split("") |> drop(4)).join("")) ?? -1
+    let node_id = parse_integer(node_path.name().split("") |> drop(4).join("")) ?? -1
     continue when node_id < 0
     let numa_source = read_value(root, fp"${node_path}/meminfo", max_bytes: 65536)
     if numa_source.observation.state != report.Observed or numa_source.observation.value == null {
@@ -5373,7 +5373,7 @@ pure parent_relative_path(value: Str) -> Str {
   let components = value.split("/") |> where .trim() != ""
   return "" when components.len() <= 1
 
-  (components |> take(components.len() - 1)).join("/")
+  components |> take(components.len() - 1).join("/")
 }
 
 pure cgroup_observation_state(
@@ -5541,12 +5541,12 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
 
   var relative = ""
   if root_path == "/" {
-    relative = (group_name.split("") |> drop(1)).join("")
+    relative = group_name.split("") |> drop(1).join("")
   } else if group_name == root_path {
     relative = ""
   } else if group_name.starts_with(f"${root_path}/") {
     let prefix_length = root_path.count_chars() + 1
-    relative = (group_name.split("") |> drop(prefix_length)).join("")
+    relative = group_name.split("") |> drop(prefix_length).join("")
   }
 
   let mount_relative = (absolute_mount_point.split("/") |> where .trim() != "").join("/")
@@ -5664,7 +5664,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
             period_number.state ?? report.Malformed
           }
           issues = issues.push(issue("memory", f"cgroup.${hierarchy_level}.cpu.max", state, "invalid_cpu_quota", null))
-        } else if ! unlimited and (quota_number.value ?? -1) <= 0 or (period_number.value ?? -1) <= 0 {
+        } else if (! unlimited and (quota_number.value ?? -1) <= 0) or (period_number.value ?? -1) <= 0 {
           issues = issues.push(
             issue("memory", f"cgroup.${hierarchy_level}.cpu.max", report.Malformed, "invalid_cpu_quota", null),
           )
@@ -6667,8 +6667,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
   var issues = value.issues
   issues = issues.push(unsupported_issue(name, "section"))
   match name {
-    "usb" => ({...value, usb: {status: empty_status(report.SectionUnsupported), devices: []}, issues: issues})
-    "storage" => ({
+    "usb" => {...value, usb: {status: empty_status(report.SectionUnsupported), devices: []}, issues: issues}
+    "storage" => {
       ...value,
       storage: {
         status: empty_status(report.SectionUnsupported),
@@ -6676,8 +6676,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         mounts: [],
       },
       issues: issues,
-    })
-    "network" => ({
+    }
+    "network" => {
       ...value,
       network: {
         status: empty_status(report.SectionUnsupported),
@@ -6686,8 +6686,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         rules: [],
       },
       issues: issues,
-    })
-    "sensors" => ({
+    }
+    "sensors" => {
       ...value,
       sensors: {
         status: empty_status(report.SectionUnsupported),
@@ -6695,8 +6695,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         thermal_zones: [],
       },
       issues: issues,
-    })
-    "power" => ({
+    }
+    "power" => {
       ...value,
       power: {
         status: empty_status(report.SectionUnsupported),
@@ -6704,8 +6704,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         cap_zones: [],
       },
       issues: issues,
-    })
-    "firmware" => ({
+    }
+    "firmware" => {
       ...value,
       firmware: {
         status: empty_status(report.SectionUnsupported),
@@ -6714,8 +6714,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         limitation: empty_text(report.Unsupported),
       },
       issues: issues,
-    })
-    "kernel" => ({
+    }
+    "kernel" => {
       ...value,
       kernel: {
         status: empty_status(report.SectionUnsupported),
@@ -6725,23 +6725,23 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         sysctls: [],
       },
       issues: issues,
-    })
-    "processes" => ({
+    }
+    "processes" => {
       ...value,
       processes: {
         status: empty_status(report.SectionUnsupported),
         processes: [],
       },
       issues: issues,
-    })
-    "devices" => ({
+    }
+    "devices" => {
       ...value,
       devices: {
         status: empty_status(report.SectionUnsupported),
         devices: [],
       },
       issues: issues,
-    })
+    }
     _ => value
   }
 }

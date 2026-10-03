@@ -95,7 +95,7 @@ pure sensors_json_scale(channel: Str) -> Int? {
     },
   ] {
     continue unless channel.starts_with(spec.prefix)
-    let suffix = (channel.split("") |> drop(spec.prefix.count_chars())).join("")
+    let suffix = channel.split("") |> drop(spec.prefix.count_chars()).join("")
     continue when suffix == ""
     var digits = true
     for digit in suffix {
@@ -158,7 +158,7 @@ export pure compare_sensors_json(
 
   for reading in before {
     continue unless reading.subfeature.ends_with("_input")
-    let channel = (reading.subfeature.split("") |> take(reading.subfeature.count_chars() - 6)).join("")
+    let channel = reading.subfeature.split("") |> take(reading.subfeature.count_chars() - 6).join("")
     let scale = sensors_json_scale(channel)
     continue when scale == null
     reference_count += 1

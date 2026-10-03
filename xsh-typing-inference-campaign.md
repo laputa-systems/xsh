@@ -34,7 +34,7 @@ is in git; see `git log -- xsh-typing-inference-campaign.md`.
 2. **Token separation:** an exhaustive token-pair separation table drives the
    printer.
 3. **Parentheses:** one proven `needs_parens` function drives the printer and a
-   new `parse.redundant-parens` error, which has a fix.
+   new `check.redundant-parens` error, which has a fix.
 4. **Grouping:** mixing `and` with `or`, or `??` with either, requires explicit
    grouping.
 5. **Round trip:** a property test generates syntax trees and checks that

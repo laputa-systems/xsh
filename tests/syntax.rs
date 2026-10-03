@@ -1893,7 +1893,7 @@ h2.cancel(signal:"TERM",kill_after:0ms)?
 "#;
     let expected = r#"let h = spawn run --cpumax=80 true ?
 let s = wait h?
-let hs = [spawn run true ?, spawn run false ?]
+let hs = [spawn run true?, spawn run false?]
 let statuses = wait hs?
 let cmd = process.command {
   cpu_max = 80
@@ -2959,6 +2959,93 @@ fn parser_continues_binary_op_with_leading_operator_on_next_line() {
     }));
 }
 
+/// A line break never silently joins two statements: no spelling that
+/// continues an expression onto the next line can also begin a statement.
+/// Both sets come from running the parser over a spelling of every token
+/// kind, not from a list kept beside it.
+#[test]
+fn line_continuation_tokens_cannot_begin_a_statement() {
+    use xsh::frontend::syntax::lexer::representative_token_texts;
+    let mut candidates: Vec<String> = representative_token_texts()
+        .into_iter()
+        .filter(|(tag, _)| !matches!(tag, TokenTag::Newline | TokenTag::Comment))
+        .map(|(_, text)| text)
+        .collect();
+    // Two-token operator and the contextual pattern-test word.
+    candidates.extend(["not in".to_string(), "is".to_string()]);
+    let starts_at_zero = |diagnostic: &xsh::diagnostic::Diagnostic| {
+        diagnostic.span.or(diagnostic.labels.first().map(|label| label.span)).is_some_and(|span| span.start() == 0)
+    };
+    let mut continuing = Vec::new();
+    let mut overlap = Vec::new();
+    for text in &candidates {
+        let source = format!("f()\n{text} x\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        let first_end = parsed.arena.statement_ids().next().map(|id| parsed.arena.arena.stmt(id).span.end());
+        if !first_end.is_some_and(|end| end > "f()\n".len()) {
+            continue;
+        }
+        continuing.push(text.clone());
+        let source = format!("{text} x\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        if !parsed.diagnostics.iter().any(starts_at_zero) {
+            overlap.push(text.clone());
+        }
+    }
+    continuing.sort();
+    let mut documented: Vec<String> = ["!=", "%", "*", "+", ".", "<", "<=", "==", ">", ">=", "??", "and", "in", "not in", "or", "|>"]
+        .map(str::to_string)
+        .to_vec();
+    documented.sort();
+    assert_eq!(continuing, documented, "continuation set differs from docs/SPEC.md");
+    // An item expression `.name` cannot begin a line after an expression; the
+    // line is always postfix (docs/SPEC.md).
+    assert_eq!(overlap, ["."], "continuation tokens that also begin a statement");
+}
+
+/// The printer joins adjacent tokens with `lexer::join_tokens`, which adds a
+/// space only where the lexer would merge them. Every ordered pair of token
+/// spellings, covering every token kind, lexes back to the same tokens.
+#[test]
+fn joined_token_pairs_lex_back_to_the_same_tokens() {
+    use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, representative_token_texts};
+    let representatives = representative_token_texts();
+    for tag in TokenTag::ALL.into_iter().filter(|tag| *tag != TokenTag::Eof) {
+        assert!(representatives.iter().any(|(kind, _)| *kind == tag), "no spelling for {tag:?}");
+    }
+    for (tag, text) in &representatives {
+        assert_eq!(lex_spellings(text), [(*tag, text.as_str())], "{text:?}");
+    }
+    // A comment runs to the end of the line, so nothing is joined after one.
+    let texts: Vec<&str> = representatives
+        .iter()
+        .filter(|(tag, _)| !matches!(tag, TokenTag::Comment | TokenTag::Newline))
+        .map(|(_, text)| text.as_str())
+        .collect();
+    let mut spaced = 0;
+    for left in &texts {
+        for right in &texts {
+            let joined = join_tokens(left, right);
+            let mut expected = lex_spellings(left);
+            expected.extend(lex_spellings(right));
+            assert_eq!(lex_spellings(&joined), expected, "{left:?} then {right:?} joined as {joined:?}");
+            spaced += usize::from(joined.len() > left.len() + right.len());
+        }
+    }
+    assert_eq!(texts.len(), 148);
+    assert_eq!(spaced, 11078, "pairs that need a space");
+}
+
+#[test]
+fn line_starting_with_a_statement_token_starts_a_new_statement() {
+    for line in ["-1", "/tmp/x", "./x", "is_ok(1)"] {
+        let source = format!("let value = 1\n{line}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{line}: {:?}", parsed.diagnostics);
+        assert_eq!(parsed.arena.statement_ids().count(), 2, "{line}");
+    }
+}
+
 #[test]
 fn parser_continues_binary_op_with_trailing_operator_on_previous_line() {
     let source = "let x = 1 +\n2\n";
@@ -3707,7 +3794,7 @@ fn try_capture_parser_formatter_preserves_value_body_and_result_tail() {
 
 #[test]
 fn parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting() {
-    let source = "pure render(prefix: Str, value: Str) -> Str { prefix + value }\nlet rendered = \"é\" |> render(\"[\", value: (_))\n";
+    let source = "pure render(prefix: Str, value: Str) -> Str { prefix + value }\nlet rendered = \"é\" |> render(\"[\", value: _)\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let value = root_let_init_expr(&parsed, 1);

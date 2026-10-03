@@ -62,8 +62,21 @@ impl CanonicalWriter<'_> {
         self.out.push_str(text);
     }
 
+    /// Interned symbol ids are reused once their owner drops, so names are
+    /// written by spelling to compare trees from separate parses.
     fn debug(&mut self, value: &impl std::fmt::Debug) {
-        let _ = write!(self.out, "{value:?};");
+        let text = format!("{value:?};");
+        let mut rest = text.as_str();
+        while let Some(at) = rest.find("Symbol(") {
+            let digits = &rest[at + 7..];
+            let end = digits.find(')').unwrap_or(0);
+            let Ok(raw) = digits[..end].parse::<u32>() else { break };
+            self.out.push_str(&rest[..at]);
+            let name = xsh::frontend::symbols::Name::from_symbol(xsh::frontend::symbols::Symbol::from_raw(raw));
+            let _ = write!(self.out, "{:?}", name.as_str().as_str());
+            rest = &digits[end + 1..];
+        }
+        self.out.push_str(rest);
     }
 
     fn mark(&mut self, offset: usize) {

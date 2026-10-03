@@ -63,11 +63,11 @@ proc witness() [error] {
   let named = match 1 { _ => {field: 10} }
   let quoted = match 1 { _ => {"run": 11} }
   let keyword = match 1 { _ => {run: 12} }
-  assert (empty) == ({})
-  assert (shorthand.field) == (9)
-  assert (named.field) == (10)
-  assert (quoted["run"]) == (11)
-  assert (keyword.run) == (12)
+  assert empty == {}
+  assert shorthand.field == 9
+  assert named.field == 10
+  assert quoted["run"] == 11
+  assert keyword.run == 12
 }
 witness()
 """,
@@ -456,7 +456,7 @@ print "unreachable"
   )?
   assert output.status == 3
   assert "WorkerError.failed" in output.stderr
-  assert ("return-outside-function" in output.stderr) == false
+  assert "return-outside-function" in output.stderr == false
   assert output.stdout == ""
 }
 

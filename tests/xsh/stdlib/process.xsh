@@ -407,9 +407,9 @@ test test_bytes_stdin_redirection_is_exact_and_explicit {
   let payload = b"a\0\xff\n"
   let echoed = run.bytes cat < $payload ?
   assert echoed == payload
-  assert (run.bytes cat < b"" ?) == b""
+  assert (run.bytes cat < b"")? == b""
   let text = "text without a newline"
-  assert (run.text cat < bytes.from_text(text) ?) == text
+  assert (run.text cat < bytes.from_text(text))? == text
 }
 
 test test_bytes_stdin_rejects_invalid_targets_and_sources { |ctx|
@@ -441,7 +441,7 @@ test test_bytes_stdin_path_strings_and_once_only_expression { |ctx|
   let input = fp"${root}/input"
   input.write("file content")?
   let file_name = input.display()
-  assert (run.text cat < $file_name?) == "file content"
+  assert run.text cat < $file_name? == "file content"
   let result = test.run_script(
     ctx,
     r"""proc payload() [io] -> Bytes {print preparing; return b"content"}

@@ -8,7 +8,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_nested_container { |ctx|
@@ -21,7 +21,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_optional { |ctx|
@@ -34,7 +34,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_erased_record { |ctx|
@@ -48,7 +48,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_exact_empty_record { |ctx|
@@ -61,7 +61,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.type-mismatch" in output.stderr) == true
+  assert "check.type-mismatch" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_host_data_without_validation { |ctx|
@@ -74,7 +74,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unknown_known_record_field { |ctx|
@@ -87,7 +87,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.unknown-field" in output.stderr) == true
+  assert "check.unknown-field" in output.stderr == true
 }
 
 test test_dynamic_boundary_keeps_explicit_validation { |ctx|
@@ -142,7 +142,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_erased_callable_result { |ctx|
@@ -156,7 +156,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check." in output.stderr) == true
+  assert "check." in output.stderr == true
 }
 
 test test_dynamic_boundary_keeps_container_contract_invariant { |ctx|
@@ -169,7 +169,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check." in output.stderr) == true
+  assert "check." in output.stderr == true
 }
 
 test test_dynamic_boundary_keeps_type_pattern_proof { |ctx|
@@ -227,9 +227,9 @@ test test_dynamic_boundary_agrees_across_runner_preparation { |ctx|
   assert in_process.stdout == ""
   assert product.stdout == ""
   assert traced.stdout == ""
-  assert ("check.dynamic-boundary" in in_process.stderr) == true
-  assert ("check.dynamic-boundary" in product.stderr) == true
-  assert ("check.dynamic-boundary" in traced.stderr) == true
+  assert "check.dynamic-boundary" in in_process.stderr == true
+  assert "check.dynamic-boundary" in product.stderr == true
+  assert "check.dynamic-boundary" in traced.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_dynamic_module { |ctx|
@@ -242,7 +242,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_keeps_explicit_dynamic_get { |ctx|
@@ -285,7 +285,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_mutable_rebinding { |ctx|
@@ -299,7 +299,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_parameter { |ctx|
@@ -313,7 +313,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_return { |ctx|
@@ -325,7 +325,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_map_values { |ctx|
@@ -338,7 +338,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_keeps_dynamic_membership_comparison { |ctx|
@@ -376,7 +376,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.type-mismatch" in output.stderr) == true
+  assert "check.type-mismatch" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_json_adapter_rows { |ctx|
@@ -390,7 +390,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_keeps_contextual_collection_construction { |ctx|
@@ -455,7 +455,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.dynamic-boundary" in output.stderr) == true
+  assert "check.dynamic-boundary" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_known_non_json_value { |ctx|
@@ -468,7 +468,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.json-compatible" in output.stderr) == true
+  assert "check.json-compatible" in output.stderr == true
 }
 
 test test_dynamic_boundary_rejects_unchecked_result_return_payloads { |ctx|
@@ -483,7 +483,7 @@ test test_dynamic_boundary_rejects_unchecked_result_return_payloads { |ctx|
     let output = test.run_xsh(ctx, source)?
     assert output.status == 2
     assert output.stdout == ""
-    assert ("check.dynamic-boundary" in output.stderr) == true
+    assert "check.dynamic-boundary" in output.stderr == true
   }
 }
 
@@ -497,7 +497,7 @@ print reached
   )?
   assert output.status == 2
   assert output.stdout == ""
-  assert ("check.require-target" in output.stderr) == true
+  assert "check.require-target" in output.stderr == true
 }
 
 test test_dynamic_boundary_keeps_nominal_error_in_contextual_success { |ctx|
