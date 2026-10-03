@@ -1955,6 +1955,56 @@ fn value_pipeline_hole_lint_cli_converges_without_changing_execution() {
     assert_eq!(before.stdout, after.stdout);
 }
 
+fn processes_with_marker(marker: &str) -> Vec<String> {
+    let listing = Command::new("ps").args(["-A", "-o", "pid=,args="]).output().expect("list processes");
+    String::from_utf8_lossy(&listing.stdout).lines().filter(|line| line.contains(marker)).map(str::to_owned).collect()
+}
+
+#[test]
+fn test_runner_cancellation_stops_run_script_descendants() {
+    for signal in [libc::SIGTERM, libc::SIGINT] {
+        let root = TempDir::new().expect("temporary descendant fixture");
+        let marker = format!("xsht-descendant-{}-{signal}", std::process::id());
+        fs::create_dir(root.path().join("tests")).expect("create test root");
+        fs::write(root.path().join("tests/spawn.xsh"), format!("\
+test spawns_descendants {{ |ctx|
+  let output = test.run_script(ctx, \"\"\"
+run sh -c \"sleep 300; : {marker}-grandchild\"
+\"\"\", [\"{marker}-child\"])?
+  output.success
+}}
+")).expect("write descendant fixture");
+        let mut runner = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .args(["test", "--jobs", "1"])
+            .current_dir(root.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("start xsht test");
+        let started = std::time::Instant::now();
+        loop {
+            let found = processes_with_marker(&marker);
+            if found.iter().any(|line| line.contains("-child")) && found.iter().any(|line| line.contains("-grandchild")) {
+                break;
+            }
+            if started.elapsed() > std::time::Duration::from_secs(120) || runner.try_wait().expect("poll runner").is_some() {
+                let _ = runner.kill();
+                panic!("descendants never started: {found:?}");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(unsafe { libc::kill(runner.id() as libc::pid_t, signal) }, 0);
+        let status = runner.wait().expect("wait for runner");
+        assert_eq!(std::os::unix::process::ExitStatusExt::signal(&status), None, "{status:?}");
+        assert_eq!(status.code(), Some(128 + signal));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !processes_with_marker(&marker).is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(processes_with_marker(&marker), Vec::<String>::new());
+    }
+}
+
 #[test]
 fn native_test_declaration_discovery_preserves_names_and_runs_each_once() {
     let root = TempDir::new().expect("temporary native declaration fixture");
