@@ -727,7 +727,7 @@ fn lint_fix_applies_an_imported_module_edit_once() {
     );
     assert_eq!(
         fs::read_to_string(root.path().join("helper.xsh")).expect("read fixed helper"),
-        "##! Helper module.\n## Exports a value.\nexport let value = 1\n"
+        "##! Helper module.\n## Exports a value.\nexport const value = 1\n"
     );
 }
 
