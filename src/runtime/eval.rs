@@ -2882,16 +2882,8 @@ pub struct Evaluator {
     interactive_command_dispatcher: Option<InteractiveCommandDispatcher>,
     last_status: Option<ProcessStatus>,
     trace_enabled: bool,
-    // The slot a `var`/assignment statement is about to overwrite, visible only
-    // to that statement's outermost expression: a method call on the slot can
-    // then consume the value instead of copying it. Cleared for nested
-    // expressions, whose arguments and operands may still read the old value.
-    consuming_receiver: Option<usize>,
     pending_value_block_flow: Option<StmtFlow>,
     cleanup_error_contexts: Vec<ErrorContext>,
-    // Synchronous context bodies record their lexical locals separately from
-    // outer slots, so dynamic resource assignments obey the same escape rule.
-    recursive_context_slots: Vec<(usize, FxHashSet<usize>)>,
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
@@ -3124,10 +3116,8 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
-            consuming_receiver: None,
             pending_value_block_flow: None,
             cleanup_error_contexts: Vec::new(),
-            recursive_context_slots: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -3297,10 +3287,8 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
-            consuming_receiver: None,
             pending_value_block_flow: None,
             cleanup_error_contexts: Vec::new(),
-            recursive_context_slots: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -5354,8 +5342,20 @@ impl Evaluator {
             .expect("owned host scope has a parent")
     }
 
+    /// Most scopes own no host handles: those leave without building and
+    /// dropping a cleanup result.
+    #[inline]
     pub(super) fn exit_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
         debug_assert_eq!(self.current_scope_id(), scope_id);
+        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+            self.scope_ids.pop();
+            return Ok(());
+        }
+        self.cleanup_owned_host_scope(scope_id)
+    }
+
+    #[inline(never)]
+    fn cleanup_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
         let cleanup = self.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit)));
         let popped = self.scope_ids.pop();
         debug_assert_eq!(popped, Some(scope_id));
