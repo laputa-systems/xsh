@@ -324,7 +324,7 @@ mod tests {
     /// cannot escape every test. Each source is prepared the way the runtime
     /// will see it — parsed as an internal implementation module, never as a
     /// user entry — and then run through the full production gate: check
-    /// declarations, probe bodies, lower, and verify the whole store.
+    /// declarations and bodies, lower, and verify the whole store.
     #[test]
     fn every_catalog_module_parses_checks_and_lowers() {
         for module in CATALOG {
@@ -346,14 +346,6 @@ mod tests {
                     module.label,
                     declarations.diagnostics
                 );
-                let bodies =
-                    crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
-                assert!(
-                    bodies.diagnostics.is_empty(),
-                    "{}: {:?}",
-                    module.label,
-                    bodies.diagnostics
-                );
                 let text = sources
                     .get(crate::source::SourceId::new(0))
                     .map(|source| source.text().to_string())
@@ -361,7 +353,6 @@ mod tests {
                 crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
                     &parsed.arena,
                     &declarations,
-                    &bodies,
                     &text,
                     std::sync::Arc::new(sources),
                     crate::source::SourceId::new(0),
@@ -438,7 +429,6 @@ mod tests {
         let mut phases = [
             ("parse", Duration::ZERO),
             ("declarations", Duration::ZERO),
-            ("bodies", Duration::ZERO),
             ("lower+verify", Duration::ZERO),
         ];
         for identity in ["hash", "tui", "json"] {
@@ -455,12 +445,6 @@ mod tests {
                     let declarations =
                         crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
                     phases[1].1 += start.elapsed();
-                    let start = Instant::now();
-                    let bodies = crate::sema::check::Checker::probe_compact_bodies(
-                        &parsed.arena,
-                        &declarations,
-                    );
-                    phases[2].1 += start.elapsed();
                     let text = sources
                         .get(crate::source::SourceId::new(0))
                         .map(|source| source.text().to_string())
@@ -469,13 +453,12 @@ mod tests {
                     crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
                         &parsed.arena,
                         &declarations,
-                        &bodies,
                         &text,
                         std::sync::Arc::new(sources),
                         crate::source::SourceId::new(0),
                     )
                     .expect("lowering");
-                    phases[3].1 += start.elapsed();
+                    phases[2].1 += start.elapsed();
                 });
             }
             let total: Duration = phases.iter().map(|(_, duration)| *duration).sum();
@@ -500,7 +483,6 @@ mod tests {
         let mut phases = [
             ("load+parse", Duration::ZERO),
             ("declarations", Duration::ZERO),
-            ("bodies", Duration::ZERO),
             ("lower+verify", Duration::ZERO),
         ];
         for _ in 0..reps {
@@ -518,10 +500,6 @@ mod tests {
                 let declarations =
                     crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
                 phases[1].1 += start.elapsed();
-                let start = Instant::now();
-                let bodies =
-                    crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
-                phases[2].1 += start.elapsed();
                 let text = sources
                     .get(crate::source::SourceId::new(0))
                     .map(|entry| entry.text().to_string())
@@ -530,13 +508,12 @@ mod tests {
                 crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
                     &parsed.arena,
                     &declarations,
-                    &bodies,
                     &text,
                     std::sync::Arc::new(sources),
                     crate::source::SourceId::new(0),
                 )
                 .expect("lowering");
-                phases[3].1 += start.elapsed();
+                phases[2].1 += start.elapsed();
             });
         }
         let total: Duration = phases.iter().map(|(_, duration)| *duration).sum();

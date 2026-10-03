@@ -24,7 +24,6 @@ column are the first places to read.
 | compact parsed program | `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/parser.rs`, `src/syntax/arena.rs`; parser coverage in `tests/syntax.rs` |
 | loaded module graph | `CompactFileUnit`, `CompactModuleGraph`, `parse_load_entry_source_compact_file_unit` | `src/loader.rs`; module fixtures in `tests/fixtures/runtime` |
 | compact declaration checking | `Checker::check_compact_declarations`, `CompactDeclOutput` | `src/sema/check/compact.rs`; semantic coverage in `tests/sema.rs` |
-| compact body probing | `Checker::probe_compact_bodies`, `CompactBodyProbe`, `check_compact_program`, `check_compact_expr` | `src/sema/check/compact.rs`; compact frontend fixtures in `tests/fixtures/frontend-indexed` |
 | executable commit | `FullBuilder::build_compact`, `FullProgram`, `FullVerifier::verify` | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed/full.rs`; verifier tests under `runtime::eval::indexed::full::tests` |
 | indexed execution | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `CallFrame` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run`; `tests/runtime/frontend_indexed.rs` and `tests/runtime/stack_depth.rs` |
 | dynamic symbol ownership | `SymbolOwner`, `NameText`, `dynamic_symbol_stats` | `src/symbol.rs`; symbol lifetime tests in `src/symbol.rs::tests` |
@@ -33,7 +32,7 @@ column are the first places to read.
 When adding a new implementation concept, document it in this table and in
 the nearest owner section using the same exact spelling. Do not use a broad
 description such as “the checker” when `Checker::check_compact_declarations`
-or `Checker::probe_compact_bodies` is the relevant path.
+is the relevant path.
 
 ## Pipeline
 
@@ -41,7 +40,7 @@ or `Checker::probe_compact_bodies` is the relevant path.
 |---|---|---|---|
 | lexical input | `TokenTable`, `TokenTableData` | `src/syntax/lexer.rs`, `src/syntax/token.rs` | Dense token columns keep tags, starts, and sparse payloads. Token ends and text are recovered from source when needed. |
 | source structure | `SyntaxTree`, `ArenaProgram`, `AstArena` | `src/syntax/cst.rs`, `src/syntax/parser.rs`, `src/syntax/arena.rs` | The CST preserves formatting/source structure; the arena stores parser output as typed IDs and compact rows. |
-| declarations and bodies | `CompactFileUnit`, `CompactModuleGraph`, `CompactDeclOutput`, `CompactBodyProbeOutput` | `src/loader.rs`, `src/sema/check/compact.rs` | Declaration and body checks consume `ArenaProgram` IDs directly. |
+| declarations and bodies | `CompactFileUnit`, `CompactModuleGraph`, `CompactDeclOutput`, `CompactBodyFacts` | `src/loader.rs`, `src/sema/check/compact.rs` | Declaration and body checks consume `ArenaProgram` IDs directly. |
 | executable commit | `FullBuilder`, `FullProgram`, `FullVerifier` | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed/full.rs` | A complete indexed program is encoded, finalized, and verified before installation. |
 | execution | `Evaluator`, `FunctionHeader`, `indexed_run`, `CallFrame` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs` | The evaluator reads verified payloads through borrowed indexed views and keeps call/control state in explicit frames. |
 
@@ -96,11 +95,12 @@ APIs should name the compact form they create and keep rare staging state cold.
 
 ### Checking and Declaration State
 
-`Checker::check_compact_declarations()` and
-`Checker::probe_compact_bodies()` read arena rows directly. Declaration output
-contains the information needed to build module/type/error metadata, while
-body probing supplies checked type facts and lowering eligibility. Runtime
-registration derives declaration metadata from those compact results.
+`Checker::check_compact_declarations()` reads arena rows directly. Its output
+contains the information needed to build module/type/error metadata, and
+`CompactBodyFacts` re-keys the full checker's published body facts by arena
+identity for lowering. Embedded standard-library modules are checked with the
+program, so their bodies have the same facts. Runtime registration derives
+declaration metadata from those compact results.
 
 Checking must not depend on an alternate syntax representation. When a compact
 row gains behavior-bearing data, update every applicable checker, lowerer, and
@@ -351,14 +351,12 @@ This document and `docs/TEST-MAP.md` own measurement and verification rules.
 `ArenaExprKind::ValueBlock` retains ordinary lexical statements for expression
 branches. Its scope creates no callable, propagation, or loop target.
 `StatementPosition` facts in `CheckOutput::statement_positions` and
-`CompactBodyProbeOutput::statement_positions` preserve the checked purpose of tails
-through lowering and tooling. Compact `block_types` retain inferred tail types
-before branch scopes disappear. The indexed value-block instruction evaluates its
+`CompactBodyFacts::statement_positions` preserve the checked purpose of tails
+through lowering and tooling. The indexed value-block instruction evaluates its
 selected tail before defers and resource cleanup; lexical transfers keep their
 original targets. A parameter block as the RHS of `BinaryOp::ResultFallback`
 binds the checked Result error type before checking its statements. Full checking
-uses `check_tail_block_contents_arena` after validating the single parameter;
-compact checking retains that binding and records the same value-tail positions.
+uses `check_tail_block_contents_arena` after validating the single parameter.
 Lowering creates a lazy indexed `MatchExpr` with an Ok payload arm and an Err
 binding arm whose value is the ordinary lexical `ValueBlock`.
 

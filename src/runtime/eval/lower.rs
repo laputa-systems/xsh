@@ -3,7 +3,7 @@
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use xsh_registry::signature::MethodReceiver;
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
-use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput, CompactTypeDefInfo};
+use crate::sema::check::{CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo};
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
 use crate::source::{SourceMap, Span};
@@ -1581,20 +1581,19 @@ fn lowered_arena_type_inner(
 pub(super) fn probe_compact_lower_constructed_bodies(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
-    bodies: &CompactBodyProbeOutput,
     source: &str,
 ) -> CompactLowerConstructProbeOutput {
     let mut probe = CompactLowerConstructProbe {
         program,
         declarations,
-        bodies,
+        bodies: &declarations.bodies,
         source,
         sources: None,
         current_namespace: None,
         functions: None,
         top_level_known: FxHashMap::default(),
         output: CompactLowerConstructProbeOutput {
-            expr_type_facts: bodies.expr_types.len(),
+            expr_type_facts: declarations.bodies.expr_types.len(),
             ..CompactLowerConstructProbeOutput::default()
         },
         last_blocker_detail: None,
@@ -1620,7 +1619,6 @@ pub(in crate::runtime::eval) enum StdlibLowerLinkage {
 pub(super) fn lower_compact_function_units_into(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
-    bodies: &CompactBodyProbeOutput,
     source: &str,
     sources: &SourceMap,
     stdlib_linkage: StdlibLowerLinkage,
@@ -1656,7 +1654,7 @@ pub(super) fn lower_compact_function_units_into(
     let recorder = CompactLowerConstructProbe {
         program,
         declarations,
-        bodies,
+        bodies: &declarations.bodies,
         source,
         sources: Some(sources),
         current_namespace: None,
@@ -1678,7 +1676,7 @@ pub(super) fn lower_compact_function_units_into(
         let mut probe = CompactLowerConstructProbe {
             program,
             declarations,
-            bodies,
+            bodies: &declarations.bodies,
             source,
             sources: Some(sources),
             current_namespace: function.namespace,
@@ -1705,7 +1703,6 @@ pub(super) fn lower_compact_function_units_into(
 pub(super) fn lower_compact_top_level_program_with_probe(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
-    bodies: &CompactBodyProbeOutput,
     source: &str,
     sources: &SourceMap,
     functions: &LowerableFunctions<'_>,
@@ -1713,7 +1710,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
     let mut probe = CompactLowerConstructProbe {
         program,
         declarations,
-        bodies,
+        bodies: &declarations.bodies,
         source,
         sources: Some(sources),
         current_namespace: None,
@@ -1721,7 +1718,6 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         top_level_known: compact_top_level_known(
             program,
             declarations,
-            bodies,
             source,
             Some(sources),
             None,
@@ -1741,7 +1737,6 @@ pub(super) fn lower_compact_top_level_program_with_probe(
 fn compact_top_level_known(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
-    bodies: &CompactBodyProbeOutput,
     source: &str,
     sources: Option<&SourceMap>,
     namespace: Option<Name>,
@@ -1759,7 +1754,7 @@ fn compact_top_level_known(
     let probe = CompactLowerConstructProbe {
         program,
         declarations,
-        bodies,
+        bodies: &declarations.bodies,
         source,
         sources,
         current_namespace: namespace,
@@ -1781,7 +1776,6 @@ fn compact_top_level_known(
 fn compact_function_top_level_known(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
-    bodies: &CompactBodyProbeOutput,
     source: &str,
     sources: Option<&SourceMap>,
     namespace: Option<Name>,
@@ -1791,7 +1785,7 @@ fn compact_function_top_level_known(
     let probe = CompactLowerConstructProbe {
         program,
         declarations,
-        bodies,
+        bodies: &declarations.bodies,
         source,
         sources,
         current_namespace: namespace,
@@ -2410,7 +2404,7 @@ fn collect_compact_function_def(
 struct CompactLowerConstructProbe<'a, 'defs> {
     program: &'a ArenaProgram,
     declarations: &'a CompactDeclOutput,
-    bodies: &'a CompactBodyProbeOutput,
+    bodies: &'a CompactBodyFacts,
     source: &'a str,
     sources: Option<&'a SourceMap>,
     current_namespace: Option<Name>,
@@ -3339,7 +3333,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                     compact_function_top_level_known(
                         self.program,
                         self.declarations,
-                        self.bodies,
                         self.source,
                         self.sources,
                         self.current_namespace,
@@ -3379,7 +3372,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                     compact_function_top_level_known(
                         self.program,
                         self.declarations,
-                        self.bodies,
                         self.source,
                         self.sources,
                         self.current_namespace,
@@ -3907,7 +3899,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                         top_level_known: compact_top_level_known(
                             self.program,
                             self.declarations,
-                            self.bodies,
                             self.source,
                             self.sources,
                             Some(module.name),
@@ -4750,7 +4741,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn infer_checked_expr_type_with_slots_inner(&self, value: ExprId, slots: &SlotScope) -> Option<Type> {
-        if self.bodies.projections.contains_key(&value) {
+        if self.bodies.projections.contains(&value) {
             return self.bodies.expr_types.get(&value).cloned();
         }
         if let ArenaExprKind::ValuePipelineCall { call, .. } = self.program.arena.expr(value).kind {
@@ -4949,12 +4940,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             })
     }
 
-    /// The checker's published type for `value`. Embedded standard-library
-    /// bodies have no full-checker facts, so their compact body facts answer.
+    /// The checker's published type for `value`.
     fn checked_expr_type(&self, value: ExprId) -> Option<Type> {
-        self.declarations.checked_expr_types.get(&value).filter(|ty| checked_fact_is_resolved(ty))
-            .or_else(|| self.bodies.expr_types.get(&value).filter(|ty| checked_fact_is_resolved(ty)))
-            .cloned()
+        self.bodies.expr_types.get(&value).filter(|ty| checked_fact_is_resolved(ty)).cloned()
     }
 
     fn infer_checked_field_type(
@@ -10735,11 +10723,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             let (block, item, call, stmt) = temporary.arena.append_stage_callable_block(callee, span);
             normalized.block = Some(block);
             bodies.expr_types.insert(item, item_ty.cloned().unwrap_or(Type::Any));
-            let return_ty = self.bodies.stage_callable_types.get(&callee)?.clone();
-            bodies.expr_types.insert(call, return_ty.clone());
+            // The checker types the synthetic one-item call at the callee's span.
+            bodies.expr_types.insert(call, self.bodies.expr_types.get(&callee)?.clone());
             let unit = matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee);
             bodies.statement_positions.insert(stmt, if unit { crate::sema::check::StatementPosition::Statement } else { crate::sema::check::StatementPosition::Value });
-            bodies.block_types.insert(block, if unit { Type::Unit } else { return_ty });
             let mut child = CompactLowerConstructProbe {
                 program: &temporary, bodies: &bodies, declarations: self.declarations,
                 source: self.source, sources: self.sources, current_namespace: self.current_namespace,

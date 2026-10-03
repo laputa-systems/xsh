@@ -42,8 +42,6 @@ mod tests {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let declarations = Checker::check_compact_declarations(&cloned);
         assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-        let bodies = Checker::probe_compact_bodies(&cloned, &declarations);
-        assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
         assert!(Arc::ptr_eq(&first, cloned.arena.regex_literals[0].prepared.get().unwrap().as_ref().unwrap()));
     }
 

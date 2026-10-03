@@ -25,7 +25,7 @@ impl Checker {
     ) {
         for module in &program.modules {
             if module.internal {
-                if program.module_statements(module).any(|id| {
+                if self.check_embedded_bodies || program.module_statements(module).any(|id| {
                     let kind = match program.arena.stmt(id).kind {
                         ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
                         other => other,
@@ -36,8 +36,8 @@ impl Checker {
                 }
                 // Embedded implementations are not user modules: they have no
                 // `use` path, no module contract, and no public documentation
-                // obligations. Their bodies are checked with the program and
-                // validated against the registry by `script_impls`.
+                // obligations. Their bodies are checked with programs that lower
+                // them and validated against the registry by `script_impls`.
                 continue;
             }
             let sig = self.check_user_module_arena(program, type_program.clone(), source, module);

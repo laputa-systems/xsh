@@ -1014,7 +1014,9 @@ impl Checker {
         }
         self.check_block_arena(arena, source, body);
         self.pop_scope();
-        self.check_error_handler_block_arena(arena, source, else_block, &error_ty.unwrap_or(Type::Error));
+        let error_ty = error_ty.unwrap_or(Type::Error);
+        self.handler_input_types.insert(arena.arena.span(arena.arena.block(else_block).span), error_ty.clone());
+        self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
     }
 
     fn check_guard_arena(
@@ -2218,7 +2220,10 @@ impl Checker {
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if actual.is_result() {
                     if expected.is_some_and(Type::is_result_unit) { return actual; }
-                    if expr_ty_auto_propagates(&actual) { return Type::Unit; }
+                    if expr_ty_auto_propagates(&actual) {
+                        self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+                        return Type::Unit;
+                    }
                     self.reject_ignored_result(&actual, arena.arena.expr(expr_id).span);
                 }
                 self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);

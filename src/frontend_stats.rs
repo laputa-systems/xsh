@@ -330,10 +330,9 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let (checked_type_count, checked_retained_bytes) =
         measure_check_output(checked.checked.as_ref());
     let declarations = Checker::check_compact_declarations(&checked.parsed.arena);
-    let bodies = Checker::probe_compact_bodies(&checked.parsed.arena, &declarations);
     let (declaration_type_count, declaration_retained_bytes) =
         measure_compact_declarations(&declarations);
-    let (body_type_count, body_retained_bytes) = measure_compact_body_types(&bodies.expr_types);
+    let (body_type_count, body_retained_bytes) = measure_compact_body_types(&declarations.bodies.expr_types);
     let semantic_type_count = checked_type_count + declaration_type_count + body_type_count;
     let semantic_retained_bytes =
         checked_retained_bytes + declaration_retained_bytes + body_retained_bytes;
@@ -350,7 +349,6 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let construct_probe = probe_compact_lower_constructed_bodies(
         &checked.parsed.arena,
         &declarations,
-        &bodies,
         source,
     );
     let mut evaluator = Evaluator::new_with_sources(Vec::new(), checked.sources.clone());
@@ -393,7 +391,6 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let (dynamic_symbol_count, dynamic_symbol_bytes) =
         checked.parsed.arena.symbol_owner().dynamic_stats();
     drop(construct_probe);
-    drop(bodies);
     drop(declarations);
     drop(cst);
     drop(lexed);

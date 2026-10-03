@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{
-    AnnotationFact, AnnotationFactKind, CheckOptions, Checker, CompactBodyProbeOutput,
+    AnnotationFact, AnnotationFactKind, CheckOptions, Checker,
 };
 use xsh::frontend::load::{self as loader, parse_load_check_file};
 use xsh::frontend::source::{SourceId, SourceMap, Span};
@@ -248,7 +248,6 @@ pub fn check_paths_with_summary_options(
                     source_id,
                     sources,
                     declarations,
-                    bodies,
                     command_name,
                 )) = job_rx.recv()
                 {
@@ -257,7 +256,6 @@ pub fn check_paths_with_summary_options(
                         source_id,
                         sources,
                         declarations,
-                        bodies,
                         Vec::new(),
                         command_name,
                     );
@@ -376,11 +374,6 @@ pub fn check_paths_with_summary_options(
             let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &sources);
 
             let declarations = Checker::check_compact_declarations(&parsed.arena);
-            let bodies = if declarations.diagnostics.is_empty() {
-                Checker::probe_compact_bodies(&parsed.arena, &declarations)
-            } else {
-                CompactBodyProbeOutput::default()
-            };
 
             if annotation_policy.is_some() {
                 let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
@@ -388,7 +381,6 @@ pub fn check_paths_with_summary_options(
                     source_id,
                     sources.clone(),
                     declarations,
-                    bodies,
                     Vec::new(),
                     xsh::execution::script::script_command_name(&path_str),
                 );
@@ -415,7 +407,6 @@ pub fn check_paths_with_summary_options(
                         source_id,
                         source_snapshot,
                         declarations,
-                        bodies,
                         command_name,
                     ))
                     .expect("lowerability worker pool disconnected");
@@ -677,17 +668,11 @@ fn check_one_script(
         DiagnosticRenderer::new().render(&checked.reveal_types, &checked_program.sources);
 
     let declarations = Checker::check_compact_declarations(&checked_program.parsed.arena);
-    let bodies = if declarations.diagnostics.is_empty() {
-        Checker::probe_compact_bodies(&checked_program.parsed.arena, &declarations)
-    } else {
-        CompactBodyProbeOutput::default()
-    };
     let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
         &checked_program.parsed.arena,
         checked_program.entry_source_id,
         checked_program.sources.clone(),
         declarations,
-        bodies,
         Vec::new(),
         xsh::execution::script::script_command_name(script),
     );

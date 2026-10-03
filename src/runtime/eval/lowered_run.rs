@@ -10503,22 +10503,10 @@ impl Evaluator {
                 span,
             ));
         }
-        let bodies =
-            crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        if !bodies.diagnostics.is_empty() {
-            return Err(module_load_failure(
-                "body failed to check",
-                &display_path,
-                &bodies.diagnostics,
-                &module_sources,
-                span,
-            ));
-        }
         let module_program = Arc::new(
             super::indexed::full::FullBuilder::build_compact_external_stdlib(
                 &parsed.arena,
                 &declarations,
-                &bodies,
                 &module_text,
                 Arc::new(module_sources.clone()),
                 module_source_id,
