@@ -370,3 +370,36 @@ test test_pattern_conditionals_preserve_sibling_match_capture_reuse {
   assert pattern_sibling_label(SiblingWord("word")) == "word"
   assert pattern_sibling_label(SiblingNumber(7)) == "7"
 }
+
+test test_pattern_conditionals_yield_from_stream_producers { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""stream pairs(lines: List[Str]) -> Stream[Str] {
+  for line in lines {
+    if let [key, value] = line.split("=") {
+      yield f"${key}:${value}"
+    } else if let [single] = line.split("=") {
+      if single == "stop" { break }
+      yield f"${single}:-"
+    }
+  }
+  var remaining = [1, 2]
+  while let [head, ..rest] = remaining {
+    remaining = rest
+    yield f"rest:${head}"
+  }
+}
+let all = pairs(["a=1", "b", "c=3"]) |> collect
+let stopped = pairs(["a=1", "stop", "c=3"]) |> collect
+let first = pairs(["a=1", "b=2"]) |> take(1)
+print all.join(" ")
+print stopped.join(" ")
+print first.join(" ")
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """a:1 b:- c:3 rest:1 rest:2
+a:1 rest:1 rest:2
+a:1
+"""
+}
