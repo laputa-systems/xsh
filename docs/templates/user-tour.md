@@ -359,7 +359,9 @@ values between stages:
 `stream` declares a lazy producer: nothing is read until a pipeline pulls, and
 a pipeline that stops early closes the file. `rx"..."` regexes are compiled
 and validated by `xsht check`, so a broken pattern is a check error rather than
-a runtime surprise. The `/healthz` line with a 500-byte body is not miscounted
+a runtime surprise. `$` means the end of the whole text, not the end of a line,
+so trim what you read from files before anchoring (or use `(?m)`). The
+`/healthz` line with a 500-byte body is not miscounted
 as a server error, because `status` and `size` are different fields with
 different meanings, not columns 9 and 10.
 

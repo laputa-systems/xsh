@@ -1947,7 +1947,9 @@ Contracts worth knowing without consulting the reference:
   traversal, symlink escapes, and overwrites unless asked.
 - `time` has no civil-time formatter; run `date` for locale-aware output.
 - Regex syntax is the common Rust regex surface without Unicode property
-  classes. Match offsets are byte offsets.
+  classes. Match offsets are byte offsets. `^` and `$` anchor to the start and
+  end of the whole text, so `rx"(\d+)$"` does not match `"42\n"`: trim
+  line-oriented input (`.trim()`) or use `(?m)` to anchor at line breaks.
 - `linux` entries act on the host as soon as they are called, including
   destructive ones (`halt`, `reboot`, `mount`, `insmod`, link and address
   changes, `write_partition_table`). There is no environment gate or dry-run
