@@ -170,6 +170,10 @@ This replaces the implicit-Bool design.
     multi-line, parenthesized and tail forms are covered.
   - Expect about 6.6k test lines and about 200 production lines.
   - This lands while bare Bools are still valid, so the tree stays green.
+  - Apply the same rule to the sibling repositories `../packages` (about 160
+    sites) and `../laputa` (about 100 sites) before 4c lands. Make separate local
+    commits in each repo, verified with that repo's native tests; never push.
+  - `showcase/` is migrated too, because it would otherwise stop checking.
 - **4c. Flip the language (spec first).** Budget: net negative.
   - A Bool expression statement, or a Bool tail of a `Unit` or `Result[Unit]`
     body, becomes a checker error that suggests `assert` or `let _ =`. Every
