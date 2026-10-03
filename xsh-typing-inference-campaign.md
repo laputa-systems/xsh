@@ -1,7 +1,7 @@
 # XSH typing inference: plan
 
-Status: decisions settled on 2026-10-02. Items 1, 2, 3c (first slice), 4a and
-5 have landed. The remaining items follow in order.
+Status: items 1–5 have landed; item 6 was closed as not worth doing. Remaining
+is final verification (see the end of this plan).
 Items with disjoint files may run as parallel lanes (see Orchestration).
 
 ## Where things stand
@@ -86,6 +86,9 @@ exceeds twice its budget, stop and re-plan rather than pushing through.
 
 ### 1. Stop the lint from demanding redundant effect clauses
 
+Status: landed. The lint exempts tests and entry points, `xsht lint --only RULE`
+exists, and 1,854 test effect clauses were removed.
+
 Budget: about 100 lines of Rust, plus a scoped migration.
 
 - In `crates/xsht/src/lint.rs::lint_effect_annotation`, stop firing
@@ -106,6 +109,12 @@ Budget: about 100 lines of Rust, plus a scoped migration.
 
 ### 2. Fix the known bugs
 
+Status: landed, along with every pre-existing Rust test failure, load-tolerant
+fixture servers, a release-only stack overflow, misattributed doc comments,
+formatter idempotence, actionable `module.load` errors, and an audit that left
+no internal IR encode failures for checker-accepted programs (about 16,000
+generated probes).
+
 Budget: about 200 lines per bug, each with a regression test.
 
 - `"/opt/x" in env.PATH` checks but is always false at runtime; `p"/opt/x"`
@@ -123,6 +132,16 @@ Budget: about 200 lines per bug, each with a regression test.
   cleanup.
 
 ### 3. Consolidate the layers that multiply typing cost
+
+Status: landed.
+- 3a and 3b: lowering consumes the checker's published types, API call
+  resolutions and argument bindings. The compact body probe is gone.
+  `infer_*` uses in `lower.rs` dropped from 170 to 37; the rest are
+  representation choices.
+- 3c: statements, comprehensions, captures, context scopes and branch
+  expressions run only on the heap-frame executor, and thin hot expressions
+  share helpers. Benchmarks are equal or faster (fib −28%, loops −32% versus
+  before the campaign).
 
 Each slice should remove lines on net. These predate the campaign: today every
 typing feature is implemented two or three times.
@@ -152,6 +171,13 @@ typing feature is implemented two or three times.
 item 4. 3c is runtime-only and can run in parallel with items 1, 2 and 3a/3b.
 
 ### 4. Explicit assertions and data tails
+
+Status: landed.
+- `assert` is the only assertion form, and its message is optional.
+- A bare Bool statement is `check.bool-statement`, with an `assert` fix.
+- 4,909 sites in this repo were migrated, plus `../packages` (after fixing its
+  369 pre-existing check errors) and `../laputa`.
+- Unannotated private procs infer their success type from value tails.
 
 This replaces the implicit-Bool design.
 
@@ -235,6 +261,10 @@ The full native suite takes 20+ minutes and saturates the machine. Many
   dropping coverage.
 
 ### 6. Optional: monomorphic recursive private returns
+
+Status: closed. Across this repo and both siblings there are about 30
+self-recursive functions, all already annotated, so roughly 400 lines of
+fixpoint inference would remove about 30 annotations.
 
 Budget: about 400 lines.
 
