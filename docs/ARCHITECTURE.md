@@ -418,7 +418,13 @@ The executable frontend has stable owners rather than a migration path:
   frame (`FrameOwner::Block`, `FrameSlots::Lent`), so root publication and
   context-scope locals stay keyed to the same slot array, and hand loop controls
   and block values back as `StmtFlow`. `eval_indexed_stmt_inner` keeps only the
-  statements the frames delegate to it. Field bases, index operands, and native
+  statements the frames delegate to it. Comprehensions, value blocks, captures,
+  and error-context blocks are likewise frame-only: the recursive evaluator
+  hands them to `eval_indexed_expr_with_frames`. A block frame is entered once
+  per stage item, so its entry and exit avoid moving the frame: statement lists
+  step in place, a finished block frame is dropped where it lies, and a frame
+  or block with no remaining work, defers, or live host handles skips
+  unwinding. Field bases, index operands, and native
   module arguments are scheduled on these frames before dispatch. Calls nested in projections therefore do not retain
   recursive operand evaluation on the native stack. Native argument holes and
   source order are preserved, and both dispatch paths share module tracing.
