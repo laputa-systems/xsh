@@ -8,21 +8,21 @@ test test_tree_renders_sorted_branches_and_symlinks { |ctx|
   fs.symlink(fp"${root}/a.txt", fp"${root}/link-a")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- $root ?
   let lines = output.lines().collect()
-  lines[0] == root.display()
-  lines[1] == "|-- a.txt"
-  lines[2] == "|-- dir"
-  lines[3] == "|   `-- file.txt"
-  "link-a ->" in lines[4]
-  lines[5] == "`-- z.txt"
-  "1 directory, 4 files" in output
-  ! (".hidden" in output)
+  assert lines[0] == root.display()
+  assert lines[1] == "|-- a.txt"
+  assert lines[2] == "|-- dir"
+  assert lines[3] == "|   `-- file.txt"
+  assert "link-a ->" in lines[4]
+  assert lines[5] == "`-- z.txt"
+  assert "1 directory, 4 files" in output
+  assert ! (".hidden" in output)
   let all = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -a $root ?
-  ".hidden" in all
+  assert ".hidden" in all
   let dirs = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -d $root ?
-  "dir" in dirs
-  ! ("a.txt" in dirs)
+  assert "dir" in dirs
+  assert ! ("a.txt" in dirs)
   let shallow = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -L 1 $root ?
-  ! ("file.txt" in shallow)
+  assert ! ("file.txt" in shallow)
 }
 
 test test_tree_supports_multiple_roots_and_rejects_flags { |ctx|
@@ -32,17 +32,17 @@ test test_tree_supports_multiple_roots_and_rejects_flags { |ctx|
   fp"${right}/b".write("b")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- $left $right ?
 
-  f"""${left.display()}
+  assert f"""${left.display()}
 `-- a
 """ in output
 
-  f"""
+  assert f"""
 ${right.display()}
 `-- b
 """ in output
 
   let err = test.temp_path(ctx, name: "tree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -z $left 2> $err
-  ! status.exited_with(0)
-  "unknown argument" in (err.read_text()?)
+  assert ! status.exited_with(0)
+  assert "unknown argument" in (err.read_text()?)
 }

@@ -9,10 +9,10 @@ pure guarded_unless(cached: Str?) -> Str {
 }
 
 test test_guarded_return_narrows_selected_branch_and_falls_through {
-  guarded_cached("hit") == "hit"
-  guarded_cached(null) == "missing"
-  guarded_unless("hit") == "hit"
-  guarded_unless(null) == "missing"
+  assert guarded_cached("hit") == "hit"
+  assert guarded_cached(null) == "missing"
+  assert guarded_unless("hit") == "hit"
+  assert guarded_unless(null) == "missing"
 }
 
 test test_guarded_control_checks_condition_before_lazy_payload { |ctx|
@@ -43,7 +43,7 @@ let value = loop {
 print $value
 """)?
   assert output.success, output.stderr
-  output.stdout == "condition\nfallback\ncleanup\n9\ncondition\npayload\ncleanup\n7\ncondition\ncondition\npayload\n7\n"
+  assert output.stdout == "condition\nfallback\ncleanup\n9\ncondition\npayload\ncleanup\n7\ncondition\ncondition\npayload\n7\n"
 }
 
 test test_guarded_yield_skips_unselected_items { |ctx|
@@ -59,7 +59,7 @@ for item in guarded_items() {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "1\n2\n"
+  assert output.stdout == "1\n2\n"
 }
 
 test test_guarded_run_payload_keeps_literal_argv_and_status_conditions { |ctx|
@@ -82,7 +82,7 @@ print ${literal_argv()}
 print ${status_condition()}
 """)?
   assert output.success, output.stderr
-  output.stdout == "fallback\nselected\nwhen\nunless\n\n1\n"
+  assert output.stdout == "fallback\nselected\nwhen\nunless\n\n1\n"
 }
 
 test test_guarded_payload_propagation_and_result_wrapping { |ctx|
@@ -103,7 +103,7 @@ print ${pick(false)?}
 let _ = pick(true)?
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "cleanup\n9\npayload\ncleanup\n"
+  assert output.stdout == "cleanup\n9\npayload\ncleanup\n"
 }
 
 test test_guarded_yield_keeps_cleanup_on_early_consumer_exit { |ctx|
@@ -124,5 +124,5 @@ for value in values() {
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "1\ncleanup\ndone\n"
+  assert output.stdout == "1\ncleanup\ndone\n"
 }

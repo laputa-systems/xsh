@@ -3,7 +3,7 @@ test test_rgrep { |ctx|
   fp"${root}/a.xsh".write("proc hello() {}")?
   fp"${root}/b.xsh".write("proc world() {}")?
   let output = run.text "xsh" "showcase/rgrep.xsh" -- --pattern proc --root $root ?
-  "a.xsh:1:" in output
-  "b.xsh:1:" in output
-  "2 matches" in output
+  assert "a.xsh:1:" in output
+  assert "b.xsh:1:" in output
+  assert "2 matches" in output
 }

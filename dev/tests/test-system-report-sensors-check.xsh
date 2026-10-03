@@ -3,13 +3,13 @@ use system_report_sensors_check as sensors_reference
 test test_system_report_sensors_json_reference_uses_raw_subfeature_names {
   let output = """{"coretemp-isa-0000":{"Adapter":"ISA adapter","Core 0":{"temp2_input":41.125,"temp2_max":100.0}},"nvme-pci-0100":{"Adapter":"PCI adapter","Composite":{"temp1_input":36.85,"temp1_alarm":0.0}},"BAT1-isa-00ba":{"Adapter":"ISA adapter","curr1":{"curr1_input":0.0}}}"""
   let parsed = sensors_reference.parse_sensors_json(output)?
-  parsed.len() == 5
-  parsed[0].chip == "BAT1"
-  parsed[0].subfeature == "curr1_input"
-  parsed[1].chip == "coretemp"
-  parsed[1].subfeature == "temp2_input"
-  parsed[3].chip == "nvme"
-  parsed[3].subfeature == "temp1_alarm"
+  assert parsed.len() == 5
+  assert parsed[0].chip == "BAT1"
+  assert parsed[0].subfeature == "curr1_input"
+  assert parsed[1].chip == "coretemp"
+  assert parsed[1].subfeature == "temp2_input"
+  assert parsed[3].chip == "nvme"
+  assert parsed[3].subfeature == "temp1_alarm"
   test.error_kind(sensors_reference.parse_sensors_json("{bad json"), "json")?
 }
 
@@ -19,13 +19,13 @@ test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
   )?
   let candidate = """{"sensors":{"channels":[{"chip_entry_name":"hwmon0","chip":"coretemp","channel":"temp2","value":41125},{"chip_entry_name":"hwmon1","chip":"nvme","channel":"temp1","value":36850}]}}"""
   let exact = sensors_reference.compare_sensors_json(candidate, first, first)?
-  exact.compared == 2
-  exact.mismatches == []
-  exact.partial == []
+  assert exact.compared == 2
+  assert exact.mismatches == []
+  assert exact.partial == []
   let wrong = sensors_reference.compare_sensors_json(candidate.replace("41125", "42000"), first, first)?
-  wrong.mismatches == []
-  wrong.partial == ["coretemp-isa-0000:temp2_input"]
-  wrong.compared == 1
+  assert wrong.mismatches == []
+  assert wrong.partial == ["coretemp-isa-0000:temp2_input"]
+  assert wrong.compared == 1
   let changed = sensors_reference.compare_sensors_json(
     candidate,
     first,
@@ -33,27 +33,27 @@ test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
   """{"coretemp-isa-0000":{"Core 0":{"temp2_input":42.0}},"nvme-pci-0100":{"Composite":{"temp1_input":36.85}}}""",
 )?,
   )?
-  changed.compared == 1
-  changed.partial == ["coretemp-isa-0000:temp2_input"]
+  assert changed.compared == 1
+  assert changed.partial == ["coretemp-isa-0000:temp2_input"]
   let ambiguous = sensors_reference.compare_sensors_json(
     candidate.replace("\"chip\":\"nvme\"", "\"chip\":\"coretemp\"")
       .replace("\"channel\":\"temp1\"", "\"channel\":\"temp2\""),
     first,
     first,
   )?
-  ambiguous.partial == ["coretemp-isa-0000:temp2_input", "nvme-pci-0100:temp1_input"]
+  assert ambiguous.partial == ["coretemp-isa-0000:temp2_input", "nvme-pci-0100:temp1_input"]
   let duplicate_chips = sensors_reference.parse_sensors_json(
     """{"coretemp-isa-0000":{"Core 0":{"temp2_input":41.125}},"coretemp-isa-0001":{"Core 0":{"temp2_input":42.0}}}""",
   )?
   let duplicate_match = sensors_reference.compare_sensors_json(candidate, duplicate_chips, duplicate_chips)?
-  duplicate_match.compared == 0
-  duplicate_match.partial == ["coretemp-isa-0000:temp2_input", "coretemp-isa-0001:temp2_input"]
+  assert duplicate_match.compared == 0
+  assert duplicate_match.partial == ["coretemp-isa-0000:temp2_input", "coretemp-isa-0001:temp2_input"]
   let unknown = sensors_reference.parse_sensors_json(
     """{"coretemp-isa-0000":{"Unknown":{"tempfoo_input":41.0,"temp2_input":41.125}}}""",
   )?
   let known_only = sensors_reference.compare_sensors_json(candidate, unknown, unknown)?
-  known_only.reference_count == 1
-  known_only.compared == 1
+  assert known_only.reference_count == 1
+  assert known_only.compared == 1
 }
 
 test test_system_report_sensors_json_live_reference_runs_only_explicit_tools {
@@ -86,10 +86,10 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
     fp"${root_path}/script".display(),
     fp"${root_path}/sensors".display(),
   )?
-  result.comparison.compared == 1
-  result.comparison.mismatches == []
-  result.version == "sensors version 3.6.2"
-  result.before_sha256_hex == result.after_sha256_hex
+  assert result.comparison.compared == 1
+  assert result.comparison.mismatches == []
+  assert result.version == "sensors version 3.6.2"
+  assert result.before_sha256_hex == result.after_sha256_hex
 }
 
 test test_system_report_sensors_json_cli_dispatch_requires_explicit_utility { |ctx|
@@ -122,6 +122,6 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?
   assert exited_successfully, diagnostic
-  "sensors.lm-sensors: reference=1, compared=1, mismatched=0" in (output.read_text()?)
-  "adapter=sensors-json-v1" in (output.read_text()?)
+  assert "sensors.lm-sensors: reference=1, compared=1, mismatched=0" in (output.read_text()?)
+  assert "adapter=sensors-json-v1" in (output.read_text()?)
 }

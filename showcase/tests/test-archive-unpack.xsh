@@ -6,11 +6,11 @@ test test_archive_unpack { |ctx|
   run.text "tar" "czf" $tarball "-C" $src "." ?
   let out = test.temp_path(ctx, name: "arc-out")
   let extract_out = run.text "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false ?
-  "entries in test.tar.gz" in extract_out
-  "extracted to" in extract_out
-  fp"${out}/a.txt".exists()?
+  assert "entries in test.tar.gz" in extract_out
+  assert "extracted to" in extract_out
+  assert fp"${out}/a.txt".exists()?
   let usage = run.text "xsh" "showcase/archive-unpack.xsh" -- --help ?
-  "usage:" in usage
+  assert "usage:" in usage
 }
 
 test test_archive_unpack_failure_leaves_existing_destination_untouched { |ctx|
@@ -26,7 +26,7 @@ test test_archive_unpack_failure_leaves_existing_destination_untouched { |ctx|
   let status = run.status "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false
   assert ! status.exited_with(0), "conflicting extraction must fail"
   assert ! fp"${out}/a.txt".exists()?, "failed extraction must not leave earlier files"
-  fp"${out}/b.txt/marker".read_text()? == "untouched"
+  assert fp"${out}/b.txt/marker".read_text()? == "untouched"
 }
 
 test test_archive_unpack_cleans_partial_staging_after_unsafe_member { |ctx|
@@ -48,11 +48,11 @@ test test_archive_unpack_compress_and_decompress_publish_files { |ctx|
   let source = test.temp_file(ctx, name: "compress.txt", contents: b"round trip")?
   run.text "xsh" "showcase/archive-unpack.xsh" -- --compress $source --dry-run=false ?
   let compressed = fp"${source}.gz"
-  compressed.exists()?
+  assert compressed.exists()?
   let restored = test.temp_path(ctx, name: "restored.txt")
   run.text "xsh" "showcase/archive-unpack.xsh" -- --decompress $compressed --out $restored --dry-run=false ?
-  restored.read_text()? == "round trip"
-  ! fp"${restored.parent}/.${restored.name()}.xsh-stage".exists()?
+  assert restored.read_text()? == "round trip"
+  assert ! fp"${restored.parent}/.${restored.name()}.xsh-stage".exists()?
 }
 
 test test_archive_unpack_cancellation_during_compression_cleans_staging { |ctx|

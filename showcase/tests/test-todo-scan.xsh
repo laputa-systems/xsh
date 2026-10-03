@@ -7,7 +7,7 @@ fn main() {}
 """)?
 
   let output = run.text "xsh" "showcase/todo-scan.xsh" -- --root $root ?
-  "FIXME" in output
-  "TODO" in output
-  "findings" in output
+  assert "FIXME" in output
+  assert "TODO" in output
+  assert "findings" in output
 }

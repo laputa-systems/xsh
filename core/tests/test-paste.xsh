@@ -4,12 +4,12 @@ test test_paste_parallel_serial_and_delimiters { |ctx|
   let parallel = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/paste.xsh" -- $left $right ?
   let serial = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/paste.xsh" -- -s -d: $left $right ?
 
-  parallel == f"""a	1
+  assert parallel == f"""a	1
 b	2
 	3
 """
 
-  serial == """a:b
+  assert serial == """a:b
 1:2:3
 """
 }
@@ -23,11 +23,11 @@ b
 
   let output = run.text sh -c $command ?
 
-  output == f"""a	b
+  assert output == f"""a	b
 """
 
   let err = test.temp_path(ctx, name: "paste.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/paste.xsh" -- -z 2> $err
-  ! status.exited_with(0)
-  "unknown argument" in err.read_text()?
+  assert ! status.exited_with(0)
+  assert "unknown argument" in err.read_text()?
 }

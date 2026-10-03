@@ -28,7 +28,7 @@ pure ergonomics_pattern_name(value: Any) -> Str {
 }
 
 test test_ergonomics_boolean_branch_tails_and_pattern_values {
-  !ergonomics_result_flag(Ok(1))
+  assert !ergonomics_result_flag(Ok(1))
   let outcome = Ok(1)
   let accepted = outcome is Ok(_)
   assert accepted, "Ok pattern recognizes the successful outcome"
@@ -40,16 +40,16 @@ test test_ergonomics_boolean_branch_tails_and_pattern_values {
       true
     }
   } |> collect()
-  filtered == [1, 3]
+  assert filtered == [1, 3]
 }
 
 test test_ergonomics_guarded_return_narrows_nullable_payload {
-  ergonomics_guarded_name(null) == "default"
-  ergonomics_guarded_name("  configured  ") == "configured"
-  ergonomics_conditional_name(null) == "default"
-  ergonomics_conditional_name("  configured  ") == "configured"
-  ergonomics_pattern_name("configured") == "configured"
-  ergonomics_pattern_name(42) == "missing"
+  assert ergonomics_guarded_name(null) == "default"
+  assert ergonomics_guarded_name("  configured  ") == "configured"
+  assert ergonomics_conditional_name(null) == "default"
+  assert ergonomics_conditional_name("  configured  ") == "configured"
+  assert ergonomics_pattern_name("configured") == "configured"
+  assert ergonomics_pattern_name(42) == "missing"
 }
 
 test test_ergonomics_retry_branch_false_is_a_value {
@@ -61,7 +61,7 @@ test test_ergonomics_retry_branch_false_is_a_value {
       true
     }
   }?
-  !value
+  assert !value
 }
 
 test test_ergonomics_optional_method_retains_result_layer {
@@ -69,17 +69,17 @@ test test_ergonomics_optional_method_retains_result_layer {
   let present: Str? = "42"
   let absent_result = absent?.parse_int()
   let present_result = present?.parse_int()
-  (absent_result ?? Ok(0))? == 0
-  (present_result ?? Ok(0))? == 42
+  assert (absent_result ?? Ok(0))? == 0
+  assert (present_result ?? Ok(0))? == 42
 }
 
 test test_ergonomics_nullable_bytes_slice_and_fallback {
   let absent: Bytes? = null
   let present: Bytes? = b"abcdef"
-  (absent?[1..4] ?? b"fallback") == b"fallback"
-  (present?[1..4] ?? b"fallback") == b"bcd"
-  present?[..2] == b"ab"
-  present?[4..] == b"ef"
+  assert (absent?[1..4] ?? b"fallback") == b"fallback"
+  assert (present?[1..4] ?? b"fallback") == b"bcd"
+  assert present?[..2] == b"ab"
+  assert present?[4..] == b"ef"
 }
 
 test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
@@ -94,13 +94,13 @@ test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
     for job in jobs
     if 2 < job <= 4
   ]
-  selected == ["second:3", "second:4"]
+  assert selected == ["second:3", "second:4"]
   var combined = []
   let previous = combined
   combined += selected
   combined += ["last"]
-  previous.len() == 0
-  combined == ["second:3", "second:4", "last"]
+  assert previous.len() == 0
+  assert combined == ["second:3", "second:4", "last"]
 }
 
 test test_ergonomics_optional_call_skips_punned_argument_evaluation { |ctx|
@@ -121,7 +121,7 @@ print (skipped_effect ?? "absent")
 """,
   )?
   assert output.success, output.stderr
-  output.stdout == "1\nabsent\nabsent\n"
+  assert output.stdout == "1\nabsent\nabsent\n"
 }
 
 test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
@@ -135,9 +135,9 @@ test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
 """,
   )?
   assert ! output.success, output.stderr
-  output.stdout == ""
-  "3" in output.stderr
-  "2" in output.stderr
+  assert output.stdout == ""
+  assert "3" in output.stderr
+  assert "2" in output.stderr
 }
 
 test test_ergonomics_statement_branch_false_still_asserts { |ctx|
@@ -154,7 +154,7 @@ check_branch()?
 """,
   )?
   assert ! output.success, output.stderr
-  "assert" in output.stderr
+  assert "assert" in output.stderr
 }
 
 test test_ergonomics_list_concatenation_does_not_merge_maps { |ctx|
@@ -164,6 +164,6 @@ test test_ergonomics_list_concatenation_does_not_merge_maps { |ctx|
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source
-    "check.type-mismatch" in output.stderr
+    assert "check.type-mismatch" in output.stderr
   }
 }

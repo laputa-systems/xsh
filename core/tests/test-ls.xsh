@@ -5,16 +5,16 @@ test test_ls { |ctx|
   fp"${root}/dir".mkdir()?
   fp"${root}/.hidden".write("dot")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -a -p $root ?
-  "a.txt" in output
-  "b.txt" in output
-  ".hidden" in output
-  "dir/" in output
+  assert "a.txt" in output
+  assert "b.txt" in output
+  assert ".hidden" in output
+  assert "dir/" in output
   let long = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -l $root ?
-  "file" in long
+  assert "file" in long
   let long_alias = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -g $root ?
-  "file" in long_alias
+  assert "file" in long_alias
   let nested = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/dir" ?
-  ! (fp"${root}/dir".display() in nested)
+  assert ! (fp"${root}/dir".display() in nested)
   let file_operand = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/a.txt" ?
-  fp"${root}/a.txt".display() in file_operand
+  assert fp"${root}/a.txt".display() in file_operand
 }

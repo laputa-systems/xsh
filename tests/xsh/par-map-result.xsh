@@ -35,8 +35,8 @@ main()?
     let assertion_message = failed.stderr
     assert assertion_condition, assertion_message
   }
-  failed.status == 3
-  failed.stdout == ""
+  assert failed.status == 3
+  assert failed.stdout == ""
   {
     let assertion_condition = "DivisionByZero" in failed.stderr or "division by zero" in failed.stderr
     let assertion_message = failed.stderr
@@ -50,20 +50,20 @@ test test_par_map_all_ok {
       safe_div(x)
     }
 
-  results.len() == 3
-  results[0] == Ok(100)
-  results[1] == Ok(50)
-  results[2] == Ok(33)
+  assert results.len() == 3
+  assert results[0] == Ok(100)
+  assert results[1] == Ok(50)
+  assert results[2] == Ok(33)
 }
 
 test test_par_map_collect_all_retains_nominal_error_data_in_order {
   let results = [10, 0, 20] |> par-map { |x| safe_div(x) }
-  (results.len()) == (3)
-  (results[0]?) == (10)
-  (results[2]?) == (5)
+  assert (results.len()) == (3)
+  assert (results[0]?) == (10)
+  assert (results[2]?) == (5)
   if let Err(failure) = results[1] {
-      (failure is TestError.DivisionByZero)
-      (failure.message) == ("division by zero")
+      assert (failure is TestError.DivisionByZero)
+      assert (failure.message) == ("division by zero")
   } else {
     assert false, "expected the middle item's nominal error"
   }

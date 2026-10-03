@@ -1,7 +1,7 @@
 test test_flamegraph {
   let output = run.text "xsh" "showcase/flamegraph.xsh" ?
-  "<svg" in output
-  "Flamegraph" in output
+  assert "<svg" in output
+  assert "Flamegraph" in output
 }
 
 test test_flamegraph_rejects_non_integer_sample_counts { |ctx|
@@ -15,6 +15,6 @@ test test_flamegraph_rejects_non_integer_sample_counts { |ctx|
     let rejected = !captured.status.exited_with(0)
     let rejection_message = f"accepted count ${count}"
     assert rejected, rejection_message
-    captured.stdout == ""
+    assert captured.stdout == ""
   }
 }

@@ -15,27 +15,27 @@ test test_optional_record_return_field_alias_preserves_receiver_type {
     let source = optional_postfix_observation(present)
     let target = source.target
     let displayed = target?.display() ?? ""
-    (displayed) == (if present { "/dev/example" } else { "" })
+    assert (displayed) == (if present { "/dev/example" } else { "" })
   }
 }
 
 test test_optional_method_skips_arguments_and_preserves_fallback {
   let absent: Str? = null
-  (absent?.trim() ?? "default") == ("default")
-  (absent?.replace("x", "y") ?? "default") == ("default")
+  assert (absent?.trim() ?? "default") == ("default")
+  assert (absent?.replace("x", "y") ?? "default") == ("default")
   let present: Str? = "  label  "
-  (present?.trim() ?? "default") == ("label")
+  assert (present?.trim() ?? "default") == ("label")
 }
 
 test test_optional_index_and_slice {
   let absent: List[Int]? = null
-  (absent?[0] ?? -1) == (-1)
-  (absent?[0..2] ?? []) == ([])
+  assert (absent?[0] ?? -1) == (-1)
+  assert (absent?[0..2] ?? []) == ([])
   let present: List[Int]? = [1, 2, 3]
-  (present?[1] ?? -1) == (2)
-  (present?[1..] ?? []) == ([2, 3])
+  assert (present?[1] ?? -1) == (2)
+  assert (present?[1..] ?? []) == ([2, 3])
   let text: Str? = "αβγ"
-  (text?[1..2] ?? "") == ("β")
+  assert (text?[1..2] ?? "") == ("β")
 }
 
 test test_optional_postfix_evaluation_order { |ctx|
@@ -58,7 +58,7 @@ print $reached
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("""receiver
+  assert (output.stdout) == ("""receiver
 absent
 present
 argument
@@ -76,34 +76,34 @@ list
 test test_optional_result_layers_and_outer_propagation {
   let present: Str? = "42"
   let absent: Str? = null
-  ((present?.parse_int() ?? Ok(0))?) == (42)
-  ((absent?.parse_int() ?? Ok(0))?) == (0)
+  assert ((present?.parse_int() ?? Ok(0))?) == (42)
+  assert ((absent?.parse_int() ?? Ok(0))?) == (0)
   let bad: Str? = "bad"
   test.error_kind(bad?.parse_int() ?? Ok(0), "parse-int")?
   let wrapped = Ok([3, 4, 5])
-  (wrapped?[1]) == (4)
-  (wrapped?[1..]) == ([4, 5])
+  assert (wrapped?[1]) == (4)
+  assert (wrapped?[1..]) == ([4, 5])
   let nested: Result[Str?] = Ok(" label ")
-  (nested? ?.trim() ?? "default") == ("label")
+  assert (nested? ?.trim() ?? "default") == ("label")
 }
 
 test test_optional_non_null_errors_and_explicit_hops { |ctx|
   let empty = test.run_script(ctx, "let values: List[Int]? = []\nlet item = values?[0] ?? 0\nprint $item\n", [], {}, b"", "optional-empty.xsh")?
-  (!empty.success)
+  assert (!empty.success)
   {
     let assertion_condition = "index" in empty.stderr
     let assertion_message = empty.stderr
     assert assertion_condition, assertion_message
   }
   let any = test.run_script(ctx, "let value: Any = null\nprint value?.trim()\n", [], {}, b"", "optional-any.xsh")?
-  (!any.success)
+  assert (!any.success)
   {
     let assertion_condition = "check.null-safe-field" in any.stderr
     let assertion_message = any.stderr
     assert assertion_condition, assertion_message
   }
   let mixed = test.run_script(ctx, "let value: Str? = null\nlet wrapped = value?.parse_int()\nprint wrapped?\n", [], {}, b"", "optional-mixed.xsh")?
-  (!mixed.success)
+  assert (!mixed.success)
   {
     let assertion_condition = "check.try-result" in mixed.stderr
     let assertion_message = mixed.stderr
@@ -118,19 +118,19 @@ let config: Config? = {server: {host: "label"}}
 print (config?.server.host ?? "default")
 """)?
   assert ! ordinary_hop.success, ordinary_hop.stderr
-  "check.field-access" in ordinary_hop.stderr
+  assert "check.field-access" in ordinary_hop.stderr
   let restricted = test.run_script(ctx, r"""proc first(values: Result[List[Int]]) [] -> Int {
   return values?[0]
 }
 """)?
   assert ! restricted.success, restricted.stderr
-  "check.effect-violation" in restricted.stderr
+  assert "check.effect-violation" in restricted.stderr
   let statement = test.run_script(ctx, r"""let name: Str? = "abc"
 name?.starts_with("x")
 print "after"
 """)?
   assert statement.success, statement.stderr
-  statement.stdout == "after\n"
+  assert statement.stdout == "after\n"
 }
 
 test test_result_postfix_propagation_skips_index_on_failure { |ctx|
@@ -150,7 +150,7 @@ match read() {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("""failed
+  assert (output.stdout) == ("""failed
 """)
 }
 
@@ -159,13 +159,13 @@ test test_optional_fields_guard_each_hop_and_flatten_null_layers {
   let missing_server: OptionalPostfixConfig? = {server: null}
   let missing_host: OptionalPostfixConfig? = {server: {host: null}}
   let present: OptionalPostfixConfig? = {server: {host: " label "}}
-  (absent?.server?.host?.trim() ?? "default") == ("default")
-  (missing_server?.server?.host?.trim() ?? "default") == ("default")
-  (missing_host?.server?.host?.trim() ?? "default") == ("default")
-  (present?.server?.host?.trim() ?? "default") == ("label")
+  assert (absent?.server?.host?.trim() ?? "default") == ("default")
+  assert (missing_server?.server?.host?.trim() ?? "default") == ("default")
+  assert (missing_host?.server?.host?.trim() ?? "default") == ("default")
+  assert (present?.server?.host?.trim() ?? "default") == ("label")
   let name: Str? = null
   let selected: Bool? = name?.starts_with("x")
-  (selected ?? false) == (false)
+  assert (selected ?? false) == (false)
 }
 
 test test_optional_postfix_null_branch_differential_witness { |ctx|
@@ -195,8 +195,8 @@ print label("x")
     let {success: assertion_condition, stderr: assertion_message, ..} = after
     assert assertion_condition, assertion_message
   }
-  (after.stdout) == (before.stdout)
-  (after.stdout) == ("""fallback
+  assert (after.stdout) == (before.stdout)
+  assert (after.stdout) == ("""fallback
 default
 argument
 y
@@ -205,11 +205,11 @@ y
 
 test test_optional_runtime_record_fields_preserve_result_layers {
   let failure: Error? = OptionalPostfixError.Failed("42")
-  ((failure?.message?.parse_int() ?? Ok(0))?) == (42)
+  assert ((failure?.message?.parse_int() ?? Ok(0))?) == (42)
   let absent: Error? = null
-  ((absent?.message?.parse_int() ?? Ok(0))?) == (0)
+  assert ((absent?.message?.parse_int() ?? Ok(0))?) == (0)
   let handle: ProcessHandle? = null
-  ((handle?.command?.parse_int() ?? Ok(0))?) == (0)
+  assert ((handle?.command?.parse_int() ?? Ok(0))?) == (0)
 }
 
 test test_optional_method_retains_validated_local_receiver_type {
@@ -219,5 +219,5 @@ test test_optional_method_retains_validated_local_receiver_type {
     let scheduler = json.get(row, ["sched"])?.require(Str?)?
     labels += [scheduler?.trim() ?? "absent"]
   }
-  (labels) == (["noop", "absent"])
+  assert (labels) == (["noop", "absent"])
 }

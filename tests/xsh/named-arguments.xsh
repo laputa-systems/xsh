@@ -6,9 +6,9 @@ test test_named_argument_puns_use_lexical_values {
   let first = 10
   let second = 20
   let third = 40
-  (named_argument_values(first:, second:)) == ([10, 20, 30])
-  (named_argument_values(1, second:, third:)) == ([1, 20, 40])
-  (named_argument_values(
+  assert (named_argument_values(first:, second:)) == ([10, 20, 30])
+  assert (named_argument_values(1, second:, third:)) == ([1, 20, 40])
+  assert (named_argument_values(
       first:,
       second: second + 1,
       third:,
@@ -36,7 +36,7 @@ print $result
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("first\nthird\n60\n")
+  assert (executed.stdout) == ("first\nthird\n60\n")
 }
 
 test test_named_argument_puns_keep_resolution_and_call_errors { |ctx|
@@ -53,8 +53,8 @@ print $result
     let assertion_message = missing.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.unresolved-name" in missing.stderr)
-  ("accept(value:)" in missing.stderr)
+  assert ("check.unresolved-name" in missing.stderr)
+  assert ("accept(value:)" in missing.stderr)
 
   let duplicate = test.run_script(
     ctx,
@@ -69,8 +69,8 @@ print $result
     let assertion_message = duplicate.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.named-arg" in duplicate.stderr)
-  ("parameter `value` supplied more than once" in duplicate.stderr)
+  assert ("check.named-arg" in duplicate.stderr)
+  assert ("parameter `value` supplied more than once" in duplicate.stderr)
 
   let wrong_type = test.run_script(
     ctx,
@@ -85,15 +85,15 @@ print $result
     let assertion_message = wrong_type.stderr
     assert assertion_condition, assertion_message
   }
-  ("Int" in wrong_type.stderr)
-  ("Str" in wrong_type.stderr)
+  assert ("Int" in wrong_type.stderr)
+  assert ("Str" in wrong_type.stderr)
 }
 
 test test_named_argument_puns_apply_to_module_and_method_calls { |ctx|
   let name = "punned-temp.xsh"
   let contents = b"punning"
   let candidate = test.temp_file(ctx, name:, contents:)?
-  (candidate.read_bytes()?) == (contents)
+  assert (candidate.read_bytes()?) == (contents)
   let method_call = test.run_script(ctx, r"""let offset = 1
 let length = 3
 b"abcde".slice(offset:, length:) == b"bcd"
@@ -117,22 +117,22 @@ test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent { |ctx
     assert assertion_condition, assertion_message
   }
   let fixed = candidate.read_text()?
-  ("accept(value:)" in fixed)
-  ("# Preserve this comment." in fixed)
+  assert ("accept(value:)" in fixed)
+  assert ("# Preserve this comment." in fixed)
   let after = test.run_script(ctx, fixed)?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = after
     assert assertion_condition, assertion_message
   }
-  (after.stdout) == (before.stdout)
+  assert (after.stdout) == (before.stdout)
   let second = run.capture --text "xsht" lint --fix $candidate ?
   {
     let assertion_condition = second.status.exited_with(1)
     let assertion_message = second.stderr
     assert assertion_condition, assertion_message
   }
-  ("lint.prefer-named-argument-pun" in second.stderr)
-  (candidate.read_text()?) == (fixed)
+  assert ("lint.prefer-named-argument-pun" in second.stderr)
+  assert (candidate.read_text()?) == (fixed)
   let formatted = run.capture --text "xsht" fmt --check $candidate ?
   {
     let assertion_condition = formatted.status.exited_with(0)
@@ -160,14 +160,14 @@ print ${helper.relay(2)}
     assert assertion_condition, assertion_message
   }
   let fixed = helper.read_text()?
-  ("accept(value:)" in fixed)
+  assert ("accept(value:)" in fixed)
   let repeated = run.capture --text "xsht" lint --fix $root ?
   {
     let assertion_condition = repeated.status.exited_with(0)
     let assertion_message = repeated.stderr
     assert assertion_condition, assertion_message
   }
-  (helper.read_text()?) == (fixed)
+  assert (helper.read_text()?) == (fixed)
   let checked = run.capture --text "xsht" check $root ?
   {
     let assertion_condition = checked.status.exited_with(0)

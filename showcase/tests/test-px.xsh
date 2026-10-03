@@ -31,10 +31,10 @@ test test_px_finds_current_test_process {
   let pid = process.current_pid()?
   let pid_arg = f"${pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- $pid_arg ?
-  f"${pid}" in output
-  "pid" in output
-  "user" in output
-  "mem" in output
+  assert f"${pid}" in output
+  assert "pid" in output
+  assert "user" in output
+  assert "mem" in output
 }
 
 test test_px_default_search_matches_executable_substrings { |ctx|
@@ -44,8 +44,8 @@ test test_px_default_search_matches_executable_substrings { |ctx|
   defer process.kill(child.pid, signal: "TERM")
   wait_for_process_marker(child.pid, marker)?
   let output = run.text "xsh" "showcase/px.xsh" -- "pxexec" ?
-  marker in output
-  f"${child.pid}" in output
+  assert marker in output
+  assert f"${child.pid}" in output
 }
 
 test test_px_kill_signals_default_matches { |ctx|
@@ -55,10 +55,10 @@ test test_px_kill_signals_default_matches { |ctx|
   wait_for_process_marker(child.pid, marker)?
   let pid_arg = f"${child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill=15" $pid_arg ?
-  "signaled 1 process(es) with signal 15" in output
+  assert "signaled 1 process(es) with signal 15" in output
   let status = wait child?
-  status.signaled()
-  status.signal_number()? == 15
+  assert status.signaled()
+  assert status.signal_number()? == 15
 }
 
 test test_px_kill_accepts_numeric_signal { |ctx|
@@ -68,7 +68,7 @@ test test_px_kill_accepts_numeric_signal { |ctx|
   wait_for_process_marker(child.pid, marker)?
   let pid_arg = f"${child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill" "0" $pid_arg ?
-  "signaled 1 process(es) with signal 0" in output
+  assert "signaled 1 process(es) with signal 0" in output
   child.cancel(signal: "TERM", kill_after: 10ms)?
 }
 

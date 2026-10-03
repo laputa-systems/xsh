@@ -8,10 +8,10 @@ print "passed"
 assert 1 == 2, context()
 """)?
   assert ! result.success, result.stderr
-  result.stdout == "passed\ncontext\n"
-  "AssertionError" in result.stderr
-  "extra context" in result.stderr
-  "1 == 2" in result.stderr
+  assert result.stdout == "passed\ncontext\n"
+  assert "AssertionError" in result.stderr
+  assert "extra context" in result.stderr
+  assert "1 == 2" in result.stderr
 }
 
 test test_assert_short_circuit_and_operands_are_evaluated_once { |ctx|
@@ -22,22 +22,22 @@ test test_assert_short_circuit_and_operands_are_evaluated_once { |ctx|
 assert observed(3) < observed(2) < (1 / 0), "chain context"
 """)?
   assert ! result.success, result.stderr
-  result.stdout == "3\n2\n"
-  "3 < 2" in result.stderr
-  "later operands skipped" in result.stderr
-  "chain context" in result.stderr
+  assert result.stdout == "3\n2\n"
+  assert "3 < 2" in result.stderr
+  assert "later operands skipped" in result.stderr
+  assert "chain context" in result.stderr
   assert "division-by-zero" not in result.stderr, result.stderr
 
   let conjunction = test.run_script(ctx, "assert 1 == 2 and (1 / 0 == 0), \"conjunction\"\n")?
   assert ! conjunction.success, conjunction.stderr
-  "1 == 2" in conjunction.stderr
-  "right operand skipped" in conjunction.stderr
+  assert "1 == 2" in conjunction.stderr
+  assert "right operand skipped" in conjunction.stderr
   assert "division-by-zero" not in conjunction.stderr, conjunction.stderr
 
   let disjunction = test.run_script(ctx, "assert 1 == 2 or 3 == 4, \"disjunction\"\n")?
   assert ! disjunction.success, disjunction.stderr
-  "1 == 2" in disjunction.stderr
-  "3 == 4" in disjunction.stderr
+  assert "1 == 2" in disjunction.stderr
+  assert "3 == 4" in disjunction.stderr
 }
 
 test test_assert_message_propagates_its_own_failure { |ctx|
@@ -49,9 +49,9 @@ proc message() [error] -> Str { let value = "bad".parse_int()?; f"$value" }
 assert condition(), message()
 """)?
   assert ! result.success, result.stderr
-  result.stdout == "condition\n"
-  result.status == 3
-  "invalid integer `bad`" in result.stderr
+  assert result.stdout == "condition\n"
+  assert result.status == 3
+  assert "invalid integer `bad`" in result.stderr
   assert "AssertionError" not in result.stderr, result.stderr
 }
 
@@ -67,8 +67,8 @@ match result {
 }
 """)?
   assert result.success, result.stderr
-  "cleaned\nassertion failed: false: retry context\n" in result.stdout
-  "retry context" in result.stdout
+  assert "cleaned\nassertion failed: false: retry context\n" in result.stdout
+  assert "retry context" in result.stdout
 }
 
 test test_assert_message_failure_takes_precedence_and_runs_cleanup { |ctx|
@@ -84,7 +84,7 @@ match result {
 }
 """)?
   assert result.success, result.stderr
-  "cleaned\n" in result.stdout
+  assert "cleaned\n" in result.stdout
   assert "AssertionError" not in result.stdout, result.stdout
 }
 
@@ -100,7 +100,7 @@ test test_assert_requires_bool_condition_and_str_message { |ctx|
   ] {
     let invalid = test.run_script(ctx, source)?
     assert ! invalid.success, invalid.stderr
-    invalid.stdout == ""
+    assert invalid.stdout == ""
   }
 }
 
@@ -110,20 +110,20 @@ proc restricted() [] { assert true, message() }
 restricted()
 """)?
   assert ! effect.success, effect.stderr
-  "check.effect-violation" in effect.stderr
+  assert "check.effect-violation" in effect.stderr
 
   let propagation = test.run_script(ctx, r"""proc message() [error] -> Str { let value = "1".parse_int()?; f"$value" }
 proc restricted() [] { assert true, message() }
 restricted()
 """)?
   assert ! propagation.success, propagation.stderr
-  "check.effect-violation" in propagation.stderr
+  assert "check.effect-violation" in propagation.stderr
 }
 
 test test_assert_keyword_labels_and_external_argv_remain_literal { |ctx|
   let result = test.run_script(ctx, "let row = {assert: \"context\"}\nassert row.assert == \"context\", row.assert\nrun printf \"%s\\n\" assert\n")?
   assert result.success, result.stderr
-  result.stdout == "assert\n"
+  assert result.stdout == "assert\n"
   let binding = test.run_script(ctx, "let assert = true\n")?
   assert ! binding.success, binding.stderr
 }
@@ -131,7 +131,7 @@ test test_assert_keyword_labels_and_external_argv_remain_literal { |ctx|
 test test_assert_bounded_operands_do_not_hide_context { |ctx|
   let result = test.run_script(ctx, "var long = \"x\"\nfor index in range(10000) { long = long + \"x\" }\nassert long == \"y\", \"bounded context\"\n")?
   assert ! result.success, result.stderr
-  "bounded context" in result.stderr
+  assert "bounded context" in result.stderr
   assert result.stderr.byte_len() < 3000, result.stderr
 }
 
@@ -144,8 +144,8 @@ proc message() [io] -> Str { print "outer message"; "outer context" }
 assert 0 < operand() < 3, message()
 """)?
   assert ! result.success, result.stderr
-  result.stdout == ""
-  "inner failure" in result.stderr
+  assert result.stdout == ""
+  assert "inner failure" in result.stderr
   assert "outer context" not in result.stderr, result.stderr
 }
 
@@ -164,7 +164,7 @@ let value = result?
 print $value
 """)?
   assert result.success, result.stderr
-  result.stdout == "assertion failed: false: inner context\nouter success\n"
+  assert result.stdout == "assertion failed: false: inner context\nouter success\n"
 }
 
 test test_assert_message_propagation_is_captured_by_try { |ctx|
@@ -181,7 +181,7 @@ match result {
 }
 """)?
   assert result.success, result.stderr
-  result.stdout == "invalid integer `bad`\n"
+  assert result.stdout == "invalid integer `bad`\n"
 }
 
 test test_assert_cannot_narrow_core_failure_to_a_nominal_error { |ctx|
@@ -192,16 +192,16 @@ let result: Result[Unit, Narrow] = try {
 print "accepted"
 """)?
   assert ! result.success, result.stderr
-  "check.type-mismatch" in result.stderr
+  assert "check.type-mismatch" in result.stderr
 }
 
 test test_assert_message_is_optional { |ctx|
   let result = test.run_script(ctx, "assert true\nassert 1 < 2 < 3\nprint \"passed\"\nassert false\n")?
   assert ! result.success, result.stderr
-  result.stdout == "passed\n"
-  "AssertionError.Failed" in result.stderr
-  "assertion failed: false: evaluated to false" in result.stderr
-  ":4:8" in result.stderr
+  assert result.stdout == "passed\n"
+  assert "AssertionError.Failed" in result.stderr
+  assert "assertion failed: false: evaluated to false" in result.stderr
+  assert ":4:8" in result.stderr
 }
 
 test test_assert_reports_bare_statement_detail { |ctx|
@@ -210,20 +210,20 @@ test test_assert_reports_bare_statement_detail { |ctx|
   let messaged = test.run_script(ctx, "assert [1, 2] == [1, 3], \"list context\"\n")?
   for result in [bare, plain, messaged] {
     assert ! result.success, result.stderr
-    "AssertionError.Failed" in result.stderr
-    "assertion failed: [1, 2] == [1, 3]" in result.stderr
-    "\nleft: [1, 2]\nright: [1, 3]" in result.stderr
+    assert "AssertionError.Failed" in result.stderr
+    assert "assertion failed: [1, 2] == [1, 3]" in result.stderr
+    assert "\nleft: [1, 2]\nright: [1, 3]" in result.stderr
   }
-  "assertion failed: [1, 2] == [1, 3]: list context\nleft: [1, 2]" in messaged.stderr
-  ":1:8" in plain.stderr
+  assert "assertion failed: [1, 2] == [1, 3]: list context\nleft: [1, 2]" in messaged.stderr
+  assert ":1:8" in plain.stderr
 
   let text = test.run_script(ctx, "assert \"a\\nold\\n\" == \"a\\nnew\\n\"\n")?
   assert ! text.success, text.stderr
-  "diff:" in text.stderr
-  "-old" in text.stderr
-  "+new" in text.stderr
+  assert "diff:" in text.stderr
+  assert "-old" in text.stderr
+  assert "+new" in text.stderr
 
   let chain = test.run_script(ctx, "assert 1 < 3 < 2\n")?
   assert ! chain.success, chain.stderr
-  "assertion failed: 1 < 3 < 2\nordering comparison failed: 3 < 2" in chain.stderr
+  assert "assertion failed: 1 < 3 < 2\nordering comparison failed: 3 < 2" in chain.stderr
 }

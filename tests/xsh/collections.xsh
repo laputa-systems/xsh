@@ -3,25 +3,25 @@ type Entry = {name: Str, score: Int}
 test test_list_comprehension_basic_transform {
   let nums = [1, 2, 3]
   let doubled = [x * 2 for x in nums]
-  doubled == [2, 4, 6]
+  assert doubled == [2, 4, 6]
 }
 
 test test_list_comprehension_with_guard_filters_elements {
   let nums = [1, 2, 3, 4, 5]
   let evens = [x for x in nums if x % 2 == 0]
-  evens == [2, 4]
+  assert evens == [2, 4]
 }
 
 test test_list_comprehension_guard_can_produce_empty_list {
   let nums = [1, 3, 5]
   let evens = [x for x in nums if x % 2 == 0]
-  evens |> count() == 0
+  assert evens |> count() == 0
 }
 
 test test_list_comprehension_with_record_destructuring {
   let entries: List[Entry] = [{name: "alice", score: 90}, {name: "bob", score: 55}, {name: "carol", score: 80}]
   let passing = [name for {name, score} in entries if score >= 60]
-  passing == ["alice", "carol"]
+  assert passing == ["alice", "carol"]
 }
 
 error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied
@@ -33,7 +33,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
 test test_nominal_error_payload_and_facet_patterns {
   match missing(p"missing") {
     Ok(text) => test.fail(f"unexpected ok ${text}")?
-    Err(FsError.NotFound {file: file}) => file.display() == "missing"
+    Err(FsError.NotFound {file: file}) => assert file.display() == "missing"
     Err(is PermissionDenied) => test.fail("unexpected permission facet")?
     Err(error) => test.fail(error.message)?
   }
@@ -62,9 +62,9 @@ test test_local_accumulator_field_mutation {
   var counts: Map[Int] = {}
   counts["code"] = stats.code
   counts["comments"] = stats.comments
-  stats.blanks == 1
-  (counts.get("code") ?? 0) == 2
-  (counts.get("comments") ?? 0) == 1
+  assert stats.blanks == 1
+  assert (counts.get("code") ?? 0) == 2
+  assert (counts.get("comments") ?? 0) == 1
 }
 
 test test_compact_sugar_forms { |ctx|
@@ -90,7 +90,7 @@ print \${label} \${value} \${files |> count()}
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
 
-  output.stdout == """three 3 1
+  assert output.stdout == """three 3 1
 """
 }
 
@@ -113,13 +113,13 @@ test test_ergonomic_sugar_pass_forms { |ctx|
   json.write(fp"${root}/meta.json", {name, version, jobs, ok})?
   let metadata = json.read(fp"${root}/meta.json")?
   fs.remove(fp"${root}/missing", missing_ok: true)?
-  printed_path == fp"${root}/nested/dir".display()
-  name == "demo"
-  version == "1"
-  jobs == "1"
-  ok == "set"
-  metadata.name == "demo"
-  metadata.jobs == "1"
+  assert printed_path == fp"${root}/nested/dir".display()
+  assert name == "demo"
+  assert version == "1"
+  assert jobs == "1"
+  assert ok == "set"
+  assert metadata.name == "demo"
+  assert metadata.jobs == "1"
 }
 
 test test_multi_clause_list_comprehension_encounter_order {
@@ -131,14 +131,14 @@ test test_multi_clause_list_comprehension_encounter_order {
     if inner != 1
     if outer + inner < 5
   ]
-  pairs == [10, 30]
+  assert pairs == [10, 30]
   let empty = [
     inner
     for outer in [1]
     if false
     for inner in [outer]
   ]
-  empty == []
+  assert empty == []
 }
 
 test test_multi_clause_comprehension_bindings_are_lexical { |ctx|
@@ -154,7 +154,7 @@ proc main() [io] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == "2,3,10\n"
+  assert output.stdout == "2,3,10\n"
 }
 
 test test_multi_clause_map_comprehension_later_entries_win {
@@ -165,8 +165,8 @@ test test_multi_clause_map_comprehension_later_entries_win {
     for number in entry.values
     if number != 2
   }
-  (by_key.get("a") ?? 0) == 4
-  (by_key.get("b") ?? 0) == 3
+  assert (by_key.get("a") ?? 0) == 4
+  assert (by_key.get("b") ?? 0) == 3
 }
 
 test test_multi_clause_comprehension_evaluates_only_reached_clauses { |ctx|
@@ -189,7 +189,7 @@ proc main() [io] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n"
+  assert output.stdout == "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n"
 }
 
 test test_multi_clause_comprehension_pulls_streams_lazily_and_closes { |ctx|
@@ -216,7 +216,7 @@ proc main() [io] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n"
+  assert output.stdout == "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n"
 }
 
 test test_multi_clause_comprehension_failure_closes_nested_streams { |ctx|
@@ -241,15 +241,15 @@ proc main() [io, error] {
 }
 """,
   )?
-  ! output.success
-  output.stdout == "pull outer:1\npull inner:1\nclose inner\nclose outer\n"
-  "failure" in output.stderr
+  assert ! output.success
+  assert output.stdout == "pull outer:1\npull inner:1\nclose inner\nclose outer\n"
+  assert "failure" in output.stderr
 }
 
 test test_multi_clause_comprehension_rejects_forward_bindings { |ctx|
   let output = test.run_script(ctx, "let values = [inner for outer in [1] if inner == 1 for inner in [outer]]\n")?
-  ! output.success
-  "inner" in output.stderr
+  assert ! output.success
+  assert "inner" in output.stderr
 }
 
 pure comprehension_values(number: Int) -> Result[List[Int]] {
@@ -263,7 +263,7 @@ test test_multi_clause_comprehension_accepts_fallible_iterables {
     for inner in comprehension_values(outer)
     if inner != 2
   ]
-  values == [1, 3]
+  assert values == [1, 3]
 }
 
 test test_multi_clause_comprehension_propagation_retains_result_and_cleanup { |ctx|
@@ -293,7 +293,7 @@ proc main() [io, error] {
   )?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == "close inner\nclose outer\nfailure\n"
+  assert output.stdout == "close inner\nclose outer\nfailure\n"
 }
 
 pure list_splice_default(values = [1, @[2, 3]]) -> List[Int] {
@@ -307,29 +307,29 @@ test test_list_literal_splicing_preserves_types_nesting_and_aliases {
   let combined_alias = combined
   middle += [9]
   combined += [7]
-  source_alias == [2, 3]
-  middle == [2, 3, 9]
-  combined_alias == [1, 2, 3, 4, 5, 6]
-  combined == [1, 2, 3, 4, 5, 6, 7]
+  assert source_alias == [2, 3]
+  assert middle == [2, 3, 9]
+  assert combined_alias == [1, 2, 3, 4, 5, 6]
+  assert combined == [1, 2, 3, 4, 5, 6, 7]
   let nested = [[1], @[[2], [3]], [4]]
-  nested == [[1], [2], [3], [4]]
+  assert nested == [[1], [2], [3], [4]]
   let empty = [@[], @[]]
-  empty == []
-  empty + ["ready"] == ["ready"]
+  assert empty == []
+  assert empty + ["ready"] == ["ready"]
   let inferred = [@[], 8, @[]]
-  inferred == [8]
+  assert inferred == [8]
   let typed = [
     @(
       [1, 2]
     ),
     3,
   ]
-  typed == [1, 2, 3]
+  assert typed == [1, 2, 3]
   let rows: List[Entry] = [{name: "first", score: 1}, @[{name: "second", score: 2}]]
-  rows[1].name == "second"
-  list_splice_default() == [1, 2, 3]
+  assert rows[1].name == "second"
+  assert list_splice_default() == [1, 2, 3]
   let declared = [p"first", @[p"second"]]
-  declared == [p"first", p"second"]
+  assert declared == [p"first", p"second"]
 }
 
 test test_list_literal_splicing_evaluates_left_to_right_once { |ctx|
@@ -349,7 +349,7 @@ print result.len()
   )?
   let {success: succeeded, stderr: failure_details, ..} = result
   assert succeeded, failure_details
-  result.stdout == "item 1\nsplice 2\nitem 4\nsplice 5\n6\n"
+  assert result.stdout == "item 1\nsplice 2\nitem 4\nsplice 5\n6\n"
 }
 
 test test_list_literal_splicing_propagates_before_later_elements { |ctx|
@@ -371,8 +371,8 @@ print values.len()
   let rejected = ! result.success
   let rejection_details = result.stderr
   assert rejected, rejection_details
-  "stop building" in result.stderr
-  result.stdout == "item 1\nflags\n"
+  assert "stop building" in result.stderr
+  assert result.stdout == "item 1\nflags\n"
 }
 
 test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements { |ctx|
@@ -389,20 +389,20 @@ test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements { |c
     let rejected = ! result.success
     let rejection_details = result.stderr
     assert rejected, rejection_details
-    "check." in result.stderr
+    assert "check." in result.stderr
   }
   let ambiguous = test.run_script(ctx, "let value = [@[1] for x in [2]]\n")?
   let rejected = ! ambiguous.success
   let rejection_details = ambiguous.stderr
   assert rejected, rejection_details
-  "parse." in ambiguous.stderr
+  assert "parse." in ambiguous.stderr
 }
 
 test test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv {
   let loaded = Ok(["-O2", "-g"])
   let argv = ["cc", @(loaded?), "-o", "app"]
   let _ = process.command_argv("true", ["true", @argv])
-  argv == ["cc", "-O2", "-g", "-o", "app"]
+  assert argv == ["cc", "-O2", "-g", "-o", "app"]
 }
 
 test test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers { |ctx|
@@ -432,5 +432,5 @@ proc main() [io, error] {
 """)?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == "close inner\nclose outer\nblock\nfunction\nfailure\n"
+  assert output.stdout == "close inner\nclose outer\nblock\nfunction\nfailure\n"
 }

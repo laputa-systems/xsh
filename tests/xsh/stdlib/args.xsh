@@ -50,27 +50,27 @@ test test_args_parse_tokens_and_commands {
     },
   )?
 
-  parsed.count == 3
-  parsed.define.join(",") == "one,two"
-  parsed.file.name() == "main.xsh"
-  parsed.verbose
+  assert parsed.count == 3
+  assert parsed.define.join(",") == "one,two"
+  assert parsed.file.name() == "main.xsh"
+  assert parsed.verbose
   let tokens = cli.tokens(["-abc", "--output=result.txt", "-I", "include", "-1", "file"], ["I", "output"])?
-  tokens[0].kind == "short"
-  tokens[0].name == "a"
-  tokens[3].value == "result.txt"
-  tokens[4].value == "include"
-  tokens[5].kind == "operand"
-  tokens[5].name == "-1"
+  assert tokens[0].kind == "short"
+  assert tokens[0].name == "a"
+  assert tokens[3].value == "result.txt"
+  assert tokens[4].value == "include"
+  assert tokens[5].kind == "operand"
+  assert tokens[5].name == "-1"
 
   let full = cli.parse_full(
     ["--count", "2", "demo.txt"],
     {count: {kind: "Int", required: true}, file: {kind: "Path", positional: true}},
   )?
 
-  (full.values.count) == (2)
-  (full.sources.count) == ("argv")
+  assert (full.values.count) == (2)
+  assert (full.sources.count) == ("argv")
   let usage = cli.usage({count: {kind: "Int", required: true}}, "demo")
-  "usage: demo" in usage
+  assert "usage: demo" in usage
 
   const command_specs = {
     build: {
@@ -100,12 +100,12 @@ test test_args_parse_tokens_and_commands {
     fallback_command: {positionals: ["action", "root"], types: {root: "Path"}, rest: "raw", command_like: true},
   )?
 
-  command.command == "deploy"
-  command.root.name() == "demo"
-  command.raw[0] == "--dry-run"
+  assert command.command == "deploy"
+  assert command.root.name() == "demo"
+  assert command.raw[0] == "--dry-run"
   let explicit: CommandArgs = cli.commands(["clean", "target/demo"], command_specs)?
-  explicit.command == "clean"
-  explicit.root.name() == "demo"
+  assert explicit.command == "clean"
+  assert explicit.root.name() == "demo"
 }
 
 test test_cli_parse_compact_forms {
@@ -131,13 +131,13 @@ test test_cli_parse_compact_forms {
     },
   )?
 
-  parsed.count == 3
-  parsed.define.join(",") == "one,two"
-  parsed.file.name() == "main.xsh"
-  parsed.verbose
+  assert parsed.count == 3
+  assert parsed.define.join(",") == "one,two"
+  assert parsed.file.name() == "main.xsh"
+  assert parsed.verbose
   let cli_tokens = cli.tokens(["--mode=json", "-v"], ["mode"])?
-  cli_tokens[0].name == "mode"
-  cli_tokens[0].value == "json"
+  assert cli_tokens[0].name == "mode"
+  assert cli_tokens[0].value == "json"
 }
 
 test test_cli_applet_parses_head_attached_value {
@@ -155,8 +155,8 @@ test test_cli_applet_parses_head_attached_value {
     },
   )?
 
-  parsed.count == 2
-  parsed.files[0] == "file"
+  assert parsed.count == 2
+  assert parsed.files[0] == "file"
 }
 
 test test_cli_applet_parses_sort_cluster_and_attached_values {
@@ -186,11 +186,11 @@ test test_cli_applet_parses_sort_cluster_and_attached_values {
     },
   )?
 
-  parsed.numeric
-  parsed.reverse
-  parsed.key == 2
-  parsed.delimiter == ","
-  parsed.files[0] == "file"
+  assert parsed.numeric
+  assert parsed.reverse
+  assert parsed.key == 2
+  assert parsed.delimiter == ","
+  assert parsed.files[0] == "file"
 }
 
 test test_cli_applet_parses_fd_clusters_and_repeated_values {
@@ -219,11 +219,11 @@ test test_cli_applet_parses_fd_clusters_and_repeated_values {
     },
   )?
 
-  parsed.hidden
-  parsed.no_ignore
-  parsed.extensions[0] == "xsh"
-  parsed.excludes[0] == "target"
-  parsed.operands.join(",") == "pattern,root"
+  assert parsed.hidden
+  assert parsed.no_ignore
+  assert parsed.extensions[0] == "xsh"
+  assert parsed.excludes[0] == "target"
+  assert parsed.operands.join(",") == "pattern,root"
 }
 
 test test_cli_applet_parses_rg_long_assignment_and_attached_values {
@@ -248,10 +248,10 @@ test test_cli_applet_parses_rg_long_assignment_and_attached_values {
     },
   )?
 
-  parsed.color == "always"
-  parsed.pattern == "foo"
-  parsed.globs[0] == "*.xsh"
-  parsed.roots[0] == "root"
+  assert parsed.color == "always"
+  assert parsed.pattern == "foo"
+  assert parsed.globs[0] == "*.xsh"
+  assert parsed.roots[0] == "root"
 }
 
 test test_cli_applet_parses_cp_compatibility_flags {
@@ -278,10 +278,10 @@ test test_cli_applet_parses_cp_compatibility_flags {
     },
   )?
 
-  ! parsed.no_clobber
-  parsed.force
-  (parsed.target.name()) == ("dest")
-  parsed.operands.join(",") == "src1,src2"
+  assert ! parsed.no_clobber
+  assert parsed.force
+  assert (parsed.target.name()) == ("dest")
+  assert parsed.operands.join(",") == "src1,src2"
 
   let reversed: CpAppletOptions = cli.applet(
     ["-f", "-n", "-t", "dest", "src1", "src2"],
@@ -305,8 +305,8 @@ test test_cli_applet_parses_cp_compatibility_flags {
       },
     },
   )?
-  reversed.no_clobber
-  ! reversed.force
+  assert reversed.no_clobber
+  assert ! reversed.force
 }
 
 test test_cli_applet_last_scalar_occurrence_wins {
@@ -322,7 +322,7 @@ test test_cli_applet_last_scalar_occurrence_wins {
     ["-v", "-v"],
     {verbose: {form: "-v", default: false}},
   )?
-  parsed.verbose
+  assert parsed.verbose
 }
 
 test test_cli_parse_advanced_descriptors {
@@ -409,15 +409,15 @@ test test_cli_parse_advanced_descriptors {
 
   let full = cli.parse_full(["--color", "-v", "--left", "a"], schema)?
   let values = full.values.require(AdvancedArgs)?
-  (values.color) == ("always")
-  (values.config.name()) == ("config.toml")
-  (values.workspace.name()) == (root.name())
-  (values.count) == (1)
-  (f"${values.timeout}") == ("1s")
-  (values.verbose)
-  (full.sources.get("color")?.require(Str)?) == ("argv")
-  (full.sources.get("mode")?.require(Str)?) == ("default")
-  (full.warnings.len()) == (1)
+  assert (values.color) == ("always")
+  assert (values.config.name()) == ("config.toml")
+  assert (values.workspace.name()) == (root.name())
+  assert (values.count) == (1)
+  assert (f"${values.timeout}") == ("1s")
+  assert (values.verbose)
+  assert (full.sources.get("color")?.require(Str)?) == ("argv")
+  assert (full.sources.get("mode")?.require(Str)?) == ("default")
+  assert (full.warnings.len()) == (1)
 
   let env_full = cli.parse_full(
     [],
@@ -425,42 +425,42 @@ test test_cli_parse_advanced_descriptors {
     {XSH_PROFILE: "prod"},
   )?
 
-  (env_full.values.profile) == ("prod")
-  (env_full.sources.get("profile")?.require(Str)?) == ("env")
+  assert (env_full.values.profile) == ("prod")
+  assert (env_full.sources.get("profile")?.require(Str)?) == ("env")
   let usage = cli.usage(schema, "demo")
-  ("usage: demo [OPTIONS]" in usage)
-  ("--mode MODE" in usage)
-  ("-h, --help" in usage)
-  ! ("--secret" in usage)
+  assert ("usage: demo [OPTIONS]" in usage)
+  assert ("--mode MODE" in usage)
+  assert ("-h, --help" in usage)
+  assert ! ("--secret" in usage)
 
   match cli.parse(["--help"], schema, "demo sub") {
     Ok(_) => test.fail("implicit help should stop parsing")?
-    Err(error) => ("usage: demo sub [OPTIONS]" in error.message)
+    Err(error) => assert ("usage: demo sub [OPTIONS]" in error.message)
   }
 
   match cli.parse(["--mode", "xml", "--left", "a"], schema) {
     Ok(_) => test.fail("choice validation should fail")?
-    Err(error) => ("expects one of" in error.message)
+    Err(error) => assert ("expects one of" in error.message)
   }
 
   match cli.parse(["--json", "--table", "--left", "a"], schema) {
     Ok(_) => test.fail("conflict validation should fail")?
-    Err(error) => ("conflicts" in error.message)
+    Err(error) => assert ("conflicts" in error.message)
   }
 
   match cli.parse([], schema) {
     Ok(_) => test.fail("required group validation should fail")?
-    Err(error) => ("required group" in error.message)
+    Err(error) => assert ("required group" in error.message)
   }
 
   match cli.parse(["--count", "-1", "--left", "a"], schema) {
     Ok(_) => test.fail("UInt validation should fail")?
-    Err(error) => ("expects UInt" in error.message)
+    Err(error) => assert ("expects UInt" in error.message)
   }
 
   match cli.parse(["--config", f"${root}/missing.toml", "--left", "a"], schema) {
     Ok(_) => test.fail("file path validation should fail")?
-    Err(error) => ("expects a file path" in error.message)
+    Err(error) => assert ("expects a file path" in error.message)
   }
 }
 
@@ -486,28 +486,28 @@ test test_cli_commands_accept_aliases_forms_and_options {
     },
   )?
 
-  command.command == "build"
-  command.action == "b"
-  command.root.name() == "demo"
-  command.verbose
-  command.rest[0] == "--dry-run"
+  assert command.command == "build"
+  assert command.action == "b"
+  assert command.root.name() == "demo"
+  assert command.verbose
+  assert command.rest[0] == "--dry-run"
 }
 
 test test_cli_parse_positional_default_is_optional {
   let absent = cli.parse([], {kind: {form: "KIND", default: "rust"}})?
-  absent.kind == "rust"
+  assert absent.kind == "rust"
 
   let explicit = cli.parse(["xsh"], {kind: {form: "KIND", default: "rust"}})?
-  explicit.kind == "xsh"
+  assert explicit.kind == "xsh"
 
   let usage = cli.usage({kind: {form: "KIND", default: "rust"}}, "dev")
-  ("[KIND]" in usage)
+  assert ("[KIND]" in usage)
 
   match cli.parse([], {action: {form: "ACTION", required: true}}) {
     Ok(_) => test.fail("required positional should fail when absent")?
-    Err(error) => ("missing required argument ACTION" in error.message)
+    Err(error) => assert ("missing required argument ACTION" in error.message)
   }
 
   let relaxed = cli.parse([], {file: {form: "FILE", required: false}})?
-  (relaxed.file) == (null)
+  assert (relaxed.file) == (null)
 }

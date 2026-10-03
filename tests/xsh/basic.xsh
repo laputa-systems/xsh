@@ -1,5 +1,5 @@
 test test_pass {
-  1 == 1
+  assert 1 == 1
 }
 
 test test_guard_failure_controls_enclosing_loop {
@@ -12,7 +12,7 @@ test test_guard_failure_controls_enclosing_loop {
     numbers += [number]
   }
 
-  numbers == [1, 2]
+  assert numbers == [1, 2]
 
   numbers = []
   for source in ["1", "invalid", "2"] {
@@ -23,7 +23,7 @@ test test_guard_failure_controls_enclosing_loop {
     numbers += [number]
   }
 
-  numbers == [1]
+  assert numbers == [1]
 }
 
 test test_typed_integer_augmented_assignment_keeps_results_and_errors { |ctx|
@@ -33,7 +33,7 @@ test test_typed_integer_augmented_assignment_keeps_results_and_errors { |ctx|
   value *= 3
   value /= 6
   value %= 3
-  value == 2
+  assert value == 2
 
   let overflow = test.run_script(
     ctx,
@@ -42,7 +42,7 @@ value += 1
 """,
   )?
   assert ! overflow.success, overflow.stderr
-  "integer-overflow" in overflow.stderr
+  assert "integer-overflow" in overflow.stderr
 
   let division = test.run_script(
     ctx,
@@ -51,7 +51,7 @@ value /= 0
 """,
   )?
   assert ! division.success, division.stderr
-  "division-by-zero" in division.stderr
+  assert "division-by-zero" in division.stderr
 }
 
 pure sibling_branch_value(choice: Str) -> Int {
@@ -68,16 +68,16 @@ pure sibling_branch_value(choice: Str) -> Int {
 }
 
 test test_sibling_if_branches_keep_their_own_local_bindings {
-  sibling_branch_value("first") == 0
-  sibling_branch_value("second") == 10
-  sibling_branch_value("other") == 20
+  assert sibling_branch_value("first") == 0
+  assert sibling_branch_value("second") == 10
+  assert sibling_branch_value("other") == 20
   let choice = "second"
   if choice == "first" {
     let value = 0
-    value == 0
+    assert value == 0
   } else if choice == "second" {
     let value = 10
-    value == 10
+    assert value == 10
   }
 }
 
@@ -93,10 +93,10 @@ test test_repeated_if_branches_select_statement_and_expression_arms {
     }
 
     let label = if value % 3 == 0 { "first" } else if value % 3 == 1 { "second" } else { "third" }
-    label == ["first", "second", "third"][value % 3]
+    assert label == ["first", "second", "third"][value % 3]
   }
 
-  total == 222
+  assert total == 222
 }
 
 pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
@@ -104,11 +104,11 @@ pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
 }
 
 test test_local_args_shadows_predeclared_script_arguments {
-  locally_selected_arguments(["unknown"]) == ["unknown"]
-  locally_selected_arguments([]) == []
+  assert locally_selected_arguments(["unknown"]) == ["unknown"]
+  assert locally_selected_arguments([]) == []
   let argv = ["unknown"]
   let selected = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
-  selected == ["unknown"]
+  assert selected == ["unknown"]
 }
 
 test test_skip {
@@ -118,10 +118,10 @@ test test_skip {
 test test_temp { |ctx|
   let one = test.temp_path(ctx)
   let two = test.temp_path(ctx)
-  one != two
+  assert one != two
   let file = test.temp_file(ctx, name: "data", contents: b"ok")?
   let data = fs.read_text(file)?
-  data == "ok"
+  assert data == "ok"
 }
 
 test test_process_command_builder {
@@ -154,15 +154,15 @@ beta
   let escaped = f"\${not_interp}:${"ok"}:ca"
   let names = fs.children(root) |> map .name
 
-  language_sugar_label("ok")? == "ok"
-  language_sugar_returned("return")? == "return"
-  content == """alpha
+  assert language_sugar_label("ok")? == "ok"
+  assert language_sugar_returned("return")? == "return"
+  assert content == """alpha
 beta
 """
-  raw == r"\n ${literal}"
-  nested == "demo:x}:1"
-  escaped == "\${not_interp}:ok:ca"
-  names[0] == "note.txt"
+  assert raw == r"\n ${literal}"
+  assert nested == "demo:x}:1"
+  assert escaped == "\${not_interp}:ok:ca"
+  assert names[0] == "note.txt"
 }
 
 test test_dns_mock { |ctx|
@@ -174,9 +174,9 @@ test test_dns_mock { |ctx|
   )?
 
   let records = dns.lookup("example.test")?
-  records[0].value == "127.0.0.1"
+  assert records[0].value == "127.0.0.1"
   let calls = test.calls(ctx, "dns.lookup")
-  calls.len() == 1
+  assert calls.len() == 1
 }
 
 test test_net_mock { |ctx|
@@ -195,7 +195,7 @@ test test_net_mock { |ctx|
   )?
 
   let response = net.request({method: "GET", url: "https://example.test/"})?
-  response.body == b"ok"
+  assert response.body == b"ok"
   let calls = test.calls(ctx, "net.request")
-  calls[0].args.get("method")?.require(Str)? == "GET"
+  assert calls[0].args.get("method")?.require(Str)? == "GET"
 }

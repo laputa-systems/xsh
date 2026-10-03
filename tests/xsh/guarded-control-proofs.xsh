@@ -23,7 +23,7 @@ print ${read(" ready ")}
     let result = test.run_script(ctx, source)?
     let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
     assert succeeded, diagnostics
-    output == "missing\nready\n"
+    assert output == "missing\nready\n"
   }
 }
 
@@ -46,7 +46,7 @@ print ${read({raw: " ready "})}
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  output == "missing\nready\n"
+  assert output == "missing\nready\n"
 }
 
 test guarded_loop_exits_preserve_only_the_reaching_iteration_proof { |ctx|
@@ -70,7 +70,7 @@ for raw in stopped {
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  output == "first\nlast\nfirst\n"
+  assert output == "first\nlast\nfirst\n"
 }
 
 test guarded_yield_and_invalid_targets_do_not_establish_continuation_proofs { |ctx|
@@ -107,5 +107,5 @@ print ${raw ?? "missing"}
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  output == "ready\n ready \n"
+  assert output == "ready\n ready \n"
 }

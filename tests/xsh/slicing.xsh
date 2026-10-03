@@ -1,27 +1,27 @@
 test test_slice_existing_list_and_unicode_scalar_normalization {
   let values = [10, 20, 30, 40]
-  (values[1..3]) == ([20, 30])
-  (values[..2]) == ([10, 20])
-  (values[2..]) == ([30, 40])
-  (values[..]) == (values)
-  (values[-3..-1]) == ([20, 30])
-  (values[-99..99]) == (values)
-  (values[3..1]) == ([])
-  (values[99..]) == ([])
-  (values[..-99]) == ([])
-  (values[2..2]) == ([])
-  ([1][..0]) == ([])
+  assert (values[1..3]) == ([20, 30])
+  assert (values[..2]) == ([10, 20])
+  assert (values[2..]) == ([30, 40])
+  assert (values[..]) == (values)
+  assert (values[-3..-1]) == ([20, 30])
+  assert (values[-99..99]) == (values)
+  assert (values[3..1]) == ([])
+  assert (values[99..]) == ([])
+  assert (values[..-99]) == ([])
+  assert (values[2..2]) == ([])
+  assert ([1][..0]) == ([])
   let empty: List[Int] = []
-  (empty[-1..99]) == (empty)
+  assert (empty[-1..99]) == (empty)
   let text = "aé🦀e\u{301}z"
-  (text[1..3]) == ("é🦀")
-  (text[-3..-1]) == ("e\u{301}")
-  (text[..]) == (text)
-  (text[-99..99]) == (text)
-  (text[3..1]) == ("")
-  (text[99..]) == ("")
-  (text[..-99]) == ("")
-  (""[-1..99]) == ("")
+  assert (text[1..3]) == ("é🦀")
+  assert (text[-3..-1]) == ("e\u{301}")
+  assert (text[..]) == (text)
+  assert (text[-99..99]) == (text)
+  assert (text[3..1]) == ("")
+  assert (text[99..]) == ("")
+  assert (text[..-99]) == ("")
+  assert (""[-1..99]) == ("")
 }
 
 test test_slice_bytes_normalization_and_nested_views { |ctx|
@@ -48,16 +48,16 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_slice_list_aliases_keep_value_semantics {
   var data = [1, 2, 3]
   var selected = data[1..]
   selected += [9]
-  (data) == ([1, 2, 3])
+  assert (data) == ([1, 2, 3])
   data += [8]
-  (selected) == ([2, 3, 9])
+  assert (selected) == ([2, 3, 9])
 }
 
 test test_slice_evaluates_receiver_and_bounds_once_in_order { |ctx|
@@ -81,22 +81,22 @@ print ${all.base64()}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("receiver\nstart\nend\nYmM=\nreceiver\nsuffix\nY2Q=\nreceiver\nYWJjZA==\n")
+  assert (output.stdout) == ("receiver\nstart\nend\nYmM=\nreceiver\nsuffix\nY2Q=\nreceiver\nYWJjZA==\n")
 }
 
 test test_slice_brackets_preserve_distinct_offset_count_errors { |ctx|
   let negative_offset = test.run_script(ctx, "let part = b\"abc\".slice(-1)\n")?
-  (negative_offset.success) == (false)
-  ("bytes-slice" in negative_offset.stderr)
+  assert (negative_offset.success) == (false)
+  assert ("bytes-slice" in negative_offset.stderr)
   let past_end = test.run_script(ctx, "let part = b\"abc\".slice(4)\n")?
-  (past_end.success) == (false)
-  ("bytes-slice" in past_end.stderr)
+  assert (past_end.success) == (false)
+  assert ("bytes-slice" in past_end.stderr)
   let negative_length = test.run_script(ctx, "let part = b\"abc\".slice(0, -1)\n")?
-  (negative_length.success) == (false)
-  ("bytes-slice" in negative_length.stderr)
-  (b"abc"[-1..]) == (b"c")
-  (b"abc"[4..]) == (b"")
-  (b"abc"[..-1]) == (b"ab")
+  assert (negative_length.success) == (false)
+  assert ("bytes-slice" in negative_length.stderr)
+  assert (b"abc"[-1..]) == (b"c")
+  assert (b"abc"[4..]) == (b"")
+  assert (b"abc"[..-1]) == (b"ab")
   let equivalent = test.run_script(ctx, r"""b"abc"[..9223372036854775807] == b"abc".slice(0, 9223372036854775807)
 """)?
   let {success: equivalent_success, stderr: equivalent_message, ..} = equivalent
@@ -105,19 +105,19 @@ test test_slice_brackets_preserve_distinct_offset_count_errors { |ctx|
 
 test test_slice_dynamic_bounds_require_validation_and_receivers_keep_runtime_errors { |ctx|
   let bound_error = test.run_script(ctx, "let bound: Any = true\nlet part = [1, 2][bound..]\n")?
-  (bound_error.success) == (false)
-  ("check.dynamic-boundary" in bound_error.stderr)
+  assert (bound_error.success) == (false)
+  assert ("check.dynamic-boundary" in bound_error.stderr)
   let text_error = test.run_script(ctx, "let bound: Any = false\nlet part = \"é\"[..bound]\n")?
-  (text_error.success) == (false)
-  ("check.dynamic-boundary" in text_error.stderr)
+  assert (text_error.success) == (false)
+  assert ("check.dynamic-boundary" in text_error.stderr)
   let start: Any = 1
   let end: Any = 3
-  ([0, 1, 2, 3][(start.require(Int)?)..(end.require(Int)?)]) == ([1, 2])
+  assert ([0, 1, 2, 3][(start.require(Int)?)..(end.require(Int)?)]) == ([1, 2])
   let invalid: Any = true
   test.error_kind(invalid.require(Int), "schema")?
   let receiver_error = test.run_script(ctx, "let receiver: Any = 42\nlet part = receiver[..]\n")?
-  (receiver_error.success) == (false)
-  ("cannot slice Int" in receiver_error.stderr)
+  assert (receiver_error.success) == (false)
+  assert ("cannot slice Int" in receiver_error.stderr)
 }
 
 test test_slice_rejects_colon_inclusive_stride_and_range_values { |ctx|
@@ -129,6 +129,6 @@ test test_slice_rejects_colon_inclusive_stride_and_range_values { |ctx|
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, output.stderr
-    "parse." in output.stderr
+    assert "parse." in output.stderr
   }
 }

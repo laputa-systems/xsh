@@ -4,20 +4,20 @@ type RecordConfig = {root: Str, build: RecordBuild}
 test test_nested_renamed_record_binding_preserves_field_types {
   let config = RecordConfig(root: "src", build: {jobs: 3, target: "native"})
   let {root, build: {jobs, target: target_name, ..}, ..} = config
-  (root) == ("src")
-  (jobs + 1) == (4)
-  (target_name.upper()) == ("NATIVE")
+  assert (root) == ("src")
+  assert (jobs + 1) == (4)
+  assert (target_name.upper()) == ("NATIVE")
 }
 
 test test_nested_record_var_values_preserve_source_aliases {
   let config = RecordConfig(root: "src", build: {jobs: 3, target: "native"})
   var {build: selected_build, root: _, ..} = config
   selected_build.jobs = 9
-  (config.build.jobs) == (3)
+  assert (config.build.jobs) == (3)
   var {build: {jobs: worker_count, target: _, ..}, ..} = config
   worker_count += 2
-  (worker_count) == (5)
-  (config.build.jobs) == (3)
+  assert (worker_count) == (5)
+  assert (config.build.jobs) == (3)
 }
 
 test test_nested_record_iteration_and_comprehension_targets {
@@ -29,11 +29,11 @@ test test_nested_record_iteration_and_comprehension_targets {
   for {build: {jobs: workers, target: _, ..}, root: _, ..} in configs {
     total += workers
   }
-  (total) == (4)
+  assert (total) == (4)
   let selected = [target_name for {build: {jobs, target: target_name, ..}, ..} in configs if jobs > 1]
-  (selected) == (["native"])
+  assert (selected) == (["native"])
   let counts = {root: jobs for {root, build: {jobs, ..}, ..} in configs}
-  ((counts.get("src") ?? 0)) == (3)
+  assert ((counts.get("src") ?? 0)) == (3)
 }
 
 pure record_config_result() -> Result[RecordConfig] {
@@ -44,9 +44,9 @@ test test_nested_record_guard_target {
   guard let {root, build: {jobs, target: target_name, ..}, ..} = record_config_result() else {
     return
   }
-  (root) == ("src")
-  (jobs) == (3)
-  (target_name) == ("native")
+  assert (root) == ("src")
+  assert (jobs) == (3)
+  assert (target_name) == ("native")
 }
 
 test test_nested_record_binding_rejects_duplicate_and_unknown_fields { |ctx|
@@ -57,7 +57,7 @@ test test_nested_record_binding_rejects_duplicate_and_unknown_fields { |ctx|
   ] {
     let output = test.run_script(ctx, prelude + fixture.binding)?
     assert ! output.success, output.stderr
-    fixture.diagnostic in output.stderr
+    assert fixture.diagnostic in output.stderr
   }
 }
 
@@ -83,7 +83,7 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_nested_record_source_once_and_stream_cleanup { |ctx|
@@ -114,7 +114,7 @@ for {build: {target: target_name, ..}, ..} in configs() {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("source\nsrc:3:native\nnative\nclosed\n")
+  assert (output.stdout) == ("source\nsrc:3:native\nnative\nclosed\n")
 }
 
 test test_nested_record_dynamic_stream_target_requires_validation { |ctx|
@@ -137,8 +137,8 @@ for {first, nested: {missing, ..}, ..} in records() {
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("")
-  ("check.destructure-type" in output.stderr)
+  assert (output.stdout) == ("")
+  assert ("check.destructure-type" in output.stderr)
 }
 
 
@@ -165,6 +165,6 @@ for row in records() {
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("closed\n")
-  ("schema check failed at nested: missing required field missing" in output.stderr)
+  assert (output.stdout) == ("closed\n")
+  assert ("schema check failed at nested: missing required field missing" in output.stderr)
 }

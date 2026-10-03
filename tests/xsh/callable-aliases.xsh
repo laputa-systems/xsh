@@ -8,7 +8,7 @@ let fields = {value: "three", prefix: "name:"}
 print again(...fields) format.call(value: "four")
 """, [], {}, b"", "callable-alias.xsh")?
   assert result.success, result.stderr
-  result.stdout == "label:one item:two\nname:three label:four\n"
+  assert result.stdout == "label:one item:two\nname:three label:four\n"
 }
 
 test test_callable_alias_preserves_capture_snapshot_and_initializer_timing { |ctx|
@@ -19,7 +19,7 @@ let format = render
 print format(value: "one")
 """, [], {}, b"", "callable-alias-capture.xsh")?
   assert result.success, result.stderr
-  result.stdout == "captured:one\n"
+  assert result.stdout == "captured:one\n"
 }
 
 type AliasApi = module {
@@ -42,7 +42,7 @@ use implementation
 export let format = implementation.render
 """)?
   let loaded = module.load(api)?.require(AliasApi)?
-  loaded.format(value: "one") == "private:label:one"
+  assert loaded.format(value: "one") == "private:label:one"
   let entry = fp"${root}/entry.xsh"
   entry.write("""
 use api
@@ -51,7 +51,7 @@ print format(prefix: "item:", value: "two")
 """)?
   let result = test.run_xsh(ctx, entry.read_text()?, env: {XSH_MODULE_PATH: root.display()})?
   assert result.success, result.stderr
-  result.stdout == "private:item:two\n"
+  assert result.stdout == "private:item:two\n"
 }
 
 test test_callable_alias_keeps_effects_and_erased_boundaries { |ctx|
@@ -80,7 +80,7 @@ proc choose(local: Bool) [] -> Int {
 print choose(true) choose(false) selected(value: 2)
 """, [], {}, b"", "callable-alias-shadow.xsh")?
   assert result.success, result.stderr
-  result.stdout == "11 2 3\n"
+  assert result.stdout == "11 2 3\n"
 }
 
 test test_callable_alias_retains_argument_order_and_typed_conversions { |ctx|
@@ -97,7 +97,7 @@ let parsed = parse
 print (parsed(value: "4")?)
 """, [], {}, b"", "callable-alias-order.xsh")?
   assert result.success, result.stderr
-  result.stdout == "2\n1\n3 13\nconfig\n4\n"
+  assert result.stdout == "2\n1\n3 13\nconfig\n4\n"
 }
 
 test test_callable_alias_retains_checked_module_projection_signature { |ctx|
@@ -119,7 +119,7 @@ print projected[0]
 """
   let result = test.run_script(ctx, script, [], {}, b"", "callable-alias-projection.xsh")?
   assert result.success, result.stderr
-  result.stdout == "captured:one! captured:two?\ncaptured:three!\n"
+  assert result.stdout == "captured:one! captured:two?\ncaptured:three!\n"
 }
 
 test test_callable_alias_retains_inferred_proc_effect_identity { |ctx|
@@ -131,7 +131,7 @@ proc bounded(value: Int) [] -> Int { forward(value) }
 print bounded(4)
 """, [], {}, b"", "callable-alias-inferred-effects.xsh")?
   assert result.success, result.stderr
-  result.stdout == "5\n"
+  assert result.stdout == "5\n"
   for source in [
     "proc effect() -> Int { let _ = time.now(); 1 }; let invoke = effect; proc bounded() [] -> Int { invoke() }; print bounded()\n",
     "proc inferred(value: Int) -> Int { value }; export let public = inferred\n",
@@ -154,5 +154,5 @@ proc bounded() [] -> List[Int] { [1, 2] |> map(next) }
 print ${bounded()[0]}
 """, [], {}, b"", "callable-alias-stage.xsh")?
   assert result.success, result.stderr
-  result.stdout == "item:one! item:two!\n2\n"
+  assert result.stdout == "item:one! item:two!\n2\n"
 }

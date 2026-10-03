@@ -11,7 +11,7 @@ match made() {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "message\nkind\nkind message\n"
+  assert output.stdout == "message\nkind\nkind message\n"
 }
 
 test test_error_variant_wrong_payload_field_refuses_before_effects { |ctx|
@@ -22,9 +22,9 @@ test test_error_variant_wrong_payload_field_refuses_before_effects { |ctx|
   ] {
     let source = "error Failure = Failed(message: Str)\nprint \"executed\"\nlet value = " + expression + "\n"
     let output = test.run_script(ctx, source)?
-    output.status == 2
-    output.stdout == ""
-    "compact-unsupported" not in output.stderr
+    assert output.status == 2
+    assert output.stdout == ""
+    assert "compact-unsupported" not in output.stderr
   }
 }
 
@@ -48,10 +48,10 @@ match observed {
 print "constructed"
 translated?
 """)?
-  (output.status) == (3)
-  (output.stdout) == ("build payload\nouter only\nconstructed\n")
-  ("BuildError.Failed" in output.stderr)
-  ("InputError.Missing" in output.stderr)
+  assert (output.status) == (3)
+  assert (output.stdout) == ("build payload\nouter only\nconstructed\n")
+  assert ("BuildError.Failed" in output.stderr)
+  assert ("InputError.Missing" in output.stderr)
 }
 
 test test_err_typed_cause_aliases_and_generic_one_argument_remain_data { |ctx|
@@ -66,9 +66,9 @@ match generic { Err(text) => print $text; _ => print "wrong" }
 print "constructed"
 Err(alias)?
 """)?
-  (output.status) == (3)
-  (output.stdout) == ("ordinary generic error\nconstructed\n")
-  ("OuterError.Failed" in output.stderr)
+  assert (output.status) == (3)
+  assert (output.stdout) == ("ordinary generic error\nconstructed\n")
+  assert ("OuterError.Failed" in output.stderr)
   {
     let assertion_condition = ("InnerError" not in output.stderr)
     let assertion_message = output.stderr
@@ -96,7 +96,7 @@ print $history
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("12\n21\n12\n")
+  assert (output.stdout) == ("12\n21\n12\n")
 }
 
 test test_err_typed_cause_explicit_replacement_preserves_supplied_chain { |ctx|
@@ -113,11 +113,11 @@ let supplied = match second { Err(failure) => failure; _ => inner }
 let translated = Err(inherited, cause: supplied)
 translated?
 """)?
-  (output.status) == (3)
-  ("OuterError.Failed" in output.stderr)
-  ("InnerError.Failed" in output.stderr)
-  ("LeafError.Failed" in output.stderr)
-  ("retained" in output.stderr)
+  assert (output.status) == (3)
+  assert ("OuterError.Failed" in output.stderr)
+  assert ("InnerError.Failed" in output.stderr)
+  assert ("LeafError.Failed" in output.stderr)
+  assert ("retained" in output.stderr)
   {
     let assertion_condition = ("replaced" not in output.stderr)
     let assertion_message = output.stderr
@@ -134,7 +134,7 @@ test test_err_typed_cause_rejects_invalid_arguments { |ctx|
     "error E = Failed(message: Str)\nlet value = Err(E.Failed(message: \"outer\"), other: E.Failed(message: \"inner\"))\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.status) == (2)
+    assert (output.status) == (2)
     {
       let assertion_condition = ("compact-unsupported" not in output.stderr)
       let assertion_message = output.stderr
@@ -150,8 +150,8 @@ error InnerError = Failed(message: Str)
 let translated = Err(OuterError.Failed(message: "outer"), cause: InnerError.Failed(message: "line\nforged\u{1b}[31m"))
 translated?
 """)?
-  (output.status) == (3)
-  ("caused by: InnerError.Failed" in output.stderr)
+  assert (output.status) == (3)
+  assert ("caused by: InnerError.Failed" in output.stderr)
   {
     let assertion_condition = ("\nforged" not in output.stderr)
     let assertion_message = output.stderr
@@ -176,15 +176,15 @@ let translated = match outcome {
 }
 ctx "publish" { translated? }
 """, ["--raw", "--trace-format", "jsonl"])?
-  (output.status) == (3)
-  ("\"family\":\"BuildError\"" in output.stderr)
-  ("\"family\":\"ProcessError\"" in output.stderr)
-  ("\"variant\":\"NonzeroExit\"" in output.stderr)
-  ("\"code\":7" in output.stderr)
-  ("\"message\":\"execute input\"" in output.stderr)
-  ("\"message\":\"publish\"" in output.stderr)
-  ("\"start_line\"" in output.stderr)
-  ("\"causes_truncated\":false" in output.stderr)
+  assert (output.status) == (3)
+  assert ("\"family\":\"BuildError\"" in output.stderr)
+  assert ("\"family\":\"ProcessError\"" in output.stderr)
+  assert ("\"variant\":\"NonzeroExit\"" in output.stderr)
+  assert ("\"code\":7" in output.stderr)
+  assert ("\"message\":\"execute input\"" in output.stderr)
+  assert ("\"message\":\"publish\"" in output.stderr)
+  assert ("\"start_line\"" in output.stderr)
+  assert ("\"causes_truncated\":false" in output.stderr)
 }
 
 test test_err_typed_cause_one_argument_retains_existing_chain_through_try { |ctx|
@@ -196,11 +196,11 @@ let captured: Result[Unit, OuterError] = try { ctx "attempt" { translated? } }
 let preserved: Result[Unit, OuterError] = match captured { Err(failure) => Err(failure); _ => translated }
 ctx "caller" { preserved? }
 """)?
-  (output.status) == (3)
-  ("OuterError.Failed" in output.stderr)
-  ("InnerError.Failed" in output.stderr)
-  ("attempt" in output.stderr)
-  ("caller" in output.stderr)
+  assert (output.status) == (3)
+  assert ("OuterError.Failed" in output.stderr)
+  assert ("InnerError.Failed" in output.stderr)
+  assert ("attempt" in output.stderr)
+  assert ("caller" in output.stderr)
 }
 
 test test_err_typed_cause_abort_operand_keeps_control_transfer { |ctx|
@@ -216,9 +216,9 @@ print "wrong after abort"
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  (output.status) == (17)
-  (output.stdout) == ("")
-  (output.stderr) == ("")
+  assert (output.status) == (17)
+  assert (output.stdout) == ("")
+  assert (output.stderr) == ("")
 }
 
 test test_err_typed_cause_procedure_frames_construct_result_data { |ctx|
@@ -232,10 +232,10 @@ let data = translate(InnerError.Failed(message: "original"))
 print "returned data"
 data?
 """)?
-  (output.status) == (3)
-  (output.stdout) == ("returned data\n")
-  ("OuterError.Failed" in output.stderr)
-  ("InnerError.Failed" in output.stderr)
+  assert (output.status) == (3)
+  assert (output.stdout) == ("returned data\n")
+  assert ("OuterError.Failed" in output.stderr)
+  assert ("InnerError.Failed" in output.stderr)
 }
 
 test test_err_typed_cause_long_native_chain_reports_truncation { |ctx|
@@ -249,8 +249,8 @@ for index in range(1000) {
 let outcome: Result[Unit] = Err(current)
 outcome?
 """)?
-  (output.status) == (3)
-  ("cause chain truncated" in output.stderr)
+  assert (output.status) == (3)
+  assert ("cause chain truncated" in output.stderr)
   {
     let assertion_condition = output.stderr.count_chars() < 10000
     let assertion_message = output.stderr
@@ -268,10 +268,10 @@ let translated = match outcome {
 }
 translated?
 """)?
-  (output.status) == (3)
-  ("OuterError.Failed" in output.stderr)
-  ("AssertionError" in output.stderr)
-  ("checked leaf" in output.stderr)
+  assert (output.status) == (3)
+  assert ("OuterError.Failed" in output.stderr)
+  assert ("AssertionError" in output.stderr)
+  assert ("checked leaf" in output.stderr)
 }
 
 test test_err_one_argument_generic_propagation_keeps_existing_diagnostic { |ctx|
@@ -279,8 +279,8 @@ test test_err_one_argument_generic_propagation_keeps_existing_diagnostic { |ctx|
 let value: Result[Unit, Str] = Err("generic error data")
 value?
 """)?
-  (output.status) == (3)
-  ("error: error: propagated error" in output.stderr)
+  assert (output.status) == (3)
+  assert ("error: error: propagated error" in output.stderr)
   {
     let assertion_condition = ("caused by" not in output.stderr)
     let assertion_message = output.stderr
@@ -306,12 +306,12 @@ match original_result {
   _ => abort(19)
 }
 """)?
-  (output.status) == (3)
-  (output.stdout) == ("body completed\n")
-  ("ProcessError.NonzeroExit" in output.stderr)
-  ("OuterError.Failed" in output.stderr)
-  ("[exit 7]" in output.stderr)
-  ("cleanup cause" in output.stderr)
+  assert (output.status) == (3)
+  assert (output.stdout) == ("body completed\n")
+  assert ("ProcessError.NonzeroExit" in output.stderr)
+  assert ("OuterError.Failed" in output.stderr)
+  assert ("[exit 7]" in output.stderr)
+  assert ("cleanup cause" in output.stderr)
 }
 
 test test_generic_error_family_declarations_are_rejected_by_name { |ctx|

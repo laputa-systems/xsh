@@ -22,11 +22,11 @@ test test_extended_constructor_splices_patterns_and_inferred_values {
   let original = ExtendedOptions(label:)
   var options = original
   options.arguments += ["build", "app", "fast"]
-  original.arguments.len() == 0
-  options.label == "ship"
-  extended_command([@options.arguments, "quiet"]) == ["app", "fast", "quiet"]
-  extended_valid_name(options.label)
-  !extended_valid_name("not-valid")
+  assert original.arguments.len() == 0
+  assert options.label == "ship"
+  assert extended_command([@options.arguments, "quiet"]) == ["app", "fast", "quiet"]
+  assert extended_valid_name(options.label)
+  assert !extended_valid_name("not-valid")
 }
 
 test test_extended_map_iteration_keeps_typed_list_values {
@@ -39,7 +39,7 @@ test test_extended_map_iteration_keeps_typed_list_values {
     if value is ["build", _, ..]
     for argument in extended_command(value)
   ]
-  selected == ["first:app", "first:quiet"]
+  assert selected == ["first:app", "first:quiet"]
 }
 
 test test_extended_error_fallback_binds_nominal_error {
@@ -48,7 +48,7 @@ test test_extended_error_fallback_binds_nominal_error {
     let is_missing = failure is NotFound
     if is_missing { failure.message } else { "other" }
   }
-  label == "absent"
+  assert label == "absent"
 }
 
 test test_extended_while_pattern_updates_spliced_list_values {
@@ -58,7 +58,7 @@ test test_extended_while_pattern_updates_spliced_list_values {
     commands = remaining
     selected += extended_command(command)
   }
-  selected == ["app", "ignored", "tool", "fast"]
+  assert selected == ["app", "ignored", "tool", "fast"]
 }
 
 test test_extended_delegated_yield_keeps_guarded_control_and_cleanup { |ctx|
@@ -75,5 +75,5 @@ let first = parent() |> take(1) |> collect
 print ${first[0]}
 """)?
   assert output.success, output.stderr
-  output.stdout == "child-close\nparent-close\n1\n"
+  assert output.stdout == "child-close\nparent-close\n1\n"
 }

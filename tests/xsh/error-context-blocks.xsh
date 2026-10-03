@@ -10,40 +10,40 @@ test test_ctx_propagation_attaches_inner_to_outer_and_preserves_error_data {
     }
   }
   if let Err(error) = failure {
-    "base (ctx: inner) (ctx: outer)" in error.message
+    assert "base (ctx: inner) (ctx: outer)" in error.message
   } else {
     test.fail("expected contextual failure")?
   }
   if let Err(error) = original {
-    error.message == "base"
+    assert error.message == "base"
   } else {
     test.fail("expected original failure")?
   }
   if let Err(error) = ctx_data_result() {
-    error.message == "untouched"
+    assert error.message == "untouched"
   } else {
     test.fail("expected direct error data")?
   }
   let data = ctx "stored data" { error.fail("stored") }
   if let Err(error) = data {
-    error.message == "stored"
+    assert error.message == "stored"
   } else {
     test.fail("expected stored error data")?
   }
 }
 
 test test_ctx_value_and_named_ctx_bindings_remain_ordinary { |harness|
-  harness.xsh_bin.display().count_chars() > 0
+  assert harness.xsh_bin.display().count_chars() > 0
   let value = ctx "compute" { 42 }
-  value == 42
+  assert value == 42
   {
     let ctx = {message: "ordinary"}
-    ctx.message == "ordinary"
+    assert ctx.message == "ordinary"
   }
   let handled = ctx "handled" {
     "local".parse_int() ?? { |_| 7 }
   }
-  handled == 7
+  assert handled == 7
 }
 
 test test_ctx_label_evaluates_once_and_failed_label_uses_only_enclosing_context { |ctx|
@@ -52,9 +52,9 @@ ctx label() { print "body" }
 ctx "enclosing" { ctx f"${"not an integer".parse_int()?}" { print "skipped" } }
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "label\nbody\n"
-  "ctx: enclosing" in output.stderr
-  "ctx: operation" not in output.stderr
+  assert output.stdout == "label\nbody\n"
+  assert "ctx: enclosing" in output.stderr
+  assert "ctx: operation" not in output.stderr
 }
 
 test test_ctx_finishes_defers_before_contextualizing_primary_or_cleanup_failure { |ctx|
@@ -64,8 +64,8 @@ test test_ctx_finishes_defers_before_contextualizing_primary_or_cleanup_failure 
 }
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "cleanup\n"
-  "primary (ctx: region)" in output.stderr
+  assert output.stdout == "cleanup\n"
+  assert "primary (ctx: region)" in output.stderr
   let cleanup = test.run_script(ctx, r"""ctx "cleanup region" {
   defer { print "last" }
   defer { error.fail("cleanup failed")? }
@@ -73,8 +73,8 @@ test test_ctx_finishes_defers_before_contextualizing_primary_or_cleanup_failure 
 }
 """)?
   assert ! cleanup.success, cleanup.stderr
-  cleanup.stdout == "body\nlast\n"
-  "cleanup failed (ctx: cleanup region)" in cleanup.stderr
+  assert cleanup.stdout == "body\nlast\n"
+  assert "cleanup failed (ctx: cleanup region)" in cleanup.stderr
 }
 
 test test_ctx_does_not_convert_abort_into_an_error { |ctx|
@@ -83,9 +83,9 @@ test test_ctx_does_not_convert_abort_into_an_error { |ctx|
   abort(17)
 }
 """)?
-  output.status == 17
-  output.stdout == "cleanup\n"
-  "ctx: abort region" not in output.stderr
+  assert output.status == 17
+  assert output.stdout == "cleanup\n"
+  assert "ctx: abort region" not in output.stderr
 }
 
 test test_ctx_stream_suspension_retains_region_and_runs_cleanup_on_early_exit { |ctx|
@@ -102,14 +102,14 @@ for value in values() { print $value; break }
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "1\ninner\nouter\ndone\n"
+  assert output.stdout == "1\ninner\nouter\ndone\n"
   let failed = test.run_script(ctx, r"""stream values() [error] -> Stream[Int] {
   ctx "producer" { yield 1; error.fail("late")? }
 }
 let values = values() |> collect
 """)?
   assert ! failed.success, failed.stderr
-  "late (ctx: producer)" in failed.stderr
+  assert "late (ctx: producer)" in failed.stderr
 }
 
 test test_ctx_keeps_loop_transfers_and_value_evaluation_before_defers { |ctx|
@@ -126,7 +126,7 @@ let value = ctx "value" { defer { print "value cleanup" }; 7 }
 print $count $value
 """)?
   assert output.success, output.stderr
-  output.stdout == "cleanup:1\ncleanup:2\nvalue cleanup\n0 7\n"
+  assert output.stdout == "cleanup:1\ncleanup:2\nvalue cleanup\n0 7\n"
 }
 
 error CtxFailure = Failed(message: Str, code: Int) : InvalidData
@@ -135,13 +135,13 @@ test test_ctx_preserves_nominal_payloads_and_callable_ctx_names { |harness|
 print ${ctx(4)}
 """)?
   assert called.success, called.stderr
-  called.stdout == "5\n"
+  assert called.stdout == "5\n"
   let original: Result[Unit, CtxFailure] = Err(CtxFailure.Failed(message: "base", code: 7))
   let contextual = retry [] { ctx "nominal" { original? } }
   test.error_kind(contextual, "CtxFailure.Failed")?
   if let Err(CtxFailure.Failed {message, code}) = contextual {
-    message == "base"
-    code == 7
+    assert message == "base"
+    assert code == 7
   } else {
     test.fail("expected nominal payload")?
   }
@@ -150,21 +150,21 @@ print ${ctx(4)}
 test test_ctx_rejects_non_string_labels_and_keeps_statement_boolean_assertions { |ctx|
   let wrong = test.run_script(ctx, "ctx 7 { print \"skipped\" }\n")?
   assert ! wrong.success, wrong.stderr
-  "check.type" in wrong.stderr
+  assert "check.type" in wrong.stderr
   let assertion = test.run_script(ctx, "ctx \"assertion\" { false }\n")?
   assert ! assertion.success, assertion.stderr
-  "AssertionError" in assertion.stderr
-  "ctx: assertion" in assertion.stderr
+  assert "AssertionError" in assertion.stderr
+  assert "ctx: assertion" in assertion.stderr
   let value = ctx "predicate data" { false }
-  !value
+  assert !value
 }
 
 proc ctx_function_tail() [] -> Int { ctx "tail" { 7 } }
 pure ctx_inferred_tail() { ctx "inferred" { 9 } }
 test test_ctx_function_tail_and_inference_keep_consumed_values {
   let inferred = ctx_inferred_tail()
-  inferred == 9
-  ctx_function_tail() == 7
+  assert inferred == 9
+  assert ctx_function_tail() == 7
 }
 
 test test_ctx_secondary_cleanup_diagnostics_keep_enclosing_region { |ctx|
@@ -174,8 +174,8 @@ test test_ctx_secondary_cleanup_diagnostics_keep_enclosing_region { |ctx|
 } }
 """)?
   assert ! output.success, output.stderr
-  "primary (ctx: inner) (ctx: outer)" in output.stderr
-  "cleanup (ctx: inner) (ctx: outer)" in output.stderr
+  assert "primary (ctx: inner) (ctx: outer)" in output.stderr
+  assert "cleanup (ctx: inner) (ctx: outer)" in output.stderr
 }
 
 test test_ctx_callee_cleanup_failures_keep_callers_regions { |ctx|
@@ -186,8 +186,8 @@ test test_ctx_callee_cleanup_failures_keep_callers_regions { |ctx|
 ctx "outer" { ctx "inner" { fail()? } }
 """)?
   assert ! output.success, output.stderr
-  "primary (ctx: inner) (ctx: outer)" in output.stderr
-  "cleanup (ctx: inner) (ctx: outer)" in output.stderr
+  assert "primary (ctx: inner) (ctx: outer)" in output.stderr
+  assert "cleanup (ctx: inner) (ctx: outer)" in output.stderr
 }
 
 test test_ctx_suspended_call_cleanup_keeps_regions { |ctx|
@@ -201,6 +201,6 @@ stream rows() [error] -> Stream[Int] {
 for item in rows() { print $item }
 """)?
   assert ! output.success, output.stderr
-  "primary (ctx: inner) (ctx: outer)" in output.stderr
-  "cleanup (ctx: inner) (ctx: outer)" in output.stderr
+  assert "primary (ctx: inner) (ctx: outer)" in output.stderr
+  assert "cleanup (ctx: inner) (ctx: outer)" in output.stderr
 }

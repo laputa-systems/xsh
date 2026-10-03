@@ -26,10 +26,10 @@ print f"\${value} \${attempts}"
     assert assertion_condition, assertion_message
   }
 
-  output.stdout == """done 3
+  assert output.stdout == """done 3
 """
 
-  output.stderr == ""
+  assert output.stderr == ""
 }
 
 test test_retry_exhaustion_returns_final_error { |ctx|
@@ -51,9 +51,9 @@ retry [0ms, 0ms] {
 """,
   )?
 
-  output.status == 3
-  "attempt 3" in output.stderr
-  "traceback" in output.stderr
+  assert output.status == 3
+  assert "attempt 3" in output.stderr
+  assert "traceback" in output.stderr
 }
 
 test test_retry_attempt_defers_run_before_next_attempt { |ctx|
@@ -90,10 +90,10 @@ print f"\${value} \${attempts} \${cleaned}"
     assert assertion_condition, assertion_message
   }
 
-  output.stdout == """ok 2 2
+  assert output.stdout == """ok 2 2
 """
 
-  output.stderr == ""
+  assert output.stderr == ""
 }
 
 test test_return_inside_retry_returns_from_enclosing_proc { |ctx|
@@ -117,10 +117,10 @@ print \${result}
     assert assertion_condition, assertion_message
   }
 
-  output.stdout == """outer
+  assert output.stdout == """outer
 """
 
-  output.stderr == ""
+  assert output.stderr == ""
 }
 
 test test_retry_attempts_are_traced { |ctx|
@@ -152,14 +152,14 @@ print \${value}
     assert assertion_condition, assertion_message
   }
 
-  output.stdout == """ok
+  assert output.stdout == """ok
 """
 
-  "\"kind\":\"retry.attempt\"" in output.stderr
-  "\"attempt\":1" in output.stderr
-  "\"attempt\":2" in output.stderr
-  "\"next_delay_ms\":0" in output.stderr
-  "\"kind\":\"RetryError.Transient\"" in output.stderr
+  assert "\"kind\":\"retry.attempt\"" in output.stderr
+  assert "\"attempt\":1" in output.stderr
+  assert "\"attempt\":2" in output.stderr
+  assert "\"next_delay_ms\":0" in output.stderr
+  assert "\"kind\":\"RetryError.Transient\"" in output.stderr
 }
 
 test test_retry_filter_stops_on_first_nonmatching_error { |ctx|
@@ -185,7 +185,7 @@ print f"\${attempts} \${delays} \${cleaned}"
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("original\n1 2 1\n")
+  assert (output.stdout) == ("original\n1 2 1\n")
 }
 
 test test_retry_filter_matching_exhaustion_and_mixed_failures { |ctx|
@@ -218,7 +218,7 @@ print \${attempts}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("attempt 3\nsecond\n2\n")
+  assert (output.stdout) == ("attempt 3\nsecond\n2\n")
 }
 
 test test_retry_filter_empty_delays_success_and_nested_retry { |ctx|
@@ -244,7 +244,7 @@ match nested { Err(FetchError.Busy {message}) => print \${message}; _ => print "
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("1\nok\n2\nlast\n")
+  assert (output.stdout) == ("1\nok\n2\nlast\n")
 }
 
 test test_retry_filter_trace_records_selection_and_stop_reason { |ctx|
@@ -258,10 +258,10 @@ match result { Err(_) => print "stopped"; _ => print "wrong" }
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("stopped\n")
-  ("\"kind\":\"retry.attempt\"" in output.stderr)
-  ("\"selected\":false" in output.stderr)
-  ("\"stop_reason\":\"nonmatching\"" in output.stderr)
+  assert (output.stdout) == ("stopped\n")
+  assert ("\"kind\":\"retry.attempt\"" in output.stderr)
+  assert ("\"selected\":false" in output.stderr)
+  assert ("\"stop_reason\":\"nonmatching\"" in output.stderr)
 }
 
 test test_retry_filter_rejects_captures_and_impossible_families { |ctx|
@@ -270,16 +270,16 @@ error FetchError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (FetchError.Busy {message}) { attempt()? }
 """)?
-  (capture.status) == (2)
-  ("check.pattern-test-binding" in capture.stderr)
+  assert (capture.status) == (2)
+  assert ("check.pattern-test-binding" in capture.stderr)
   let impossible = test.run_script(ctx, """
 error FetchError = Busy(message: Str)
 error OtherError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (OtherError.Busy) { attempt()? }
 """)?
-  (impossible.status) == (2)
-  ("check.pattern-type" in impossible.stderr)
+  assert (impossible.status) == (2)
+  assert ("check.pattern-type" in impossible.stderr)
 }
 
 test test_retry_filter_facets_and_cleanup_failure_priority { |ctx|
@@ -306,8 +306,8 @@ print f"\${attempts} \${cleaned}"
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("primary\n2 2\n")
-  ("secondary" in output.stderr)
+  assert (output.stdout) == ("primary\n2 2\n")
+  assert ("secondary" in output.stderr)
 }
 
 test test_retry_filter_does_not_retry_abort { |ctx|
@@ -318,8 +318,8 @@ let result = retry [0ms] on (_) {
 }
 print "after"
 """)?
-  (output.status) == (7)
-  (output.stdout) == ("attempt\n")
+  assert (output.status) == (7)
+  assert (output.stdout) == ("attempt\n")
 }
 
 test test_retry_filter_alias_and_impossible_facet_diagnostics { |ctx|
@@ -328,8 +328,8 @@ test test_retry_filter_alias_and_impossible_facet_diagnostics { |ctx|
     "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (NotFound) { attempt()? }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.status) == (2)
-    ("check.pattern-" in output.stderr)
+    assert (output.status) == (2)
+    assert ("check.pattern-" in output.stderr)
   }
 }
 
@@ -352,7 +352,7 @@ print \${cleaned}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("cleanup\n1\n")
+  assert (output.stdout) == ("cleanup\n1\n")
 }
 
 test test_retry_filter_rejects_string_classification { |ctx|
@@ -360,8 +360,8 @@ test test_retry_filter_rejects_string_classification { |ctx|
 proc attempt() -> Result[Str, Str] { Err("busy") }
 let result = retry [] on ("busy") { attempt()? }
 """)?
-  (output.status) == (2)
-  ("check.retry-pattern" in output.stderr)
+  assert (output.status) == (2)
+  assert ("check.retry-pattern" in output.stderr)
 }
 
 test test_retry_filter_nested_try_and_lexical_return_keep_destinations { |ctx|
@@ -393,5 +393,5 @@ match escaped() { Err(FetchError.Fatal {message}) => print \${message}; _ => pri
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("local\nlocal\n2\nescape\n")
+  assert (output.stdout) == ("local\nlocal\n2\nescape\n")
 }

@@ -3,16 +3,16 @@ type PackageName = {name: Str}
 
 test test_record_schema_validation_and_any_require {
   let required = json.decode("{\"name\":\"pkg\",\"version\":\"1\",\"extra\":1}")?.require(PackageName)?
-  (required.name) == ("pkg")
-  ("extra" in required)
+  assert (required.name) == ("pkg")
+  assert ("extra" in required)
   if "version" in required { let _ = required.get("version")?.require(Str)? }
   test.error_kind(({name: 1}).require(PackageName), "schema")?
   let typed: JsonPackage = json.decode("{\"name\":\"pkg\",\"version\":\"1\"}")?.require()?
-  typed.version == "1"
+  assert typed.version == "1"
   let row = {name: "pkg", version: "1"}
-  ("version" in row)
-  (row.name) == ("pkg")
-  row.keys()[0] == "name"
+  assert ("version" in row)
+  assert (row.name) == ("pkg")
+  assert row.keys()[0] == "name"
   test.error_kind(row.get("missing"), "missing-field")?
 }
 
@@ -41,8 +41,8 @@ print ${entry_name(raw)}
 """,
   )?
 
-  (output.status) == (2)
-  "check.dynamic-boundary" in output.stderr
+  assert (output.status) == (2)
+  assert "check.dynamic-boundary" in output.stderr
 }
 
 test test_schema_runtime_checks_unknown_values { |ctx|
@@ -56,7 +56,7 @@ print ${pkg.name}
 """,
   )?
 
-  (output.status) == (3)
-  "schema" in output.stderr
-  "missing required field root" in output.stderr
+  assert (output.status) == (3)
+  assert "schema" in output.stderr
+  assert "missing required field root" in output.stderr
 }

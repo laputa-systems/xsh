@@ -5,8 +5,8 @@ test test_chmod_recursive { |ctx|
   let child = fp"${dir}/child.txt"
   child.write("payload")?
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/chmod.xsh" -- -R 700 $dir ?
-  (child.metadata()?.mode % 512) == 448
+  assert (child.metadata()?.mode % 512) == 448
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/chmod.xsh" -- 600 $child ?
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/chmod.xsh" -- u+x,g+r $child ?
-  (child.metadata()?.mode % 512) == 480
+  assert (child.metadata()?.mode % 512) == 480
 }

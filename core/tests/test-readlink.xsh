@@ -5,9 +5,9 @@ test test_readlink { |ctx|
   target.write("ok")?
   fs.symlink(target, link)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/readlink.xsh" -- $link ?
-  "target.txt" in output
+  assert "target.txt" in output
   let resolved = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/readlink.xsh" -- -f $link ?
-  resolved.trim() == target.resolve()?.display()
+  assert resolved.trim() == target.resolve()?.display()
   let resolved_long = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/readlink.xsh" -- --canonicalize $link ?
-  resolved_long.trim() == target.resolve()?.display()
+  assert resolved_long.trim() == target.resolve()?.display()
 }

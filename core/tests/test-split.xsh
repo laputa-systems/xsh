@@ -10,10 +10,10 @@ c
   let prefix = fp"${root}/chunk-"
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/split.xsh" -- -l 2 $input $prefix ?
 
-  """a
+  assert """a
 b""" in fp"${root}/chunk-aa".read_text()?
 
-  "c" in fp"${root}/chunk-ab".read_text()?
+  assert "c" in fp"${root}/chunk-ab".read_text()?
 }
 
 
@@ -25,9 +25,9 @@ test test_split_bytes_clamps_final_chunk { |ctx|
   let prefix = fp"${root}/chunk-"
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/split.xsh" -- -b 3 $input $prefix ?
 
-  fp"${root}/chunk-aa".read_bytes()? == b"abc"
-  fp"${root}/chunk-ab".read_bytes()? == b"def"
-  fp"${root}/chunk-ac".read_bytes()? == b"g"
+  assert fp"${root}/chunk-aa".read_bytes()? == b"abc"
+  assert fp"${root}/chunk-ab".read_bytes()? == b"def"
+  assert fp"${root}/chunk-ac".read_bytes()? == b"g"
 }
 
 test test_split_bytes_large_count_preserves_entire_input { |ctx|
@@ -38,6 +38,6 @@ test test_split_bytes_large_count_preserves_entire_input { |ctx|
   let prefix = fp"${root}/chunk-"
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/split.xsh" -- -b 9223372036854775807 $input $prefix ?
 
-  fp"${root}/chunk-aa".read_bytes()? == b"abcdefg"
-  !fp"${root}/chunk-ab".exists()?
+  assert fp"${root}/chunk-aa".read_bytes()? == b"abcdefg"
+  assert !fp"${root}/chunk-ab".exists()?
 }

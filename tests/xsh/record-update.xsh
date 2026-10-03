@@ -16,7 +16,7 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_record_update_disjoint_paths_match_nested_spreads { |ctx|
@@ -33,7 +33,7 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_record_update_keeps_schema_and_contextual_replacements { |ctx|
@@ -56,7 +56,7 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_record_update_evaluates_snapshot_and_rhs_in_source_order { |ctx|
@@ -82,7 +82,7 @@ inspect()
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("base\njobs\noptimize\noriginal,8,false,true\noriginal,false,changed,true\n")
+  assert (output.stdout) == ("base\njobs\noptimize\noriginal,8,false,true\noriginal,false,changed,true\n")
 }
 
 test test_record_update_failure_stops_later_rhs_and_keeps_published_value { |ctx|
@@ -109,7 +109,7 @@ print f"${published.name},${published.build.jobs},${published.build.flags.debug}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("first\nfailure\nclosed\ncaught=7\noriginal,2,false\n")
+  assert (output.stdout) == ("first\nfailure\nclosed\ncaught=7\noriginal,2,false\n")
 }
 
 test test_record_update_rejects_bases_targets_and_replacements { |ctx|
@@ -127,6 +127,6 @@ test test_record_update_rejects_bases_targets_and_replacements { |ctx|
   ] {
     let output = test.run_script(ctx, prefix + source)?
     assert ! output.success, source
-    code in output.stderr
+    assert code in output.stderr
   }
 }

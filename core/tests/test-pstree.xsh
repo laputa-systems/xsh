@@ -30,17 +30,17 @@ test test_pstree_renders_tree_with_pid_labels { |ctx|
   let child = spawn run sleep 30 ?
   let parent_pid = parent_for(child.pid)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
-  f"[${parent_pid}]" in output
-  f"sleep [${child.pid}]" in output
-  ("\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output)
-  ! ("->" in output)
+  assert f"[${parent_pid}]" in output
+  assert f"sleep [${child.pid}]" in output
+  assert ("\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output)
+  assert ! ("->" in output)
 }
 
 test test_pstree_rejects_unknown_pid { |ctx|
   let err = test.temp_path(ctx, name: "pstree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- 999999999 2> $err
-  ! status.exited_with(0)
-  "no such pid" in (err.read_text()?)
+  assert ! status.exited_with(0)
+  assert "no such pid" in (err.read_text()?)
 }
 
 test test_pstree_default_prints_visible_root { |ctx|
@@ -52,13 +52,13 @@ test test_pstree_default_prints_visible_root { |ctx|
   }
 
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" ?
-  (output.trim() != "")
+  assert (output.trim() != "")
 
   if system.uname()?.sysname == "Darwin" {
-    "launchd" in output
-    "00001" in output
+    assert "launchd" in output
+    assert "00001" in output
     return
   }
 
-  "[1]" in output
+  assert "[1]" in output
 }

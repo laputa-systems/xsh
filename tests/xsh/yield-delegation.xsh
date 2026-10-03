@@ -23,7 +23,7 @@ proc main() [io, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("0\n1\n2\n3\n4\n5\n3 2 2\n")
+  assert (output.stdout) == ("0\n1\n2\n3\n4\n5\n3 2 2\n")
 }
 
 test test_yield_delegation_pulls_lazily_and_closes_child_first { |ctx|
@@ -57,7 +57,7 @@ proc main() [io, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("created\nparent-start\npull 0\nrow 0\npull 1\nrow 1\nchild-close\nparent-close\nconsumer-after\n")
+  assert (output.stdout) == ("created\nparent-start\npull 0\nrow 0\npull 1\nrow 1\nchild-close\nparent-close\nconsumer-after\n")
 }
 
 test test_yield_delegation_evaluates_source_once_and_resumes { |ctx|
@@ -86,7 +86,7 @@ proc main() [io, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("row 1\nchild-close\nbetween\nsource\nrow 2\nrow 3\nafter\nparent-close\n")
+  assert (output.stdout) == ("row 1\nchild-close\nbetween\nsource\nrow 2\nrow 3\nafter\nparent-close\n")
 }
 
 test test_yield_delegation_result_handling_and_late_failure { |ctx|
@@ -111,9 +111,9 @@ proc main() [io, error] {
   print "consumer-after"
 }
 """)?
-  (output.success) == (false)
-  (output.stdout) == ("row 1\nrow 2\nrow 3\nchild-close\nparent-close\n")
-  ("RowsError.Late" in output.stderr)
+  assert (output.success) == (false)
+  assert (output.stdout) == ("row 1\nrow 2\nrow 3\nchild-close\nparent-close\n")
+  assert ("RowsError.Late" in output.stderr)
 }
 
 test test_yield_delegation_aliases_share_one_cursor { |ctx|
@@ -133,7 +133,7 @@ proc main() [io, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("1\nremaining 0\n")
+  assert (output.stdout) == ("1\nremaining 0\n")
 }
 
 test test_yield_delegation_requires_explicit_list_or_stream { |ctx|
@@ -143,12 +143,12 @@ test test_yield_delegation_requires_explicit_list_or_stream { |ctx|
 
       """
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("check.yield-delegation" in output.stderr)
+    assert (output.success) == (false)
+    assert ("check.yield-delegation" in output.stderr)
   }
   let output = test.run_script(ctx, "proc bad() { yield @[1] }\n")?
-  (output.success) == (false)
-  ("check.yield" in output.stderr)
+  assert (output.success) == (false)
+  assert ("check.yield" in output.stderr)
 }
 
 test test_yield_delegation_guard_and_zero_take_do_not_evaluate_source { |ctx|
@@ -169,7 +169,7 @@ proc main() [io] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("empty 0\nsource\nrow 1\nrow 2\n")
+  assert (output.stdout) == ("empty 0\nsource\nrow 1\nrow 2\n")
 }
 
 test test_yield_delegation_live_source_and_list_snapshot { |ctx|
@@ -196,7 +196,7 @@ proc main() [io, fs, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("first\nsecond\nlast\n1\n2\n3\noriginal 99\n")
+  assert (output.stdout) == ("first\nsecond\nlast\n1\n2\n3\noriginal 99\n")
 }
 
 test test_yield_delegation_cleanup_failure_still_closes_parent { |ctx|
@@ -222,9 +222,9 @@ proc main() [io, error] {
   for row in parent() { print f"row ${row}"; break }
 }
 """)?
-  (output.success) == (false)
-  (output.stdout) == ("row 1\nchild-close\nparent-close\n")
-  ("child cleanup failed" in output.stderr)
+  assert (output.success) == (false)
+  assert (output.stdout) == ("row 1\nchild-close\nparent-close\n")
+  assert ("child cleanup failed" in output.stderr)
 }
 
 test test_yield_delegation_rejects_item_and_effect_mismatches { |ctx|
@@ -234,7 +234,7 @@ test test_yield_delegation_rejects_item_and_effect_mismatches { |ctx|
     "stream child() [] -> Stream[Int] { yield 1 }\nstream bad() [] -> Stream[Int] { yield child() }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("check." in output.stderr)
+    assert (output.success) == (false)
+    assert ("check." in output.stderr)
   }
 }

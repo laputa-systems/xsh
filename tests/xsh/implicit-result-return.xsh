@@ -21,7 +21,7 @@ proc fail_through_question() [error] -> Result[Int] {
 }
 
 proc implicit_unit() [error] {
-  1 == 1
+  assert 1 == 1
 }
 
 proc build_bare_through_alias() [error] -> StringListResult {
@@ -59,7 +59,7 @@ print parse_uint("42", 10)
 
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == """42
+  assert output.stdout == """42
 """
 
   let invalid = test.run_script(
@@ -84,7 +84,7 @@ print parse_uint("not-a-number", 10)
   let rejected = invalid.status != 0
   let rejection_details = invalid.stderr
   assert rejected, rejection_details
-  "parse-int: invalid integer" in invalid.stderr
+  assert "parse-int: invalid integer" in invalid.stderr
 }
 
 test test_implicit_result_return_in_par_map {
@@ -93,8 +93,8 @@ test test_implicit_result_return_in_par_map {
       build()
     }
 
-  values == [Ok(["ok"]), Ok(["ok"])]
-  values[0]? == ["ok"]
+  assert values == [Ok(["ok"]), Ok(["ok"])]
+  assert values[0]? == ["ok"]
 
   let block_values = [1, 2]
     |> par-map(jobs: 2) { |_|
@@ -102,23 +102,23 @@ test test_implicit_result_return_in_par_map {
       built
     }
 
-  block_values == [["ok"], ["ok"]]
+  assert block_values == [["ok"], ["ok"]]
 }
 
 test test_result_return_shapes_agree {
-  build()? == ["ok"]
+  assert build()? == ["ok"]
   implicit_unit()?
 
   if let Err(error) = fail_explicitly() {
-    error.message == "explicit failure"
+    assert error.message == "explicit failure"
   } else {
-    false
+    assert false
   }
 
   if let Err(error) = fail_through_question() {
-    error.message == "propagated failure"
+    assert error.message == "propagated failure"
   } else {
-    false
+    assert false
   }
 }
 
@@ -128,12 +128,12 @@ test test_nested_result_calls_in_par_map {
       middle(value)
     }
 
-  values == [Ok(1), Ok(2)]
-  values[1]? == 2
+  assert values == [Ok(1), Ok(2)]
+  assert values[1]? == 2
 }
 
 test test_result_alias_return_shape {
-  build_bare_through_alias()? == ["ok"]
+  assert build_bare_through_alias()? == ["ok"]
 }
 
 test test_explicit_result_return_shapes { |ctx|
@@ -165,7 +165,7 @@ print direct[0] alias[0] middle(3)?
 
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == """ok ok 3
+  assert output.stdout == """ok ok 3
 """
 }
 
@@ -200,6 +200,6 @@ print values[0]?[0] values[1]?[0]
   let succeeded = output.status == 0
   let failure_details = output.stderr
   assert succeeded, failure_details
-  output.stdout == """ok ok
+  assert output.stdout == """ok ok
 """
 }

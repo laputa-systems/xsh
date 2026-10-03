@@ -10,7 +10,7 @@ let chosen = choose()
 print \${chosen?.display() ?? ""}
 """)?
   assert output.success, output.stderr
-  output.stdout == "second\n"
+  assert output.stdout == "second\n"
 }
 
 test empty_list_collects_loop_contributions_before_earlier_reads { |ctx|
@@ -25,7 +25,7 @@ test empty_list_collects_loop_contributions_before_earlier_reads { |ctx|
 print ${gather()[1].display()}
 """)?
     assert output.success, output.stderr
-    output.stdout == "second\n"
+    assert output.stdout == "second\n"
 }
 
 test private_result_inference_consumes_solved_local_collection { |ctx|
@@ -39,7 +39,7 @@ test private_result_inference_consumes_solved_local_collection { |ctx|
 print ${gather()[0].display()}
 """)?
     assert output.success, output.stderr
-    output.stdout == "first\n"
+    assert output.stdout == "first\n"
 }
 
 test nullable_local_rejects_incompatible_branch_contributions { |ctx|
@@ -53,7 +53,7 @@ test nullable_local_rejects_incompatible_branch_contributions { |ctx|
   selected
 }
 """)?
-    !output.success
+    assert !output.success
     assert "check.type-mismatch" in output.stderr, output.stderr
     assert "type inference started here" in output.stderr, output.stderr
     assert "type established here" in output.stderr, output.stderr
@@ -65,7 +65,7 @@ test unconstrained_material_local_requires_annotation { |ctx|
   let copy = entries
 }
 """)?
-    !output.success
+    assert !output.success
     assert "check.local-inference" in output.stderr, output.stderr
 }
 
@@ -80,7 +80,7 @@ test immutable_null_and_discarded_inert_literals_keep_their_types { |ctx|
 unchanged()
 """)?
     assert output.success, output.stderr
-    output.stdout == "done\n"
+    assert output.stdout == "done\n"
 }
 
 test explicit_empty_map_infers_key_and_value_from_indexed_writes { |ctx|
@@ -93,7 +93,7 @@ let entries = gather()
 print ${entries.get(p"first")?}
 """)?
     assert output.success, output.stderr
-    output.stdout == "12\n"
+    assert output.stdout == "12\n"
 }
 
 test authored_immutable_collection_contract_is_shared_by_aliases { |ctx|
@@ -106,7 +106,7 @@ proc inspect() -> Unit {
   integers(alias)
 }
 """)?
-    !output.success
+    assert !output.success
     assert "check.type-mismatch" in output.stderr, output.stderr
 }
 
@@ -121,7 +121,7 @@ test zero_iteration_loop_still_contributes_static_element_type { |ctx|
 print ${gather().len()}
 """)?
     assert output.success, output.stderr
-    output.stdout == "0\n"
+    assert output.stdout == "0\n"
 }
 
 test unannotated_empty_record_does_not_become_map_from_later_use { |ctx|
@@ -130,7 +130,7 @@ test unannotated_empty_record_does_not_become_map_from_later_use { |ctx|
   entries["key"] = 12
 }
 """)?
-    !output.success
+    assert !output.success
     assert "check.assign-target" in output.stderr, output.stderr
 }
 
@@ -143,7 +143,7 @@ proc inspect() -> Int {
 print ${inspect()}
 """)?
     assert output.success, output.stderr
-    output.stdout == "0\n"
+    assert output.stdout == "0\n"
 }
 
 test stream_local_constraints_are_solved_before_yield_preparation { |ctx|
@@ -155,7 +155,7 @@ test stream_local_constraints_are_solved_before_yield_preparation { |ctx|
 for destination in destinations() { print ${destination.display()} }
 """)?
     assert output.success, output.stderr
-    output.stdout == "one\ntwo\n"
+    assert output.stdout == "one\ntwo\n"
 }
 
 test earlier_nullable_operations_use_the_fixed_solved_type { |ctx|
@@ -168,7 +168,7 @@ test earlier_nullable_operations_use_the_fixed_solved_type { |ctx|
 print ${choose()?.display() ?? ""}
 """)?
     assert output.success, output.stderr
-    output.stdout == "chosen\n"
+    assert output.stdout == "chosen\n"
 }
 
 test discarded_empty_map_needs_no_artificial_key_or_value_contract { |ctx|
@@ -180,7 +180,7 @@ discard()
 print done
 """)?
     assert output.success, output.stderr
-    output.stdout == "done\n"
+    assert output.stdout == "done\n"
 }
 
 test material_empty_map_requires_a_concrete_contract { |ctx|
@@ -189,7 +189,7 @@ test material_empty_map_requires_a_concrete_contract { |ctx|
   print entries.len()
 }
 """)?
-    !output.success
+    assert !output.success
     assert "check.local-inference" in output.stderr, output.stderr
 }
 
@@ -207,7 +207,7 @@ export pure destinations() -> List[Path] {
 print ${c.destinations()[1].display()}
 """, [], {XSH_MODULE_PATH: root.display()})?
     assert output.success, output.stderr
-    output.stdout == "two\n"
+    assert output.stdout == "two\n"
 }
 
 test empty_list_method_assignments_preserve_the_same_monomorphic_identity { |ctx|
@@ -220,7 +220,7 @@ test empty_list_method_assignments_preserve_the_same_monomorphic_identity { |ctx
 print ${gather()[1].display()}
 """)?
     assert output.success, output.stderr
-    output.stdout == "two\n"
+    assert output.stdout == "two\n"
 }
 
 test empty_list_result_tails_match_explicit_returns { |ctx|
@@ -246,7 +246,7 @@ for words in [[], ["one", "two", "one"]] {
 }
 """)?
     assert output.success, output.stderr
-    output.stdout == "0\n2\n"
+    assert output.stdout == "0\n2\n"
 }
 
 test declared_return_context_solves_empty_local_identifier_tails { |ctx|
@@ -285,7 +285,7 @@ let unwrapped = nested?
 print ${list_tail().len()} ${result_tail()?.len()} ${explicit_result_tail()?.len()} ${grouped_result_tail()?.len()} ${wrapped_result_tail()?.len()} ${unwrapped.len()} ${map_tail()?.len()}
 """)?
     assert output.success, output.stderr
-    output.stdout == "0 0 0 0 0 0 0\n"
+    assert output.stdout == "0 0 0 0 0 0 0\n"
 }
 
 test local_identifier_tails_reject_incompatible_return_shapes { |ctx|
@@ -294,7 +294,7 @@ test local_identifier_tails_reject_incompatible_return_shapes { |ctx|
   var values = []
   values = values.push(1)
 """ + tail + "\n}\n")?
-        !output.success
+        assert !output.success
         assert "check.type-mismatch" in output.stderr, output.stderr
     }
     let nested = test.run_script(ctx, r"""proc incompatible() [error] -> Result[Result[List[Str]]] {
@@ -304,7 +304,7 @@ test local_identifier_tails_reject_incompatible_return_shapes { |ctx|
   wrapped
 }
 """)?
-    !nested.success
+    assert !nested.success
     assert "check.type-mismatch" in nested.stderr, nested.stderr
 }
 
@@ -315,7 +315,7 @@ test explicit_empty_map_fold_constraints_publish_concrete_earlier_gets { |ctx|
 print ${counts.get("one") ?? 0}
 """)?
     assert output.success, output.stderr
-    output.stdout == "2\n"
+    assert output.stdout == "2\n"
 }
 
 test independently_declared_dynamic_map_domain_solves_nested_local_holes { |ctx|
@@ -327,7 +327,7 @@ pure empty_stats() -> Stats {
 print ${empty_stats().blobs.len()}
 """)?
     assert output.success, output.stderr
-    output.stdout == "0\n"
+    assert output.stdout == "0\n"
 }
 
 test unannotated_empty_local_is_one_monomorphic_hole_across_aliases { |ctx|
@@ -341,7 +341,7 @@ test unannotated_empty_local_is_one_monomorphic_hole_across_aliases { |ctx|
 print ${gather()[0].display()}
 """)?
     assert accepted.success, accepted.stderr
-    accepted.stdout == "one\n"
+    assert accepted.stdout == "one\n"
     let rejected = test.run_script(ctx, r"""proc paths(values: List[Path]) -> Unit {}
 proc integers(values: List[Int]) -> Unit {}
 proc inspect() -> Unit {
@@ -351,7 +351,7 @@ proc inspect() -> Unit {
   integers(alias)
 }
 """)?
-    !rejected.success
+    assert !rejected.success
     assert "check.type-mismatch" in rejected.stderr, rejected.stderr
 }
 
@@ -362,7 +362,7 @@ test solved_locals_keep_exact_types_without_widening_or_dropping_null { |ctx|
         "var selected = null\n  selected = p\"chosen\"\n  let wrong: Path = selected\n",
     ] {
         let output = test.run_script(ctx, "proc inspect() -> Unit {\n  " + body + "}\n")?
-        !output.success
+        assert !output.success
         assert "check.type-mismatch" in output.stderr, output.stderr
     }
 }

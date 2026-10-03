@@ -8,22 +8,22 @@ pure spread_rest(first: Int, ...items: List[Int]) -> List[Int] { [first, @items]
 
 test test_named_argument_spreads_use_visible_fields_and_constructor_defaults {
   let options = {first: 2, second: 3}
-  (spread_sum(...options)) == (5)
-  (spread_sum(...{first: 4})) == (24)
-  (spread_middle(...{first: 1, third: 3})) == (24)
-  (spread_map_default(...{count: 4})) == (4)
-  (spread_sum(...{second: 5}, first: 2)) == (7)
-  (spread_sum(2, ...{second: 5})) == (7)
-  (spread_sum(...{first: 2}, ...{second: 5})) == (7)
+  assert (spread_sum(...options)) == (5)
+  assert (spread_sum(...{first: 4})) == (24)
+  assert (spread_middle(...{first: 1, third: 3})) == (24)
+  assert (spread_map_default(...{count: 4})) == (4)
+  assert (spread_sum(...{second: 5}, first: 2)) == (7)
+  assert (spread_sum(2, ...{second: 5})) == (7)
+  assert (spread_sum(...{first: 2}, ...{second: 5})) == (7)
   let first = 2
-  (spread_sum(first:, ...{second: 5})) == (7)
+  assert (spread_sum(first:, ...{second: 5})) == (7)
   let original = {first: 2, second: 99}
   let selected: SpreadFirst = original
-  (spread_sum(...selected)) == (22)
+  assert (spread_sum(...selected)) == (22)
   let config = SpreadOptions(...{first: 8, label: null})
-  (config.second) == (20)
-  (config.label) == (null)
-  (spread_label(...{first: 1, label: null})) == (null)
+  assert (config.second) == (20)
+  assert (config.label) == (null)
+  assert (spread_label(...{first: 1, label: null})) == (null)
 }
 
 test test_named_argument_spreads_evaluate_entries_once_in_source_order { |ctx|
@@ -44,7 +44,7 @@ print ${sum(third: marked(7), ...options())}
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("7\nspread\n12\n")
+  assert (executed.stdout) == ("7\nspread\n12\n")
 }
 
 test test_named_argument_spreads_keep_defaults_in_the_declaration_environment { |ctx|
@@ -61,7 +61,7 @@ proc caller() [io] -> Int {
 print ${caller()}
 """)?
   assert output.success, output.stderr
-  output.stdout == "7\nspread\n20\n"
+  assert output.stdout == "7\nspread\n20\n"
 }
 
 test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes { |ctx|
@@ -84,16 +84,16 @@ test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes { |
       let assertion_message = source
       assert assertion_condition, assertion_message
     }
-    ("check." in rejected.stderr)
+    assert ("check." in rejected.stderr)
   }
 }
 
 test test_named_argument_spreads_support_modules_methods_and_rest {
-  ("abc".replace(...{from: "b", to: "X"})) == ("aXc")
-  (shlex.join(...{argv: ["a", "b"]})) == ("a b")
-  (spread_rest(...{first: 1}, 2, 3)) == ([1, 2, 3])
+  assert ("abc".replace(...{from: "b", to: "X"})) == ("aXc")
+  assert (shlex.join(...{argv: ["a", "b"]})) == ("a b")
+  assert (spread_rest(...{first: 1}, 2, 3)) == ([1, 2, 3])
   let tail = [2, 3]
-  (spread_rest(...{first: 1}, @tail)) == ([1, 2, 3])
+  assert (spread_rest(...{first: 1}, @tail)) == ([1, 2, 3])
 }
 
 test test_named_argument_spreads_project_before_later_mutation {
@@ -103,8 +103,8 @@ test test_named_argument_spreads_project_before_later_mutation {
     options.first = 99
     next
   } else { 0 })
-  (total) == (3)
-  (options.first) == (99)
+  assert (total) == (3)
+  assert (options.first) == (99)
 }
 
 test test_named_argument_spreads_evaluate_receiver_first_and_stop_on_failure { |ctx|
@@ -117,7 +117,7 @@ print ${receiver().replace(...options())}
     let {success: assertion_condition, stderr: assertion_message, ..} = ordered
     assert assertion_condition, assertion_message
   }
-  (ordered.stdout) == ("receiver\noptions\naXc\n")
+  assert (ordered.stdout) == ("receiver\noptions\naXc\n")
   let stopped = test.run_script(ctx, r"""type Pair = {first: Int, second: Int}
 error SpreadFailure = Bad(message: Str)
 proc options() -> Result[Pair] { print failed; return Err(SpreadFailure.Bad(message: "stop")) }
@@ -135,15 +135,15 @@ print ${total(...(options()?), third: later())}
     let assertion_message = stopped.stderr
     assert assertion_condition, assertion_message
   }
-  (stopped.stdout) == ("failed\n")
+  assert (stopped.stdout) == ("failed\n")
 }
 
 error SpreadPayload = Bad(message: Str, code: Int)
 test test_named_argument_spreads_support_static_error_payloads {
   let failure = SpreadPayload.Bad(...{code: 3, message: "supplied"})
   if let SpreadPayload.Bad {code, message} = failure {
-    code == 3
-    message == "supplied"
+    assert code == 3
+    assert message == "supplied"
   } else {
     test.fail("expected supplied error payload")?
   }
@@ -160,15 +160,15 @@ test test_named_argument_spreads_bind_checked_loaded_module_contracts { |ctx|
 export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int { first + second + third }
 """)?
   let loaded = module.load(source_path)?.require(SpreadModule)?
-  (loaded.total(...{first: 1, third: 3})) == (24)
+  assert (loaded.total(...{first: 1, third: 3})) == (24)
 }
 
 test test_named_argument_spreads_native_method_signatures {
-  ("alphabet".starts_with(...{prefix: "alpha"})) == (true)
-  ("alphabet".ends_with(...{suffix: "bet"})) == (true)
-  ("alphabet".find(...{needle: "pha"})) == (2)
+  assert ("alphabet".starts_with(...{prefix: "alpha"})) == (true)
+  assert ("alphabet".ends_with(...{suffix: "bet"})) == (true)
+  assert ("alphabet".find(...{needle: "pha"})) == (2)
   let failure = error.fail(...{message: "spread failure"})
-  (failure is Err(_)) == (true)
+  assert (failure is Err(_)) == (true)
 }
 
 test test_named_argument_spreads_preserve_native_omitted_slots { |ctx|
@@ -181,5 +181,5 @@ test test_named_argument_spreads_preserve_native_omitted_slots { |ctx|
   restored.write("replace this")?
   archive.compress(source, compressed, ...{overwrite: true})?
   archive.decompress(compressed, restored, ...{overwrite: true})?
-  (restored.read_text()?) == ("spread defaults")
+  assert (restored.read_text()?) == ("spread defaults")
 }

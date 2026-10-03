@@ -10,27 +10,27 @@ test cli_constants_retain_the_inline_descriptor_shape {
   let options = cli.parse(["workspace", "--jobs", "6", "--tag", "one"], constant_options)?
   let {jobs, root, verbose, tag: tags, ..} = options
   let optional: Int? = options.zoptional
-  (jobs) == (6)
-  (root) == (p"workspace")
-  (verbose) == (false)
-  (tags) == (["one"])
-  (optional) == (null)
+  assert (jobs) == (6)
+  assert (root) == (p"workspace")
+  assert (verbose) == (false)
+  assert (tags) == (["one"])
+  assert (optional) == (null)
   let full = cli.parse_full(["workspace"], constant_options)?
   let default_jobs = full.values.jobs
-  (default_jobs) == (4)
-  (full.sources.get("jobs")?) == ("default")
-  (full.warnings) == ([])
+  assert (default_jobs) == (4)
+  assert (full.sources.get("jobs")?) == ("default")
+  assert (full.warnings) == ([])
   let parsed_applet = cli.applet(["workspace", "-j2", "-j3"], constant_options)?
   let last_jobs = parsed_applet.jobs
-  (last_jobs) == (3)
+  assert (last_jobs) == (3)
 }
 
 
 test cli_constants_reject_invalid_known_descriptors_during_checking { |ctx|
   let rejected = test.run_script(ctx, "const schema = {count: {kind: \"Nope\"}}\nlet _ = cli.parse([], schema)\n")?
-  (rejected.success) == (false)
-  ("check.cli-descriptor" in rejected.stderr)
-  ("unsupported option type `Nope`" in rejected.stderr)
+  assert (rejected.success) == (false)
+  assert ("check.cli-descriptor" in rejected.stderr)
+  assert ("unsupported option type `Nope`" in rejected.stderr)
 }
 
 
@@ -60,7 +60,7 @@ print $default_jobs
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("7\nworkspace\nfalse\n0\n4\n")
+  assert (output.stdout) == ("7\nworkspace\nfalse\n0\n4\n")
 }
 
 pure dynamic_options(value: Record) -> Record { value }
@@ -68,7 +68,7 @@ pure dynamic_options(value: Record) -> Record { value }
 test cli_constants_dynamic_descriptors_keep_runtime_validation {
   let dynamic = cli.parse(["--jobs", "8"], dynamic_options({jobs: {kind: "Int"}}))?
   let jobs = dynamic.get("jobs")?.require(Int)?
-  (jobs) == (8)
+  assert (jobs) == (8)
   test.error_kind(cli.parse([], dynamic_options({count: {kind: "Nope"}})), "cli-parse")?
 }
 
@@ -83,10 +83,10 @@ export const descriptors = {count: {kind: "Nope"}}
 const schema = {...c.descriptors, verbose: "Bool"}
 let _ = cli.parse([], schema)
 """, [], {XSH_MODULE_PATH: root.display()})?
-  (rejected.success) == (false)
-  ("check.cli-descriptor" in rejected.stderr)
-  ("invalid_config.xsh:3:" in rejected.stderr)
-  ("unsupported option type `Nope`" in rejected.stderr)
+  assert (rejected.success) == (false)
+  assert ("check.cli-descriptor" in rejected.stderr)
+  assert ("invalid_config.xsh:3:" in rejected.stderr)
+  assert ("unsupported option type `Nope`" in rejected.stderr)
 }
 
 test cli_constants_named_arguments_evaluate_once_in_source_order { |ctx|
@@ -103,18 +103,18 @@ print ${dynamic.get("jobs")?.require(Int)?}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("argv\ncommand\n4\nschema\nargv\ncommand\n4\n")
+  assert (output.stdout) == ("argv\ncommand\n4\nschema\nargv\ncommand\n4\n")
 }
 
 
 test cli_constants_forced_non_bool_flags_keep_dynamic_values {
   const schema = {switch: {kind: "Int", flag: true}, many: {kind: "Str", flag: true, repeated: true}}
   let unvalued = cli.parse(["--switch", "--many"], schema)?
-  (unvalued.switch.require(Bool)?) == (true)
-  (unvalued.many[0].require(Bool)?) == (true)
+  assert (unvalued.switch.require(Bool)?) == (true)
+  assert (unvalued.many[0].require(Bool)?) == (true)
   let valued = cli.parse(["--switch=3", "--many=text"], schema)?
-  (valued.switch.require(Int)?) == (3)
-  (valued.many[0].require(Str)?) == ("text")
+  assert (valued.switch.require(Int)?) == (3)
+  assert (valued.many[0].require(Str)?) == ("text")
 }
 
 test cli_constants_and_inline_descriptors_establish_the_same_field_types { |ctx|
@@ -131,7 +131,7 @@ let inline_root: Path = inline.root
 print $jobs ${root.display()} $inline_jobs ${inline_root.display()}
 """)?
   assert accepted.success, accepted.stderr
-  accepted.stdout == "3 work 4 work\n"
+  assert accepted.stdout == "3 work 4 work\n"
   for field in ["jobs", "root"] {
     let rejected = test.run_script(ctx, "const option_schema = " + descriptor + "let options = cli.parse([\"work\"], option_schema)?\nlet wrong: Str = options." + field + "\n")?
     assert !rejected.success, field

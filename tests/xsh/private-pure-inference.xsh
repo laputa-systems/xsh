@@ -12,11 +12,11 @@ pure inferred_returns(value: Int) {
 pure inferred_record(value: Int) { {value, label: "ready"} }
 
 test test_private_pure_inference_values {
-  (inferred_forward(" Label ")) == ("label")
-  (inferred_bool(-1)) == (false)
-  (inferred_returns(-2)) == (-1)
-  (inferred_returns(2)) == (3)
-  (inferred_record(4).value) == (4)
+  assert (inferred_forward(" Label ")) == ("label")
+  assert (inferred_bool(-1)) == (false)
+  assert (inferred_returns(-2)) == (-1)
+  assert (inferred_returns(2)) == (3)
+  assert (inferred_record(4).value) == (4)
 }
 
 test test_private_pure_inference_declaration_order { |ctx|
@@ -29,7 +29,7 @@ print first(2)
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("3\n")
+  assert (result.stdout) == ("3\n")
 }
 
 test test_private_pure_inference_rejects_underdetermined_boundaries { |ctx|
@@ -69,7 +69,7 @@ print early() selected(true).len() reversed(false).len() (outcome("3")?) (option
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("2 0 0 3 0 4\n")
+  assert (result.stdout) == ("2 0 0 3 0 4\n")
 }
 
 test test_private_pure_inference_module_private_capture { |ctx|
@@ -83,7 +83,7 @@ pure private_label(value: Str) { prefix + value.trim() }
 export pure label(value: Str) -> Str { private_label(value) }
 """)?
   let loaded = module.load(module_path)?.require(InferredPrivateModule)?
-  (loaded.label(" ready ")) == ("label:ready")
+  assert (loaded.label(" ready ")) == ("label:ready")
 }
 
 test test_private_pure_inference_lexical_dependencies { |ctx|
@@ -100,7 +100,7 @@ print $first parameter(1) destructured() (pattern(2) ?? 0)
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("1 2 5 2\n")
+  assert (result.stdout) == ("1 2 5 2\n")
 }
 
 test test_private_pure_inference_condition_and_fallback_capture_shadowing { |ctx|
@@ -115,7 +115,7 @@ print selected(Ok(2)) expression(Ok(3)) looped(Ok(5)) recovered(Ok("ready"))
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("3 4 5 ready\n")
+  assert (result.stdout) == ("3 4 5 ready\n")
 }
 
 test test_private_pure_inference_imported_module_tag_variants { |ctx|
@@ -132,5 +132,5 @@ export pure enabled() -> Bool { private_enabled(Included) }
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("true\n")
+  assert (result.stdout) == ("true\n")
 }

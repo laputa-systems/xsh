@@ -16,7 +16,7 @@ test test_predicate_stages_require_direct_bool_callbacks { |ctx|
       let {success: assertion_condition, stderr: assertion_message, ..} = accepted
       assert assertion_condition, assertion_message
     }
-    (accepted.stdout) == ("accepted\n")
+    assert (accepted.stdout) == ("accepted\n")
   }
 }
 
@@ -69,7 +69,7 @@ print ${counts.get("1")?} ${values[0]}
     let {success: assertion_condition, stderr: assertion_message, ..} = accepted
     assert assertion_condition, assertion_message
   }
-  (accepted.stdout) == ("2 1\n")
+  assert (accepted.stdout) == ("2 1\n")
 }
 
 test test_map_and_par_map_preserve_complete_result_values { |ctx|
@@ -86,7 +86,7 @@ print ${values.len()} ${values[0] is Ok(1)} ${values[1] is Err(ItemError.Stop {i
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("3 true true true\n")
+    assert (output.stdout) == ("3 true true true\n")
   }
 }
 
@@ -103,7 +103,7 @@ print ${groups[0].key is Ok(1)} ${groups[0].items.len()} ${groups[1].key is Err(
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("true 2 true 2\n")
+  assert (output.stdout) == ("true 2 true 2\n")
 }
 
 test test_flat_map_preserves_existing_result_collection_boundary { |ctx|
@@ -114,7 +114,7 @@ print ${values.len()} ${values[0]} ${values[3]}
     let {success: assertion_condition, stderr: assertion_message, ..} = accepted
     assert assertion_condition, assertion_message
   }
-  (accepted.stdout) == ("4 1 2\n")
+  assert (accepted.stdout) == ("4 1 2\n")
   let failed = test.run_script(ctx, r"""error ExpansionError = Stop(message: Str)
 pure expand(item: Int) -> Result[List[Int], ExpansionError] {
   if item == 2 { Err(ExpansionError.Stop(message: "stop expanding")) } else { [item] }
@@ -147,7 +147,7 @@ print ${outcome is Err(ItemError.Stop {item: 2})}
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("true\n")
+    assert (output.stdout) == ("true\n")
   }
 }
 
@@ -169,7 +169,7 @@ print ${values[1] is Err(ItemError.Stop {item: 2})}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("pull 1\npull 2\npull 3\nsource closed\ncallback 1\ncallback closed 1\ncallback 2\ncallback closed 2\ncallback 3\ncallback closed 3\ntrue\n")
+  assert (output.stdout) == ("pull 1\npull 2\npull 3\nsource closed\ncallback 1\ncallback closed 1\ncallback 2\ncallback closed 2\ncallback 3\ncallback closed 3\ntrue\n")
 }
 
 test test_par_map_runtime_faults_remain_outside_local_capture { |ctx|
@@ -181,6 +181,6 @@ test test_par_map_runtime_faults_remain_outside_local_capture { |ctx|
       let assertion_message = output.stdout
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("")
+    assert (output.stdout) == ("")
   }
 }

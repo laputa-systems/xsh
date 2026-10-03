@@ -15,9 +15,9 @@ beta
 """
 
   let applied = patch.apply(root, patch_text)?
-  applied.files == 1
-  applied.hunks == 1
-  "gamma" in fp"${root}/original.txt".read_text()?
+  assert applied.files == 1
+  assert applied.hunks == 1
+  assert "gamma" in fp"${root}/original.txt".read_text()?
 
   let escape_patch = """--- /dev/null
 +++ ../escape.txt

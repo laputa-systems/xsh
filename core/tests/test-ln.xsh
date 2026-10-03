@@ -5,5 +5,5 @@ test test_ln_symbolic_force { |ctx|
   src.write("new")?
   dst.write("old")?
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ln.xsh" -- -sf $src $dst ?
-  "src.txt" in dst.readlink()?.display()
+  assert "src.txt" in dst.readlink()?.display()
 }

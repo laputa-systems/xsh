@@ -25,20 +25,20 @@ test test_env_get_or_yields_the_fallback_only_for_an_unset_name {
   }) {
     # An unset name yields the fallback, defaulted or explicit, and the
     # fallback is not evaluated when the name is set.
-    env.get_or("XSH_ENV_ABSENT")? == ""
-    env.get_or("XSH_ENV_ABSENT", "fallback")? == "fallback"
-    env.get_or("XSH_ENV_ABSENT", "")? == ""
+    assert env.get_or("XSH_ENV_ABSENT")? == ""
+    assert env.get_or("XSH_ENV_ABSENT", "fallback")? == "fallback"
+    assert env.get_or("XSH_ENV_ABSENT", "")? == ""
 
     # A present name yields its own value, byte for byte: no trimming, no
     # decoding, and no substitution of the fallback for an empty value.
-    env.get_or("XSH_ENV_EMPTY", "fallback")? == ""
-    env.get_or("XSH_ENV_TEXT", "fallback")? == "value"
-    env.get_or("XSH_ENV_SPACED", "fallback")? == "  keep  "
-    env.get_or("XSH_ENV_UNICODE", "fallback")? == "h\u{e9}llo"
+    assert env.get_or("XSH_ENV_EMPTY", "fallback")? == ""
+    assert env.get_or("XSH_ENV_TEXT", "fallback")? == "value"
+    assert env.get_or("XSH_ENV_SPACED", "fallback")? == "  keep  "
+    assert env.get_or("XSH_ENV_UNICODE", "fallback")? == "h\u{e9}llo"
 
     # Key validation is the native one and is not a fallback case.
     test.error_kind(env.get_or(""), "env-name")?
-    str_failure(env.get_or("")) == "environment names cannot be empty or contain NUL or `=`"
+    assert str_failure(env.get_or("")) == "environment names cannot be empty or contain NUL or `=`"
     test.error_kind(env.get_or("=bad", "fallback"), "env-name")?
     test.error_kind(env.get("XSH_ENV=A"), "env-name")?
   } ?
@@ -63,15 +63,15 @@ test test_env_bool_accepts_only_the_baseline_spellings {
   }) {
     # The four accepted spellings, plus one that differs only in case and
     # surrounding white space.
-    env.bool("XSH_ENV_BOOL_ONE")? == true
-    env.bool("XSH_ENV_BOOL_TRUE")? == true
-    env.bool("XSH_ENV_BOOL_YES")? == true
-    env.bool("XSH_ENV_BOOL_ON")? == true
-    env.bool("XSH_ENV_BOOL_MIXED")? == true
+    assert env.bool("XSH_ENV_BOOL_ONE")? == true
+    assert env.bool("XSH_ENV_BOOL_TRUE")? == true
+    assert env.bool("XSH_ENV_BOOL_YES")? == true
+    assert env.bool("XSH_ENV_BOOL_ON")? == true
+    assert env.bool("XSH_ENV_BOOL_MIXED")? == true
 
     # An unset name is the only case that yields the fallback.
-    env.bool("XSH_ENV_BOOL_ABSENT")? == false
-    env.bool("XSH_ENV_BOOL_ABSENT", true)? == true
+    assert env.bool("XSH_ENV_BOOL_ABSENT")? == false
+    assert env.bool("XSH_ENV_BOOL_ABSENT", true)? == true
 
     # Every other present value is false, not an error, and never the
     # fallback: a fallback of true is passed to prove it is not substituted.
@@ -117,27 +117,27 @@ test test_env_int_parses_the_baseline_grammar {
     XSH_ENV_INT_MIN: "-9223372036854775808",
     XSH_ENV_INT_MIN_ZEROED: "-0009223372036854775808",
   }) {
-    (env.int("XSH_ENV_INT_ZERO")?) == (0)
-    (env.int("XSH_ENV_INT_PLAIN")?) == (42)
-    (env.int("XSH_ENV_INT_SPACED")?) == (42)
-    (env.int("XSH_ENV_INT_TABBED")?) == (7)
-    (env.int("XSH_ENV_INT_NBSP")?) == (42)
-    (env.int("XSH_ENV_INT_PLUS")?) == (42)
-    (env.int("XSH_ENV_INT_MINUS")?) == (-42)
-    (env.int("XSH_ENV_INT_PADDED")?) == (-42)
-    (env.int("XSH_ENV_INT_ZEROED")?) == (7)
-    (env.int("XSH_ENV_INT_MANY_ZEROS")?) == (42)
-    (env.int("XSH_ENV_INT_MAX")?) == (9223372036854775807)
-    (env.int("XSH_ENV_INT_MAX_ZEROED")?) == (9223372036854775807)
+    assert (env.int("XSH_ENV_INT_ZERO")?) == (0)
+    assert (env.int("XSH_ENV_INT_PLAIN")?) == (42)
+    assert (env.int("XSH_ENV_INT_SPACED")?) == (42)
+    assert (env.int("XSH_ENV_INT_TABBED")?) == (7)
+    assert (env.int("XSH_ENV_INT_NBSP")?) == (42)
+    assert (env.int("XSH_ENV_INT_PLUS")?) == (42)
+    assert (env.int("XSH_ENV_INT_MINUS")?) == (-42)
+    assert (env.int("XSH_ENV_INT_PADDED")?) == (-42)
+    assert (env.int("XSH_ENV_INT_ZEROED")?) == (7)
+    assert (env.int("XSH_ENV_INT_MANY_ZEROS")?) == (42)
+    assert (env.int("XSH_ENV_INT_MAX")?) == (9223372036854775807)
+    assert (env.int("XSH_ENV_INT_MAX_ZEROED")?) == (9223372036854775807)
 
     # The negative bound cannot be written as a literal: the indexed IR rejects
     # the `-9223372036854775808` spelling, so it is built from its neighbour.
-    env.int("XSH_ENV_INT_MIN")? == (-9223372036854775807 - 1)
-    env.int("XSH_ENV_INT_MIN_ZEROED")? == (-9223372036854775807 - 1)
+    assert env.int("XSH_ENV_INT_MIN")? == (-9223372036854775807 - 1)
+    assert env.int("XSH_ENV_INT_MIN_ZEROED")? == (-9223372036854775807 - 1)
 
     # An unset name is the only case that yields the fallback.
-    env.int("XSH_ENV_INT_ABSENT")? == 0
-    env.int("XSH_ENV_INT_ABSENT", 7)? == 7
+    assert env.int("XSH_ENV_INT_ABSENT")? == 0
+    assert env.int("XSH_ENV_INT_ABSENT", 7)? == 7
 
     test.error_kind(env.int("", 7), "env-name")?
   } ?
@@ -200,28 +200,28 @@ test test_env_int_rejects_unparsable_and_out_of_range_text {
 
 test test_env_conversions_read_the_scoped_overlay {
   env XSH_ENV_OVERLAY=outer {
-    env.get_or("XSH_ENV_OVERLAY")? == "outer"
+    assert env.get_or("XSH_ENV_OVERLAY")? == "outer"
     test.error_kind(env.int("XSH_ENV_OVERLAY", 7), "env-int")?
 
     env XSH_ENV_OVERLAY=inner XSH_ENV_OVERLAY_DIGITS=11 {
-      env.get_or("XSH_ENV_OVERLAY")? == "inner"
-      env.int("XSH_ENV_OVERLAY_DIGITS", 7)? == 11
-      env.bool("XSH_ENV_OVERLAY_BOOL", true)? == true
-      env.get_or("XSH_ENV_OVERLAY_ABSENT", "fallback")? == "fallback"
+      assert env.get_or("XSH_ENV_OVERLAY")? == "inner"
+      assert env.int("XSH_ENV_OVERLAY_DIGITS", 7)? == 11
+      assert env.bool("XSH_ENV_OVERLAY_BOOL", true)? == true
+      assert env.get_or("XSH_ENV_OVERLAY_ABSENT", "fallback")? == "fallback"
 
       env ({
         XSH_ENV_OVERLAY_BOOL: "off",
       }) {
-        (env.bool("XSH_ENV_OVERLAY_BOOL", true)?) == (false)
-        (env.get_or("XSH_ENV_OVERLAY")?) == ("inner")
+        assert (env.bool("XSH_ENV_OVERLAY_BOOL", true)?) == (false)
+        assert (env.get_or("XSH_ENV_OVERLAY")?) == ("inner")
       } ?
     } ?
 
     # The inner scopes are gone: the outer value is visible again, and the
     # inner-only name is unset again.
-    env.get_or("XSH_ENV_OVERLAY")? == "outer"
-    env.int("XSH_ENV_OVERLAY_DIGITS", 7)? == 7
-    env.bool("XSH_ENV_OVERLAY_BOOL", false)? == false
+    assert env.get_or("XSH_ENV_OVERLAY")? == "outer"
+    assert env.int("XSH_ENV_OVERLAY_DIGITS", 7)? == 7
+    assert env.bool("XSH_ENV_OVERLAY_BOOL", false)? == false
   } ?
 }
 
@@ -241,36 +241,36 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
   fs.chmod(tool, 0o755)?
 
   env XSH_STDLIB_ENV=yes DESTDIR=/tmp/xsh-stdlib-env XSH_STDLIB_COUNT=7 XSH_STDLIB_BOOL=true XSH_STDLIB_PATH=$root {
-    env.get("XSH_STDLIB_ENV")? == "yes"
-    env.get_or("XSH_STDLIB_MISSING", "fallback")? == "fallback"
-    env.bool("XSH_STDLIB_BOOL", false)? == true
-    env.bool("XSH_STDLIB_MISSING_BOOL")? == false
-    env.int("XSH_STDLIB_COUNT", 0)? == 7
-    env.int("XSH_STDLIB_MISSING_INT")? == 0
-    env.path("XSH_STDLIB_PATH")? == root
-    env.path("XSH_STDLIB_MISSING_PATH", root)? == root
-    env.list()? |> any .name == "DESTDIR" and .value == "/tmp/xsh-stdlib-env"
+    assert env.get("XSH_STDLIB_ENV")? == "yes"
+    assert env.get_or("XSH_STDLIB_MISSING", "fallback")? == "fallback"
+    assert env.bool("XSH_STDLIB_BOOL", false)? == true
+    assert env.bool("XSH_STDLIB_MISSING_BOOL")? == false
+    assert env.int("XSH_STDLIB_COUNT", 0)? == 7
+    assert env.int("XSH_STDLIB_MISSING_INT")? == 0
+    assert env.path("XSH_STDLIB_PATH")? == root
+    assert env.path("XSH_STDLIB_MISSING_PATH", root)? == root
+    assert env.list()? |> any .name == "DESTDIR" and .value == "/tmp/xsh-stdlib-env"
     env.PATH.prepend(tool_dir)?
-    (tool_dir in env.path_list("PATH")?)
-    tool_dir in env.path_list("PATH")?
+    assert (tool_dir in env.path_list("PATH")?)
+    assert tool_dir in env.path_list("PATH")?
     let path_entries = env.path_entries("PATH")?
-    path_entries |> any .raw == tool_dir.display() and .path == tool_dir and ! .empty
+    assert path_entries |> any .raw == tool_dir.display() and .path == tool_dir and ! .empty
     let extra_dir = fp"${tool_dir}/extra"
     env.PATH.append(extra_dir)?
-    env.PATH.pop()? == extra_dir
-    env.Path.XSH_STDLIB_PATH? == root
-    env.Str.DESTDIR? == "/tmp/xsh-stdlib-env"
+    assert env.PATH.pop()? == extra_dir
+    assert env.Path.XSH_STDLIB_PATH? == root
+    assert env.Str.DESTDIR? == "/tmp/xsh-stdlib-env"
     let output = run.text xsh-env-helper ?
-    "yes|/tmp/xsh-stdlib-env|" in output
+    assert "yes|/tmp/xsh-stdlib-env|" in output
   } ?
 
   env XSH_STDLIB_CUSTOM_PATH=f":${tool_dir.display()}::" {
     let entries = env.path_entries("XSH_STDLIB_CUSTOM_PATH")?
-    entries.len() == 4
-    entries[0].empty
-    entries[1].path == tool_dir
-    entries[2].empty
-    entries[3].empty
+    assert entries.len() == 4
+    assert entries[0].empty
+    assert entries[1].path == tool_dir
+    assert entries[2].empty
+    assert entries[3].empty
   } ?
 }
 
@@ -284,7 +284,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
 
   tool.chmod(0o755)?
   env.PATH.append(root)?
-  (root in env.PATH)
+  assert (root in env.PATH)
 
   env XSH_ENV_SCOPE=block DESTDIR=/tmp/xsh-env-scope HOME=$root {
     let dest = env.Str.DESTDIR?
@@ -299,25 +299,25 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     let entries = env.list()?
     let home = env.Path.HOME?
     let path_list = env.PathList.PATH?
-    dest == "/tmp/xsh-env-scope"
-    dest_path.display() == "/tmp/xsh-env-scope"
-    empty == ""
-    default_bool == false
-    default_count == 0
-    home == root
-    (root in path_list)
-    entries |> any .name == "DESTDIR" and .value == "/tmp/xsh-env-scope"
-    fallback == "fallback"
-    truthy == false
-    count == 7
-    fallback_path == root
+    assert dest == "/tmp/xsh-env-scope"
+    assert dest_path.display() == "/tmp/xsh-env-scope"
+    assert empty == ""
+    assert default_bool == false
+    assert default_count == 0
+    assert home == root
+    assert (root in path_list)
+    assert entries |> any .name == "DESTDIR" and .value == "/tmp/xsh-env-scope"
+    assert fallback == "fallback"
+    assert truthy == false
+    assert count == 7
+    assert fallback_path == root
     let line = run.text CC=cc CFLAGS="-O2 -pipe" env-scope-tool ?
-    line == "cc|-O2 -pipe|/tmp/xsh-env-scope|block"
+    assert line == "cc|-O2 -pipe|/tmp/xsh-env-scope|block"
   } ?
 
   let removed_path = env.PATH.pop()?
-  removed_path == root
-  (root not in env.PATH)
+  assert removed_path == root
+  assert (root not in env.PATH)
 }
 
 test test_path_literals_method_sugar_and_expr_env_blocks { |ctx|
@@ -342,22 +342,22 @@ beta """.trim()
   .lines()
   .collect()
 
-    home == root
-    ("child" in env.Path.CHILD?)
-    decoded == b"abc"
-    (lines[1]) == ("beta")
-    b"abc".compare(b"abd").byte == 3
+    assert home == root
+    assert ("child" in env.Path.CHILD?)
+    assert decoded == b"abc"
+    assert (lines[1]) == ("beta")
+    assert b"abc".compare(b"abd").byte == 3
     let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";" ?
-    line == f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
+    assert line == f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
   } ?
 }
 
 test test_env_path_membership_matches_exact_entries {
   env PATH="/opt/xsh-membership/bin:/opt/xsh-other" {
-    p"/opt/xsh-membership/bin" in env.PATH
-    p"/opt/xsh-other" in env.PATH
-    p"/opt/xsh-membership" not in env.PATH
-    p"/opt/xsh-membership/bin/tool" not in env.PATH
+    assert p"/opt/xsh-membership/bin" in env.PATH
+    assert p"/opt/xsh-other" in env.PATH
+    assert p"/opt/xsh-membership" not in env.PATH
+    assert p"/opt/xsh-membership/bin/tool" not in env.PATH
   }
 }
 

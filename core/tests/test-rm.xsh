@@ -4,5 +4,5 @@ test test_rm_force_recursive { |ctx|
   dir.mkdir()?
   fp"${dir}/nested.txt".write("nested")?
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/rm.xsh" -- -rf $dir fp"${root}/missing" ?
-  ! dir.exists()?
+  assert ! dir.exists()?
 }

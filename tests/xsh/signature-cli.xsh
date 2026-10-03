@@ -9,7 +9,7 @@ cli main(zlabel: Str, count: Int, jobs: Int = 4, verbose: Bool = false, tags: Li
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("source 3 8 true base,one,two first,-last\n")
+  assert (result.stdout) == ("source 3 8 true base,one,two first,-last\n")
 }
 
 test test_signature_cli_help_and_invalid_arguments_skip_initializers_and_body { |ctx|
@@ -46,7 +46,7 @@ cli main(root: Path, jobs: Int = 4) [] { print "BODY-MARKER" }
       let assertion_message = rejected.stderr
       assert assertion_condition, assertion_message
     }
-    (rejected.stdout) == ("")
+    assert (rejected.stdout) == ("")
     {
       let assertion_condition = "usage:" in rejected.stderr
       let assertion_message = rejected.stderr
@@ -97,20 +97,20 @@ cli main(root: Path, worker_count: Count = DEFAULT_COUNT, tags: Tags = DEFAULT_T
     let {success: assertion_condition, stderr: assertion_message, ..} = defaults
     assert assertion_condition, assertion_message
   }
-  (defaults.stdout) == ("nonexistent 4 1,2 true 20ms\n")
+  assert (defaults.stdout) == ("nonexistent 4 1,2 true 20ms\n")
   let supplied = test.run_script(ctx, source, ["nonexistent", "--worker-count=8", "--tags=3", "--verbose=false", "--delay=30ms"], {}, b"", "signature-aliases.xsh")?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = supplied
     assert assertion_condition, assertion_message
   }
-  (supplied.stdout) == ("nonexistent 8 1,2,3 false 30ms\n")
+  assert (supplied.stdout) == ("nonexistent 8 1,2,3 false 30ms\n")
   let negative = test.run_script(ctx, source, ["nonexistent", "--worker-count=-1"], {}, b"", "signature-unsigned.xsh")?
   {
     let assertion_condition = !negative.success
     let assertion_message = negative.stderr
     assert assertion_condition, assertion_message
   }
-  (negative.stdout) == ("")
+  assert (negative.stdout) == ("")
   let help = test.run_script(ctx, source, ["-h"], {}, b"", "signature-doc.xsh")?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = help
@@ -137,11 +137,11 @@ cli main(...operands: List[Str]) [] { print ${operands.join(",")} }
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("--help,-h,last\n")
+  assert (result.stdout) == ("--help,-h,last\n")
   let empty = test.run_script(ctx, source, [], {}, b"", "signature-empty-rest.xsh")?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = empty
     assert assertion_condition, assertion_message
   }
-  (empty.stdout) == ("\n")
+  assert (empty.stdout) == ("\n")
 }

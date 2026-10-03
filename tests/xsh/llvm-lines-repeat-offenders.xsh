@@ -26,9 +26,9 @@ test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports { |ctx|
   let text = test.run_script(ctx, source, args: [input.display(), "--limit", "1", "--examples", "1"])?
   let {success: text_succeeded, stderr: text_failure_details, ..} = text
   assert text_succeeded, text_failure_details
-  "top 1 llvm-lines repeat offenders" in text.stdout
-  "xsh[abc]::work::<_>" in text.stdout
-  "xsh[abc]::work::<u8>" in text.stdout
+  assert "top 1 llvm-lines repeat offenders" in text.stdout
+  assert "xsh[abc]::work::<_>" in text.stdout
+  assert "xsh[abc]::work::<u8>" in text.stdout
   let dependencies_absent = "dependency::helper" not in text.stdout
   let report_text = text.stdout
   assert dependencies_absent, report_text
@@ -37,22 +37,22 @@ test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports { |ctx|
   let {success: owned_succeeded, stderr: owned_failure_details, ..} = owned
   assert owned_succeeded, owned_failure_details
   let summary = json.decode(owned.stdout)?.require(LlvmLinesIntegralSummary)?
-  summary.scope == "owned"
-  summary.offenders == 1
-  summary.instances == 2
-  summary.duplicated == 60
-  summary.grand_total == 1000
-  summary.pct == 6
+  assert summary.scope == "owned"
+  assert summary.offenders == 1
+  assert summary.instances == 2
+  assert summary.duplicated == 60
+  assert summary.grand_total == 1000
+  assert summary.pct == 6
 
   let dependencies = test.run_script(ctx, source, args: [input.display(), "--sum", "--all", "--filter", "dependency", "--json"])?
   let {success: dependencies_succeeded, stderr: dependencies_failure_details, ..} = dependencies
   assert dependencies_succeeded, dependencies_failure_details
   let filtered = json.decode(dependencies.stdout)?.require(LlvmLinesIntegralSummary)?
-  filtered.scope == "all"
-  filtered.filter == "dependency"
-  filtered.offenders == 1
-  filtered.instances == 2
-  filtered.duplicated == 20
+  assert filtered.scope == "all"
+  assert filtered.filter == "dependency"
+  assert filtered.offenders == 1
+  assert filtered.instances == 2
+  assert filtered.duplicated == 20
 }
 
 test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals { |ctx|
@@ -61,16 +61,16 @@ test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals 
   let source = fp"${fs.cwd()?}/tools/llvm-lines-repeat-offenders.xsh".read_text()?
   input.write("01 1% 1% 2 1% 1% xsh[abc]::work::<u8>\n")?
   let rejected = test.run_script(ctx, source, args: [input.display(), "--sum", "--json"])?
-  rejected.status == 3
-  rejected.stdout == ""
-  "json" in rejected.stderr
+  assert rejected.status == 3
+  assert rejected.stdout == ""
+  assert "json" in rejected.stderr
 
   input.write(llvm_lines_capture.replace(from: "1000 100% 100% 10 100% 100% (TOTAL)", to: "true 100% 100% 10 100% 100% (TOTAL)"))?
   let unknown = test.run_script(ctx, source, args: [input.display(), "--sum", "--json"])?
   let {success: succeeded, stderr: failure_details, ..} = unknown
   assert succeeded, failure_details
   let summary = json.decode(unknown.stdout)?.require(LlvmLinesIntegralSummary)?
-  summary.duplicated == 60
-  summary.grand_total == -1
-  summary.pct == 0
+  assert summary.duplicated == 60
+  assert summary.grand_total == -1
+  assert summary.pct == 0
 }

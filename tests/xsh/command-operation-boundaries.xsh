@@ -20,11 +20,11 @@ eprint diagnostic
   let result = test.run_script(ctx, source)?
   let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
   assert succeeded, diagnostics
-  output == "word\n7\n1.5\ntrue\nrelative/../path\n1s\n7\nerased\n"
-  diagnostics == "diagnostic\n"
+  assert output == "word\n7\n1.5\ntrue\nrelative/../path\n1s\n7\nerased\n"
+  assert diagnostics == "diagnostic\n"
   let inherited = test.run_script(ctx, "print --flush inherited\n")?
-  inherited.success
-  inherited.stdout == "inherited\n"
+  assert inherited.success
+  assert inherited.stdout == "inherited\n"
 }
 
 test test_display_and_wait_reject_invalid_boundaries_before_execution { |ctx|
@@ -38,6 +38,6 @@ test test_display_and_wait_reject_invalid_boundaries_before_execution { |ctx|
     let result = test.run_script(ctx, source)?
     let {success: succeeded, stderr: diagnostics, ..} = result
     assert ! succeeded, source
-    "check." in diagnostics
+    assert "check." in diagnostics
   }
 }

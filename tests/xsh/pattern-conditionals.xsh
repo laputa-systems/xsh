@@ -44,20 +44,20 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_pattern_conditionals_produce_values_and_keep_literal_results {
   let outcome = Ok(9)
   let selected = if let Ok(value) = outcome { value + 1 } else { 0 }
-  (selected) == (10)
+  assert (selected) == (10)
   let accepted = if let Ok(value) = outcome { value < 0 } else { true }
-  (accepted) == (false)
-  (pattern_conditional_label(outcome)) == ("9")
+  assert (accepted) == (false)
+  assert (pattern_conditional_label(outcome)) == ("9")
   let missing: Result[Int] = Err(PatternLoopError.Done(detail: "done"))
-  (pattern_conditional_label(missing)) == ("missing")
+  assert (pattern_conditional_label(missing)) == ("missing")
   if let Err(error) = missing {
-    (error is PatternLoopError.Done) == (true)
+    assert (error is PatternLoopError.Done) == (true)
   } else {
     test.fail("Result was implicitly unwrapped")?
   }
@@ -71,10 +71,10 @@ test test_pattern_loops_reevaluate_after_continue_and_keep_lexical_targets {
     continue when value == 1
     total += value
   }
-  (index) == (3)
-  (total) == (2)
+  assert (index) == (3)
+  assert (total) == (2)
   while let Ok(value) = pattern_loop_subject(0) {
-    (value) == (0)
+    assert (value) == (0)
     break
   }
 }
@@ -136,7 +136,7 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_pattern_conditionals_evaluate_once_and_cleanup_loop_defers { |ctx|
@@ -161,7 +161,7 @@ print finished
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("5\nmismatch\n0\ncleanup 0\n1\ncleanup 1\n2\nfinished\n")
+  assert (output.stdout) == ("5\nmismatch\n0\ncleanup 0\n1\ncleanup 1\n2\nfinished\n")
 }
 
 test test_pattern_conditionals_propagate_explicit_subject_errors { |ctx|
@@ -170,10 +170,10 @@ error Finish = Done(detail: Str)
 proc subject() -> Result[Int] { return Err(Finish.Done(detail: "subject failed")) }
 if let 7 = subject()? { print selected } else { print unexpected }
 """)?
-  (output.success) == (false)
-  (output.stdout) == ("")
-  ("Finish.Done" in output.stderr)
-  ("result.propagate" in output.stderr)
+  assert (output.success) == (false)
+  assert (output.stdout) == ("")
+  assert ("Finish.Done" in output.stderr)
+  assert ("result.propagate" in output.stderr)
 }
 
 test test_pattern_conditional_lint_and_formatter_fixes_are_stable { |ctx|
@@ -189,15 +189,15 @@ test test_pattern_conditional_lint_and_formatter_fixes_are_stable { |ctx|
       assert assertion_condition, assertion_message
     }
     let first = candidate.read_text()?
-    ("if let Ok(value)" in first)
-    ("else" in first)
+    assert ("if let Ok(value)" in first)
+    assert ("else" in first)
     let stable = run.capture --text "xsht" lint --fix $candidate ?
     {
       let assertion_condition = stable.status.exited_with(0)
       let assertion_message = stable.stderr
       assert assertion_condition, assertion_message
     }
-    (candidate.read_text()?) == (first)
+    assert (candidate.read_text()?) == (first)
     let formatted = run.capture --text "xsht" fmt $candidate ?
     {
       let assertion_condition = formatted.status.exited_with(0)
@@ -226,7 +226,7 @@ test test_pattern_conditional_lint_retains_comments_guards_and_error_bindings { 
   ] {
     let candidate = test.temp_file(ctx, name: "pattern-conditional-no-fix.xsh", contents: bytes.from_text(source))?
     let _ = run.capture --text "xsht" lint --fix $candidate ?
-    (candidate.read_text()?) == (source)
+    assert (candidate.read_text()?) == (source)
   }
 }
 
@@ -247,7 +247,7 @@ while let
     assert assertion_condition, assertion_message
   }
   let first = candidate.read_text()?
-  ("while let Ok(value) = outcome" in first)
+  assert ("while let Ok(value) = outcome" in first)
   let checked = run.capture --text "xsht" fmt --check $candidate ?
   {
     let assertion_condition = checked.status.exited_with(0)
@@ -259,7 +259,7 @@ while let
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("7\n")
+  assert (output.stdout) == ("7\n")
 }
 
 test test_pattern_conditionals_match_lists_and_bind_typed_remainders { |ctx|
@@ -287,7 +287,7 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 proc pattern_conditional_open_root(root_path: Path) [fs, error] -> Result[FsRoot] {
@@ -298,7 +298,7 @@ test test_pattern_conditionals_preserve_escaping_owned_resources { |ctx|
   let root_path = test.temp_dir(ctx, name: "pattern-root")?
   let root = pattern_conditional_open_root(root_path)?
   root.write(p"value", "retained")?
-  (root.read_text(p"value")?) == ("retained")
+  assert (root.read_text(p"value")?) == ("retained")
   root.close()?
 }
 
@@ -312,6 +312,6 @@ pure pattern_sibling_label(subject: PatternSiblingValue) -> Str {
 }
 
 test test_pattern_conditionals_preserve_sibling_match_capture_reuse {
-  (pattern_sibling_label(SiblingWord("word"))) == ("word")
-  (pattern_sibling_label(SiblingNumber(7))) == ("7")
+  assert (pattern_sibling_label(SiblingWord("word"))) == ("word")
+  assert (pattern_sibling_label(SiblingNumber(7))) == ("7")
 }

@@ -29,15 +29,15 @@ test test_path_audit_findings { |ctx|
 
   env XSH_SHOWCASE_PATH=$raw {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
-    "Directory problems" in output
-    "duplicate-directory" in output
-    "missing-directory" in output
-    "not-directory" in output
-    "empty-entry" in output
-    "world-writable-directory" in output
-    "non-executable-directory" in output
-    "Command shadowing" in output
-    "shadowed-command tool" in output
+    assert "Directory problems" in output
+    assert "duplicate-directory" in output
+    assert "missing-directory" in output
+    assert "not-directory" in output
+    assert "empty-entry" in output
+    assert "world-writable-directory" in output
+    assert "non-executable-directory" in output
+    assert "Command shadowing" in output
+    assert "shadowed-command tool" in output
   } ?
 }
 

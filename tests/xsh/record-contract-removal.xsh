@@ -8,9 +8,9 @@ test test_record_require_removed_api_has_actionable_diagnostic { |ctx|
 let checked = record.require({name: "demo"}, {name: "Str"})?
 print $checked.name
 """)?
-  output.status == 2
-  "check.removed-record-require" in output.stderr
-  ".require(Schema)" in output.stderr
+  assert output.status == 2
+  assert "check.removed-record-require" in output.stderr
+  assert ".require(Schema)" in output.stderr
 }
 
 test test_record_named_schema_keeps_nested_fields_extras_and_aliases {
@@ -57,6 +57,6 @@ use helper as record
 let selected = record.require("hello")
 print $selected
 """, [], {XSH_MODULE_PATH: root.display()})?
-  output.status == 0
-  output.stdout == "hello\n"
+  assert output.status == 0
+  assert output.stdout == "hello\n"
 }

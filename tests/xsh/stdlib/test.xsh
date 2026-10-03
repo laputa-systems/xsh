@@ -1,5 +1,5 @@
 test test_test_helpers {
-  1 != 2
+  assert 1 != 2
   test.error_kind(test.fail("covered failure"), "AssertionError.Failed")?
 }
 
@@ -24,7 +24,7 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
     let {success: assertion_condition, stderr: assertion_message, ..} = ok
     assert assertion_condition, assertion_message
   }
-  ok.status == 0
+  assert ok.status == 0
   {
     let assertion_condition = "argument" in ok.stdout
     let assertion_message = ok.stdout
@@ -52,7 +52,7 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
     let assertion_message = failed.stdout
     assert assertion_condition, assertion_message
   }
-  failed.status == 7
+  assert failed.status == 7
 }
 
 test test_run_xsht_trace_accepts_trace_flags_and_script_args { |ctx|
@@ -71,11 +71,11 @@ run true ?
     assert assertion_condition, assertion_message
   }
 
-  output.stdout == """script-arg
+  assert output.stdout == """script-arg
 """
 
-  "kind=script.enter" in output.stderr
-  "kind=run.start" in output.stderr
+  assert "kind=script.enter" in output.stderr
+  assert "kind=run.start" in output.stderr
 }
 
 test test_skip_function_is_covered {
@@ -89,17 +89,17 @@ test test_native_script_arguments_preserve_a_leading_separator { |ctx|
     let {success: assertion_condition, stderr: assertion_message, ..} = script
     assert assertion_condition, assertion_message
   }
-  (script.stdout) == ("--,one\n")
+  assert (script.stdout) == ("--,one\n")
   let explicit = test.run_xsh(ctx, source, ["--"], ["--", "one"])?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = explicit
     assert assertion_condition, assertion_message
   }
-  (explicit.stdout) == ("--,one\n")
+  assert (explicit.stdout) == ("--,one\n")
   let traced = test.run_xsht_trace(ctx, source, [], ["--", "one"])?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = traced
     assert assertion_condition, assertion_message
   }
-  (traced.stdout) == ("--,one\n")
+  assert (traced.stdout) == ("--,one\n")
 }

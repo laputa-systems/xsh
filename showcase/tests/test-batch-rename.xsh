@@ -3,9 +3,9 @@ test test_batch_rename { |ctx|
   fp"${root}/hello world.txt".write("a")?
   fp"${root}/foo bar.txt".write("b")?
   let dry = run.text "xsh" "showcase/batch-rename.xsh" -- --root $root --normalize --dry-run ?
-  "would rename" in dry
-  "hello_world.txt" in dry
+  assert "would rename" in dry
+  assert "hello_world.txt" in dry
   let actual = run.text "xsh" "showcase/batch-rename.xsh" -- --root $root --normalize --dry-run=false ?
-  "2 files renamed" in actual
-  fp"${root}/hello_world.txt".exists()?
+  assert "2 files renamed" in actual
+  assert fp"${root}/hello_world.txt".exists()?
 }

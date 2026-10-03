@@ -9,8 +9,8 @@ let checked: Unit = unit()
 print ${boolean()} ${early()} ${optional(false) ?? 0} ${result()?} ${(nested()?)?}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "false false 0 9 11\n"
+  assert output.status == 0
+  assert output.stdout == "false false 0 9 11\n"
 }
 
 test omitted_private_pure_payloads { |ctx|
@@ -21,8 +21,8 @@ pure result() { Ok(9) }
 print ${boolean()} ${early()} ${optional(false) ?? 0} ${result()?}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "false false 0 9\n"
+  assert output.status == 0
+  assert output.stdout == "false false 0 9\n"
 }
 
 test unit_consuming_assertions { |ctx|
@@ -34,8 +34,8 @@ let tail: Result[Unit] = try { false }
 print ${direct is Err(_)} ${result is Err(_)} ${tail is Err(_)}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "true true true\n"
+  assert output.status == 0
+  assert output.stdout == "true true true\n"
 }
 
 test non_tail_concrete_bool { |ctx|
@@ -43,8 +43,8 @@ test non_tail_concrete_bool { |ctx|
 print ${check(-1) is Err(_)} ${check(3)?}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "true 3\n"
+  assert output.status == 0
+  assert output.stdout == "true 3\n"
 }
 
 test discard_bool_result { |ctx|
@@ -57,8 +57,8 @@ let _ = unit()
 print done
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "done\n"
+  assert output.status == 0
+  assert output.stdout == "done\n"
 }
 
 test discard_initializer_propagation { |ctx|
@@ -73,8 +73,8 @@ let result: Result[Unit] = try { discarded() }
 print ${result is Err(LocalError.Bad)}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "cleanup\ntrue\n"
+  assert output.status == 0
+  assert output.stdout == "cleanup\ntrue\n"
 }
 
 test statement_result_unit_proc { |ctx|
@@ -85,8 +85,8 @@ let result: Result[Unit] = try { caller() }
 print ${result is Err(LocalError.Bad)}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "true\n"
+  assert output.status == 0
+  assert output.stdout == "true\n"
 }
 
 test explicit_data_proc_outward_propagation { |ctx|
@@ -96,8 +96,8 @@ let failure: Result[Int] = try { parsed("bad") }
 print ${failure is Err(_)}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "7\ntrue\n"
+  assert output.status == 0
+  assert output.stdout == "7\ntrue\n"
 }
 
 test try_one_layer_and_nesting { |ctx|
@@ -111,8 +111,8 @@ let no = try { false }?
 print $no
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "true true\nfalse\n"
+  assert output.status == 0
+  assert output.stdout == "true true\nfalse\n"
 }
 
 test retry_lexical_return_and_cleanup { |ctx|
@@ -126,8 +126,8 @@ test retry_lexical_return_and_cleanup { |ctx|
 print ${escape()?}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "cleanup\nouter\n"
+  assert output.status == 0
+  assert output.stdout == "cleanup\nouter\n"
 }
 
 test try_loop_transfers_and_cleanup { |ctx|
@@ -143,8 +143,8 @@ while rounds < 3 {
 print $rounds
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "cleanup\ncleanup\ncleanup\n3\n"
+  assert output.status == 0
+  assert output.stdout == "cleanup\ncleanup\ncleanup\n3\n"
 }
 
 test callback_bool_and_result_data { |ctx|
@@ -153,8 +153,8 @@ let values = [1, 2] |> map { |value| Ok(value) } |> collect()
 print ${filtered.len()} ${values[0]?} ${values[1]?}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "0 1 2\n"
+  assert output.status == 0
+  assert output.stdout == "0 1 2\n"
 }
 
 test default_order_and_outer_scope { |ctx|
@@ -167,8 +167,8 @@ pure outer(seed: Int = seed) -> Int { seed }
 print ${outer()}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "left\nright\n8\nsupplied\nleft\n15\n6\n"
+  assert output.status == 0
+  assert output.stdout == "left\nright\n8\nsupplied\nleft\n15\n6\n"
 }
 
 test producer_lazy_default_delegation_cancellation { |ctx|
@@ -191,8 +191,8 @@ for item in source { print $item; break }
 print after
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "supplied\ncreated\ndefault\n7\nchild-close\nparent-close\nafter\n"
+  assert output.status == 0
+  assert output.stdout == "supplied\ncreated\ndefault\n7\nchild-close\nparent-close\nafter\n"
 }
 
 test status_as_data { |ctx|
@@ -202,8 +202,8 @@ let _ = status
 print done
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "1\ndone\n"
+  assert output.status == 0
+  assert output.stdout == "1\ndone\n"
 }
 
 test explicit_nested_error { |ctx|
@@ -215,8 +215,8 @@ pure nested() -> Result[Result[Int, LocalError]] {
 print ${nested()? is Err(LocalError.Bad)}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "true\n"
+  assert output.status == 0
+  assert output.stdout == "true\n"
 }
 
 test empty_proc_success { |ctx|
@@ -225,8 +225,8 @@ let value: Result[Unit] = empty()
 print ${value is Ok(_)}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "true\n"
+  assert output.status == 0
+  assert output.stdout == "true\n"
 }
 
 test explicit_propagation_failure { |ctx|
@@ -234,8 +234,8 @@ test explicit_propagation_failure { |ctx|
 print ${parsed("bad")}
 print unreachable
 """)?
-  output.status == 3
-  output.stdout == ""
+  assert output.status == 3
+  assert output.stdout == ""
   assert "parse-int" in output.stderr, output.stderr
 }
 
@@ -244,8 +244,8 @@ test annotated_value_result_statement_rejected { |ctx|
 proc bad() [error] -> Int { leaf(); 2 }
 print ${bad()}
 """)?
-  output.status == 2
-  output.stdout == ""
+  assert output.status == 2
+  assert output.stdout == ""
   assert "Result" in output.stderr, output.stderr
 }
 
@@ -253,8 +253,8 @@ test annotated_effect_bound_rejected { |ctx|
   let output = test.run_script(ctx, r"""proc bad() [] -> Unit { let _ = time.now() }
 bad()
 """)?
-  output.status == 2
-  output.stdout == ""
+  assert output.status == 2
+  assert output.stdout == ""
   assert "check.effect-violation" in output.stderr, output.stderr
 }
 
@@ -262,8 +262,8 @@ test annotated_default_parameter_scope_rejected { |ctx|
   let output = test.run_script(ctx, r"""pure bad(left: Int = 1, right: Int = left) -> Int { right }
 print ${bad()}
 """)?
-  output.status == 2
-  output.stdout == ""
+  assert output.status == 2
+  assert output.stdout == ""
   assert "left" in output.stderr, output.stderr
 }
 
@@ -272,8 +272,8 @@ test try_error_only_rejected { |ctx|
 let result = try { Err(LocalError.Bad("unknown"))? }
 let _ = result
 """)?
-  output.status == 2
-  output.stdout == ""
+  assert output.status == 2
+  assert output.stdout == ""
   assert "check.try-success-type" in output.stderr, output.stderr
 }
 
@@ -283,8 +283,8 @@ pure branch(flag: Bool) -> Int { if flag { return 8 } else { 9 } }
 print ${early()} ${branch(true)} ${branch(false)}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "7 8 9\n"
+  assert output.status == 0
+  assert output.stdout == "7 8 9\n"
 }
 
 test discard_keeps_control_transfer { |ctx|
@@ -296,6 +296,6 @@ test discard_keeps_control_transfer { |ctx|
 print ${early()}
 """)?
   assert output.success, output.stderr
-  output.status == 0
-  output.stdout == "cleanup\n7\n"
+  assert output.status == 0
+  assert output.stdout == "cleanup\n7\n"
 }

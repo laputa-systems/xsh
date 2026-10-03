@@ -11,16 +11,16 @@ type JsonRequireEnvelope = {cpus: List[JsonNestedRow], config: JsonRequireConfig
 test test_json_require_preserves_extra_and_nested_fields_roundtrip {
   let raw = json.decode("{\"aardvark\":17,\"config\":{\"jobs\":3,\"extra\":\"kept\"},\"cpus\":[{\"cpu\":2,\"online\":true,\"extra\":false}],\"tail\":{\"kept\":true}}")?
   let checked = raw.require(JsonRequireEnvelope)?
-  checked.cpus[0].cpu == 2
-  checked.cpus[0].online == true
-  checked.config.jobs == 3
-  (json.get(checked, ["tail", "kept"])?) == true
-  json.encode(checked)? == "{\"aardvark\":17,\"config\":{\"extra\":\"kept\",\"jobs\":3},\"cpus\":[{\"cpu\":2,\"extra\":false,\"online\":true}],\"tail\":{\"kept\":true}}"
+  assert checked.cpus[0].cpu == 2
+  assert checked.cpus[0].online == true
+  assert checked.config.jobs == 3
+  assert (json.get(checked, ["tail", "kept"])?) == true
+  assert json.encode(checked)? == "{\"aardvark\":17,\"config\":{\"extra\":\"kept\",\"jobs\":3},\"cpus\":[{\"cpu\":2,\"extra\":false,\"online\":true}],\"tail\":{\"kept\":true}}"
 }
 
 test test_json_require_checks_nested_named_record_fields {
   let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
-  valid.require(JsonNestedRows)?.cpus[0].online == true
+  assert valid.require(JsonNestedRows)?.cpus[0].online == true
   let wrong_type = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":\"yes\"}]}")?
   test.error_kind(wrong_type.require(JsonNestedRows), "schema")?
   let missing_field = json.decode("{\"cpus\":[{\"cpu\":0}]}")?
@@ -33,49 +33,49 @@ test test_float_arithmetic_and_json_record_boundary {
   adjusted += 0.25
   let metric = json.decode("{\"ratio\":1.5,\"samples\":[0.25,1.25]}")?.require(JsonFloatMetric)?
   let encoded = json.encode({ratio: metric.ratio, value: adjusted})?
-  ratio.format(precision: 2) == "2.50"
-  adjusted.floor()? == 2
-  encoded == "{\"ratio\":1.5,\"value\":2.75}"
+  assert ratio.format(precision: 2) == "2.50"
+  assert adjusted.floor()? == 2
+  assert encoded == "{\"ratio\":1.5,\"value\":2.75}"
 }
 
 test test_json_read_write_lines_and_paths { |ctx|
   let root = test.temp_dir(ctx, name: "json")?
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true}}")?
-  (json.get(value, ["name"])?) == ("pkg")
-  (json.get(value, ["missing"], "fallback")) == ("fallback")
+  assert (json.get(value, ["name"])?) == ("pkg")
+  assert (json.get(value, ["missing"], "fallback")) == ("fallback")
   let updated = json.set(value, ["meta", "status"], "ready")?
-  (json.get(updated, ["meta", "status"])?) == ("ready")
+  assert (json.get(updated, ["meta", "status"])?) == ("ready")
   let removed = json.remove(updated, ["items", 0])?
-  (json.get(removed, ["items", 0])?) == (2)
-  "\"status\"" in json.encode(updated, pretty: true)?
-  "{\"a\":1}" in json.encode_lines([{a: 1}, {a: 2}])?
+  assert (json.get(removed, ["items", 0])?) == (2)
+  assert "\"status\"" in json.encode(updated, pretty: true)?
+  assert "{\"a\":1}" in json.encode_lines([{a: 1}, {a: 2}])?
   let json_path = fp"${root}/data.json"
   json.write(json_path, updated, pretty: false)?
-  (json.read(json_path)?["name"]) == ("pkg")
+  assert (json.read(json_path)?["name"]) == ("pkg")
   let lines_path = fp"${root}/lines.jsonl"
   json.write_lines(lines_path, [{a: 1}, {a: 2}])?
-  lines_path.read_text()?.count_lines() == 2
+  assert lines_path.read_text()?.count_lines() == 2
   test.error_kind(json.decode("{"), "json")?
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
 }
 
 test test_json_decode_type_patterns_and_public_boundaries {
   let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
-  (decoded.quote) == ("\"")
+  assert (decoded.quote) == ("\"")
 
-  (decoded.line) == ("""a
+  assert (decoded.line) == ("""a
 b""")
 
-  (decoded.snow) == ("\u{2603}")
-  (decoded.music) == ("\u{1d11e}")
-  json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
+  assert (decoded.snow) == ("\u{2603}")
+  assert (decoded.music) == ("\u{1d11e}")
+  assert json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
   test.error_kind(json.decode("9223372036854775808"), "json")?
-  json_label(json.decode("1")?)? == "int 1.0"
-  json_label(json.decode("1.25")?)? == "float 1.25"
-  json_label(json.decode("\"x\"")?)? == "str x"
-  json_label(json.decode("null")?)? == "null"
-  json_label(json.decode("[1,2]")?)? == "int-list"
-  json_label(json.decode("[1,\"x\"]")?)? == "other"
+  assert json_label(json.decode("1")?)? == "int 1.0"
+  assert json_label(json.decode("1.25")?)? == "float 1.25"
+  assert json_label(json.decode("\"x\"")?)? == "str x"
+  assert json_label(json.decode("null")?)? == "null"
+  assert json_label(json.decode("[1,2]")?)? == "int-list"
+  assert json_label(json.decode("[1,\"x\"]")?)? == "other"
 
   let rows = """
 {"b":2}
@@ -84,9 +84,9 @@ b""")
 """ |> json.lines
 
   let encoded = json.encode({z: 1, a: 2, nested: {b: 1, a: 2}})?
-  (rows[0].b) == (2)
-  (rows[1].a) == (1)
-  encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
+  assert (rows[0].b) == (2)
+  assert (rows[1].a) == (1)
+  assert encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
   test.error_kind(json.decode("not json"), "json")?
   let data = {path: p"src"}
   let path_value: Any = data["path"]
@@ -123,11 +123,11 @@ let _encoded = json.encode(value) ?
     ["--trace", "--raw"],
   )?
 
-  output.status == 3
-  "kind=result.propagate" in output.stderr
-  "json-compatible" in output.stderr
-  "Path is not JSON-compatible" in output.stderr
-  "traceback" in output.stderr
+  assert output.status == 3
+  assert "kind=result.propagate" in output.stderr
+  assert "json-compatible" in output.stderr
+  assert "Path is not JSON-compatible" in output.stderr
+  assert "traceback" in output.stderr
 }
 
 # Reads the message out of a rejected `json.*` path entry.
@@ -174,56 +174,56 @@ test test_json_path_get_walks_records_and_lists {
 
   # An empty path reads the value itself: nothing is traversed, nothing is
   # copied.
-  (json.get(value, [])?) == (value)
+  assert (json.get(value, [])?) == (value)
 
   # A key step reads a field, an index step reads an element.
-  (json.get(value, ["name"])?) == ("pkg")
-  (json.get(value, ["meta", "ok"])?) == (true)
-  (json.get(value, ["items", 0])?) == (1)
-  (json.get(value, ["items", 1])?) == (2)
+  assert (json.get(value, ["name"])?) == ("pkg")
+  assert (json.get(value, ["meta", "ok"])?) == (true)
+  assert (json.get(value, ["items", 0])?) == (1)
+  assert (json.get(value, ["items", 1])?) == (2)
 
   # A mixed path descends through a record, a list, and a record.
-  (json.get(value, ["deep", "rows", 0, "cell"])?) == (7)
+  assert (json.get(value, ["deep", "rows", 0, "cell"])?) == (7)
 
   # A missing key is reported by the step that needed it.
-  rejection_message(json.get(value, ["absent"]))? == "missing object key `absent`"
-  rejection_message(json.get(value, ["absent", "deeper"]))? == "missing object key `absent`"
+  assert rejection_message(json.get(value, ["absent"]))? == "missing object key `absent`"
+  assert rejection_message(json.get(value, ["absent", "deeper"]))? == "missing object key `absent`"
 
   # A `null` member is a value, not an absence.
-  (json.get(value, ["nil"])?) == (null)
-  (json.get(value, ["nil"], "fallback")) == (null)
+  assert (json.get(value, ["nil"])?) == (null)
+  assert (json.get(value, ["nil"], "fallback")) == (null)
 
   # An out-of-range index is rejected; the last index is not.
-  rejection_message(json.get(value, ["items", 2]))? == "list index 2 out of bounds"
+  assert rejection_message(json.get(value, ["items", 2]))? == "list index 2 out of bounds"
 
   # The step decides which shape is required of the value it lands on.
-  rejection_message(json.get(value, ["name", "x"]))? == "expected object at key `x`, found Str"
-  rejection_message(json.get(value, ["name", 0]))? == "expected list at index 0, found Str"
-  rejection_message(json.get(value, ["items", "x"]))? == "expected object at key `x`, found List"
+  assert rejection_message(json.get(value, ["name", "x"]))? == "expected object at key `x`, found Str"
+  assert rejection_message(json.get(value, ["name", 0]))? == "expected list at index 0, found Str"
+  assert rejection_message(json.get(value, ["items", "x"]))? == "expected object at key `x`, found List"
 }
 
 test test_json_path_get_keeps_maps_and_passes_values_through {
   let empty: Map[Any] = {}
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("nil", null)
-  (json.get(tree, ["inner", "leaf"])?) == (0)
-  (json.get(tree, ["nil"])?) == (null)
-  rejection_message(json.get(tree, ["inner", "absent"]))? == "missing object key `absent`"
+  assert (json.get(tree, ["inner", "leaf"])?) == (0)
+  assert (json.get(tree, ["nil"])?) == (null)
+  assert rejection_message(json.get(tree, ["inner", "absent"]))? == "missing object key `absent`"
   expect_map("get over a Map keeps it a Map", json.get(tree, [])?)?
 
   # Values that are not JSON at all are ordinary members: the walk returns them
   # and never inspects or converts them.
   let holder: Any = {where: p"src", raw: b"raw", count: 1}
-  (json.get(holder, ["where"])?) == (p"src")
-  (json.get(holder, ["raw"])?) == (b"raw")
-  (json.get(holder, [])?) == (holder)
+  assert (json.get(holder, ["where"])?) == (p"src")
+  assert (json.get(holder, ["raw"])?) == (b"raw")
+  assert (json.get(holder, [])?) == (holder)
 
   # A path may cross a record, a list, and a map in one walk, and reading,
   # updating, and removing each keep the container they visited.
   let branch: Any = empty.set("cells", [1, 2])
   let mixed: Any = {rows: [branch]}
-  (json.get(mixed, ["rows", 0, "cells", 1])?) == (2)
-  (json.get(json.set(mixed, ["rows", 0, "cells", 1], 9)?, ["rows", 0, "cells", 1])?) == (9)
-  (json.get(json.remove(mixed, ["rows", 0, "cells", 0])?, ["rows", 0, "cells", 0])?) == (2)
+  assert (json.get(mixed, ["rows", 0, "cells", 1])?) == (2)
+  assert (json.get(json.set(mixed, ["rows", 0, "cells", 1], 9)?, ["rows", 0, "cells", 1])?) == (9)
+  assert (json.get(json.remove(mixed, ["rows", 0, "cells", 0])?, ["rows", 0, "cells", 0])?) == (2)
   expect_map("a mixed path keeps the Map", json.get(mixed, ["rows", 0])?)?
 }
 
@@ -231,22 +231,22 @@ test test_json_path_is_interpreted_before_traversal {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2]}")?
 
   # Indexes are positions, so a negative one is rejected outright.
-  rejection_message(json.get(value, [-1]))? == "path list indexes must be non-negative"
-  rejection_message(json.get(value, ["items", -1]))? == "path list indexes must be non-negative"
+  assert rejection_message(json.get(value, [-1]))? == "path list indexes must be non-negative"
+  assert rejection_message(json.get(value, ["items", -1]))? == "path list indexes must be non-negative"
 
   # Only keys and indexes are segments.
-  rejection_message(json.get(value, [1.5]))? == "path segments must be Str or Int, found Float"
-  rejection_message(json.get(value, [null]))? == "path segments must be Str or Int, found Null"
+  assert rejection_message(json.get(value, [1.5]))? == "path segments must be Str or Int, found Float"
+  assert rejection_message(json.get(value, [null]))? == "path segments must be Str or Int, found Null"
 
   # The whole path is interpreted before it is walked: `name` is a `Str`, so
   # traversal would fail at the second step, yet the invalid segment is what all
   # three entries report.
-  (json.get(value, ["name", "x"], "fallback")) == ("fallback")
-  rejection_message(json.get(value, ["name", 1.5]))? == "path segments must be Str or Int, found Float"
-  rejection_message(json.set(value, ["name", 1.5], 1))? == "path segments must be Str or Int, found Float"
-  rejection_message(json.remove(value, ["name", 1.5]))? == "path segments must be Str or Int, found Float"
-  rejection_message(json.set(value, [-1], 1))? == "path list indexes must be non-negative"
-  rejection_message(json.remove(value, [null]))? == "path segments must be Str or Int, found Null"
+  assert (json.get(value, ["name", "x"], "fallback")) == ("fallback")
+  assert rejection_message(json.get(value, ["name", 1.5]))? == "path segments must be Str or Int, found Float"
+  assert rejection_message(json.set(value, ["name", 1.5], 1))? == "path segments must be Str or Int, found Float"
+  assert rejection_message(json.remove(value, ["name", 1.5]))? == "path segments must be Str or Int, found Float"
+  assert rejection_message(json.set(value, [-1], 1))? == "path list indexes must be non-negative"
+  assert rejection_message(json.remove(value, [null]))? == "path segments must be Str or Int, found Null"
 
   # The rejections carry the `json-path` kind as well as the message.
   test.error_kind(json.get(value, [-1]), "json-path")?
@@ -258,37 +258,37 @@ test test_json_set_updates_the_named_position {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path replaces the value itself.
-  (json.set(value, [], "whole")?) == ("whole")
+  assert (json.set(value, [], "whole")?) == ("whole")
 
   # A leaf key is replaced in place, and a missing leaf key is added.
-  (json.get(json.set(value, ["nil"], 5)?, ["nil"])?) == (5)
-  (json.get(json.set(value, ["added"], 1)?, ["added"])?) == (1)
-  (json.get(json.set(value, ["meta", "ok"], false)?, ["meta", "ok"])?) == (false)
+  assert (json.get(json.set(value, ["nil"], 5)?, ["nil"])?) == (5)
+  assert (json.get(json.set(value, ["added"], 1)?, ["added"])?) == (1)
+  assert (json.get(json.set(value, ["meta", "ok"], false)?, ["meta", "ok"])?) == (false)
 
   # A list index is replaced in place; a list is neither grown nor shrunk.
-  (json.get(json.set(value, ["items", 0], 9)?, ["items", 0])?) == (9)
-  (json.get(json.set(value, ["items", 0], 9)?, ["items", 1])?) == (2)
-  rejection_message(json.set(value, ["items", 2], 9))? == "list index 2 out of bounds"
+  assert (json.get(json.set(value, ["items", 0], 9)?, ["items", 0])?) == (9)
+  assert (json.get(json.set(value, ["items", 0], 9)?, ["items", 1])?) == (2)
+  assert rejection_message(json.set(value, ["items", 2], 9))? == "list index 2 out of bounds"
 
   # A missing intermediate key cannot be created, whatever the next step is.
-  rejection_message(json.set(value, ["absent", "deep"], 1))? == "missing intermediate object key `absent`"
-  rejection_message(json.set(value, ["absent", 0], 1))? == "missing intermediate object key `absent`"
+  assert rejection_message(json.set(value, ["absent", "deep"], 1))? == "missing intermediate object key `absent`"
+  assert rejection_message(json.set(value, ["absent", 0], 1))? == "missing intermediate object key `absent`"
 
   # The step decides which shape is required of the value it lands on.
-  rejection_message(json.set(value, ["items", "x"], 1))? == "expected object at key `x`, found List"
-  rejection_message(json.set(value, ["name", 0], 1))? == "expected list at index 0, found Str"
+  assert rejection_message(json.set(value, ["items", "x"], 1))? == "expected object at key `x`, found List"
+  assert rejection_message(json.set(value, ["name", 0], 1))? == "expected list at index 0, found Str"
 
   # The result is the same kind of container, rebuilt once per changed field.
   expect_record("set keeps a Record", json.set(value, ["added"], 1)?)?
-  (json.get(json.set(value, ["added"], 1)?, ["name"])?) == ("pkg")
+  assert (json.get(json.set(value, ["added"], 1)?, ["name"])?) == ("pkg")
   expect_record("set keeps a nested Record", json.get(json.set(value, ["meta", "ok"], false)?, ["meta"])?)?
   let empty: Map[Any] = {}
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
   expect_map("set keeps a Map", json.set(tree, ["other"], 2)?)?
   expect_map("set adds to a Map", json.set(tree, ["fresh"], 3)?)?
   expect_map("set keeps a nested Map", (json.set(tree, ["inner", "leaf"], 5)?.require(Map[Any])?.get("inner") ?? null))?
-  (json.get(json.set(tree, ["inner", "leaf"], 5)?, ["inner", "leaf"])?) == (5)
-  (json.get(json.set(tree, ["inner", "leaf"], 5)?, ["other"])?) == (1)
+  assert (json.get(json.set(tree, ["inner", "leaf"], 5)?, ["inner", "leaf"])?) == (5)
+  assert (json.get(json.set(tree, ["inner", "leaf"], 5)?, ["other"])?) == (1)
 
   # The value and the replacement must both be JSON-encodable, checked before
   # anything is updated.
@@ -304,28 +304,28 @@ test test_json_remove_drops_the_named_position {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path removes nothing and answers `null`.
-  (json.remove(value, [])?) == (null)
+  assert (json.remove(value, [])?) == (null)
 
   # A leaf key is dropped, at any depth.
-  (json.get(json.remove(value, ["name"])?, ["name"], "gone")) == ("gone")
-  (json.get(json.remove(value, ["nil"])?, ["nil"], "gone")) == ("gone")
-  (json.get(json.remove(value, ["meta", "ok"])?, ["meta", "ok"], "gone")) == ("gone")
-  (json.get(json.remove(value, ["meta", "ok"])?, ["name"])?) == ("pkg")
+  assert (json.get(json.remove(value, ["name"])?, ["name"], "gone")) == ("gone")
+  assert (json.get(json.remove(value, ["nil"])?, ["nil"], "gone")) == ("gone")
+  assert (json.get(json.remove(value, ["meta", "ok"])?, ["meta", "ok"], "gone")) == ("gone")
+  assert (json.get(json.remove(value, ["meta", "ok"])?, ["name"])?) == ("pkg")
 
   # A list element is dropped and the list shifts left.
-  (json.get(json.remove(value, ["items", 0])?, ["items", 0])?) == (2)
-  rejection_message(json.remove(value, ["items", 2]))? == "list index 2 out of bounds"
+  assert (json.get(json.remove(value, ["items", 0])?, ["items", 0])?) == (2)
+  assert rejection_message(json.remove(value, ["items", 2]))? == "list index 2 out of bounds"
 
   # A missing leaf key and a missing intermediate key are distinct, and removal
   # never creates one.
-  rejection_message(json.remove(value, ["absent"]))? == "missing object key `absent`"
-  rejection_message(json.remove(value, ["absent", "deep"]))? == "missing intermediate object key `absent`"
-  rejection_message(json.remove(value, ["meta", "absent"]))? == "missing object key `absent`"
-  rejection_message(json.remove(value, ["absent", 0]))? == "missing intermediate object key `absent`"
+  assert rejection_message(json.remove(value, ["absent"]))? == "missing object key `absent`"
+  assert rejection_message(json.remove(value, ["absent", "deep"]))? == "missing intermediate object key `absent`"
+  assert rejection_message(json.remove(value, ["meta", "absent"]))? == "missing object key `absent`"
+  assert rejection_message(json.remove(value, ["absent", 0]))? == "missing intermediate object key `absent`"
 
   # The step decides which shape is required of the value it lands on.
-  rejection_message(json.remove(value, ["name", 0]))? == "expected list at index 0, found Str"
-  rejection_message(json.remove(value, ["items", "x"]))? == "expected object at key `x`, found List"
+  assert rejection_message(json.remove(value, ["name", 0]))? == "expected list at index 0, found Str"
+  assert rejection_message(json.remove(value, ["items", "x"]))? == "expected object at key `x`, found List"
 
   # The result is the same kind of container.
   expect_record("remove keeps a Record", json.remove(value, ["name"])?)?
@@ -337,56 +337,56 @@ test test_json_remove_drops_the_named_position {
   # calling Map methods; nested values remain dynamic until checked separately.
   let pruned = json.remove(tree, ["inner", "leaf"])?.require(Map[Any])?
   expect_map("remove keeps a nested Map", (pruned.get("inner") ?? null))?
-  "leaf" not in (pruned.get("inner") ?? null).require(Map[Any])?
-  (json.get(pruned, ["inner", "leaf"], "gone")) == ("gone")
+  assert "leaf" not in (pruned.get("inner") ?? null).require(Map[Any])?
+  assert (json.get(pruned, ["inner", "leaf"], "gone")) == ("gone")
 
   # Members the JSON codec would reject are ordinary values: they survive a
   # removal that does not name them.
   let holder: Any = {where: p"src", raw: b"raw", count: 1}
   let kept = json.remove(holder, ["count"])?
-  (json.get(kept, ["where"])?) == (p"src")
-  (json.get(kept, ["raw"])?) == (b"raw")
+  assert (json.get(kept, ["where"])?) == (p"src")
+  assert (json.get(kept, ["raw"])?) == (b"raw")
 }
 
 test test_json_get_overloads_and_encoded_lines {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"nil\":null}")?
 
   # The two-argument overload answers with the read or with the rejection.
-  (json.get(value, ["name"])?) == ("pkg")
-  rejection_message(json.get(value, ["absent"]))? == "missing object key `absent`"
-  rejection_message(json.get(value, ["items", 2]))? == "list index 2 out of bounds"
+  assert (json.get(value, ["name"])?) == ("pkg")
+  assert rejection_message(json.get(value, ["absent"]))? == "missing object key `absent`"
+  assert rejection_message(json.get(value, ["items", 2]))? == "list index 2 out of bounds"
 
   # The three-argument overload answers with the fallback whenever the path is
   # rejected, whatever the step was.
-  (json.get(value, ["absent"], "fallback")) == ("fallback")
-  (json.get(value, ["absent", "deep"], "fallback")) == ("fallback")
-  (json.get(value, ["items", 2], "fallback")) == ("fallback")
-  (json.get(value, ["items", "x"], "fallback")) == ("fallback")
-  (json.get(value, [-1], "fallback")) == ("fallback")
-  (json.get(value, [1.5], "fallback")) == ("fallback")
-  (json.get(value, [], "fallback")) == (value)
-  (json.get(value, ["name"], "fallback")) == ("pkg")
-  (json.get(value, ["nil"], "fallback")) == (null)
+  assert (json.get(value, ["absent"], "fallback")) == ("fallback")
+  assert (json.get(value, ["absent", "deep"], "fallback")) == ("fallback")
+  assert (json.get(value, ["items", 2], "fallback")) == ("fallback")
+  assert (json.get(value, ["items", "x"], "fallback")) == ("fallback")
+  assert (json.get(value, [-1], "fallback")) == ("fallback")
+  assert (json.get(value, [1.5], "fallback")) == ("fallback")
+  assert (json.get(value, [], "fallback")) == (value)
+  assert (json.get(value, ["name"], "fallback")) == ("pkg")
+  assert (json.get(value, ["nil"], "fallback")) == (null)
 
   # Every item is encoded compactly and each is followed by a newline.
-  json.encode_lines([])? == ""
-  json.encode_lines([1])? == """1
+  assert json.encode_lines([])? == ""
+  assert json.encode_lines([1])? == """1
 """
-  json.encode_lines([1, "two", null, true])? == """1
+  assert json.encode_lines([1, "two", null, true])? == """1
 "two"
 null
 true
 """
-  json.encode_lines(["a\"b"])? == """"a\\"b"
+  assert json.encode_lines(["a\"b"])? == """"a\\"b"
 """
-  json.encode_lines(
+  assert json.encode_lines(
   [
   """a
 b""",
 ],
 )? == """"a\\nb"
 """
-  json.encode_lines([value, value])? == """{"items":[1,2],"name":"pkg","nil":null}
+  assert json.encode_lines([value, value])? == """{"items":[1,2],"name":"pkg","nil":null}
 {"items":[1,2],"name":"pkg","nil":null}
 """
 
@@ -410,9 +410,9 @@ let _read = json.get(value, where) ?
 """,
     ["--trace", "--raw"],
   )?
-  read.status == 2
-  "check.dynamic-boundary" in read.stderr
-  "List[Any]" in read.stderr
+  assert read.status == 2
+  assert "check.dynamic-boundary" in read.stderr
+  assert "List[Any]" in read.stderr
 
   # A fallback value does not validate an unchecked path argument.
   let with_fallback = test.run_xsht_trace(
@@ -424,9 +424,9 @@ let _read = json.get(value, where, "fallback") ?
 """,
     ["--trace", "--raw"],
   )?
-  with_fallback.status == 2
-  "check.dynamic-boundary" in with_fallback.stderr
-  "List[Any]" in with_fallback.stderr
+  assert with_fallback.status == 2
+  assert "check.dynamic-boundary" in with_fallback.stderr
+  assert "List[Any]" in with_fallback.stderr
 
   # An item that cannot be encoded fails the whole composition, and the failure
   # is reported before any output exists.
@@ -439,10 +439,10 @@ let _lines = json.encode_lines(items) ?
 """,
     ["--trace", "--raw"],
   )?
-  lines.status == 3
-  lines.stdout == ""
-  "json-compatible" in lines.stderr
-  "Path is not JSON-compatible" in lines.stderr
+  assert lines.status == 3
+  assert lines.stdout == ""
+  assert "json-compatible" in lines.stderr
+  assert "Path is not JSON-compatible" in lines.stderr
 }
 
 test test_json_lines_result_retains_list_type_in_record_fields { |ctx|
@@ -457,11 +457,11 @@ print f"${summary.events}:${summary.complete}"
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("2:true\n")
+  assert (output.stdout) == ("2:true\n")
 }
 
 test test_json_set_keeps_path_segments_and_runtime_validation {
   let input = {rows: [{name: "first"}]}
-  json.encode(json.set(input, ["rows", 0, "name"], "second")?)? == "{\"rows\":[{\"name\":\"second\"}]}"
+  assert json.encode(json.set(input, ["rows", 0, "name"], "second")?)? == "{\"rows\":[{\"name\":\"second\"}]}"
   test.error_kind(json.set(input, ["rows", 1.5], "second"), "json-path")?
 }

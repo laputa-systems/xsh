@@ -20,7 +20,7 @@ match rejected {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("row\nfinal\ncaptured\n")
+  assert (output.stdout) == ("row\nfinal\ncaptured\n")
 }
 
 test test_accept_stream_decode_failure_is_a_checked_process_error { |ctx|
@@ -38,7 +38,7 @@ match rejected {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("captured decode\n")
+  assert (output.stdout) == ("captured decode\n")
 }
 
 test test_accept_malformed_stream_option_stays_outside_checked_capture { |ctx|
@@ -53,7 +53,7 @@ let rejected = try {
 }
 print "captured"
 """)?
-  (!output.success)
-  (output.stdout) == ("option evaluated\n")
-  ("accept-policy" in output.stderr)
+  assert (!output.success)
+  assert (output.stdout) == ("option evaluated\n")
+  assert ("accept-policy" in output.stderr)
 }

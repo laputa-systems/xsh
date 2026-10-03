@@ -2,14 +2,14 @@ type RequirementManifest = {name: Str, jobs: UInt}
 type RequirementEnvelope = {manifest: RequirementManifest}
 
 test test_require_tail_propagation_consumes_success_unit {
-  1 == 1
+  assert 1 == 1
 }
 
 test test_require_infers_target_from_annotated_binding {
   let raw: Any = {name: "ready", jobs: 4}
   let manifest: RequirementManifest = raw.require()?
-  manifest.name == "ready"
-  manifest.jobs == 4
+  assert manifest.name == "ready"
+  assert manifest.jobs == 4
 }
 
 proc require_manifest(raw: Any) [error] -> Result[RequirementManifest] {
@@ -29,27 +29,27 @@ pure require_manifest_name(manifest: RequirementManifest) -> Str { manifest.name
 
 test test_require_uses_returns_branches_blocks_and_parameters {
   let raw: Any = {name: "ready", jobs: 4}
-  require_manifest(raw)?.name == "ready"
-  require_manifest_return(raw)?.name == "ready"
-  require_manifest_branch(raw, true)?.jobs == 4
+  assert require_manifest(raw)?.name == "ready"
+  assert require_manifest_return(raw)?.name == "ready"
+  assert require_manifest_branch(raw, true)?.jobs == 4
   let block: RequirementManifest = { raw.require()? }
-  block.name == "ready"
-  require_manifest_name(raw.require()?) == "ready"
-  require_manifest_name(...{manifest: raw.require()?}) == "ready"
+  assert block.name == "ready"
+  assert require_manifest_name(raw.require()?) == "ready"
+  assert require_manifest_name(...{manifest: raw.require()?}) == "ready"
   let constructed = RequirementEnvelope(manifest: raw.require()?)
   let spread_constructed = RequirementEnvelope(...{manifest: raw.require()?})
-  constructed.manifest.name == spread_constructed.manifest.name
+  assert constructed.manifest.name == spread_constructed.manifest.name
   let wrapped: Result[RequirementManifest] = Ok(raw.require()?)
-  wrapped?.jobs == 4
+  assert wrapped?.jobs == 4
 }
 
 test test_require_keeps_validation_and_unsigned_conversion {
   let invalid: Any = {name: "ready", jobs: -1}
   let rejected: Result[RequirementManifest] = invalid.require()
-  rejected is Err(_)
+  assert rejected is Err(_)
   let text: Any = "not a record"
   let also_rejected: Result[RequirementManifest] = text.require()
-  also_rejected is Err(_)
+  assert also_rejected is Err(_)
 }
 
 test test_require_rejects_unanchored_targets { |ctx|
@@ -66,7 +66,7 @@ test test_require_rejects_unanchored_targets { |ctx|
     let failed = ! rejected.success
     let failure_details = rejected.stderr
     assert failed, failure_details
-    "check.require-target" in rejected.stderr
+    assert "check.require-target" in rejected.stderr
   }
 }
 
@@ -83,34 +83,34 @@ print (mapping.get("item")? == Ready)
 """)?
   let {success: succeeded, stderr: failure_details, ..} = executed
   assert succeeded, failure_details
-  executed.stdout == "true\ntrue\ntrue\n"
+  assert executed.stdout == "true\ntrue\ntrue\n"
 }
 
 test test_require_evaluates_receiver_once_and_matches_explicit_failure {
   var calls = 0
   let input: Any = {name: "ready", jobs: 4}
   let manifest: RequirementManifest = (if true { calls += 1; input } else { input }).require()?
-  calls == 1
-  manifest.jobs == 4
+  assert calls == 1
+  assert manifest.jobs == 4
   let invalid: Any = {name: "ready", jobs: -1}
   let inferred: Result[RequirementManifest] = invalid.require()
   let explicit = invalid.require(RequirementManifest)
   if let [Err(left), Err(right)] = [inferred, explicit] {
-    left.message == right.message
+    assert left.message == right.message
   } else {
-    false
+    assert false
   }
 }
 
 test test_require_preserves_each_result_layer {
   let raw: Any = Ok(7)
   let inner: Result[Int] = raw.require()?
-  inner? == 7
+  assert inner? == 7
   let nested: Result[Result[Int]] = raw.require()
-  (nested?)? == 7
+  assert (nested?)? == 7
   let source: Result[Any] = Ok({name: "ready", jobs: 4})
   let manifest: Result[RequirementManifest] = source?.require()
-  manifest?.name == "ready"
+  assert manifest?.name == "ready"
 }
 
 test test_require_keeps_actual_error_contract_and_rejects_future_evidence { |ctx|
@@ -123,6 +123,6 @@ test test_require_keeps_actual_error_contract_and_rejects_future_evidence { |ctx
     let failed = ! rejected.success
     let failure_details = rejected.stderr
     assert failed, failure_details
-    "check." in rejected.stderr
+    assert "check." in rejected.stderr
   }
 }

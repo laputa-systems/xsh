@@ -26,13 +26,13 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   )?
 
   let plugin = module.load(plugin_path)?.require(Plugin)?
-  plugin.name == "demo"
-  "description" in plugin.keys()
-  "missing" not in plugin.keys()
-  ("name" in plugin.keys())
-  plugin.keys().len() == 3
+  assert plugin.name == "demo"
+  assert "description" in plugin.keys()
+  assert "missing" not in plugin.keys()
+  assert ("name" in plugin.keys())
+  assert plugin.keys().len() == 3
   plugin.execute(root)?
-  fp"${root}/out.txt".read_text()? == "demo"
+  assert fp"${root}/out.txt".read_text()? == "demo"
 }
 
 test test_module_load_exports_private_fields_and_contract_errors { |ctx|
@@ -98,7 +98,7 @@ checked.build("built")?
     let {success: assertion_condition, stderr: assertion_message, ..} = success
     assert assertion_condition, assertion_message
   }
-  success.stdout == """demo-demo
+  assert success.stdout == """demo-demo
 demo-built
 """
 
@@ -110,9 +110,9 @@ let value = loaded.prefix
     [],
     module_env,
   )?
-  private.status == 3
-  "missing-field" in private.stderr
-  "prefix" in private.stderr
+  assert private.status == 3
+  assert "missing-field" in private.stderr
+  assert "prefix" in private.stderr
 
   let mismatch = test.run_script(
     ctx,
@@ -150,8 +150,8 @@ test test_module_load_rejects_undocumented_export { |ctx|
 """,
   )?
 
-  ! output.success
-  "undocumented exports" in output.stderr
+  assert ! output.success
+  assert "undocumented exports" in output.stderr
 }
 
 test test_module_load_rejects_forbidden_top_level_forms { |ctx|
@@ -179,10 +179,10 @@ export let name = "bad"
       f"""let _ = module.load(p"${module_path.display()}")?
 """,
     )?
-    output.status == 3
-    "module-check" in output.stderr
-    "check.module-top-level" in output.stderr
-    module_path.name() in output.stderr
+    assert output.status == 3
+    assert "module-check" in output.stderr
+    assert "check.module-top-level" in output.stderr
+    assert module_path.name() in output.stderr
   }
 
   let hook = fp"${root}/signal-hook.xsh"
@@ -197,10 +197,10 @@ export let name = "bad"
     f"""let _ = module.load(p"${hook.display()}")?
 """,
   )?
-  output.status == 3
-  "module-check" in output.stderr
-  "check.signal-hook-module" in output.stderr
-  hook.name() in output.stderr
+  assert output.status == 3
+  assert "module-check" in output.stderr
+  assert "check.signal-hook-module" in output.stderr
+  assert hook.name() in output.stderr
 }
 
 test test_static_and_loaded_modules_reject_the_same_contract_mismatches { |ctx|
@@ -289,7 +289,7 @@ main()?
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  fp"${root}/out.txt".read_text()? == "static"
+  assert fp"${root}/out.txt".read_text()? == "static"
 }
 
 test test_same_basename_modules_keep_separate_top_level_bindings { |ctx|
@@ -338,7 +338,7 @@ print ${beta.count_words()}
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  result.stdout == """5
+  assert result.stdout == """5
 3
 """
 }
@@ -367,7 +367,7 @@ print ${selector.select(["unknown"]).len()}
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  result.stdout == """1
+  assert result.stdout == """1
 """
 }
 
@@ -403,7 +403,7 @@ match dynamic {
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("failed 7 12\ntemporary\n")
+  assert (result.stdout) == ("failed 7 12\ntemporary\n")
   let aliased = test.run_script(ctx, r"""
 use helper as h
 let failure = h.HelperError.Failed(detail: "aliased", code: 8)
@@ -416,7 +416,7 @@ match failure {
     let {success: assertion_condition, stderr: assertion_message, ..} = aliased
     assert assertion_condition, assertion_message
   }
-  (aliased.stdout) == ("aliased 8\n")
+  assert (aliased.stdout) == ("aliased 8\n")
   let loaded = test.run_script(ctx, f"""
 type FailureProvider = module {
   export pure failure() -> Result[Unit]
@@ -428,7 +428,7 @@ print \${provider.failure() is Err(_)}
     let {success: assertion_condition, stderr: assertion_message, ..} = loaded
     assert assertion_condition, assertion_message
   }
-  (loaded.stdout) == ("true\n")
+  assert (loaded.stdout) == ("true\n")
 }
 
 test test_static_module_exports_bind_one_namespace { |ctx|
@@ -607,7 +607,7 @@ shower.call(pkg)?
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  output.stdout == """pkg:demo
+  assert output.stdout == """pkg:demo
 pkg:demo
 """
 }
@@ -657,7 +657,7 @@ l.normalize(context)?
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  output.stdout == """workspace x86_64-unknown-linux-musl crt-static
+  assert output.stdout == """workspace x86_64-unknown-linux-musl crt-static
 """
 }
 
@@ -702,7 +702,7 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  out.read_text()? == src.display()
+  assert out.read_text()? == src.display()
 }
 
 test test_module_path_resolves_nested_module_with_default_alias { |ctx|
@@ -731,9 +731,9 @@ print ${configure.label("pkgconf")}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  output.stdout == """configured pkgconf
+  assert output.stdout == """configured pkgconf
 """
-  output.stderr == ""
+  assert output.stderr == ""
 }
 
 test test_module_import_alias_trace_and_cycle { |ctx|
@@ -788,21 +788,21 @@ match p.get(\"Package\") {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  output.stdout == """hi world
+  assert output.stdout == """hi world
 hi namespace
 hi demo
 demo
 missing-field
 """
-  output.stderr == ""
+  assert output.stderr == ""
 
   let traced = test.run_xsht_trace(ctx, source, ["--raw"], [], module_env)?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = traced
     assert assertion_condition, assertion_message
   }
-  "kind=pure.enter" in traced.stderr
-  "greet" in traced.stderr
+  assert "kind=pure.enter" in traced.stderr
+  assert "greet" in traced.stderr
 
   fp"${root}/a.xsh".write("""##! Cycle fixture A.
 ## Public cycle value.
@@ -821,8 +821,8 @@ export let value = 2
     [],
     module_env,
   )?
-  cycle.status == 2
-  "parse.module-cycle" in cycle.stderr
+  assert cycle.status == 2
+  assert "parse.module-cycle" in cycle.stderr
 }
 
 test test_package_hook_module_calls_keep_dynamic_and_static_cwd { |ctx|
@@ -861,7 +861,7 @@ pkg.build(p"${dynamic_out.display()}")?
     let {success: assertion_condition, stderr: assertion_message, ..} = dynamic
     assert assertion_condition, assertion_message
   }
-  fp"${dynamic_out}/ok".read_text()? == f"""demo:${fs.cwd()?.name()}
+  assert fp"${dynamic_out}/ok".read_text()? == f"""demo:${fs.cwd()?.name()}
 """
 
   let static_output = test.run_script(
@@ -884,7 +884,7 @@ main(@args)?
     let {success: assertion_condition, stderr: assertion_message, ..} = static_output
     assert assertion_condition, assertion_message
   }
-  fp"${static_out}/ok".read_text()? == """demo:static-src
+  assert fp"${static_out}/ok".read_text()? == """demo:static-src
 """
 }
 

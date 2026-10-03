@@ -7,8 +7,8 @@ pure show_run_row(row: RunRow, prefix: Str) -> Str {
 test test_command_proc_args_resolve_bare_value_references {
   let rows = [{name: "alpha"}]
   let prefix = "item"
-  show_run_row(rows[0], prefix) == "item alpha"
-  show_run_row(rows[0], "prefix") == "prefix alpha"
+  assert show_run_row(rows[0], prefix) == "item alpha"
+  assert show_run_row(rows[0], "prefix") == "prefix alpha"
 }
 
 test test_mutable_string_accumulator_uses_string_addition_in_loop { |ctx|
@@ -27,9 +27,9 @@ test test_mutable_string_accumulator_uses_string_addition_in_loop { |ctx|
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  output.stdout == """abc
+  assert output.stdout == """abc
 """
-  output.stderr == ""
+  assert output.stderr == ""
 }
 
 test test_reassigning_let_names_mutable_binding { |ctx|
@@ -39,9 +39,9 @@ test test_reassigning_let_names_mutable_binding { |ctx|
 x = 2
 """,
   )?
-  output.status == 2
-  "check.assign-let" in output.stderr
-  "declare with `var`" in output.stderr
+  assert output.status == 2
+  assert "check.assign-let" in output.stderr
+  assert "declare with `var`" in output.stderr
 }
 
 test test_checker_errors_prevent_execution { |ctx|
@@ -52,9 +52,9 @@ let value = "abc"
 print $value.length()
 """,
   )?
-  output.status == 2
-  output.stdout == ""
-  "check.unknown-method" in output.stderr
+  assert output.status == 2
+  assert output.stdout == ""
+  assert "check.unknown-method" in output.stderr
 }
 
 test test_runtime_unknown_method_names_receiver_and_candidate { |ctx|
@@ -64,13 +64,13 @@ test test_runtime_unknown_method_names_receiver_and_candidate { |ctx|
 print $value.length()
 """,
   )?
-  output.status == 3
-  "unknown method `length` on Str" in output.stderr
-  "count_chars" in output.stderr
+  assert output.status == 3
+  assert "unknown method `length` on Str" in output.stderr
+  assert "count_chars" in output.stderr
 }
 
 test test_grouped_multiline_run_invocation_executes {
-  (run.text (
+  assert (run.text (
       printf
       "%s %s\n"
       "grouped"
@@ -90,13 +90,13 @@ test test_run_status_can_drive_conditions {
     seen += ["ok"]
   }
 
-  seen == ["missing", "ok"]
+  assert seen == ["missing", "ok"]
 }
 
 test test_path_absolute_uses_current_runtime_cwd_without_existing_path {
   let cwd = fs.cwd()?
   let p = path.absolute(p"target/../target/lang-absolute-demo")?
-  p == fp"${cwd}/target/lang-absolute-demo"
+  assert p == fp"${cwd}/target/lang-absolute-demo"
 }
 
 test test_boolean_operators_short_circuit {
@@ -115,7 +115,7 @@ test test_boolean_operators_short_circuit {
     seen += ["ok-and"]
   }
 
-  seen == ["ok-or", "ok-and"]
+  assert seen == ["ok-or", "ok-and"]
 }
 
 test test_result_unit_statements_propagate_by_default {
@@ -128,12 +128,12 @@ test test_script_stdout_can_emit_invalid_utf8_bytes {
 
 test test_run_capture_record_captures_status_stdout_and_stderr {
   let text_capture = run.capture --text sh -c "printf out; printf err >&2; exit 7" ?
-  text_capture.status.exited_with(7)
-  text_capture.stdout == "out"
-  text_capture.stderr == "err"
+  assert text_capture.status.exited_with(7)
+  assert text_capture.stdout == "out"
+  assert text_capture.stderr == "err"
   let byte_capture = run.capture --bytes sh -c "head -c 1 /dev/zero >&2; printf ok" ?
-  byte_capture.stdout.len() == 2
-  byte_capture.stderr.len() == 1
+  assert byte_capture.stdout.len() == 2
+  assert byte_capture.stderr.len() == 1
 }
 
 test test_run_text_captures_stdout_and_inherits_stderr { |ctx|
@@ -145,20 +145,20 @@ print ${out}
 """,
   )?
 
-  output.stdout == """out
+  assert output.stdout == """out
 """
 
-  output.stderr == "err"
+  assert output.stderr == "err"
 }
 
 test test_run_forms_preserve_status_text_and_capture {
   let status = run.status false
-  status.exited_with(1)
+  assert status.exited_with(1)
   let text = run.text echo hello ?
-  text.trim() == "hello"
+  assert text.trim() == "hello"
   let capture = run.capture --text printf "out" ?
-  capture.status.ok
-  capture.stdout == "out"
+  assert capture.status.ok
+  assert capture.stdout == "out"
 }
 
 test test_dynamic_module_proc_preserves_bareword_run_arguments { |ctx|
@@ -199,7 +199,7 @@ build_fn.call()?
     "--format json",
     "apples",
   ] {
-    expected in output.stdout
+    assert expected in output.stdout
   }
 }
 
@@ -218,8 +218,8 @@ fs read
 """,
   )?
 
-  output.status == 2
-  "check.unresolved-proc-command" in output.stderr
+  assert output.status == 2
+  assert "check.unresolved-proc-command" in output.stderr
 }
 
 test test_call_splices_preserve_shared_and_constant_lists { |ctx|
@@ -242,7 +242,7 @@ print $order
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("left right\nconstant backing\nleft right\nconstant backing\nfirst second\n12\n")
+  assert (result.stdout) == ("left right\nconstant backing\nleft right\nconstant backing\nfirst second\n12\n")
 }
 
 test test_nul_run_targets_proc_splice_and_match_diagnostics { |ctx|
@@ -258,8 +258,8 @@ main(args)?
 """,
   )?
 
-  nul_target.status == 3
-  "nul" in nul_target.stderr
+  assert nul_target.status == 3
+  assert "nul" in nul_target.stderr
 
   let nul_path = test.run_script(
     ctx,
@@ -267,8 +267,8 @@ main(args)?
 """,
   )?
 
-  nul_path.status == 3
-  "nul" in nul_path.stderr
+  assert nul_path.status == 3
+  assert "nul" in nul_path.stderr
 
   let nul_argv = test.run_script(
     ctx,
@@ -276,8 +276,8 @@ main(args)?
 """,
   )?
 
-  nul_argv.status == 3
-  "nul" in nul_argv.stderr
+  assert nul_argv.status == 3
+  assert "nul" in nul_argv.stderr
 
   let spliced = test.run_script(
     ctx,
@@ -296,7 +296,7 @@ pair(@parts)?
     assert assertion_condition, assertion_message
   }
 
-  spliced.stdout == """left right
+  assert spliced.stdout == """left right
 """
 
   let no_arm = test.run_script(
@@ -308,8 +308,8 @@ match value {
 """,
   )?
 
-  no_arm.status == 3
-  "match did not match any arm" in no_arm.stderr
+  assert no_arm.status == 3
+  assert "match did not match any arm" in no_arm.stderr
 }
 
 test test_legacy_test_and_getopt_spellings_are_not_command_aliases { |ctx|
@@ -367,13 +367,13 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_byte_pipeline_executes_without_shell_and_redirects_stdout { |ctx|
   let out = test.temp_path(ctx)
   run printf "%s\n" "hello" | run tr a-z A-Z > $out ?
-  (out.read_bytes()?) == b"HELLO\n"
+  assert (out.read_bytes()?) == b"HELLO\n"
 }
 
 test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
@@ -389,16 +389,16 @@ test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
     run tar cf - src | run gzip -9 > $tarball ?
   } ?
 
-  (tarball.metadata()?.size > 0)
+  assert (tarball.metadata()?.size > 0)
 }
 
 test test_plain_run_updates_last_status_and_direct_binding {
   run.status false
   let last = $?
-  last.exited_with(1)
+  assert last.exited_with(1)
   let bound = run sh -c "exit 7"
-  (bound.segments[0].code == 7)
-  bound.ok == false
+  assert (bound.segments[0].code == 7)
+  assert bound.ok == false
 }
 
 test test_redirection_paths_and_fd_duplication_use_typed_boundaries { |ctx|
@@ -417,36 +417,36 @@ name"""
   run sh -c "printf err >&2" 2> $errlog ?
   run sh -c "printf more >&2" 2>> $errlog ?
   run true <& 0 ?
-  (spaced.read_bytes()?) == b"ab"
-  (lined.read_bytes()?) == b"ab"
-  (dashed.read_bytes()?) == b"ab"
-  (errlog.read_bytes()?) == b"errmore"
+  assert (spaced.read_bytes()?) == b"ab"
+  assert (lined.read_bytes()?) == b"ab"
+  assert (dashed.read_bytes()?) == b"ab"
+  assert (errlog.read_bytes()?) == b"errmore"
 }
 
 test test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments { |ctx|
   env PATH="/bin:/usr/bin" {
     let status = run xsh-definitely-missing-command | run true
-    (status.segments[0].kind) == ("exec")
-    (status.segments[0].error_kind) == ("not-found")
+    assert (status.segments[0].kind) == ("exec")
+    assert (status.segments[0].error_kind) == ("not-found")
   }
 
   let sink = test.temp_path(ctx)
   let broken = run yes | run head -n 1 > $sink
-  (broken.segments[0].kind == "signal")
+  assert (broken.segments[0].kind == "signal")
 
-  (sink.read_text()?) == """y
+  assert (sink.read_text()?) == """y
 """
 }
 
 test test_signaled_status_exposes_total_signal_helpers {
   let status = run sh -c "kill -TERM $$"
-  status.signaled()
-  (status.signal_number()? > 0)
+  assert status.signaled()
+  assert (status.signal_number()? > 0)
 }
 
 test test_large_stdout_capture_drains_and_limit_is_error {
   let out = run.bytes head -c 131072 /dev/zero ?
-  out.len() == 131072
+  assert out.len() == 131072
   let too_large = run.bytes head -c 16777217 /dev/zero
   test.error_kind(too_large, "capture-limit")?
 }
@@ -468,9 +468,9 @@ main(@args)
 """,
   )?
 
-  int_status.status == 7
-  int_status.stdout == ""
-  int_status.stderr == ""
+  assert int_status.status == 7
+  assert int_status.stdout == ""
+  assert int_status.stderr == ""
 
   let abort_with_defers = test.run_script(
     ctx,
@@ -494,11 +494,11 @@ main()?
     assert assertion_actual == assertion_expected, assertion_message
   }
 
-  abort_with_defers.stdout == """proc
+  assert abort_with_defers.stdout == """proc
 top
 """
 
-  abort_with_defers.stderr == ""
+  assert abort_with_defers.stderr == ""
 
   let forced = test.run_script(
     ctx,
@@ -515,9 +515,9 @@ main()?
 """,
   )?
 
-  forced.status == 11
-  forced.stdout == ""
-  forced.stderr == ""
+  assert forced.status == 11
+  assert forced.stdout == ""
+  assert forced.stderr == ""
 
   let quiet_validation_failure = test.run_script(
     ctx,
@@ -528,10 +528,10 @@ print "unreachable"
 """,
   )?
 
-  quiet_validation_failure.status == 17
-  quiet_validation_failure.stdout == """escape
+  assert quiet_validation_failure.status == 17
+  assert quiet_validation_failure.stdout == """escape
 """
-  quiet_validation_failure.stderr == ""
+  assert quiet_validation_failure.stderr == ""
 }
 
 test test_whole_script_cli_usage_and_auto_main_errors { |ctx|
@@ -560,15 +560,15 @@ print \${opts.paths.len()}
     let {success: assertion_condition, stderr: assertion_message, ..} = help
     assert assertion_condition, assertion_message
   }
-  help.stderr == ""
-  "usage: " in help.stdout
-  "cli-help" in help.stdout
-  "usage: command " not in help.stdout
-  "[...PATH] [OPTIONS]" in help.stdout
-  "-v, --verbose" in help.stdout
-  "-h, --help" in help.stdout
+  assert help.stderr == ""
+  assert "usage: " in help.stdout
+  assert "cli-help" in help.stdout
+  assert "usage: command " not in help.stdout
+  assert "[...PATH] [OPTIONS]" in help.stdout
+  assert "-v, --verbose" in help.stdout
+  assert "-h, --help" in help.stdout
 
-  """
+  assert """
 0
 """ not in help.stdout
 
@@ -581,11 +581,11 @@ print \${opts.path}
 """,
   )?
 
-  usage_error.status == 2
-  usage_error.stdout == ""
-  "missing required argument PATH" in usage_error.stderr
-  "usage:" in usage_error.stderr
-  "traceback" not in usage_error.stderr
+  assert usage_error.status == 2
+  assert usage_error.stdout == ""
+  assert "missing required argument PATH" in usage_error.stderr
+  assert "usage:" in usage_error.stderr
+  assert "traceback" not in usage_error.stderr
 
   let auto_main = test.run_script(
     ctx,
@@ -598,9 +598,9 @@ proc main(...argv: List[Str]) [error] {
 """,
   )?
 
-  auto_main.status == 3
-  "usage" in auto_main.stderr
-  "bad args" in auto_main.stderr
+  assert auto_main.status == 3
+  assert "usage" in auto_main.stderr
+  assert "bad args" in auto_main.stderr
 }
 
 test test_explicit_zero_arg_main_runs_once { |ctx|
@@ -616,9 +616,9 @@ main()?
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  output.stdout == """5
+  assert output.stdout == """5
 """
-  output.stderr == ""
+  assert output.stderr == ""
 }
 
 test test_whole_script_run_error_diagnostics { |ctx|
@@ -628,10 +628,10 @@ test test_whole_script_run_error_diagnostics { |ctx|
 """,
   )?
 
-  details.status == 3
-  "nonzero-exit" in details.stderr
-  "cwd: " in details.stderr
-  "argv: false 'two words'" in details.stderr
+  assert details.status == 3
+  assert "nonzero-exit" in details.stderr
+  assert "cwd: " in details.stderr
+  assert "argv: false 'two words'" in details.stderr
 
   let missing = test.run_script(
     ctx,
@@ -641,9 +641,9 @@ test test_whole_script_run_error_diagnostics { |ctx|
     {PATH: "/bin:/usr/bin"},
   )?
 
-  missing.status == 3
-  "not-found" in missing.stderr
-  "127" not in missing.stderr
+  assert missing.status == 3
+  assert "not-found" in missing.stderr
+  assert "127" not in missing.stderr
 }
 
 test test_pipeline_failures_and_trace_are_visible { |ctx|
@@ -653,9 +653,9 @@ test test_pipeline_failures_and_trace_are_visible { |ctx|
 """,
   )?
 
-  plain.status == 3
-  "pipeline segment 0" in plain.stderr
-  "false" in plain.stderr
+  assert plain.status == 3
+  assert "pipeline segment 0" in plain.stderr
+  assert "false" in plain.stderr
 
   let late = test.run_script(
     ctx,
@@ -663,8 +663,8 @@ test test_pipeline_failures_and_trace_are_visible { |ctx|
 """,
   )?
 
-  late.status == 3
-  "pipeline segment 1" in late.stderr
+  assert late.status == 3
+  assert "pipeline segment 1" in late.stderr
 
   let traced = test.run_xsht_trace(
     ctx,
@@ -673,11 +673,11 @@ test test_pipeline_failures_and_trace_are_visible { |ctx|
     ["--raw"],
   )?
 
-  traced.status == 3
-  "kind=pipeline.enter" in traced.stderr
-  "kind=pipeline.segment.end" in traced.stderr
-  "index=0" in traced.stderr
-  "success:false" in traced.stderr
+  assert traced.status == 3
+  assert "kind=pipeline.enter" in traced.stderr
+  assert "kind=pipeline.segment.end" in traced.stderr
+  assert "index=0" in traced.stderr
+  assert "success:false" in traced.stderr
 
   let json_trace = test.run_xsht_trace(
     ctx,
@@ -686,10 +686,10 @@ test test_pipeline_failures_and_trace_are_visible { |ctx|
     ["--raw", "--trace-format", "jsonl"],
   )?
 
-  json_trace.status == 3
-  "\"kind\":\"pipeline.segment.end\"" in json_trace.stderr
-  "\"index\":0" in json_trace.stderr
-  "\"success\":false" in json_trace.stderr
+  assert json_trace.status == 3
+  assert "\"kind\":\"pipeline.segment.end\"" in json_trace.stderr
+  assert "\"index\":0" in json_trace.stderr
+  assert "\"success\":false" in json_trace.stderr
 }
 
 test test_run_trace_reports_redirection_method_and_env_details { |ctx|
@@ -702,9 +702,9 @@ run cat < (missing) ?
     ["--trace", "--raw"],
   )?
 
-  redirection.status == 3
-  "kind=redirection.setup" in redirection.stderr
-  "error={kind:b\"redirection\"" in redirection.stderr
+  assert redirection.status == 3
+  assert "kind=redirection.setup" in redirection.stderr
+  assert "error={kind:b\"redirection\"" in redirection.stderr
 
   let method_trace = test.run_xsht_trace(
     ctx,
@@ -718,10 +718,10 @@ print \${demo_path.display()}
     let {success: assertion_condition, stderr: assertion_message, ..} = method_trace
     assert assertion_condition, assertion_message
   }
-  "\"kind\":\"method.call\"" in method_trace.stderr
-  "\"kind\":\"method.result\"" in method_trace.stderr
-  "\"api_id\":\"method.Path.display\"" in method_trace.stderr
-  "\"api_id\":\"core.print\"" in method_trace.stderr
+  assert "\"kind\":\"method.call\"" in method_trace.stderr
+  assert "\"kind\":\"method.result\"" in method_trace.stderr
+  assert "\"api_id\":\"method.Path.display\"" in method_trace.stderr
+  assert "\"api_id\":\"core.print\"" in method_trace.stderr
 
   let env_trace = test.run_xsht_trace(
     ctx,
@@ -734,7 +734,7 @@ print \${demo_path.display()}
     let {success: assertion_condition, stderr: assertion_message, ..} = env_trace
     assert assertion_condition, assertion_message
   }
-  "env={b\"XSH_STAGE3_TRACE\":b\"value\"}" in env_trace.stderr
+  assert "env={b\"XSH_STAGE3_TRACE\":b\"value\"}" in env_trace.stderr
 
   let cd_error = test.run_xsht_trace(
     ctx,
@@ -748,10 +748,10 @@ cd tests {
     ["--trace", "--raw"],
   )?
 
-  cd_error.status == 3
-  "kind=cwd.enter" in cd_error.stderr
-  "kind=cwd.exit" in cd_error.stderr
-  "index-out-of-range" in cd_error.stderr
+  assert cd_error.status == 3
+  assert "kind=cwd.enter" in cd_error.stderr
+  assert "kind=cwd.exit" in cd_error.stderr
+  assert "index-out-of-range" in cd_error.stderr
 }
 
 test test_trace_output_covers_baseline_event_kinds { |ctx|
@@ -804,7 +804,7 @@ main(args)?
     "kind=cwd.enter",
     "kind=cwd.exit",
   ] {
-    kind in success.stderr
+    assert kind in success.stderr
   }
 
   let runtime_error = test.run_xsht_trace(
@@ -821,13 +821,13 @@ main(args)?
     ["--trace", "--raw"],
   )?
 
-  runtime_error.status == 3
-  "kind=runtime.error" in runtime_error.stderr
-  "index-out-of-range" in runtime_error.stderr
+  assert runtime_error.status == 3
+  assert "kind=runtime.error" in runtime_error.stderr
+  assert "index-out-of-range" in runtime_error.stderr
 }
 
 test test_run_fixture_behaviors { |ctx|
-  (run.text printf "%s\n" "hello world"?) == """hello world
+  assert (run.text printf "%s\n" "hello world"?) == """hello world
 """
 
   let failed = test.run_script(
@@ -836,14 +836,14 @@ test test_run_fixture_behaviors { |ctx|
 """,
   )?
 
-  failed.status == 3
-  "nonzero-exit" in failed.stderr
+  assert failed.status == 3
+  assert "nonzero-exit" in failed.stderr
   let status = run.status false
-  status.exited_with(1)
+  assert status.exited_with(1)
   let text = run.text printf "%s" "hello" ?
-  text == "hello"
+  assert text == "hello"
   let raw = run.bytes head -c 1 /dev/zero ?
-  raw == b"\0"
+  assert raw == b"\0"
 }
 
 test test_signaled_status_exit_code_is_structured_error { |ctx|
@@ -854,8 +854,8 @@ let _ = status.exit_code()?
 """,
   )?
 
-  output.status == 3
-  "status-kind" in output.stderr
+  assert output.status == 3
+  assert "status-kind" in output.stderr
 }
 
 test test_nested_traceback_includes_user_procs_and_pure_functions { |ctx|
@@ -885,13 +885,13 @@ main(args)?
 """,
   )?
 
-  output.status == 3
-  "call path:" in output.stderr
-  "proc main" in output.stderr
-  "proc outer" in output.stderr
-  "pure middle" in output.stderr
-  "pure leaf" in output.stderr
-  "nul-path" in output.stderr
+  assert output.status == 3
+  assert "call path:" in output.stderr
+  assert "proc main" in output.stderr
+  assert "proc outer" in output.stderr
+  assert "pure middle" in output.stderr
+  assert "pure leaf" in output.stderr
+  assert "nul-path" in output.stderr
 }
 
 test test_foundation_literals_defers_streams_and_builders { |ctx|
@@ -915,13 +915,13 @@ beta
     timeout = 2s
     run --timeout=1s echo ok
   }
-  process.run(command)?.exited_with(0)
-  mode == 493
-  ("493" in label)
-  lines[0] == "beta"
-  total == 6
-  unique[2] == 3
-  content == """alpha
+  assert process.run(command)?.exited_with(0)
+  assert mode == 493
+  assert ("493" in label)
+  assert lines[0] == "beta"
+  assert total == 6
+  assert unique[2] == 3
+  assert content == """alpha
 beta
 """
 }
@@ -932,6 +932,6 @@ test test_run_timeout_error { |ctx|
     """let _ = run --timeout=10ms sh -c "sleep 1" ?
 """,
   )?
-  output.status == 3
-  "timeout" in output.stderr
+  assert output.status == 3
+  assert "timeout" in output.stderr
 }

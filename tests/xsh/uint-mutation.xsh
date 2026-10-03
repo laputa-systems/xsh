@@ -12,9 +12,9 @@ test test_uint_assignment_rejects_negative_values_after_rhs { |ctx|
     "var value: List[UInt] = [1]\nvalue[0] -= 2\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }
 
@@ -33,9 +33,9 @@ rows[if true {
   2
 } else { 0 }
 """)?
-  (output.success) == (false)
-  ("UInt" in output.stderr)
-  (output.stdout) == ("selector\nrhs\n[{\"count\":1,\"untouched\":9}] [{\"count\":1,\"untouched\":2}]\n")
+  assert (output.success) == (false)
+  assert ("UInt" in output.stderr)
+  assert (output.stdout) == ("selector\nrhs\n[{\"count\":1,\"untouched\":9}] [{\"count\":1,\"untouched\":2}]\n")
 }
 
 test test_uint_mutation_checks_whole_replacements_and_list_append { |ctx|
@@ -48,9 +48,9 @@ test test_uint_mutation_checks_whole_replacements_and_list_append { |ctx|
     "var value: Map[Str, List[UInt]] = {a: [1]}\nvalue[\"a\"] += [-1]\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }
 
@@ -59,7 +59,7 @@ test test_uint_valid_updates_preserve_current_root_and_aliases {
   value -= 5
   value += 2
   value -= -3
-  (value) == (5)
+  assert (value) == (5)
   var rows: List[UInt] = [1, 2]
   let alias = rows
   rows[0] += if true {
@@ -69,13 +69,13 @@ test test_uint_valid_updates_preserve_current_root_and_aliases {
   rows += [0, 255]
   let expected_rows = uint_expected_rows([13, 20, 0, 255])
   let expected_alias = uint_expected_rows([1, 2])
-  rows == expected_rows
-  alias == expected_alias
+  assert rows == expected_rows
+  assert alias == expected_alias
   var entries: Map[Str, UInt] = {a: 1}
   entries["new"] = 0
   entries["a"] *= 2
-  (entries.get("new")?) == (0)
-  (entries.get("a")?) == (2)
+  assert (entries.get("new")?) == (0)
+  assert (entries.get("a")?) == (2)
 }
 
 
@@ -89,9 +89,9 @@ entries = entries.set("bad", if true {
   -1
 } else { 0 })
 """)?
-  (output.success) == (false)
-  ("UInt" in output.stderr)
-  (output.stdout) == ("rhs\n{\"a\":1} {\"a\":1}\n")
+  assert (output.success) == (false)
+  assert ("UInt" in output.stderr)
+  assert (output.stdout) == ("rhs\n{\"a\":1} {\"a\":1}\n")
 }
 
 test test_uint_calls_reject_negative_arguments_returns_and_defaults { |ctx|
@@ -106,9 +106,9 @@ test test_uint_calls_reject_negative_arguments_returns_and_defaults { |ctx|
     "type Row = {count: UInt}\npure make(n: Int) -> Row { return {count: n} }\nlet returned = make(-1)\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }
 
@@ -119,13 +119,13 @@ test test_uint_domain_failure_runs_cleanup_without_try_conversion { |ctx|
     "let value = make(-1)\n",
   ] {
     let output = test.run_script(ctx, "pure accept(n: UInt) -> Int { return n }\nproc make(n: Int) [error] -> UInt {\n  defer { print \"callee\" }\n  return n\n}\ndefer { print \"outer\" }\nlet captured = try {\n  defer { print \"inner\" }\n" + body + "}\nprint \"after\"\n")?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
     if "make(-1)" in body {
-      (output.stdout) == ("callee\ninner\nouter\n")
+      assert (output.stdout) == ("callee\ninner\nouter\n")
     } else {
-      (output.stdout) == ("inner\nouter\n")
+      assert (output.stdout) == ("inner\nouter\n")
     }
   }
   let checked = test.run_script(ctx, r"""let checked: Result[UInt] = try { (-1).require(UInt)? }
@@ -140,13 +140,13 @@ test test_uint_producer_yields_and_delegation_validate_each_reached_item { |ctx|
     let item = if body == "yield @[[n]]" { "List[UInt]" } else { "UInt" }
     let source = "stream raw(n: Int) [io] -> Stream[Int] {\n  defer { print \"child\" }\n  yield n\n}\nstream checked(n: Int) [io] -> Stream[" + item + "] {\n  defer { print \"parent\" }\n  " + body + "\n  print \"after yield\"\n}\ndefer { print \"outer\" }\nfor value in checked(-1) { print \"received\" }\n"
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
     if body == "yield @raw(n)" {
-      (output.stdout) == ("child\nparent\nouter\n")
+      assert (output.stdout) == ("child\nparent\nouter\n")
     } else {
-      (output.stdout) == ("parent\nouter\n")
+      assert (output.stdout) == ("parent\nouter\n")
     }
   }
 }
@@ -169,8 +169,8 @@ for value in checked() {
   break
 }
 """)?
-  (output.success) == (true)
-  (output.stdout) == ("1\nchild\nparent\n")
+  assert (output.success) == (true)
+  assert (output.stdout) == ("1\nchild\nparent\n")
 }
 
 test test_uint_nominal_constructors_reject_negative_payloads { |ctx|
@@ -181,9 +181,9 @@ test test_uint_nominal_constructors_reject_negative_payloads { |ctx|
     "error CountError = Bad(count: List[UInt])\nlet negative = -1\nlet rejected = CountError.Bad(count: [negative])\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }
 
@@ -198,9 +198,9 @@ test test_uint_functional_methods_validate_arguments_before_publication { |ctx|
     "let base: Map[Str, List[UInt]] = {a: [1]}\nlet rejected = base.push(\"a\", -1)\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }
 
@@ -210,22 +210,22 @@ test test_uint_map_membership_validates_keys_without_changing_list_comparison { 
     let {success: assertion_condition, stderr: assertion_message, ..} = compared
     assert assertion_condition, assertion_message
   }
-  (compared.stdout) == ("false\ntrue\n")
+  assert (compared.stdout) == ("false\ntrue\n")
   let rejected = test.run_script(ctx, "let fields: Map[UInt, Str] = {[1]: \"one\"}\ndefer { print \"cleanup\" }\nlet found = -1 in fields\nprint \"after\"\n")?
-  (rejected.success) == (false)
+  assert (rejected.success) == (false)
   {
     let assertion_condition = "schema check failed: expected UInt, found Int" in rejected.stderr
     let assertion_message = rejected.stderr
     assert assertion_condition, assertion_message
   }
-  (rejected.stdout) == ("cleanup\n")
+  assert (rejected.stdout) == ("cleanup\n")
 }
 
 test test_uint_constructor_guards_preserve_all_operand_effects { |ctx|
   let output = test.run_script(ctx, "enum Count { Counted(UInt, Int), Empty }\ndefer { print \"cleanup\" }\nlet value = Counted({ print \"first\"; -1 }, { print \"second\"; 2 })\nprint \"after\"\n")?
-  (output.success) == (false)
-  ("UInt" in output.stderr)
-  (output.stdout) == ("first\nsecond\ncleanup\n")
+  assert (output.success) == (false)
+  assert ("UInt" in output.stderr)
+  assert (output.stdout) == ("first\nsecond\ncleanup\n")
 }
 
 
@@ -236,9 +236,9 @@ defer { print "cleanup" }
 let value = receiver().set(value: { print "value"; -1 }, key: { print "key"; "b" })
 print "after"
 """)?
-  (output.success) == (false)
-  ("type-error" in output.stderr)
-  (output.stdout) == ("receiver\nvalue\nkey\ncleanup\n")
+  assert (output.success) == (false)
+  assert ("type-error" in output.stderr)
+  assert (output.stdout) == ("receiver\nvalue\nkey\ncleanup\n")
   let skipped = test.run_script(ctx, """
 let absent: Map[Str, UInt]? = null
 let value = absent?.set("a", { print "unexpected"; -1 })
@@ -248,7 +248,7 @@ print (value == null)
     let {success: assertion_condition, stderr: assertion_message, ..} = skipped
     assert assertion_condition, assertion_message
   }
-  (skipped.stdout) == ("true\n")
+  assert (skipped.stdout) == ("true\n")
 }
 
 
@@ -260,9 +260,9 @@ test test_uint_inferred_bindings_preserve_merge_domains { |ctx|
     "let rejected = [good, -1]",
   ] {
     let output = test.run_script(ctx, "let good: UInt = 1\n" + body + "\nprint \"after\"\n")?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }
 
@@ -277,9 +277,9 @@ export error CountError = Bad(count: UInt)
 """)?
   for body in ["let rejected = c.Counted(-1)", "let rejected = c.CountError.Bad(count: -1)"] {
     let output = test.run_script(ctx, "use counts as c\n" + body + "\n", [], {XSH_MODULE_PATH: root.display()})?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }
 
@@ -293,8 +293,8 @@ test test_uint_standard_builtin_results_receive_valid_created_values { |ctx|
     "let absent: UInt? = null\nprint (absent ?? -1)",
   ] {
     let output = test.run_script(ctx, "let good: UInt = 1\n" + body + "\n")?
-    (output.success) == (false)
-    ("type-error" in output.stderr)
-    ("UInt" in output.stderr)
+    assert (output.success) == (false)
+    assert ("type-error" in output.stderr)
+    assert ("UInt" in output.stderr)
   }
 }

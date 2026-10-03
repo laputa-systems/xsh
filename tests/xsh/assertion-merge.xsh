@@ -17,10 +17,10 @@ for result in [bare, explicit, chain, captured()] {
 }
 """)?
   assert output.success, output.stderr
-  "false" in output.stdout
-  "explicit context" in output.stdout
-  "3 < 2" in output.stdout
-  "private capture" in output.stdout
+  assert "false" in output.stdout
+  assert "explicit context" in output.stdout
+  assert "3 < 2" in output.stdout
+  assert "private capture" in output.stdout
   assert "unexpected" not in output.stdout, output.stdout
 }
 
@@ -36,7 +36,7 @@ match result { Ok(_) => print "done"; Err(_) => print "unexpected" }
 print $attempts
 """)?
   assert output.success, output.stderr
-  output.stdout == "cleaned\ncleaned\ndone\n2\n"
+  assert output.stdout == "cleaned\ncleaned\ndone\n2\n"
 }
 
 test test_assertion_message_failure_keeps_its_nominal_type { |ctx|
@@ -59,7 +59,7 @@ match failure {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "message\ncleaned\npassed\nmessage failure\n"
+  assert output.stdout == "message\ncleaned\npassed\nmessage failure\n"
 }
 
 test test_membership_assertions_preserve_typed_map_key_domains { |ctx|
@@ -81,16 +81,16 @@ let erased: Record = fields
 print "checked"
 """)?
   assert output.success, output.stderr
-  output.stdout == "checked\n"
+  assert output.stdout == "checked\n"
   for statement in ["\"bad\" in values", "assert \"bad\" in values, \"key\"", "values.has(\"bad\")"] {
     let invalid = test.run_script(ctx, "let values: Map[Int, Str] = {[1]: \"one\"}\n" + statement + "\n")?
     assert invalid.status == 2, invalid.stderr
-    "check.type-mismatch" in invalid.stderr
-    "Int" in invalid.stderr
+    assert "check.type-mismatch" in invalid.stderr
+    assert "Int" in invalid.stderr
   }
   let removed = test.run_script(ctx, "let values: Map[Int, Str] = {[1]: \"one\"}\nvalues.has(1)\n")?
   assert removed.status == 2, removed.stderr
-  "check.removed-membership" in removed.stderr
+  assert "check.removed-membership" in removed.stderr
   assert "check.type-mismatch" not in removed.stderr, removed.stderr
 }
 
@@ -102,5 +102,5 @@ assert "absent" not in membership_merge.keys(), "module export absence"
 print "checked"
 """)?
   assert output.success, output.stderr
-  output.stdout == "checked\n"
+  assert output.stdout == "checked\n"
 }

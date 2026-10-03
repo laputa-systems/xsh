@@ -1,6 +1,6 @@
 test test_git_digest_usage {
   let output = run.text "xsh" "showcase/git-digest.xsh" -- --help ?
-  "usage:" in output
+  assert "usage:" in output
 }
 
 test test_git_digest_counts_integer_statistics_and_binary_placeholders { |ctx|
@@ -25,8 +25,8 @@ test test_git_digest_counts_integer_statistics_and_binary_placeholders { |ctx|
   let failure_message = error_file.read_text()?
   assert succeeded, failure_message
   let output = output_file.read_text()?
-  "2 file(s) changed  +1 -0" in output
-  "binary.dat" in output
+  assert "2 file(s) changed  +1 -0" in output
+  assert "binary.dat" in output
 }
 
 test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting { |ctx|
@@ -67,6 +67,6 @@ test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting
   let failure_message = error_file.read_text()?
   assert succeeded, failure_message
   let output = output_file.read_text()?
-  "1 file(s) changed" in output
-  "raw-\\377.txt" in output
+  assert "1 file(s) changed" in output
+  assert "raw-\\377.txt" in output
 }

@@ -21,14 +21,14 @@ test test_archive_tar_cpio_and_compression { |ctx|
   var sorted_entries = [p"dir/a.txt"]
   sorted_entries = sorted_entries |> sort-by .display()
   archive.tar_create(sorted_tarball, src, sorted_entries)?
-  (archive.tar_list(sorted_tarball)?.collect().len()) == (1)
+  assert (archive.tar_list(sorted_tarball)?.collect().len()) == (1)
   let extracted = fp"${out}/extract"
   archive.tar_extract(tarball, extracted)?
-  fp"${extracted}/dir/a.txt".read_text()?.trim() == "alpha"
+  assert fp"${extracted}/dir/a.txt".read_text()?.trim() == "alpha"
   let selected = fp"${out}/selected"
   archive.tar_extract(tarball, selected, 0, "", false, [p"dir/a.txt"])?
-  fp"${selected}/dir/a.txt".read_text()?.trim() == "alpha"
-  ! fp"${selected}/link".exists()?
+  assert fp"${selected}/dir/a.txt".read_text()?.trim() == "alpha"
+  assert ! fp"${selected}/link".exists()?
   test.error_kind(archive.tar_extract(tarball, extracted), "archive-extract")?
   let cpio = fp"${out}/pkg.cpio"
   archive.cpio_create(cpio, src, [p"."])?
@@ -36,7 +36,7 @@ test test_archive_tar_cpio_and_compression { |ctx|
   assert (cpio_entries.len() >= 3), "cpio list should include source entries"
   let cpio_out = fp"${out}/cpio"
   archive.cpio_extract(cpio, cpio_out)?
-  fp"${cpio_out}/dir/a.txt".read_text()?.trim() == "alpha"
+  assert fp"${cpio_out}/dir/a.txt".read_text()?.trim() == "alpha"
   let payload = fp"${src}/dir/a.txt"
   let gz = fp"${out}/a.txt.gz"
   let bz2 = fp"${out}/a.txt.bz2"
@@ -46,13 +46,13 @@ test test_archive_tar_cpio_and_compression { |ctx|
   archive.compress(payload, bz2, format: "bzip2")?
   archive.compress(payload, xz, format: "xz")?
   archive.compress(payload, lzma, format: "lzma")?
-  archive.decompress_bytes(gz)?.utf8()?.trim() == "alpha"
+  assert archive.decompress_bytes(gz)?.utf8()?.trim() == "alpha"
   archive.decompress(bz2, fp"${out}/bz2.out")?
   archive.decompress(xz, fp"${out}/xz.out")?
   archive.decompress(lzma, fp"${out}/lzma.out")?
-  fp"${out}/bz2.out".read_text()?.trim() == "alpha"
-  fp"${out}/xz.out".read_text()?.trim() == "alpha"
-  fp"${out}/lzma.out".read_text()?.trim() == "alpha"
+  assert fp"${out}/bz2.out".read_text()?.trim() == "alpha"
+  assert fp"${out}/xz.out".read_text()?.trim() == "alpha"
+  assert fp"${out}/lzma.out".read_text()?.trim() == "alpha"
 }
 
 test test_archive_zip_error_contracts { |ctx|

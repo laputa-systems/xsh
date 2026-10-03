@@ -84,28 +84,28 @@ let values = [1, 2] |> batch(count: 1)
   let diagnostic = stderr_path.read_text()?
   assert succeeded, diagnostic
   let report = json.read(report_path)?.require(IRWireReport)?
-  report.rows.len() == 5
-  report.rows[0].total == 2
-  report.rows[0].unsupported == ["Command"]
-  report.lowered_nodes == {statements: 1, expressions: 1, pipeline_stages: 1, types: 1}
-  report.lowered_methods == ["len"]
-  report.corpus.total == 1
-  report.corpus.lowerable == 1
-  report.procs.total == 1
-  report.procs.lowerable == 1
-  report.script.total == 2
-  report.script.lowerable == 1
-  report.script.reasons == [{reason: "expr.pipeline", count: 1}]
-  report.script.groups[0].group == "expression"
-  report.script.samples[0].shape == "Let"
-  "lowered IR coverage" in stdout_path.read_text()?
+  assert report.rows.len() == 5
+  assert report.rows[0].total == 2
+  assert report.rows[0].unsupported == ["Command"]
+  assert report.lowered_nodes == {statements: 1, expressions: 1, pipeline_stages: 1, types: 1}
+  assert report.lowered_methods == ["len"]
+  assert report.corpus.total == 1
+  assert report.corpus.lowerable == 1
+  assert report.procs.total == 1
+  assert report.procs.lowerable == 1
+  assert report.script.total == 2
+  assert report.script.lowerable == 1
+  assert report.script.reasons == [{reason: "expr.pipeline", count: 1}]
+  assert report.script.groups[0].group == "expression"
+  assert report.script.samples[0].shape == "Let"
+  assert "lowered IR coverage" in stdout_path.read_text()?
   let invalid = process.command {
     stdout = stdout_path
     stderr = stderr_path
     run $xsh $tool -- --root fp"${root}/absent"
   }
-  !process.run(invalid)?.exited_with(0)
-  stderr_path.read_text()? != ""
+  assert !process.run(invalid)?.exited_with(0)
+  assert stderr_path.read_text()? != ""
 }
 
 test test_ir_coverage_report_validation_rejects_incomplete_wire_data {

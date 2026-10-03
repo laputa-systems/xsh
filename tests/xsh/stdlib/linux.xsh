@@ -13,7 +13,7 @@ test test_linux_dry_run_covers_module_surface { |ctx|
     linux.umount_all(types: ["tmpfs"])?
     linux.swapon_all()?
     linux.swapoff_all()?
-    linux.root_device()? == "rootfs"
+    assert linux.root_device()? == "rootfs"
     linux.link_up("lo")?
     linux.link_down("eth0")?
     linux.set_ipv4_address("eth0", "192.0.2.10", "255.255.255.0")?
@@ -22,28 +22,28 @@ test test_linux_dry_run_covers_module_surface { |ctx|
     linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")?
     linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")?
     let interfaces = linux.interfaces()?.collect()
-    (interfaces[0].name) == ("eth0")
-    (interfaces[0].addresses[0].family) == ("inet")
+    assert (interfaces[0].name) == ("eth0")
+    assert (interfaces[0].addresses[0].family) == ("inet")
     let routes = linux.routes()?.collect()
-    (routes[0].dst) == ("default")
-    (routes[0].gateway) == ("192.0.2.1")
+    assert (routes[0].dst) == ("default")
+    assert (routes[0].gateway) == ("192.0.2.1")
     let network = linux.network_dump()?
-    network.state == "complete"
-    network.links[0].name == "eth0"
-    network.addresses[0].address == "192.0.2.10"
-    network.routes[0].table == 254
-    network.rules[0].priority == 32766
-    (linux.meminfo()?.total > 0)
-    (linux.modules()?.collect()[0].name) == ("xsh_demo")
-    "xsh" in linux.dmesg()?.collect()[0]
-    linux.is_mountpoint(/proc)?
-    (linux.disk_usage(/)?.collect()[0].device) == ("rootfs")
-    (linux.block_devices()?.collect()[0].name) == ("vda")
+    assert network.state == "complete"
+    assert network.links[0].name == "eth0"
+    assert network.addresses[0].address == "192.0.2.10"
+    assert network.routes[0].table == 254
+    assert network.rules[0].priority == 32766
+    assert (linux.meminfo()?.total > 0)
+    assert (linux.modules()?.collect()[0].name) == ("xsh_demo")
+    assert "xsh" in linux.dmesg()?.collect()[0]
+    assert linux.is_mountpoint(/proc)?
+    assert (linux.disk_usage(/)?.collect()[0].device) == ("rootfs")
+    assert (linux.block_devices()?.collect()[0].name) == ("vda")
     let sysctl_value = linux.sysctl_get("kernel.pid_max")?
-    sysctl_value == "1"
+    assert sysctl_value == "1"
     linux.sysctl_set("kernel.pid_max", sysctl_value)?
     let attrs = linux.file_attrs(seed)?
-    (attrs.immutable and attrs.append_only)
+    assert (attrs.immutable and attrs.append_only)
     linux.set_file_attrs(seed, attrs.flags)?
     let version = linux.file_version(seed)?
     linux.set_file_version(seed, version)?
@@ -57,30 +57,30 @@ test test_linux_dry_run_covers_module_surface { |ctx|
     linux.set_hwclock(epoch_ms)?
     linux.set_system_clock(epoch_ms)?
     let rfkill = linux.rfkill_list()?.collect()
-    (rfkill[0].type) == ("wlan")
+    assert (rfkill[0].type) == ("wlan")
     linux.rfkill_block(rfkill[0].id)?
     linux.rfkill_unblock(rfkill[0].id)?
     let loop_device = linux.loop_attach(seed)?
     linux.loop_detach(loop_device)?
-    (linux.loop_list()?.collect()[0].device) == (loop_device)
+    assert (linux.loop_list()?.collect()[0].device) == (loop_device)
     linux.mkswap(seed)?
     linux.swapon(seed, priority: 1)?
     linux.swapoff(seed)?
-    linux.blkid(seed)?.type == "ext4"
-    linux.modinfo("demo")?.params[0].name == "debug"
+    assert linux.blkid(seed)?.type == "ext4"
+    assert linux.modinfo("demo")?.params[0].name == "debug"
     linux.modprobe("demo", params: "debug=1")?
     linux.depmod("dry-run")?
-    (linux.open_files(123)?.collect()[0].type) == ("file")
+    assert (linux.open_files(123)?.collect()[0].type) == ("file")
     let table = linux.partition_table(seed)?
-    table.partitions[0].name == "root"
+    assert table.partitions[0].name == "root"
     linux.write_partition_table(seed, table)?
-    linux.fsck(seed, fstype: "ext4")?.status == 0
+    assert linux.fsck(seed, fstype: "ext4")?.status == 0
     let uevents = linux.uevent_stream()?
 
     for event in uevents {
-      event.action == "add"
-      event.subsystem == "block"
-      event.env[0].name == "ACTION"
+      assert event.action == "add"
+      assert event.subsystem == "block"
+      assert event.env[0].name == "ACTION"
       break
     }
 
@@ -91,33 +91,33 @@ test test_linux_dry_run_covers_module_surface { |ctx|
     linux.reboot()?
   } ?
 
-  random.read_bytes()? == b"\0\0\0\0"
+  assert random.read_bytes()? == b"\0\0\0\0"
   let log_text = log.read_text()?
-  "\"op\":\"mount\"" in log_text
-  "\"op\":\"meminfo\"" in log_text
-  "\"op\":\"routes\"" in log_text
-  "\"op\":\"set_ipv4_address\"" in log_text
-  "\"op\":\"add_default_ipv4_route\"" in log_text
-  "\"op\":\"is_mountpoint\"" in log_text
-  "\"op\":\"disk_usage\"" in log_text
-  "\"op\":\"sysctl_set\"" in log_text
-  "\"op\":\"set_file_attrs\"" in log_text
-  "\"op\":\"mknod\"" in log_text
-  "\"op\":\"loop_attach\"" in log_text
-  "\"op\":\"swapon\"" in log_text
-  "\"op\":\"modprobe\"" in log_text
-  "\"op\":\"write_partition_table\"" in log_text
-  "\"op\":\"uevent_stream\"" in log_text
-  "\"signal\":\"TERM\"" in log_text
-  "\"except_pid1\":\"true\"" in log_text
-  "\"op\":\"link_down\"" in log_text
-  "\"op\":\"flush_ipv4_addresses\"" in log_text
-  "\"op\":\"del_default_ipv4_route\"" in log_text
-  "\"op\":\"dhcp_send_release\"" in log_text
-  "\"op\":\"read_device\"" in log_text
-  "\"op\":\"kill_all\"" in log_text
-  "\"op\":\"poweroff\"" in log_text
-  "\"op\":\"reboot\"" in log_text
+  assert "\"op\":\"mount\"" in log_text
+  assert "\"op\":\"meminfo\"" in log_text
+  assert "\"op\":\"routes\"" in log_text
+  assert "\"op\":\"set_ipv4_address\"" in log_text
+  assert "\"op\":\"add_default_ipv4_route\"" in log_text
+  assert "\"op\":\"is_mountpoint\"" in log_text
+  assert "\"op\":\"disk_usage\"" in log_text
+  assert "\"op\":\"sysctl_set\"" in log_text
+  assert "\"op\":\"set_file_attrs\"" in log_text
+  assert "\"op\":\"mknod\"" in log_text
+  assert "\"op\":\"loop_attach\"" in log_text
+  assert "\"op\":\"swapon\"" in log_text
+  assert "\"op\":\"modprobe\"" in log_text
+  assert "\"op\":\"write_partition_table\"" in log_text
+  assert "\"op\":\"uevent_stream\"" in log_text
+  assert "\"signal\":\"TERM\"" in log_text
+  assert "\"except_pid1\":\"true\"" in log_text
+  assert "\"op\":\"link_down\"" in log_text
+  assert "\"op\":\"flush_ipv4_addresses\"" in log_text
+  assert "\"op\":\"del_default_ipv4_route\"" in log_text
+  assert "\"op\":\"dhcp_send_release\"" in log_text
+  assert "\"op\":\"read_device\"" in log_text
+  assert "\"op\":\"kill_all\"" in log_text
+  assert "\"op\":\"poweroff\"" in log_text
+  assert "\"op\":\"reboot\"" in log_text
 }
 
 # The message a failed `linux.meminfo` call reports.
@@ -140,7 +140,7 @@ test test_linux_text_entries_require_a_gate {
   env XSH_LINUX_DRY_RUN="" XSH_LINUX_REAL="" {
     test.error_kind(linux.meminfo(), "linux-unimplemented")?
     test.error_kind(linux.modules(), "linux-unimplemented")?
-    "XSH_LINUX_REAL=1" in meminfo_failure(linux.meminfo())
+    assert "XSH_LINUX_REAL=1" in meminfo_failure(linux.meminfo())
   } ?
 }
 
@@ -152,8 +152,8 @@ test test_linux_halt_requires_an_explicit_mode { |ctx|
     [],
     {XSH_LINUX_DRY_RUN: "", XSH_LINUX_REAL: ""},
   )?
-  output.status == 3
-  "linux-unimplemented" in output.stderr
+  assert output.status == 3
+  assert "linux-unimplemented" in output.stderr
 }
 
 test test_linux_text_dry_run_values_and_log { |ctx|
@@ -165,22 +165,22 @@ test test_linux_text_dry_run_values_and_log { |ctx|
   # its operation to the log file.
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN_LOG=$log {
     let memory = linux.meminfo()?
-    memory.total == (1024 * 1024 * 1024)
-    memory.free == (256 * 1024 * 1024)
-    memory.available == (512 * 1024 * 1024)
-    memory.buffers == (64 * 1024 * 1024)
-    memory.cached == (128 * 1024 * 1024)
-    memory.swap_total == (512 * 1024 * 1024)
-    memory.swap_free == (384 * 1024 * 1024)
+    assert memory.total == (1024 * 1024 * 1024)
+    assert memory.free == (256 * 1024 * 1024)
+    assert memory.available == (512 * 1024 * 1024)
+    assert memory.buffers == (64 * 1024 * 1024)
+    assert memory.cached == (128 * 1024 * 1024)
+    assert memory.swap_total == (512 * 1024 * 1024)
+    assert memory.swap_free == (384 * 1024 * 1024)
 
     let modules = linux.modules()?.collect()
-    (modules.len()) == (1)
-    (modules[0].name) == ("xsh_demo")
-    (modules[0].size) == (4096)
-    (modules[0].used_by) == (["xsh_dep"])
+    assert (modules.len()) == (1)
+    assert (modules[0].name) == ("xsh_demo")
+    assert (modules[0].size) == (4096)
+    assert (modules[0].used_by) == (["xsh_dep"])
   } ?
 
-  log.read_text()? == """{"op":"meminfo"}
+  assert log.read_text()? == """{"op":"meminfo"}
 {"op":"modules"}
 """
 }
@@ -189,16 +189,16 @@ test test_linux_dry_run_disk_usage_and_sysctl_records {
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_SYSCTL_VALUE=65535 {
     let root_usage = linux.disk_usage()?.collect()
     let tmp_usage = linux.disk_usage(/tmp)?.collect()
-    (root_usage[0].device) == ("rootfs")
-    (root_usage[0].mount) == ("/")
-    (root_usage[0].fstype) == ("tmpfs")
-    (root_usage[0].total) == (1073741824)
-    (root_usage[0].used) == (268435456)
-    (root_usage[0].available) == (805306368)
-    (tmp_usage[0].mount) == ("/tmp")
-    linux.is_mountpoint(/proc)?
-    ! linux.is_mountpoint(/tmp)?
-    linux.sysctl_get("kernel.pid_max")? == "65535"
+    assert (root_usage[0].device) == ("rootfs")
+    assert (root_usage[0].mount) == ("/")
+    assert (root_usage[0].fstype) == ("tmpfs")
+    assert (root_usage[0].total) == (1073741824)
+    assert (root_usage[0].used) == (268435456)
+    assert (root_usage[0].available) == (805306368)
+    assert (tmp_usage[0].mount) == ("/tmp")
+    assert linux.is_mountpoint(/proc)?
+    assert ! linux.is_mountpoint(/tmp)?
+    assert linux.sysctl_get("kernel.pid_max")? == "65535"
   } ?
 }
 
@@ -211,21 +211,21 @@ test test_linux_dry_run_file_attrs_decode_seed_flags { |ctx|
     let version = linux.file_version(seed)?
     linux.set_file_attrs(seed, attrs.flags)?
     linux.set_file_version(seed, version)?
-    attrs.flags == 250111
-    version == 7
-    attrs.indexed_directory
-    attrs.secure_deletion
-    attrs.undelete
-    attrs.sync
-    attrs.dirsync
-    attrs.immutable
-    attrs.append_only
-    attrs.no_dump
-    attrs.no_atime
-    attrs.compression_requested
-    attrs.journaled_data
-    attrs.no_tailmerging
-    attrs.top_of_directory_hierarchies
+    assert attrs.flags == 250111
+    assert version == 7
+    assert attrs.indexed_directory
+    assert attrs.secure_deletion
+    assert attrs.undelete
+    assert attrs.sync
+    assert attrs.dirsync
+    assert attrs.immutable
+    assert attrs.append_only
+    assert attrs.no_dump
+    assert attrs.no_atime
+    assert attrs.compression_requested
+    assert attrs.journaled_data
+    assert attrs.no_tailmerging
+    assert attrs.top_of_directory_hierarchies
   } ?
 }
 
@@ -235,7 +235,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
       Ok(_) => assert (false), "invalid sysctl name was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
-        "invalid" in failure.message
+        assert "invalid" in failure.message
       }
     }
 
@@ -243,7 +243,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
       Ok(_) => assert (false), "invalid sysctl path was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
-        "invalid" in failure.message
+        assert "invalid" in failure.message
       }
     }
 
@@ -252,7 +252,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
         Ok(_) => assert (false), "invalid file attribute flags were accepted"
         Err(failure) => {
           test.error_kind(failure, "linux-file-attrs")?
-          "between 0 and 4294967295" in failure.message
+          assert "between 0 and 4294967295" in failure.message
         }
       }
     }
@@ -261,7 +261,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
       Ok(_) => assert (false), "invalid file version was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-file-version")?
-        "between 0 and 4294967295" in failure.message
+        assert "between 0 and 4294967295" in failure.message
       }
     }
 
@@ -270,7 +270,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs {
       Ok(_) => assert (false), "invalid node kind was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-mknod")?
-        "block" in failure.message
+        assert "block" in failure.message
       }
     }
   } ?
@@ -296,8 +296,8 @@ test test_linux_dry_run_log_appends_in_place { |ctx|
     let _ = linux.meminfo()?
   } ?
   let once = log.read_bytes()?
-  once.starts_with(seeded)
-  (once.len() > seeded.len())
+  assert once.starts_with(seeded)
+  assert (once.len() > seeded.len())
 
   # A second call appends exactly one more record: the file grows by the same
   # number of bytes again and nothing before it is truncated.
@@ -305,16 +305,16 @@ test test_linux_dry_run_log_appends_in_place { |ctx|
     let _ = linux.meminfo()?
   } ?
   let twice = log.read_bytes()?
-  twice.starts_with(seeded)
-  (twice.len() - once.len()) == (once.len() - seeded.len())
+  assert twice.starts_with(seeded)
+  assert (twice.len() - once.len()) == (once.len() - seeded.len())
 
   # A destination whose parent directories do not exist yet is created.
   let fresh = fp"${root}/missing/deeper/linux.jsonl"
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$fresh {
     let _ = linux.meminfo()?
   } ?
-  fresh.exists()?
-  "\"op\":\"meminfo\"" in (fresh.read_text() ?? "")
+  assert fresh.exists()?
+  assert "\"op\":\"meminfo\"" in (fresh.read_text() ?? "")
 
   # A directory destination raises the native logging error.
   let blocked = fp"${root}/a-directory"
@@ -328,9 +328,9 @@ test test_linux_dry_run_log_appends_in_place { |ctx|
       XSH_LINUX_DRY_RUN_LOG: blocked.display(),
     },
   )?
-  ! failed.success
-  "linux-dry-run-log" in failed.stderr
-  blocked.metadata()?.kind == "dir"
+  assert ! failed.success
+  assert "linux-dry-run-log" in failed.stderr
+  assert blocked.metadata()?.kind == "dir"
 }
 
 test test_linux_text_log_failure_kind { |ctx|
@@ -352,8 +352,8 @@ test test_linux_text_log_failure_kind { |ctx|
       XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
     },
   )?
-  ! meminfo_failed.success
-  "linux-dry-run-log" in meminfo_failed.stderr
+  assert ! meminfo_failed.success
+  assert "linux-dry-run-log" in meminfo_failed.stderr
 
   # The retained native modules arm raises a dry-run log failure. A nested
   # script observes that process boundary without losing the failure kind.
@@ -366,8 +366,8 @@ test test_linux_text_log_failure_kind { |ctx|
       XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
     },
   )?
-  ! failed.success
-  "linux-dry-run-log" in failed.stderr
+  assert ! failed.success
+  assert "linux-dry-run-log" in failed.stderr
 }
 
 test test_linux_meminfo_reads_the_host_text {
@@ -384,12 +384,12 @@ test test_linux_meminfo_reads_the_host_text {
   # total it is reported next to.
   env XSH_LINUX_REAL=1 {
     let memory = linux.meminfo()?
-    (memory.total > 0)
-    (memory.total % 1024) == 0
-    (memory.free >= 0 and memory.free <= memory.total)
-    (memory.available >= 0 and memory.available <= memory.total)
-    (memory.buffers >= 0 and memory.cached >= 0)
-    (memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)
+    assert (memory.total > 0)
+    assert (memory.total % 1024) == 0
+    assert (memory.free >= 0 and memory.free <= memory.total)
+    assert (memory.available >= 0 and memory.available <= memory.total)
+    assert (memory.buffers >= 0 and memory.cached >= 0)
+    assert (memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)
   } ?
 }
 
@@ -408,10 +408,10 @@ test test_linux_modules_streams_the_host_text {
   env XSH_LINUX_REAL=1 {
     let records = linux.modules()?
     for entry in records {
-      (entry.name != "")
-      (entry.size >= 0)
+      assert (entry.name != "")
+      assert (entry.size >= 0)
       for dependent in entry.used_by {
-        (dependent != "")
+        assert (dependent != "")
       }
 
       break
@@ -421,10 +421,10 @@ test test_linux_modules_streams_the_host_text {
   # The whole text interprets into records with the same shape.
   env XSH_LINUX_REAL=1 {
     for entry in linux.modules()?.collect() {
-      (entry.name != "")
-      (entry.size >= 0)
+      assert (entry.name != "")
+      assert (entry.size >= 0)
       for dependent in entry.used_by {
-        (dependent != "")
+        assert (dependent != "")
       }
     }
   } ?
@@ -492,7 +492,7 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
     let {success: assertion_condition, stderr: assertion_message, ..} = nested
     assert assertion_condition, assertion_message
   }
-  nested.stdout == f"""demo_name|Demo module|MIT|2
+  assert nested.stdout == f"""demo_name|Demo module|MIT|2
 param=debug|bool|Enable debug
 param=mode|charp|Mode
 explicit=demo_name
@@ -555,5 +555,5 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
   } ?
 
   stop.write("")?
-  wait child?.exited_with(0)
+  assert wait child?.exited_with(0)
 }

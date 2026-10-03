@@ -8,13 +8,13 @@ print render(Present("ready"))
 print (Present("same") == Present("same"))
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "ready\ntrue\n"
+  assert executed.stdout == "ready\ntrue\n"
 }
 
 test test_enum_legacy_declaration_is_migration_error { |ctx|
   let rejected = test.run_script(ctx, "type Mode = Fast | Slow\nprint Fast\n")?
   assert ! rejected.success, rejected.stderr
-  "parse.enum-migration" in rejected.stderr
+  assert "parse.enum-migration" in rejected.stderr
 }
 
 test test_enum_rejects_invalid_declarations { |ctx|
@@ -53,7 +53,7 @@ let word = (run.text printf "%s" enum)?
 print $word
 """, [], {XSH_MODULE_PATH: root.display()})?
   assert executed.success, executed.stderr
-  executed.stdout == "7\nlabel\nlabel\nenum\n"
+  assert executed.stdout == "7\nlabel\nlabel\nenum\n"
   let invalid = test.run_script(ctx, "use choice as c\nlet value = c.Choice.Chosen(7)\n", [], {XSH_MODULE_PATH: root.display()})?
   assert ! invalid.success, invalid.stderr
 }
@@ -75,7 +75,7 @@ test test_enum_multiline_payload_equality_and_exhaustive_matches { |ctx|
 print ${describe(Fast)} ${describe(Custom(3))} ${Custom(3) == Custom(3)} ${Custom(3) == Custom(4)}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "fast custom:3 true false\n"
+  assert executed.stdout == "fast custom:3 true false\n"
   let incomplete = test.run_script(ctx, declaration + r"""pure describe(mode: Mode) -> Str {
   match mode {
     Fast => "fast"
@@ -84,8 +84,8 @@ print ${describe(Fast)} ${describe(Custom(3))} ${Custom(3) == Custom(3)} ${Custo
 }
 """)?
   assert ! incomplete.success, incomplete.stderr
-  "check.match-value-exhaustive" in incomplete.stderr
-  "Thorough" in incomplete.stderr
+  assert "check.match-value-exhaustive" in incomplete.stderr
+  assert "Thorough" in incomplete.stderr
   let qualified = test.run_script(ctx, declaration + "let value = Mode.Fast\n")?
   assert ! qualified.success, qualified.stderr
 }

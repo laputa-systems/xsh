@@ -3,6 +3,6 @@ test test_music_convert { |ctx|
   fp"${root}/track.mp3".write("fake")?
   let out = test.temp_path(ctx, name: "music-out")
   let output = run.text "xsh" "showcase/music-convert.xsh" -- --out $out --root $root --dry-run ?
-  "track.mp3" in output
-  "dry run" in output
+  assert "track.mp3" in output
+  assert "dry run" in output
 }

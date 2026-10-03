@@ -95,7 +95,7 @@ match caused {
 print "live"
 """)?
   assert output.success, output.stderr
-  output.stdout == "live\n"
+  assert output.stdout == "live\n"
 }
 
 proc propagate_child_from_plain_callee() [process, error] -> Unit {
@@ -126,7 +126,7 @@ let captured: Result[Unit] = try {
 print "unreachable"
 """)?
   assert !output.success, "scoped resource propagation must be rejected"
-  "cannot escape a restored context" in output.stderr
+  assert "cannot escape a restored context" in output.stderr
 }
 
 test test_inner_try_retains_resource_inside_same_context {
@@ -161,7 +161,7 @@ proc scope_cause() [process, env, error] -> Result[Unit] {
 scope_cause()?
 """)?
   assert !caused.success, "heap scope must reject resource held only by cause"
-  "cannot escape a restored context" in caused.stderr
+  assert "cannot escape a restored context" in caused.stderr
   let callee = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 proc failing_child() [process, error] -> Unit {
   let child = spawn run sh -c "sleep 10" ?
@@ -173,7 +173,7 @@ proc scoped_failure() [process, env, error] -> Result[Unit] {
 scoped_failure()?
 """)?
   assert !callee.success, "checked runtime failure must not carry scoped child out"
-  "cannot escape a restored context" in callee.stderr
+  assert "cannot escape a restored context" in callee.stderr
 }
 
 test test_retry_exhaustion_retains_resource_in_original_failure {
@@ -239,7 +239,7 @@ test test_secondary_defer_failure_releases_its_child { |ctx|
     Err(WrapperError.Failed(message: "primary"))?
   }
   match captured {
-    Err(WrapperError.Failed {message}) => message == "primary"
+    Err(WrapperError.Failed {message}) => assert message == "primary"
     Err(error) => test.fail(error.message)?
     Ok(_) => test.fail("missing primary failure")?
   }
@@ -260,7 +260,7 @@ proc scoped_cleanup() [process, env, error] -> Result[Unit] {
 scoped_cleanup()?
 """)?
   assert !normal.success, "primary scoped cleanup resources must be rejected"
-  "cannot escape a restored context" in normal.stderr
+  assert "cannot escape a restored context" in normal.stderr
   let returning = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 proc cleanup_child() [process, error] -> Result[Unit] {
   let child = spawn run sh -c "sleep 10" ?
@@ -273,7 +273,7 @@ let captured: Result[Int] = try { returning_scope() }
 print "unreachable"
 """)?
   assert !returning.success, "return cleanup resources must not cross restoration"
-  "cannot escape a restored context" in returning.stderr
+  assert "cannot escape a restored context" in returning.stderr
 }
 
 test test_inner_try_primary_defer_can_retain_resource_inside_context {
@@ -312,5 +312,5 @@ let captured: Result[Int] = try { returning_scope() }
 print "unreachable"
 """)?
   assert !output.success, "stream cancellation failure must not carry scoped child across restoration"
-  "cannot escape a restored context" in output.stderr
+  assert "cannot escape a restored context" in output.stderr
 }

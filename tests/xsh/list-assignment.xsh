@@ -4,15 +4,15 @@ test test_existing_lvalue_observes_current_root_after_rhs {
     row = {count: 10, untouched: 20}
     3
   } else { 0 }
-  row == {count: 13, untouched: 20}
+  assert row == {count: 13, untouched: 20}
   let empty: Map[Int] = {}
   var values = empty.set("selected", 1).set("untouched", 2)
   values["selected"] += if true {
     values = values.set("selected", 30).set("untouched", 40)
     3
   } else { 0 }
-  values.get("selected")? == 33
-  values.get("untouched")? == 40
+  assert values.get("selected")? == 33
+  assert values.get("untouched")? == 40
 }
 
 test test_list_element_assignment_and_aliases {
@@ -20,8 +20,8 @@ test test_list_element_assignment_and_aliases {
   let alias = values
   values[1] = 8
   values[2] += 4
-  values == [1, 8, 7]
-  alias == [1, 2, 3]
+  assert values == [1, 8, 7]
+  assert alias == [1, 2, 3]
 }
 
 test test_list_assignment_selector_and_rhs_observe_current_root {
@@ -33,7 +33,7 @@ test test_list_assignment_selector_and_rhs_observe_current_root {
     values = [30, 40]
     3
   } else { 0 }
-  values == [33, 40]
+  assert values == [33, 40]
   var entries: Map[Int] = {}
   entries[if true {
     entries = entries.set("selected", 10).set("untouched", 20)
@@ -42,8 +42,8 @@ test test_list_assignment_selector_and_rhs_observe_current_root {
     entries = entries.set("selected", 30).set("untouched", 40)
     3
   } else { 0 }
-  entries.get("selected")? == 33
-  entries.get("untouched")? == 40
+  assert entries.get("selected")? == 33
+  assert entries.get("untouched")? == 40
 }
 
 type ListAssignmentRow = {count: Int, children: List[Int]}
@@ -55,16 +55,16 @@ test test_list_assignment_traverses_record_map_and_list_paths {
   root.groups["first"][0].count += 4
   root.groups["first"][0].children[1] *= 3
   root.groups["first"][0].children += [7]
-  root.groups.get("first")?[0].count == 5
-  root.groups.get("first")?[0].children == [2, 9, 7]
-  alias.groups.get("first")?[0].count == 1
-  alias.groups.get("first")?[0].children == [2, 3]
+  assert root.groups.get("first")?[0].count == 5
+  assert root.groups.get("first")?[0].children == [2, 9, 7]
+  assert alias.groups.get("first")?[0].count == 1
+  assert alias.groups.get("first")?[0].children == [2, 3]
   var matrix = [[1, 2], [3, 4]]
   let earlier = matrix
   matrix[1][0] -= 2
   matrix[0] += matrix[0]
-  matrix == [[1, 2, 1, 2], [1, 4]]
-  earlier == [[1, 2], [3, 4]]
+  assert matrix == [[1, 2, 1, 2], [1, 4]]
+  assert earlier == [[1, 2], [3, 4]]
 }
 
 test test_list_assignment_preserves_contextual_element_schema {
@@ -72,8 +72,8 @@ test test_list_assignment_preserves_contextual_element_schema {
   rows[0] = {count: 4, children: []}
   rows[0].children = []
   rows[0].children += [3]
-  rows[0].count == 4
-  rows[0].children == [3]
+  assert rows[0].count == 4
+  assert rows[0].children == [3]
 }
 
 test test_list_assignment_rejects_indexing_bounds_after_rhs { |ctx|
@@ -86,9 +86,9 @@ values[${index}] = if true {
   9
 } else { 0 }
 """)?
-    ! output.success
-    "index-out-of-range" in output.stderr
-    output.stdout == "rhs\n[1,2]\n"
+    assert ! output.success
+    assert "index-out-of-range" in output.stderr
+    assert output.stdout == "rhs\n[1,2]\n"
   }
 }
 
@@ -103,9 +103,9 @@ rows[0].count /= if true {
   0
 } else { 1 }
 """)?
-  ! output.success
-  "division" in output.stderr
-  output.stdout == "rhs\n[{\"count\":7,\"untouched\":[9]}] [{\"count\":7,\"untouched\":[3]}]\n"
+  assert ! output.success
+  assert "division" in output.stderr
+  assert output.stdout == "rhs\n[{\"count\":7,\"untouched\":[9]}] [{\"count\":7,\"untouched\":[3]}]\n"
 }
 
 test test_list_assignment_rejects_immutable_temporary_and_non_list_roots { |ctx|
@@ -119,8 +119,8 @@ test test_list_assignment_rejects_immutable_temporary_and_non_list_roots { |ctx|
     "var values = [1]\nvalues[0..1] = [2]\n",
   ] {
     let output = test.run_script(ctx, source)?
-    ! output.success
-    "err[" in output.stderr
+    assert ! output.success
+    assert "err[" in output.stderr
   }
 }
 
@@ -134,9 +134,9 @@ row.count /= if true {
   0
 } else { 1 }
 """)?
-  ! output.success
-  "division" in output.stderr
-  output.stdout == "rhs\n8 9\n"
+  assert ! output.success
+  assert "division" in output.stderr
+  assert output.stdout == "rhs\n8 9\n"
 }
 
 test test_list_assignment_evaluates_each_selector_and_rhs_once {
@@ -157,8 +157,8 @@ test test_list_assignment_evaluates_each_selector_and_rhs_once {
     root[0]["selected"][1] = 40
     3
   } else { 0 }
-  seen == ["outer", "key", "inner", "rhs"]
-  root[0].get("selected")? == [4, 40]
+  assert seen == ["outer", "key", "inner", "rhs"]
+  assert root[0].get("selected")? == [4, 40]
 }
 
 test test_list_assignment_propagates_original_result_before_commit { |ctx|
@@ -185,7 +185,7 @@ proc main() [io, error] {
 """)?
   let {success: succeeded, stderr: failure_details, ..} = output
   assert succeeded, failure_details
-  output.stdout == "9\n7\n"
+  assert output.stdout == "9\n7\n"
 }
 
 type ListAssignmentStats = {blanks: Int = 0, code: Int = 0, comments: Int = 0}
@@ -195,9 +195,9 @@ test test_list_assignment_retains_specialized_record_storage {
   let alias = rows
   rows[0].code += 3
   rows[0].comments = 1
-  rows[0].code == 3
-  rows[0].comments == 1
-  alias[0].code == 0
+  assert rows[0].code == 3
+  assert rows[0].comments == 1
+  assert alias[0].code == 0
 }
 
 pure list_assignment_unit() -> Unit {
@@ -208,5 +208,5 @@ pure list_assignment_unit() -> Unit {
 pure list_assignment_empty_unit() -> Unit {}
 
 test test_list_assignment_is_unit {
-  list_assignment_unit() == list_assignment_empty_unit()
+  assert list_assignment_unit() == list_assignment_empty_unit()
 }

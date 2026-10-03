@@ -10,16 +10,16 @@ test test_constants_prepare_data_and_keep_aliases {
   const values = [count, 9]
   var copy = values
   copy += [10]
-  count == 5
-  values == [5, 9]
-  copy == [5, 9, 10]
+  assert count == 5
+  assert values == [5, 9]
+  assert copy == [5, 9, 10]
 }
 
 test test_constants_reject_runtime_dependencies { |ctx|
   let ordinary = test.run_script(ctx, "let source = 1\nconst value = source\nprint value\n")?
-  ! ordinary.success
+  assert ! ordinary.success
   let overflow = test.run_script(ctx, "const value = 9223372036854775807 + 1\nprint value\n")?
-  ! overflow.success
+  assert ! overflow.success
 }
 
 const empty_alias = empty_numbers
@@ -29,14 +29,14 @@ enum ConstantEvent { Ready, Count(Int) }
 const protocol_event: ConstantEvent = Count(global_constant)
 
 test test_constants_prepare_constructors_paths_regex_and_forward_references {
-  global_constant == 5
-  protocol_path.display() == "relative/config"
-  protocol_pattern.matches("static")
-  protocol_bytes.len() == 6
-  protocol_config.name == "static"
-  protocol_config.values == []
-  empty_alias == []
-  protocol_event == Count(5)
+  assert global_constant == 5
+  assert protocol_path.display() == "relative/config"
+  assert protocol_pattern.matches("static")
+  assert protocol_bytes.len() == 6
+  assert protocol_config.name == "static"
+  assert protocol_config.values == []
+  assert empty_alias == []
+  assert protocol_event == Count(5)
 }
 
 test test_constants_reject_cycles_contextless_empty_values_and_local_captures { |ctx|
@@ -54,7 +54,7 @@ test test_constants_reject_cycles_contextless_empty_values_and_local_captures { 
   ]
   for source in sources {
     let executed = test.run_script(ctx, source)?
-    ! executed.success
+    assert ! executed.success
   }
 }
 
@@ -81,7 +81,7 @@ print ${values.len()}
 """, [], {XSH_MODULE_PATH: root.display()})?
   let {success: succeeded, stderr: failure_details, ..} = executed
   assert succeeded, failure_details
-  executed.stdout == "4\n2\n2\n3\n"
+  assert executed.stdout == "4\n2\n2\n3\n"
 }
 
 test test_constants_contextual_maps_share_without_mutation {
@@ -89,10 +89,10 @@ test test_constants_contextual_maps_share_without_mutation {
   const combined: Map[Int] = {...table, first: 4}
   var changed = combined
   changed["first"] = 9
-  table.get("last")? == 3
-  table.get("first")? == 2
-  combined.get("first")? == 4
-  changed.get("first")? == 9
+  assert table.get("last")? == 3
+  assert table.get("first")? == 2
+  assert combined.get("first")? == 4
+  assert changed.get("first")? == 9
 }
 
 test test_constants_reject_shadowed_runtime_values { |ctx|
@@ -106,7 +106,7 @@ test test_constants_reject_shadowed_runtime_values { |ctx|
   ]
   for source in sources {
     let executed = test.run_script(ctx, source)?
-    ! executed.success
+    assert ! executed.success
   }
 }
 
@@ -119,9 +119,9 @@ display()
 """)?
   let {success: succeeded, stderr: failure_details, ..} = executed
   assert succeeded, failure_details
-  executed.stdout == "8\n8\n"
+  assert executed.stdout == "8\n8\n"
   let asserted = test.run_script(ctx, "const condition = false\nproc check() [error] { condition }\ncheck()\n")?
-  ! asserted.success
+  assert ! asserted.success
 }
 
 test test_constants_checked_operators_keep_typed_optional_and_duration_data {
@@ -130,26 +130,26 @@ test test_constants_checked_operators_keep_typed_optional_and_duration_data {
   const maybe: Str? = "ready"
   const present = maybe != null
   const equal_zero = [-0.0] == [0.0]
-  pause == 1500ms
-  intervals == 4
-  present == true
-  equal_zero
+  assert pause == 1500ms
+  assert intervals == 4
+  assert present == true
+  assert equal_zero
 }
 
 test test_constants_fail_before_any_runtime_statement { |ctx|
   let prepared = test.run_script(ctx, "print starting\nconst invalid = 1 / 0\n")?
-  ! prepared.success
-  prepared.stdout == ""
+  assert ! prepared.success
+  assert prepared.stdout == ""
   let runtime = test.run_script(ctx, "print starting\nlet invalid = 1 / 0\n")?
-  ! runtime.success
-  runtime.stdout == "starting\n"
+  assert ! runtime.success
+  assert runtime.stdout == "starting\n"
 }
 
 test test_constants_constructor_spreads_use_prepared_visible_fields {
   const supplied = {name: "spread"}
   const configured = ConstantConfig(...supplied)
-  configured.name == "spread"
-  configured.values == []
+  assert configured.name == "spread"
+  assert configured.values == []
 }
 
 test test_constants_constructor_spreads_reject_runtime_and_erased_sources { |ctx|
@@ -162,14 +162,14 @@ test test_constants_constructor_spreads_reject_runtime_and_erased_sources { |ctx
     "type Config = {value: Int}\nconst source: Config? = {value: 1}\nconst config = Config(...source)\n",
   ] {
     let executed = test.run_script(ctx, source)?
-    ! executed.success
+    assert ! executed.success
   }
 }
 
 test test_constants_closed_record_projections_preserve_declared_field_types { |ctx|
   const source = {nested: {value: "ready"}}
   const selected = source.nested.value
-  selected == "ready"
+  assert selected == "ready"
   let rejected = test.run_script(ctx, "type Item = {value: Str?}\nconst source: Item = {value: \"ready\"}\nconst selected: Str = source.value\n")?
-  ! rejected.success
+  assert ! rejected.success
 }

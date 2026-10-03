@@ -35,7 +35,7 @@ proc main(...argv: List[Str]) [fs, env, process, time, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("inner\ncleanup:inner\nfalse\n")
+  assert (output.stdout) == ("inner\ncleanup:inner\nfalse\n")
 }
 
 test test_accept_scoped_rejected_eof_runs_cleanup_once_before_restoration { |ctx|
@@ -82,7 +82,7 @@ proc main(...argv: List[Str]) [fs, env, process, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("inner\ncleanup:inner\nrejected zero\n")
+  assert (output.stdout) == ("inner\ncleanup:inner\nrejected zero\n")
 }
 
 test test_accept_named_stage_direct_rejection_stops_before_next_item { |ctx|
@@ -107,7 +107,7 @@ match outcome {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("seen:1\nrejected zero\n")
+  assert (output.stdout) == ("seen:1\nrejected zero\n")
 }
 
 test test_accept_named_stage_result_data_and_sink_propagation_stay_distinct { |ctx|
@@ -127,7 +127,7 @@ print ${values[1] is Err(ProcessError.UnexpectedExit)}
     let {success: assertion_condition, stderr: assertion_message, ..} = mapped
     assert assertion_condition, assertion_message
   }
-  (mapped.stdout) == ("seen:1\nseen:2\n2\ntrue\ntrue\n")
+  assert (mapped.stdout) == ("seen:1\nseen:2\n2\ntrue\ntrue\n")
   for stage in ["each", "tee"] {
     let output = test.run_script(ctx, callback + r"""
 stream items() [] -> Stream[Int] {
@@ -141,8 +141,8 @@ let ignored = items() |> """ + stage + "(validate)\nprint unreachable\n")?
       let assertion_message = output.stderr
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("seen:1\ncleanup\n")
-    ("unexpected-exit" in output.stderr)
+    assert (output.stdout) == ("seen:1\ncleanup\n")
+    assert ("unexpected-exit" in output.stderr)
   }
 }
 
@@ -185,17 +185,17 @@ match transported {
       assert assertion_condition, assertion_message
     }
     let expected = if ("run.stream" in body) { "row\ncaptured\n" } else { "captured\n" }
-    (output.stdout) == (expected)
-    ("\"family\":\"OuterError\"" in output.stderr)
-    ("\"family\":\"ProcessError\"" in output.stderr)
-    ("\"variant\":\"UnexpectedExit\"" in output.stderr)
-    ("\"code\":0" in output.stderr)
-    ("\"success\":true" in output.stderr)
-    ("\"message\":\"rejected input\"" in output.stderr)
-    ("\"message\":\"transport\"" in output.stderr)
-    ("\"message\":\"publish\"" in output.stderr)
-    ("\"start_line\"" in output.stderr)
-    ("\"causes_truncated\":false" in output.stderr)
+    assert (output.stdout) == (expected)
+    assert ("\"family\":\"OuterError\"" in output.stderr)
+    assert ("\"family\":\"ProcessError\"" in output.stderr)
+    assert ("\"variant\":\"UnexpectedExit\"" in output.stderr)
+    assert ("\"code\":0" in output.stderr)
+    assert ("\"success\":true" in output.stderr)
+    assert ("\"message\":\"rejected input\"" in output.stderr)
+    assert ("\"message\":\"transport\"" in output.stderr)
+    assert ("\"message\":\"publish\"" in output.stderr)
+    assert ("\"start_line\"" in output.stderr)
+    assert ("\"causes_truncated\":false" in output.stderr)
   }
 }
 
@@ -229,7 +229,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("created\npolicy:3\nchild\npolicy:3\nchild\npolicy:3\nchild\n")
+  assert (output.stdout) == ("created\npolicy:3\nchild\npolicy:3\nchild\npolicy:3\nchild\n")
 }
 
 test test_accept_callable_alias_retains_inferred_error_and_local_capture { |ctx|
@@ -240,8 +240,8 @@ proc validate() {
 let selected = validate
 """
   let denied = test.run_script(ctx, declaration + "\nproc main() [process] { selected() }\n")?
-  (!denied.success)
-  ("check.effect-violation" in denied.stderr)
+  assert (!denied.success)
+  assert ("check.effect-violation" in denied.stderr)
   let captured = test.run_script(ctx, declaration + "\n" + r"""
 proc main() [process] -> Result[Unit] {
   try { selected() }
@@ -252,7 +252,7 @@ proc main() [process] -> Result[Unit] {
     let assertion_message = captured.stderr
     assert assertion_condition, assertion_message
   }
-  ("unexpected-exit" in captured.stderr)
+  assert ("unexpected-exit" in captured.stderr)
   {
     let assertion_condition = ("check.effect-violation" not in captured.stderr)
     let assertion_message = captured.stderr

@@ -11,7 +11,7 @@ print ${samples.samples[0] + samples.samples[1]}
 print ${count.items.len()}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "19\nDEMO\n7\n0\n"
+  assert executed.stdout == "19\nDEMO\n7\n0\n"
 }
 
 test test_generic_constructor_context_anchors_null_empty_and_unused_parameters { |ctx|
@@ -25,7 +25,7 @@ print ${empty.samples.len()}
 print $marker.name
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "8\n0\nanchored\n"
+  assert executed.stdout == "8\n0\nanchored\n"
 }
 
 test test_generic_constructor_unresolved_and_conflicting_fields_are_rejected { |ctx|
@@ -38,7 +38,7 @@ test test_generic_constructor_unresolved_and_conflicting_fields_are_rejected { |
   ] {
     let rejected = test.run_script(ctx, source)?
     assert !rejected.success, rejected.stderr
-    "check." in rejected.stderr
+    assert "check." in rejected.stderr
   }
 }
 
@@ -57,7 +57,7 @@ print $marked.marker.name
 print ${contextual[0].name}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "7\ninner\nkept\nlist\n"
+  assert executed.stdout == "7\ninner\nkept\nlist\n"
 }
 
 test test_generic_constructor_uses_annotated_function_slots_and_returns { |ctx|
@@ -81,7 +81,7 @@ print (marker().name)
 print (result_marker()?.name)
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "slot\n7\nreturn\nresult\n"
+  assert executed.stdout == "slot\n7\nreturn\nresult\n"
 }
 
 test test_generic_constructor_preserves_named_spreads_puns_and_field_order { |ctx|
@@ -101,10 +101,10 @@ print ${ordered.left * 10 + ordered.right}
 print $visits
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "15\n7\n12\n2\n"
+  assert executed.stdout == "15\n7\n12\n2\n"
   let duplicate = test.run_script(ctx, "type Pair[T] = {left: T, right: T}\nlet wrong = Pair(...{left: 1}, left: 2, right: 3)\n")?
   assert !duplicate.success, duplicate.stderr
-  "check." in duplicate.stderr
+  assert "check." in duplicate.stderr
 }
 
 test test_generic_constructor_constants_use_the_same_field_and_context_constraints { |ctx|
@@ -120,7 +120,7 @@ print ${spread.inner.value ?? "missing"}
 print ${inferred.items.len()}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "7\nconstant\ntext\n0\n"
+  assert executed.stdout == "7\nconstant\ntext\n0\n"
 }
 
 test test_generic_constructor_retains_both_typed_map_parameters { |ctx|
@@ -135,7 +135,7 @@ print ${nested.entries.len()}
 print ${prepared.entries[3]}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "ONE\n3\n0\nthree\n"
+  assert executed.stdout == "ONE\n3\n0\nthree\n"
 }
 
 test test_generic_constructor_context_reaches_nested_container_instances { |ctx|
@@ -151,7 +151,7 @@ print ${made.markers[0].name}
 print ${made.keyed["first"].name}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "list\nmap\nexpected\nconstant\nprepared\n"
+  assert executed.stdout == "list\nmap\nexpected\nconstant\nprepared\n"
 }
 
 test test_generic_constructor_phantom_arguments_preserve_structural_assignability { |ctx|
@@ -162,10 +162,10 @@ let wrapped: Wrap[Int] = Wrap(marker: marker)
 print $wrapped.marker.name
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "structural\n"
+  assert executed.stdout == "structural\n"
   let unresolved = test.run_script(ctx, "type Marker[T] = {name: Str}\ntype Wrap[T] = {marker: Marker[T]}\nlet marker: Marker[Str] = Marker(name: \"value\")\nlet wrapped = Wrap(marker: marker)\n")?
   assert !unresolved.success, unresolved.stderr
-  "check.constructor-inference" in unresolved.stderr
+  assert "check.constructor-inference" in unresolved.stderr
 }
 
 test test_generic_constructor_qualified_aliases_keep_private_schema_owners { |ctx|
@@ -185,7 +185,7 @@ print ${count.value + values.value[0]}
 print ${count.owner.name.upper()}
 """, [], {XSH_MODULE_PATH: root.display()})?
   assert executed.success, executed.stderr
-  executed.stdout == "10\nPRIVATE\n"
+  assert executed.stdout == "10\nPRIVATE\n"
 }
 
 test test_generic_constructor_explicit_any_and_null_are_authoritative { |ctx|
@@ -196,10 +196,10 @@ print $dynamic.value
 print ${nothing.value == null}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "7\ntrue\n"
+  assert executed.stdout == "7\ntrue\n"
   let rejected = test.run_script(ctx, "type Box[T] = {value: T}\nlet raw: Any = 7\nlet unknown = Box(value: raw)\n")?
   assert !rejected.success, rejected.stderr
-  "check.constructor-inference" in rejected.stderr
+  assert "check.constructor-inference" in rejected.stderr
 }
 
 test test_generic_constructor_receiver_slots_retain_declared_application_context { |ctx|
@@ -222,10 +222,10 @@ print ${fourth[3].name}
 print ${fifth[0].name}
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "binding\ndestructured\nreturn\nmap\nnested\n"
+  assert executed.stdout == "binding\ndestructured\nreturn\nmap\nnested\n"
   let rejected = test.run_script(ctx, "type Marker[T] = {name: Str}\nlet values = [{name: \"plain\"}]\nlet guessed = values.push(Marker(name: \"unobservable\"))\n")?
   assert !rejected.success, rejected.stderr
-  "check.constructor-inference" in rejected.stderr
+  assert "check.constructor-inference" in rejected.stderr
 }
 
 test test_generic_constructor_infers_exact_instances_without_later_use_evidence { |ctx|
@@ -238,7 +238,7 @@ let value: Int? = measured.value
 print ${(value ?? 0) + (exact.value ?? 0)} ${measured.state == Observed}
 """)?
   assert accepted.success, accepted.stderr
-  accepted.stdout == "24 true\n"
+  assert accepted.stdout == "24 true\n"
   for source in [
     "let measured = Observation(state: Observed, value: 12)\nlet wrong: Observation[Str] = measured\n",
     "let measured = Observation(state: Observed, value: 12)\nlet wrong: Str? = measured.value\n",

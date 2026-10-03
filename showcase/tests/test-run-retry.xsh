@@ -1,13 +1,13 @@
 test test_run_retry {
   let ok = run.text "xsh" "showcase/run-retry.xsh" -- true ?
-  "ok (try 1)" in ok
+  assert "ok (try 1)" in ok
 }
 
 test test_run_retry_exhaustion_exits_unsuccessfully { |ctx|
   let output = test.temp_path(ctx, name: "run-retry-output")
   let status = run.status "xsh" "showcase/run-retry.xsh" -- false > $output
   assert status.exited_with(1), "exhausted retries must fail the command"
-  "failed after 3" in output.read_text()?
+  assert "failed after 3" in output.read_text()?
 }
 
 test test_run_retry_cancellation_reaps_child_descendants { |ctx|

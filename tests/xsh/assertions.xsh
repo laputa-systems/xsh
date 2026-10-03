@@ -1,7 +1,7 @@
 test test_boolean_statement_failure_stops_script { |ctx|
   let output = test.run_script(ctx, "1 == 2\nprint \"unreachable\"\n")?
-  output.status == 3
-  output.stdout == ""
+  assert output.status == 3
+  assert output.stdout == ""
   assert "1 == 2" in output.stderr, output.stderr
   assert "AssertionError" in output.stderr, output.stderr
 }
@@ -18,7 +18,7 @@ let retried = retry [] { false }?
 print f"\${value} \${dynamic()} \${wrapped()?} \${wrapped_any()?} \${retried}"
 """)?
   assert output.success, output.stderr
-  output.stdout == "false false false false false\n"
+  assert output.stdout == "false false false false false\n"
 }
 
 test test_unit_tail_and_non_tail_booleans_assert { |ctx|
@@ -27,21 +27,21 @@ proc check() { 2 > 3 }
 check()?
 print "unreachable"
 """)?
-  output.status == 3
-  output.stdout == ""
+  assert output.status == 3
+  assert output.stdout == ""
 }
 
 test test_membership_checks_map_keys_and_record_fields {
   let empty: Map[Int?] = {}
   let mapping = empty.set("present", null)
-  ("present" in mapping)
-  ("absent" not in mapping)
+  assert ("present" in mapping)
+  assert ("absent" not in mapping)
   let fields = {present: null}
-  ("present" in fields)
-  ("absent" not in fields)
+  assert ("present" in fields)
+  assert ("absent" not in fields)
   let words: Map[Str] = {key: "value"}
-  "value" not in words
-  "value" not in {key: "value"}
+  assert "value" not in words
+  assert "value" not in {key: "value"}
 }
 
 test test_assertion_single_evaluation_short_circuit_and_value_predicates { |ctx|
@@ -63,7 +63,7 @@ not_all == false
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "done\n"
+  assert output.stdout == "done\n"
 }
 
 test test_assertion_nominal_error_handlers_and_retry { |ctx|
@@ -99,8 +99,8 @@ proc fail() {
 fail()?
 print "unreachable"
 """)?
-  output.status == 3
-  output.stdout == "last\nfirst\n"
+  assert output.status == 3
+  assert output.stdout == "last\nfirst\n"
   assert "AssertionError.Failed" in output.stderr, output.stderr
   assert "8 < 3" in output.stderr, output.stderr
 }
@@ -140,7 +140,7 @@ p"/usr/lib" in p"/usr/lib64/tool"
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "done\n"
+  assert output.stdout == "done\n"
 }
 
 test test_boolean_literals_names_and_statement_match_tails { |ctx|
@@ -158,13 +158,13 @@ check()?
 print "done"
 """)?
   assert passed.success, passed.stderr
-  passed.stdout == "done\n"
+  assert passed.stdout == "done\n"
   let failed = test.run_script(ctx, "let condition = false\ncondition\nprint \"unreachable\"\n")?
-  failed.status == 3
-  failed.stdout == ""
+  assert failed.status == 3
+  assert failed.stdout == ""
   let literal = test.run_script(ctx, "false\nprint \"unreachable\"\n")?
-  literal.status == 3
-  literal.stdout == ""
+  assert literal.status == 3
+  assert literal.stdout == ""
 }
 
 test test_assertion_aliases_dynamic_boundaries_and_integer_status { |ctx|
@@ -184,9 +184,9 @@ let _ = status
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "done\n"
+  assert output.stdout == "done\n"
   let integer = test.run_script(ctx, "7\n")?
-  integer.status == 7
+  assert integer.status == 7
 }
 
 test test_retained_helpers_share_core_nominal_failure { |ctx|
@@ -205,23 +205,23 @@ for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)]
 
 test test_assertion_diagnostics_include_values_and_only_evaluated_operands { |ctx|
   let equality = test.run_script(ctx, "let actual = [1, 2]\nactual == [1, 3]\n")?
-  equality.status == 3
+  assert equality.status == 3
   assert "left: [1, 2]" in equality.stderr, equality.stderr
   assert "right: [1, 3]" in equality.stderr, equality.stderr
   let ordering = test.run_script(ctx, "let small = 2\nsmall > 5\n")?
-  ordering.status == 3
+  assert ordering.status == 3
   assert "left: 2" in ordering.stderr, ordering.stderr
   assert "right: 5" in ordering.stderr, ordering.stderr
   assert ":2:1" in ordering.stderr, ordering.stderr
   let membership = test.run_script(ctx, "\"missing\" in {present: null}\n")?
-  membership.status == 3
+  assert membership.status == 3
   assert "missing" in membership.stderr, membership.stderr
   assert "present: null" in membership.stderr, membership.stderr
   let compound = test.run_script(ctx, "proc skipped() -> Result[Bool] { print \"skipped\"; true }\nfalse and skipped()?\n")?
-  compound.status == 3
-  compound.stdout == ""
+  assert compound.status == 3
+  assert compound.stdout == ""
   let difference = test.run_script(ctx, "let actual = \"old\\nline\\n\"\nactual == \"new\\nline\\n\"\n")?
-  difference.status == 3
+  assert difference.status == 3
   assert "diff:" in difference.stderr, difference.stderr
   assert "-old" in difference.stderr, difference.stderr
   assert "+new" in difference.stderr, difference.stderr
@@ -236,9 +236,9 @@ test test_assertion_diagnostics_bound_record_field_names { |ctx|
 
     """
   let output = test.run_script(ctx, source)?
-  output.status == 3
+  assert output.status == 3
   assert "abcdefghij" in output.stderr, output.stderr
-  output.stderr.byte_len() < 4096
+  assert output.stderr.byte_len() < 4096
 }
 
 test test_assertion_attempt_local_effects_and_unwrapped_exists { |ctx|
@@ -292,7 +292,7 @@ custom.has("present")
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "done\n"
+  assert output.stdout == "done\n"
 }
 
 pure assertion_negated(flag: Bool) -> Bool { !flag }
@@ -306,16 +306,16 @@ let yielded = flags() |> collect()
 print $yielded.len()
 """)?
   assert output.success, output.stderr
-  output.stdout == "2\n"
-  assertion_negated(false)
+  assert output.stdout == "2\n"
+  assert assertion_negated(false)
   var flag = true
   flag = 2 < 1
-  !flag
+  assert !flag
   let picked = if flag { true } else { false }
-  !picked
+  assert !picked
   var reached = false
   if 3 < 2 { reached = true }
-  !reached
+  assert !reached
 }
 
 test test_status_and_optional_statements_have_no_truthiness { |ctx|
@@ -326,10 +326,10 @@ let absent: Bool? = false
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "done\n"
+  assert output.stdout == "done\n"
   let integer = test.run_script(ctx, "proc check() { let code = 7; (code) }\ncheck()?\n")?
   assert integer.status == 2, integer.stderr
-  "check.type-mismatch" in integer.stderr
+  assert "check.type-mismatch" in integer.stderr
 }
 
 test test_removed_membership_apis_and_unsupported_domains_are_rejected { |ctx|
@@ -362,6 +362,6 @@ test test_imported_module_boolean_statement_is_rejected { |ctx|
   fp"${ctx.temp_root}/statement_module.xsh".write("##! Runs a statement.\n## A public field.\nexport let present = 1\ntrue\n")?
   let output = test.run_script(ctx, "use statement_module\nprint \"unreachable\"\n")?
   assert output.status == 2, output.stderr
-  output.stdout == ""
-  "check.module-top-level" in output.stderr
+  assert output.stdout == ""
+  assert "check.module-top-level" in output.stderr
 }

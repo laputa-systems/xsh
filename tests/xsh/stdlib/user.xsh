@@ -23,8 +23,8 @@ test test_user_lookup_and_mutation_contracts { |ctx|
 
   let current_user = user.current()?
   let by_uid = user.by_uid(current_user.uid)?
-  by_uid.uid == current_user.uid
-  user.lookup(current_user.name)?.uid == current_user.uid
+  assert by_uid.uid == current_user.uid
+  assert user.lookup(current_user.name)?.uid == current_user.uid
 
   let script = test.temp_file(
     ctx,
@@ -33,7 +33,7 @@ test test_user_lookup_and_mutation_contracts { |ctx|
   )?
 
   let output = run.text XSH_PASSWD_FILE=$passwd_file XSH_SHADOW_FILE=$shadow_file XSH_GROUP_FILE=$group_file "xsh" $script ?
-  "demo /home/demo" in output
+  assert "demo /home/demo" in output
   test.error_kind(user.lookup("definitely-missing-xsh-user"), "user-not-found")?
   test.error_kind(user.add("-bad"), "user-name")?
 }

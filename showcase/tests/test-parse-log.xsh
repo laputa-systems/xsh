@@ -6,7 +6,7 @@ test test_parse_log { |ctx|
   )?
 
   let output = run.text "xsh" "showcase/parse-log.xsh" -- $input ?
-  "parsed 2 entries" in output
-  "has errors: true" in output
-  "<IP>" in output
+  assert "parsed 2 entries" in output
+  assert "has errors: true" in output
+  assert "<IP>" in output
 }

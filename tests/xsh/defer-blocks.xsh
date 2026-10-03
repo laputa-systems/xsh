@@ -20,7 +20,7 @@ proc exercise() [error] {
 exercise()
 """)?
   assert output.success, output.stderr
-  output.stdout == "body\ninner\noutside\nblock:cleanup:registered\nfirst\n"
+  assert output.stdout == "body\ninner\noutside\nblock:cleanup:registered\nfirst\n"
 }
 
 test test_defer_blocks_keep_loop_cleanup_local_and_nested_defers_lifo { |ctx|
@@ -46,7 +46,7 @@ proc exercise() [] {
 exercise()
 """)?
   assert output.success, output.stderr
-  output.stdout == "body:1\ncleanup:1:2\nnested\nbody:2\ncleanup:2:2\nnested\ndone\n"
+  assert output.stdout == "body:1\ncleanup:1:2\nnested\nbody:2\ncleanup:2:2\nnested\ndone\n"
 }
 
 test test_defer_block_failure_stops_its_body_and_keeps_other_actions { |ctx|
@@ -63,8 +63,8 @@ proc exercise() [error] {
 exercise()?
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "body\nfailing\nremaining\n"
-  "cleanup failure" in output.stderr
+  assert output.stdout == "body\nfailing\nremaining\n"
+  assert "cleanup failure" in output.stderr
 }
 
 test test_defer_blocks_preserve_primary_failure_and_report_secondary_cleanup { |ctx|
@@ -80,10 +80,10 @@ proc exercise() [error] {
 exercise()?
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "failing\nremaining\n"
-  "primary failure" in output.stderr
-  "cleanup failure" in output.stderr
-  "cleanup error [" in output.stderr
+  assert output.stdout == "failing\nremaining\n"
+  assert "primary failure" in output.stderr
+  assert "cleanup failure" in output.stderr
+  assert "cleanup error [" in output.stderr
 }
 
 test test_defer_blocks_run_bare_assertions_and_implicit_result_unit { |ctx|
@@ -103,9 +103,9 @@ proc exercise() [error] {
 exercise()?
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "assertion\nremaining\n"
-  "assertion" in output.stderr
-  "result cleanup failure" in output.stderr
+  assert output.stdout == "assertion\nremaining\n"
+  assert "assertion" in output.stderr
+  assert "result cleanup failure" in output.stderr
 }
 
 test test_defer_blocks_unwind_started_stream_on_early_consumer_exit { |ctx|
@@ -124,7 +124,7 @@ for value in values() {
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "1\ninner:1\nouter\ndone\n"
+  assert output.stdout == "1\ninner:1\nouter\ndone\n"
 }
 
 test test_defer_blocks_reject_escaping_control_and_check_unselected_effects { |ctx|
@@ -157,9 +157,9 @@ proc exercise() [error] {
 exercise()?
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "body\nlast\n"
-  "first cleanup" in output.stderr
-  "second cleanup" in output.stderr
+  assert output.stdout == "body\nlast\n"
+  assert "first cleanup" in output.stderr
+  assert "second cleanup" in output.stderr
 }
 
 test test_defer_blocks_unwind_failed_module_procedure { |ctx|
@@ -175,8 +175,8 @@ export proc exercise() [error] {
   let output = test.run_script(ctx, "use cleanup\ncleanup.exercise()?\n", [], {XSH_MODULE_PATH: root.display()})?
   assert ! output.success, output.stderr
   assert output.stdout != "", output.stderr
-  output.stdout == "module cleanup\n"
-  "module failure" in output.stderr
+  assert output.stdout == "module cleanup\n"
+  assert "module failure" in output.stderr
 }
 
 test test_defer_blocks_unwind_return_and_keep_return_value { |ctx|
@@ -192,7 +192,7 @@ proc value() [] -> Int {
 print ${value()}
 """)?
   assert output.success, output.stderr
-  output.stdout == "inner\nouter\n7\n"
+  assert output.stdout == "inner\nouter\n7\n"
 }
 
 test test_defer_block_force_abort_skips_remaining_actions { |ctx|
@@ -203,8 +203,8 @@ proc exercise() [] {
 }
 exercise()
 """)?
-  output.status == 9
-  output.stdout == ""
+  assert output.status == 9
+  assert output.stdout == ""
 }
 
 test test_defer_block_force_abort_during_failure_keeps_force_status { |ctx|
@@ -216,8 +216,8 @@ proc exercise() [error] {
 }
 exercise()?
 """)?
-  output.status == 9
-  output.stdout == ""
+  assert output.status == 9
+  assert output.stdout == ""
 }
 
 test test_defer_block_top_level_force_abort_during_failure { |ctx|
@@ -226,12 +226,12 @@ defer { print "skipped" }
 defer { abort(9, force: true) }
 let _ = "primary".parse_int()?
 """)?
-  output.status == 9
-  output.stdout == ""
+  assert output.status == 9
+  assert output.stdout == ""
 }
 
 test test_defer_blocks_reject_delegated_yield_during_checking { |ctx|
   let output = test.run_script(ctx, "stream bad() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\nlet _ = bad() |> collect\n")?
   assert ! output.success, output.stderr
-  "check.defer-control-flow" in output.stderr
+  assert "check.defer-control-flow" in output.stderr
 }

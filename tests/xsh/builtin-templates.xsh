@@ -20,7 +20,7 @@ proc main() [error] {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "onetwo\none:two\n7\ntrue\ntrue\n0\n9\ntwo\none:two\n0\n"
+  assert output.stdout == "onetwo\none:two\n7\ntrue\ntrue\n0\n9\ntwo\none:two\n0\n"
 }
 
 test test_builtin_templates_preserve_nested_values_across_call_spellings { |ctx|
@@ -47,7 +47,7 @@ proc main() [error] {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "7\n7\n7\n3\n9\n2\none,two\n"
+  assert output.stdout == "7\n7\n7\n3\n9\n2\none,two\n"
 }
 
 test test_builtin_templates_evaluate_named_arguments_in_source_order { |ctx|
@@ -66,7 +66,7 @@ proc main() [] {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "receiver\nvalue\nkey\n2\nfalse\ntrue\n"
+  assert output.stdout == "receiver\nvalue\nkey\n2\nfalse\ntrue\n"
 }
 
 test test_builtin_templates_reject_incompatible_concrete_operands { |ctx|
@@ -104,7 +104,7 @@ proc main() [error] {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "0\n7\ntwo\n0\n"
+  assert output.stdout == "0\n7\ntwo\n0\n"
 }
 
 test test_builtin_templates_keep_result_return_contracts_under_success_contexts { |ctx|
@@ -121,7 +121,7 @@ proc main() [error] {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "7\n8\n9\n10\n"
+  assert output.stdout == "7\n8\n9\n10\n"
   let invalid = test.run_script(ctx, r"""let text: Str = json.encode(1)""")?
   assert !invalid.success, invalid.stderr
   assert "check.type-mismatch" in invalid.stderr, invalid.stderr
@@ -150,7 +150,7 @@ proc main() [] {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "2\n1\n3\n1\n"
+  assert output.stdout == "2\n1\n3\n1\n"
 }
 
 test test_builtin_templates_do_not_certify_dynamic_receiver_domains { |ctx|
@@ -175,7 +175,7 @@ let removed: Map[Int, Str] = updated.remove(1)
 print ${keys[0]} ${values[0]} ${found?} ${updated.len()} ${removed.keys()[0]}
 """)?
   assert accepted.success, accepted.stderr
-  accepted.stdout == "1 one one 2 2\n"
+  assert accepted.stdout == "1 one one 2 2\n"
   for source in [
     "let wrong: List[Str] = table.keys()\n",
     "let wrong: List[Int] = table.values()\n",

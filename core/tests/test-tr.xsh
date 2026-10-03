@@ -6,23 +6,23 @@ test test_tr_translate_delete_squeeze_and_stdin { |ctx|
   let digits = test.temp_file(ctx, name: "digits.txt", contents: b"a1-b2\n")?
   let only_digits = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tr.xsh" -- -cd "[:digit:]" $digits ?
   let squeezed = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tr.xsh" -- -s b B $input ?
-  translated.trim() == "Abbc"
-  upper.trim() == "ABBC"
-  deleted.trim() == "ac"
-  only_digits.trim() == "12"
-  squeezed.trim() == "aBc"
+  assert translated.trim() == "Abbc"
+  assert upper.trim() == "ABBC"
+  assert deleted.trim() == "ac"
+  assert only_digits.trim() == "12"
+  assert squeezed.trim() == "aBc"
   let script = fp"${ctx.core_dir}/tr.xsh"
 
   let command = f"""printf 'abc
 ' | ${ctx.xsh_bin.display()} ${script.display()} -- a A"""
 
   let stdin_output = run.text sh -c $command ?
-  stdin_output.trim() == "Abc"
+  assert stdin_output.trim() == "Abc"
 }
 
 test test_tr_rejects_bad_usage { |ctx|
   let err = test.temp_path(ctx, name: "tr.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/tr.xsh" -- a 2> $err
-  ! status.exited_with(0)
-  "usage:" in err.read_text()?
+  assert ! status.exited_with(0)
+  assert "usage:" in err.read_text()?
 }

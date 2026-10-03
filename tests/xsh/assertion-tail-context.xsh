@@ -13,7 +13,7 @@ match result_value() { Ok(value) => value == false; Err(_) => false }
 print "done"
 """)?
   assert output.success, output.stderr
-  output.stdout == "done\n"
+  assert output.stdout == "done\n"
 }
 
 test test_result_bool_statement_tail_requires_explicit_propagation { |ctx|
@@ -21,7 +21,7 @@ test test_result_bool_statement_tail_requires_explicit_propagation { |ctx|
 proc statement_tail() [fs, error] -> Unit { p".".exists() }
 statement_tail()
 """)?
-  !output.success
+  assert !output.success
   assert "check.ignored-result" in output.stderr, output.stderr
 }
 
@@ -39,5 +39,5 @@ match result {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "cleaned\nassertion\n"
+  assert output.stdout == "cleaned\nassertion\n"
 }

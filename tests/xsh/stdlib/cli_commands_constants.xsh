@@ -18,7 +18,7 @@ print (label == null)
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("workspace extra 6 false one\ntrue\n")
+  assert (output.stdout) == ("workspace extra 6 false one\ntrue\n")
 }
 
 test cli_commands_constants_reject_unreachable_invalid_descriptor { |ctx|
@@ -31,7 +31,7 @@ if false { let _ = cli.commands(["build", "workspace"], commands) }
     let assertion_message = output.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.cli-descriptor" in output.stderr)
+  assert ("check.cli-descriptor" in output.stderr)
 }
 
 test cli_commands_constants_preserve_fallback_and_rootless_selection { |ctx|
@@ -54,7 +54,7 @@ print root.name()
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("deploy demo extra\nbuild\ndemo\n")
+  assert (output.stdout) == ("deploy demo extra\nbuild\ndemo\n")
 }
 
 test cli_commands_constants_import_projection_and_named_spread { |ctx|
@@ -76,7 +76,7 @@ print root.display() ${rest[0]}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("workspace extra\n")
+  assert (output.stdout) == ("workspace extra\n")
 }
 
 test cli_commands_constants_keep_dynamic_validation_and_command_fields { |ctx|
@@ -96,7 +96,7 @@ print dynamic_fallback.root.display()
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("workspace\n3\nfallback once\nworkspace\n")
+  assert (output.stdout) == ("workspace\n3\nfallback once\nworkspace\n")
 }
 
 test cli_dynamic_full_descriptor_preserves_outcome_envelope { |ctx|
@@ -113,7 +113,7 @@ print ${values.count} $source warnings.len()
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("4 argv 1\n")
+  assert (output.stdout) == ("4 argv 1\n")
 }
 
 test cli_prepared_descriptors_check_annotated_result_after_refinement { |ctx|
@@ -131,12 +131,12 @@ print ${parsed.count} ${applet_values.count} command.root.display()
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("2 2 workspace\n")
+  assert (output.stdout) == ("2 2 workspace\n")
   let mismatch = test.run_script(ctx, r"""
 type IncorrectValues = {count: Str}
 const schema = {count: {kind: "Int", default: 2}}
 let parsed: IncorrectValues = cli.parse([], schema)?
 """)?
-  (!mismatch.success)
-  ("check.type-mismatch" in mismatch.stderr)
+  assert (!mismatch.success)
+  assert ("check.type-mismatch" in mismatch.stderr)
 }

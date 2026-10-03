@@ -1,15 +1,15 @@
 test test_comparison_chain_adjacent_types_and_order {
-  0 <= 1 < 2 <= 2
-  4 > 3 >= 3 > 1
-  1 < 3 > 2
-  !(0 < 0 < 1)
-  0.0 <= 1.0 < 2.0
+  assert 0 <= 1 < 2 <= 2
+  assert 4 > 3 >= 3 > 1
+  assert 1 < 3 > 2
+  assert !(0 < 0 < 1)
+  assert 0.0 <= 1.0 < 2.0
   let nan = 0.0 / 0.0
-  !(0.0 < nan < 1.0)
-  "a" < "b" <= "b"
-  1 + 1 < 3 * 2 <= 6 and true
-  false or 1 < 2 < 3
-  (1 < 2) == true
+  assert !(0.0 < nan < 1.0)
+  assert "a" < "b" <= "b"
+  assert 1 + 1 < 3 * 2 <= 6 and true
+  assert false or 1 < 2 < 3
+  assert (1 < 2) == true
 }
 
 test test_comparison_chain_evaluates_reached_operands_once { |ctx|
@@ -21,7 +21,7 @@ let result = observed(1) < observed(2) <= observed(3)
 print f"${result}"
 """)?
   assert reached.success, reached.stderr
-  reached.stdout == "1\n2\n3\ntrue\n"
+  assert reached.stdout == "1\n2\n3\ntrue\n"
 
   let skipped = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
   print f"${n}"
@@ -31,19 +31,19 @@ let result = observed(3) < observed(2) <= observed(1)
 print f"${result}"
 """)?
   assert skipped.success, skipped.stderr
-  skipped.stdout == "3\n2\nfalse\n"
+  assert skipped.stdout == "3\n2\nfalse\n"
 }
 
 test test_comparison_chain_rejects_invalid_adjacent_types { |ctx|
   let invalid = test.run_script(ctx, "let value = 0 < 1 < \"two\"\n")?
   assert ! invalid.success, invalid.stderr
-  "check.type-mismatch" in invalid.stderr
+  assert "check.type-mismatch" in invalid.stderr
   let numeric = test.run_script(ctx, "let value = 0 < 1.0 < 2.0\n")?
   assert ! numeric.success, numeric.stderr
-  "check.type-mismatch" in numeric.stderr
+  assert "check.type-mismatch" in numeric.stderr
   let grouped = test.run_script(ctx, "let value = (0 < 1) < 2\n")?
   assert ! grouped.success, grouped.stderr
-  "comparison requires Int, Float, Str, or Duration" in grouped.stderr
+  assert "comparison requires Int, Float, Str, or Duration" in grouped.stderr
 }
 
 test test_comparison_chain_requires_grouping_for_mixed_tests { |ctx|
@@ -57,7 +57,7 @@ test test_comparison_chain_requires_grouping_for_mixed_tests { |ctx|
   ] {
     let invalid = test.run_script(ctx, source)?
     assert ! invalid.success, invalid.stderr
-    "parse.mixed-comparison" in invalid.stderr
+    assert "parse.mixed-comparison" in invalid.stderr
   }
   let explicit = test.run_script(ctx, "let value = (0 < 1 < 2) == true\n")?
   assert explicit.success, explicit.stderr
@@ -68,10 +68,10 @@ test test_comparison_chain_skips_failing_last_operand { |ctx|
 print f"${result}"
 """)?
   assert result.success, result.stderr
-  result.stdout == "false\n"
+  assert result.stdout == "false\n"
   let reached = test.run_script(ctx, "let result = 0 < 1 < (1 / 0)\n")?
   assert ! reached.success, reached.stderr
-  "division-by-zero" in reached.stderr
+  assert "division-by-zero" in reached.stderr
 }
 
 test test_comparison_chain_bare_assertion_reports_reached_failed_pair { |ctx|
@@ -82,8 +82,8 @@ test test_comparison_chain_bare_assertion_reports_reached_failed_pair { |ctx|
 observed(1) < observed(2) < observed(1) < (1 / 0)
 """)?
   assert ! failed.success, failed.stderr
-  failed.stdout == "1\n2\n1\n"
-  "AssertionError.Failed" in failed.stderr
-  "2 < 1" in failed.stderr
+  assert failed.stdout == "1\n2\n1\n"
+  assert "AssertionError.Failed" in failed.stderr
+  assert "2 < 1" in failed.stderr
   assert "division-by-zero" not in failed.stderr, failed.stderr
 }

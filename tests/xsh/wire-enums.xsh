@@ -13,7 +13,7 @@ print ("seen".require(State)? == Seen)
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("true\ntrue\n{\"history\":[\"\",\"unsupported\"],\"optional\":null,\"state\":\"seen\"}\n\"seen\"\ntrue\n")
+  assert (executed.stdout) == ("true\ntrue\n{\"history\":[\"\",\"unsupported\"],\"optional\":null,\"state\":\"seen\"}\n\"seen\"\ntrue\n")
 }
 
 test test_wire_enum_require_is_atomic_and_type_patterns_do_not_convert { |ctx|
@@ -34,9 +34,9 @@ match tag { _ is State => print "actual enum"; _ => print "wrong tag" }
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  ("states[1]" in executed.stdout)
-  ("{\"state\":\"seen\",\"states\":[\"seen\",\"unknown\"]}" in executed.stdout)
-  ("raw string\nactual enum\n" in executed.stdout)
+  assert ("states[1]" in executed.stdout)
+  assert ("{\"state\":\"seen\",\"states\":[\"seen\",\"unknown\"]}" in executed.stdout)
+  assert ("raw string\nactual enum\n" in executed.stdout)
   {
     let assertion_condition = "unexpected success" not in executed.stdout
     let assertion_message = executed.stdout
@@ -84,21 +84,21 @@ match right.require(a.State) { Err(_) => print "require rejected"; Ok(_) => prin
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("false\n\"same\"\n\"same\"\ntrue\ntrue\ndifferent identity\nrequire rejected\n")
+  assert (executed.stdout) == ("false\n\"same\"\n\"same\"\ntrue\ntrue\ndifferent identity\nrequire rejected\n")
   let rejected = test.run_script(ctx, "enum State { Seen }\nprint json.encode(Seen)?\n")?
   {
     let assertion_condition = ! rejected.success
     let assertion_message = rejected.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.json-compatible" in rejected.stderr)
+  assert ("check.json-compatible" in rejected.stderr)
   let dynamic = test.run_script(ctx, "enum State { Seen }\nlet value: Any = Seen\nprint json.encode(value)?\n")?
   {
     let assertion_condition = ! dynamic.success
     let assertion_message = dynamic.stderr
     assert assertion_condition, assertion_message
   }
-  ("json-compatible" in dynamic.stderr)
+  assert ("json-compatible" in dynamic.stderr)
 }
 
 test test_wire_enum_map_values_and_missing_defaults { |ctx|
@@ -117,8 +117,8 @@ match invalid.require(Row) { Err(failure) => print $failure.message; Ok(_) => pr
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  ("true\n{\"note\":\"supplied\",\"states\":{\"a\":\"seen\",\"b\":\"missing\"}}\nmissing rejected\n" in executed.stdout)
-  ("states[\"a\"]" in executed.stdout)
+  assert ("true\n{\"note\":\"supplied\",\"states\":{\"a\":\"seen\",\"b\":\"missing\"}}\nmissing rejected\n" in executed.stdout)
+  assert ("states[\"a\"]" in executed.stdout)
 }
 
 
@@ -135,14 +135,14 @@ print ("ready".require(State)? == prepared)
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("{\"state\":\"ready\",\"states\":[\"ready\",\"\"]}\ntrue\n")
+  assert (executed.stdout) == ("{\"state\":\"ready\",\"states\":[\"ready\",\"\"]}\ntrue\n")
   let duplicate = test.run_script(ctx, "const same = \"same\"\nenum State: Str { First = same, Second = \"same\" }\n")?
   {
     let assertion_condition = ! duplicate.success
     let assertion_message = duplicate.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.enum-wire-mapping" in duplicate.stderr)
+  assert ("check.enum-wire-mapping" in duplicate.stderr)
 }
 
 test test_wire_enum_json_write_pretty_and_raw_decode { |ctx|
@@ -164,7 +164,7 @@ print ("\"ready\"" in json.encode(restored, pretty: true)?)
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("ready\ntrue\n{\"history\":[\"\",\"ready\"],\"state\":\"ready\"}\ntrue\n")
+  assert (executed.stdout) == ("ready\ntrue\n{\"history\":[\"\",\"ready\"],\"state\":\"ready\"}\ntrue\n")
 }
 
 test test_wire_enum_static_import_and_dynamic_module_load_share_identity { |ctx|
@@ -184,7 +184,7 @@ proc main(source: Path) [fs, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("true\n\"ready\"\nsame constructor\n")
+  assert (executed.stdout) == ("true\n\"ready\"\nsame constructor\n")
 }
 
 test test_wire_enum_imported_generic_records_keep_declaring_mapping { |ctx|
@@ -206,9 +206,9 @@ print json.encode(invalid)?
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  ("true\ntrue\n{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"ready\"]}}\n" in executed.stdout)
-  ("value.values[1]" in executed.stdout)
-  ("{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"unknown\"]}}" in executed.stdout)
+  assert ("true\ntrue\n{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"ready\"]}}\n" in executed.stdout)
+  assert ("value.values[1]" in executed.stdout)
+  assert ("{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"unknown\"]}}" in executed.stdout)
 }
 
 
@@ -227,7 +227,7 @@ print (json.encode(decoded.require(List[State])?)? == encoded)
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("true\ntrue\ntrue\ncase rejected\ntrue\n")
+  assert (executed.stdout) == ("true\ntrue\ntrue\ncase rejected\ntrue\n")
 }
 
 test test_wire_enum_typed_map_values_preserve_key_domains { |ctx|
@@ -257,9 +257,9 @@ match actual { _ is Map[UInt, State] => print "unexpected type conversion"; _ =>
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  ("true\ntrue\n[\"ready\",\"\"]\nnon-Str JSON keys rejected\nraw keys rejected\n" in executed.stdout)
-  ("UInt key" in executed.stdout)
-  ("unknown wire string" in executed.stdout)
-  ("$[2]" in executed.stdout)
-  ("true\ntrue\nactual values checked\n" in executed.stdout)
+  assert ("true\ntrue\n[\"ready\",\"\"]\nnon-Str JSON keys rejected\nraw keys rejected\n" in executed.stdout)
+  assert ("UInt key" in executed.stdout)
+  assert ("unknown wire string" in executed.stdout)
+  assert ("$[2]" in executed.stdout)
+  assert ("true\ntrue\nactual values checked\n" in executed.stdout)
 }

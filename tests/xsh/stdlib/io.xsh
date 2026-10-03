@@ -7,14 +7,14 @@ test test_io_stdin_text_line_bytes_and_stdout { |ctx|
 
   let text_input = test.temp_file(ctx, name: "text.in", contents: b"hello\nworld\n")?
 
-  (run.text "xsh" $text_script < ${text_input}?) == """hello
+  assert (run.text "xsh" $text_script < ${text_input}?) == """hello
 world
 """
 
   let line_script = test.temp_file(ctx, name: "io-line.xsh", contents: b"let line = io.stdin_line()?\nprint ${line}\n")?
   let line_input = test.temp_file(ctx, name: "line.in", contents: b"first\r\nsecond\n")?
 
-  (run.text "xsh" $line_script < ${line_input}?) == """first
+  assert (run.text "xsh" $line_script < ${line_input}?) == """first
 """
 
   let bytes_script = test.temp_file(
@@ -24,5 +24,5 @@ world
   )?
 
   let bytes_input = test.temp_file(ctx, name: "bytes.in", contents: b"\0abc\xff")?
-  (run.bytes "xsh" $bytes_script < ${bytes_input}?) == b"\0abc\xff"
+  assert (run.bytes "xsh" $bytes_script < ${bytes_input}?) == b"\0abc\xff"
 }

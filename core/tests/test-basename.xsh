@@ -1,12 +1,12 @@
 test test_basename_basic { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/basename.xsh" -- /tmp/demo.txt ?
-  output.trim() == "demo.txt"
+  assert output.trim() == "demo.txt"
 }
 
 test test_basename_suffix_and_multiple { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/basename.xsh" -- -a -s .txt /tmp/demo.txt /tmp/other.txt ?
 
-  output.trim() == """demo
+  assert output.trim() == """demo
 other"""
 }
 
@@ -19,6 +19,6 @@ test test_basename_runs_as_executable_shebang_script { |ctx|
   script.chmod(0o755)?
   let output = run.text $script -- /tmp/demo.txt ?
 
-  output == """demo.txt
+  assert output == """demo.txt
 """
 }

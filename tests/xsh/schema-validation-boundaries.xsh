@@ -22,7 +22,7 @@ match wrong.require(TextMarker) {
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "validated\nrejected\n"
+  assert output.stdout == "validated\nrejected\n"
 }
 
 test test_schema_validation_keeps_the_declaring_private_schema { |ctx|
@@ -44,7 +44,7 @@ assert forwarded.owner.count == 7, "forwarded private owner"
 print "validated"
 """, [], {XSH_MODULE_PATH: root.display()})?
   assert output.success, output.stderr
-  output.stdout == "validated\n"
+  assert output.stdout == "validated\n"
 }
 
 test test_schema_validation_rejects_context_inferred_from_desired_access { |ctx|
@@ -54,7 +54,7 @@ test test_schema_validation_rejects_context_inferred_from_desired_access { |ctx|
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source
-    output.stdout == ""
-    "check.require-target" in output.stderr
+    assert output.stdout == ""
+    assert "check.require-target" in output.stderr
   }
 }

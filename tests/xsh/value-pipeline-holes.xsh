@@ -2,16 +2,16 @@ pure pipeline_join(prefix: Str, value: Str, suffix: Str) -> Str { prefix + value
 pure pipeline_number(value: Int) -> Int { value + 1 }
 
 test test_value_pipeline_holes_choose_positional_and_named_arguments { |ctx|
-  ("middle" |> pipeline_join("[", _, "]")) == ("[middle]")
-  ("middle" |> pipeline_join("[", value: _, suffix: "]")) == ("[middle]")
-  ("middle" |> pipeline_join("[", value: _, ...{suffix: "]"})) == ("[middle]")
-  (2 |> pipeline_number((_))) == (3)
+  assert ("middle" |> pipeline_join("[", _, "]")) == ("[middle]")
+  assert ("middle" |> pipeline_join("[", value: _, suffix: "]")) == ("[middle]")
+  assert ("middle" |> pipeline_join("[", value: _, ...{suffix: "]"})) == ("[middle]")
+  assert (2 |> pipeline_number((_))) == (3)
   let cast = test.run_script(ctx, r"""("x" |> Path(_)) == p"x"
 """)?
   let {success: cast_success, stderr: cast_message, ..} = cast
   assert cast_success, cast_message
-  ([1, 2] |> map { |_| 0 } |> collect()) == ([0, 0])
-  (" middle " |> trim() |> pipeline_join("[", _, "]")) == ("[middle]")
+  assert ([1, 2] |> map { |_| 0 } |> collect()) == ([0, 0])
+  assert (" middle " |> trim() |> pipeline_join("[", _, "]")) == ("[middle]")
 }
 
 test test_value_pipeline_holes_evaluate_input_before_remaining_arguments { |ctx|
@@ -25,7 +25,7 @@ print $result
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("input\nfirst\nlast\nfirstinputlast\n")
+  assert (result.stdout) == ("input\nfirst\nlast\nfirstinputlast\n")
 }
 
 test test_value_pipeline_holes_reject_other_placeholder_contexts { |ctx|
@@ -62,7 +62,7 @@ print (selected ?? "missing")
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("input\nreceiver\nmissing\n")
+  assert (result.stdout) == ("input\nreceiver\nmissing\n")
 }
 
 test test_value_pipeline_holes_preserve_explicit_result_boundaries { |ctx|
@@ -78,7 +78,7 @@ print $parsed_number $explicit $implicit
     let {success: assertion_condition, stderr: assertion_message, ..} = result
     assert assertion_condition, assertion_message
   }
-  (result.stdout) == ("3 function: x  x\n")
+  assert (result.stdout) == ("3 function: x  x\n")
   let failed = test.run_script(ctx, """
 error Stop = Stopped(message: Str)
 proc input() [] -> Result[Str, Stop] { print "input"; Err(Stop.Stopped(message: "stop")) }

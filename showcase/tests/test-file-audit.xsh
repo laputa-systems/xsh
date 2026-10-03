@@ -16,14 +16,14 @@ test test_file_audit_findings { |ctx|
   fs.symlink(fp"${root}/world.txt", fp"${root}/absolute")?
   fs.symlink(fp"${outside}/target.txt", fp"${root}/escape")?
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root ?
-  "broken-symlink broken" in output
-  "absolute-symlink absolute" in output
-  "escaping-symlink escape" in output
-  "world-writable-file world.txt" in output
-  "world-writable-dir open-dir" in output
+  assert "broken-symlink broken" in output
+  assert "absolute-symlink absolute" in output
+  assert "escaping-symlink escape" in output
+  assert "world-writable-file world.txt" in output
+  assert "world-writable-dir open-dir" in output
 
   if suid.metadata()?.setuid {
-    "setuid-setgid-file suid.sh" in output
+    assert "setuid-setgid-file suid.sh" in output
   }
 }
 
@@ -49,5 +49,5 @@ test test_file_audit_distinguishes_non_utf8_sibling_paths { |ctx|
   fs.symlink(target, link)?
 
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root_alias ?
-  "escaping-symlink escape" in output
+  assert "escaping-symlink escape" in output
 }

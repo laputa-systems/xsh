@@ -10,7 +10,7 @@ let word = text("word")
 """))?
   let checked = run.capture --text "xsht" check $file ?
   assert checked.status.exited_with(0), checked.stderr
-  checked.stdout == ""
+  assert checked.stdout == ""
 }
 
 test test_constructor_application_preserves_partial_spread_context_and_owned_defaults { |ctx|
@@ -25,5 +25,5 @@ assert value.items.len() == 0, "declaration default"
 print paired
 """)?
   assert executed.success, executed.stderr
-  executed.stdout == "paired\n"
+  assert executed.stdout == "paired\n"
 }

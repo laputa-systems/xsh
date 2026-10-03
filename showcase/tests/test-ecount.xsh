@@ -9,10 +9,10 @@ test test_ecount_counts_extensions { |ctx|
   fp"${root}/README".write("ignored")?
   fp"${root}/.hidden.txt".write("ignored")?
   let output = run.text "xsh" "showcase/ecount.xsh" -- $root ?
-  "   1 (none)" in output
-  "   1 xsh" in output
-  "   2 txt" in output
-  output.split("README").len() == 1
+  assert "   1 (none)" in output
+  assert "   1 xsh" in output
+  assert "   2 txt" in output
+  assert output.split("README").len() == 1
 }
 
 test test_ecount_can_sum_sizes { |ctx|
@@ -22,7 +22,7 @@ test test_ecount_can_sum_sizes { |ctx|
   fp"${root}/c.log".write("yz")?
   fp"${root}/README".write("zz")?
   let output = run.text "xsh" "showcase/ecount.xsh" -- "--size" $root ?
-  "   1            2 (none)" in output
-  "   2            3 log" in output
-  "   1            4 bin" in output
+  assert "   1            2 (none)" in output
+  assert "   2            3 log" in output
+  assert "   1            4 bin" in output
 }

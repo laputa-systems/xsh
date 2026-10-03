@@ -1,18 +1,18 @@
 test test_system_module {
-  (system.hostname()? != "")
+  assert (system.hostname()? != "")
   let uname = system.uname()?
-  (uname.sysname != "")
+  assert (uname.sysname != "")
   let memory = system.memory()?
-  (memory.total > 0)
-  (memory.free >= 0)
-  (memory.swap_total >= 0)
+  assert (memory.total > 0)
+  assert (memory.free >= 0)
+  assert (memory.swap_total >= 0)
   let release = system.os_release()?
-  (release.name != "")
-  (release.pretty_name != "")
-  (release.id != "")
+  assert (release.name != "")
+  assert (release.pretty_name != "")
+  assert (release.id != "")
   let units = system.execution_units()?
-  (units.page_size_bytes > 0)
-  (units.clock_ticks_per_second > 0)
+  assert (units.page_size_bytes > 0)
+  assert (units.clock_ticks_per_second > 0)
 }
 
 test test_system_memory_reads_the_host_text {
@@ -27,11 +27,11 @@ test test_system_memory_reads_the_host_text {
   # kilobyte count scaled to bytes, and a free or available count is part of the
   # total it is reported next to.
   let memory = system.memory()?
-  (memory.total > 0)
-  (memory.total % 1024) == 0
-  (memory.free >= 0 and memory.free <= memory.total)
-  (memory.available >= 0 and memory.available <= memory.total)
-  (memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)
+  assert (memory.total > 0)
+  assert (memory.total % 1024) == 0
+  assert (memory.free >= 0 and memory.free <= memory.total)
+  assert (memory.available >= 0 and memory.available <= memory.total)
+  assert (memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)
 }
 
 test test_system_os_release_reads_the_host_text {
@@ -47,9 +47,9 @@ test test_system_os_release_reads_the_host_text {
   # resolved name, and the unquoted identifier carries no white space. The
   # fallback to `/usr/lib/os-release` is covered by the fixed-path host test.
   let release = system.os_release()?
-  (release.name != "")
-  (release.id != "")
-  (release.pretty_name != "")
-  (" " not in release.id)
-  release.id == release.id.trim()
+  assert (release.name != "")
+  assert (release.id != "")
+  assert (release.pretty_name != "")
+  assert (" " not in release.id)
+  assert release.id == release.id.trim()
 }

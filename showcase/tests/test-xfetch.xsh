@@ -1,10 +1,10 @@
 test test_xfetch_summary {
   let output = run.text "xsh" "showcase/xfetch.xsh" ?
-  "OS" in output
-  "Kernel" in output
-  "Arch" in output
-  "Uptime" in output
-  "CPU" in output
-  "Memory" in output
-  "Root" in output
+  assert "OS" in output
+  assert "Kernel" in output
+  assert "Arch" in output
+  assert "Uptime" in output
+  assert "CPU" in output
+  assert "Memory" in output
+  assert "Root" in output
 }

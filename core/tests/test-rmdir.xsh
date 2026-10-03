@@ -3,5 +3,5 @@ test test_rmdir_parents { |ctx|
   let nested = fp"${root}/a/b/c"
   nested.mkdir()?
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/rmdir.xsh" -- -p $nested ?
-  ! fp"${root}/a".exists()?
+  assert ! fp"${root}/a".exists()?
 }

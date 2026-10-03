@@ -26,20 +26,20 @@ test test_ifdown_all_removes_configured_interfaces { |ctx|
   # Bring up eth0 first.
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifup.xsh" -- eth0 ?
 
-  "eth0=eth0" in state.read_text()?
+  assert "eth0=eth0" in state.read_text()?
 
   # Bring down with ifdown -a.
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifdown.xsh" -- -a ?
 
   # State should be cleared after teardown.
-  state.exists()? == false
+  assert state.exists()? == false
 
   # Verify the teardown operations were logged.
   let linux_text = linux_log.read_text()?
-  "\"op\":\"link_down\"" in linux_text
-  "\"op\":\"flush_ipv4_addresses\"" in linux_text
-  "\"op\":\"del_default_ipv4_route\"" in linux_text
-  "\"interface\":\"eth0\"" in linux_text
+  assert "\"op\":\"link_down\"" in linux_text
+  assert "\"op\":\"flush_ipv4_addresses\"" in linux_text
+  assert "\"op\":\"del_default_ipv4_route\"" in linux_text
+  assert "\"interface\":\"eth0\"" in linux_text
 }
 
 test test_ifdown_runs_hooks { |ctx|
@@ -55,9 +55,9 @@ test test_ifdown_runs_hooks { |ctx|
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifdown.xsh" -- eth0 ?
 
   let hooks = hook_log.read_text()?
-  "pre-down:eth0:eth0:inet:static" in hooks
-  "down:eth0:10.0.1.42" in hooks
-  "post-down:post-down" in hooks
+  assert "pre-down:eth0:eth0:inet:static" in hooks
+  assert "down:eth0:10.0.1.42" in hooks
+  assert "post-down:post-down" in hooks
 }
 
 test test_ifdown_dhcp_sends_release { |ctx|
@@ -81,11 +81,11 @@ iface eth0 inet dhcp
   # reach a server.  This is fine — we just verify the primitive was called.
   let status = run.status XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifdown.xsh" -- eth0 2> $err
 
-  status.ok == true
+  assert status.ok == true
   let linux_text = linux_log.read_text()?
-  "\"op\":\"link_down\"" in linux_text
-  "\"op\":\"flush_ipv4_addresses\"" in linux_text
-  "\"op\":\"del_default_ipv4_route\"" in linux_text
+  assert "\"op\":\"link_down\"" in linux_text
+  assert "\"op\":\"flush_ipv4_addresses\"" in linux_text
+  assert "\"op\":\"del_default_ipv4_route\"" in linux_text
 }
 
 test test_ifdown_skips_unconfigured_interface { |ctx|
@@ -106,7 +106,7 @@ iface eth0 inet static
   # Don't pre-seed state — ifdown should be a no-op for unconfigured interfaces.
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifdown.xsh" -- eth0 ?
 
-  linux_log.exists()? == false
+  assert linux_log.exists()? == false
 }
 
 test test_ifdown_logical_selection { |ctx|
@@ -127,6 +127,6 @@ test test_ifdown_logical_selection { |ctx|
 
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifdown.xsh" -- eth0=office ?
 
-  "\"interface\":\"eth0\"" in linux_log.read_text()?
-  state.exists()? == false
+  assert "\"interface\":\"eth0\"" in linux_log.read_text()?
+  assert state.exists()? == false
 }

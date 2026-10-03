@@ -15,17 +15,17 @@ test test_error_fallback_is_lazy_and_binds_exact_error {
     calls += 1
     failure.message
   }
-  loaded == "loaded"
-  calls == 0
+  assert loaded == "loaded"
+  assert calls == 0
   let recovered = fallback_outcome(false) ?? { |failure|
     calls += 1
     failure.message
   }
-  recovered == "invalid config"
-  calls == 1
+  assert recovered == "invalid config"
+  assert calls == 1
   let exact: Result[Str, FallbackError] = Err(FallbackError.invalid(message: "nominal"))
   let message = exact ?? { |failure| fallback_nominal_message(failure) }
-  message == "nominal"
+  assert message == "nominal"
 }
 
 test test_error_fallback_evaluates_result_once_before_handler { |ctx|
@@ -40,7 +40,7 @@ let recovered = load(false) ?? { |failure| print f"handler ${failure.message}"; 
 print $loaded $recovered
 """)?
   assert output.success, output.stderr
-  output.stdout == "load true\nload false\nhandler missing\nloaded fallback\n"
+  assert output.stdout == "load true\nload false\nhandler missing\nloaded fallback\n"
 }
 
 test test_error_fallback_boolean_tail_is_a_value {
@@ -49,27 +49,27 @@ test test_error_fallback_boolean_tail_is_a_value {
     let answer = false
     answer
   }
-  !recovered
+  assert !recovered
 }
 
 test test_error_fallback_keeps_record_expression {
   let outcome: Result[FallbackRecord, FallbackError] = Err(FallbackError.invalid(message: "invalid"))
   let recovered = outcome ?? {message: "record"}
-  recovered == {message: "record"}
+  assert recovered == {message: "record"}
 }
 
 test test_error_fallback_literal_error_and_right_associativity {
   let direct = Err(FallbackError.invalid(message: "direct")) ?? { |failure| failure.message }
-  direct.trim() == "direct"
+  assert direct.trim() == "direct"
   let first = Ok("first")
   let second: Result[Str] = Err(FallbackError.invalid(message: "second"))
   var reached = 0
   let skipped = first ?? second ?? { |failure| reached += 1; failure.message }
-  skipped == "first"
-  reached == 0
+  assert skipped == "first"
+  assert reached == 0
   let handled = fallback_outcome(false) ?? second ?? { |failure| reached += 1; failure.message }
-  handled == "second"
-  reached == 1
+  assert handled == "second"
+  assert reached == 1
 }
 
 test test_error_fallback_cleanup_and_lexical_return { |ctx|
@@ -97,7 +97,7 @@ proc escape() [error] -> Int {
 print ${recover()} ${escape()}
 """)?
   assert output.success, output.stderr
-  output.stdout == "failed\nvalue\ncleanup\nafter\nreturn cleanup\n7 9\n"
+  assert output.stdout == "failed\nvalue\ncleanup\nafter\nreturn cleanup\n7 9\n"
 }
 
 test test_error_fallback_keeps_enclosing_loop_targets {
@@ -110,7 +110,7 @@ test test_error_fallback_keeps_enclosing_loop_targets {
     }
     visited += selected
   }
-  visited == 4
+  assert visited == 4
   visited = 0
   for number in [1, 2, 3] {
     let outcome: Result[Int] = Err(FallbackError.invalid(message: "failed"))
@@ -120,7 +120,7 @@ test test_error_fallback_keeps_enclosing_loop_targets {
     }
     visited += selected
   }
-  visited == 1
+  assert visited == 1
 }
 
 test test_error_fallback_failure_propagates_to_retry_attempt { |ctx|
@@ -139,7 +139,7 @@ print $recovered $attempts
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "recovered 2\n"
+  assert output.stdout == "recovered 2\n"
 }
 
 test test_error_fallback_rejects_invalid_contexts { |ctx|
@@ -154,8 +154,8 @@ test test_error_fallback_rejects_invalid_contexts { |ctx|
     {source: "let value = { |failure| 2 }\n", code: "check.fallback-block-context"},
   ] {
     let output = test.run_script(ctx, source)?
-    !output.success
-    code in output.stderr
+    assert !output.success
+    assert code in output.stderr
   }
 }
 
@@ -168,8 +168,8 @@ let value = failed ?? { |_|
 }
 print $value
 """)?
-  output.status == 3
-  "FallbackError.handler" in output.stderr
-  "handler failed" in output.stderr
-  output.stdout == ""
+  assert output.status == 3
+  assert "FallbackError.handler" in output.stderr
+  assert "handler failed" in output.stderr
+  assert output.stdout == ""
 }

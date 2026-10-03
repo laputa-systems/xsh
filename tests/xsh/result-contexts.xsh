@@ -27,7 +27,7 @@ print ${block_result()?}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("true\ntrue\n7\n11\ntrue\n13\n")
+  assert (output.stdout) == ("true\ntrue\n7\n11\ntrue\n13\n")
 }
 
 test test_result_unit_nested_match_tail_keeps_error_data { |ctx|
@@ -49,5 +49,5 @@ print ${translated is Err(E.Failed)}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("true\n")
+  assert (output.stdout) == ("true\n")
 }

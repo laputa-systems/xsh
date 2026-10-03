@@ -19,7 +19,7 @@ proc main() [] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("0\ncall\ncall\n11\n12\n1\n4\ntrue\ntrue\n")
+  assert (output.stdout) == ("0\ncall\ncall\n11\n12\n1\n4\ntrue\ntrue\n")
 }
 
 test test_stage_functions_supply_independent_aggregate_defaults { |ctx|
@@ -39,7 +39,7 @@ proc main() [] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("1\n1\n")
+  assert (output.stdout) == ("1\n1\n")
 }
 
 test test_stage_functions_cover_keys_sinks_named_configuration_and_results { |ctx|
@@ -67,7 +67,7 @@ proc main() [] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("direction\n1\n3\n2\n2\nseen:1\nseen:2\ntrue\nseen:3\ntrue\ntrue\n")
+  assert (output.stdout) == ("direction\n1\n3\n2\n2\nseen:1\nseen:2\ntrue\nseen:3\ntrue\ntrue\n")
 }
 
 test test_stage_functions_short_circuit_and_cancel_child_cleanup { |ctx|
@@ -92,7 +92,7 @@ proc main() [error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("pull:1\ntest:1\npull:2\ntest:2\ncleanup\ntrue\npull:1\ntest:1\ncleanup\nfalse\n")
+  assert (output.stdout) == ("pull:1\ntest:1\npull:2\ntest:2\ncleanup\ntrue\npull:1\ntest:1\ncleanup\nfalse\n")
 }
 
 test test_stage_functions_for_break_matches_explicit_wrapper_pull_order { |ctx|
@@ -112,7 +112,7 @@ proc main() [error] {
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("pull:1\ncall\n11\ncleanup\n")
+    assert (output.stdout) == ("pull:1\ncall\n11\ncleanup\n")
   }
 }
 
@@ -132,7 +132,7 @@ proc main() [error] { let _ = numbers() |> """ + stage + "(observe) }\n")?
       let assertion_message = output.stderr
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("seen:1\nseen:2\ncleanup\n")
+    assert (output.stdout) == ("seen:1\nseen:2\ncleanup\n")
     {
       let assertion_condition = "sink failed" in output.stderr
       let assertion_message = output.stderr
@@ -150,7 +150,7 @@ proc main() [error] { let _ = numbers() |> map(observe) }
     let assertion_message = late.stderr
     assert assertion_condition, assertion_message
   }
-  (late.stdout) == ("seen:1\ncleanup\n")
+  assert (late.stdout) == ("seen:1\ncleanup\n")
 }
 
 test test_stage_functions_reject_erasure_shadowing_partial_methods_and_bad_contracts { |ctx|
@@ -202,7 +202,7 @@ print ${(["a"] |> map(helpers.surround))[0]}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("5\n[a\n")
+  assert (output.stdout) == ("5\n[a\n")
 }
 
 test test_stage_functions_select_standard_overloads_from_the_item_type { |ctx|
@@ -221,7 +221,7 @@ proc main(...argv: List[Str]) [fs, error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("900150983cd24fb0d6963f7d28e17f72\n900150983cd24fb0d6963f7d28e17f72\n")
+  assert (output.stdout) == ("900150983cd24fb0d6963f7d28e17f72\n900150983cd24fb0d6963f7d28e17f72\n")
   let ambiguous = test.run_script(ctx, "use hash\nproc apply(items: List[Any]) [fs] { let _ = items |> map(hash.md5) }\n")?
   {
     let assertion_condition = ! ambiguous.success
@@ -293,9 +293,9 @@ proc main() [error] {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("2\n")
+  assert (output.stdout) == ("2\n")
   let _ = run.capture --text "xsht" lint --fix $candidate ?
-  (candidate.read_text()?) == (fixed)
+  assert (candidate.read_text()?) == (fixed)
   let broken = source + "missing_name()\n"
   let invalid = test.temp_file(ctx, name: "stage-function-invalid.xsh", contents: bytes.from_text(broken))?
   let refused = run.capture --text "xsht" lint --fix $invalid ?

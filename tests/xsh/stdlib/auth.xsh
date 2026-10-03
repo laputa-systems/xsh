@@ -13,21 +13,21 @@ test test_auth_lib_passwd_and_shadow_parse_render {
 bad:x:not-int:0:bad:/bad:/bin/sh
 """)?
 
-  passwd.len() == 1
-  (passwd[0].name) == ("root")
-  (passwd[0].uid) == (0)
-  (passwd[0].home.display()) == ("/root")
+  assert passwd.len() == 1
+  assert (passwd[0].name) == ("root")
+  assert (passwd[0].uid) == (0)
+  assert (passwd[0].home.display()) == ("/root")
 
   let shadow = auth.parse_shadow("""root:!:1:0:99999:7:::
 raw-line
 """)
 
-  shadow.len() == 2
-  (shadow[0].username) == ("root")
-  (shadow[0].rest[0]) == ("1")
-  (shadow[1].raw)
+  assert shadow.len() == 2
+  assert (shadow[0].username) == ("root")
+  assert (shadow[0].rest[0]) == ("1")
+  assert (shadow[1].raw)
 
-  auth.render_shadow(shadow) == """root:!:1:0:99999:7:::
+  assert auth.render_shadow(shadow) == """root:!:1:0:99999:7:::
 raw-line
 """
 }
@@ -65,10 +65,10 @@ exit 17
   assert (! applet.verify_password("wrong", known_sha512)), "verify_password accepted the wrong password for the reference hash"
   assert (applet.current_euid() >= 0), "current_euid is negative"
   assert (applet.current_exe()?.exists()?), "current_exe path does not exist"
-  applet.login_session(session_user, false, "")? == 17
-  applet.sulogin_session(session_user)? == 17
-  applet.su_session(session_user, false, false, shell.display(), "", [])? == 17
-  applet.su_session(session_user, false, false, "/bin/sh", "exit 19", [])? == 19
+  assert applet.login_session(session_user, false, "")? == 17
+  assert applet.sulogin_session(session_user)? == 17
+  assert applet.su_session(session_user, false, false, shell.display(), "", [])? == 17
+  assert applet.su_session(session_user, false, false, "/bin/sh", "exit 19", [])? == 19
   test.error_kind(applet.hash_password("secret", "bogus"), "applet-hash-password")?
 }
 

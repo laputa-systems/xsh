@@ -12,8 +12,8 @@ proc leaf() -> Int {
 }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 
@@ -27,8 +27,8 @@ proc even(value: Int) -> Int {
 proc odd(value: Int) -> Int { even(value - 1) }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 test test_private_proc_effects_keep_transitive_host_requirements { |ctx|
@@ -41,8 +41,8 @@ proc clock() -> Int {
 }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 test test_private_proc_effects_enforce_explicit_upper_bounds { |ctx|
@@ -50,9 +50,9 @@ test test_private_proc_effects_enforce_explicit_upper_bounds { |ctx|
 proc caller() [] -> Int { deliberate_bound() }
 proc deliberate_bound() [time] -> Int { 42 }
 """)?
-  output.status != 0
-  ("check.effect-violation" in output.stderr) == true
-  ("time" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.effect-violation" in output.stderr) == true
+  assert ("time" in output.stderr) == true
 }
 
 test test_private_proc_effects_do_not_execute_references { |ctx|
@@ -67,8 +67,8 @@ proc clock() -> Int {
 }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 test test_private_proc_effects_preserve_proc_pure_separation { |ctx|
@@ -76,8 +76,8 @@ test test_private_proc_effects_preserve_proc_pure_separation { |ctx|
 pure caller() -> Int { helper() }
 proc helper() -> Int { 42 }
 """)?
-  output.status != 0
-  ("check.pure-effect" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.pure-effect" in output.stderr) == true
 }
 
 test test_private_proc_effects_report_unknown_dynamic_call_chain { |ctx|
@@ -89,9 +89,9 @@ proc dynamic(callback: Proc) -> Int {
   42
 }
 """)?
-  output.status != 0
-  ("check.effect-violation" in output.stderr) == true
-  ("forwarding -> dynamic -> Proc.call" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.effect-violation" in output.stderr) == true
+  assert ("forwarding -> dynamic -> Proc.call" in output.stderr) == true
 }
 
 test test_private_proc_effects_include_implicit_assertion_failure { |ctx|
@@ -102,9 +102,9 @@ proc checked() -> Int {
   42
 }
 """)?
-  output.status != 0
-  ("check.effect-violation" in output.stderr) == true
-  ("error" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.effect-violation" in output.stderr) == true
+  assert ("error" in output.stderr) == true
 }
 
 test test_private_proc_effects_capture_assertion_error_locally { |ctx|
@@ -116,8 +116,8 @@ proc locally_caught() -> Int {
 }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 test test_private_proc_effects_capture_keeps_host_requirements { |ctx|
@@ -131,9 +131,9 @@ proc locally_caught() -> Int {
   42
 }
 """)?
-  output.status != 0
-  ("check.effect-violation" in output.stderr) == true
-  ("time" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.effect-violation" in output.stderr) == true
+  assert ("time" in output.stderr) == true
 }
 
 test test_private_proc_effects_distinguish_captured_mutation_from_host_effects { |ctx|
@@ -146,8 +146,8 @@ proc increment() -> Int {
 }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "1\n"
+  assert output.status == 0
+  assert output.stdout == "1\n"
 }
 
 test test_private_proc_effects_propagate_host_requirement_through_recursion { |ctx|
@@ -163,8 +163,8 @@ proc first(value: Int) -> Int {
 proc second(value: Int) -> Int { first(value) }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 test test_private_proc_effects_preserve_authored_public_upper_bound { |ctx|
@@ -174,9 +174,9 @@ test test_private_proc_effects_preserve_authored_public_upper_bound { |ctx|
 export proc published() [time] -> Int { 42 }
 proc caller() [] -> Int { published() }
 """)?
-  output.status != 0
-  ("check.effect-violation" in output.stderr) == true
-  ("time" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.effect-violation" in output.stderr) == true
+  assert ("time" in output.stderr) == true
 }
 
 test test_private_proc_effects_preserve_authored_stream_upper_bound { |ctx|
@@ -184,9 +184,9 @@ test test_private_proc_effects_preserve_authored_stream_upper_bound { |ctx|
 stream values() [time] -> Stream[Int] { yield 42 }
 proc caller() [] -> Stream[Int] { values() }
 """)?
-  output.status != 0
-  ("check.effect-violation" in output.stderr) == true
-  ("time" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.effect-violation" in output.stderr) == true
+  assert ("time" in output.stderr) == true
 }
 
 test test_private_proc_effects_capture_transitive_plain_return_failure { |ctx|
@@ -203,8 +203,8 @@ proc failing() -> Int {
 }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 test test_private_proc_effects_include_explicit_result_propagation { |ctx|
@@ -213,8 +213,8 @@ proc caller() [error] -> Int { parsed() }
 proc parsed() -> Int { "42".parse_int()? }
 print \${caller()}
 """)?
-  output.status == 0
-  output.stdout == "42\n"
+  assert output.status == 0
+  assert output.stdout == "42\n"
 }
 
 test test_private_proc_effects_keep_erased_pure_calls_unknown { |ctx|
@@ -225,9 +225,9 @@ proc forwarding(callback: Pure) -> Int {
   42
 }
 """)?
-  output.status != 0
-  ("check.effect-violation" in output.stderr) == true
-  ("forwarding -> Pure.call" in output.stderr) == true
+  assert output.status != 0
+  assert ("check.effect-violation" in output.stderr) == true
+  assert ("forwarding -> Pure.call" in output.stderr) == true
 }
 
 test test_private_proc_effects_include_typed_method_requirements { |ctx|
@@ -235,14 +235,14 @@ test test_private_proc_effects_include_typed_method_requirements { |ctx|
 proc caller(file: Path) [fs, error] -> Str { reader(file) }
 proc reader(file: Path) -> Str { file.read_text()? }
 """)?
-  accepted.status == 0
+  assert accepted.status == 0
   let rejected = test.run_xsh(ctx, """
 proc caller(file: Path) [] -> Str { reader(file) }
 proc reader(file: Path) -> Str { file.read_text()? }
 """)?
-  rejected.status != 0
-  ("check.effect-violation" in rejected.stderr) == true
-  ("fs" in rejected.stderr) == true
+  assert rejected.status != 0
+  assert ("check.effect-violation" in rejected.stderr) == true
+  assert ("fs" in rejected.stderr) == true
 }
 
 test test_private_proc_effects_include_executed_stage_body_requirements { |ctx|
@@ -255,7 +255,7 @@ proc projected() -> List[Int] {
   } |> collect
 }
 """)?
-  accepted.status == 0
+  assert accepted.status == 0
   let rejected = test.run_xsh(ctx, """
 proc caller() [] -> List[Int] { projected() }
 proc projected() -> List[Int] {
@@ -265,9 +265,9 @@ proc projected() -> List[Int] {
   } |> collect
 }
 """)?
-  rejected.status != 0
-  ("check.effect-violation" in rejected.stderr) == true
-  ("time" in rejected.stderr) == true
+  assert rejected.status != 0
+  assert ("check.effect-violation" in rejected.stderr) == true
+  assert ("time" in rejected.stderr) == true
 }
 
 test test_private_proc_effects_infer_module_call_and_propagation_requirements { |ctx|
@@ -277,13 +277,13 @@ proc read_manifest(file: Path) -> Result[Manifest] {
 }
 """
   let accepted = test.run_xsh(ctx, declaration + "proc caller(file: Path) [fs, error] -> Result[Manifest] { read_manifest(file) }\n")?
-  accepted.status == 0
+  assert accepted.status == 0
   for {declared, missing} in [{declared: "error", missing: "fs"}, {declared: "fs", missing: "error"}] {
     let caller = "proc caller(file: Path) [" + declared + "] -> Result[Manifest] { read_manifest(file) }\n"
     let rejected = test.run_xsh(ctx, declaration + caller)?
-    rejected.status != 0
-    ("check.effect-violation" in rejected.stderr) == true
-    (f"effect `${missing}` required by `read_manifest`" in rejected.stderr) == true
+    assert rejected.status != 0
+    assert ("check.effect-violation" in rejected.stderr) == true
+    assert (f"effect `${missing}` required by `read_manifest`" in rejected.stderr) == true
   }
 }
 
@@ -293,9 +293,9 @@ test test_private_proc_effects_leave_missing_public_and_stream_clauses_unrestric
     "stream values() -> Stream[Int] { yield 42 }\nproc caller() [] -> Stream[Int] { values() }\n",
   ] {
     let rejected = test.run_xsh(ctx, source)?
-    rejected.status != 0
-    ("check.effect-violation" in rejected.stderr) == true
-    ("unknown or unrestricted effect contract" in rejected.stderr) == true
+    assert rejected.status != 0
+    assert ("check.effect-violation" in rejected.stderr) == true
+    assert ("unknown or unrestricted effect contract" in rejected.stderr) == true
   }
   let accepted = test.run_xsh(ctx, """
 export proc published() [] -> Int { helper() }
@@ -303,6 +303,6 @@ proc helper() -> Int { 42 }
 proc caller() [] -> Int { published() }
 print \${caller()}
 """)?
-  accepted.status == 0
-  accepted.stdout == "42\n"
+  assert accepted.status == 0
+  assert accepted.stdout == "42\n"
 }

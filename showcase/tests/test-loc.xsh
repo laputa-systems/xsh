@@ -10,6 +10,6 @@ test test_loc { |ctx|
 """)?
 
   let output = run.text "xsh" "showcase/loc.xsh" -- $root ?
-  "rs" in output
-  "2 files" in output
+  assert "rs" in output
+  assert "2 files" in output
 }

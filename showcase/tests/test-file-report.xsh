@@ -3,5 +3,5 @@ test test_file_report { |ctx|
   fp"${root}/a.xsh".write("proc main() {}")?
   fp"${root}/b.xsh".write("proc other() {}")?
   let output = run.text "xsh" "showcase/file-report.xsh" -- --root $root ?
-  "2 files  " in output
+  assert "2 files  " in output
 }

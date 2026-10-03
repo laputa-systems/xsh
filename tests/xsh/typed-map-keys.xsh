@@ -15,7 +15,7 @@ print (numbers.get(99) ?? "missing")
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("3 three\n20 twenty\nthree\nmissing\n")
+  assert (output.stdout) == ("3 three\n20 twenty\nthree\nmissing\n")
 }
 
 type Identifier = Int
@@ -24,52 +24,52 @@ test test_typed_map_scalar_domains_aliases_and_updates {
   var numbers: Map[Identifier, Str] = { [20]: "twenty", [3]: "three", [-1]: "negative"}
   let snapshot = numbers
   numbers[3] = "changed"
-  (numbers.keys()) == ([-1, 3, 20])
-  (numbers.values()) == (["negative", "changed", "twenty"])
-  (snapshot[3]) == ("three")
-  (3 in numbers)
-  (99 not in numbers)
-  (numbers.remove(3).keys()) == ([-1, 20])
+  assert (numbers.keys()) == ([-1, 3, 20])
+  assert (numbers.values()) == (["negative", "changed", "twenty"])
+  assert (snapshot[3]) == ("three")
+  assert (3 in numbers)
+  assert (99 not in numbers)
+  assert (numbers.remove(3).keys()) == ([-1, 20])
   let flags: Map[Bool, Int] = { [true]: 1, [false]: 0}
-  (flags.keys()) == ([false, true])
+  assert (flags.keys()) == ([false, true])
   let data: Map[Bytes, Int] = { [b"z"]: 2, [b"a"]: 1}
-  (data.keys()) == ([b"a", b"z"])
-  (data.get(b"a")?) == (1)
+  assert (data.keys()) == ([b"a", b"z"])
+  assert (data.get(b"a")?) == (1)
   let paths: Map[Path, Str] = { [p"z"]: "last", [p"a"]: "first"}
-  (paths.keys()) == ([p"a", p"z"])
-  (paths[p"a"]) == ("first")
+  assert (paths.keys()) == ([p"a", p"z"])
+  assert (paths[p"a"]) == ("first")
   let delays: Map[Duration, Int] = { [20ms]: 2, [3ms]: 1}
-  (delays.keys()) == ([3ms, 20ms])
-  (delays[3ms]) == (1)
+  assert (delays.keys()) == ([3ms, 20ms])
+  assert (delays[3ms]) == (1)
   let unsigned: Map[UInt, Str] = { [20]: "twenty", [3]: "three"}
   let expected_unsigned = typed_unsigned_keys([3, 20])
-  unsigned.keys() == expected_unsigned
-  (unsigned.keys()[0] + 1) == (4)
+  assert unsigned.keys() == expected_unsigned
+  assert (unsigned.keys()[0] + 1) == (4)
   let strings: Map[Str] = {a: "first", z: "last"}
-  (strings.keys()) == (["a", "z"])
+  assert (strings.keys()) == (["a", "z"])
 }
 
 test test_typed_map_inference_comprehension_null_and_empty {
   let inferred = { [20]: "twenty", [3]: "three"}
   let first_key = inferred.keys()[0]
   let first_value = inferred.values()[0]
-  (first_key) == (3)
-  (first_value) == ("three")
+  assert (first_key) == (3)
+  assert (first_value) == ("three")
   let comprehension = {item: f"$item" for item in [20, 3]}
-  (comprehension.keys()) == ([3, 20])
+  assert (comprehension.keys()) == ([3, 20])
   let entries = [key for {key, value} in comprehension if value != "20"]
-  (entries) == ([3])
+  assert (entries) == ([3])
   let nullable: Map[Int, Str?] = { [1]: null}
-  (nullable.get(1)?) == (null)
+  assert (nullable.get(1)?) == (null)
   test.error_kind(nullable.get(2), "map-missing")?
   let empty: Map[Int, Str] = {}
-  (empty.keys()) == ([])
-  (empty.set(3, "three").get(3)?) == ("three")
+  assert (empty.keys()) == ([])
+  assert (empty.set(3, "three").get(3)?) == ("three")
   let nested: Map[Int, List[Int]] = { [1]: [2, 3]}
   var changed = nested
   changed[1][0] = 9
-  (changed[1]) == ([9, 3])
-  (nested[1]) == ([2, 3])
+  assert (changed[1]) == ([9, 3])
+  assert (nested[1]) == ([2, 3])
 }
 
 test test_typed_map_rejects_mixed_and_unsupported_keys { |ctx|
@@ -82,8 +82,8 @@ test test_typed_map_rejects_mixed_and_unsupported_keys { |ctx|
     "let values: Map[Int, Str] = {}\nlet invalid = values.set(1, false)\n",
   ] {
     let output = test.run_script(ctx, source)?
-    (!output.success)
-    (("check." in output.stderr))
+    assert (!output.success)
+    assert (("check." in output.stderr))
   }
 }
 
@@ -99,7 +99,7 @@ test test_typed_map_json_rejects_non_string_keys {
   test.error_kind(json.encode(path_keys), "json-compatible")?
   test.error_kind(json.encode(duration), "json-compatible")?
   let encoded = {[f"${key}"]: value for {key, value} in {[1]: 2}}
-  (json.encode(encoded)?) == ("{\"1\":2}")
+  assert (json.encode(encoded)?) == ("{\"1\":2}")
 }
 
 type UnsignedIdentifier = UInt
@@ -128,20 +128,20 @@ test test_typed_map_unsigned_keys_reject_negative_boundaries { |ctx|
     }
   }
   let values: Map[UnsignedIdentifier, Str] = {[3]: "three"}
-  (values.get(3)?) == ("three")
+  assert (values.get(3)?) == ("three")
 }
 
 test test_typed_map_path_and_bytes_keep_native_identity {
   let first = Path.parse_bytes(b"\xff")?
   let second = Path.parse_bytes(b"\xfe")?
   let paths: Map[Path, Int] = {[first]: 1, [second]: 2}
-  (paths.len()) == (2)
-  (paths.keys()) == ([second, first])
-  (paths.get(first)?) == (1)
-  (paths.get(second)?) == (2)
+  assert (paths.len()) == (2)
+  assert (paths.keys()) == ([second, first])
+  assert (paths.get(first)?) == (1)
+  assert (paths.get(second)?) == (2)
   let data: Map[Bytes, Int] = {[b"\xff"]: 1, [b"\xfe"]: 2}
-  (data.keys()) == ([b"\xfe", b"\xff"])
-  (data.get(b"\xff")?) == (1)
+  assert (data.keys()) == ([b"\xfe", b"\xff"])
+  assert (data.get(b"\xff")?) == (1)
 }
 
 test test_typed_map_erased_updates_reject_mixed_domains { |ctx|
@@ -170,13 +170,13 @@ const prepared_duration_keys = {[20ms]: 2, [3ms]: 1}
 const prepared_unsigned_keys: Map[UInt, Str] = {[3]: "three"}
 
 test test_typed_map_prepared_constants_keep_scalar_keys {
-  (prepared_numeric_keys.keys()) == ([3, 20])
-  (prepared_numeric_keys.get(3)?) == ("three")
-  (prepared_flag_keys.keys()) == ([false, true])
-  (prepared_byte_keys.keys()) == ([b"\xfe", b"\xff"])
-  (prepared_path_keys.keys()) == ([p"a", p"z"])
-  (prepared_duration_keys.keys()) == ([3ms, 20ms])
-  (prepared_unsigned_keys.get(3)?) == ("three")
+  assert (prepared_numeric_keys.keys()) == ([3, 20])
+  assert (prepared_numeric_keys.get(3)?) == ("three")
+  assert (prepared_flag_keys.keys()) == ([false, true])
+  assert (prepared_byte_keys.keys()) == ([b"\xfe", b"\xff"])
+  assert (prepared_path_keys.keys()) == ([p"a", p"z"])
+  assert (prepared_duration_keys.keys()) == ([3ms, 20ms])
+  assert (prepared_unsigned_keys.get(3)?) == ("three")
 }
 
 test test_typed_map_prepared_constants_reject_mixed_and_unsigned_negative_keys { |ctx|

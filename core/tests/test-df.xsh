@@ -16,10 +16,10 @@ test test_df { |ctx|
   let resolved = root.resolve()?
   let stats = fs.filesystem_stats(resolved)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/df.xsh" -- -kP $root ?
-  "Filesystem 1024-blocks Used Available Capacity Mounted on" in output
-  f" ${stats.blocks_1k} " in output
+  assert "Filesystem 1024-blocks Used Available Capacity Mounted on" in output
+  assert f" ${stats.blocks_1k} " in output
   let fake_used = root.du()?
-  ! (f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}" in output)
+  assert ! (f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}" in output)
 }
 
 test test_df_matches_alpine_kp { |ctx|
@@ -37,5 +37,5 @@ test test_df_matches_alpine_kp { |ctx|
   fp"${root}/payload.txt".write("abcdef")?
   let alpine = run.text df -kP $root ?
   let ours = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/df.xsh" -- -kP $root ?
-  normalize_df_mounts(ours) == normalize_df_mounts(alpine)
+  assert normalize_df_mounts(ours) == normalize_df_mounts(alpine)
 }

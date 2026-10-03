@@ -9,8 +9,8 @@ test test_group_lookup_and_mutation_contracts { |ctx|
 
   let current_group = group.current()?
   let by_gid = group.by_gid(current_group.gid)?
-  by_gid.gid == current_group.gid
-  group.lookup(current_group.name)?.gid == current_group.gid
+  assert by_gid.gid == current_group.gid
+  assert group.lookup(current_group.name)?.gid == current_group.gid
 
   let script = test.temp_file(
     ctx,
@@ -19,7 +19,7 @@ test test_group_lookup_and_mutation_contracts { |ctx|
   )?
 
   let output = run.text XSH_GROUP_FILE=$group_file "xsh" $script ?
-  "builders 2000" in output
+  assert "builders 2000" in output
   test.error_kind(group.lookup("definitely-missing-xsh-group"), "group-not-found")?
   test.error_kind(group.add("-bad"), "group-name")?
 }

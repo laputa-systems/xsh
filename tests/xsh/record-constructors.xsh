@@ -6,20 +6,20 @@ pure constructor_config(name: Str) -> ConstructorConfig { ConstructorConfig(name
 test test_record_constructors_defaults_aliases_and_puns {
   let name = "demo"
   let config = ConstructorAlias(name:)
-  (constructor_config("pure").name) == ("pure")
-  (config.name) == ("demo")
-  (config.enabled) == (true)
-  (config.names) == (["initial"])
-  (config.options.len()) == (0)
-  (ConstructorConfig(name: "explicit", options: {}).options.len()) == (0)
+  assert (constructor_config("pure").name) == ("pure")
+  assert (config.name) == ("demo")
+  assert (config.enabled) == (true)
+  assert (config.names) == (["initial"])
+  assert (config.options.len()) == (0)
+  assert (ConstructorConfig(name: "explicit", options: {}).options.len()) == (0)
   var first = ConstructorConfig(name: "first")
   let second = ConstructorConfig(name: "second")
   first.names += ["changed"]
   var options = first.options
   options["changed"] = "value"
-  (second.names) == (["initial"])
-  (second.options.len()) == (0)
-  (record_default_names) == (["initial"])
+  assert (second.names) == (["initial"])
+  assert (second.options.len()) == (0)
+  assert (record_default_names) == (["initial"])
 }
 
 test test_record_constructors_evaluate_supplied_arguments_in_source_order { |ctx|
@@ -36,7 +36,7 @@ print $pair.second
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("2\n1\n1\n2\n")
+  assert (executed.stdout) == ("2\n1\n1\n2\n")
 }
 
 test test_record_constructors_reject_invalid_calls_and_defaults { |ctx|
@@ -52,7 +52,7 @@ test test_record_constructors_reject_invalid_calls_and_defaults { |ctx|
       let assertion_message = rejected.stderr
       assert assertion_condition, assertion_message
     }
-    ("check.record-constructor" in rejected.stderr)
+    assert ("check.record-constructor" in rejected.stderr)
   }
   for source in [
     "type Config = {name: Str = env.get(\"HOME\")}\n",
@@ -66,7 +66,7 @@ test test_record_constructors_reject_invalid_calls_and_defaults { |ctx|
       let assertion_message = rejected.stderr
       assert assertion_condition, assertion_message
     }
-    ("check.record-default" in rejected.stderr)
+    assert ("check.record-default" in rejected.stderr)
   }
   let missing = test.run_script(ctx, "type Config = {name: Str = \"demo\"}\nlet config: Config = {}\n")?
   {
@@ -117,7 +117,7 @@ print $third.name
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("OTHER\n5\nMODULE\nMODULE\nmodule\nREQUIRED\n9\nmodule\nmodule\nmodule\n")
+  assert (executed.stdout) == ("OTHER\n5\nMODULE\nMODULE\nmodule\nREQUIRED\n9\nmodule\nmodule\nmodule\n")
 }
 
 test test_record_constructor_defaults_do_not_change_require_or_json_validation { |ctx|
@@ -137,7 +137,7 @@ match decoded.require(Config) {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("missing-record\nmissing-json\n")
+  assert (executed.stdout) == ("missing-record\nmissing-json\n")
 }
 
 test test_record_constructor_tooling_preserves_behavior_and_converges { |ctx|
@@ -155,22 +155,22 @@ test test_record_constructor_tooling_preserves_behavior_and_converges { |ctx|
     assert assertion_condition, assertion_message
   }
   let fixed = candidate.read_text()?
-  ("let config: Config = Config(name:)" in fixed)
-  ("# Keep this field explanation." in fixed)
+  assert ("let config: Config = Config(name:)" in fixed)
+  assert ("# Keep this field explanation." in fixed)
   let after = test.run_script(ctx, fixed)?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = after
     assert assertion_condition, assertion_message
   }
-  (after.stdout) == (before.stdout)
+  assert (after.stdout) == (before.stdout)
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
   {
     let assertion_condition = repeated.status.exited_with(1)
     let assertion_message = repeated.stderr
     assert assertion_condition, assertion_message
   }
-  ("lint.prefer-record-constructor" in repeated.stderr)
-  (candidate.read_text()?) == (fixed)
+  assert ("lint.prefer-record-constructor" in repeated.stderr)
+  assert (candidate.read_text()?) == (fixed)
 }
 
 test test_record_constructors_bound_scalar_defaults_and_static_identity { |ctx|
@@ -191,26 +191,26 @@ print ${value.items.len()}
     let {success: assertion_condition, stderr: assertion_message, ..} = accepted
     assert assertion_condition, assertion_message
   }
-  (accepted.stdout) == ("base\nsupplied\n-3\n-1.5\nok\ndemo\n0\n")
+  assert (accepted.stdout) == ("base\nsupplied\n-3\n-1.5\nok\ndemo\n0\n")
   let first_class = test.run_script(ctx, "type Config = {name: Str = \"demo\"}\nlet factory = Config\n")?
   {
     let assertion_condition = ! first_class.success
     let assertion_message = first_class.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.unresolved-name" in first_class.stderr)
+  assert ("check.unresolved-name" in first_class.stderr)
   let collision = test.run_script(ctx, "type Config = {name: Str}\npure Config(name: Str) -> Str { name }\n")?
   {
     let assertion_condition = ! collision.success
     let assertion_message = collision.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.duplicate-name" in collision.stderr)
+  assert ("check.duplicate-name" in collision.stderr)
   let wrong_default = test.run_script(ctx, "type Config = {name: Str = 1}\n")?
   {
     let assertion_condition = ! wrong_default.success
     let assertion_message = wrong_default.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.type-mismatch" in wrong_default.stderr)
+  assert ("check.type-mismatch" in wrong_default.stderr)
 }

@@ -5,10 +5,10 @@ test test_backup_rotate { |ctx|
   fp"${dir}/backup-2025-01-01.tar.gz".write("new1")?
   fp"${dir}/backup-2025-12-01.tar.gz".write("newest")?
   let output = run.text "xsh" "showcase/backup-rotate.xsh" -- --dir $dir --keep 2 --dry-run=false ?
-  "kept 2" in output
-  "deleted 2" in output
-  fp"${dir}/backup-2025-12-01.tar.gz".exists()?
-  fp"${dir}/backup-2024-01-01.tar.gz".exists()? == false
+  assert "kept 2" in output
+  assert "deleted 2" in output
+  assert fp"${dir}/backup-2025-12-01.tar.gz".exists()?
+  assert fp"${dir}/backup-2024-01-01.tar.gz".exists()? == false
 }
 
 test test_backup_rotate_only_deletes_direct_backup_files { |ctx|
@@ -20,10 +20,10 @@ test test_backup_rotate_only_deletes_direct_backup_files { |ctx|
   fp"${nested}/notes.txt".write("keep me")?
 
   let output = run.text "xsh" "showcase/backup-rotate.xsh" -- --dir $dir --keep 1 --dry-run=false ?
-  "deleted 1" in output
-  fp"${dir}/backup-2025-01-01.tar.gz".exists()?
-  ! fp"${dir}/backup-2024-01-01.tar.gz".exists()?
-  fp"${nested}/notes.txt".read_text()? == "keep me"
+  assert "deleted 1" in output
+  assert fp"${dir}/backup-2025-01-01.tar.gz".exists()?
+  assert ! fp"${dir}/backup-2024-01-01.tar.gz".exists()?
+  assert fp"${nested}/notes.txt".read_text()? == "keep me"
 }
 
 test test_backup_rotate_reports_failed_deletion_without_claiming_it_happened { |ctx|
@@ -43,6 +43,6 @@ test test_backup_rotate_reports_failed_deletion_without_claiming_it_happened { |
   let output = run.capture --text "xsh" "showcase/backup-rotate.xsh" -- --dir $dir --keep 1 --dry-run=false ?
   assert ! output.status.exited_with(0), "deletion must report permission failure"
   assert "delete: backup-2024-01-01.tar.gz" not in output.stdout, "failed deletion must not be reported as done"
-  old.read_text()? == "old"
-  newest.read_text()? == "new"
+  assert old.read_text()? == "old"
+  assert newest.read_text()? == "new"
 }

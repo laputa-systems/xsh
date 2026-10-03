@@ -15,7 +15,7 @@ with value = fail() {} else { |failure|
 }
 """)?
   assert output.success, output.stderr
-  output.stdout == "nominal\nnominal\n"
+  assert output.stdout == "nominal\nnominal\n"
 }
 
 test test_with_bindings_are_sequential_and_stop_at_the_first_error { |ctx|
@@ -32,7 +32,7 @@ with first = reached(3), second = failed()?, third = reached(4) {
 print after
 """)?
   assert output.success, output.stderr
-  output.stdout == "1\n2\n2\n3\nstop\nafter\n"
+  assert output.stdout == "1\n2\n2\n3\nstop\nafter\n"
 }
 
 test test_error_headers_accept_comments_newlines_omission_and_discard { |ctx|
@@ -51,7 +51,7 @@ with direct = 4, next = direct + 1 { print $next } else { print unreachable }
 print $failure
 """)?
   assert output.success, output.stderr
-  output.stdout == "inside\nomitted\ndiscarded\n5\noutside\n"
+  assert output.stdout == "inside\nomitted\ndiscarded\n5\noutside\n"
 }
 
 test test_error_headers_reject_missing_inputs_and_invalid_bindings { |ctx|
@@ -70,7 +70,7 @@ test test_error_headers_reject_missing_inputs_and_invalid_bindings { |ctx|
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source
-    code in output.stderr
+    assert code in output.stderr
   }
 }
 
@@ -81,9 +81,9 @@ test test_outside_error_headers_are_rejected_before_execution { |ctx|
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source
-    output.stdout == ""
-    "parse.block-header-migration" in output.stderr
-    "inside the block" in output.stderr
+    assert output.stdout == ""
+    assert "parse.block-header-migration" in output.stderr
+    assert "inside the block" in output.stderr
   }
 }
 
@@ -109,7 +109,7 @@ proc escape() [] -> Int {
 print ${exercise()} ${escape()}
 """)?
   assert output.success, output.stderr
-  output.stdout == "1\ncleanup:1\n2\ncleanup:2\nouter\n2 8\n"
+  assert output.stdout == "1\ncleanup:1\n2\ncleanup:2\nouter\n2 8\n"
 }
 
 test test_with_handler_errors_and_body_propagation_keep_their_identity { |ctx|
@@ -120,8 +120,8 @@ test test_with_handler_errors_and_body_propagation_keep_their_identity { |ctx|
     let source = "error HeaderError = primary(message: Str) | handler(message: Str)\npure failed() -> Result[Unit, HeaderError] { Err(HeaderError.primary(message: \"primary\")) }\nproc exercise() [error] {\n" + body + "\n}\nexercise()?\n"
     let output = test.run_script(ctx, source)?
     assert ! output.success, output.stderr
-    output.stdout == "cleanup\n"
-    expected in output.stderr
+    assert output.stdout == "cleanup\n"
+    assert expected in output.stderr
   }
 }
 
@@ -138,19 +138,19 @@ print recover()
 """
   let candidate = test.temp_file(ctx, name: "legacy-header.xsh", contents: bytes.from_text(source))?
   let guidance = run.capture --text "xsht" lint $candidate ?
-  "lint.block-header" in guidance.stderr
+  assert "lint.block-header" in guidance.stderr
   let fixed = run.capture --text "xsht" lint --fix $candidate ?
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
-  rewritten == source.replace("else |failure| {", "else { |failure|")
+  assert rewritten == source.replace("else |failure| {", "else { |failure|")
   let again = run.capture --text "xsht" lint --fix $candidate ?
   assert again.status.exited_with(0), again.stderr
-  candidate.read_text()? == rewritten
+  assert candidate.read_text()? == rewritten
   let checked = run.capture --text "xsht" check $candidate ?
   assert checked.status.exited_with(0), checked.stderr
   let formatted = run.capture --text "xsht" fmt $candidate ?
   assert formatted.status.exited_with(0), formatted.stderr
-  "else { |failure|" in candidate.read_text()?
+  assert "else { |failure|" in candidate.read_text()?
 }
 
 test test_block_header_migration_refuses_header_comments_and_unrelated_errors { |ctx|
@@ -168,7 +168,7 @@ print ${recover()}
     let candidate = test.temp_file(ctx, name: "unsafe-header.xsh", contents: bytes.from_text(source))?
     let attempted = run.capture --text "xsht" lint --fix $candidate ?
     assert ! attempted.status.exited_with(0), attempted.stderr
-    candidate.read_text()? == source
+    assert candidate.read_text()? == source
   }
 }
 
@@ -194,7 +194,7 @@ let result = guarded() |> collect
 print ${result[0]}
 """)?
   assert output.success, output.stderr
-  output.stdout == "1\nclosed\nguarded_closed\n7\n"
+  assert output.stdout == "1\nclosed\nguarded_closed\n7\n"
 }
 
 proc header_open_root(root_path: Path) [fs, error] -> Result[FsRoot] {
@@ -207,7 +207,7 @@ test test_with_headers_preserve_escaping_owned_prefix_values { |ctx|
   let root_path = test.temp_dir(ctx, name: "header-root")?
   let root = header_open_root(root_path)?
   root.write(p"value", "retained")?
-  root.read_text(p"value")? == "retained"
+  assert root.read_text(p"value")? == "retained"
   root.close()?
 }
 
@@ -234,10 +234,10 @@ print recover()
   let fixed = run.capture --text "xsht" lint --fix $directory ?
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = shared.read_text()?
-  rewritten == shared_source.replace("else |failure| {", "else { |failure|")
+  assert rewritten == shared_source.replace("else |failure| {", "else { |failure|")
   let again = run.capture --text "xsht" lint --fix $directory ?
   assert again.status.exited_with(0), again.stderr
-  shared.read_text()? == rewritten
+  assert shared.read_text()? == rewritten
 }
 
 test test_with_initializers_use_the_existing_heap_frame_stack { |ctx|
@@ -249,7 +249,7 @@ proc count(depth: Int) [] -> Int {
 print count(2000)
 """)?
   assert output.success, output.stderr
-  output.stdout == "2000\n"
+  assert output.stdout == "2000\n"
 }
 
 test test_with_compound_initializers_keep_nominal_errors { |ctx|
@@ -264,5 +264,5 @@ print ${selected()}
 with value = 1 + failed()? { print unreachable } else { |failure| print ${message(failure)} }
 """)?
   assert output.success, output.stderr
-  output.stdout == "compound\ncompound\n"
+  assert output.stdout == "compound\ncompound\n"
 }

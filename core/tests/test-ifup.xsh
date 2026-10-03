@@ -26,18 +26,18 @@ test test_ifup_all_applies_auto_static_and_hooks { |ctx|
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifup.xsh" -- -a ?
 
   let linux_text = linux_log.read_text()?
-  "\"op\":\"link_up\"" in linux_text
-  "\"interface\":\"lo\"" in linux_text
-  "\"interface\":\"eth0\"" in linux_text
-  "\"op\":\"set_ipv4_address\"" in linux_text
-  "\"address\":\"10.0.1.42\"" in linux_text
-  "\"op\":\"add_default_ipv4_route\"" in linux_text
-  "\"gateway\":\"10.0.1.1\"" in linux_text
+  assert "\"op\":\"link_up\"" in linux_text
+  assert "\"interface\":\"lo\"" in linux_text
+  assert "\"interface\":\"eth0\"" in linux_text
+  assert "\"op\":\"set_ipv4_address\"" in linux_text
+  assert "\"address\":\"10.0.1.42\"" in linux_text
+  assert "\"op\":\"add_default_ipv4_route\"" in linux_text
+  assert "\"gateway\":\"10.0.1.1\"" in linux_text
   let hooks = hook_log.read_text()?
-  "pre:eth0:eth0:inet:static" in hooks
-  "up:eth0:10.0.1.42:10.0.1.1" in hooks
-  "post:post-up" in hooks
-  "eth0=eth0" in state.read_text()?
+  assert "pre:eth0:eth0:inet:static" in hooks
+  assert "up:eth0:10.0.1.42:10.0.1.1" in hooks
+  assert "post:post-up" in hooks
+  assert "eth0=eth0" in state.read_text()?
 }
 
 test test_ifup_dhcp_runs_discovery { |ctx|
@@ -57,15 +57,15 @@ iface eth0 inet dhcp
   let status = run.status XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifup.xsh" -- -a 2> $err
 
   # Dry-run has no DHCP server, so discovery wires the sockets then fails cleanly.
-  status.ok == false
+  assert status.ok == false
   let linux_text = linux_log.read_text()?
-  "\"op\":\"link_up\"" in linux_text
-  "\"op\":\"dhcp_socket\"" in linux_text
-  "\"interface\":\"eth0\"" in linux_text
-  "\"op\":\"dhcp_send\"" in linux_text
-  "\"op\":\"dhcp_recv\"" in linux_text
-  "\"op\":\"dhcp_close\"" in linux_text
-  "no DHCP offer" in err.read_text()?
+  assert "\"op\":\"link_up\"" in linux_text
+  assert "\"op\":\"dhcp_socket\"" in linux_text
+  assert "\"interface\":\"eth0\"" in linux_text
+  assert "\"op\":\"dhcp_send\"" in linux_text
+  assert "\"op\":\"dhcp_recv\"" in linux_text
+  assert "\"op\":\"dhcp_close\"" in linux_text
+  assert "no DHCP offer" in err.read_text()?
 }
 
 test test_ifup_state_skips_configured_interface { |ctx|
@@ -80,7 +80,7 @@ test test_ifup_state_skips_configured_interface { |ctx|
 
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifup.xsh" -- eth0 ?
 
-  hook_log.read_text()?.split("up:eth0").len() == 2
+  assert hook_log.read_text()?.split("up:eth0").len() == 2
 }
 
 test test_ifup_logical_selection { |ctx|
@@ -99,8 +99,8 @@ test test_ifup_logical_selection { |ctx|
 
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifup.xsh" -- eth0=office ?
 
-  "\"interface\":\"eth0\"" in linux_log.read_text()?
-  "eth0=office" in state.read_text()?
+  assert "\"interface\":\"eth0\"" in linux_log.read_text()?
+  assert "eth0=office" in state.read_text()?
 }
 
 test test_ifup_source_glob { |ctx|
@@ -128,5 +128,5 @@ auto eth0
 
   run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state ${ctx.xsh_bin} fp"${ctx.core_dir}/ifup.xsh" -- -a ?
 
-  "\"address\":\"10.0.1.42\"" in linux_log.read_text()?
+  assert "\"address\":\"10.0.1.42\"" in linux_log.read_text()?
 }

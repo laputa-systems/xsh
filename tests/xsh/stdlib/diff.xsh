@@ -13,7 +13,7 @@ gamma
 """)?
 
   let d = diff.unified(original, modified, context: 1)?
-  d.files == 1
-  d.hunks == 1
-  "BETA" in d.text
+  assert d.files == 1
+  assert d.hunks == 1
+  assert "BETA" in d.text
 }

@@ -26,7 +26,7 @@ witness()
 """)?
   let {success: assertion_condition, stderr: assertion_message, ..} = output
   assert assertion_condition, assertion_message
-  output.stdout == ""
+  assert output.stdout == ""
 }
 
 test test_parametric_records_reject_wrong_specializations_and_nonuniversal_defaults { |ctx|
@@ -43,7 +43,7 @@ test test_parametric_records_reject_wrong_specializations_and_nonuniversal_defau
       let assertion_message = rejected.stderr
       assert assertion_condition, assertion_message
     }
-    ("check.type-mismatch" in rejected.stderr)
+    assert ("check.type-mismatch" in rejected.stderr)
   }
 }
 
@@ -64,7 +64,7 @@ test test_parametric_records_reject_invalid_parameters_and_expanding_types { |ct
       let assertion_message = rejected.stderr
       assert assertion_condition, assertion_message
     }
-    ("check." in rejected.stderr)
+    assert ("check." in rejected.stderr)
   }
   let generic_enum = test.run_script(ctx, "enum Variant[T] { First, Second }\n")?
   {
@@ -72,7 +72,7 @@ test test_parametric_records_reject_invalid_parameters_and_expanding_types { |ct
     let assertion_message = generic_enum.stderr
     assert assertion_condition, assertion_message
   }
-  ("parse." in generic_enum.stderr)
+  assert ("parse." in generic_enum.stderr)
 
 }
 
@@ -93,7 +93,7 @@ match wrong.require(CountEnvelope) {
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("12\nrejected\n")
+  assert (executed.stdout) == ("12\nrejected\n")
 }
 
 test test_parametric_records_use_declaring_private_dependencies { |ctx|
@@ -118,7 +118,7 @@ print ${value.owner.name.upper()}
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("12\nOWNER\n")
+  assert (executed.stdout) == ("12\nOWNER\n")
 }
 
 test test_parametric_records_prepare_concrete_alias_constructors_and_typed_literals { |ctx|
@@ -135,7 +135,7 @@ print $spread.value
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("7\n7\n9\n")
+  assert (executed.stdout) == ("7\n7\n9\n")
 }
 
 test test_parametric_records_keep_specialization_through_nested_updates { |ctx|
@@ -151,7 +151,7 @@ print $changed.label
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("10\nsame\n")
+  assert (executed.stdout) == ("10\nsame\n")
 }
 
 test test_parametric_records_preserve_nominal_enum_arguments { |ctx|
@@ -165,7 +165,7 @@ print (value.value == Ready)
     let {success: assertion_condition, stderr: assertion_message, ..} = accepted
     assert assertion_condition, assertion_message
   }
-  (accepted.stdout) == ("true\n")
+  assert (accepted.stdout) == ("true\n")
   let rejected = test.run_script(ctx, r"""enum One { First }
 enum Two { Second }
 type Box[T] = {value: T}
@@ -177,7 +177,7 @@ let wrong = FirstBox(value: Second)
     let assertion_message = rejected.stderr
     assert assertion_condition, assertion_message
   }
-  ("check.type-mismatch" in rejected.stderr)
+  assert ("check.type-mismatch" in rejected.stderr)
 }
 
 test test_parametric_record_instances_keep_exact_field_types { |ctx|
@@ -191,7 +191,7 @@ let generic: Observation[Int] = count
 print ${sample + (maybe ?? 0) + generic.samples.len()}
 """)?
   assert accepted.success, accepted.stderr
-  accepted.stdout == "15\n"
+  assert accepted.stdout == "15\n"
   for line in [
     "let wrong: Str = count.samples[0]\n",
     "let wrong: Int = count.value\n",

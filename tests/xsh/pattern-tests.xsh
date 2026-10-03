@@ -3,28 +3,28 @@ test test_pattern_predicates_inspect_results_and_nested_payloads {
   let failed = Err("expected")
   let yes = successful is Ok(_)
   let no = failed is Ok(_)
-  (yes) == (true)
-  (no) == (false)
-  (successful is Ok(7)) == (true)
-  (successful is Ok(8)) == (false)
+  assert (yes) == (true)
+  assert (no) == (false)
+  assert (successful is Ok(7)) == (true)
+  assert (successful is Ok(8)) == (false)
   let unit = Ok()
-  (unit is Ok) == (true)
-  (failed is Err(_)) == (true)
-  (successful) == (Ok(7))
-  (failed is Err(_)) == (true)
+  assert (unit is Ok) == (true)
+  assert (failed is Err(_)) == (true)
+  assert (successful) == (Ok(7))
+  assert (failed is Err(_)) == (true)
   let nested = Ok({child: {answer: 42}})
-  (nested is Ok({child: {answer: 42}})) == (true)
-  (nested is Ok({child: {answer: 0}})) == (false)
-  (42 is 42) == (true)
-  (42 is 43) == (false)
-  (!(42 is 43)) == (true)
-  (b"payload" is b"payload") == (true)
-  (3.5 is 3.5) == (true)
+  assert (nested is Ok({child: {answer: 42}})) == (true)
+  assert (nested is Ok({child: {answer: 0}})) == (false)
+  assert (42 is 42) == (true)
+  assert (42 is 43) == (false)
+  assert (!(42 is 43)) == (true)
+  assert (b"payload" is b"payload") == (true)
+  assert (3.5 is 3.5) == (true)
   let optional: Int? = null
-  (optional is null) == (true)
-  ((42 is 42) and (43 is 43) or (44 is 0)) == (true)
+  assert (optional is null) == (true)
+  assert ((42 is 42) and (43 is 43) or (44 is 0)) == (true)
   let filtered = [value for value in [Ok(1), Ok(2)] if value is Ok(2)]
-  (filtered) == ([Ok(2)])
+  assert (filtered) == ([Ok(2)])
 }
 
 pure pattern_test_dynamic_value() -> Any { "hello" }
@@ -32,9 +32,9 @@ pure pattern_test_dynamic_value() -> Any { "hello" }
 test test_pattern_predicates_narrow_stable_dynamic_bindings {
   let value = pattern_test_dynamic_value()
   let is_string = value is Str
-  (is_string) == (true)
+  assert (is_string) == (true)
   if value is Str {
-    (value.upper()) == ("HELLO")
+    assert (value.upper()) == ("HELLO")
   } else {
     test.fail("expected string")?
   }
@@ -52,8 +52,8 @@ test test_pattern_predicates_reject_bindings_and_alternation { |ctx|
     {source: "type NotFound = Int\npure value() -> Any { 1 }\nlet matches = value() is NotFound\n", diagnostic: "check.pattern-test-ambiguous"},
   ] {
     let output = test.run_script(ctx, fixture.source)?
-    (output.success) == (false)
-    (fixture.diagnostic in output.stderr)
+    assert (output.success) == (false)
+    assert (fixture.diagnostic in output.stderr)
   }
 }
 
@@ -64,22 +64,22 @@ error PredicateError = Missing(message: Str) : NotFound | Broken(message: Str) :
 pure pattern_test_tag_value() -> Any { PayloadChoice(7, "payload") }
 
 test test_pattern_predicates_keep_nominal_tags_and_error_facets {
-  (EmptyChoice is EmptyChoice) == (true)
-  (PayloadChoice(7, "payload") is PayloadChoice(7, "payload")) == (true)
-  (PayloadChoice(7, "payload") is PayloadChoice(8, _)) == (false)
+  assert (EmptyChoice is EmptyChoice) == (true)
+  assert (PayloadChoice(7, "payload") is PayloadChoice(7, "payload")) == (true)
+  assert (PayloadChoice(7, "payload") is PayloadChoice(8, _)) == (false)
   let tag_value = pattern_test_tag_value()
-  (tag_value is PredicateChoice) == (true)
-  (tag_value is OtherPredicateChoice) == (false)
+  assert (tag_value is PredicateChoice) == (true)
+  assert (tag_value is OtherPredicateChoice) == (false)
   let missing: PredicateError = PredicateError.Missing(message: "missing")
-  (missing is PredicateError.Missing) == (true)
-  (missing is PredicateError.Broken) == (false)
-  (missing is PredicateError.Missing {message: "missing"}) == (true)
-  (missing is PredicateError.Missing {message: "other"}) == (false)
-  (missing is NotFound) == (true)
-  (missing is InvalidData) == (false)
+  assert (missing is PredicateError.Missing) == (true)
+  assert (missing is PredicateError.Broken) == (false)
+  assert (missing is PredicateError.Missing {message: "missing"}) == (true)
+  assert (missing is PredicateError.Missing {message: "other"}) == (false)
+  assert (missing is NotFound) == (true)
+  assert (missing is InvalidData) == (false)
   let failure = Err(missing)
-  (failure is Err(PredicateError.Missing {message: "missing"})) == (true)
-  (failure is Err(is NotFound)) == (true)
+  assert (failure is Err(PredicateError.Missing {message: "missing"})) == (true)
+  assert (failure is Err(is NotFound)) == (true)
 }
 
 test test_pattern_predicates_evaluate_subject_once { |ctx|
@@ -94,7 +94,7 @@ print ${selected}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("subject\ntrue\n")
+  assert (output.stdout) == ("subject\ntrue\n")
 }
 
 test test_pattern_predicate_statements_assert_and_values_do_not_propagate { |ctx|
@@ -106,8 +106,8 @@ outcome is Ok(_)
 print "unreachable"
 """)?
   assert ! output.success, output.stderr
-  output.stdout == "false\n"
-  "AssertionError.Failed" in output.stderr
+  assert output.stdout == "false\n"
+  assert "AssertionError.Failed" in output.stderr
 }
 
 test test_pattern_predicate_lint_fixes_converge_and_formatter_retains_syntax { |ctx|
@@ -123,21 +123,21 @@ print ${selected}
     assert assertion_condition, assertion_message
   }
   let first = candidate.read_text()?
-  (" is Ok(_)" in first)
+  assert (" is Ok(_)" in first)
   let second = run.capture --text "xsht" lint --fix $candidate ?
   {
     let assertion_condition = second.status.exited_with(0)
     let assertion_message = second.stderr
     assert assertion_condition, assertion_message
   }
-  (candidate.read_text()?) == (first)
+  assert (candidate.read_text()?) == (first)
   let formatted = run.capture --text "xsht" fmt $candidate ?
   {
     let assertion_condition = formatted.status.exited_with(0)
     let assertion_message = formatted.stderr
     assert assertion_condition, assertion_message
   }
-  (" is Ok(_)" in candidate.read_text()?)
+  assert (" is Ok(_)" in candidate.read_text()?)
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   {
     let assertion_condition = stable.status.exited_with(0)
@@ -149,7 +149,7 @@ print ${selected}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("true\n")
+  assert (output.stdout) == ("true\n")
 }
 
 test test_pattern_predicate_lint_preserves_comments_and_bindings { |ctx|
@@ -159,8 +159,8 @@ test test_pattern_predicate_lint_preserves_comments_and_bindings { |ctx|
   ] {
     let candidate = test.temp_file(ctx, name: "pattern-test-no-fix.xsh", contents: bytes.from_text(source))?
     let fixed = run.capture --text "xsht" lint --fix $candidate ?
-    (candidate.read_text()?) == (source)
-    ("lint.boolean-pattern-test" in fixed.stderr)
+    assert (candidate.read_text()?) == (source)
+    assert ("lint.boolean-pattern-test" in fixed.stderr)
   }
 }
 
@@ -194,7 +194,7 @@ print $ready_matches $payload_matches $type_matches $variant_matches $facet_matc
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("true true true true true true\n")
+  assert (output.stdout) == ("true true true true true true\n")
 }
 
 
@@ -203,10 +203,10 @@ pure pattern_test_dynamic_list() -> Any { [1, 2] }
 test test_pattern_predicates_resolve_parameterized_types_and_multiline_tests { |ctx|
   let value = pattern_test_dynamic_list()
   let matched = value is List[Int]
-  (matched) == (true)
-  (value is List[Str]) == (false)
+  assert (matched) == (true)
+  assert (value is List[Str]) == (false)
   if value is List[Int] {
-    (value[0]) == (1)
+    assert (value[0]) == (1)
   }
   let output = test.run_script(ctx, r"""pure subject() -> Any { [1, 2] }
 let value = subject()
@@ -218,7 +218,7 @@ print ${matched}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("true\n")
+  assert (output.stdout) == ("true\n")
 }
 
 test test_pattern_predicate_formatter_preserves_parameterized_types { |ctx|
@@ -233,7 +233,7 @@ print ${selected}
     let assertion_message = formatted.stderr
     assert assertion_condition, assertion_message
   }
-  (" is List[Int]" in candidate.read_text()?)
+  assert (" is List[Int]" in candidate.read_text()?)
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   {
     let assertion_condition = stable.status.exited_with(0)
@@ -245,7 +245,7 @@ print ${selected}
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("true\n")
+  assert (output.stdout) == ("true\n")
 }
 
 test test_pattern_predicates_leave_control_body_braces {
@@ -264,8 +264,8 @@ test test_pattern_predicates_leave_control_body_braces {
     test.fail("nonmatching loop was entered")?
   }
   let matched = if missing is PredicateError.Missing { true } else { false }
-  (matched) == (true)
-  (branches) == (2)
+  assert (matched) == (true)
+  assert (branches) == (2)
 }
 
 test test_pattern_predicates_keep_following_type_pattern_match_arms { |ctx|
@@ -292,7 +292,7 @@ print (describe(missing)) (describe_expression(missing))
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("missing missing\n")
+  assert (output.stdout) == ("missing missing\n")
 }
 
 test test_pattern_predicate_facet_narrowing_retains_nominal_fallback_errors { |ctx|
@@ -311,7 +311,7 @@ if let is NotFound = failure { print ${nominal_message(failure)} }
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("absentabsent\nconditional\n")
+  assert (output.stdout) == ("absentabsent\nconditional\n")
 }
 
 test test_pattern_predicate_dynamic_facets_retain_the_error_api { |ctx|
@@ -330,5 +330,5 @@ if let is NotFound = dynamic_failure() { print matched }
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("absent absent absent\nmatched\n")
+  assert (output.stdout) == ("absent absent absent\nmatched\n")
 }

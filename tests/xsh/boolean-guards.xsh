@@ -1,10 +1,10 @@
 test test_boolean_guard_evaluates_once_and_refines_success {
   var calls = 0
   guard (if true { calls += 1; true } else { false }) else { return error.fail("unexpected failure") }
-  calls == 1
+  assert calls == 1
   let name: Str? = "ready"
   guard name != null else { return error.fail("missing name") }
-  name.trim() == "ready"
+  assert name.trim() == "ready"
 }
 
 test test_boolean_guard_failure_keeps_lexical_loop_target {
@@ -14,7 +14,7 @@ test test_boolean_guard_failure_keeps_lexical_loop_target {
     guard number != 2 else { break }
     reached += number
   }
-  reached == 1
+  assert reached == 1
 }
 
 pure boolean_guard_failure_refinement(name: Str?) -> Str {
@@ -28,10 +28,10 @@ pure boolean_guard_pattern_refinement(value: Any) -> Str {
 }
 
 test test_boolean_guard_failure_refinement_and_status {
-  boolean_guard_failure_refinement(" ready ") == "ready"
-  boolean_guard_failure_refinement(null) == "missing"
-  boolean_guard_pattern_refinement(" ready ") == "ready"
-  boolean_guard_pattern_refinement(7) == "unknown"
+  assert boolean_guard_failure_refinement(" ready ") == "ready"
+  assert boolean_guard_failure_refinement(null) == "missing"
+  assert boolean_guard_pattern_refinement(" ready ") == "ready"
+  assert boolean_guard_pattern_refinement(7) == "unknown"
   let status = run true
   guard status else { return error.fail("true failed") }
 }
@@ -50,7 +50,7 @@ proc choose() [error] -> Int {
 print \${choose()}
 """)?
   assert output.success, output.stderr
-  output.stdout == "failure cleanup\nfunction cleanup\n7\n"
+  assert output.stdout == "failure cleanup\nfunction cleanup\n7\n"
 }
 
 test test_boolean_guard_condition_error_keeps_identity_and_skips_failure { |ctx|
@@ -59,16 +59,16 @@ pure rejected() -> Result[Bool] { Err(GuardError.condition(message: "condition f
 guard rejected()? else { abort(7) }
 print "unreachable"
 """)?
-  output.status == 3
-  "GuardError.condition" in output.stderr
-  "AssertionError.Failed" not in output.stderr
-  output.stdout == ""
+  assert output.status == 3
+  assert "GuardError.condition" in output.stderr
+  assert "AssertionError.Failed" not in output.stderr
+  assert output.stdout == ""
 }
 
 test test_boolean_guard_false_status_uses_author_failure { |ctx|
   let output = test.run_script(ctx, "let status = run false\nguard status else { abort(7) }\nprint \"unreachable\"\n")?
-  output.status == 7
-  output.stdout == ""
+  assert output.status == 7
+  assert output.stdout == ""
 }
 
 test test_boolean_guard_rejects_fallthrough_and_parameters { |ctx|
@@ -85,7 +85,7 @@ test test_boolean_guard_rejects_fallthrough_and_parameters { |ctx|
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, f"accepted invalid guard: ${source}"
-    code in output.stderr
+    assert code in output.stderr
   }
 }
 
@@ -100,8 +100,8 @@ test test_boolean_guard_failure_branch_owns_the_error {
   match boolean_guard_validate_jobs(0) {
     Ok(_) => test.fail("non-positive jobs must fail")?
     Err(failure) => {
-      !(failure is AssertionError)
-      failure.message == "jobs must be positive"
+      assert !(failure is AssertionError)
+      assert failure.message == "jobs must be positive"
     }
   }
 }

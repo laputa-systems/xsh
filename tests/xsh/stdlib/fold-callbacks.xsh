@@ -23,7 +23,7 @@ test test_fold_and_reduce_allow_explicit_callback_propagation { |ctx|
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("3\n")
+    assert (output.stdout) == ("3\n")
   }
 }
 
@@ -47,7 +47,7 @@ match outcome {
       let {success: assertion_condition, stderr: assertion_message, ..} = output
       assert assertion_condition, assertion_message
     }
-    (output.stdout) == ("retained\n")
+    assert (output.stdout) == ("retained\n")
   }
 }
 
@@ -78,7 +78,7 @@ match outcome {
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  (output.stdout) == ("pull 1\ncallback closed 1\npull 2\ncallback closed 2\nsource closed\ncaught\n")
+  assert (output.stdout) == ("pull 1\ncallback closed 1\npull 2\ncallback closed 2\nsource closed\ncaught\n")
 }
 
 test test_reduce_by_requires_explicit_record_callback_propagation { |ctx|
@@ -105,5 +105,5 @@ print ${totals.get("total")?}
     let {success: assertion_condition, stderr: assertion_message, ..} = accepted
     assert assertion_condition, assertion_message
   }
-  (accepted.stdout) == ("3\n")
+  assert (accepted.stdout) == ("3\n")
 }

@@ -6,59 +6,59 @@ test test_unix_dry_run_covers_module_surface { |ctx|
   let command = process.command_argv("demo", ["demo", "arg"])
 
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_SIGNAL=USR1 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=$log {
-    (unix.reap_child_events()?.collect().len()) == (0)
+    assert (unix.reap_child_events()?.collect().len()) == (0)
     unix.pid1_setup(["TERM"], subreaper: true, allow_non_pid1: true)?
     let event = unix.wait_pid1_event()?
-    event.kind == "signal"
+    assert event.kind == "signal"
     let shutdown = unix.shutdown_process_groups([1000], 1ms, kill_timeout: 1ms)?
-    (shutdown.term_sent >= 0)
-    unix.uptime_seconds()? == 17
-    unix.tty()? == "/dev/tty"
-    unix.id()?.groups[0].name == "root"
+    assert (shutdown.term_sent >= 0)
+    assert unix.uptime_seconds()? == 17
+    assert unix.tty()? == "/dev/tty"
+    assert unix.id()?.groups[0].name == "root"
     let attrs = unix.tty_attrs()?
-    attrs.raw
+    assert attrs.raw
     unix.set_tty_attrs(attrs)?
     unix.set_hostname("xsh")?
     let child = unix.spawn_process_group(command)?
     let notify_child = unix.spawn_process_group(command, notify: true)?
-    (notify_child.notify_fd > 0)
-    unix.notify_ready(notify_child.notify_fd)?
+    assert (notify_child.notify_fd > 0)
+    assert unix.notify_ready(notify_child.notify_fd)?
     unix.notify_close(notify_child.notify_fd)?
-    ! unix.notify_ready(child.notify_fd)?
+    assert ! unix.notify_ready(child.notify_fd)?
     let logged = unix.spawn_process_group_log(command, fp"${root}/child.log")?
     let logged_pair = unix.spawn_logged_process_group(command, command)?
     let tty_child = unix.spawn_with_tty(command, tty: "tty1")?
-    child.pid == 1000
-    ! child.new_session
-    logged.pid == 1002
-    logged_pair.pid == 1003
-    logged_pair.log_pid == 1004
-    tty_child.pid == 1005
-    tty_child.new_session
+    assert child.pid == 1000
+    assert ! child.new_session
+    assert logged.pid == 1002
+    assert logged_pair.pid == 1003
+    assert logged_pair.log_pid == 1004
+    assert tty_child.pid == 1005
+    assert tty_child.new_session
     unix.kill_process_group(child.pid, "TERM")?
     test.error_kind(unix.kill_all("definitely-missing-process", signal: "TERM"), "process-missing")?
     unix.exec(command)?
   } ?
 
   let log_text = log.read_text()?
-  "\"op\":\"reap_child_events\"" in log_text
-  "\"op\":\"pid1_setup\"" in log_text
-  "\"op\":\"spawn_process_group\"" in log_text
-  "\"op\":\"kill_process_group\"" in log_text
-  "\"op\":\"tty\"" in log_text
-  "\"op\":\"set_tty_attrs\"" in log_text
-  "\"op\":\"set_hostname\"" in log_text
-  "\"log_path\"" in log_text
-  "\"op\":\"spawn_logged_process_group\"" in log_text
-  "\"op\":\"exec\"" in log_text
+  assert "\"op\":\"reap_child_events\"" in log_text
+  assert "\"op\":\"pid1_setup\"" in log_text
+  assert "\"op\":\"spawn_process_group\"" in log_text
+  assert "\"op\":\"kill_process_group\"" in log_text
+  assert "\"op\":\"tty\"" in log_text
+  assert "\"op\":\"set_tty_attrs\"" in log_text
+  assert "\"op\":\"set_hostname\"" in log_text
+  assert "\"log_path\"" in log_text
+  assert "\"op\":\"spawn_logged_process_group\"" in log_text
+  assert "\"op\":\"exec\"" in log_text
 }
 
 test test_unix_dry_run_child_events_are_typed {
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_EVENT_KIND=child XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_DRY_RUN_CHILD_PID=43 XSH_UNIX_DRY_RUN_STATUS_KIND=signal XSH_UNIX_DRY_RUN_STATUS_CODE=15 {
     let events: List[DryRunChildEvent] = unix.reap_child_events()?.collect()
-    events[0].pid == 43
-    events[0].status.signaled()
-    events[0].status.signal_number()? == 15
+    assert events[0].pid == 43
+    assert events[0].status.signaled()
+    assert events[0].status.signal_number()? == 15
   } ?
 }
 
@@ -75,17 +75,17 @@ test test_unix_uptime_seconds_dry_run_log { |ctx|
   # The dry-run reading comes from the override variable, and the call appends
   # one line to the log file with the seconds count as a JSON string.
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=$log {
-    unix.uptime_seconds()? == 17
+    assert unix.uptime_seconds()? == 17
   } ?
-  log.read_text()? == """{"op":"uptime_seconds","seconds":"17"}
+  assert log.read_text()? == """{"op":"uptime_seconds","seconds":"17"}
 """
 
   # An override that is not an integer reads as zero, and so does an unset one.
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_UPTIME_SECONDS=nope {
-    unix.uptime_seconds()? == 0
+    assert unix.uptime_seconds()? == 0
   } ?
   env XSH_UNIX_DRY_RUN=1 {
-    unix.uptime_seconds()? == 0
+    assert unix.uptime_seconds()? == 0
   } ?
 }
 
@@ -123,9 +123,9 @@ test test_unix_uptime_seconds_reads_the_host_text {
   # emptied so the surrounding environment cannot decide what is read.
   env XSH_UNIX_DRY_RUN="" {
     let first = unix.uptime_seconds()?
-    (first >= 0)
+    assert (first >= 0)
     let second = unix.uptime_seconds()?
-    (second >= first)
+    assert (second >= first)
   } ?
 }
 
@@ -135,7 +135,7 @@ test test_wait_pid1_event_timeout_kind {
   # is exercised outside the shared test process to avoid installing real PID 1
   # signal handlers here.)
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_EVENT_KIND=timeout {
-    unix.wait_pid1_event(timeout: 5ms)?.kind == "timeout"
-    unix.wait_pid1_event()?.kind == "timeout"
+    assert unix.wait_pid1_event(timeout: 5ms)?.kind == "timeout"
+    assert unix.wait_pid1_event()?.kind == "timeout"
   } ?
 }

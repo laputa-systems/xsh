@@ -7,7 +7,7 @@ test test_record_projection_proof_through_boolean_alias {
   let retained = available
   guard retained else { return error.fail("missing vendor") }
   let vendor = proof_string(report.firmware.vendor)
-  (vendor.trim()) == ("ready")
+  assert (vendor.trim()) == ("ready")
 }
 
 type ProofPair = {left: Str?, right: Int}
@@ -19,14 +19,14 @@ test test_record_projection_proofs_keep_disjoint_updates_and_snapshots {
   guard available else { return error.fail("missing left") }
   pair.right = 3
   let left = proof_string(pair.left)
-  (left) == ("ready")
+  assert (left) == ("ready")
   var original = ProofPair(left: "snapshot", right: 1)
   let snapshot = original
   let retained = snapshot.left != null
   original = {left: null, right: 2}
   guard retained else { return error.fail("missing snapshot") }
   let value = proof_string(snapshot.left)
-  (value) == ("snapshot")
+  assert (value) == ("snapshot")
 }
 
 pure proof_accept(value: Str) -> Bool { value != "" }
@@ -44,8 +44,8 @@ test test_record_projection_aliases_short_circuit_and_assert_success {
   let accepted = available and proof_accept(report.firmware.vendor)
   assert accepted, "not accepted"
   let value = proof_string(report.firmware.vendor)
-  (value) == ("ready")
-  (proof_early_exit(report)) == ("ready")
+  assert (value) == ("ready")
+  assert (proof_early_exit(report)) == ("ready")
 }
 
 test test_record_projection_proofs_reject_mutation_shadowing_and_recovery { |ctx|
@@ -62,7 +62,7 @@ test test_record_projection_proofs_reject_mutation_shadowing_and_recovery { |ctx
     "var value: Str? = \"ready\"\nlet available = value != null\nguard available else { abort(1) }\n[1] |> each { |_| value = null }\nlet checked: Str = value\n",
   ] {
     let executed = test.run_script(ctx, source)?
-    (executed.success) == (false)
+    assert (executed.success) == (false)
   }
 }
 
@@ -74,10 +74,10 @@ proc proof_joined(report: ProofReport, choose: Bool) [error] -> Str {
 
 test test_record_projection_join_keeps_only_common_success_proofs { |ctx|
   let report = ProofReport(firmware: {vendor: "ready"})
-  (proof_joined(report, true)) == ("ready")
-  (proof_joined(report, false)) == ("ready")
+  assert (proof_joined(report, true)) == ("ready")
+  assert (proof_joined(report, false)) == ("ready")
   let rejected = test.run_script(ctx, "type Item = {value: Str?}\nproc select(item: Item, choose: Bool) [error] -> Str { let available = item.value != null; if choose { assert available, \"missing\" } else { let _ = 1 }; item.value }\n")?
-  (rejected.success) == (false)
+  assert (rejected.success) == (false)
 }
 
 test test_record_projection_alias_dag_is_bounded_without_expansion { |ctx|
@@ -103,7 +103,7 @@ test test_record_projection_alias_dag_is_bounded_without_expansion { |ctx|
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("ready\n")
+  assert (executed.stdout) == ("ready\n")
 }
 
 test test_record_projection_proved_fallback_skips_runtime_calls { |ctx|
@@ -120,7 +120,7 @@ print ${select("ready")} $calls
     let {success: assertion_condition, stderr: assertion_message, ..} = executed
     assert assertion_condition, assertion_message
   }
-  (executed.stdout) == ("ready 0\n")
+  assert (executed.stdout) == ("ready 0\n")
   let retained = test.run_script(ctx, r"""var value: Str? = "ready"
 proc fallback() [] -> Str { value = null; "fallback" }
 let available = value != null
@@ -133,7 +133,7 @@ print $selected $checked
     let {success: assertion_condition, stderr: assertion_message, ..} = retained
     assert assertion_condition, assertion_message
   }
-  (retained.stdout) == ("ready ready\n")
+  assert (retained.stdout) == ("ready ready\n")
 }
 
 test test_record_projection_aliases_combine_presence_and_nullable_field_proofs {
@@ -147,7 +147,7 @@ test test_record_projection_aliases_combine_presence_and_nullable_field_proofs {
   let both = available and available
   guard both else { return error.fail("missing vendor") }
   let checked = proof_string(report.firmware.vendor)
-  (checked) == ("ready")
+  assert (checked) == ("ready")
 }
 
 proc proof_exit_mutation(choose: Bool) [] -> Str {
@@ -160,10 +160,10 @@ proc proof_exit_mutation(choose: Bool) [] -> Str {
 }
 
 test test_record_projection_exiting_mutations_do_not_reach_success { |ctx|
-  (proof_exit_mutation(false)) == ("ready")
-  (proof_exit_mutation(true)) == ("early")
+  assert (proof_exit_mutation(false)) == ("ready")
+  assert (proof_exit_mutation(true)) == ("early")
   let rejected = test.run_script(ctx, "var value: Str? = \"ready\"\nlet available = value != null\nlet choose = true\nif choose { value = null }\nguard available else { abort(1) }\nlet checked: Str = value\n")?
-  (rejected.success) == (false)
+  assert (rejected.success) == (false)
 }
 
 
@@ -173,7 +173,7 @@ test test_record_projection_continue_keeps_success_proof {
     let available = value != null
     guard available else { continue }
     let checked = proof_string(value)
-    (checked) == ("ready")
+    assert (checked) == ("ready")
   }
 }
 
@@ -184,12 +184,12 @@ test test_record_projection_type_and_presence_aliases {
   let text = data.payload is Str
   guard text else { return error.fail("not text") }
   let checked = proof_string(data.payload)
-  (checked) == ("ready")
+  assert (checked) == ("ready")
   let shape: Record = {payload: "present"}
   let present = ("payload" in shape)
   guard present else { return error.fail("missing field") }
   let text_field = shape.payload is Str
   guard text_field else { return error.fail("not text") }
   let value = shape.payload.require(Str)?
-  (value) == ("present")
+  assert (value) == ("present")
 }

@@ -3,35 +3,35 @@ error WireError = Invalid(type: Str, in: Int)
 
 test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
   let entry = WireEntry(type: "file", in: 2)
-  entry.type == "file"
-  entry.in == 2
-  entry.match
+  assert entry.type == "file"
+  assert entry.in == 2
+  assert entry.match
   let {type: entry_kind, in: ordinal, match: selected, ..} = entry
-  entry_kind == "file"
-  ordinal == 2
+  assert entry_kind == "file"
+  assert ordinal == 2
   assert selected, "destructured keyword label keeps its value"
   let quoted = json.decode(r"""{"type":"file","in":2,"match":true}""")?
   let bare = {type: "file", in: 2, match: true}
-  json.encode(quoted)? == json.encode(bare)?
-  json.encode(entry)? == json.encode(bare)?
+  assert json.encode(quoted)? == json.encode(bare)?
+  assert json.encode(entry)? == json.encode(bare)?
   let failure = WireError.Invalid(type: "bad", in: 3)
   if let WireError.Invalid {type: error_kind, in: error_number} = failure {
-    error_kind == "bad"
-    error_number == 3
+    assert error_kind == "bad"
+    assert error_number == 3
   } else {
     test.fail("keyword error payload labels must match")?
   }
   if let {type: kind, in: number, match: enabled} = bare {
-    kind == "file"
-    number == 2
+    assert kind == "file"
+    assert number == 2
     assert enabled, "pattern-bound keyword field remains enabled"
   } else {
     test.fail("keyword field labels must match")?
   }
   var mutable = bare
   mutable.type = "directory"
-  mutable.type == "directory"
-  bare.type == "file"
+  assert mutable.type == "directory"
+  assert bare.type == "file"
 }
 
 type WireMeta = {type: Str, in: Int}
@@ -40,15 +40,15 @@ type WireRow = {name: Str, meta: WireMeta}
 test test_keyword_field_labels_in_update_paths_and_constant_map_keys { |ctx|
   let row = WireRow(name: "entry", meta: WireMeta(type: "file", in: 1))
   let updated = {...row, meta.type: "directory", meta.in: 2}
-  updated.meta.type == "directory"
-  updated.meta.in == 2
-  row.meta.type == "file"
+  assert updated.meta.type == "directory"
+  assert updated.meta.in == 2
+  assert row.meta.type == "file"
   let bare: Map[Int] = {type: 1, match: 2}
-  bare.get("type")? == 1
-  bare.keys() == ["match", "type"]
+  assert bare.get("type")? == 1
+  assert bare.keys() == ["match", "type"]
   let duplicate = test.run_script(ctx, "let row = {type: 1, \"type\": 2}\n")?
   assert ! duplicate.success, duplicate.stderr
-  "check.duplicate-record-field" in duplicate.stderr
+  assert "check.duplicate-record-field" in duplicate.stderr
 }
 
 test test_keyword_field_labels_across_keyword_spellings { |ctx|
@@ -56,7 +56,7 @@ test test_keyword_field_labels_across_keyword_spellings { |ctx|
     let source = "type Wire = {" + label + ": Int}\nlet row = Wire(" + label + ": 1)\nlet {" + label + ": selected, ..} = row\nprint $selected\nprint $row." + label + "\n"
     let executed = test.run_script(ctx, source)?
     assert executed.success, executed.stderr
-    executed.stdout == "1\n1\n"
+    assert executed.stdout == "1\n1\n"
   }
 }
 
@@ -92,7 +92,7 @@ test test_keyword_field_labels_reject_introducer_bindings_and_puns { |ctx|
     }
     let argv = test.run_script(ctx, "run printf \"%s\\n\" " + label + "\n")?
     assert argv.success, argv.stderr
-    argv.stdout == label + "\n"
+    assert argv.stdout == label + "\n"
   }
 }
 
@@ -105,7 +105,7 @@ print $row.in
 """
   let executed = test.run_script(ctx, source)?
   assert executed.success, executed.stderr
-  executed.stdout == "file\n2\n"
+  assert executed.stdout == "file\n2\n"
   for invalid in [
     r"""let raw = json.decode("{\"type\":\"wrong\"}")?
 let selected: Int = raw.type
@@ -130,13 +130,13 @@ print $label $row.in ${row["wire.type"]}
   let applied = run.capture --text "xsht" lint --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
-  "{type: \"file\", in: 2, \"wire.type\": 3}" in fixed
-  "label = row.type" in fixed
-  "# Keep the wire explanation." in fixed
+  assert "{type: \"file\", in: 2, \"wire.type\": 3}" in fixed
+  assert "label = row.type" in fixed
+  assert "# Keep the wire explanation." in fixed
   let after = test.run_script(ctx, fixed)?
   assert after.success, after.stderr
-  after.stdout == before.stdout
+  assert after.stdout == before.stdout
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
   assert repeated.status.exited_with(0), repeated.stderr
-  candidate.read_text()? == fixed
+  assert candidate.read_text()? == fixed
 }

@@ -22,10 +22,10 @@ export let maybe: Str? = null
   const field = "workers"
   let workers = plugin[field]
   let increment = plugin.get("increment")?
-  workers == 4
-  increment.call(4) == 5
-  increment.call() == 2
-  plugin.get("maybe")? == null
+  assert workers == 4
+  assert increment.call(4) == 5
+  assert increment.call() == 2
+  assert plugin.get("maybe")? == null
   test.error_kind(plugin.get("description"), "missing-field")?
   test.error_kind(plugin.get("private_workers"), "missing-field")?
 }
@@ -38,9 +38,9 @@ test test_constant_key_projection_nullable_and_keyword_labels {
   let workers = config.get(field)?
   let value = config.value
   let enabled = config["if"]
-  workers == 4
-  config.get(...{field: "workers"})? == 4
-  value == null
+  assert workers == 4
+  assert config.get(...{field: "workers"})? == 4
+  assert value == null
   assert enabled, "keyword label retains its boolean field"
   test.error_kind(config.get("absent"), "missing-field")?
 }
@@ -65,7 +65,7 @@ print (config().get(field)?)
 print (config()[field])
 """)?
   assert output.success, output.stderr
-  output.stdout == "receiver\n4\nreceiver\n4\n"
+  assert output.stdout == "receiver\n4\nreceiver\n4\n"
 }
 
 test test_constant_key_projection_imported_const_key { |ctx|
@@ -81,7 +81,7 @@ print (config.get(keys.workers)?)
 print (config[keys.workers])
 """, [], {XSH_MODULE_PATH: root.display()})?
   assert output.success, output.stderr
-  output.stdout == "4\n4\n"
+  assert output.stdout == "4\n4\n"
 }
 
 type ProjectionWide = {workers: Int, hidden: Bool}
@@ -109,9 +109,9 @@ test test_constant_key_projection_keeps_exported_get_function { |ctx|
 export pure get(value: Str) -> Str { f"user:$value" }
 """)?
   let loaded = module.load(module_path)?.require(ProjectionNamedGet)?
-  loaded.get("workers") == "user:workers"
+  assert loaded.get("workers") == "user:workers"
   let getter = loaded["get"]
-  getter.call("workers") == "user:workers"
+  assert getter.call("workers") == "user:workers"
 }
 
 test test_constant_key_projection_requires_constant_keys_for_field_types { |ctx|
@@ -123,7 +123,7 @@ let literal: Result[Int] = config.get("workers")
 print ${fetched + indexed + literal?}
 """)?
   assert accepted.success, accepted.stderr
-  accepted.stdout == "12\n"
+  assert accepted.stdout == "12\n"
   for source in [
     "var field = \"workers\"\nlet value: Int = config.get(field)?\n",
     "let field = \"workers\"\nlet value: Int = config.get(field)?\n",

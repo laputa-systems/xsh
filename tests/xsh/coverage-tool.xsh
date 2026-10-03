@@ -40,9 +40,9 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
 
   let report = json.read(report_path)?.require(CoverageReport)?
   let {standard_apis, api_hits} = report
-  (standard_apis.len() > 0)
-  (api_hits.keys().len() > 0)
-  text_path.exists()?
+  assert (standard_apis.len() > 0)
+  assert (api_hits.keys().len() > 0)
+  assert text_path.exists()?
 }
 
 test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_values { |ctx|
@@ -62,9 +62,9 @@ test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_v
     assert output.success, output.stderr
     let report = json.decode(output.stdout)?.require(CoverageReport)?
     let hits = report.api_hits.get("module.cpu.count")?.require(CoverageHitCounts)?
-    report.standard_apis == ["module.cpu.count"]
-    hits.tests == example.tests
-    hits.examples == example.examples
+    assert report.standard_apis == ["module.cpu.count"]
+    assert hits.tests == example.tests
+    assert hits.examples == example.examples
   }
 
   for invalid in [
@@ -76,8 +76,8 @@ test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_v
   ] {
     input.write(invalid)?
     let output = test.run_script(ctx, script)?
-    output.status != 0
-    output.stdout == ""
+    assert output.status != 0
+    assert output.stdout == ""
     assert "schema" in output.stderr, output.stderr
   }
 }

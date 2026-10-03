@@ -69,7 +69,7 @@ match build.build(ctx) {
   assert result.success, result.stderr
   assert "[build target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout
   assert "StageError.Failed" in result.stdout, result.stdout
-  cargo_marker.exists()?
+  assert cargo_marker.exists()?
 }
 
 test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
@@ -103,7 +103,7 @@ match build.check_lint(ctx) {
   )?
   assert result.success, result.stderr
   assert "StageError.Failed" in result.stdout, result.stdout
-  cargo_marker.read_text()? == "test|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
+  assert cargo_marker.read_text()? == "test|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
 test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
@@ -190,8 +190,8 @@ match internal.linux_ci_test(ctx) {
   assert result.success, result.stderr
   assert "[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout
   assert "StageError.Failed" in result.stdout, result.stdout
-  cargo_marker.exists()?
-  cleanup_marker.exists()?
+  assert cargo_marker.exists()?
+  assert cleanup_marker.exists()?
 }
 
 test test_docker_image_and_container_failures_are_staged { |ctx|
@@ -230,7 +230,7 @@ match docker.run_internal(ctx, "dist", false, []) {
   assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
   assert "[docker-dist target=x86_64-unknown-linux-musl] docker run" in result.stdout, result.stdout
   assert "StageError.Failed" in result.stdout, result.stdout
-  "run" in docker_marker.read_text()?
+  assert "run" in docker_marker.read_text()?
 }
 
 test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
@@ -265,7 +265,7 @@ match docker.run_internal(ctx, "dist", false, []) {
   assert result.success, result.stderr
   assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
   assert "[docker-dist" not in result.stdout, result.stdout
-  "build" in docker_marker.read_text()?
+  assert "build" in docker_marker.read_text()?
 }
 
 test test_trace_keeps_process_status_for_a_failed_child { |ctx|
@@ -277,9 +277,9 @@ run.status false
     ["--trace", "--raw"],
   )?
   assert traced.success, traced.stderr
-  "kind=run.start" in traced.stderr
-  "kind=run.end" in traced.stderr
-  "status={kind:exit success:false code:1}" in traced.stderr
+  assert "kind=run.start" in traced.stderr
+  assert "kind=run.end" in traced.stderr
+  assert "status={kind:exit success:false code:1}" in traced.stderr
 }
 
 test test_make_facade_only_delegates_to_the_development_entrypoint {
@@ -324,8 +324,8 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
     stdout = output
     run make --no-print-directory -n build
   }
-  process.run(default)?.exited_with(0)
-  output.read_text()? == """cargo dev build
+  assert process.run(default)?.exited_with(0)
+  assert output.read_text()? == """cargo dev build
 """
 
   let lint_check = process.command {
@@ -333,8 +333,8 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
     stdout = output
     run make --no-print-directory -n check
   }
-  process.run(lint_check)?.exited_with(0)
-  output.read_text()? == """cargo dev check lint
+  assert process.run(lint_check)?.exited_with(0)
+  assert output.read_text()? == """cargo dev check lint
 """
 
   let override = process.command {
@@ -342,8 +342,8 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
     stdout = output
     run make --no-print-directory -n build "XSH_DEV=/missing/xsh"
   }
-  process.run(override)?.exited_with(0)
-  output.read_text()? == """/missing/xsh dev/main.xsh -- build
+  assert process.run(override)?.exited_with(0)
+  assert output.read_text()? == """/missing/xsh dev/main.xsh -- build
 """
 }
 
@@ -394,7 +394,7 @@ match install.darwin(ctx) {
   assert result.success, result.stderr
   assert "[install-darwin-codesign target=aarch64-apple-darwin] codesign" in result.stdout, result.stdout
   assert "StageError.Failed" in result.stdout, result.stdout
-  codesign_marker.exists()?
+  assert codesign_marker.exists()?
   let cargo_arguments = cargo_marker.read_text()?
   let cargo_diagnostic = cargo_marker.read_text()?
   assert "build-std" in cargo_arguments, cargo_diagnostic

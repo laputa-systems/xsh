@@ -5,7 +5,7 @@ proc assert_fmt_fixture(ctx: TestContext, source_path: Path, expected_path: Path
 
   let formatted = run.capture --text "xsht" fmt $candidate ?
   assert formatted.status.exited_with(0), formatted.stderr
-  candidate.read_text()? == expected
+  assert candidate.read_text()? == expected
 
   let checked = run.capture --text "xsht" check $candidate ?
   assert checked.status.exited_with(0), checked.stderr
@@ -32,7 +32,7 @@ test test_fmt_nested_multiline_string_preserves_value { |ctx|
   assert formatted.status.exited_with(0), formatted.stderr
   let after = test.run_script(ctx, candidate.read_text()?)?
   assert after.success, after.stderr
-  after.stdout == before.stdout
+  assert after.stdout == before.stdout
   let stable = run.capture --text "xsht" fmt --check $candidate ?
   assert stable.status.exited_with(0), stable.stderr
 }
