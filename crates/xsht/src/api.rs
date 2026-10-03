@@ -1181,7 +1181,7 @@ fn push_json_item(output: &mut String, item: &ApiItem) {
     }
     output.push(',');
     push_json_array(output, "tags", &item.tags, true);
-    push_json_array(output, "signatures", &item.signatures, true);
+    push_json_array(output, "signatures", &item.signatures, false);
     output.push('}');
 }
 
