@@ -1514,6 +1514,25 @@ run CC=cc CFLAGS="-O2 -pipe" ./configure --prefix=/usr
 ```
 
 Byte pipelines connect stdout to stdin; each segment must be its own `run`.
+The first segment's form chooses the form of the whole pipeline. Only the first
+segment may name a form other than plain `run` or `run.status`. A
+`run.text`, `run.bytes`, or `run.capture` head captures the last segment's
+stdout, and every later segment must be plain `run`:
+
+```xsh
+let head = run.text git log --oneline | run head -n 5 ?
+let report = run.capture --text make check | run tee $log ?
+```
+
+A capturing pipeline fails under the same pipefail rule as a statement
+pipeline (§11.2), naming the failing segment, except that `run.capture` returns
+its record for a completed pipeline and reports the failure in `status`.
+`run.text` and `run.bytes` inherit stderr for every segment. `run.capture`
+captures every segment's stderr into one `stderr` buffer, interleaved in
+arrival order. Each captured buffer has the §11.5 limit, and exceeding it
+terminates the whole pipeline with `CaptureLimit`. `run.stream` cannot head a
+pipeline. A pipeline that breaks these form rules is a check-time error
+(`check.pipeline-capture`).
 Redirection targets are typed path values or non-negative file descriptors
 (`>& 2`). `>`/`2>` truncate and `>>`/`2>>` append. Stdin `<` also accepts
 `Bytes`, sent exactly with no temporary file (empty bytes closes stdin at

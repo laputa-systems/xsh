@@ -83,6 +83,7 @@ struct RunRedirection {
 }
 
 struct RunSegment {
+    kind: RunKind,
     target: RunArg,
     args: Vec<RunArg>,
     env: Vec<RunEnv>,
@@ -1323,8 +1324,8 @@ impl Evaluator {
         let len = indexed_raw(&mut values, span)? as usize;
         let mut decoded = Vec::with_capacity(len);
         for _ in 0..len {
-            let _kind = indexed_decode::<RunKind>(&mut values, execution, span)?;
             decoded.push(RunSegment {
+                kind: indexed_decode::<RunKind>(&mut values, execution, span)?,
                 target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
                 args: Self::decode_indexed_run_args(&mut values, execution, span)?,
                 env: Self::decode_indexed_run_env(&mut values, execution, span)?,
@@ -6482,6 +6483,10 @@ impl Evaluator {
                     }
                 }
                 self.trace_lowered_pipeline_enter(span);
+                let head = segments.first().map_or(RunKind::Plain, |segment| segment.kind);
+                if !matches!(head, RunKind::Plain | RunKind::Status) {
+                    return self.eval_capture_pipeline(head, &invocations, span);
+                }
                 let mut end = match run_pipeline_inherit_with_policy(&invocations, self) {
                     Ok(end) => end,
                     Err(error) => {

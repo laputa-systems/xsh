@@ -781,6 +781,62 @@ print "after"
   assert "after" not in rejected.stdout
 }
 
+test test_pipeline_capture_takes_last_stdout_and_fails_on_any_segment {
+  let upper = run.text printf "%s\n" "hello" | run tr a-z A-Z ?
+  assert upper == "HELLO\n"
+  let raw = run.bytes printf "a\\377" | run cat | run cat ?
+  assert raw == b"a\xff"
+  let head = run.text yes | run head -n 2 ?
+  assert head == "y\ny\n"
+
+  let late = run.text true | run false
+  test.error_kind(late, "pipeline-failure")?
+  if let Err(error) = late {
+    assert "pipeline segment 1 `false` exited with status 1" in error.message, error.message
+  }
+
+  let early = run.bytes sh -c "echo lost; exit 2" | run cat
+  if let Err(error) = early {
+    assert "pipeline segment 0 `sh` exited with status 2" in error.message, error.message
+  } else {
+    test.fail("expected a pipeline failure")?
+  }
+
+  let invalid = run.text printf "\\377" | run cat
+  test.error_kind(invalid, "invalid-utf8")?
+  let too_large = run.bytes head -c 16777217 /dev/zero | run cat
+  test.error_kind(too_large, "capture-limit")?
+  let accepted = run.text true | run --accept=[0, 1] sh -c "echo kept; exit 1" ?
+  assert accepted == "kept\n"
+}
+
+test test_pipeline_capture_record_merges_stderr_and_reports_status {
+  let record = run.capture --text sh -c "echo out0; echo err0 >&2" | run sh -c "cat; echo err1 >&2; exit 3" ?
+  assert record.stdout == "out0\n"
+  assert "err0\n" in record.stderr
+  assert "err1\n" in record.stderr
+  assert !record.status.success
+  assert record.status.segments[1].code == 3
+
+  let raw_record = run.capture --bytes printf "x" | run cat ?
+  assert raw_record.stdout == b"x"
+  assert raw_record.stderr == b""
+  assert raw_record.status.success
+}
+
+test test_pipeline_capture_form_is_chosen_by_the_head_segment { |ctx|
+  let cases = [
+    "let x = run.stream --text printf a | run cat",
+    "let x = run printf a | run.text cat",
+    "let x = run.text printf a | run.status cat",
+  ]
+  for source in cases {
+    let output = test.run_script(ctx, source)?
+    assert output.status == 2
+    assert "check.pipeline-capture" in output.stderr
+  }
+}
+
 test test_run_trace_reports_redirection_method_and_env_details { |ctx|
   let redirection = test.run_xsht_trace(
     ctx,

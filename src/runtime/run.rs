@@ -2,7 +2,7 @@
 
 use crate::runtime::process::{
     completion_error, rejected_segment, CancellationPolicy, ProcessEnd, ProcessInvocation, ProcessStatus, run_capture_with_policy,
-    run_capture_with_stderr_policy, run_pipeline_inherit_with_policy,
+    run_capture_with_stderr_policy, run_pipeline_capture_with_policy, run_pipeline_inherit_with_policy,
 };
 use crate::runtime::value::{RecordMap, RunError, RuntimeError, StreamValue, Value};
 use crate::source::Span;
@@ -31,7 +31,7 @@ pub(crate) fn execute_run_with_policy(
         | RunKind::CaptureTextRecord
         | RunKind::CaptureBytesRecord
         | RunKind::StreamText
-        | RunKind::StreamBytes => run_capture_form_with_policy(kind, &invocations[0], span, policy),
+        | RunKind::StreamBytes => run_capture_form_with_policy(kind, invocations, span, policy),
     }
 }
 
@@ -59,7 +59,7 @@ fn run_status_form_with_policy(
 
 fn run_capture_form_with_policy(
     kind: RunKind,
-    invocation: &ProcessInvocation,
+    invocations: &[ProcessInvocation],
     span: Span,
     policy: &mut dyn CancellationPolicy,
 ) -> RunExecution {
@@ -67,10 +67,10 @@ fn run_capture_form_with_policy(
         kind,
         RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord
     );
-    let captured = if capture_stderr {
-        run_capture_with_stderr_policy(invocation, policy)
-    } else {
-        run_capture_with_policy(invocation, policy)
+    let captured = match invocations {
+        [invocation] if capture_stderr => run_capture_with_stderr_policy(invocation, policy),
+        [invocation] => run_capture_with_policy(invocation, policy),
+        _ => run_pipeline_capture_with_policy(invocations, capture_stderr, policy),
     };
     match captured {
         Ok(mut output) => {
@@ -79,7 +79,7 @@ fn run_capture_form_with_policy(
                 .status
                 .clone()
                 .expect("completed process has status");
-            if let Some(error) = run_completion_error(&status, std::slice::from_ref(invocation), !capture_stderr) {
+            if let Some(error) = run_completion_error(&status, invocations, !capture_stderr) {
                 let error = error.with_span(span);
                 output.end.error = Some(error.clone());
                 return RunExecution { value: Ok(Value::err(Value::RunError(Box::new(error)))), end: output.end };

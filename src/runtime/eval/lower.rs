@@ -836,9 +836,7 @@ fn lowered_arena_run_capture_type(
     id: crate::syntax::arena::RunFormId,
 ) -> Option<LoweredType> {
     let run = arena.run_form(id);
-    let [segment] = arena.run_segments(run.segments) else {
-        return None;
-    };
+    let segment = arena.run_segments(run.segments).first()?;
     lowered_run_capture_type(segment.kind)
 }
 
@@ -5820,18 +5818,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     accept,
                 });
             }
+            // A capturing head yields a Result unwrapped by an external `Try`.
+            // A statement-position status pipeline asserts success like a lone
+            // `run`: it yields a Result the statement row propagates.
+            let capture_kind = lowered_run_capture_type(segments[0].kind).is_some();
             let pipeline = push_build_row!(
                 self,
                 expr,
-                // A statement-position pipeline asserts success like a lone
-                // `run`: it yields a Result the statement row propagates.
                 BuildExprRow::RunPipeline {
                     segments: lowered_segments,
-                    propagate: run.propagate || assert_success,
+                    propagate: !capture_kind && (run.propagate || assert_success),
                     span: self.program.arena.span(run.span),
                 }
             );
-            if run.propagate && !assert_success {
+            if run.propagate && (capture_kind || !assert_success) {
                 Some(push_build_row!(self, expr, BuildExprRow::Try(pipeline)))
             } else {
                 Some(pipeline)

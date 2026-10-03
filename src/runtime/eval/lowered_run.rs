@@ -10813,6 +10813,41 @@ impl Evaluator {
         Ok((RecordMap::from_name_values(record_fields), bindings))
     }
 
+    /// Runs a byte pipeline whose head is `run.text`, `run.bytes`, or
+    /// `run.capture`, capturing the last segment's stdout. Pairs with the
+    /// caller's `trace_lowered_pipeline_enter`.
+    fn eval_capture_pipeline(
+        &mut self,
+        kind: RunKind,
+        invocations: &[ProcessInvocation],
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let execution = execute_run_with_policy(kind, invocations, span, false, self);
+        if let Some(status) = execution.end.status.clone() {
+            self.last_status = Some(status);
+        }
+        self.trace_lowered_pipeline_end(span, &execution.end);
+        if self.signal_state.shutdown_complete && self.signal_state.shutdown_status.is_some() {
+            return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                LoweredValue::Status(Box::new(
+                    execution
+                        .end
+                        .status
+                        .unwrap_or_else(|| ProcessStatus::signaled(libc::SIGTERM)),
+                )),
+            ))));
+        }
+        let value = execution.value?;
+        let value = lowered_value_from_runtime_any(&value).ok_or_else(|| {
+            RuntimeError::new(
+                "type-error",
+                format!("lowered pipeline produced unsupported {}", value.type_name()),
+            )
+            .with_span(span)
+        })?;
+        Ok(ControlFlow::Continue(value))
+    }
+
     fn eval_lowered_spawn_invocation(
         &mut self,
         invocation: ProcessInvocation,
