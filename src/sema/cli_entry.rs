@@ -31,16 +31,14 @@ pub(crate) fn validate_cli_entry(
     let roots = program.statement_ids().collect::<Vec<_>>();
     let mut diagnostics = Vec::new();
     let mut entry = None;
-    for raw in 0..program.arena.stmt_tags.len() {
-        let id = StmtId::from_index(raw);
+    // Nested `cli main` is a parse error (`parse.cli-entry-scope`), and the
+    // arena may hold other modules' statements (`xsht lint` shares one arena
+    // across entry bundles), so only this program's top level is an entry.
+    for &id in &roots {
         let statement = program.arena.stmt(id);
         let ArenaStmtKind::CliMain(definition) = statement.kind else { continue; };
         let mut error = |span, message: &str| diagnostics.push(Diagnostic::new(Severity::Error, message)
             .with_code("check.cli-entry").with_label(Label::primary(span, message)));
-        if !roots.contains(&id) {
-            error(statement.span, "`cli main` is only permitted at the entry module's top level");
-            continue;
-        }
         if entry.is_some() { error(statement.span, "only one signature CLI entry may be declared"); }
         let function = program.arena.function_def(definition);
         if function.name != "main" { error(statement.span, "a signature CLI entry must be named `main`"); }
