@@ -31,13 +31,6 @@ pub fn install_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> 
     SignalHandlerGuard::install_many(&[libc::SIGINT, libc::SIGTERM])
 }
 
-pub fn install_immediate_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> {
-    SignalHandlerGuard::install_many_with(
-        &[libc::SIGINT, libc::SIGTERM],
-        handle_immediate_cancellation_signal as *const () as usize,
-    )
-}
-
 pub fn install_interactive_signal_handlers() -> io::Result<SignalHandlerGuard> {
     SignalHandlerGuard::ignore_many(&[
         libc::SIGTSTP,
@@ -125,10 +118,6 @@ pub(crate) fn record_signal(signal: i32) {
     {
         let _ = ESCALATION_SIGNAL.compare_exchange(0, signal, Ordering::SeqCst, Ordering::SeqCst);
     }
-}
-
-extern "C" fn handle_immediate_cancellation_signal(signal: i32) {
-    unsafe { libc::_exit((128 + signal).clamp(1, 255)) };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
