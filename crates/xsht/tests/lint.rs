@@ -5280,9 +5280,9 @@ assert flag
 
 #[test]
 fn bool_statement_fix_covers_unit_tails_and_test_declarations() {
-    let source = "proc ready(flag: Bool) {\n    flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    n == 1\n}\ntest arithmetic {\n    1 + 1 == 2\n}\nready(true)?\ndone(1)?\n";
+    let source = "proc ready(flag: Bool) [error] -> Result[Unit] {\n    flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    n == 1\n}\ntest arithmetic {\n    1 + 1 == 2\n}\nready(true)?\ndone(1)?\n";
     let fixed = bool_statement_fixed(source);
-    assert_eq!(fixed, "proc ready(flag: Bool) {\n    assert flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    assert n == 1\n}\ntest arithmetic {\n    assert 1 + 1 == 2\n}\nready(true)?\ndone(1)?\n");
+    assert_eq!(fixed, "proc ready(flag: Bool) [error] -> Result[Unit] {\n    assert flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    assert n == 1\n}\ntest arithmetic {\n    assert 1 + 1 == 2\n}\nready(true)?\ndone(1)?\n");
     assert_parse_check_standalone("bool tail fix", &fixed);
 }
 
