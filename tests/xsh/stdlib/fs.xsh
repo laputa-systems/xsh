@@ -2,7 +2,7 @@ test test_missing_file_read_propagates_structured_error { |ctx|
   let missing = test.temp_path(ctx, name: "missing-read")
   let output = test.run_script(
     ctx,
-    f"""let _ = p"${missing.display()}".read_bytes()?
+    f"""let _ = p"${missing}".read_bytes()?
 """,
   )?
 
@@ -40,7 +40,7 @@ test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let output = test.run_script(
     ctx,
     f"""
-let root = p"${root.display()}"
+let root = p"${root}"
 let use_stat = false
 let entry = (fs.walk(root, stat: use_stat) |> first())?
 print \${entry.size}
@@ -96,7 +96,7 @@ test test_fs_files_dynamic_walk_flags_are_evaluated { |ctx|
   let unstat = test.run_script(
     ctx,
     f"""
-let root = p"${root.display()}"
+let root = p"${root}"
 let use_stat = false
 let entry = (fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> first())?
 print \${entry.size}

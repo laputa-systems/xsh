@@ -229,7 +229,7 @@ pub const LINT_CODES: &[(&str, &str)] = &[
     ("lint.redundant-ok-return", "Remove `return Ok()` in a `Result[Unit]` function, using bare `return` or none"),
     ("lint.redundant-ok-tail", "Remove `return Ok(...)` at a function tail since plain values are wrapped"),
     ("lint.redundant-optional-fallback", "Drop a `??` fallback on an Optional receiver proved present"),
-    ("lint.redundant-path-display", "Avoid `.display()` on a Path argument, which replaces preserved bytes with text"),
+    ("lint.redundant-path-display", "Drop `.display()` from an interpolated Path; interpolation already renders it"),
     ("lint.redundant-path-interpolation", "Remove a single-value path interpolation that wraps one value"),
     ("lint.redundant-path-parse", "Remove a Path display then parse round trip on a value already a Path"),
     ("lint.redundant-pipeline-stage", "Remove no-op `where true` and `map .` pipeline stages"),
@@ -2335,7 +2335,7 @@ impl<'a> Linter<'a> {
                 left,
                 ..
             } => self.path_parse_result_replacement(left),
-            _ => self.path_constructor_call_replacement(expr),
+            _ => None,
         }
     }
 
@@ -2372,17 +2372,6 @@ impl<'a> Linter<'a> {
             return None;
         }
         self.path_literal_arg_replacement(args)
-    }
-
-    fn path_constructor_call_replacement(&self, expr: ExprId) -> Option<(Span, String)> {
-        let ArenaExprKind::Call { callee, args } = self.arena.expr(expr).kind else {
-            return None;
-        };
-        if !matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Path") {
-            return None;
-        }
-        self.path_display_arg_replacement(args)
-            .or_else(|| self.single_path_interpolation_arg_replacement(args))
     }
 
     fn path_display_arg_replacement(&self, args: ArenaRange) -> Option<(Span, String)> {
@@ -2436,24 +2425,6 @@ impl<'a> Linter<'a> {
             }
             _ => None,
         }
-    }
-
-    fn single_path_interpolation_arg_replacement(
-        &self,
-        args: ArenaRange,
-    ) -> Option<(Span, String)> {
-        let args = self.arena.call_args(args);
-        let [arg] = args else {
-            return None;
-        };
-        let ArenaCallArgKind::Positional(arg) = arg.kind else {
-            return None;
-        };
-        let ArenaExprKind::FmtString(parts) = self.arena.expr(arg).kind else {
-            return None;
-        };
-        if !self.text_path_interpolation_preserves_bytes(parts) { return None; }
-        self.single_path_interpolation_parts_replacement(parts)
     }
 
     fn path_expression_has_utf8_bytes(&self, expr: ExprId) -> bool {
@@ -2728,20 +2699,86 @@ impl<'a> Linter<'a> {
         Some(base_span)
     }
 
-    fn lint_redundant_path_display(&mut self, expr: ExprId) {
+    // Interpolation renders a Path itself: f-strings and `print` display it as
+    // text exactly like `.display()`, while fp-strings and command words append
+    // its native bytes, which `.display()` would replace with lossy text.
+    // Str-typed boundaries (arguments, bindings, JSON) keep `.display()` as the
+    // explicit conversion, so only interpolated uses reach this rule.
+    fn lint_redundant_path_display(&mut self, expr: ExprId, site: PathDisplaySite) {
         let expr_span = self.arena.expr(expr).span;
-        if self.path_display_base(expr).is_none() {
+        let Some(base_span) = self.path_display_base(expr) else {
             return;
+        };
+        let base_text = &self.source[base_span.range()];
+        let edit = match site {
+            PathDisplaySite::Interpolation => Some((expr_span, base_text.to_string())),
+            // A command word that loses its call syntax would read as literal
+            // text, and a parenthesized bare name is stale command syntax, so
+            // the whole word takes the canonical command value spelling.
+            PathDisplaySite::CommandWord(word_span) => {
+                let value = match self.arena.expr(expr).kind {
+                    ArenaExprKind::Call { callee, .. } => match self.arena.expr(callee).kind {
+                        ArenaExprKind::Field { base, .. } => command_value_replacement(self.arena, base),
+                        _ => String::new(),
+                    },
+                    _ => String::new(),
+                };
+                Some((word_span, if value.is_empty() { format!("${{{base_text}}}") } else { value }))
+            }
+            PathDisplaySite::Splice => None,
         }
-        self.diagnostics.push(
-            Diagnostic::new(Severity::Warning, "explicit Path display conversion selects text")
-                .with_code("lint.redundant-path-display")
-                .with_label(Label::secondary(
-                    expr_span,
-                    "native Path arguments can preserve bytes that display text replaces",
-                ))
-                .with_note("retain .display() for text; use the Path directly only when native bytes are intended"),
-        );
+        .filter(|(span, _)| !self.source[span.range()].contains('#'));
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "needless `.display()` on an interpolated Path")
+            .with_code("lint.redundant-path-display")
+            .with_label(Label::secondary(expr_span, "interpolation already renders the Path"))
+            .with_note("fp-strings and command words take the Path's native bytes; keep `.display()` where a Str is required");
+        if let Some((span, replacement)) = edit {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "interpolate the Path directly", replacement));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    /// `Path(...)` rewritten as path syntax. Text pieces that display a Path,
+    /// spelled `${p}` or `${p.display()}`, become native path pieces: the
+    /// rewrite keeps every UTF-8 path and stops replacing other bytes.
+    fn path_constructor_replacement(&self, arg: ExprId) -> Option<String> {
+        let arg_span = self.arena.expr(arg).span;
+        let arg_text = self.source.get(arg_span.range())?;
+        if let Some(base) = self.path_display_base(arg) {
+            return self.source.get(base.range()).map(str::to_string);
+        }
+        match self.arena.expr(arg).kind {
+            ArenaExprKind::Str(_) => Some(format!("p{arg_text}")),
+            ArenaExprKind::FmtString(parts) => self.path_fmt_from_text_fmt(arg_span, parts),
+            _ => Some(format!("fp\"${{{arg_text}}}\"")),
+        }
+    }
+
+    fn path_fmt_from_text_fmt(&self, fmt_span: Span, parts: ArenaRange) -> Option<String> {
+        if let Some(inner) = single_interpolation_expr(self.arena, parts) {
+            let inner_span = self.arena.expr(inner).span;
+            let base = self.path_display_base(inner)
+                .or_else(|| (self.expr_types.get(&inner_span) == Some(&Type::Path)).then_some(inner_span))?;
+            return self.source.get(base.range()).map(str::to_string);
+        }
+        let mut edits = Vec::new();
+        for part in self.arena.fmt_parts(parts) {
+            let ArenaFmtPart::Expr(expr, spec) = part else { continue; };
+            let expr_span = self.arena.expr(expr).span;
+            if spec.is_none() && let Some(base) = self.path_display_base(expr) {
+                edits.push((expr_span, base));
+                continue;
+            }
+            let text_safe = self.expr_types.get(&expr_span).is_some_and(|ty|
+                matches!(ty, Type::Str | Type::Bool | Type::Int | Type::Float | Type::Duration | Type::Path));
+            if !text_safe { return None; }
+        }
+        let mut text = self.source.get(fmt_span.range())?.to_string();
+        for (expr_span, base) in edits.into_iter().rev() {
+            let base_text = self.source.get(base.range())?;
+            text.replace_range(expr_span.start() - fmt_span.start()..expr_span.end() - fmt_span.start(), base_text);
+        }
+        path_fmt_literal_text(&text)
     }
 
     fn push_path_roundtrip_diagnostic(
@@ -5307,27 +5344,7 @@ impl<'a> Linter<'a> {
         if callee_expr.span == span && expr_span == span {
             return;
         }
-        let replacement = match self.arena.expr(expr).kind {
-            ArenaExprKind::Str(_) => {
-                let literal_text = &self.source[expr_span.start()..expr_span.end()];
-                Some(format!("p{literal_text}"))
-            }
-            ArenaExprKind::FmtString(parts) if self.text_path_interpolation_preserves_bytes(parts) => {
-                if self
-                    .single_path_interpolation_parts_replacement(parts)
-                    .is_some()
-                {
-                    None
-                } else {
-                    path_fmt_literal_text(&self.source[expr_span.start()..expr_span.end()])
-                }
-            }
-            ArenaExprKind::FmtString(_) => None,
-            _ => self
-                .source
-                .get(expr_span.range())
-                .map(|source| format!("fp\"${{{source}}}\"")),
-        };
+        let replacement = self.path_constructor_replacement(expr);
         let message = if matches!(
             self.arena.expr(expr).kind,
             ArenaExprKind::Str(_) | ArenaExprKind::FmtString(_)
@@ -6317,6 +6334,19 @@ fn single_interpolation_expr(arena: &AstArena, parts: ArenaRange) -> Option<Expr
         [ArenaFmtPart::Expr(expr, None)] => Some(*expr),
         _ => None,
     }
+}
+
+/// Where an interpolated `.display()` appears, which decides how its Path
+/// receiver can be spelled once the call is dropped.
+#[derive(Clone, Copy)]
+enum PathDisplaySite {
+    /// `${...}` or `$name...` in a word, or a string interpolation.
+    Interpolation,
+    /// A whole expression command word such as `print p.display()` or
+    /// `print (p.display())`, carrying the word's span.
+    CommandWord(Span),
+    /// A splice reads list elements, so a Path receiver is not a drop-in.
+    Splice,
 }
 
 fn path_fmt_literal_text(text: &str) -> Option<String> {
@@ -7774,7 +7804,8 @@ impl LintExprVisitor<'_, '_> {
 
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
-                    if let ArenaFmtPart::Expr(e, _) = part {
+                    if let ArenaFmtPart::Expr(e, spec) = part {
+                        if spec.is_none() { self.linter.lint_redundant_path_display(e, PathDisplaySite::Interpolation); }
                         self.visit_expr(e);
                     }
                 }
@@ -8019,22 +8050,19 @@ impl LintExprVisitor<'_, '_> {
                     );
                 }
                 for part in &part_list {
-                    if let ArenaWordPart::Interpolation(expr) = *part {
-                        self.linter.lint_redundant_path_display(expr);
-                        self.visit_command_embedded_expr(expr);
-                    } else if let ArenaWordPart::Shorthand(expr) = *part {
-                        self.linter.lint_redundant_path_display(expr);
+                    if let ArenaWordPart::Interpolation(expr) | ArenaWordPart::Shorthand(expr) = *part {
+                        self.linter.lint_redundant_path_display(expr, PathDisplaySite::Interpolation);
                         self.visit_command_embedded_expr(expr);
                     }
                 }
             }
             ArenaCommandArgKind::SpliceExpr(expr) => {
-                self.linter.lint_redundant_path_display(expr);
+                self.linter.lint_redundant_path_display(expr, PathDisplaySite::Splice);
                 self.visit_command_embedded_expr(expr);
             }
             ArenaCommandArgKind::Typed(expr) => {
                 let expr_span = self.linter.arena.expr(expr).span;
-                self.linter.lint_redundant_path_display(expr);
+                self.linter.lint_redundant_path_display(expr, PathDisplaySite::CommandWord(arg_span));
                 // (f"...") → f"..." : f-strings don't need paren wrapping
                 if matches!(
                     self.linter.arena.expr(expr).kind,

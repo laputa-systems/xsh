@@ -6,7 +6,7 @@ use verify
 
 ## Returns the exact SHA-256 sidecar content using the repository-relative artifact path.
 export proc checksum_line(artifact_path: Path, root: Path) [fs, error] -> Result[Str] {
-  f"""${hash.sha256(artifact_path)?.hex()}  ${artifact_path.relative_to(root).display()}
+  f"""${hash.sha256(artifact_path)?.hex()}  ${artifact_path.relative_to(root)}
 """
 }
 
@@ -60,9 +60,7 @@ export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
 ## Commands install without `.xsh`; library modules keep it so `use lib.*`
 ## resolves beside packaged commands through the normal module loader.
 export pure core_install_path(relative_source: Path) -> Path {
-  if relative_source.display().starts_with("lib/") {
-    return fp"core/${relative_source.display()}"
-  }
+  return fp"core/${relative_source}" when relative_source.display().starts_with("lib/")
 
   let relative = relative_source.display()
   let command = if relative.ends_with(".xsh") {
@@ -107,7 +105,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
         stages.StageError.Failed(
           stage: "release-core",
           target: ctx.target.triple,
-          detail: f"unexpected compressed artifact ${entry.path.display()}",
+          detail: f"unexpected compressed artifact ${entry.path}",
         ),
       )
     }
@@ -124,8 +122,8 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     let installed = core_install_path(relative)
     let mode = if relative.display().starts_with("lib/") { 0o644 } else { 0o755 }
     fs.install(
-      fp"${core}/${relative.display()}",
-      fp"${stage}/${installed.display()}",
+      fp"${core}/${relative}",
+      fp"${stage}/${installed}",
       mode,
       parents: true,
       overwrite: true,
@@ -169,7 +167,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
           stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
-            detail: f"missing artifact ${artifact.display()}",
+            detail: f"missing artifact ${artifact}",
           ),
         )
       }
@@ -180,7 +178,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
           stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
-            detail: f"missing checksum ${artifact.display()}.sha256",
+            detail: f"missing checksum ${artifact}.sha256",
           ),
         )
       }
@@ -190,7 +188,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
           stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
-            detail: f"invalid checksum ${checksum.display()}",
+            detail: f"invalid checksum ${checksum}",
           ),
         )
       }
@@ -203,7 +201,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
         stages.StageError.Failed(
           stage: "release-validate",
           target: ctx.target.triple,
-          detail: f"unexpected artifact ${entry.path.display()}",
+          detail: f"unexpected artifact ${entry.path}",
         ),
       )
     }

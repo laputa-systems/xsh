@@ -22,7 +22,7 @@ proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
   let parent = if output_parent.display() == "" { fs.cwd()? } else { output_parent.resolve()? }
   let published = fp"${parent}/${dest.name()}"
   if published.exists()? {
-    print f"destination already exists: ${published.display()}"
+    print f"destination already exists: ${published}"
     abort(1)
   }
 
@@ -112,14 +112,14 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   for e in entries |> sort-by .path {
-    print f"  ${e.kind}  ${e.path.display()}  ${e.size}b"
+    print f"  ${e.kind}  ${e.path}  ${e.size}b"
   }
 
   print f"${entries.len()} entries in ${name}"
 
   if ! opts.list {
     if opts.dry_run {
-      print f"would extract to ${opts.out.display()} (dry run)"
+      print f"would extract to ${opts.out} (dry run)"
     } else {
       let output = staged_output(opts.out)?
       defer output.pending.remove(missing_ok: true)?
@@ -131,7 +131,7 @@ proc main(...argv: List[Str]) [fs, error] {
       }
 
       output.pending.rename(output.published)?
-      print f"extracted to ${opts.out.display()}"
+      print f"extracted to ${opts.out}"
     }
   }
 }

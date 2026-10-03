@@ -74,7 +74,7 @@ proc render_format(fmt: Str, target: Path, meta: FsEntry) [fs, error] -> Str {
   out = out.replace("%Y", f"${meta.modified}")
   out = out.replace("%F", file_type_name(meta.kind))
   out = out.replace("%n", target.display())
-  out = out.replace("%N", f"'${target.display()}'")
+  out = out.replace("%N", f"'${target}'")
   out
 }
 

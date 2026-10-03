@@ -285,7 +285,7 @@ stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
 }
 
 proc main() [fs, error] {
-  let total = numbers(Path("${pulled.display()}"), Path("${closed.display()}"))
+  let total = numbers(Path("${pulled}"), Path("${closed}"))
     |> fold(0) { |acc, n| acc + 10 / (1 - n) }
   print \${total}
 }
@@ -642,7 +642,7 @@ stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
 }
 
 proc main() [fs, error] {
-  numbers(Path("${pulled.display()}"), Path("${closed.display()}"))
+  numbers(Path("${pulled}"), Path("${closed}"))
     |> each { |n| let _ = 10 / (1 - n) }
 }
 """,
@@ -847,7 +847,7 @@ stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
 }
 
 proc main() [fs, error] {
-  let groups = numbers(Path("${pulled.display()}"), Path("${closed.display()}"))
+  let groups = numbers(Path("${pulled}"), Path("${closed}"))
     |> reduce-by(sum: true) { |n|
       {key: "all", value: 10 / (1 - n)}
     }
@@ -966,8 +966,8 @@ stream numbers(pulled: Path) [fs, error] -> Stream[Int] {
 }
 
 proc main() [fs, error] {
-  let totals = numbers(Path("${pulled.display()}"))
-    |> reduce-by(sum: true, jobs: zero_jobs(Path("${evaluated.display()}"))) { |n| {key: "all", value: n} }
+  let totals = numbers(Path("${pulled}"))
+    |> reduce-by(sum: true, jobs: zero_jobs(Path("${evaluated}"))) { |n| {key: "all", value: n} }
   print \${totals.get("all") ?? 0}
 }
 """,
@@ -1221,14 +1221,14 @@ stream nums(marker: Path, rows: Path) [fs, error] -> Stream[Int] {
   }
 }
 
-let numbers = nums(Path("${marker.display()}"), Path("${rows.display()}"))
+let numbers = nums(Path("${marker}"), Path("${rows}"))
 # The call did not run the body, so no row has been written yet, and the first
 # pull stops at the first row: the defer runs and the later rows never do.
-print \${Path("${rows.display()}").exists() ?}
+print \${Path("${rows}").exists() ?}
 let first = (numbers |> first())?
 print \${first}
-print \${Path("${rows.display()}").read_text() ?}
-print \${Path("${marker.display()}").read_text() ?}
+print \${Path("${rows}").read_text() ?}
+print \${Path("${marker}").read_text() ?}
 """,
   )?
   {
@@ -1256,24 +1256,24 @@ stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
 }
 
 proc main() [fs, io, error] {
-  print f"any=\${numbers(Path("${marker.display()}")) |> any . == 0}"
-  print Path("${marker.display()}").read_text()?
-  print f"all=\${numbers(Path("${marker.display()}")) |> all . < 0}"
-  print Path("${marker.display()}").read_text()?
-  let any_block = numbers(Path("${marker.display()}")) |> any { |n|
+  print f"any=\${numbers(Path("${marker}")) |> any . == 0}"
+  print Path("${marker}").read_text()?
+  print f"all=\${numbers(Path("${marker}")) |> all . < 0}"
+  print Path("${marker}").read_text()?
+  let any_block = numbers(Path("${marker}")) |> any { |n|
     let matched = n == 0
     matched
   }
   print f"any_block=\${any_block}"
-  print Path("${marker.display()}").read_text()?
-  let all_block = numbers(Path("${marker.display()}")) |> all { |n|
+  print Path("${marker}").read_text()?
+  let all_block = numbers(Path("${marker}")) |> all { |n|
     let matched = n < 0
     matched
   }
   print f"all_block=\${all_block}"
-  print Path("${marker.display()}").read_text()?
-  print f"none=\${numbers(Path("${marker.display()}")) |> any . == 99}"
-  print f"all_true=\${numbers(Path("${marker.display()}")) |> all . < 5}"
+  print Path("${marker}").read_text()?
+  print f"none=\${numbers(Path("${marker}")) |> any . == 99}"
+  print f"all_true=\${numbers(Path("${marker}")) |> all . < 5}"
 }
 """,
   )?
@@ -1327,13 +1327,13 @@ proc amount() [io] -> Int {
 }
 
 proc main() [fs, io, error] {
-  let taken = numbers(Path("${marker.display()}"))
+  let taken = numbers(Path("${marker}"))
     |> tee { |n| print f"tee \${n}" }
     |> where . % 2 == 0
     |> take(amount())
     |> collect()
   print f"rows=\${taken.len()} \${taken[0]} \${taken[1]}"
-  print Path("${marker.display()}").read_text()?
+  print Path("${marker}").read_text()?
 }
 """,
   )?
@@ -1438,13 +1438,13 @@ stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
 }
 
 proc main() [fs, io, error] {
-  for n in numbers(Path("${marker.display()}"))
+  for n in numbers(Path("${marker}"))
     |> tee { |value| print f"tee \${value}" }
     |> where . % 2 == 0 {
     print f"row \${n}"
     if n == 2 { break }
   }
-  print Path("${marker.display()}").read_text()?
+  print Path("${marker}").read_text()?
 }
 """,
   )?
@@ -1513,10 +1513,10 @@ stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
 }
 
 proc main() [fs, io, error] {
-  for n in numbers(Path("${marker.display()}")) |> take(2) {
+  for n in numbers(Path("${marker}")) |> take(2) {
     print f"row \${n}"
   }
-  print Path("${marker.display()}").read_text()?
+  print Path("${marker}").read_text()?
 }
 """,
   )?
@@ -1582,11 +1582,11 @@ proc source(marker: Path) [fs, io, error] -> Stream[Int] {
 }
 
 proc main() [fs, io, error] {
-  for n in source(Path("${marker.display()}")) {
+  for n in source(Path("${marker}")) {
     print f"row \${n}"
     if n == 1 { break }
   }
-  print Path("${marker.display()}").read_text()?
+  print Path("${marker}").read_text()?
 }
 """,
   )?
@@ -1615,7 +1615,7 @@ stream words(marker: Path) [fs, error] -> Stream[Str] {
 }
 
 proc main() [fs, io, error] {
-  for n in words(Path("${marker.display()}")) |> map .parse_int_decimal()? {
+  for n in words(Path("${marker}")) |> map .parse_int_decimal()? {
     print f"row \${n}"
   }
 }
@@ -1643,7 +1643,7 @@ stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
 }
 
 proc main() [fs, io, error] {
-  let rows = numbers(Path("${marker.display()}"))
+  let rows = numbers(Path("${marker}"))
     |> flat-map { |n|
       print f"expand \${n}"
       [n, n + 10]
@@ -1652,7 +1652,7 @@ proc main() [fs, io, error] {
     |> take(3)
     |> collect()
   print f"rows=\${rows[0]} \${rows[1]} \${rows[2]}"
-  print Path("${marker.display()}").read_text()?
+  print Path("${marker}").read_text()?
 }
 """,
   )?
@@ -1686,13 +1686,13 @@ stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
 }
 
 proc main() [fs, io, error] {
-  let mapped = numbers(Path("${marker.display()}"))
+  let mapped = numbers(Path("${marker}"))
     |> map { |n| n + 1 }
     |> drop(1)
     |> take(2)
     |> collect()
   print f"mapped=\${mapped[0]} \${mapped[1]}"
-  let filtered = numbers(Path("${marker.display()}"))
+  let filtered = numbers(Path("${marker}"))
     |> where { |n|
       let even = n % 2 == 0
       even
@@ -1700,7 +1700,7 @@ proc main() [fs, io, error] {
     |> take(2)
     |> collect()
   print f"filtered=\${filtered[0]} \${filtered[1]}"
-  let enumerated = numbers(Path("${marker.display()}"))
+  let enumerated = numbers(Path("${marker}"))
     |> map { |n|
       let next = n + 1
       next
@@ -1709,7 +1709,7 @@ proc main() [fs, io, error] {
     |> take(2)
     |> collect()
   print f"enumerated=\${enumerated[0].index}:\${enumerated[0].value} \${enumerated[1].index}:\${enumerated[1].value}"
-  print Path("${marker.display()}").read_text()?
+  print Path("${marker}").read_text()?
 }
 """,
   )?
@@ -1744,7 +1744,7 @@ stream numbers(marker: Path) [fs, error] -> Stream[Int] {
 }
 
 proc main() [io, fs, error] {
-  let taken = numbers(Path("${marker.display()}"))
+  let taken = numbers(Path("${marker}"))
     |> map { |n| "bad".parse_int()? + n }
     |> take(1)
     |> collect()
@@ -1771,24 +1771,24 @@ stream numbers(marker: Path) [fs, io, error] -> Stream[Int] {
 }
 
 proc main() [io, fs, error] {
-  let found = numbers(Path("${marker.display()}"))
+  let found = numbers(Path("${marker}"))
     |> tee { |n| print f"tee \${n}" }
     |> any . == 0
   print f"found=\${found}"
-  print Path("${marker.display()}").read_text()?
-  let block_found = numbers(Path("${marker.display()}"))
+  print Path("${marker}").read_text()?
+  let block_found = numbers(Path("${marker}"))
     |> tee { |n| print f"tee \${n}" }
     |> any { |n|
       let matched = n == 0
       matched
     }
   print f"block_found=\${block_found}"
-  print Path("${marker.display()}").read_text()?
-  let first = (numbers(Path("${marker.display()}"))
+  print Path("${marker}").read_text()?
+  let first = (numbers(Path("${marker}"))
     |> where . % 2 == 1
     |> first())?
   print f"first=\${first}"
-  print Path("${marker.display()}").read_text()?
+  print Path("${marker}").read_text()?
 }
 """,
   )?
@@ -1822,7 +1822,7 @@ stream numbers(marker: Path) [fs, error] -> Stream[Int] {
   yield 2
 }
 proc main() [fs, io, error] {
-  let first = (numbers(Path("${marker.display()}")) |> where . > 10 |> first())?
+  let first = (numbers(Path("${marker}")) |> where . > 10 |> first())?
   print f"first=\${first}"
 }
 """,

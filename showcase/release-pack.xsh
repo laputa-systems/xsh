@@ -31,8 +31,8 @@ proc main(...argv: List[Str]) [fs, error] {
 
   if opts.dry_run {
     let preview = fs.files(absolute_source) |> sort-by .path
-    print f"would stage ${preview.len()} files from ${absolute_source.display()}"
-    print f"would write to ${opts.output.display()} (dry run)"
+    print f"would stage ${preview.len()} files from ${absolute_source}"
+    print f"would write to ${opts.output} (dry run)"
     return
   }
 
@@ -40,7 +40,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let parent = if output_parent.display() == "" { fs.cwd()? } else { output_parent.resolve()? }
   let output = fp"${parent}/${opts.output.name()}"
   if output.exists()? {
-    print f"output already exists: ${output.display()}"
+    print f"output already exists: ${output}"
     abort(1)
   }
 

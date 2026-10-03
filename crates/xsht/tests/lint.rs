@@ -974,7 +974,7 @@ let newline = \"\"\"
 }
 
 #[test]
-fn linter_retains_path_display_parse_roundtrips_without_utf8_proof() {
+fn linter_path_constructor_owns_display_roundtrips_without_utf8_proof() {
     let source = "\
 proc parsed(root: Path, value: Str) -> Path {
   return Path(fp\"${root}/${value}\".display())
@@ -1005,6 +1005,12 @@ proc main(root: Path, value: Str) [error] {
         .collect();
 
     assert!(path_parse_diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    let constructor_fixes = diagnostics.iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.path-constructor"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints)
+        .map(|hint| hint.replacement.as_deref().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(constructor_fixes, ["fp\"${root}/${value}\""; 3], "diagnostics: {diagnostics:?}");
 }
 
 #[test]
@@ -1056,7 +1062,7 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
 
     assert_eq!(
         fixes_for("lint.path-constructor"),
-        ["p\"tmp/out\""]
+        ["p\"tmp/out\"", "fp\"${root}/${name}\"", "fp\"${root}/${name}\""]
     );
     assert_eq!(fixes_for("lint.redundant-path-interpolation"), ["root"]);
     assert_eq!(fixes_for("lint.redundant-string-interpolation"), ["name"]);
@@ -1552,46 +1558,46 @@ proc work() {
 }
 
 #[test]
-fn linter_retains_explicit_path_display_in_command_args() {
+fn linter_drops_path_display_from_command_words() {
     let source = "\
 proc main(foo: Path) {
-  print (foo.display())
   print $foo.display()
   print ${foo.display()}
   print foo.display()
+  print ${foo.parent().display()}
 }
 ";
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-
-    let diagnostics = Linter::lint(
-        &parsed.arena,
-        source,
-        LintOptions {
-            expr_types: checked.expr_types,
-            ..LintOptions::default()
-        },
-    )
-    .diagnostics;
-
-    let path_display_diagnostics: Vec<_> = diagnostics
-        .iter()
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    });
+    let mut fixes = diagnostics.iter()
         .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-path-display"))
-        .collect();
-
-    assert_eq!(
-        path_display_diagnostics.len(),
-        4,
-        "expected 4 lint.redundant-path-display diagnostics, got {path_display_diagnostics:?}; all: {diagnostics:?}"
-    );
-
-    assert!(path_display_diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        .map(|diagnostic| {
+            let [hint] = diagnostic.fix_hints.as_slice() else { panic!("one fix per display: {diagnostic:?}") };
+            (hint.span.unwrap(), hint.replacement.clone().unwrap())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 4, "{diagnostics:?}");
+    fixes.sort_by_key(|(span, _)| std::cmp::Reverse(span.start()));
+    let mut fixed = source.to_owned();
+    for (span, replacement) in fixes { fixed.replace_range(span.range(), &replacement); }
+    assert_eq!(fixed, "\
+proc main(foo: Path) {
+  print $foo
+  print ${foo}
+  print $foo
+  print ${foo.parent()}
+}
+");
 }
 
 #[test]
-fn linter_command_text_path_conversions_preserve_native_byte_boundaries() {
+fn linter_command_path_display_fixes_pass_native_bytes() {
     let source = r#"let raw = Path.parse_bytes(b"raw\xff name")?
 run printf "%s" "--target=${raw.display()}" ?
 run printf "%s" ${raw.display()} ?
@@ -1606,13 +1612,21 @@ run printf "%s" f"${raw}" ?
         expr_types: checked.expr_types,
         ..LintOptions::default()
     }).diagnostics;
-    assert!(diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
-        Some("lint.redundant-path-display" | "lint.redundant-command-fmt")))
+    // Dropping `.display()` passes the native bytes the text would replace.
+    let display_fixes = diagnostics.iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-path-display"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints)
+        .map(|hint| hint.replacement.as_deref().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(display_fixes, ["raw", "raw", "$raw", "raw"], "{diagnostics:?}");
+    // An f-string word asks for text, so it is not unwrapped without proof
+    // that the Path's bytes are UTF-8.
+    assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-command-fmt"))
         .all(|diagnostic| diagnostic.fix_hints.is_empty()), "{diagnostics:?}");
 }
 
 #[test]
-fn linter_path_text_roundtrips_preserve_native_byte_boundaries() {
+fn linter_path_constructor_turns_displayed_path_text_into_native_pieces() {
     let source = r#"let raw = Path.parse_bytes(b"raw\xff name")?
 let displayed = Path(raw.display())
 let formatted = Path(f"${raw}")
@@ -1626,10 +1640,12 @@ print $displayed $formatted $compound
         expr_types: checked.expr_types,
         ..LintOptions::default()
     }).diagnostics;
-    assert!(diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
-        Some("lint.redundant-path-parse" | "lint.path-constructor")))
-        .all(|diagnostic| diagnostic.fix_hints.is_empty()
-            || diagnostic.fix_hints.iter().all(|hint| hint.replacement.as_deref().is_some_and(|text| text.contains(".display()")))), "{diagnostics:?}");
+    let fixes = diagnostics.iter()
+        .filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.redundant-path-parse" | "lint.path-constructor")))
+        .flat_map(|diagnostic| &diagnostic.fix_hints)
+        .map(|hint| hint.replacement.as_deref().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(fixes, ["raw", "raw", "fp\"${raw}/child\""], "{diagnostics:?}");
 }
 
 #[test]

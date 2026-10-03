@@ -29,7 +29,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let root = opts.root.resolve()?
 
   if opts.verbose {
-    print f"hashing files in ${root.display()}"
+    print f"hashing files in ${root}"
   }
 
   # Hash every file and collect into typed records, then group by sha256

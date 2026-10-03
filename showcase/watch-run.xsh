@@ -55,7 +55,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   let root = opts.root.resolve()?
   let exts = opts.ext
   let interval = if opts.interval < 1 { 1 } else { opts.interval }
-  print f"watching ${root.display()}  interval=${interval}s  command=${opts.cmd.join(" ")}"
+  print f"watching ${root}  interval=${interval}s  command=${opts.cmd.join(" ")}"
   var last_stamp = stamp(root, exts)
   var run_count = 0
   var trigger = true

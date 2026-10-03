@@ -354,16 +354,16 @@ test test_suspended_cwd_scope_is_private_and_cleanup_uses_its_directory { |ctx|
     ctx,
     r"""stream paths() [fs, env, error] -> Stream[Path] {
   let ignored = cd (p"/") {
-    defer { print ${fs.cwd()?.display()} }
+    defer { print ${fs.cwd()?} }
     yield fs.cwd()?
     yield fs.cwd()?
     7
   }
 }
 let original = fs.cwd()?
-for value in paths() { print ${value.display()} ${fs.cwd()? == original} }
+for value in paths() { print ${value} ${fs.cwd()? == original} }
 print ${fs.cwd()? == original}
-for value in paths() { print ${value.display()} ${fs.cwd()? == original}; break }
+for value in paths() { print ${value} ${fs.cwd()? == original}; break }
 print ${fs.cwd()? == original}
 """,
   )?

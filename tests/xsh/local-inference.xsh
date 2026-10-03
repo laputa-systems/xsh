@@ -194,7 +194,7 @@ test stream_local_constraints_are_solved_before_yield_preparation { |ctx|
   for destination in [p"one", p"two"] { entries += [destination] }
   for destination in entries { yield destination }
 }
-for destination in destinations() { print ${destination.display()} }
+for destination in destinations() { print ${destination} }
 """,
   )?
   assert output.success, output.stderr

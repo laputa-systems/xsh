@@ -29,7 +29,7 @@ test test_user_lookup_and_mutation_contracts { |ctx|
   let script = test.temp_file(
     ctx,
     name: "user-child.xsh",
-    contents: b"let added_user = user.add(\"demo\", uid: 2001, gid: 2001, home: p\"/home/demo\", shell: p\"/bin/false\", gecos: \"Demo User\")?\nprint ${added_user.name} ${added_user.home.display()}\nuser.remove(\"demo\")?\n",
+    contents: b"let added_user = user.add(\"demo\", uid: 2001, gid: 2001, home: p\"/home/demo\", shell: p\"/bin/false\", gecos: \"Demo User\")?\nprint ${added_user.name} ${added_user.home}\nuser.remove(\"demo\")?\n",
   )?
 
   let output = run.text XSH_PASSWD_FILE=$passwd_file XSH_SHADOW_FILE=$shadow_file XSH_GROUP_FILE=$group_file "xsh" $script ?

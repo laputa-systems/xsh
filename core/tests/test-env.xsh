@@ -5,14 +5,14 @@ test test_env_assignment_runs_command { |ctx|
 
 test test_env_split_string_runs_command { |ctx|
   let script = fp"${ctx.core_dir}/printenv.xsh"
-  let command = f"XSH_MODULE_PATH=split ${ctx.xsh_bin.display()} ${script.display()} -- XSH_MODULE_PATH"
+  let command = f"XSH_MODULE_PATH=split ${ctx.xsh_bin} ${script} -- XSH_MODULE_PATH"
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/env.xsh" -- "-S" $command ?
   assert output.trim() == "split"
 }
 
 test test_env_split_string_as_single_shebang_arg_runs_command { |ctx|
   let script = fp"${ctx.core_dir}/printenv.xsh"
-  let command = f"-S XSH_MODULE_PATH=split ${ctx.xsh_bin.display()} ${script.display()} -- XSH_MODULE_PATH"
+  let command = f"-S XSH_MODULE_PATH=split ${ctx.xsh_bin} ${script} -- XSH_MODULE_PATH"
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/env.xsh" -- $command ?
   assert output.trim() == "split"
 }

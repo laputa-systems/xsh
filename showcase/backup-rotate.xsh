@@ -44,7 +44,7 @@ proc main(...argv: List[Str]) [fs, error] {
     |> sort-by(desc: true) .path
 
   if all_files.len() == 0 {
-    print f"no files found in ${dir.display()}"
+    print f"no files found in ${dir}"
     return
   }
 

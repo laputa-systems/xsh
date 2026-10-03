@@ -32,12 +32,12 @@ test test_tree_supports_multiple_roots_and_rejects_flags { |ctx|
   fp"${right}/b".write("b")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- $left $right ?
 
-  assert f"""${left.display()}
+  assert f"""${left}
 `-- a
 """ in output
 
   assert f"""
-${right.display()}
+${right}
 `-- b
 """ in output
 

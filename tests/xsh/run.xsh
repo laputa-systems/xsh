@@ -181,7 +181,7 @@ export proc build() [process, error] {
 
   let output = test.run_script(
     ctx,
-    f"""let build_fn: Proc = module.load(p"${module_path.display()}")?.get("build")?
+    f"""let build_fn: Proc = module.load(p"${module_path}")?.get("build")?
 build_fn.call()?
 """,
   )?
@@ -1215,7 +1215,7 @@ test test_run_accepts_relative_command_paths { |ctx|
   let out = run.text ./tool ?
   print ${out.trim()}
 }
-""".replace("ROOT", f"p\"${ctx.temp_root.display()}\""),
+""".replace("ROOT", f"p\"${ctx.temp_root}\""),
   )?
   assert output.success, output.stderr
   assert output.stdout == "ran\nran\n"

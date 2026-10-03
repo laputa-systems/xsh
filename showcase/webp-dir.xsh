@@ -68,11 +68,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
             if ok {
               if let Ok(meta) = tmp_out.metadata() {
                 if meta.size == 0 {
-                  print f"cwebp: empty output for ${entry.path.display()}"
+                  print f"cwebp: empty output for ${entry.path}"
                   ok = false
                 }
               } else {
-                print f"cwebp: cannot stat output for ${entry.path.display()}"
+                print f"cwebp: cannot stat output for ${entry.path}"
                 ok = false
               }
             }
@@ -82,17 +82,17 @@ proc main(...argv: List[Str]) [fs, process, error] {
 
               if trash_status.ok {
                 tmp_out.rename(dest, overwrite: true)?
-                print f"${entry.path.display()} -> ${dest.display()}"
+                print f"${entry.path} -> ${dest}"
                 out = {converted: true}
               } else {
-                print f"trash failed: ${entry.path.display()}"
+                print f"trash failed: ${entry.path}"
               }
             }
           }
           Err(e) => print f"cwebp spawn: ${e.message}"
         }
       } else {
-        print f"would convert: ${entry.path.display()} -> ${dest.display()}"
+        print f"would convert: ${entry.path} -> ${dest}"
         out = {converted: true}
       }
 

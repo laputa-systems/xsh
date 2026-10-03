@@ -93,9 +93,9 @@ export pure internal_argv(
   argv = argv.extend(
     [
       "-v",
-      f"${ctx.root.display()}:/work",
+      f"${ctx.root}:/work",
       "-v",
-      f"${ctx.target_dir.display()}:/work/target",
+      f"${ctx.target_dir}:/work/target",
       "-v",
       "xsh-cargo-registry:/root/.cargo/registry",
       "-w",

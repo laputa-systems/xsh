@@ -14,7 +14,7 @@ test test_tr_translate_delete_squeeze_and_stdin { |ctx|
   let script = fp"${ctx.core_dir}/tr.xsh"
 
   let command = f"""printf 'abc
-' | ${ctx.xsh_bin.display()} ${script.display()} -- a A"""
+' | ${ctx.xsh_bin} ${script} -- a A"""
 
   let stdin_output = run.text sh -c $command ?
   assert stdin_output.trim() == "Abc"

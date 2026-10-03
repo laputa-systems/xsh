@@ -123,7 +123,7 @@ type DynamicPackage = module {
   export pure label(value: Str) -> Str
   export proc build(value: Str) -> Result[Unit]
 }
-let checked = module.load(p"${package.display()}")?.require(DynamicPackage)?
+let checked = module.load(p"${package}")?.require(DynamicPackage)?
 let name: Str = checked.name
 let rendered: Str = checked.label(name)
 print \${rendered}
@@ -142,7 +142,7 @@ demo-built
 
   let private = test.run_script(
     ctx,
-    f"""let loaded = module.load(p"${package.display()}")?
+    f"""let loaded = module.load(p"${package}")?
 let value = loaded.prefix
 """,
     [],
@@ -158,7 +158,7 @@ let value = loaded.prefix
 type BadPackage = module {
   export proc build(path: Path) -> Result[Unit]
 }
-let loaded = module.load(p"${package.display()}")?
+let loaded = module.load(p"${package}")?
 match loaded.require(BadPackage) {
   Err(error) => test.error_kind(error, "schema")?
   Ok(_) => test.fail("incompatible contract succeeded")?
@@ -184,7 +184,7 @@ test test_module_load_rejects_undocumented_export { |ctx|
 
   let output = test.run_script(
     ctx,
-    f"""let _ = module.load(p"${plugin_path.display()}")?
+    f"""let _ = module.load(p"${plugin_path}")?
 """,
   )?
 
@@ -214,7 +214,7 @@ export let name = "bad"
     fs.write(module_path, fixture.source)?
     let output = test.run_script(
       ctx,
-      f"""let _ = module.load(p"${module_path.display()}")?
+      f"""let _ = module.load(p"${module_path}")?
 """,
     )?
     assert output.status == 3
@@ -232,7 +232,7 @@ export let name = "bad"
   )?
   let output = test.run_script(
     ctx,
-    f"""let _ = module.load(p"${hook.display()}")?
+    f"""let _ = module.load(p"${hook}")?
 """,
   )?
   assert output.status == 3
@@ -474,7 +474,7 @@ match failure {
 type FailureProvider = module {
   export pure failure() -> Result[Unit]
 }
-let provider = module.load(p"${root.display()}/helper.xsh")?.require(FailureProvider)?
+let provider = module.load(p"${root}/helper.xsh")?.require(FailureProvider)?
 print \${provider.failure() is Err(_)}
 """,
     [],
@@ -739,7 +739,7 @@ type Writer = module {
 
 ## Loads the writer and invokes it within the requested directory.
 export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {
-  let module_exports = module.load(p"${callee.display()}")?.require(Writer)?
+  let module_exports = module.load(p"${callee}")?.require(Writer)?
   cd src {
     module_exports.write_cwd(out)?
   } ?
@@ -750,7 +750,7 @@ export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {
     ctx,
     f"""
 use caller as c
-c.invoke(p"${src.display()}", p"${out.display()}")?
+c.invoke(p"${src}", p"${out}")?
 """,
     [],
     {XSH_MODULE_PATH: root.display()},
@@ -908,8 +908,8 @@ type Pkg = module {
   export let name: Str
   export proc build(dest: Path) [fs, error] -> Result[Unit]
 }
-let pkg = module.load(p"${package.display()}")?.require(Pkg)?
-pkg.build(p"${dynamic_out.display()}")?
+let pkg = module.load(p"${package}")?.require(Pkg)?
+pkg.build(p"${dynamic_out}")?
 """,
     [],
     {XSH_MODULE_PATH: root.display()},
@@ -1002,13 +1002,13 @@ export pure answer() -> Int {
 
   let output = test.run_script(
     ctx,
-    f"""let _ = module.load(p"${broken.display()}")?
+    f"""let _ = module.load(p"${broken}")?
 """,
   )?
 
   assert ! output.success
-  assert f"module `${broken.display()}` failed to parse" in output.stderr, output.stderr
-  assert f"${broken.display()}:4:1: parse.expected-expression" in output.stderr, output.stderr
+  assert f"module `${broken}` failed to parse" in output.stderr, output.stderr
+  assert f"${broken}:4:1: parse.expected-expression" in output.stderr, output.stderr
 }
 
 test test_module_load_resolves_uses_with_configured_test_module_roots { |ctx|

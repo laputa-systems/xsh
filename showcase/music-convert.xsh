@@ -98,11 +98,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> sort-by .path
 
   if files.len() == 0 {
-    print f"no audio files found in ${root.display()}"
+    print f"no audio files found in ${root}"
     return
   }
 
-  print f"found ${files.len()} audio files in ${root.display()}"
+  print f"found ${files.len()} audio files in ${root}"
   var results: List[ConvertResult] = []
 
   for entry in files {
@@ -113,7 +113,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     let aac_kbps = nearest_aac_kbps(orig_kbps)
 
     if opts.verbose {
-      print f"  ${rel.display()}: ${ext} ${orig_kbps}kbps → ${aac_kbps}kbps"
+      print f"  ${rel}: ${ext} ${orig_kbps}kbps → ${aac_kbps}kbps"
     }
 
     if opts.dry_run {

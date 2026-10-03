@@ -151,7 +151,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfupError.Config(f"${path_value.display()}: source expects one path"))
+          return Err(IfupError.Config(f"${path_value}: source expects one path"))
         }
 
         result = parse_source_path(fields[1], result)?
@@ -161,7 +161,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         current = empty_interface()
 
         if fields.len() != 2 {
-          return Err(IfupError.Config(f"${path_value.display()}: source-directory expects one path"))
+          return Err(IfupError.Config(f"${path_value}: source-directory expects one path"))
         }
 
         let dir = fp"${fields[1]}"
@@ -183,28 +183,28 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         result = append_current(result, current)
 
         if fields.len() < 4 {
-          return Err(IfupError.Config(f"${path_value.display()}: iface expects name, address family, and method"))
+          return Err(IfupError.Config(f"${path_value}: iface expects name, address family, and method"))
         }
 
         current = {...empty_interface(), logical: fields[1], family: fields[2], method: fields[3]}
       }
       "pre-up" => {
         if current.logical == "" {
-          return Err(IfupError.Config(f"${path_value.display()}: pre-up outside iface stanza"))
+          return Err(IfupError.Config(f"${path_value}: pre-up outside iface stanza"))
         }
 
         current = {...current, pre_up: current.pre_up.push(rest_after_word(line))}
       }
       "up" => {
         if current.logical == "" {
-          return Err(IfupError.Config(f"${path_value.display()}: up outside iface stanza"))
+          return Err(IfupError.Config(f"${path_value}: up outside iface stanza"))
         }
 
         current = {...current, up: current.up.push(rest_after_word(line))}
       }
       "post-up" => {
         if current.logical == "" {
-          return Err(IfupError.Config(f"${path_value.display()}: post-up outside iface stanza"))
+          return Err(IfupError.Config(f"${path_value}: post-up outside iface stanza"))
         }
 
         current = {...current, post_up: current.post_up.push(rest_after_word(line))}
@@ -225,7 +225,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
         }
       }
       "mapping" | "allow-auto" | "allow-hotplug" => return Err(
-        IfupError.Config(f"${path_value.display()}: unsupported ifupdown directive ${fields[0]}"),
+        IfupError.Config(f"${path_value}: unsupported ifupdown directive ${fields[0]}"),
       )
       _ => {}
     }
@@ -314,9 +314,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
 
     let status = process.run(process.command_argv(entry.path, [entry.path.display()], env: env_record))?
 
-    if ! status.ok {
-      return Err(IfupError.Hook(f"${entry.path.display()} failed for ${physical}"))
-    }
+    return Err(IfupError.Hook(f"${entry.path} failed for ${physical}")) unless status.ok
   }
 }
 

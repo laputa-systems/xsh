@@ -235,15 +235,15 @@ test test_record_constructors_bound_scalar_defaults_and_static_identity { |ctx|
     ctx,
     r"""let base_path: Path = p"base"
 type Paths = {root: Path = base_path}
-print ${Paths().root.display()}
+print ${Paths().root}
 type Defaults = {integer: Int = -3, fraction: Float = -1.5, elapsed: Duration = 2s, data: Bytes = b"ok", location: Path = p"demo", maybe: Str? = null, items: List[Int] = []}
 let value = Defaults()
 let supplied = Defaults(location: p"supplied")
-print ${supplied.location.display()}
+print ${supplied.location}
 print $value.integer
 print ${value.fraction.format(precision: 1)}
 print ${value.data.utf8()?}
-print ${value.location.display()}
+print ${value.location}
 print ${value.items.len()}
 """,
   )?

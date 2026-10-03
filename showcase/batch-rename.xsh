@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   if files.len() == 0 {
-    print f"no files found in ${root.display()}"
+    print f"no files found in ${root}"
     return
   }
 

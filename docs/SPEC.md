@@ -382,7 +382,12 @@ returns a byte offset). There is no `Str.len()`.
 `Path` stores native Unix path bytes and may hold names that are not valid
 UTF-8. It never contains NUL. `fp"..."` and compound process words append
 `Path` fragments byte for byte. Display conversion (`print`, `f"..."`,
-`.display()`) produces UTF-8 text and cannot recover non-UTF-8 bytes. Path
+`.display()`) produces UTF-8 text and cannot recover non-UTF-8 bytes, so an
+interpolated Path never needs `.display()`: `f"${p}"` and `print $p` already
+display it, and in `fp"..."` and command words the call would replace native
+bytes with text. There is no implicit `Path`-to-`Str` coercion; `.display()` is
+the explicit lossy conversion where a `Str` is required (a `Str` parameter or
+binding, JSON). Path
 construction never joins, normalizes, expands, globs, or checks the filesystem:
 separators and `..` stay exactly as written. `Path(text)` converts trusted
 text and `Path.parse_bytes(bytes)` converts bytes with a `Result`. A string
@@ -1519,7 +1524,8 @@ Every argv item is a byte string without NUL. Conversions:
 
 `Null`, `Bytes`, records, maps, `Result`, `Status`, errors, handles, callables,
 and `Unit` are rejected at check time where the type is known and at runtime
-otherwise. Convert explicitly (`.display()`, `.utf8()?`, `.pid`). There is no
+otherwise. Convert explicitly (`.utf8()?`, `.pid`); a `Path` needs no
+`.display()`, which would only replace its non-UTF-8 bytes. There is no
 word splitting at any point: `run rm $file` passes exactly one argument
 whatever `file` contains.
 
