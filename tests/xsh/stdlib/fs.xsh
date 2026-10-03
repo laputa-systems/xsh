@@ -772,10 +772,12 @@ test test_host_filesystem_errors_implement_error_facets [fs, error] { |ctx|
   fs.write(file, "text")?
   let read = missing.read_text()
   assert read is Err(is NotFound)
-  match read {
-    Err(error) => assert error is NotFound
-    Ok(_) => assert false, "missing file read"
+  if let Err(error) = read {
+    assert error is NotFound
+  } else {
+    assert false, "missing file read"
   }
+
   assert missing.read_bytes() is Err(is NotFound)
   assert fs.read_text(missing) is Err(is NotFound)
   assert fs.files(missing) is Err(is NotFound)

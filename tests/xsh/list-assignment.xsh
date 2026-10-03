@@ -250,7 +250,7 @@ test test_str_compound_addition_appends_text {
   var record = {names: ["x"], label: "l"}
   record.label += "!"
   var labels = {first: "f"}
-  labels.first += f"${text}"
+  labels.first += text
   assert text == "ab"
   assert record.label == "l!"
   assert labels.first == "fab"
