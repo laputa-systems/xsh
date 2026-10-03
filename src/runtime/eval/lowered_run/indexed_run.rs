@@ -3461,9 +3461,9 @@ impl Evaluator {
                 })))
             }
             // These run on the frames, which own comprehension iteration and
-            // stream cancellation, and the boundaries that blocks, captures, and
-            // error contexts put around their bodies.
-            FullTag::ExprListComp | FullTag::ExprMapComp | FullTag::ExprValueBlock
+            // stream cancellation, and the boundaries that captures and error
+            // contexts put around their bodies.
+            FullTag::ExprListComp | FullTag::ExprMapComp
             | FullTag::ExprCapture | FullTag::ExprErrorContext => {
                 self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)?
             }
@@ -5635,6 +5635,18 @@ impl Evaluator {
                 match result? {
                     StmtFlow::Value(value) => ControlFlow::Continue(lowered_result_ok(value)),
                     StmtFlow::None => ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)),
+                    flow => self.preserve_lexical_expression_flow(flow),
+                }
+            }
+            // A value block enters a block frame directly, without the expression
+            // boundary an expression frame adds; stage bodies run one per item.
+            FullTag::ExprValueBlock => {
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                match self.eval_indexed_statement_block(execution, body, slots, span)? {
+                    StmtFlow::Value(value) => ControlFlow::Continue(value),
+                    StmtFlow::None => ControlFlow::Continue(LoweredValue::Unit),
                     flow => self.preserve_lexical_expression_flow(flow),
                 }
             }
