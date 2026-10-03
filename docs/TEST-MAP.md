@@ -622,6 +622,12 @@ certificate paths, or temporary roots). Keep the assertions about the language
 contract in XSH. Any exception requires an adjacent comment explaining why a
 disk-backed native test cannot express the behavior.
 
+Nested `test.run_script` stderr includes the run's temporary script path, which
+embeds the runner PID and a nanosecond timestamp. Assert on rendered message
+fragments such as `exited with status 127`, never on bare numbers: a bare
+`"127" not in stderr` check made `tests/xsh/run.xsh::test_whole_script_run_error_diagnostics`
+fail intermittently.
+
 ## Executed Test Accounting
 
 `docs/TEST-EXECUTION.json` records the tests that actually ran, along with each
