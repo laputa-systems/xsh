@@ -56,7 +56,10 @@ static COMMANDS: &[CommandHelp] = &[
         summary: "Run quality checks and optional fixes",
         quick_label: "Improve source",
         quick_usage: "lint [FILE...]",
-        usage: &["xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [FILE...]"],
+        usage: &[
+            "xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [FILE...]",
+            "xsht lint --list [--format text|jsonl]",
+        ],
         options: &[
             HelpOption {
                 syntax: "--fix",
@@ -69,6 +72,14 @@ static COMMANDS: &[CommandHelp] = &[
             HelpOption {
                 syntax: "--runless",
                 description: "Reject external commands unless configured",
+            },
+            HelpOption {
+                syntax: "--list",
+                description: "List every selectable code with a summary",
+            },
+            HelpOption {
+                syntax: "--format FORMAT",
+                description: "text or jsonl, with --list",
             },
         ],
         notes: &[],

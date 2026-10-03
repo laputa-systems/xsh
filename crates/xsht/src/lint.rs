@@ -147,44 +147,130 @@ pub struct LintOptions {
     pub only: Option<Vec<String>>,
 }
 
-/// Every diagnostic code `xsht lint` can report, for validating `--only`.
-pub const LINT_CODES: &[&str] = &[
-    "lint.block-header", "lint.boolean-guard", "lint.boolean-pattern-test", "lint.command-value",
-    "lint.compatibility-vocabulary", "lint.core-assert", "lint.dead-code", "lint.default-param-type",
-    "lint.dollar-in-expression-string", "lint.duration-arithmetic", "lint.enum-declaration", "lint.env-scope",
-    "lint.error-fallback-block", "lint.fs-root-receiver", "lint.identical-match-arms",
-    "lint.inferred-require-target", "lint.interactive-command", "lint.json-roundtrip", "lint.legacy-test-proc",
-    "lint.lexical-block", "lint.lookup-absence", "lint.lookup-fallback", "lint.missing-effects",
-    "lint.needless-annotation", "lint.organize-top-level-consts",
-    "lint.path-constructor", "lint.pattern-conditional",
-    "lint.prefer-bare-field-label", "lint.prefer-block-string", "lint.prefer-callable-alias",
-    "lint.prefer-comparison-chain", "lint.prefer-const", "lint.prefer-context-scope-value",
-    "lint.prefer-defer-block", "lint.prefer-empty-map-literal", "lint.prefer-file-lines", "lint.prefer-fs-files",
-    "lint.prefer-generic-record-constructor", "lint.prefer-guard", "lint.prefer-in",
-    "lint.prefer-inferred-private-effects", "lint.prefer-inferred-pure-return", "lint.prefer-known-field-access",
-    "lint.prefer-list-comp", "lint.prefer-list-compound-assignment", "lint.prefer-list-element-assignment",
-    "lint.prefer-list-pattern", "lint.prefer-list-splicing", "lint.prefer-map-comp",
-    "lint.prefer-map-entry-iteration", "lint.prefer-map-literal", "lint.prefer-method",
-    "lint.prefer-named-argument-pun", "lint.prefer-named-argument-spread", "lint.prefer-nested-record-update",
-    "lint.prefer-optional-postfix", "lint.prefer-record-constructor", "lint.prefer-record-destructuring",
-    "lint.prefer-regex-literal", "lint.prefer-scalar-iteration", "lint.prefer-signature-cli", "lint.prefer-slice",
-    "lint.prefer-stream-producer", "lint.prefer-string-concat", "lint.prefer-try-capture",
-    "lint.prefer-value-pipeline", "lint.prefer-yield-delegation", "lint.redundant-bare-return",
-    "lint.redundant-command-fmt", "lint.redundant-command-interpolation", "lint.redundant-default",
-    "lint.redundant-display-parse", "lint.redundant-fmt-wrapper", "lint.redundant-main-call",
-    "lint.redundant-newline-triple-string", "lint.redundant-ok-return", "lint.redundant-ok-tail",
-    "lint.redundant-optional-fallback", "lint.redundant-path-display", "lint.redundant-path-interpolation",
-    "lint.redundant-path-parse", "lint.redundant-pipeline-stage", "lint.redundant-require",
-    "lint.redundant-result-unit", "lint.redundant-string-interpolation", "lint.redundant-tail-return-binding",
-    "lint.redundant-tail-return", "lint.removed-record-require", "lint.run-status", "lint.runless",
-    "lint.shadowing", "lint.stage-callable", "lint.stream-options", "lint.stringly-typed-match",
-    "lint.unannotated-effects", "lint.unsorted-imports", "lint.unused-callable", "lint.unused-local",
-    "lint.unused-type",
+/// Every diagnostic code `xsht lint` can report, with a one-line summary for
+/// `xsht lint --list` and the generated `docs/reference/lints.md`. `--only`
+/// validates against these codes.
+pub const LINT_CODES: &[(&str, &str)] = &[
+    ("lint.block-header", "Move error-handler parameters inside the block of an `else` block"),
+    ("lint.boolean-guard", "Rewrite a leading failure branch on a Bool condition as `guard ... else`"),
+    ("lint.boolean-pattern-test", "Replace a match yielding `true`/`false` per arm with a pattern test"),
+    ("lint.command-value", "Replace stale parenthesized command values with `$name`, `$record.field`, or `${expr}`"),
+    ("lint.compatibility-vocabulary", "Replace removed vocabulary with its canonical name, such as dropping `run.builtin`"),
+    ("lint.core-assert", "Use an `assert` statement instead of a core assertion call in statement position"),
+    ("lint.dead-code", "Flag unreachable statements after code that always exits"),
+    ("lint.default-param-type", "Drop a parameter type annotation when its default already establishes that type"),
+    ("lint.dollar-in-expression-string", "Warn that `$name` in an expression string literal is literal text, not interpolation"),
+    ("lint.duration-arithmetic", "Use Duration arithmetic such as `(n * 1s)` for a bounded numeric conversion"),
+    ("lint.enum-declaration", "Replace a legacy tag-union `type` declaration with `enum Name { A, B }`"),
+    ("lint.env-scope", "Write expression environment assignments as `env ({NAME: value}) { body }`"),
+    ("lint.error-fallback-block", "Replace an identity success match with a `??` error fallback block"),
+    ("lint.fs-root-receiver", "Call removed filesystem operations as methods on the `FsRoot` receiver"),
+    ("lint.identical-match-arms", "Merge adjacent match arms with identical bodies into one alternative pattern"),
+    ("lint.inferred-require-target", "Drop a `require` schema target the checked boundary already supplies"),
+    ("lint.interactive-command", "Flag interactive-only commands in scripts and suggest the scripting replacement"),
+    ("lint.json-roundtrip", "Flag a JSON encode then decode round trip as usually redundant"),
+    ("lint.legacy-test-proc", "Replace a legacy native test proc taking `TestContext` with a `test` declaration"),
+    ("lint.lexical-block", "Use a lexical block for an unconditional scope instead of a value block"),
+    ("lint.lookup-absence", "Compare a lookup against `null` for absence, not the `-1` numeric sentinel"),
+    ("lint.lookup-fallback", "Remove the fallback argument from lookup calls, which no longer accept one"),
+    ("lint.missing-effects", "Flag a proc whose declared effects are incomplete and suggest the full effect list"),
+    ("lint.needless-annotation", "Remove a type annotation that the initializer or checked constraints already fix"),
+    ("lint.organize-top-level-consts", "Group safe immutable top-level constants after imports and before functions"),
+    ("lint.path-constructor", "Prefer a `p` string literal or path interpolation over `Path(...)`"),
+    ("lint.pattern-conditional", "Use `if let` for a two-arm match with a complementary pattern"),
+    ("lint.prefer-bare-field-label", "Write identifier-shaped record field labels without quotes"),
+    ("lint.prefer-block-string", "Use a block string for a constant multiline string concatenation"),
+    ("lint.prefer-callable-alias", "Use an immutable alias for a callable that exactly forwards to another"),
+    ("lint.prefer-comparison-chain", "Use an ordering chain like `a < b < c` for repeated adjacent comparisons"),
+    ("lint.prefer-const", "Declare inert module-level `let` data as `const`"),
+    ("lint.prefer-context-scope-value", "Let a scope such as `cd` or `env` yield the value instead of a placeholder assigned inside"),
+    ("lint.prefer-defer-block", "Replace a single-use literal cleanup helper with a `defer` block"),
+    ("lint.prefer-empty-map-literal", "Use `{}` for an empty map in map-typed contexts"),
+    ("lint.prefer-file-lines", "Use `path.lines()?` instead of `read_text()?.lines()` in a loop"),
+    ("lint.prefer-fs-files", "Use `fs.files()` instead of `fs.walk()` filtered to `kind == file`"),
+    ("lint.prefer-generic-record-constructor", "Let a constructor infer its concrete schema from the supplied fields"),
+    ("lint.prefer-guard", "Use `guard` instead of a single-action `if`"),
+    ("lint.prefer-in", "Use `in` or `not in` instead of a membership method call"),
+    ("lint.prefer-inferred-private-effects", "Drop a private proc effect clause when it is inferred exactly"),
+    ("lint.prefer-inferred-pure-return", "Drop a private pure return type when it is inferred exactly"),
+    ("lint.prefer-known-field-access", "Select a guaranteed record field directly instead of through a lookup"),
+    ("lint.prefer-list-comp", "Use a list comprehension instead of a for loop that only builds a list"),
+    ("lint.prefer-list-compound-assignment", "Use `+=` for a local list update that reassigns the list"),
+    ("lint.prefer-list-element-assignment", "Assign a list element directly when the index is known valid"),
+    ("lint.prefer-list-pattern", "Use a list pattern with `if let` for bounded element extraction after a length check"),
+    ("lint.prefer-list-splicing", "Build a list with one literal and explicit splices instead of chained concatenation"),
+    ("lint.prefer-map-comp", "Use a map comprehension instead of a for loop that only builds a map"),
+    ("lint.prefer-map-entry-iteration", "Iterate map entries instead of looping over keys and looking each value up"),
+    ("lint.prefer-map-literal", "Construct a fresh Map with one literal instead of incremental insertion"),
+    ("lint.prefer-method", "Use method form `receiver.func(...)` instead of calling `module.func(receiver, ...)`"),
+    ("lint.prefer-named-argument-pun", "Use the named-argument shorthand when the argument repeats its value name"),
+    ("lint.prefer-named-argument-spread", "Forward record fields with a named argument spread such as `...record`"),
+    ("lint.prefer-nested-record-update", "Use disjoint static field paths instead of nested record spreads"),
+    ("lint.prefer-optional-postfix", "Use a guarded postfix and `??` instead of an explicit null branch"),
+    ("lint.prefer-record-constructor", "Use the named schema constructor for a record literal of a schema type"),
+    ("lint.prefer-record-destructuring", "Bind adjacent fields of one record together with a destructuring `let`"),
+    ("lint.prefer-regex-literal", "Prepare a static regex pattern with an `rx` literal instead of a call"),
+    ("lint.prefer-scalar-iteration", "Iterate a Str by scalars or bytes without a split List or unused offsets"),
+    ("lint.prefer-signature-cli", "Declare a literal CLI schema as a `cli main(...)` entry signature"),
+    ("lint.prefer-slice", "Use half-open slicing where offset/count method bounds are equivalent"),
+    ("lint.prefer-stream-producer", "Suggest a `stream` producer with `yield` for a proc that builds a list item by item"),
+    ("lint.prefer-string-concat", "Use `+` instead of joining literal pieces with an empty separator"),
+    ("lint.prefer-try-capture", "Replace a single-use closed helper with a local `try` block capture"),
+    ("lint.prefer-value-pipeline", "Use a value pipeline for nested calls or a single-use temporary"),
+    ("lint.prefer-yield-delegation", "Replace a transparent forwarding loop with `yield @iterable`"),
+    ("lint.redundant-bare-return", "Remove a bare `return` at the end of a `Result[Unit]` function"),
+    ("lint.redundant-command-fmt", "Use command value syntax directly for a single-value command f-string"),
+    ("lint.redundant-command-interpolation", "Use expression syntax directly for a single interpolation in command args"),
+    ("lint.redundant-default", "Remove a named Bool argument that equals the call default, such as `parents: true`"),
+    ("lint.redundant-display-parse", "Remove a display then parse round trip on a value already of the parsed type"),
+    ("lint.redundant-fmt-wrapper", "Remove redundant `${}` or `()` wrapping around an f-string"),
+    ("lint.redundant-main-call", "Remove an explicit `main(@args)` since main is invoked implicitly"),
+    ("lint.redundant-newline-triple-string", "Write a single-newline triple string as an escaped newline literal"),
+    ("lint.redundant-ok-return", "Remove `return Ok()` in a `Result[Unit]` function, using bare `return` or none"),
+    ("lint.redundant-ok-tail", "Remove `return Ok(...)` at a function tail since plain values are wrapped"),
+    ("lint.redundant-optional-fallback", "Drop a `??` fallback on an Optional receiver proved present"),
+    ("lint.redundant-path-display", "Avoid `.display()` on a Path argument, which replaces preserved bytes with text"),
+    ("lint.redundant-path-interpolation", "Remove a single-value path interpolation that wraps one value"),
+    ("lint.redundant-path-parse", "Remove a Path display then parse round trip on a value already a Path"),
+    ("lint.redundant-pipeline-stage", "Remove no-op `where true` and `map .` pipeline stages"),
+    ("lint.redundant-require", "Remove a schema `require` on an expression that already has the required type"),
+    ("lint.redundant-result-unit", "Remove a `Result[Unit]` return annotation that a proc without a value tail infers"),
+    ("lint.redundant-string-interpolation", "Remove a string interpolation containing only a single value"),
+    ("lint.redundant-tail-return-binding", "Return the initializer implicitly instead of binding it and returning at the tail"),
+    ("lint.redundant-tail-return", "Use the tail value implicitly instead of a final `return`"),
+    ("lint.removed-record-require", "Replace the removed `record.require` with a named schema and `.require(Schema)`"),
+    ("lint.run-status", "Remove `?` from a `run` of a command whose nonzero status is expected"),
+    ("lint.runless", "Reject external commands when linting with `--runless`, except allowed names"),
+    ("lint.shadowing", "Flag a binding that shadows a name from an outer scope"),
+    ("lint.stage-callable", "Name the callable directly instead of a transparent stream stage block"),
+    ("lint.stream-options", "Replace stream stage flags with ordinary named arguments"),
+    ("lint.stringly-typed-match", "Suggest a tag union type for a match with three or more string-literal arms"),
+    ("lint.unannotated-effects", "Flag a proc that has effects but no annotation and suggest the effect list"),
+    ("lint.unsorted-imports", "Sort a contiguous import block by module path and alias"),
+    ("lint.unused-callable", "Flag an unexported callable not reachable from a bundle entry point"),
+    ("lint.unused-local", "Flag a local variable that is never read"),
+    ("lint.unused-type", "Flag a type declaration that is never referenced"),
 ];
 
 /// Checker diagnostic codes that carry a source fix and may be selected with
 /// `xsht lint --only`, for scoped migrations such as `--only check.bool-statement --fix`.
 pub const FIXABLE_CHECK_CODES: &[&str] = &["check.bool-statement"];
+
+/// One-line summaries of `FIXABLE_CHECK_CODES` for `xsht lint --list`.
+pub const FIXABLE_CHECK_SUMMARIES: &[(&str, &str)] = &[(
+    "check.bool-statement",
+    "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard",
+)];
+
+/// Whether `xsht lint --only` accepts `code`.
+pub fn lint_code_known(code: &str) -> bool {
+    LINT_CODES.iter().any(|(known, _)| *known == code) || FIXABLE_CHECK_CODES.contains(&code)
+}
+
+/// Every selectable code with its summary, lint codes first, for `xsht lint --list`.
+pub fn lint_code_catalog() -> impl Iterator<Item = (&'static str, &'static str)> {
+    LINT_CODES.iter().chain(FIXABLE_CHECK_SUMMARIES).copied()
+}
 
 /// Whether `only` (the `--only` selection, if any) admits a diagnostic code.
 pub fn lint_code_selected(only: Option<&[String]>, code: Option<&str>) -> bool {
@@ -10587,7 +10673,7 @@ mod user_type_reference_tests {
 
 #[cfg(test)]
 mod lint_code_registry_tests {
-    use super::LINT_CODES;
+    use super::{FIXABLE_CHECK_CODES, FIXABLE_CHECK_SUMMARIES, LINT_CODES};
     use std::collections::BTreeSet;
 
     // `--only` validates against `LINT_CODES`; every code the lint sources
@@ -10611,8 +10697,20 @@ mod lint_code_registry_tests {
         }
         let mut emitted = BTreeSet::new();
         visit(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut emitted);
-        let registered = LINT_CODES.iter().map(|code| (*code).to_owned()).collect::<BTreeSet<_>>();
+        let registered = LINT_CODES.iter().map(|(code, _)| (*code).to_owned()).collect::<BTreeSet<_>>();
         assert_eq!(emitted, registered);
+    }
+
+    // `xsht lint --list` and `docs/reference/lints.md` describe every
+    // selectable code in one line.
+    #[test]
+    fn every_selectable_code_has_a_one_line_summary() {
+        for code in FIXABLE_CHECK_CODES {
+            assert!(FIXABLE_CHECK_SUMMARIES.iter().any(|(known, _)| known == code), "{code} has no summary");
+        }
+        for (code, summary) in super::lint_code_catalog() {
+            assert!(!summary.is_empty() && !summary.contains('\n') && !summary.ends_with('.'), "{code}: {summary:?}");
+        }
     }
 }
 
