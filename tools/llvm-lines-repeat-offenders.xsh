@@ -97,7 +97,7 @@ pure is_project_owned(name: Str) -> Bool {
 pure parse_mono_row(line: Str) -> Result[MonoRow] {
   let trimmed = line.trim()
   let fields = trimmed.fields()
-  let original = (fields |> drop(6)).join(" ")
+  let original = fields |> drop(6).join(" ")
   let lines = json.decode(fields[0])?.require(Int)?
   let copies = json.decode(fields[3])?.require(Int)?
   Ok({name: normalize_function_name(original), original: original, lines: lines, copies: copies})

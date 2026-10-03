@@ -1298,12 +1298,12 @@ test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
   root.symlink(p"intel-rapl:0/intel-rapl:0:0", p"sys/class/powercap/intel-rapl:0:0")?
   let zones = report_checks.read_powercap_reference(root)?
   assert zones.len() == 2
-  let package_zone = (zones
+  let package_zone = zones
     |> where .entry_name == "intel-rapl:0"
-    |> first())?
-  let core_zone = (zones
+    |> first()?
+  let core_zone = zones
     |> where .entry_name == "intel-rapl:0:0"
-    |> first())?
+    |> first()?
   assert (package_zone.constraints |> map .index) == [0, 10]
   assert core_zone.parent == {value: "intel-rapl:0", complete: true}
   root.write(
@@ -2291,9 +2291,9 @@ test test_system_report_smbios_type16_reference_reads_short_form_device_count {
   )
   let parsed = smbios_reference.parse_smbios_reference(table)?
   assert parsed.complete
-  let count = (parsed.records[0].fields
+  let count = parsed.records[0].fields
     |> where .name == "number_of_devices"
-    |> first())?
+    |> first()?
   assert count.value == 2
   assert count.unit == "count"
 }

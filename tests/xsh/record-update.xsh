@@ -8,11 +8,11 @@ proc witness() [error] {
     ...config,
     build: {...config.build, jobs: 8, flags: {...config.build.flags, debug: true}},
   }
-  assert (updated.build.jobs) == (8)
-  assert (updated.build.flags.debug) == (true)
-  assert (updated.build.flags.optimize) == (true)
-  assert (config.build.jobs) == (2)
-  assert (config.build.flags.debug) == (false)
+  assert updated.build.jobs == 8
+  assert updated.build.flags.debug == true
+  assert updated.build.flags.optimize == true
+  assert config.build.jobs == 2
+  assert config.build.flags.debug == false
 }
 witness()
 """,
@@ -30,9 +30,9 @@ proc witness() [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
   let before = {...config, build: {...config.build, jobs: 8, flags: {...config.build.flags, debug: true}}}
   let after = {...config, build.jobs: 8, build.flags.debug: true}
-  assert (after == before)
-  assert (config.build.jobs) == (2)
-  assert (config.build.flags.debug) == (false)
+  assert after == before
+  assert config.build.jobs == 2
+  assert config.build.flags.debug == false
 }
 witness()
 """,
@@ -52,13 +52,13 @@ proc witness() [error] {
   let config = RecordUpdateConfig(build: {jobs: 2, flags: {debug: false, optimize: true}, tags: ["old"]}, name: "kept")
   let name = "renamed"
   let updated: RecordUpdateConfig = {...config, build.jobs: 8, build.tags: [], name}
-  assert (updated.build.tags.len()) == (0)
-  assert (updated.build.jobs) == (8)
-  assert (updated.name) == ("renamed")
-  assert (config.name) == ("kept")
-  assert (config.build.tags[0]) == ("old")
+  assert updated.build.tags.len() == 0
+  assert updated.build.jobs == 8
+  assert updated.name == "renamed"
+  assert config.name == "kept"
+  assert config.build.tags[0] == "old"
   let quoted = {"build.jobs": 7}
-  assert (quoted.get("build.jobs")?) == (7)
+  assert quoted.get("build.jobs")? == 7
 }
 witness()
 """,

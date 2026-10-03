@@ -1544,7 +1544,7 @@ impl<'a> Parser<'a> {
             None
         };
         self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
-        let block_id = if self.at(TokenKindMatch::LBrace) {
+        let block_id = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_field_record() {
             self.parse_block_arena_only(arena)?
         } else {
             let stmt_start = self.current_start();

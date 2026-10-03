@@ -99,7 +99,7 @@ export pure target_id(triple: Str) -> Result[TargetId] {
 ## Resolves one supported Rust target triple into its complete policy record.
 export pure resolve(triple: Str) -> Result[Target] {
   match triple {
-    "x86_64-unknown-linux-musl" => ({
+    "x86_64-unknown-linux-musl" => {
       triple: triple,
       id: X86_64LinuxMusl,
       os: "linux",
@@ -115,8 +115,8 @@ export pure resolve(triple: Str) -> Result[Target] {
         "-march=x86-64-v3",
       ],
       static_musl: true,
-    })
-    "aarch64-unknown-linux-musl" => ({
+    }
+    "aarch64-unknown-linux-musl" => {
       triple: triple,
       id: Aarch64LinuxMusl,
       os: "linux",
@@ -134,8 +134,8 @@ export pure resolve(triple: Str) -> Result[Target] {
         "-mcpu=neoverse-n2+nosve+nosve2",
       ],
       static_musl: true,
-    })
-    "aarch64-apple-darwin" => ({
+    }
+    "aarch64-apple-darwin" => {
       triple: triple,
       id: Aarch64AppleDarwin,
       os: "darwin",
@@ -151,7 +151,7 @@ export pure resolve(triple: Str) -> Result[Target] {
         "-mcpu=apple-m1",
       ],
       static_musl: false,
-    })
+    }
     _ => Err(TargetError.Unsupported(target: triple))
   }
 }
@@ -307,8 +307,8 @@ export pure docker_test_env(triple: Str) -> Result[Record] {
   ].join(" ")
 
   match triple {
-    "x86_64-unknown-linux-musl" => ({CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags})
-    "aarch64-unknown-linux-musl" => ({CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags})
+    "x86_64-unknown-linux-musl" => {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
+    "aarch64-unknown-linux-musl" => {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
     _ => Err(TargetError.Unsupported(target: triple))
   }
 }

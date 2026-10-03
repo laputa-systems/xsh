@@ -44,7 +44,7 @@ pure selected_by_glob_at(globs: List[Str], text: Str, index: Int, selected: Bool
 
   return false when glob.starts_with("!") and glob_match(glob.replace("!", ""), text)
 
-  let next_selected = selected or ! glob.starts_with("!") and glob_match(glob, text)
+  let next_selected = selected or (! glob.starts_with("!") and glob_match(glob, text))
   selected_by_glob_at(globs, text, index + 1, next_selected)
 }
 

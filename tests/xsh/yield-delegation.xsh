@@ -7,7 +7,7 @@ stream rows() [] -> Stream[Int] {
   yield 0
   yield @[]
   yield @[1, 2]
-  yield @([3, 4])
+  yield @[3, 4]
   yield 5
 }
 stream nested() [] -> Stream[List[Int]] {
@@ -137,7 +137,7 @@ stream child() [io, error] -> Stream[Int] {
 }
 stream parent() [io, error] -> Stream[Int] {
   defer close("parent-close")
-  yield @(source()?)
+  yield @source()?
   yield @child()
   print "unreachable"
 }
@@ -239,7 +239,7 @@ second
     ctx,
     f"""
 stream lines(file: Path) [fs, error] -> Stream[Str] {
-  yield @(file.lines()?)
+  yield @file.lines()?
   yield "last"
 }
 stream rows(values: List[Int]) [] -> Stream[Int] { yield @values }

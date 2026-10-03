@@ -1029,7 +1029,7 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
   if ! (b"<!--" in text) {
     let lower_text = text.lower()
 
-    if ! embed or ! (b"<script" in lower_text) and ! (b"<style" in lower_text) {
+    if ! embed or (! (b"<script" in lower_text) and ! (b"<style" in lower_text)) {
       return count_code_text(text)
     }
   }
@@ -1393,7 +1393,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
           if has_child_blobs {
             for child in scan.stats.blobs.keys() {
-              let blob = ({ let lookup_receiver_7 = scan.stats.blobs; let lookup_index_7 = child; let lookup_fallback_7 = zero_stats(); lookup_receiver_7.get(lookup_index_7) ?? lookup_fallback_7 }).require(Stats) ?? zero_stats()
+              let blob = { let lookup_receiver_7 = scan.stats.blobs; let lookup_index_7 = child; let lookup_fallback_7 = zero_stats(); lookup_receiver_7.get(lookup_index_7) ?? lookup_fallback_7 }.require(Stats) ?? zero_stats()
               let cs = blob_deep(blob)
 
               out = out.push({

@@ -9,6 +9,7 @@ use crate::syntax::arena::{
     ArenaCompQualifier, ArenaCallArgInput, ArenaListElementInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
     ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId,
 };
+use crate::syntax::grouping;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug)]
@@ -265,9 +266,21 @@ impl<'a> Parser<'a> {
     }
 
     fn brace_starts_record_value(&self) -> bool {
+        self.brace_starts_record(true)
+    }
+
+    /// Whether `{` starts a record whose first field is written out as
+    /// `name:`, `"key":`, `[key]:`, or `...spread`; a `match` statement arm
+    /// body is otherwise a block.
+    pub(super) fn brace_starts_field_record(&self) -> bool {
+        self.brace_starts_record(false)
+    }
+
+    /// `shorthand` also accepts `{}` and a first shorthand field `{name, ...}`.
+    fn brace_starts_record(&self, shorthand_or_empty: bool) -> bool {
         let mut offset = 1;
         while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
-        if self.peek_tag(offset) == Some(TokenTag::RBrace)
+        if (shorthand_or_empty && self.peek_tag(offset) == Some(TokenTag::RBrace))
             || (self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_tag(offset + 1) == Some(TokenTag::Dot)) { return true; }
         if self.peek_tag(offset) == Some(TokenTag::LBracket) {
             let mut depth = 1;
@@ -284,8 +297,8 @@ impl<'a> Parser<'a> {
             while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
             return self.peek_tag(offset) == Some(TokenTag::Colon);
         }
-        let mut shorthand = self.peek_tag(offset) == Some(TokenTag::Ident)
-            || (self.peek_tag(offset) == Some(TokenTag::Keyword)
+        let mut shorthand = shorthand_or_empty && self.peek_tag(offset) == Some(TokenTag::Ident)
+            || shorthand_or_empty && (self.peek_tag(offset) == Some(TokenTag::Keyword)
                 && !matches!(self.peek_keyword(offset), Some(Keyword::True | Keyword::False | Keyword::Null | Keyword::Return | Keyword::Break | Keyword::Continue)));
         if self.peek_label_name(offset).is_none() && self.peek_tag(offset) != Some(TokenTag::String) { return false; }
         offset += 1;
@@ -613,7 +626,7 @@ impl<'a> Parser<'a> {
                     self.skip_line_breaks();
                 }
                 if self.at_ident("is") {
-                    if min_prec > 3 { break; }
+                    if min_prec > grouping::PATTERN_TEST { break; }
                     if let Some(pending) = pending_pipeline.take() { left.id = pending.seal(arena, left.span); }
                     self.bump();
                     self.skip_newlines();
@@ -648,27 +661,15 @@ impl<'a> Parser<'a> {
                 for _ in 0..tokens {
                     self.bump();
                 }
-                let right_min_prec = if op == BinaryOp::ResultFallback {
-                    prec
-                } else {
-                    prec + 1
-                };
+                let right_min_prec = grouping::binary_right_operand_precedence(op);
                 self.skip_newlines();
                 let right = self.parse_precedence_arena_only(right_min_prec, arena)?;
                 let span = self.span(left.span.start(), right.span.end());
-                let ordering = |op| matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge);
-                let comparison_kind = |kind| match kind {
-                    ArenaExprKind::ComparisonChain(_) => Some(true),
-                    ArenaExprKind::PatternTest { .. } => Some(false),
-                    ArenaExprKind::Binary { op, .. } if ordering(op) => Some(true),
-                    ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn, .. } => Some(false),
-                    _ => None,
-                };
-                if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn) {
+                if grouping::is_comparison(op) {
                     for operand in [left, right] {
                         let inner_span = arena.expr_span(operand.id);
                         let grouped = operand.span.start() < inner_span.start() && operand.span.end() > inner_span.end();
-                        if !grouped && comparison_kind(arena.expr_kind(operand.id)).is_some_and(|inner_ordering| inner_ordering != ordering(op)) {
+                        if !grouped && grouping::comparison_family(&arena.expr_kind(operand.id)).is_some_and(|inner_ordering| inner_ordering != grouping::is_ordering(op)) {
                             self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing equality, membership, or pattern tests")
                                 .with_code("parse.mixed-comparison")
                                 .with_label(Label::primary(span, "add parentheses around the intended comparison")));
@@ -676,7 +677,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let mut id = arena.push_binary_expr(op, left.id, right.id, span);
-                if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) {
+                if grouping::is_ordering(op) {
                     let mut pairs = vec![id];
                     let mut previous = right;
                     loop {
@@ -684,7 +685,7 @@ impl<'a> Parser<'a> {
                             self.skip_line_breaks();
                         }
                         let Some((next_op, next_prec, next_tokens)) = self.current_binary_op() else { break };
-                        if next_prec != prec || !matches!(next_op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) { break }
+                        if next_prec != prec || !grouping::is_ordering(next_op) { break }
                         for _ in 0..next_tokens { self.bump(); }
                         self.skip_newlines();
                         let next = self.parse_precedence_arena_only(prec + 1, arena)?;
@@ -715,7 +716,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         if self.consume(TokenKindMatch::Bang).is_some() {
-            let expr = self.parse_precedence_arena_only(8, arena)?;
+            let expr = self.parse_precedence_arena_only(grouping::PREFIX_OPERAND, arena)?;
             let span = self.span(start, expr.span.end());
             let id = arena.push_unary_expr(UnaryOp::Not, expr.id, span);
             return Some(ArenaOnlyExpr {
@@ -725,7 +726,7 @@ impl<'a> Parser<'a> {
             });
         }
         if self.consume(TokenKindMatch::Minus).is_some() {
-            let expr = self.parse_precedence_arena_only(8, arena)?;
+            let expr = self.parse_precedence_arena_only(grouping::PREFIX_OPERAND, arena)?;
             let span = self.span(start, expr.span.end());
             let id = arena.push_unary_expr(UnaryOp::Neg, expr.id, span);
             return Some(ArenaOnlyExpr {
@@ -1047,8 +1048,10 @@ impl<'a> Parser<'a> {
                 let expr = expr?;
                 self.skip_newlines();
                 self.expect(TokenKindMatch::RParen, "expected `)` after expression");
+                let span = self.span(span.start(), self.previous_end());
+                arena.record_paren_group(expr.id, span);
                 Some(ArenaOnlyExpr {
-                    span: self.span(span.start(), self.previous_end()),
+                    span,
                     bare_ident: None,
                     ..expr
                 })
@@ -1925,7 +1928,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub(in crate::syntax::parser) fn stream_stage_accepts_block(kind: &StreamStageKind) -> bool {
+pub(crate) fn stream_stage_accepts_block(kind: &StreamStageKind) -> bool {
     matches!(
         kind,
         StreamStageKind::Where
@@ -1948,7 +1951,7 @@ pub(in crate::syntax::parser) fn stream_stage_accepts_block(kind: &StreamStageKi
     )
 }
 
-pub(in crate::syntax::parser) fn stream_stage_accepts_inline_expr(kind: &StreamStageKind) -> bool {
+pub(crate) fn stream_stage_accepts_inline_expr(kind: &StreamStageKind) -> bool {
     matches!(
         kind,
         StreamStageKind::Where
@@ -2014,7 +2017,7 @@ pub(in crate::syntax::parser) fn stream_stage_kind_from_names(
     }
 }
 
-pub(in crate::syntax::parser) fn builder_api_accepts_block(module: &str, name: &str) -> bool {
+pub(crate) fn builder_api_accepts_block(module: &str, name: &str) -> bool {
     matches!((module, name), ("process", "command"))
 }
 

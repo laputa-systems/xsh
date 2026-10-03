@@ -663,6 +663,11 @@ list_pattern = "[" (pattern ("," pattern)* ("," list_rest)? | list_rest)? ","? "
 list_rest = ".." IDENT? ;
 ```
 
+A `match` statement arm body that starts with `{` is the arm's block unless
+the brace opens a record whose first field is written out (`name:`,
+`"key":`, `[key]:`, or `...spread`); `=> {a: 1}` is a record statement, while
+`=> ({x})` and `=> ({})` need their parentheses.
+
 List patterns match exact lengths (`[]`, `[first, second]`) or a prefix with
 one trailing rest (`[head, ..tail]`, `["build", target, ..]`). Elements may
 contain nested list, record, constructor, literal, or dynamic type patterns.
@@ -1408,7 +1413,20 @@ Ordering binds below arithmetic and above equality and `is`; membership (`in`
 and `not in`) shares ordering precedence. `and` binds below equality, while
 `or` and the right-associative `??` bind below `and`. Ungrouped mixtures of
 ordering with equality, membership, or pattern tests are rejected; use
-parentheses to state which Boolean value is being tested.
+parentheses to state which Boolean value is being tested. Likewise `and`
+mixed with `or`, and `??` mixed with `and` or `or`, are rejected without
+explicit grouping (`check.mixed-logical`): write `(a and b) or c`. Chains of
+one operator, such as `a and b and c`, need no grouping.
+
+Parentheses are legal only where removing them would change the parse or
+break one of these grouping rules (`check.redundant-parens`, which removes
+them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
+`(x?).name` (otherwise `?.`), `(-x).abs()`, a command form followed by more
+of its expression (`(run cat file).len()`), a statement that would otherwise
+start with a statement keyword, a bare name, or a block (`{ (x) }`), a `let`
+or assignment value that starts with `run`, and a pipeline before an operator
+or suffix it would take into its last stage. `xsht fmt` writes exactly these
+parentheses (`syntax::grouping::needs_parens`).
 
 A failed ordering-chain `assert` reports the failed adjacent pair and
 its evaluated values. Diagnostics never evaluate the skipped operands.

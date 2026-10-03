@@ -3,6 +3,7 @@ pub(in crate::syntax::parser) use crate::source::{SourceId, Span};
 pub(in crate::syntax::parser) use crate::symbol::Name;
 use crate::syntax::arena::{ArenaProgram, ArenaProgramBuilder, ArenaRange, TypeExprId};
 use crate::syntax::cst::LazyCst;
+use crate::syntax::grouping;
 pub(in crate::syntax::parser) use crate::syntax::lexer::Lexer;
 pub(in crate::syntax::parser) use crate::syntax::literal::{
     self, EscapeIssueKind, InterpolationChunk,
@@ -13,7 +14,7 @@ pub(in crate::syntax::parser) use crate::syntax::node::{
 };
 pub(in crate::syntax::parser) use crate::syntax::token::{Keyword, TokenTable, TokenTag};
 mod command;
-mod expr;
+pub(crate) mod expr;
 mod literals;
 mod pattern;
 mod stmt;
@@ -61,27 +62,26 @@ fn binary_op_for_token(
     keyword: Option<Keyword>,
     peek_keyword: impl Fn(usize) -> Option<Keyword>,
 ) -> Option<(BinaryOp, u8, usize)> {
-    Some(match (tag, keyword) {
-        (TokenTag::QuestionQuestion, _) => (BinaryOp::ResultFallback, 1, 1),
-        (TokenTag::Keyword, Some(Keyword::Or)) => (BinaryOp::Or, 1, 1),
-        (TokenTag::Keyword, Some(Keyword::And)) => (BinaryOp::And, 2, 1),
-        (TokenTag::EqEq, _) => (BinaryOp::Eq, 3, 1),
-        (TokenTag::BangEq, _) => (BinaryOp::Ne, 3, 1),
-        (TokenTag::Lt, _) => (BinaryOp::Lt, 4, 1),
-        (TokenTag::Le, _) => (BinaryOp::Le, 4, 1),
-        (TokenTag::Gt, _) => (BinaryOp::Gt, 4, 1),
-        (TokenTag::Ge, _) => (BinaryOp::Ge, 4, 1),
-        (TokenTag::Keyword, Some(Keyword::In)) => (BinaryOp::In, 4, 1),
-        (TokenTag::Keyword, Some(Keyword::Not)) if peek_keyword(1) == Some(Keyword::In) => {
-            (BinaryOp::NotIn, 4, 2)
-        }
-        (TokenTag::Plus, _) => (BinaryOp::Add, 5, 1),
-        (TokenTag::Minus, _) => (BinaryOp::Sub, 5, 1),
-        (TokenTag::Star, _) => (BinaryOp::Mul, 6, 1),
-        (TokenTag::Slash, _) => (BinaryOp::Div, 6, 1),
-        (TokenTag::Percent, _) => (BinaryOp::Rem, 6, 1),
+    let (op, tokens) = match (tag, keyword) {
+        (TokenTag::QuestionQuestion, _) => (BinaryOp::ResultFallback, 1),
+        (TokenTag::Keyword, Some(Keyword::Or)) => (BinaryOp::Or, 1),
+        (TokenTag::Keyword, Some(Keyword::And)) => (BinaryOp::And, 1),
+        (TokenTag::EqEq, _) => (BinaryOp::Eq, 1),
+        (TokenTag::BangEq, _) => (BinaryOp::Ne, 1),
+        (TokenTag::Lt, _) => (BinaryOp::Lt, 1),
+        (TokenTag::Le, _) => (BinaryOp::Le, 1),
+        (TokenTag::Gt, _) => (BinaryOp::Gt, 1),
+        (TokenTag::Ge, _) => (BinaryOp::Ge, 1),
+        (TokenTag::Keyword, Some(Keyword::In)) => (BinaryOp::In, 1),
+        (TokenTag::Keyword, Some(Keyword::Not)) if peek_keyword(1) == Some(Keyword::In) => (BinaryOp::NotIn, 2),
+        (TokenTag::Plus, _) => (BinaryOp::Add, 1),
+        (TokenTag::Minus, _) => (BinaryOp::Sub, 1),
+        (TokenTag::Star, _) => (BinaryOp::Mul, 1),
+        (TokenTag::Slash, _) => (BinaryOp::Div, 1),
+        (TokenTag::Percent, _) => (BinaryOp::Rem, 1),
         _ => return None,
-    })
+    };
+    Some((op, grouping::binary_precedence(op), tokens))
 }
 
 impl<'a> Parser<'a> {

@@ -233,10 +233,12 @@ Formatter changes preserve these invariants:
 - formatted output reparses to the input's syntax tree, ignoring positions.
   `verify_formatted_output` compares `format_equivalence::canonical` walks and
   returns a `format-equivalence` error instead of the output, so `fmt` and
-  `lint --fix` never write a regrouped program. Groupings the AST drops are
-  restored where the parser needs them: an operand ending in `?` before `.`,
-  `?`, `[`, or `..`; a command form used as an operand; a record arm body; and
-  a statement that starts with an operator after an expression statement;
+  `lint --fix` never write a regrouped program;
+- formatted output has exactly the parentheses `syntax::grouping::needs_parens`
+  requires, the same rule `check.redundant-parens` enforces on source, so a
+  file without redundant parentheses keeps its groupings. Adjacent tokens are
+  joined through `lexer::join_tokens`. `format_proofs` proves the rule over
+  every slot and expression form and over generated trees;
 - checked output has no new checker diagnostics;
 - formatting is idempotent;
 - comments are neither duplicated nor silently dropped;

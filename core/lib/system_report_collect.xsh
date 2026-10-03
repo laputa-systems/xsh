@@ -61,7 +61,7 @@ export pure parse_idle_state_index(name: Str) -> Result[Int] {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle directory does not start with state"))
   }
 
-  let suffix = (name.split("") |> drop(5)).join("")
+  let suffix = name.split("") |> drop(5).join("")
   if suffix == "" {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is empty"))
   }
@@ -228,7 +228,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress] {
 export pure parse_pci_hex_value(value: Str) -> Result[Int] {
   let text = value.trim()
   let digits = if text.starts_with("0x") or text.starts_with("0X") {
-    (text.split("") |> drop(2)).join("")
+    text.split("") |> drop(2).join("")
   } else {
     text
   }
@@ -406,7 +406,7 @@ export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
     }
 
     let hierarchy = fields[0].parse_int() ?? -1
-    if hierarchy < 0 or hierarchy > 9007199254740991 or hierarchy == 0 and fields[1] != "" or hierarchy != 0 and fields[1] == "" {
+    if hierarchy < 0 or hierarchy > 9007199254740991 or (hierarchy == 0 and fields[1] != "") or (hierarchy != 0 and fields[1] == "") {
       return {state: report.Malformed, path: null, has_v1: false}
     }
 
@@ -479,9 +479,9 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy] {
         return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has multiple selected values"))
       }
 
-      name = (choice.split("")
+      name = choice.split("")
         |> drop(1)
-        |> take(choice.count_chars() - 2)).join("")
+        |> take(choice.count_chars() - 2).join("")
       selected = name
     }
 
@@ -513,9 +513,9 @@ export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
         return null
       }
 
-      name = (choice.split("")
+      name = choice.split("")
         |> drop(1)
-        |> take(choice.count_chars() - 2)).join("")
+        |> take(choice.count_chars() - 2).join("")
       active = name
     }
 
@@ -544,18 +544,18 @@ export pure decode_os_release_value(raw: Str) -> Str? {
   }
 
   if single_quoted {
-    let content = (value.split("")
+    let content = value.split("")
       |> drop(1)
-      |> take(value.count_chars() - 2)).join("")
+      |> take(value.count_chars() - 2).join("")
     return null when "'" in content
 
     return content
   }
 
   let content = if quoted {
-    (value.split("")
+    value.split("")
       |> drop(1)
-      |> take(value.count_chars() - 2)).join("")
+      |> take(value.count_chars() - 2).join("")
   } else {
     value
   }
@@ -574,7 +574,7 @@ export pure decode_os_release_value(raw: Str) -> Str? {
       escaped = false
     } else if character == "\\" {
       escaped = true
-    } else if character in ["$", "`", "\""] or ! quoted and character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-" {
+    } else if character in ["$", "`", "\""] or (! quoted and character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") {
       return null
     } else {
       output = f"${output}${character}"
@@ -647,7 +647,7 @@ export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumb
   }
 
   let raw = observed.value ?? ""
-  let signed_digits = raw.starts_with("-") and decimal_digits((raw.split("") |> drop(1)).join(""))
+  let signed_digits = raw.starts_with("-") and decimal_digits(raw.split("") |> drop(1).join(""))
   if ! decimal_digits(raw) and ! signed_digits {
     return {value: null, state: report.Malformed, error_kind: "invalid_integer", errno: null}
   }
@@ -700,15 +700,15 @@ export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   var multiplier = 1
   var maximum = 9007199254740991
   if raw.ends_with("K") {
-    number_text = (raw.split("") |> take(raw.count_chars() - 1)).join("")
+    number_text = raw.split("") |> take(raw.count_chars() - 1).join("")
     multiplier = 1024
     maximum = 8796093022207
   } else if raw.ends_with("M") {
-    number_text = (raw.split("") |> take(raw.count_chars() - 1)).join("")
+    number_text = raw.split("") |> take(raw.count_chars() - 1).join("")
     multiplier = 1048576
     maximum = 8589934591
   } else if raw.ends_with("G") {
-    number_text = (raw.split("") |> take(raw.count_chars() - 1)).join("")
+    number_text = raw.split("") |> take(raw.count_chars() - 1).join("")
     multiplier = 1073741824
     maximum = 8388607
   }

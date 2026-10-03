@@ -261,8 +261,10 @@ but fix application uses non-overlapping source edits guarded by the CST.
 `xsht lint --only RULE[,RULE...]` keeps only diagnostics with the named codes,
 so `--fix` applies only their fixes, including syntax migrations. Codes are
 validated against `lint::LINT_CODES` plus the fix-bearing checker codes in
-`lint::FIXABLE_CHECK_CODES` (currently `check.bool-statement`, whose fix inserts
-`assert`); an unknown code is a usage error.
+`lint::FIXABLE_CHECK_CODES` (`check.bool-statement`, whose fix inserts
+`assert`; `check.mixed-logical`, which groups the tighter operand; and
+`check.redundant-parens`, which removes a pair and leaves inner pairs to the
+next round); an unknown code is a usage error.
 
 Safe fixes must satisfy all of these:
 

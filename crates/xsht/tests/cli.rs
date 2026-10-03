@@ -54,7 +54,7 @@ fn mixed_enum_and_record_require_migration_rechecks_import_graph_and_converges_i
     assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
     let fixed_entry = fs::read_to_string(&entry).unwrap();
     let fixed_module = fs::read_to_string(&module).unwrap();
-    assert!(fixed_entry.contains("({name: \"café\"}).require(Name)? # retained receiver"), "{fixed_entry}");
+    assert!(fixed_entry.contains("{name: \"café\"}.require(Name)? # retained receiver"), "{fixed_entry}");
     assert!(fixed_module.contains("export enum Choice {"), "{fixed_module}");
     assert!(fixed_module.contains("# retained café"), "{fixed_module}");
     let checked = run(&["check", "entry.xsh"]);

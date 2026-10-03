@@ -39,7 +39,7 @@ proc disk_usage(target: Path, opts: DuOptions, top_level: Bool) [fs, error] -> R
     }
   }
 
-  if ! opts.summarize and (opts.all or meta.kind == "dir" or top_level and meta.kind == "file") {
+  if ! opts.summarize and (opts.all or meta.kind == "dir" or (top_level and meta.kind == "file")) {
     print f"${size_label(size, opts)}\t${target}"
   }
 

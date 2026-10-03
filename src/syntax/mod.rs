@@ -1,5 +1,6 @@
 pub mod arena;
 pub mod cst;
+pub mod grouping;
 pub mod lexer;
 pub mod literal;
 pub mod node;

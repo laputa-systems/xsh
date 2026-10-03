@@ -22,41 +22,41 @@ beta
 
   assert json_stream[1].ok == false
 
-  assert ([3, 1, 2, 2]
+  assert [3, 1, 2, 2]
     |> where . > 1
     |> sort
     |> unique-by .
     |> map { |n|
       n * 2
-    }) == [4, 6]
+    } == [4, 6]
 
-  assert ([1, 2, 3, 4] |> take(2)) == [1, 2]
-  assert ([1, 2, 3, 4] |> drop(2)) == [3, 4]
-  assert ([1, 2] |> repeat(2)) == [1, 2, 1, 2]
-  assert ([0] |> range(1, 4)) == [1, 2, 3]
-  assert ([0] |> range(4, 1)) == [4, 3, 2]
+  assert [1, 2, 3, 4] |> take(2) == [1, 2]
+  assert [1, 2, 3, 4] |> drop(2) == [3, 4]
+  assert [1, 2] |> repeat(2) == [1, 2, 1, 2]
+  assert [0] |> range(1, 4) == [1, 2, 3]
+  assert [0] |> range(4, 1) == [4, 3, 2]
 
-  assert (["ab", "c"]
+  assert ["ab", "c"]
     |> flat-map { |word|
       word.split("")
-    }) == ["a", "b", "c"]
+    } == ["a", "b", "c"]
 
-  assert ([1, 2, 3]
+  assert [1, 2, 3]
     |> fold(0) { |acc|
       acc + .
-    }) == 6
+    } == 6
 
   # Accumulator-plus-item form: the block binds the accumulator (typed by the
   # initial value) before the stream item, and the tail produces the accumulator.
-  assert ([1, 2, 3]
+  assert [1, 2, 3]
     |> fold(0) { |acc, it|
       acc + it
-    }) == 6
+    } == 6
 
-  assert ([1, 2, 3]
+  assert [1, 2, 3]
     |> reduce(10) { |acc, it|
       acc + it
-    }) == 16
+    } == 16
 
   # A postfix `?` inside a stream-stage closure, followed by a method call on
   # the unwrapped value, must compile and propagate normally instead of
@@ -66,7 +66,7 @@ beta
   # item was mistaken for a method on the list.
   let ext_lower = ["a.TXT", "b.com"]
     |> map { |s|
-      (s.split(".") |> last())?.lower()
+      s.split(".") |> last()?.lower()
     }
     |> collect()
   assert ext_lower == ["txt", "com"]
@@ -82,10 +82,10 @@ beta
 
   # A bare accumulator-ident tail no longer trips the indexed IR builder; it
   # returns the running accumulator unchanged.
-  assert ([1, 2, 3]
+  assert [1, 2, 3]
     |> fold(0) { |x|
       x
-    }) == 0
+    } == 0
 
   # Counting through fold without group-by: the accumulator is a Map and the
   # item a Str, which the two-parameter binding types correctly.
@@ -98,29 +98,29 @@ beta
   assert (fold_counts.get("c") ?? 0) == 1
   assert fold_counts.len() == 3
 
-  assert ([1, 2, 3]
+  assert [1, 2, 3]
     |> reduce(10) { |acc|
       acc + .
-    }) == 16
+    } == 16
 
-  assert ([1, 2, 3] |> sum) == 6
-  assert ([3, 1, 2] |> min)? == 1
-  assert ([3, 1, 2] |> max)? == 3
-  assert ([3, 1, 2] |> first())? == 3
-  assert ([3, 1, 2] |> last())? == 2
+  assert [1, 2, 3] |> sum == 6
+  assert [3, 1, 2] |> min? == 1
+  assert [3, 1, 2] |> max? == 3
+  assert [3, 1, 2] |> first()? == 3
+  assert [3, 1, 2] |> last()? == 2
   assert [1, 2, 3] |> any . == 2
   assert [1, 2, 3] |> all . > 0
   let expected_counts: Map[Int] = {["1"]: 2, ["2"]: 1}
 
-  assert (["a", "bb", "c"]
+  assert ["a", "bb", "c"]
     |> count { |word|
       word.count_chars()
-    }) == expected_counts
+    } == expected_counts
 
-  assert ([1, 2, 3]
+  assert [1, 2, 3]
     |> par-map { |value|
       value * 2
-    }) == [2, 4, 6]
+    } == [2, 4, 6]
 
   assert ([1, 2, 3, 4] |> batch(count: 2)) == [[1, 2], [3, 4]]
   let enumerated = ["x", "y"] |> enumerate()
@@ -150,20 +150,20 @@ beta
 
   let shuffled = [1, 2, 3, 4] |> shuffle(7)
   assert shuffled.len() == 4
-  assert (shuffled |> sort) == [1, 2, 3, 4]
+  assert shuffled |> sort == [1, 2, 3, 4]
 
   [1, 2]
     |> each { |value|
       assert value > 0
     }
 
-  assert ([1, 2]
+  assert [1, 2]
     |> tee { |value|
       assert value > 0
     }
     |> map { |value|
       value + 1
-    }) == [2, 3]
+    } == [2, 3]
 
   [{name: "small", size: 1}, {name: "large", size: 4}] |> table.print(columns: ["name", "size"])
 }
@@ -363,7 +363,7 @@ proc main() [io, error] {
   let groups = numbers("group") |> group-by { |n| key(n) }
   print f"groups=${groups[0].key}:${groups[0].items.len()},${groups[1].key}:${groups[1].items.len()}"
   let counts = numbers("count") |> count { |n| key(n) }
-  print f"counts=${(counts.get("1") ?? 0)},${(counts.get("2") ?? 0)}"
+  print f"counts=${counts.get("1") ?? 0},${counts.get("2") ?? 0}"
   let unique = numbers("unique") |> unique-by { |n| key(n) }
   print f"unique=${unique[0]},${unique[1]}"
 }
@@ -803,7 +803,7 @@ proc main() [io, error] {
     |> reduce-by(sum: true, jobs: 1) { |n|
       {key: "all", value: observed(n)}
     }
-  print f"total=${(groups.get("all") ?? 0)}"
+  print f"total=${groups.get("all") ?? 0}"
 }
 """,
   )?
@@ -840,7 +840,7 @@ proc main() [fs, error] {
     |> reduce-by(sum: true) { |n|
       {key: "all", value: 10 / (1 - n)}
     }
-  print \${(groups.get("all") ?? 0)}
+  print \${groups.get("all") ?? 0}
 }
 """,
   )?
@@ -873,15 +873,15 @@ test test_reduce_by_jobs_hint_preserves_results {
 
   assert par.keys().len() == 3
 
-  assert ((nums
+  assert (nums
     |> reduce-by(min: true, jobs: 8) { |n|
       {key: "all", value: n}
-    }).get("all") ?? -1) == 0
+    }.get("all") ?? -1) == 0
 
-  assert ((nums
+  assert (nums
     |> reduce-by(max: true, jobs: 8) { |n|
       {key: "all", value: n}
-    }).get("all") ?? -1) == 49999
+    }.get("all") ?? -1) == 49999
 }
 
 test test_jobs_options_evaluate_once_before_stage { |ctx|
@@ -896,11 +896,11 @@ proc jobs(label: Str) [io] -> Int {
 proc main() [io, error] {
   let reduced = [1, 2]
     |> reduce-by(sum: true, jobs: jobs("reduce")) { |n| {key: "all", value: n} }
-  print f"total=${(reduced.get("all") ?? 0)}"
+  print f"total=${reduced.get("all") ?? 0}"
   let from_workers = [1, 2]
     |> par-map(jobs: 2) { |n| n }
     |> reduce-by(sum: true, jobs: jobs("after-map")) { |n| {key: "all", value: n} }
-  print f"worker-total=${(from_workers.get("all") ?? 0)}"
+  print f"worker-total=${from_workers.get("all") ?? 0}"
   print "done"
 }
 """,
@@ -957,7 +957,7 @@ stream numbers(pulled: Path) [fs, error] -> Stream[Int] {
 proc main() [fs, error] {
   let totals = numbers(Path("${pulled.display()}"))
     |> reduce-by(sum: true, jobs: zero_jobs(Path("${evaluated.display()}"))) { |n| {key: "all", value: n} }
-  print \${(totals.get("all") ?? 0)}
+  print \${totals.get("all") ?? 0}
 }
 """,
   )?
@@ -1168,7 +1168,7 @@ test test_par_map_filesystem_reads_preserve_all_results { |ctx|
       entry.path.read_text()?.count_chars()
     }
   assert lengths.len() == 32
-  assert (lengths |> sum) == 86
+  assert lengths |> sum == 86
 }
 
 test test_projected_reduce_by_sums_output_fields { |ctx|
@@ -1180,11 +1180,11 @@ let rows = [
   {key: "g", a: 2, b: 20},
   {key: "g", a: 3, b: 30},
 ]
-let reduced = (rows)
+let reduced = rows
   |> reduce-by(sum: true) { |row|
     {key: row.key, value: {x: row.a, y: row.b}}
   }
-let g = (reduced.get("g") ?? {x: 0, y: 0})
+let g = reduced.get("g") ?? {x: 0, y: 0}
 print f"x=\${g.x}"
 """,
   )?
@@ -1734,7 +1734,7 @@ stream numbers(marker: Path) [fs, error] -> Stream[Int] {
 
 proc main() [io, fs, error] {
   let taken = numbers(Path("${marker.display()}"))
-    |> map { |n| ("bad".parse_int()?) + n }
+    |> map { |n| "bad".parse_int()? + n }
     |> take(1)
     |> collect()
   print f"rows=\${taken.len()}"
@@ -1955,19 +1955,19 @@ beta
 gamma
 """)?
 
-  assert (input.lines()? |> first())? == "alpha"
+  assert input.lines()? |> first()? == "alpha"
 
-  assert ("""one
+  assert """one
 two
 """.lines()
   |> drop(1)
-  |> first())? == "two"
+  |> first()? == "two"
 
-  assert ("""red
+  assert """red
 blue
 """
   |> text.lines
-  |> take(1))[0] == "red"
+  |> take(1)[0] == "red"
 
   assert """x
 y
@@ -2413,10 +2413,10 @@ test test_live_serial_count_after_map_where_and_flat_map {
 }
 
 test test_parallel_stream_stages_are_bounded_and_deterministic {
-  assert ([1, 2, 3, 4]
+  assert [1, 2, 3, 4]
     |> par-map { |x|
       x * 2
-    }) == [2, 4, 6, 8]
+    } == [2, 4, 6, 8]
 
   var seen = []
 
@@ -2452,11 +2452,11 @@ item=2
 }
 
 test test_parallel_stream_preserves_filtered_order {
-  assert ([0, 1, 2, 3, 4, 5]
+  assert [0, 1, 2, 3, 4, 5]
     |> where . >= 2
     |> par-map(jobs: 3) { |x|
       x * 10
-    }) == [20, 30, 40, 50]
+    } == [20, 30, 40, 50]
 }
 
 test test_structured_streams_walk_filter_map_collect_and_count { |ctx|
@@ -2495,7 +2495,7 @@ test test_table_print_wraps_cells_to_terminal_width { |ctx|
     ctx,
     """
 let rows = [{name: "very-long-command-name-that-keeps-going", size: 123}]
-(rows) |> table.print(columns: ["name", "size"])
+rows |> table.print(columns: ["name", "size"])
 """,
     [],
     {COLUMNS: "40"},
@@ -2673,23 +2673,23 @@ test test_fs_files_lazy_folding_terminals_match_eager_results { |ctx|
   fp"${root}/ccc.txt".write("ccc")?
   assert (fs.files(root) |> count()) == 3
 
-  assert (fs.files(root)
+  assert fs.files(root)
     |> map .size
-    |> sum) == 6
+    |> sum == 6
 
-  assert (fs.files(root)
+  assert fs.files(root)
     |> map .size
-    |> min)? == 1
+    |> min? == 1
 
-  assert (fs.files(root)
+  assert fs.files(root)
     |> map .size
-    |> max)? == 3
+    |> max? == 3
 
-  assert (fs.files(root)
+  assert fs.files(root)
     |> map .size
     |> fold(0) { |acc|
       acc + .
-    }) == 6
+    } == 6
 }
 
 test test_keyed_count_result_retains_map_type_through_later_pipelines { |ctx|

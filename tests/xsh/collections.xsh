@@ -396,7 +396,7 @@ proc flags() [io] -> Result[List[Int], SpliceFailure] {
   print "flags"
   return Err(SpliceFailure.Stopped(message: "stop building"))
 }
-let values = [item(1), @(flags()?), item(9)]
+let values = [item(1), @flags()?, item(9)]
 print values.len()
 """,
   )?

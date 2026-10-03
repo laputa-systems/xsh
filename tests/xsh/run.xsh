@@ -70,19 +70,19 @@ print $value.length()
 }
 
 test test_grouped_multiline_run_invocation_executes {
-  assert (run.text (
+  assert run.text (
     printf
     "%s %s\n"
     "grouped"
     "run"
-  )?) == """grouped run
+  )? == """grouped run
 """
 }
 
 test test_run_status_can_drive_conditions {
   var seen = []
 
-  if ! (run.status false) {
+  if ! run.status false {
     seen += ["missing"]
   }
 
@@ -839,7 +839,7 @@ main(args)?
 }
 
 test test_run_fixture_behaviors { |ctx|
-  assert (run.text printf "%s\n" "hello world"?) == """hello world
+  assert run.text printf "%s\n" "hello world"? == """hello world
 """
 
   let failed = test.run_script(

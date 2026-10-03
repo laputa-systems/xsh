@@ -5,8 +5,9 @@ let other = 20
 pure accept(value: Int) -> Int {
   value
 }
+
 let fixed = accept(value: value)
-let grouped = accept(value: (value))
+let grouped = accept(value: value)
 let distinct = accept(value: other)
 let selected = accept(value: {value}.value)
 let commented = accept(value: # Preserve this comment.

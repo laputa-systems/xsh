@@ -1590,7 +1590,7 @@ pure bool_cmp(x: Bool, b: Json) -> Int {
 
     return 1 when x
 
-    (-1)
+    -1
   } else {
     0
   }
@@ -4413,7 +4413,7 @@ pure match_object(m: Span) -> Json {
 
 pure eval_regex(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[Dispatch] {
   let argc = callargs.len()
-  let is_re = name == "test" or name == "match" or name == "scan" or name == "splits" or name == "sub" or name == "gsub" or name == "split" and argc == 2
+  let is_re = name == "test" or name == "match" or name == "scan" or name == "splits" or name == "sub" or name == "gsub" or (name == "split" and argc == 2)
 
   return Ok(Pass) when ! is_re
 

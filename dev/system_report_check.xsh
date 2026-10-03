@@ -2617,7 +2617,7 @@ export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu]] 
   var rows: List[LscpuTopologyCpu] = []
   for item in data.cpus {
     let key = f"${item.cpu}"
-    if item.cpu < 0 or key in seen or item.socket != null and (item.socket ?? -1) < 0 or item.core != null and (item.core ?? -1) < 0 or item.node != null and (item.node ?? -1) < 0 {
+    if item.cpu < 0 or key in seen or (item.socket != null and (item.socket ?? -1) < 0) or (item.core != null and (item.core ?? -1) < 0) or (item.node != null and (item.node ?? -1) < 0) {
       return Err(check_failure("lscpu topology has an invalid or duplicate CPU identity"))
     }
 
@@ -2843,7 +2843,7 @@ pure cache_instance_key(source: CpuCacheReference) -> Str {
 pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCacheReference]] {
   var sources: Map[CpuCacheReference] = {}
   for row in rows {
-    if row.owner_cpu_id < 0 or row.sysfs_index < 0 or row.level <= 0 or row.kind == "" or row.kernel_id != null and (row.kernel_id ?? -1) < 0 or row.size_bytes < 0 or row.size_bytes > 9007199254740991 or row.shared_cpus.len() == 0 or row.shared_cpus != (row.shared_cpus
+    if row.owner_cpu_id < 0 or row.sysfs_index < 0 or row.level <= 0 or row.kind == "" or (row.kernel_id != null and (row.kernel_id ?? -1) < 0) or row.size_bytes < 0 or row.size_bytes > 9007199254740991 or row.shared_cpus.len() == 0 or row.shared_cpus != (row.shared_cpus
       |> sort-by .) or row.owner_cpu_id not in row.shared_cpus {
       return Err(check_failure("cache reference has an invalid identity or size"))
     }
@@ -3060,15 +3060,15 @@ export pure parse_cpu_cache_size_reference(source: Str) -> Result[Int] {
   var multiplier = 1
   var maximum = 9007199254740991
   if source.ends_with("K") {
-    digits = (source.split("") |> take(source.count_chars() - 1)).join("")
+    digits = source.split("") |> take(source.count_chars() - 1).join("")
     multiplier = 1024
     maximum = 8796093022207
   } else if source.ends_with("M") {
-    digits = (source.split("") |> take(source.count_chars() - 1)).join("")
+    digits = source.split("") |> take(source.count_chars() - 1).join("")
     multiplier = 1048576
     maximum = 8589934591
   } else if source.ends_with("G") {
-    digits = (source.split("") |> take(source.count_chars() - 1)).join("")
+    digits = source.split("") |> take(source.count_chars() - 1).join("")
     multiplier = 1073741824
     maximum = 8388607
   }
@@ -3131,7 +3131,7 @@ export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[Cp
     for entry in listing.children {
       let name = entry.name()
       continue unless name.starts_with("index")
-      let index_text = (name.split("") |> drop(5)).join("")
+      let index_text = name.split("") |> drop(5).join("")
       let index = reference_cpu_number(index_text)?
       let level_text = reference_cache_text(root, fp"${entry}/level", true)?
       let level = reference_cpu_number(level_text ?? "")?
@@ -3381,7 +3381,7 @@ export pure compare_cpufreq_policies(
         }
       }
 
-      if ! gauge.before.complete or ! gauge.after.complete or gauge.before.value != gauge.after.value or gauge.candidate != null and gauge.candidate != gauge.before.value or candidate_incomplete {
+      if ! gauge.before.complete or ! gauge.after.complete or gauge.before.value != gauge.after.value or (gauge.candidate != null and gauge.candidate != gauge.before.value) or candidate_incomplete {
         unstable_gauges = unstable_gauges.push(f"${item.name}.${gauge.name}")
       } else if gauge.candidate != gauge.before.value {
         gauge_mismatches = gauge_mismatches.push(f"${item.name}.${gauge.name}")
@@ -3482,7 +3482,7 @@ pure usb_topology_decimal(value: Str) -> Result[Int] {
 ## Parses only kernel USB device names; interface names carry a colon and are not devices.
 export pure parse_usb_topology_name(name: Str) -> Result[UsbTopologyName] {
   if name.starts_with("usb") {
-    let bus = usb_topology_decimal((name.split("") |> drop(3)).join(""))?
+    let bus = usb_topology_decimal(name.split("") |> drop(3).join(""))?
     return Ok({parent_name: null, port_path: null, bus_number: bus, is_root_hub: true})
   }
 
@@ -3495,7 +3495,7 @@ export pure parse_usb_topology_name(name: Str) -> Result[UsbTopologyName] {
     let _ = usb_topology_decimal(port)?
   }
 
-  let parent = if ports.len() == 1 { f"usb${bus}" } else { f"${bus}-${(ports |> take(ports.len() - 1)).join(".")}" }
+  let parent = if ports.len() == 1 { f"usb${bus}" } else { f"${bus}-${ports |> take(ports.len() - 1).join(".")}" }
   {parent_name: parent, port_path: parts[1], bus_number: bus, is_root_hub: false}
 }
 
@@ -3514,7 +3514,7 @@ export pure compare_usb_topology(
   for index in range(before.len()) {
     let item = before[index]
     let parsed = parse_usb_topology_name(item.name)?
-    if item.name in before_by_name or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or item.bus_number != null and item.bus_number != parsed.bus_number {
+    if item.name in before_by_name or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or (item.bus_number != null and item.bus_number != parsed.bus_number) {
       return Err(check_failure("USB topology reference has duplicate or inconsistent device identity"))
     }
 
@@ -3524,7 +3524,7 @@ export pure compare_usb_topology(
   for index in range(after.len()) {
     let item = after[index]
     let parsed = parse_usb_topology_name(item.name)?
-    if item.name in after_by_name or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or item.bus_number != null and item.bus_number != parsed.bus_number {
+    if item.name in after_by_name or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or (item.bus_number != null and item.bus_number != parsed.bus_number) {
       return Err(check_failure("USB topology after reference has duplicate or inconsistent device identity"))
     }
 
@@ -4004,7 +4004,7 @@ export pure parse_usb_power_number(value: Str, allow_negative: Bool) -> Result[I
     return Err(check_failure("USB power value cannot be negative"))
   }
 
-  let digits = if negative { (value.split("") |> drop(1)).join("") } else { value }
+  let digits = if negative { value.split("") |> drop(1).join("") } else { value }
   return Err(check_failure("USB power value has no decimal digits")) when digits == ""
 
   for digit in digits {
@@ -4551,7 +4551,7 @@ export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int] {
     return Err(check_failure("power supply quantity cannot be negative"))
   }
 
-  let digits = if negative { (value.split("") |> drop(1)).join("") } else { value }
+  let digits = if negative { value.split("") |> drop(1).join("") } else { value }
   return Err(check_failure("power supply quantity has no digits")) when digits == ""
 
   for digit in digits {
@@ -4790,7 +4790,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or item.path.ends_with("/type") and raw.state != "observed" {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (item.path.ends_with("/type") and raw.state != "observed") {
       complete = false
     }
 
@@ -5380,9 +5380,9 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state != "observed" and raw.state != "absent" or relative.ends_with("/name") and "/constraint_" not in relative and raw.state != "observed" or relative.ends_with(
+    if raw.truncated or (raw.state != "observed" and raw.state != "absent") or (relative.ends_with("/name") and "/constraint_" not in relative and raw.state != "observed") or (relative.ends_with(
       "_power_limit_uw",
-    ) and raw.state != "observed" {
+    ) and raw.state != "observed") {
       complete = false
     }
 
@@ -6110,7 +6110,7 @@ pure hwmon_channel_shape(channel: Str) -> HwmonShape {
     },
   ] {
     continue unless channel.starts_with(spec.prefix)
-    let suffix = (channel.split("") |> drop(spec.prefix.count_chars())).join("")
+    let suffix = channel.split("") |> drop(spec.prefix.count_chars()).join("")
     continue when suffix == ""
     var digits = true
     for digit in suffix {
@@ -6192,7 +6192,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
     for attribute in attributes.children {
       let name = attribute.name()
       continue unless name.ends_with("_input")
-      let channel = (name.split("") |> take(name.count_chars() - 6)).join("")
+      let channel = name.split("") |> take(name.count_chars() - 6).join("")
       let shape = hwmon_channel_shape(channel)
       channels = channels.push({
         chip_entry_name: chip_path.name(),
@@ -6276,7 +6276,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
   for entry in listing.children {
     let name = entry.name()
     continue unless name.starts_with("hwmon")
-    let suffix = (name.split("") |> drop(5)).join("")
+    let suffix = name.split("") |> drop(5).join("")
     let index = reference_thermal_index(suffix)?
     if name != f"hwmon${index}" {
       return Err(check_failure("hwmon class identity is noncanonical"))
@@ -6318,7 +6318,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
     for attribute in attributes.children {
       let attribute_name = attribute.name()
       continue unless attribute_name.ends_with("_input")
-      let channel = (attribute_name.split("") |> take(attribute_name.count_chars() - 6)).join("")
+      let channel = attribute_name.split("") |> take(attribute_name.count_chars() - 6).join("")
       for attribute_suffix in ["input", "label", "min", "max", "crit", "alarm"] {
         source_paths = source_paths.push(f"${storage}/${channel}_${attribute_suffix}")
       }
@@ -6379,7 +6379,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or relative.ends_with("_input") and raw.state != "observed" {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (relative.ends_with("_input") and raw.state != "observed") {
       complete = false
     }
 
@@ -6524,9 +6524,9 @@ pure hwmon_has_issue(issues: List[CandidateIssueField], field: Str) -> Bool {
 
 pure hwmon_enumeration_issue(issues: List[CandidateIssueField]) -> Bool {
   for issue in issues {
-    if issue.section == "sensors" and (issue.field == "hwmon" or issue.field.starts_with("hwmon.") and issue.field.ends_with(
+    if issue.section == "sensors" and (issue.field == "hwmon" or (issue.field.starts_with("hwmon.") and issue.field.ends_with(
       ".attributes",
-    )) {
+    ))) {
       return true
     }
   }
@@ -7081,7 +7081,7 @@ export pure compare_cpuidle(
       let lower = counter.before ?? -1
       let upper = counter.after ?? -1
       let observed = counter.candidate ?? -1
-      if (counter.before == null) != (counter.after == null) or upper < lower {
+      if counter.before == null != (counter.after == null) or upper < lower {
         unstable_fields = unstable_fields.push(f"${key}.${counter.name}")
       } else if counter.before == null {
         if counter.candidate != null {
@@ -7185,7 +7185,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
     for state_path in listing.children {
       let name = state_path.name()
       continue unless name.starts_with("state")
-      let suffix = (name.split("") |> drop(5)).join("")
+      let suffix = name.split("") |> drop(5).join("")
       let index = reference_cpu_number(suffix)?
       if index > 9007199254740991 or f"state${index}" != name {
         return Err(check_failure("CPUIdle reference state has a noncanonical or inexact directory index"))
@@ -7337,7 +7337,7 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
   for policy_path in listing.children {
     let name = policy_path.name()
     continue unless name.starts_with("policy")
-    let suffix = (name.split("") |> drop(6)).join("")
+    let suffix = name.split("") |> drop(6).join("")
     let _ = reference_cpu_number(suffix)?
     if name in names {
       return Err(check_failure("CPUFreq policy enumeration repeats a name"))
@@ -7618,7 +7618,7 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
   for entry in listing.children {
     let name = entry.name()
     continue unless name.starts_with("policy")
-    let suffix = (name.split("") |> drop(6)).join("")
+    let suffix = name.split("") |> drop(6).join("")
     let index = reference_cpu_number(suffix)?
     if name != f"policy${index}" {
       return Err(check_failure("CPUFreq capture has a noncanonical policy name"))
@@ -7700,12 +7700,12 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or (relative in [
+    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative in [
       "sys/devices/system/cpu/possible",
       "sys/devices/system/cpu/present",
       "sys/devices/system/cpu/online",
       "sys/devices/system/cpu/offline",
-    ] or relative.ends_with("/related_cpus") or relative.ends_with("/affected_cpus")) and raw.state != "observed" {
+    ] or relative.ends_with("/related_cpus") or relative.ends_with("/affected_cpus")) and raw.state != "observed") {
       complete = false
     }
 
@@ -7877,7 +7877,7 @@ proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyB
     for entry in listing.children {
       let name = entry.name()
       continue unless name.starts_with("node")
-      let suffix = (name.split("") |> drop(4)).join("")
+      let suffix = name.split("") |> drop(4).join("")
       let node_id = reference_cpu_number(suffix)?
       if name != f"node${node_id}" or found_node {
         return Err(check_failure("CPU topology capture has an invalid or repeated NUMA node link"))
@@ -7950,7 +7950,7 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
     var node_id: Int? = null
     for link in layout.node_links {
       if link.cpu_id == cpu_id {
-        node_id = reference_cpu_number((link.name.split("") |> drop(4)).join(""))?
+        node_id = reference_cpu_number(link.name.split("") |> drop(4).join(""))?
       }
     }
 
@@ -8089,7 +8089,7 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or ! relative.ends_with("/die_id") and raw.state != "observed" {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (! relative.ends_with("/die_id") and raw.state != "observed") {
       complete = false
     }
 
@@ -8724,9 +8724,9 @@ export pure parse_thp_reference(output: Str) -> Result[Str] {
   for word in words {
     let bracketed = word.starts_with("[") and word.ends_with("]") and word.count_chars() >= 3
     let name = if bracketed {
-      (word.split("")
+      word.split("")
         |> drop(1)
-        |> take(word.count_chars() - 2)).join("")
+        |> take(word.count_chars() - 2).join("")
     } else {
       word
     }
@@ -9093,7 +9093,7 @@ pure huge_page_pool_key(pool: HugePageReferencePool) -> Str {
 }
 
 pure valid_huge_page_reference(pool: HugePageReferencePool) -> Bool {
-  pool.page_size_bytes > 0 and pool.page_size_bytes <= 9007199254740991 and (pool.node_id == null or (pool.node_id ?? -1) >= 0) and pool.total >= 0 and pool.total <= 9007199254740991 and (pool.free == null or (pool.free ?? -1) >= 0 and (pool.free ?? -1) <= 9007199254740991) and (pool.reserved == null or (pool.reserved ?? -1) >= 0 and (pool.reserved ?? -1) <= 9007199254740991) and (pool.surplus == null or (pool.surplus ?? -1) >= 0 and (pool.surplus ?? -1) <= 9007199254740991)
+  pool.page_size_bytes > 0 and pool.page_size_bytes <= 9007199254740991 and (pool.node_id == null or (pool.node_id ?? -1) >= 0) and pool.total >= 0 and pool.total <= 9007199254740991 and (pool.free == null or ((pool.free ?? -1) >= 0 and (pool.free ?? -1) <= 9007199254740991)) and (pool.reserved == null or ((pool.reserved ?? -1) >= 0 and (pool.reserved ?? -1) <= 9007199254740991)) and (pool.surplus == null or ((pool.surplus ?? -1) >= 0 and (pool.surplus ?? -1) <= 9007199254740991))
 }
 
 ## Scores stable huge-page pool fields and identifies counters changed during collection.
@@ -9506,7 +9506,7 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
   for resource in ["cpu", "memory", "io"] {
     let relative = fp"proc/pressure/${resource}"
     let raw = source.read_result(relative, max_bytes: 16384)?
-    if raw.truncated or raw.state not in ["observed", "absent"] or raw.state == "observed" and raw.data == null or raw.state == "absent" and raw.data != null {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and raw.data == null) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
 
@@ -9631,7 +9631,7 @@ export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[P
 }
 
 pure reference_swap_number(value: Str, signed: Bool) -> Result[Int] {
-  let digits = if signed and value.starts_with("-") { (value.split("") |> drop(1)).join("") } else { value }
+  let digits = if signed and value.starts_with("-") { value.split("") |> drop(1).join("") } else { value }
   return Err(check_failure("swap reference contains an empty number")) when digits == ""
 
   for character in digits {
@@ -10048,7 +10048,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       }
     }
 
-    if "Slot" not in fields or "Class" not in fields or "Vendor" not in fields or "Device" not in fields or ("SVendor" in fields) != ("SDevice" in fields) {
+    if "Slot" not in fields or "Class" not in fields or "Vendor" not in fields or "Device" not in fields or "SVendor" in fields != "SDevice" in fields {
       return Err(check_failure("lspci reference is missing a required numeric identity"))
     }
 
@@ -10158,7 +10158,7 @@ export pure compare_lspci_identity(
 
     let function = candidates.get(item.address)?
     matched_count += 1
-    if function.domain == null or function.bus == null or function.device == null or function.function == null or function.vendor_id == null or function.device_id == null or function.class_code == null or item.revision != null and function.revision == null or item.subsystem_vendor_id != null and function.subsystem_vendor_id == null or item.subsystem_device_id != null and function.subsystem_device_id == null or item.numa_node != null and function.numa_node == null or item.iommu_group != null and function.iommu_group == null {
+    if function.domain == null or function.bus == null or function.device == null or function.function == null or function.vendor_id == null or function.device_id == null or function.class_code == null or (item.revision != null and function.revision == null) or (item.subsystem_vendor_id != null and function.subsystem_vendor_id == null) or (item.subsystem_device_id != null and function.subsystem_device_id == null) or (item.numa_node != null and function.numa_node == null) or (item.iommu_group != null and function.iommu_group == null) {
       candidate_field_missing = true
     }
 
@@ -10731,7 +10731,7 @@ proc reference_thermal_number(root: FsRoot, source_path: Path) [fs, error] -> Re
   }
 
   let value = raw
-  let digits = if value.starts_with("-") { (value.split("") |> drop(1)).join("") } else { value }
+  let digits = if value.starts_with("-") { value.split("") |> drop(1).join("") } else { value }
   return Err(check_failure("thermal reference has an empty integer")) when digits == ""
 
   for digit in digits {
@@ -10779,7 +10779,7 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
   for zone_path in listing.children {
     let zone_name = zone_path.name()
     continue unless zone_name.starts_with("thermal_zone")
-    let suffix = (zone_name.split("") |> drop("thermal_zone".count_chars())).join("")
+    let suffix = zone_name.split("") |> drop("thermal_zone".count_chars()).join("")
     let id = reference_thermal_index(suffix)?
     if zone_name != f"thermal_zone${id}" or f"${id}" in seen_zones {
       return Err(check_failure("thermal reference has a noncanonical or duplicate zone ID"))
@@ -10858,7 +10858,7 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
     for attribute in attributes.children {
       let name = attribute.name()
       continue unless thermal_bundle_trip_source(name)
-      let stem = (name.split("") |> take(name.count_chars() - 5)).join("")
+      let stem = name.split("") |> take(name.count_chars() - 5).join("")
       source_paths = source_paths.extend([f"${zone}/${name}", f"${zone}/${stem}_type", f"${zone}/${stem}_hyst"])
     }
 
@@ -10907,9 +10907,9 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state != "observed" and raw.state != "absent" or "/trip_point_" in relative and relative.ends_with(
+    if raw.truncated or (raw.state != "observed" and raw.state != "absent") or ("/trip_point_" in relative and relative.ends_with(
       "_temp",
-    ) and raw.state != "observed" {
+    ) and raw.state != "observed") {
       complete = false
     }
 
@@ -11346,11 +11346,11 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or (relative.ends_with("/vendor") or relative.ends_with(
+    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("/vendor") or relative.ends_with(
       "/device",
     ) or relative.ends_with("/subsystem_vendor") or relative.ends_with("/subsystem_device") or relative.ends_with(
       "/class",
-    ) or relative.ends_with("/revision")) and raw.state != "observed" {
+    ) or relative.ends_with("/revision")) and raw.state != "observed") {
       complete = false
     }
 
@@ -11675,9 +11675,9 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or (relative.ends_with("/idVendor") or relative.ends_with(
+    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("/idVendor") or relative.ends_with(
       "/idProduct",
-    )) and raw.state != "observed" {
+    )) and raw.state != "observed") {
       complete = false
     }
 
@@ -11851,7 +11851,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
     let master_name = json.get(row, ["master"], null).require(Str?)?
     let lower_name = json.get(row, ["link"], null).require(Str?)?
     let lower_index = json.get(row, ["link_index"], null).require(Int?)?
-    if ifindex <= 0 or ifindex > 9007199254740991 or name == "" or mtu < 0 or mtu > 9007199254740991 or state != null and state_index != null or kind == "" or master_name == "" or lower_name == "" or lower_name != null and lower_index != null or lower_index != null and ((lower_index ?? -1) <= 0 or (lower_index ?? -1) > 9007199254740991) {
+    if ifindex <= 0 or ifindex > 9007199254740991 or name == "" or mtu < 0 or mtu > 9007199254740991 or (state != null and state_index != null) or kind == "" or master_name == "" or lower_name == "" or (lower_name != null and lower_index != null) or (lower_index != null and ((lower_index ?? -1) <= 0 or (lower_index ?? -1) > 9007199254740991)) {
       return Err(check_failure("ip link reference has an invalid identity or state"))
     }
 
@@ -12067,7 +12067,7 @@ pure network_link_candidate_bits(flags: List[Str]) -> Int? {
     continue unless flag.starts_with("raw_bits=")
     return null when bits != null
 
-    let raw = (flag.split("") |> drop(9)).join("")
+    let raw = flag.split("") |> drop(9).join("")
     let parsed = raw.parse_int() ?? -1
     return null when parsed < 0 or parsed > 4294967295 or f"${parsed}" != raw
 
@@ -12103,11 +12103,11 @@ proc network_raw_number(
     return Ok({value: null, complete: false})
   }
 
-  let digits = if hexadecimal and cleaned.starts_with("0x") { (cleaned.split("") |> drop(2)).join("") } else { cleaned }
+  let digits = if hexadecimal and cleaned.starts_with("0x") { cleaned.split("") |> drop(2).join("") } else { cleaned }
   return Ok({value: null, complete: false}) when digits == ""
 
   for digit in digits {
-    if digit not in (if hexadecimal { "0123456789abcdef" } else { "0123456789" }) {
+    if digit not in if hexadecimal { "0123456789abcdef" } else { "0123456789" } {
       return Ok({value: null, complete: false})
     }
   }
@@ -12651,7 +12651,7 @@ pure ip_rule_table(value: Str) -> Result[Int] {
 
 pure ip_rule_prefix(value: Str?, length: Int?, family: Str) -> Result[Str?] {
   let maximum = if family == "ipv4" { 32 } else { 128 }
-  let prefix_length = length ?? (if value == null or value == "all" { 0 } else { maximum })
+  let prefix_length = length ?? if value == null or value == "all" { 0 } else { maximum }
   if prefix_length < 0 or prefix_length > maximum {
     return Err(check_failure("ip rule reference has an invalid prefix length"))
   }
@@ -12823,9 +12823,9 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
     let source_address = ip_rule_prefix(source, source_length, family)?
     let destination_address = ip_rule_prefix(destination, destination_length, family)?
     let maximum = if family == "ipv4" { 32 } else { 128 }
-    let source_prefix_length = source_length ?? (if source_address == null { 0 } else { maximum })
-    let destination_prefix_length = destination_length ?? (if destination_address == null { 0 } else { maximum })
-    if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or goto_target != null and (goto_target < 0 or goto_target > 4294967295 or action != "goto") {
+    let source_prefix_length = source_length ?? if source_address == null { 0 } else { maximum }
+    let destination_prefix_length = destination_length ?? if destination_address == null { 0 } else { maximum }
+    if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or (goto_target != null and (goto_target < 0 or goto_target > 4294967295 or action != "goto")) {
       return Err(check_failure("ip rule reference has an invalid selector"))
     }
 
@@ -12944,14 +12944,14 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       continue
     }
 
-    if rule.source.state == "observed" and rule.source.value == null or rule.destination.state == "observed" and rule.destination.value == null or rule.source.state == "absent" and rule.source.value != null or rule.destination.state == "absent" and rule.destination.value != null {
+    if (rule.source.state == "observed" and rule.source.value == null) or (rule.destination.state == "observed" and rule.destination.value == null) or (rule.source.state == "absent" and rule.source.value != null) or (rule.destination.state == "absent" and rule.destination.value != null) {
       candidate_field_missing = true
       continue
     }
 
     let input_index = rule.input_ifindex ?? 0
     let output_index = rule.output_ifindex ?? 0
-    if input_index != 0 and f"${input_index}" not in names_by_index or output_index != 0 and f"${output_index}" not in names_by_index {
+    if (input_index != 0 and f"${input_index}" not in names_by_index) or (output_index != 0 and f"${output_index}" not in names_by_index) {
       candidate_field_missing = true
       continue
     }
@@ -12966,7 +12966,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       output_name = names_by_index.get(f"${output_index}")?
     }
 
-    if rule.input_ifindex != null and input_name == null or rule.output_ifindex != null and output_name == null or rule.table == null {
+    if (rule.input_ifindex != null and input_name == null) or (rule.output_ifindex != null and output_name == null) or rule.table == null {
       candidate_field_missing = true
       continue
     }
@@ -13506,13 +13506,13 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
       }
     }
 
-    if route.destination.state != "observed" or route.destination.value == null or route.source.state == "observed" and route.source.value == null or route.source.state == "absent" and route.source.value != null or route.source.state not in [
+    if route.destination.state != "observed" or route.destination.value == null or (route.source.state == "observed" and route.source.value == null) or (route.source.state == "absent" and route.source.value != null) or route.source.state not in [
       "observed",
       "absent",
-    ] or route.preferred_source.state == "observed" and route.preferred_source.value == null or route.preferred_source.state == "absent" and route.preferred_source.value != null or route.preferred_source.state not in [
+    ] or (route.preferred_source.state == "observed" and route.preferred_source.value == null) or (route.preferred_source.state == "absent" and route.preferred_source.value != null) or route.preferred_source.state not in [
       "observed",
       "absent",
-    ] or route.gateway.state == "observed" and route.gateway.value == null or route.gateway.state == "absent" and route.gateway.value != null or route.gateway.state not in [
+    ] or (route.gateway.state == "observed" and route.gateway.value == null) or (route.gateway.state == "absent" and route.gateway.value != null) or route.gateway.state not in [
       "observed",
       "absent",
     ] or route.scope == null or route.protocol == null or route.flags < 0 or route.flags > 4294967295 {
@@ -13539,7 +13539,7 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
     var hop_missing = false
     for hop in route.nexthops {
       let hop_index = hop.ifindex
-      if hop_index <= 0 or f"${hop_index}" not in names_by_index or hop.hops < 0 or hop.hops > 255 or hop.flags < 0 or hop.flags > 255 or hop.gateway.state == "observed" and hop.gateway.value == null or hop.gateway.state == "absent" and hop.gateway.value != null or hop.gateway.state not in [
+      if hop_index <= 0 or f"${hop_index}" not in names_by_index or hop.hops < 0 or hop.hops > 255 or hop.flags < 0 or hop.flags > 255 or (hop.gateway.state == "observed" and hop.gateway.value == null) or (hop.gateway.state == "absent" and hop.gateway.value != null) or hop.gateway.state not in [
         "observed",
         "absent",
       ] {
@@ -13834,9 +13834,9 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
 
     # lsblk projects parent queue values onto partitions that lack those sysfs files.
     let partition_source_absent = source.kind == "part" and device.kind == "partition"
-    let sector_bad = (device.logical_sector_bytes != null or ! partition_source_absent) and device.logical_sector_bytes != source.logical_sector_bytes or (device.physical_sector_bytes != null or ! partition_source_absent) and device.physical_sector_bytes != source.physical_sector_bytes
-    let flag_bad = (device.removable != null or ! partition_source_absent) and device.removable != source.removable or (device.rotational != null or ! partition_source_absent) and device.rotational != source.rotational or device.read_only != source.read_only
-    let partition_bad = (device.kind == "partition") != (source.kind == "part")
+    let sector_bad = ((device.logical_sector_bytes != null or ! partition_source_absent) and device.logical_sector_bytes != source.logical_sector_bytes) or ((device.physical_sector_bytes != null or ! partition_source_absent) and device.physical_sector_bytes != source.physical_sector_bytes)
+    let flag_bad = ((device.removable != null or ! partition_source_absent) and device.removable != source.removable) or ((device.rotational != null or ! partition_source_absent) and device.rotational != source.rotational) or device.read_only != source.read_only
+    let partition_bad = device.kind == "partition" != (source.kind == "part")
     if major_minor_bad {
       major_minor_mismatches += 1
     }
@@ -14094,7 +14094,7 @@ export pure compare_block_queue_fields(
     let projected_partition = source.kind == "part" and candidate_kind == "partition"
     let scheduler_bad = (device.active_scheduler != null or ! projected_partition) and device.active_scheduler != source.scheduler
     let read_ahead_bad = (device.read_ahead_kb != null or ! projected_partition) and device.read_ahead_kb != source.read_ahead_kb
-    let discard_bad = (device.discard_granularity_bytes != null or ! projected_partition) and device.discard_granularity_bytes != source.discard_granularity_bytes or (device.discard_max_bytes != null or ! projected_partition) and device.discard_max_bytes != source.discard_max_bytes
+    let discard_bad = ((device.discard_granularity_bytes != null or ! projected_partition) and device.discard_granularity_bytes != source.discard_granularity_bytes) or ((device.discard_max_bytes != null or ! projected_partition) and device.discard_max_bytes != source.discard_max_bytes)
     let model_bad = if source.model == null {
       device.model.state != "absent" or device.model.value != null
     } else {
@@ -14328,7 +14328,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
     let partition = root.exists(fp"${entry}/partition")?
     let holders_listing = root.children(fp"${entry}/holders", max_entries: 4096)?
     let slaves_listing = root.children(fp"${entry}/slaves", max_entries: 4096)?
-    if holders_listing.state != "complete" or slaves_listing.state != "complete" and ! (partition and slaves_listing.state == "absent") {
+    if holders_listing.state != "complete" or (slaves_listing.state != "complete" and ! (partition and slaves_listing.state == "absent")) {
       complete = false
     }
 
@@ -14499,9 +14499,9 @@ pure block_raw_scheduler(raw: Str?) -> Result[Str?] {
         return Err(check_failure("block scheduler source has an invalid selected token"))
       }
 
-      selected = (word.split("")
+      selected = word.split("")
         |> drop(1)
-        |> take(word.count_chars() - 2)).join("")
+        |> take(word.count_chars() - 2).join("")
     }
   }
 
@@ -14558,7 +14558,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       bounded_block_reference_text(root, fp"${source_path}/queue/physical_block_size")?,
       "physical sector",
     )?
-    if logical != null and logical == 0 or physical != null and physical == 0 {
+    if (logical != null and logical == 0) or (physical != null and physical == 0) {
       return Err(check_failure("block sector size is zero"))
     }
 
@@ -14950,9 +14950,9 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or (relative.ends_with("/dev") or relative.ends_with(
+    if raw.truncated or raw.state not in ["observed", "absent"] or ((relative.ends_with("/dev") or relative.ends_with(
       "/size",
-    )) and raw.state != "observed" {
+    )) and raw.state != "observed") {
       complete = false
     }
 
@@ -15330,9 +15330,9 @@ pure reference_mount_sanitized_optional_fields(fields: List[Str]) -> List[Str] {
   var output: List[Str] = []
   for field in fields {
     let parts = field.split(":")
-    if field == "unbindable" or parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and reference_mount_decimal(
+    if field == "unbindable" or (parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and reference_mount_decimal(
       parts[1],
-    ) {
+    )) {
       output += [field]
     } else {
       output += ["redacted"]
@@ -15734,7 +15734,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     let option_bad = mount.mount_options != reference_mount_sanitized_options(source.mount_options) or mount.super_options != reference_mount_sanitized_options(
       source.super_options,
     )
-    let propagation_bad = reference_mount_propagation(mount.optional_fields) != source.propagation or source.optional_fields != null and mount.optional_fields != source.optional_fields
+    let propagation_bad = reference_mount_propagation(mount.optional_fields) != source.propagation or (source.optional_fields != null and mount.optional_fields != source.optional_fields)
     if parent_bad {
       parent_mismatches += 1
     }
@@ -15888,7 +15888,7 @@ export pure parse_findmnt_usage_json(output: Str, mount_id: Int) -> Result[Mount
   let available = json.get(row, ["avail"], null).require(Int?)?
   let all_unavailable = total == null and used == null and available == null
   let all_observed = total != null and used != null and available != null
-  if id != mount_id or id <= 0 or ! all_unavailable and ! all_observed or all_observed and ((total ?? -1) < 0 or (used ?? -1) < 0 or (available ?? -1) < 0 or (total ?? -1) > 9007199254740991 or (used ?? -1) > (total ?? -1) or (available ?? -1) > (total ?? -1)) {
+  if id != mount_id or id <= 0 or (! all_unavailable and ! all_observed) or (all_observed and ((total ?? -1) < 0 or (used ?? -1) < 0 or (available ?? -1) < 0 or (total ?? -1) > 9007199254740991 or (used ?? -1) > (total ?? -1) or (available ?? -1) > (total ?? -1))) {
     return Err(check_failure("findmnt usage reference has an invalid mount or byte count"))
   }
 
@@ -16454,7 +16454,7 @@ export pure compare_kernel_parameters(
     let observed = source.state == "observed" and source.value != null and source.raw_bytes_base64 == null
     let absent = source.state == "absent" and source.value == null and source.raw_bytes_base64 == null
     let malformed = source.state == "malformed" and source.value == null and source.raw_bytes_base64 != null
-    if source.name == "" or source.source not in ["sysctl", "module"] or key in reference_by_key or ! observed and ! absent and ! malformed {
+    if source.name == "" or source.source not in ["sysctl", "module"] or key in reference_by_key or (! observed and ! absent and ! malformed) {
       return Err(check_failure("kernel parameter reference has an invalid or duplicate observation"))
     }
 
@@ -16603,7 +16603,7 @@ export proc capture_kernel_parameters_bundle(
   for item in sources {
     let relative = item.path.strip_prefix(/)?
     let raw = source.read_result(relative, max_bytes: 4096)?
-    if raw.state not in ["observed", "absent"] or raw.truncated or raw.state == "observed" and raw.data == null or raw.state == "absent" and raw.data != null {
+    if raw.state not in ["observed", "absent"] or raw.truncated or (raw.state == "observed" and raw.data == null) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
 
@@ -16756,9 +16756,9 @@ pure parse_reference_os_release_value(raw: Str) -> Result[Str] {
       return Err(check_failure("os-release reference has an unterminated single-quoted value"))
     }
 
-    let content = (value.split("")
+    let content = value.split("")
       |> drop(1)
-      |> take(value.count_chars() - 2)).join("")
+      |> take(value.count_chars() - 2).join("")
     if "'" in content {
       return Err(check_failure("os-release reference has an unescaped single quote"))
     }
@@ -16776,9 +16776,9 @@ pure parse_reference_os_release_value(raw: Str) -> Result[Str] {
   }
 
   let content = if quoted {
-    (value.split("")
+    value.split("")
       |> drop(1)
-      |> take(value.count_chars() - 2)).join("")
+      |> take(value.count_chars() - 2).join("")
   } else {
     value
   }
@@ -16797,7 +16797,7 @@ pure parse_reference_os_release_value(raw: Str) -> Result[Str] {
       escaped = false
     } else if character == "\\" {
       escaped = true
-    } else if character in ["$", "`", "\""] or ! quoted and character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-" {
+    } else if character in ["$", "`", "\""] or (! quoted and character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") {
       return Err(check_failure("os-release reference has an unescaped special character"))
     } else {
       decoded = decoded + character
@@ -16985,10 +16985,10 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
       return Err(check_failure("os-release capture source identity or completeness differs from metadata"))
     }
 
-    if expected.state == "absent" or index == 1 and capture.sources[0].state == "observed" and expected.state in [
+    if expected.state == "absent" or (index == 1 and capture.sources[0].state == "observed" and expected.state in [
       "read_failure",
       "permission_denied",
-    ] and expected.sha256_hex == null {
+    ] and expected.sha256_hex == null) {
       if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"${relative}")? {
         return Err(check_failure(f"os-release unavailable source ${relative} differs from metadata"))
       }
@@ -17239,7 +17239,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
     let relative = paths[index]
     let limit = if index == 0 { 4096 } else { 16384 }
     let raw = source.read_result(fp"${relative}", max_bytes: limit)?
-    if raw.truncated or raw.state not in ["observed", "absent"] or raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null) or raw.state == "absent" and raw.data != null {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
 
@@ -17431,7 +17431,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
   var complete = true
   for relative in paths {
     let raw = source.read_result(fp"${relative}", max_bytes: 4096)?
-    if raw.truncated or raw.state not in ["observed", "absent"] or raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null) or raw.state == "absent" and raw.data != null {
+    if raw.truncated or raw.state not in ["observed", "absent"] or (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or (raw.state == "absent" and raw.data != null) {
       complete = false
     }
 
@@ -17866,7 +17866,7 @@ pure process_reference_stat_fields(output: Str) -> Result[ProcStatReferenceField
     return Err(check_failure("process stat reference has no command terminator"))
   }
 
-  let command = (command_and_fields |> take(command_and_fields.len() - 1)).join(") ")
+  let command = command_and_fields |> take(command_and_fields.len() - 1).join(") ")
   let fields = command_and_fields[command_and_fields.len() - 1].replace("\t", " ").split(" ") |> where .trim() != ""
   if pid == 0 or fields.len() < 22 or fields[0].count_chars() != 1 {
     return Err(check_failure("process stat reference has invalid identity or field count"))
@@ -17972,7 +17972,7 @@ export pure parse_proc_cgroup_reference(output: Str) -> Result[Str?] {
     }
 
     let hierarchy = process_reference_number(fields[0])?
-    if ! fields[2].starts_with("/") or hierarchy == 0 and fields[1] != "" or hierarchy != 0 and fields[1] == "" {
+    if ! fields[2].starts_with("/") or (hierarchy == 0 and fields[1] != "") or (hierarchy != 0 and fields[1] == "") {
       return Err(check_failure("process cgroup reference has an invalid hierarchy or path"))
     }
 
@@ -18184,11 +18184,11 @@ pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[Vi
   return Ok(null) when chosen_root_length < 0
 
   let relative = if chosen_root == "/" {
-    (group_path.split("") |> drop(1)).join("")
+    group_path.split("") |> drop(1).join("")
   } else if group_path == chosen_root {
     ""
   } else {
-    (group_path.split("") |> drop(chosen_root.count_chars() + 1)).join("")
+    group_path.split("") |> drop(chosen_root.count_chars() + 1).join("")
   }
   let mount_relative = (chosen_point.split("/") |> where . != "").join("/")
   let source_path = if relative == "" {
@@ -18241,12 +18241,12 @@ export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Resul
       return Err(check_failure("cgroup2 reference has an invalid visible ancestor path"))
     }
 
-    visible = (visible_parts |> take(visible_parts.len() - 1)).join("/")
+    visible = visible_parts |> take(visible_parts.len() - 1).join("/")
     if visible == "" {
       visible = "/"
     }
 
-    source = (source_parts |> take(source_parts.len() - 1)).join("/")
+    source = source_parts |> take(source_parts.len() - 1).join("/")
     if source == "" {
       source = "."
     }
@@ -18650,10 +18650,10 @@ proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayo
   ]
   for ancestor in ancestors {
     let source = ancestor.source_path
-    if source == "" or source.starts_with("/") or source != "." and (source.split("/")
+    if source == "" or source.starts_with("/") or (source != "." and (source.split("/")
       |> any { |part|
         part in ["", ".", ".."]
-      }) {
+      })) {
       return Err(check_failure("cgroup2 bundle ancestor path is unsafe"))
     }
 
@@ -18752,10 +18752,10 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       byte_count = data.len()
     }
 
-    if raw.truncated or raw.state not in ["observed", "absent"] or item.path in [
+    if raw.truncated or raw.state not in ["observed", "absent"] or (item.path in [
       "proc/self/cgroup",
       "proc/self/mountinfo",
-    ] and raw.state != "observed" {
+    ] and raw.state != "observed") {
       complete = false
     }
 
@@ -20183,7 +20183,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
       return Err(check_failure("usb.lsusb must declare the opt-in inventory, tree, and selected descriptor commands"))
     }
 
-    if assertion.source_abi.trim() == "" or assertion.reference_adapter.trim() == "" or assertion.reference_commands.len() == 0 and ! rooted_reference or rooted_reference and assertion.reference_commands.len() != 0 or rooted_binding_invalid {
+    if assertion.source_abi.trim() == "" or assertion.reference_adapter.trim() == "" or (assertion.reference_commands.len() == 0 and ! rooted_reference) or (rooted_reference and assertion.reference_commands.len() != 0) or rooted_binding_invalid {
       return Err(check_failure(f"assertion '${assertion.id}' has an invalid source ABI or reference invocation"))
     }
 
@@ -20225,24 +20225,24 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
       return Err(check_failure("network.addresses must declare the iproute2 JSON reference"))
     }
 
-    if assertion.id == "network.routes" and assertion.reference_commands != [
+    if (assertion.id == "network.routes" and assertion.reference_commands != [
       network_route_argv("ipv4"),
       network_route_argv("ipv6"),
-    ] or assertion.id == "cpu.topology" and (assertion.reference_adapter != "lscpu" or assertion.reference_commands != [
+    ]) or (assertion.id == "cpu.topology" and (assertion.reference_adapter != "lscpu" or assertion.reference_commands != [
       [
         "lscpu",
         "--json",
         "--extended=CPU,ONLINE,SOCKET,CORE,NODE",
         "--all",
       ],
-    ]) or assertion.id == "cpu.cache-sharing" and ! rooted_cpu_cache or assertion.id in [
+    ])) or (assertion.id == "cpu.cache-sharing" and ! rooted_cpu_cache) or (assertion.id in [
       "cpu.freq-policies",
       "cpu.freq-bounds",
       "cpu.epp-boost",
-    ] and ! rooted_cpufreq or assertion.id == "cpu.idle" and ! rooted_cpuidle or assertion.id == "pci.link" and ! rooted_pci_links or assertion.id == "pci.binding" and ! rooted_pci_bindings or assertion.id == "usb.interfaces" and ! rooted_usb_interfaces or assertion.id == "power.supplies" and ! rooted_power_supplies or assertion.id == "power.powercap" and ! rooted_powercap or assertion.id == "devices.graphics-audio-input" and ! rooted_device_classes or assertion.id == "sensors.hwmon" and ! rooted_hwmon or assertion.id == "firmware.smbios" and ! rooted_smbios or assertion.id == "identity.firmware" and ! rooted_firmware_identity or assertion.id == "sensors.thermal" and ! rooted_thermal or assertion.id == "network.rules" and assertion.reference_commands != [
+    ] and ! rooted_cpufreq) or (assertion.id == "cpu.idle" and ! rooted_cpuidle) or (assertion.id == "pci.link" and ! rooted_pci_links) or (assertion.id == "pci.binding" and ! rooted_pci_bindings) or (assertion.id == "usb.interfaces" and ! rooted_usb_interfaces) or (assertion.id == "power.supplies" and ! rooted_power_supplies) or (assertion.id == "power.powercap" and ! rooted_powercap) or (assertion.id == "devices.graphics-audio-input" and ! rooted_device_classes) or (assertion.id == "sensors.hwmon" and ! rooted_hwmon) or (assertion.id == "firmware.smbios" and ! rooted_smbios) or (assertion.id == "identity.firmware" and ! rooted_firmware_identity) or (assertion.id == "sensors.thermal" and ! rooted_thermal) or (assertion.id == "network.rules" and assertion.reference_commands != [
       network_rule_argv("ipv4"),
       network_rule_argv("ipv6"),
-    ] or assertion.id == "memory.hugepages" and assertion.reference_adapter != "hugepage-sysfs-rooted-v1" or assertion.id == "memory.cgroup-v2" and assertion.reference_adapter != "cgroup-v2-rooted-v1" or assertion.id == "memory.pressure" and (assertion.reference_adapter != "pressure-procfs-v1" or assertion.reference_commands != [
+    ]) or (assertion.id == "memory.hugepages" and assertion.reference_adapter != "hugepage-sysfs-rooted-v1") or (assertion.id == "memory.cgroup-v2" and assertion.reference_adapter != "cgroup-v2-rooted-v1") or (assertion.id == "memory.pressure" and (assertion.reference_adapter != "pressure-procfs-v1" or assertion.reference_commands != [
       [
         "/bin/cat",
         "/proc/pressure/cpu",
@@ -20255,21 +20255,21 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
         "/bin/cat",
         "/proc/pressure/io",
       ],
-    ]) or assertion.id == "memory.cpu-scope" and (assertion.reference_adapter != "cpu-scope-procfs-cgroup-v1" or assertion.reference_commands != [
+    ])) or (assertion.id == "memory.cpu-scope" and (assertion.reference_adapter != "cpu-scope-procfs-cgroup-v1" or assertion.reference_commands != [
       [
         "/bin/cat",
         "/proc/self/status",
       ],
-    ]) or assertion.id == "cpu.vulnerabilities" and (assertion.reference_adapter != "kernel-vulnerability-files" or assertion.reference_commands != [
+    ])) or (assertion.id == "cpu.vulnerabilities" and (assertion.reference_adapter != "kernel-vulnerability-files" or assertion.reference_commands != [
       [
         "/bin/cat",
         "/sys/devices/system/cpu/vulnerabilities/<name>",
       ],
-    ]) or assertion.id == "pci.identity" and (assertion.reference_adapter != "lspci" or assertion.reference_commands != [
+    ])) or (assertion.id == "pci.identity" and (assertion.reference_adapter != "lspci" or assertion.reference_commands != [
       pci_reference_argv(),
-    ]) or assertion.id in ["privacy.no-process-data", "safety.no-child", "safety.no-mutation"] and (assertion.reference_adapter != "strace" or assertion.reference_commands != [
+    ])) or (assertion.id in ["privacy.no-process-data", "safety.no-child", "safety.no-mutation"] and (assertion.reference_adapter != "strace" or assertion.reference_commands != [
       trace_audit_argv("strace", "<trace file>", "<xsh binary>", "<system-report script>", ["--json"]),
-    ]) {
+    ])) {
       return Err(check_failure(f"assertion '${assertion.id}' must declare the executed reference commands"))
     }
 
@@ -20351,7 +20351,7 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
       )
       let rust_netlink_case = test_name.starts_with("src/modules/linux/real/netlink.rs::")
       let rust_privilege_case = test_name.starts_with("tests/linux_priv.rs::system_report_")
-      if ! native_case and ! source_parser_case and ! reference_case and ! sensors_reference_case and ! cpupower_reference_case and ! lsusb_reference_case and ! rust_netlink_case and ! rust_privilege_case or test_name.split(
+      if (! native_case and ! source_parser_case and ! reference_case and ! sensors_reference_case and ! cpupower_reference_case and ! lsusb_reference_case and ! rust_netlink_case and ! rust_privilege_case) or test_name.split(
         "::",
       )
         .len() != 2 or test_name in seen_tests {
@@ -20577,7 +20577,7 @@ pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
 
 # Requires every decoded route-netlink message outside quoted data to be a known query.
 pure route_netlink_query_only(message: Str) -> Bool {
-  if ! message.starts_with("[{") and ! message.starts_with("{") or "..." in message {
+  if (! message.starts_with("[{") and ! message.starts_with("{")) or "..." in message {
     return false
   }
 
@@ -20660,7 +20660,7 @@ pure route_netlink_kernel_destination(destination: Str) -> Bool {
 export pure host_effect_trace_violations(trace: Str) -> List[Str] {
   var violations: List[Str] = []
   for line in trace.lines() {
-    if line.trim().ends_with("<unfinished ...>") or " <... " in line and " resumed>" in line {
+    if line.trim().ends_with("<unfinished ...>") or (" <... " in line and " resumed>" in line) {
       violations += ["incomplete syscall trace"]
     }
 
@@ -22072,7 +22072,7 @@ export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[H
 
   for node in nodes.children {
     continue unless node.name().starts_with("node")
-    let node_text = (node.name().split("") |> drop(4)).join("")
+    let node_text = node.name().split("") |> drop(4).join("")
     let node_id = parse_huge_page_counter_reference(node_text)?
     let listing = root.children(fp"${node}/hugepages", max_entries: 1024)?
     if listing.state != "complete" and listing.state != "absent" {
@@ -22125,7 +22125,7 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
   for item in issues {
-    if item.section == "memory" and (item.field.starts_with("huge_pages") or item.field.starts_with("numa.") and "huge_pages" in item.field) {
+    if item.section == "memory" and (item.field.starts_with("huge_pages") or (item.field.starts_with("numa.") and "huge_pages" in item.field)) {
       return Err(check_failure("candidate huge-page pool source has a collection issue"))
     }
   }
@@ -24680,9 +24680,9 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   for item in issues {
-    if item.section == "cpu" and (item.field == "affinity" or has_current_cpuset and item.field == "cgroup.effective_cpuset") or has_visible_cgroup and item.section == "memory" and item.field.starts_with(
+    if (item.section == "cpu" and (item.field == "affinity" or (has_current_cpuset and item.field == "cgroup.effective_cpuset"))) or (has_visible_cgroup and item.section == "memory" and item.field.starts_with(
       "cgroup.",
-    ) and ("cpu.max" in item.field or "cpuset.cpus.effective" in item.field) {
+    ) and ("cpu.max" in item.field or "cpuset.cpus.effective" in item.field)) {
       return Err(check_failure("candidate CPU scope has a collection issue"))
     }
   }
@@ -24986,11 +24986,11 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
     )
   }
 
-  let scored = 1 + (if compared.exact_bounds { 1 } else { 0 }) + (if compared.exact_controls { 1 } else { 0 })
+  let scored = 1 + if compared.exact_bounds { 1 } else { 0 } + if compared.exact_controls { 1 } else { 0 }
   Ok(
     {
       scored: scored,
-      partial: compared.eligible_bounds and ! compared.exact_bounds or compared.eligible_controls and ! compared.exact_controls,
+      partial: (compared.eligible_bounds and ! compared.exact_bounds) or (compared.eligible_controls and ! compared.exact_controls),
       unavailable: ! compared.eligible_bounds or ! compared.eligible_controls,
     },
   )
@@ -25950,7 +25950,7 @@ export proc validate_and_run(
     return Err(check_failure("choose one corroboration, capture, or replay operation"))
   }
 
-  if options.corroborate_smbios_bundle != "" and options.dmidecode_bin == "" or options.corroborate_smbios_bundle == "" and options.dmidecode_bin != "" {
+  if (options.corroborate_smbios_bundle != "" and options.dmidecode_bin == "") or (options.corroborate_smbios_bundle == "" and options.dmidecode_bin != "") {
     return Err(check_failure("--corroborate-smbios-bundle requires --dmidecode-bin and both must be used together"))
   }
 
@@ -26174,7 +26174,7 @@ export proc validate_and_run(
       "mismatch"
     }
     print f"memory raw replay: meminfo=${meminfo_state}; thp=${thp_state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; meminfo_fields=${result.meminfo.reference_count}; thp_fields=${result.thp.reference_count}"
-    if ! result.meminfo.exact_scored or result.thp.reference_count > 0 and ! result.thp.exact {
+    if ! result.meminfo.exact_scored or (result.thp.reference_count > 0 and ! result.thp.exact) {
       return Err(check_failure("memory raw replay differs from its independent reference"))
     }
 
@@ -26791,7 +26791,7 @@ export proc validate_and_run(
     let queue = if result.queue.exact { "exact" } else { "mismatch" }
     let counters = if result.sources.exact { "exact" } else if result.sources.unstable { "partial" } else { "mismatch" }
     print f"block raw replay: identity=${identity}; queue=${queue}; counters=${counters}; devices=${result.identity.reference_count}; edges=${result.identity.matched_edges}"
-    if ! result.identity.exact or ! result.queue.exact or ! result.sources.exact and ! result.sources.unstable {
+    if ! result.identity.exact or ! result.queue.exact or (! result.sources.exact and ! result.sources.unstable) {
       return Err(check_failure("block raw replay differs from its independent reference"))
     }
 

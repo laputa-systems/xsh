@@ -1661,7 +1661,9 @@ fn check_diagnostics_are_preserved(original: &[Diagnostic], current: &[Diagnosti
             .entry(check_diagnostic_signature(diagnostic))
             .or_insert(0usize) += 1;
     }
-    for diagnostic in current {
+    // Removing a pair of parentheses lets the pairs inside it be judged on the
+    // next round, so their count may grow while the fixes converge.
+    for diagnostic in current.iter().filter(|diagnostic| diagnostic.code.as_deref() != Some("check.redundant-parens")) {
         let Some(count) = remaining.get_mut(&check_diagnostic_signature(diagnostic)) else {
             return false;
         };

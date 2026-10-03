@@ -268,7 +268,7 @@ proc key() [io] -> Result[Str, BuildError] {
   return Err(BuildError.Stopped(message: "stop map"))
 }
 proc value() [io] -> Int { print "value"; return 1 }
-let values = {["first"]: value(), [(key()?)]: value(), later: value()}
+let values = {["first"]: value(), [key()?]: value(), later: value()}
 print values.len()
 """,
   )?

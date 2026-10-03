@@ -95,16 +95,16 @@ proc witness() [error] {
   let jobs = 40
   let configs: List[RecordConfig] = [{root: "src", build: {jobs: 3, target: "native"}}]
   for {build: {jobs, ..}, ..} in configs {
-    assert (jobs) == (3)
+    assert jobs == 3
     for {build: {jobs, ..}, ..} in configs {
-      assert (jobs) == (3)
+      assert jobs == 3
     }
-    assert (jobs) == (3)
+    assert jobs == 3
   }
-  assert (jobs) == (40)
+  assert jobs == 40
   let selected = [jobs for {build: {jobs, ..}, ..} in configs]
-  assert (selected) == ([3])
-  assert (jobs) == (40)
+  assert selected == [3]
+  assert jobs == 40
 }
 witness()
 """,

@@ -151,7 +151,7 @@ pub const LINT_CODES: &[&str] = &[
 
 /// Checker diagnostic codes that carry a source fix and may be selected with
 /// `xsht lint --only`, for scoped migrations such as `--only check.bool-statement --fix`.
-pub const FIXABLE_CHECK_CODES: &[&str] = &["check.bool-statement"];
+pub const FIXABLE_CHECK_CODES: &[&str] = &["check.bool-statement", "check.mixed-logical", "check.redundant-parens"];
 
 /// Whether `only` (the `--only` selection, if any) admits a diagnostic code.
 pub fn lint_code_selected(only: Option<&[String]>, code: Option<&str>) -> bool {

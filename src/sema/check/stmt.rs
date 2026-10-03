@@ -2519,6 +2519,10 @@ fn tail_expr_context_arena(
 fn bool_statement_assert_fix(source: &str, statement: Span) -> Option<FixHint> {
     let text = source.get(statement.range())?.trim_end();
     let Some(content) = text.strip_suffix(',') else {
+        // Statement-start grouping is not needed after `assert`.
+        if let Some(inner) = whole_paren_group(text) {
+            return Some(FixHint::replacement(Span::new(statement.source_id, statement.start(), statement.start() + text.len()), "insert `assert`", format!("assert {inner}")));
+        }
         return Some(FixHint::replacement(Span::at(statement.source_id, statement.start()), "insert `assert`", "assert "));
     };
     let content = content.trim_end();
@@ -2528,6 +2532,28 @@ fn bool_statement_assert_fix(source: &str, statement: Span) -> Option<FixHint> {
         "insert `assert` in a braced match arm",
         format!("{{ assert {content} }}"),
     ))
+}
+
+/// The contents of `text` when one pair of parentheses encloses all of it.
+fn whole_paren_group(text: &str) -> Option<&str> {
+    let tokens = crate::syntax::lexer::lex_spellings(text);
+    if tokens.first()?.0 != crate::syntax::token::TokenTag::LParen || tokens.last()?.0 != crate::syntax::token::TokenTag::RParen {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (index, (tag, _)) in tokens.iter().enumerate() {
+        match tag {
+            crate::syntax::token::TokenTag::LParen => depth += 1,
+            crate::syntax::token::TokenTag::RParen => {
+                depth -= 1;
+                if depth == 0 && index + 1 != tokens.len() {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(text[1..text.len() - 1].trim())
 }
 
 fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {

@@ -30,7 +30,7 @@ proc main(...raw: List[Str]) [process, env, error] {
   var argv = raw
 
   if argv.len() >= 1 and argv[0].starts_with("-S ") {
-    argv = split_words((argv[0].split(" ") |> drop(1)).join(" "))
+    argv = split_words(argv[0].split(" ") |> drop(1).join(" "))
     var rest_index = 1
 
     while rest_index < raw.len() {

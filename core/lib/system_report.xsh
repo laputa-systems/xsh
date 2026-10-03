@@ -986,7 +986,7 @@ pure select_report_domain(report: SystemReport, selected: ReportSection) -> Syst
   let keep_pci = selection_needs_pci(selected)
   let keep_usb = selection_needs_usb(selected)
   for issue in report.issues {
-    if issue.section == "identity" or issue.section == "scope" or issue.section == selected_name or keep_pci and issue.section == "pci" or keep_usb and issue.section == "usb" {
+    if issue.section == "identity" or issue.section == "scope" or issue.section == selected_name or (keep_pci and issue.section == "pci") or (keep_usb and issue.section == "usb") {
       issues += [issue]
     }
   }
@@ -3528,7 +3528,7 @@ export pure sanitize_mount_options(options: List[Str]) -> List[Str] {
   var sanitized = []
   for option in options {
     let parts = option.split("=")
-    if allowed_mount_flag(option) or parts.len() == 2 and allowed_mount_value(parts[0], parts[1]) {
+    if allowed_mount_flag(option) or (parts.len() == 2 and allowed_mount_value(parts[0], parts[1])) {
       sanitized += [option]
     } else {
       sanitized += ["redacted"]
@@ -3543,9 +3543,9 @@ export pure sanitize_mount_optional_fields(fields: List[Str]) -> List[Str] {
   var sanitized = []
   for field in fields {
     let parts = field.split(":")
-    if field == "unbindable" or parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and mount_decimal_text(
+    if field == "unbindable" or (parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and mount_decimal_text(
       parts[1],
-    ) {
+    )) {
       sanitized += [field]
     } else {
       sanitized += ["redacted"]

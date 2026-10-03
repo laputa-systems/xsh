@@ -6,7 +6,6 @@
 # The file lives under `tests/fixtures/` because the runnable corpus excludes
 # fixtures, and the lint policy forbids shadowing in corpus source; the program
 # itself is an ordinary script executed by the ordinary runtime.
-
 # A loop body that declares the same name the enclosing body declared, with the
 # outer binding read again after the loop. Without correct slot identity the
 # inner declaration is dropped and every read keeps the outer value.
@@ -14,22 +13,26 @@ pure shadowed_words(text: Str) -> Str {
   var out = ""
   var index = 0
   while index < text.byte_len() {
-    let byte = (text.byte_at(index) ?? -1)
+    let byte = text.byte_at(index) ?? -1
     if byte == 32 {
       index = index + 1
       continue
     }
+
     var word = ""
     while index < text.byte_len() {
-      let byte = (text.byte_at(index) ?? -1)
+      let byte = text.byte_at(index) ?? -1
       if byte == 32 {
         break
       }
+
       word = word + text.byte_slice(index, 1)
       index = index + 1
     }
+
     out = out + word + ";"
   }
+
   return out
 }
 
@@ -43,6 +46,7 @@ pure shadowed_in_block(value: Str, inner: Str) -> Str {
       return name
     }
   }
+
   return name
 }
 
@@ -57,6 +61,7 @@ pure shadowed_assignment(value: Int, inner: Int) -> Int {
       return total * 100
     }
   }
+
   return total
 }
 
@@ -66,10 +71,11 @@ pure shadowed_loop_variable(items: List[Str]) -> Str {
   for item in items {
     out = out + item
   }
+
   return f"${out}|${item}"
 }
 
-proc main() [io, error] {
+proc main() [error, io] {
   print shadowed_words("ab cd")
   print shadowed_words("one")
   print shadowed_words(" a ")

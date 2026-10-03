@@ -25,26 +25,26 @@ proc witness() [error] {
   let outcome: Result[Int] = Ok(7)
   let value = "outer"
   if let Ok(value) = outcome {
-    assert (value) == (7)
+    assert value == 7
   } else {
-    assert (value) == ("outer")
+    assert value == "outer"
   }
-  assert (value) == ("outer")
+  assert value == "outer"
   if let SelectedBranch(value) = SelectedBranch(7) {
-    assert (value) == (7)
+    assert value == 7
   }
-  assert (value) == ("outer")
+  assert value == "outer"
   if let Err(_) = outcome {
     test.fail("unexpected error branch")?
   } else if let Ok(value) = outcome {
-    assert (value) == (7)
+    assert value == 7
   } else {
     test.fail("expected matching branch")?
   }
   if let Ok(outcome) = outcome {
-    assert (outcome) == (7)
+    assert outcome == 7
   }
-  assert (outcome) == (Ok(7))
+  assert outcome == Ok(7)
 }
 witness()
 """,
@@ -64,7 +64,7 @@ test test_pattern_conditionals_produce_values_and_keep_literal_results {
   let missing: Result[Int] = Err(PatternLoopError.Done(detail: "done"))
   assert pattern_conditional_label(missing) == "missing"
   if let Err(error) = missing {
-    assert (error is PatternLoopError.Done) == true
+    assert error is PatternLoopError.Done == true
   } else {
     test.fail("Result was implicitly unwrapped")?
   }
@@ -125,13 +125,13 @@ pure pattern_condition_dynamic() -> Any { "hello" }
 proc witness() [error] {
   let failure: PatternLoopError = PatternLoopError.Done(detail: "done")
   if let is NotFound = failure {
-    assert (failure is NotFound) == (true)
+    assert failure is NotFound == true
   } else {
     test.fail("facet pattern did not match")?
   }
   let outcome = Ok({message: "ready", code: 7})
   if let Ok({message: label, code: 7}) = outcome {
-    assert (label) == ("ready")
+    assert label == "ready"
   } else {
     test.fail("nested pattern did not match")?
   }
@@ -139,15 +139,15 @@ proc witness() [error] {
   if let Ok({message: label, code: 8}) = outcome {
     test.fail("partial nested pattern selected a branch")?
   } else {
-    assert (label) == ("outer")
+    assert label == "outer"
   }
-  assert (label) == ("outer")
+  assert label == "outer"
   let value = pattern_condition_dynamic()
   if let text is Str = value {
-    assert (text.upper()) == ("HELLO")
+    assert text.upper() == "HELLO"
   }
   if let _ is Str = value {
-    assert (value.upper()) == ("HELLO")
+    assert value.upper() == "HELLO"
   }
 }
 witness()
@@ -318,20 +318,20 @@ proc witness() [error] {
   let argv = ["build", "native", "debug"]
   let target = "outer"
   if let ["build", target, ..tail] = argv {
-    assert (target.upper()) == ("NATIVE")
-    assert (tail) == (["debug"])
+    assert target.upper() == "NATIVE"
+    assert tail == ["debug"]
   } else {
     test.fail("list branch did not match")?
   }
-  assert (target) == ("outer")
+  assert target == "outer"
   var remaining = [1, 2, 3]
   var total = 0
   while let [head, ..tail] = remaining {
     total += head
     remaining = tail
   }
-  assert (total) == (6)
-  assert (remaining) == ([])
+  assert total == 6
+  assert remaining == []
 }
 witness()
 """,

@@ -287,7 +287,7 @@ export pure lock_password(password: Str) -> Str {
 
 ## Public authentication helper for shipped core applets.
 export pure unlock_password(password: Str) -> Str {
-  return (password.split("") |> drop(1)).join("") when password.starts_with("!")
+  return password.split("") |> drop(1).join("") when password.starts_with("!")
 
   password
 }

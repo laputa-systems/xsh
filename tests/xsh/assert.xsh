@@ -26,7 +26,7 @@ test test_assert_short_circuit_and_operands_are_evaluated_once { |ctx|
   print f"$n"
   n
 }
-assert observed(3) < observed(2) < (1 / 0), "chain context"
+assert observed(3) < observed(2) < 1 / 0, "chain context"
 """,
   )?
   assert ! result.success, result.stderr
@@ -40,7 +40,7 @@ assert observed(3) < observed(2) < (1 / 0), "chain context"
 
   let conjunction = test.run_script(
     ctx,
-    """assert 1 == 2 and (1 / 0 == 0), "conjunction"
+    """assert 1 == 2 and 1 / 0 == 0, "conjunction"
 """,
   )?
   assert ! conjunction.success, conjunction.stderr
@@ -336,7 +336,7 @@ ordering comparison failed: 3 < 2""" in chain.stderr
 # A bare Bool statement is rejected before evaluation, with a fix that inserts
 # `assert`; the explicit form reports the failure without a checker error.
 test test_bare_bool_statement_is_rejected_in_favor_of_assert { |ctx|
-  for condition in ["1 == 2", "1 < 3 < 2 < 0", "5 in [1, 2]", "false", "1 == 2 and (1 / 0 == 0)"] {
+  for condition in ["1 == 2", "1 < 3 < 2 < 0", "5 in [1, 2]", "false", "1 == 2 and 1 / 0 == 0"] {
     let bare = test.run_script(
       ctx,
       """proc check() -> Result[Unit] {

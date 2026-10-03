@@ -13,8 +13,8 @@ proc main() [] {
   print values[1]
   print ${([-1, 0, 1] |> where(positive)).len()}
   print ${([1, 2] |> flat-map(duplicate)).len()}
-  print ${([0, 1] |> any(positive))}
-  print ${([1, 2] |> all(positive))}
+  print ${[0, 1] |> any(positive)}
+  print ${[1, 2] |> all(positive)}
 }
 """,
   )?
@@ -140,7 +140,8 @@ false
 }
 
 test test_stage_functions_for_break_matches_explicit_wrapper_pull_order { |ctx|
-  for body in ["map(add)", "map { |item| add(item) }"] {
+  # A last stage that takes a block is grouped before the loop body.
+  for iterable in ["(numbers() |> map(add))", "numbers() |> map { |item| add(item) }"] {
     let output = test.run_script(
       ctx,
       r"""
@@ -148,7 +149,7 @@ proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] { defer cleanup(); print "pull:1"; yield 1; print "pull:2"; yield 2 }
 proc add(item: Int, amount: Int = 10) [] -> Int { print "call"; return item + amount }
 proc main() [error] {
-  for value in (numbers() |> """ + body + r""") {
+  for value in """ + iterable + r""" {
     print $value
     break
   }

@@ -55,8 +55,8 @@ proc main(...cmd: List[Str]) [time, error] {
   let sorted = times |> sort
   let total = times |> sum
   let mean = total / n
-  let min_ms = (times |> min)?
-  let max_ms = (times |> max)?
+  let min_ms = times |> min?
+  let max_ms = times |> max?
   let p50 = sorted.get(n / 2) ?? 0
   let p75 = sorted.get(n * 3 / 4) ?? 0
   let p90 = sorted.get(n * 9 / 10) ?? 0

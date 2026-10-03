@@ -500,7 +500,9 @@ surface.
 
 1. Add the arena storage and accessor shape in `src/syntax/arena.rs`.
 2. Parse it through the arena builder in `src/syntax/parser/*`.
-3. Format it in `crates/xsht/src/format.rs`.
+3. Format it in `crates/xsht/src/format.rs`, and give its operands contexts
+   in `src/syntax/grouping.rs` (`child_context`, `needs_parens`), which the
+   printer and `check.redundant-parens` share.
 4. Type-check it in `src/sema/check/*`.
 5. Lower/evaluate it in `src/runtime/eval/lower.rs`,
    `src/runtime/eval/lowered_run.rs`, or the relevant runtime module.

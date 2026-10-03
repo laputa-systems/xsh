@@ -1893,7 +1893,7 @@ h2.cancel(signal:"TERM",kill_after:0ms)?
 "#;
     let expected = r#"let h = spawn run --cpumax=80 true ?
 let s = wait h?
-let hs = [spawn run true ?, spawn run false ?]
+let hs = [spawn run true?, spawn run false?]
 let statuses = wait hs?
 let cmd = process.command {
   cpu_max = 80
@@ -3795,7 +3795,7 @@ fn try_capture_parser_formatter_preserves_value_body_and_result_tail() {
 
 #[test]
 fn parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting() {
-    let source = "pure render(prefix: Str, value: Str) -> Str { prefix + value }\nlet rendered = \"é\" |> render(\"[\", value: (_))\n";
+    let source = "pure render(prefix: Str, value: Str) -> Str { prefix + value }\nlet rendered = \"é\" |> render(\"[\", value: _)\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let value = root_let_init_expr(&parsed, 1);

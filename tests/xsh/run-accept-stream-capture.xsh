@@ -60,7 +60,7 @@ proc policy() [] -> List[Int] {
   [256]
 }
 let rejected = try {
-  let rows = run.stream --text --accept=(policy()) sh -c "printf spawned" ?
+  let rows = run.stream --text --accept=policy() sh -c "printf spawned" ?
   for row in rows { print $row }
 }
 print "captured"

@@ -34,7 +34,7 @@ test test_pattern_aliases_capture_whole_nodes_and_preserve_types { |ctx|
     }
     _ => "other"
   }
-  assert (selected) == ("item:item:item:3")
+  assert selected == "item:item:item:3"
 }
 witness()
 """,
@@ -51,17 +51,17 @@ test test_pattern_alternatives_publish_only_first_complete_match { |ctx|
 proc witness() [error] {
   let result = match [[99], [7, 8]] {
     ([[value, ..tail], [99]] | [[99], [value, ..tail]]) as original => {
-      assert (original) == ([[99], [7, 8]])
+      assert original == [[99], [7, 8]]
       value + tail.len()
     }
     _ => 0
   }
-  assert (result) == (8)
+  assert result == 8
   let first = match [7, 9] {
     [value, _] | [_, value] => value
     _ => 0
   }
-  assert (first) == (7)
+  assert first == 7
 }
 witness()
 """,
@@ -74,7 +74,7 @@ witness()
 test test_pattern_aliases_work_in_iflet_and_whilelet {
   if let (Added(file) | Changed(file)) as original = Changed("selected") {
     assert file == "selected"
-    assert (original is Changed(_)) == true
+    assert original is Changed(_) == true
   } else {
     test.fail("expected selected branch")?
   }
@@ -111,10 +111,10 @@ guard
 }
 
 test test_pattern_tests_accept_only_grouped_capture_free_alternatives {
-  assert (1 is (1 | 2)) == true
-  assert (3 is (1 | 2)) == false
-  assert (["build"] is (["build"] | ["clean"])) == true
-  assert (Added("item") is (Added(_) | Changed(_))) == true
+  assert 1 is (1 | 2) == true
+  assert 3 is (1 | 2) == false
+  assert ["build"] is (["build"] | ["clean"]) == true
+  assert Added("item") is (Added(_) | Changed(_)) == true
 }
 
 test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alternatives { |ctx|
@@ -183,12 +183,12 @@ proc witness() [error] {
   let selected = match dynamic {
     (value is AliasText | value is AliasOtherText) as original => {
       let typed: Any = original
-      assert (typed is Str) == (true)
+      assert typed is Str == true
       value.upper()
     }
     _ => "other"
   }
-  assert (selected) == ("ITEM")
+  assert selected == "ITEM"
 }
 witness()
 """,
@@ -234,15 +234,15 @@ pure alias_inferred_tail(values: List[Int]) {
   }
 }
 proc witness() [error] {
-  assert (alias_failure_message(AliasFailure.Missing("absent"))) == ("absentabsent")
-  assert (alias_failure_message(AliasFailure.Denied("denied"))) == ("denieddenied")
+  assert alias_failure_message(AliasFailure.Missing("absent")) == "absentabsent"
+  assert alias_failure_message(AliasFailure.Denied("denied")) == "denieddenied"
   let failure: AliasFailure = AliasFailure.Missing("one")
   if let (AliasFailure.Missing {message} | AliasFailure.Denied {message}) as original = failure {
-    assert (original is NotFound) == (true)
-    assert (message) == ("one")
+    assert original is NotFound == true
+    assert message == "one"
   }
   let inferred: Int = alias_inferred_tail([4, 8])
-  assert (inferred) == (7)
+  assert inferred == 7
 }
 witness()
 """,
@@ -280,5 +280,5 @@ test test_pattern_tests_require_grouping_for_nested_alternatives { |ctx|
     assert assertion_condition, assertion_message
   }
   assert "check.pattern-test-alternation" in bad.stderr
-  assert ([1] is [(1 | 2)]) == true
+  assert [1] is [(1 | 2)] == true
 }

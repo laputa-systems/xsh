@@ -9,11 +9,11 @@ pure fails() -> Result[Int] {
 }
 
 pure chain_fails() -> Result[Int] {
-  assert 3 < 2 < (1 / 0), "chain context"
+  assert 3 < 2 < 1 / 0, "chain context"
   7
 }
 
 pure short_circuit_fails() -> Result[Int] {
-  assert 1 == 2 and (1 / 0 == 0), "logical context"
+  assert 1 == 2 and 1 / 0 == 0, "logical context"
   7
 }

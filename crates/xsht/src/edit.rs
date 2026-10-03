@@ -68,7 +68,19 @@ fn apply_cst_edits(
 
     let mut applied = false;
     let mut rewritten = text.to_string();
-    for edit in edits.iter().rev() {
+    // Lint and check fixes arrive as separate lists; apply the earliest of
+    // overlapping edits and leave the rest for the next round.
+    let mut ordered = edits.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|edit| (edit.start, std::cmp::Reverse(edit.end)));
+    let mut kept_end = 0;
+    ordered.retain(|edit| {
+        let keep = edit.start >= kept_end;
+        if keep {
+            kept_end = edit.end.max(edit.start + 1);
+        }
+        keep
+    });
+    for edit in ordered.into_iter().rev() {
         if edit.start > edit.end
             || edit.end > text.len()
             || !text.is_char_boundary(edit.start)

@@ -625,7 +625,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
 
   let capture = json.decode(metadata.data.utf8()?)?.require(SmbiosCapture)?
   let relative = p"sys/firmware/dmi/tables/DMI"
-  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "smbios-raw-rooted-v1" or ! capture.stable or capture.source.path != "sys/firmware/dmi/tables/DMI" or capture.entry_point.path != "sys/firmware/dmi/tables/smbios_entry_point" or capture.source.state != "observed" or capture.source.truncated or capture.source.errno != null or capture.source.error_kind != null or capture.source.sha256_hex == null or capture.entry_point.state == "observed" and (capture.entry_point.truncated or capture.entry_point.errno != null or capture.entry_point.error_kind != null or capture.entry_point.sha256_hex == null) or capture.entry_point.state == "absent" and capture.entry_point.sha256_hex != null {
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "smbios-raw-rooted-v1" or ! capture.stable or capture.source.path != "sys/firmware/dmi/tables/DMI" or capture.entry_point.path != "sys/firmware/dmi/tables/smbios_entry_point" or capture.source.state != "observed" or capture.source.truncated or capture.source.errno != null or capture.source.error_kind != null or capture.source.sha256_hex == null or (capture.entry_point.state == "observed" and (capture.entry_point.truncated or capture.entry_point.errno != null or capture.entry_point.error_kind != null or capture.entry_point.sha256_hex == null)) or (capture.entry_point.state == "absent" and capture.entry_point.sha256_hex != null) {
     return Err(smbios_check_failure("SMBIOS capture metadata cannot support exact replay"))
   }
 
@@ -710,7 +710,7 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
     entry_point,
     0,
     entry_length,
-  ) or is_v2 and (entry_point[16..21] != b"_DMI_" or ! smbios_checksum_is_zero(entry_point, 16, 15)) {
+  ) or (is_v2 and (entry_point[16..21] != b"_DMI_" or ! smbios_checksum_is_zero(entry_point, 16, 15))) {
     return Err(smbios_check_failure("SMBIOS entry point checksum, structure, or table bound is invalid"))
   }
 
@@ -738,7 +738,7 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
   }
 
   let patched = bytes.from_ints(header)?
-  if ! smbios_checksum_is_zero(patched, 0, entry_length) or is_v2 and ! smbios_checksum_is_zero(patched, 16, 15) {
+  if ! smbios_checksum_is_zero(patched, 0, entry_length) or (is_v2 and ! smbios_checksum_is_zero(patched, 16, 15)) {
     return Err(smbios_check_failure("SMBIOS entry point relocation produced an invalid checksum"))
   }
 

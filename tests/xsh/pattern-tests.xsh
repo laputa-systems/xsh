@@ -5,24 +5,24 @@ test test_pattern_predicates_inspect_results_and_nested_payloads {
   let no = failed is Ok(_)
   assert yes == true
   assert no == false
-  assert (successful is Ok(7)) == true
-  assert (successful is Ok(8)) == false
+  assert successful is Ok(7) == true
+  assert successful is Ok(8) == false
   let unit = Ok()
-  assert (unit is Ok) == true
-  assert (failed is Err(_)) == true
+  assert unit is Ok == true
+  assert failed is Err(_) == true
   assert successful == Ok(7)
-  assert (failed is Err(_)) == true
+  assert failed is Err(_) == true
   let nested = Ok({child: {answer: 42}})
-  assert (nested is Ok({child: {answer: 42}})) == true
-  assert (nested is Ok({child: {answer: 0}})) == false
-  assert (42 is 42) == true
-  assert (42 is 43) == false
+  assert nested is Ok({child: {answer: 42}}) == true
+  assert nested is Ok({child: {answer: 0}}) == false
+  assert 42 is 42 == true
+  assert 42 is 43 == false
   assert ! (42 is 43) == true
-  assert (b"payload" is b"payload") == true
-  assert (3.5 is 3.5) == true
+  assert b"payload" is b"payload" == true
+  assert 3.5 is 3.5 == true
   let optional: Int? = null
-  assert (optional is null) == true
-  assert (42 is 42 and 43 is 43 or 44 is 0) == true
+  assert optional is null == true
+  assert ((42 is 42 and 43 is 43) or 44 is 0) == true
   let filtered = [value for value in [Ok(1), Ok(2)] if value is Ok(2)]
   assert filtered == [Ok(2)]
 }
@@ -111,22 +111,22 @@ pure pattern_test_tag_value() -> Any {
 }
 
 test test_pattern_predicates_keep_nominal_tags_and_error_facets {
-  assert (EmptyChoice is EmptyChoice) == true
-  assert (PayloadChoice(7, "payload") is PayloadChoice(7, "payload")) == true
-  assert (PayloadChoice(7, "payload") is PayloadChoice(8, _)) == false
+  assert EmptyChoice is EmptyChoice == true
+  assert PayloadChoice(7, "payload") is PayloadChoice(7, "payload") == true
+  assert PayloadChoice(7, "payload") is PayloadChoice(8, _) == false
   let tag_value = pattern_test_tag_value()
-  assert (tag_value is PredicateChoice) == true
-  assert (tag_value is OtherPredicateChoice) == false
+  assert tag_value is PredicateChoice == true
+  assert tag_value is OtherPredicateChoice == false
   let missing: PredicateError = PredicateError.Missing(message: "missing")
-  assert (missing is PredicateError.Missing) == true
-  assert (missing is PredicateError.Broken) == false
-  assert (missing is PredicateError.Missing {message: "missing"}) == true
-  assert (missing is PredicateError.Missing {message: "other"}) == false
-  assert (missing is NotFound) == true
-  assert (missing is InvalidData) == false
+  assert missing is PredicateError.Missing == true
+  assert missing is PredicateError.Broken == false
+  assert missing is PredicateError.Missing {message: "missing"} == true
+  assert missing is PredicateError.Missing {message: "other"} == false
+  assert missing is NotFound == true
+  assert missing is InvalidData == false
   let failure = Err(missing)
-  assert (failure is Err(PredicateError.Missing {message: "missing"})) == true
-  assert (failure is Err(is NotFound)) == true
+  assert failure is Err(PredicateError.Missing {message: "missing"}) == true
+  assert failure is Err(is NotFound) == true
 }
 
 test test_pattern_predicates_evaluate_subject_once { |ctx|
@@ -278,7 +278,7 @@ test test_pattern_predicates_resolve_parameterized_types_and_multiline_tests { |
   let value = pattern_test_dynamic_list()
   let matched = value is List[Int]
   assert matched == true
-  assert (value is List[Str]) == false
+  assert value is List[Str] == false
   if value is List[Int] {
     assert value[0] == 1
   }

@@ -269,11 +269,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let two = fp"${root}/two"
   let three = fp"${root}/three"
   print "created"
-  let first = run.text --accept=(again(marker: one)) cat (one) ?
+  let first = run.text --accept=again(marker: one) cat (one) ?
   print $first
-  let second = run.text --accept=(again(marker: two, accepted: [0, 1])) cat (two) ?
+  let second = run.text --accept=again(marker: two, accepted: [0, 1]) cat (two) ?
   print $second
-  let third = run.text --accept=(select(marker: three)) cat (three) ?
+  let third = run.text --accept=select(marker: three) cat (three) ?
   print $third
 }
 """,
