@@ -289,8 +289,9 @@ impl Checker {
     }
 
     /// A speculative value-body check decides the success type; the checker
-    /// keeps only that type. A body that completes as a statement, or does not
-    /// check as a value body, keeps the statement reading and `Result[Unit]`.
+    /// keeps only that type. A body whose completions are all Unit-like keeps
+    /// the statement reading and `Result[Unit]`. Once any completion produces a
+    /// value, every completion must join with it.
     fn infer_proc_return(&mut self, program: &ArenaProgram, source: &str, decl: &ReturnDeclaration, declarations: &[ReturnDeclaration],
         def: &crate::syntax::arena::ArenaFunctionDef, boundary: Option<&str>) {
         let visible_scopes = self.scopes.clone();
@@ -303,6 +304,7 @@ impl Checker {
         self.scopes = visible_scopes;
         probe.inferred_returns = Some(Vec::new());
         probe.inferred_propagations.clear();
+        probe.return_conflicts = Some(Vec::new());
         probe.inference_reachable = true;
         probe.current_return = None;
         // Recursive calls contribute no completion, as for inferred pures.
@@ -310,15 +312,32 @@ impl Checker {
         probe.check_function_arena(program, source, def, false);
         let clean = !probe.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
         let candidates = probe.inferred_returns.take().unwrap_or_default();
-        if !clean || candidates.is_empty() || candidates.iter().any(|(ty, _)| unit_like_completion(ty)) { return; }
+        let conflicts = probe.return_conflicts.take().unwrap_or_default();
+        if !candidates.iter().map(|(ty, _)| ty).chain(conflicts.iter().flat_map(|(left, right, _)| [left, right])).any(produces_value) { return; }
+        // Once a completion produces a value, a statement completion conflicts
+        // with it as any other disagreeing completion does.
+        self.return_conflicts = Some(conflicts);
+        let mut inferred: Option<Type> = None;
+        for (candidate, span) in candidates {
+            inferred = Some(match inferred { None => candidate, Some(previous) => self.unify_inferred_returns(previous, candidate, span) });
+        }
+        let conflicts = self.return_conflicts.take().unwrap_or_default();
+        let body_span = program.arena.span(program.arena.block(def.body).span);
+        if let Some((left, right, span)) = conflicts.into_iter().next() {
+            let (left, right) = if produces_value(&left) { (left, right) } else { (right, left) };
+            let message = format!("completions of proc `{}` produce `{left}` and `{right}`", decl.name);
+            self.diagnostics.push(crate::diagnostic::Diagnostic::error(&message).with_code("check.type-mismatch")
+                .with_label(crate::diagnostic::Label::primary(span, &message))
+                .with_note(format!("make every completion produce one type, or declare the return explicitly, for example `-> Result[{left}]`")));
+            self.function_return_types.insert(body_span, Type::Invalid);
+            if let Some(sig) = self.procs.get_mut(&decl.name) { sig.return_ty = Type::Invalid; }
+            return;
+        }
+        if !clean { return; }
         let ty = if let Some(boundary) = boundary {
             self.error(decl.span, &format!("{boundary} proc `{}` returns a value and requires an explicit return annotation", decl.name), "check.required-return");
             Type::Invalid
         } else {
-            let mut inferred: Option<Type> = None;
-            for (candidate, span) in candidates {
-                inferred = Some(match inferred { None => candidate, Some(previous) => self.unify_inferred_returns(previous, candidate, span) });
-            }
             match inferred.unwrap_or(Type::Invalid) {
                 Type::Invalid => Type::Invalid,
                 ty if !return_type_is_concrete(&ty) => {
@@ -329,14 +348,19 @@ impl Checker {
                 ty => Type::Result(Box::new(ty), Box::new(Type::Error)),
             }
         };
-        self.function_return_types.insert(program.arena.span(program.arena.block(def.body).span), ty.clone());
+        self.function_return_types.insert(body_span, ty.clone());
         if let Some(sig) = self.procs.get_mut(&decl.name) { sig.return_ty = ty; }
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
         match unify_return_shapes(&left, &right) {
             Some(ty) => ty,
+            None if matches!(left, Type::Invalid) || matches!(right, Type::Invalid) => Type::Invalid,
             None => {
+                if let Some(conflicts) = &mut self.return_conflicts {
+                    conflicts.push((left, right, span));
+                    return Type::Invalid;
+                }
                 self.error(span, &format!("incompatible inferred return paths `{left}` and `{right}`; declare a return type"), "check.infer-return");
                 Type::Invalid
             }
@@ -344,13 +368,13 @@ impl Checker {
     }
 }
 
-// Statements, failure-only tails such as `Err(..)`, and scopes over statement
-// bodies fix no success type.
-fn unit_like_completion(ty: &Type) -> bool {
+// Failure-only tails such as `Err(..)` and recursive calls fix no success
+// type, so they join with any completion.
+fn produces_value(ty: &Type) -> bool {
     match ty {
-        Type::Unit | Type::Unknown => true,
-        Type::Result(ok, _) => unit_like_completion(ok),
-        _ => false,
+        Type::Unit | Type::Unknown | Type::Invalid => false,
+        Type::Result(ok, _) => produces_value(ok),
+        _ => true,
     }
 }
 
@@ -388,6 +412,9 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
     match (left, right) {
         (Type::Unknown, other) | (other, Type::Unknown) => Some(other.clone()),
         (Type::Null, Type::Optional(inner)) | (Type::Optional(inner), Type::Null) => Some(Type::Optional(inner.clone())),
+        // A failure-only `Err(..)` completion fixes the error type of a plain value.
+        (Type::Result(ok, err), other) | (other, Type::Result(ok, err)) if **ok == Type::Unknown && !matches!(other, Type::Result(_, _) | Type::Unit) =>
+            Some(Type::Result(Box::new(other.clone()), err.clone())),
         (Type::Null, other) | (other, Type::Null) => Some(Type::Optional(Box::new(other.clone()))),
         (Type::Error, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError)
         | (Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError, Type::Error) => Some(Type::Error),

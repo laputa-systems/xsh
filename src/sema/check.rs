@@ -418,6 +418,8 @@ pub struct Checker {
     pipeline_hole_types: BTreeMap<Span, Type>,
     inferred_returns: Option<Vec<(Type, Span)>>,
     inferred_propagations: Vec<(Type, Span)>,
+    // A proc return probe records disagreeing completions instead of reporting them.
+    return_conflicts: Option<Vec<(Type, Type, Span)>>,
     // Only propagation evaluated while initializing the current With reaches its handler.
     with_initializer_errors: Option<Vec<Type>>,
     inference_reachable: bool,
@@ -706,6 +708,7 @@ impl Checker {
             pipeline_hole_types: BTreeMap::new(),
             inferred_returns: None,
             inferred_propagations: Vec::new(),
+            return_conflicts: None,
             with_initializer_errors: None,
             inference_reachable: true,
             current_return: None,

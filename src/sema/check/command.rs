@@ -528,7 +528,7 @@ impl Checker {
         arg: &ArenaCommandArg,
     ) {
         let ty = self.check_command_arg_arena(arena, source, arg, None);
-        if !ty.can_display() && !matches!(ty, Type::Unknown) {
+        if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
             let arg_span = arena.arena.span(arg.span);
             self.error(
                 arg_span,
@@ -812,7 +812,7 @@ impl Checker {
                     | ArenaWordPart::Shorthand(expr_id) = part
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                        if !ty.can_display() && !matches!(ty, Type::Unknown) {
+                        if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
                             let expr_span = arena.arena.expr(*expr_id).span;
                             self.error(
                                 expr_span,

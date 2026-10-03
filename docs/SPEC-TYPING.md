@@ -458,8 +458,12 @@ of declaration and caller order. Return inference accepts concrete compatible
 shapes, preserves explicit Result boundaries, and requires annotations for
 recursive components, exported functions, and underdetermined shapes. A private
 top-level proc whose completions are all compatible values infers `Result[T]`
-from a speculative value-body check; any statement completion keeps
-`Result[Unit]`, so the statement reading of existing bodies is unchanged.
+from a speculative value-body check. A body whose completions are all Unit-like
+keeps `Result[Unit]`, so the statement reading of statement bodies is unchanged.
+Once one completion produces a value, every completion must join with it: value
+tails of different types, or a value beside a statement completion, report
+`check.type-mismatch` at the conflicting completion naming both types. A
+failure-only `Err(..)` completion joins with a plain `T` as `Result[T, E]`.
 Exported, `main`, and recursive procs that produce values require annotations;
 source-order proc body checking consumes the inferred return. Checked return
 facts are shared with indexed preparation, and inferred pure returns with

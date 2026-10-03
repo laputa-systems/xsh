@@ -87,32 +87,83 @@ test test_private_proc_statement_completions_keep_result_unit { |ctx|
   let output = test.run_script(
     ctx,
     r"""error LocalError = Bad(message: Str)
-proc count() [io] -> Int { print counted; 3 }
 proc printed() [io] { print printed }
-proc mixed(flag: Bool) [io] { if flag { count() } else { print mixed } }
+proc branching(flag: Bool) [io, error] { if flag { printed() } else { print branching } }
 proc early(flag: Bool) [io] {
   if flag { return }
-  if flag { count() } else { count() }
+  if flag { print never }
 }
 proc failing() [error] { Err(LocalError.Bad("failed")) }
 let a: Result[Unit] = printed()
-let b: Result[Unit] = mixed(false)
+let b: Result[Unit] = branching(false)
 let c: Result[Unit] = early(false)
 let d: Result[Unit] = failing()
-printed()
-mixed(true)
+branching(true)
 early(true)
 print ${a is Ok(_)} ${b is Ok(_)} ${c is Ok(_)} ${d is Err(LocalError.Bad)}
 """,
   )?
   assert output.success, output.stderr
   assert output.stdout == """printed
-mixed
-counted
+branching
 printed
-counted
 true true true true
 """
+}
+
+test test_private_proc_failure_only_completion_joins_value_tails { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""error LocalError = Bad(message: Str)
+proc checked(value: Int) [error] {
+  if value < 0 { Err(LocalError.Bad("negative")) } else { value * 2 }
+}
+let doubled: Result[Int] = checked(4)
+print ${doubled?} ${checked(-1) is Err(LocalError.Bad)}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """8 true
+"""
+}
+
+test test_private_proc_disagreeing_completions_are_type_mismatches { |ctx|
+  for case in [
+    {
+      source: r"""proc pick(flag: Bool) { if flag { 1 } else { "one" } }
+let v = pick(true)?
+print "got ${v}"
+""",
+      message: "completions of proc `pick` produce `Int` and `Str`",
+    },
+    {
+      source: r"""proc pick(flag: Bool) { if flag { return 1 }
+  "one" }
+""",
+      message: "completions of proc `pick` produce `Int` and `Str`",
+    },
+    {
+      source: r"""proc count() [io] -> Int { print counted; 3 }
+proc pick(flag: Bool) [io] { if flag { count() } else { print none } }
+""",
+      message: "completions of proc `pick` produce `Int` and `Unit`",
+    },
+    {
+      source: r"""proc pick(flag: Bool) {
+  if flag { return }
+  7
+}
+""",
+      message: "completions of proc `pick` produce `Int` and `Unit`",
+    },
+  ] {
+    let output = test.run_script(ctx, case.source)?
+    assert output.status == 2, case.source
+    assert "check.type-mismatch" in output.stderr, output.stderr
+    assert case.message in output.stderr, output.stderr
+    assert "-> Result[Int]" in output.stderr, output.stderr
+    assert "check.argv-conversion" not in output.stderr, output.stderr
+  }
 }
 
 test test_private_proc_inference_rejects_boundaries { |ctx|
@@ -134,12 +185,6 @@ test test_private_proc_inference_rejects_boundaries { |ctx|
     },
     {
       source: """proc empty() { [] }
-""",
-      code: "check.infer-return",
-    },
-    {
-      source: """proc mismatch(flag: Bool) { if flag { return 1 }
-  "one" }
 """,
       code: "check.infer-return",
     },

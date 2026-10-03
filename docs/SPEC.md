@@ -1614,11 +1614,14 @@ constraints, and implicit Ok wrapping retain their declared boundary.
 Private top-level procs may omit `-> Type` under the same dependency order. When
 every reachable completion is a compatible value, the proc returns `Result[T]`:
 an explicit Result tail keeps its shape and a plain `T` is wrapped as
-`Ok(value)`. Any statement completion (a Unit tail, an `if` without `else`, a
-bare `return`, or a failure-only `Err(..)`), or a tail that does not check as a
-value body (such as branches with incompatible values), keeps the statement
-reading and `Result[Unit]`. A statement-position caller consumes an inferred
-`Result[T]` with `?` or `let _ =`, as for any value-producing Result. Exported
+`Ok(value)`, and a failure-only `Err(..)` completion fixes the error type. When
+every completion is Unit-like (a Unit tail, an `if` without `else`, a bare
+`return`, or a failure-only `Err(..)`), the proc keeps the statement reading and
+`Result[Unit]`. When any completion produces a value, completions that do not
+join with it, including statement completions, report `check.type-mismatch`
+naming both types; declare `-> Result[T]` or `-> Result[Unit]` to choose. A
+statement-position caller consumes an inferred `Result[T]` with `?` or
+`let _ =`, as for any value-producing Result. Exported
 procs, `main`, and recursive procs whose bodies produce values report
 `check.required-return`. Test declarations, `cli main`, streams, and nested
 procs keep their declared or default returns.
