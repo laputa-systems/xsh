@@ -3306,10 +3306,9 @@ print ${all.base64()} ${prefix.base64()} ${suffix.base64()} ${middle.base64()} $
     assert_parse_and_check(source_id, source);
     let formatted = Formatter::new().format_source(source_id, source);
     assert!(formatted.diagnostics.is_empty());
-    let canonical = source.replace("é🦀", r"\u{e9}\u{1f980}");
-    assert_eq!(formatted.formatted, canonical);
+    assert_eq!(formatted.formatted, source);
     assert_parse_and_check(source_id, &formatted.formatted);
-    assert_eq!(Formatter::new().format_source(source_id, &formatted.formatted).formatted, canonical);
+    assert_eq!(Formatter::new().format_source(source_id, &formatted.formatted).formatted, source);
 }
 
 #[test]

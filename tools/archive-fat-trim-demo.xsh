@@ -22,7 +22,7 @@ echo archive demo
 
 tool.chmod(0o755)
 
-let long_rel_text = "share/xsh/archive-demo/really-long-directory-name-for-tar-writer-paths/another-long-directory-name-for-gnu-and-pax-coverage/final/demo-payload.txt"
+const long_rel_text = "share/xsh/archive-demo/really-long-directory-name-for-tar-writer-paths/another-long-directory-name-for-gnu-and-pax-coverage/final/demo-payload.txt"
 let long_rel = fp"${long_rel_text}"
 let long_file = fp"${src}/${long_rel_text}"
 long_file.parent().mkdir()
@@ -35,7 +35,7 @@ fs.symlink(long_rel, fp"${src}/long-target-link")?
 
 let tarball = fp"${root}/payload.tar.gz"
 archive.tar_create(tarball, src, [p"."], "auto", true)?
-let entries = archive.tar_list(tarball)?
+let entries = archive.tar_list(tarball)?.collect()
 let dest = fp"${root}/dest"
 archive.tar_extract(tarball, dest)?
 

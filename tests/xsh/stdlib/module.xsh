@@ -45,7 +45,9 @@ type VersionedModule = module {
 test test_module_load_reprepares_a_rewritten_module_in_another_evaluator { |ctx|
   let root = test.temp_dir(ctx, name: "rewritten-module")?
   let versioned = fp"${root}/versioned.xsh"
-  let module_text = "##! Versioned module.\n## Exposes the version.\nexport let version = "
+  let module_text = """##! Versioned module.
+## Exposes the version.
+export let version = """
   let outer_text = f"""##! Reloads the versioned module.
 type VersionedModule = module {
   export let version: Int
@@ -59,9 +61,15 @@ export let version = module.load(fp"${versioned}")?.require(VersionedModule)?.ve
   first.write(outer_text)?
   second.write(outer_text)?
 
-  versioned.write(module_text + "1\n")?
+  versioned.write(
+    module_text + """1
+""",
+  )?
   assert module.load(first)?.require(VersionedModule)?.version == 1
-  versioned.write(module_text + "2\n")?
+  versioned.write(
+    module_text + """2
+""",
+  )?
   assert module.load(second)?.require(VersionedModule)?.version == 2
 }
 

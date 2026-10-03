@@ -3231,62 +3231,62 @@ proc assert_bundle_operation_rejected(
 # split across tests to let the runner schedule them in parallel.
 test test_system_report_capture_rejects_simultaneous_live_comparison_cpu_and_usb { |ctx|
   for arguments in [
-    ["--capture-cpu-bundle", "--compare-cpuidle"],
-    ["--capture-cpu-bundle", "--compare-usb-topology"],
-    ["--capture-cpu-bundle", "--compare-usb-ids"],
-    ["--capture-cpu-bundle", "--compare-usb-power"],
+    "--capture-cpu-bundle --compare-cpuidle",
+    "--capture-cpu-bundle --compare-usb-topology",
+    "--capture-cpu-bundle --compare-usb-ids",
+    "--capture-cpu-bundle --compare-usb-power",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments, message)?
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
   }
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_devices { |ctx|
   for arguments in [
-    ["--capture-smbios-bundle", "--compare-smbios"],
-    ["--capture-thermal-bundle", "--compare-thermal"],
-    ["--capture-hwmon-bundle", "--compare-hwmon"],
-    ["--capture-block-bundle", "--compare-storage"],
+    "--capture-smbios-bundle --compare-smbios",
+    "--capture-thermal-bundle --compare-thermal",
+    "--capture-hwmon-bundle --compare-hwmon",
+    "--capture-block-bundle --compare-storage",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments, message)?
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
   }
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_resources { |ctx|
   for arguments in [
-    ["--capture-cgroup2-bundle", "--compare-cgroup-v2"],
-    ["--capture-process-bundle", "--compare-processes"],
-    ["--capture-power-supply-bundle", "--compare-power-supplies"],
-    ["--capture-os-release-bundle", "--compare-identity"],
+    "--capture-cgroup2-bundle --compare-cgroup-v2",
+    "--capture-process-bundle --compare-processes",
+    "--capture-power-supply-bundle --compare-power-supplies",
+    "--capture-os-release-bundle --compare-identity",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments, message)?
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
   }
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_identity { |ctx|
   for arguments in [
-    ["--capture-uptime-bundle", "--compare-identity"],
-    ["--capture-dmi-identity-bundle", "--compare-identity"],
-    ["--capture-device-tree-bundle", "--compare-identity"],
-    ["--capture-kernel-command-line-bundle", "--compare-command-line"],
+    "--capture-uptime-bundle --compare-identity",
+    "--capture-dmi-identity-bundle --compare-identity",
+    "--capture-device-tree-bundle --compare-identity",
+    "--capture-kernel-command-line-bundle --compare-command-line",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments, message)?
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
   }
 }
 
 test test_system_report_capture_rejects_simultaneous_live_comparison_kernel { |ctx|
   for arguments in [
-    ["--capture-kernel-modules-bundle", "--compare-modules"],
-    ["--capture-swaps-bundle", "--compare-swaps"],
-    ["--capture-pressure-bundle", "--compare-pressure"],
-    ["--capture-mountinfo-bundle", "--compare-mounts"],
-    ["--capture-kernel-parameters-bundle", "--compare-parameters"],
+    "--capture-kernel-modules-bundle --compare-modules",
+    "--capture-swaps-bundle --compare-swaps",
+    "--capture-pressure-bundle --compare-pressure",
+    "--capture-mountinfo-bundle --compare-mounts",
+    "--capture-kernel-parameters-bundle --compare-parameters",
   ] {
     let message = "bundle operations cannot be combined"
-    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments, message)?
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
   }
 }
 
