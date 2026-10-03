@@ -160,8 +160,8 @@ pure cpu_policy_members(policy: model.CpuFreqPolicy) -> Str {
     [],
     {XSH_MODULE_PATH: ctx.core_dir.parent().display()},
   )?
-  output.status == 2
-  "expected Str, found List[Int]" in output.stderr
+  assert output.status == 2
+  assert "expected Str, found List[Int]" in output.stderr
 }
 
 test test_system_report_checker_rejects_live_collection_in_pure_code { |ctx|
@@ -176,8 +176,8 @@ pure forbidden_live_collection() -> Result[Unit] {
     [],
     {XSH_MODULE_PATH: ctx.core_dir.parent().display()},
   )?
-  output.status == 2
-  "effectful proc is not allowed in pure functions" in output.stderr
+  assert output.status == 2
+  assert "effectful proc is not allowed in pure functions" in output.stderr
 }
 
 test test_system_report_class_parent_retains_independent_fallback_and_link_failure {
@@ -187,21 +187,21 @@ test test_system_report_class_parent_retains_independent_fallback_and_link_failu
   root.mkdir(p"sys/class/drm/card0", parents: true)?
 
   let directory = collector.class_parent_target(root, p"sys/class/drm/card0")
-  (directory.state == report_model.Observed)
-  directory.target == null
+  assert (directory.state == report_model.Observed)
+  assert directory.target == null
 
   root.symlink(../../devices/pci0000:00/0000:03:00.0/drm/card1, p"sys/class/drm/card1")?
   let fallback = collector.class_parent_target(root, p"sys/class/drm/card1")
-  (fallback.state == report_model.Observed)
-  collector.usb_parent_address(fallback.target.require()?) == "0000:03:00.0"
+  assert (fallback.state == report_model.Observed)
+  assert collector.usb_parent_address(fallback.target.require()?) == "0000:03:00.0"
 
   root.write(p"sys/class/drm/card0/device", "not a symlink")?
   let failed = collector.class_parent_target(root, p"sys/class/drm/card0")
-  (failed.state == report_model.ReadFailure)
-  (failed.errno != null)
+  assert (failed.state == report_model.ReadFailure)
+  assert (failed.errno != null)
 
   let disappeared = collector.class_parent_target(root, p"sys/class/drm/card2")
-  (disappeared.state == report_model.Disappeared)
+  assert (disappeared.state == report_model.Disappeared)
 }
 
 test test_system_report_device_classes_reject_truncated_names_and_attributes {
@@ -238,7 +238,7 @@ ${padding}""",
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
-  value.devices.devices.len() == 3
+  assert value.devices.devices.len() == 3
   let input = (value.devices.devices
     |> where .class == "input"
     |> first())?
@@ -248,16 +248,16 @@ ${padding}""",
   let drm = (value.devices.devices
     |> where .class == "drm"
     |> first())?
-  input.name.value == "input0"
-  sound.name.value == "card0"
-  drm.name.value == "card0"
-  (drm.attributes |> any .name == "enabled" and .value.value == "enabled")
-  ! (drm.attributes |> any .name == "status")
+  assert input.name.value == "input0"
+  assert sound.name.value == "card0"
+  assert drm.name.value == "card0"
+  assert (drm.attributes |> any .name == "enabled" and .value.value == "enabled")
+  assert ! (drm.attributes |> any .name == "status")
   for field in ["input.input0.name", "sound.card0.id", "drm.card0.status"] {
-    (value.issues |> any .section == "devices" and .field == field and .state == report_model.Truncated)
+    assert (value.issues |> any .section == "devices" and .field == field and .state == report_model.Truncated)
   }
 
-  value.devices.status.state == report_model.Partial
+  assert value.devices.status.state == report_model.Partial
 }
 
 test test_system_report_device_classes_keep_sound_and_input_without_drm {
@@ -285,20 +285,20 @@ test test_system_report_device_classes_keep_sound_and_input_without_drm {
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
-  value.devices.status.state == report_model.Complete
-  value.devices.status.enumeration_succeeded
-  value.devices.devices.len() == 2
+  assert value.devices.status.state == report_model.Complete
+  assert value.devices.status.enumeration_succeeded
+  assert value.devices.devices.len() == 2
   let sound = (value.devices.devices
     |> where .class == "sound"
     |> first())?
   let input = (value.devices.devices
     |> where .class == "input"
     |> first())?
-  sound.name.value == "fixture sound"
-  input.name.value == "fixture keyboard"
-  (sound.parent_pci_function_index == null)
-  (input.parent_usb_device_index == null)
-  ! (value.devices.devices |> any .class == "drm")
+  assert sound.name.value == "fixture sound"
+  assert input.name.value == "fixture keyboard"
+  assert (sound.parent_pci_function_index == null)
+  assert (input.parent_usb_device_index == null)
+  assert ! (value.devices.devices |> any .class == "drm")
 }
 
 test test_system_report_device_class_entry_identity_survives_duplicate_labels_and_replay {
@@ -317,18 +317,18 @@ test test_system_report_device_class_entry_identity_survives_duplicate_labels_an
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
   let sound = value.devices.devices |> where .class == "sound"
-  sound.len() == 2
-  sound[0].name.value == sound[1].name.value
-  (sound |> any .entry_name.value == "card0")
-  (sound |> any .entry_name.value == "card1")
+  assert sound.len() == 2
+  assert sound[0].name.value == sound[1].name.value
+  assert (sound |> any .entry_name.value == "card0")
+  assert (sound |> any .entry_name.value == "card1")
   let sensitive = model.encode_report_json(value, true, false)?
-  json.decode(sensitive)?.devices.devices[0].entry_name.value == sound[0].entry_name.value
-  json.decode(sensitive)?.devices.devices[1].entry_name.value == sound[1].entry_name.value
+  assert json.decode(sensitive)?.devices.devices[0].entry_name.value == sound[0].entry_name.value
+  assert json.decode(sensitive)?.devices.devices[1].entry_name.value == sound[1].entry_name.value
   let redacted = model.encode_report_json(value, false, false)?
-  json.decode(redacted)?.devices.devices[0].entry_name.state == "observed"
+  assert json.decode(redacted)?.devices.devices[0].entry_name.state == "observed"
   let legacy = json.remove(json.decode(sensitive)?, ["devices", "devices", 0, "entry_name"])?
   let replay = model.decode_report_json(json.encode(legacy)?)?
-  (replay.devices.devices[0].entry_name.state == report_model.Unsupported)
+  assert (replay.devices.devices[0].entry_name.state == report_model.Unsupported)
   let repeated = json.set(
     json.decode(sensitive)?,
     ["devices", "devices", 1, "entry_name"],
@@ -344,21 +344,21 @@ test test_system_report_usb_controller_link_distinguishes_directories_disappeara
   root.mkdir(p"sys/bus/usb/devices/1-2", parents: true)?
 
   let directory = collector.usb_controller_address(root, p"sys/bus/usb/devices/1-2")
-  (directory.state == report_model.Observed)
-  directory.address == null
+  assert (directory.state == report_model.Observed)
+  assert directory.address == null
 
   root.symlink(../../../devices/pci0000:00/0000:04:00.4/usb4/4-2, p"sys/bus/usb/devices/4-2")?
   let linked = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-2")
-  (linked.state == report_model.Observed)
-  linked.address == "0000:04:00.4"
+  assert (linked.state == report_model.Observed)
+  assert linked.address == "0000:04:00.4"
 
   let disappeared = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-3")
-  (disappeared.state == report_model.Disappeared)
+  assert (disappeared.state == report_model.Disappeared)
 
   root.write(p"sys/bus/usb/devices/4-4", "not a directory")?
   let failed = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-4")
-  (failed.state == report_model.ReadFailure)
-  (failed.errno != null)
+  assert (failed.state == report_model.ReadFailure)
+  assert (failed.errno != null)
 }
 
 test test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices {
@@ -368,20 +368,20 @@ test test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices
   root.mkdir(p"sys/devices/example", parents: true)?
 
   let unbound = collector.optional_driver_name(root, p"sys/devices/example/driver")
-  (unbound.observation.state == report_model.Absent)
-  unbound.observation.value == null
+  assert (unbound.observation.state == report_model.Absent)
+  assert unbound.observation.value == null
 
   root.symlink(p"example-driver", p"sys/devices/example/driver")?
   let bound = collector.optional_driver_name(root, p"sys/devices/example/driver")
-  (bound.observation.state == report_model.Observed)
-  bound.observation.value == "example-driver"
+  assert (bound.observation.state == report_model.Observed)
+  assert bound.observation.value == "example-driver"
   root.remove(p"sys/devices/example/driver")?
 
   root.write(p"sys/devices/example/driver", "not a symlink")?
   let failed = collector.optional_driver_name(root, p"sys/devices/example/driver")
-  (failed.observation.state == report_model.ReadFailure)
-  failed.observation.value == null
-  (failed.errno != null)
+  assert (failed.observation.state == report_model.ReadFailure)
+  assert failed.observation.value == null
+  assert (failed.errno != null)
 }
 
 test test_system_report_network_device_links_keep_absence_separate_from_failures {
@@ -408,35 +408,35 @@ test test_system_report_network_device_links_keep_absence_separate_from_failures
   root.mkdir(p"sys/class/net/eth0", parents: true)?
 
   let absent = collector.link_network_device_sources(root, source, [], [])
-  (absent.status.state == report_model.Complete)
-  absent.issues == []
-  absent.links[0].parent_pci_function_index == null
+  assert (absent.status.state == report_model.Complete)
+  assert absent.issues == []
+  assert absent.links[0].parent_pci_function_index == null
 
   root.symlink(../../../devices/pci0000:00/0001:02:03.0, p"sys/class/net/eth0/device")?
   let linked = collector.link_network_device_sources(root, source, snapshot.pci.functions, [])
-  (linked.status.state == report_model.Complete)
-  linked.links[0].parent_pci_function_index == 1
+  assert (linked.status.state == report_model.Complete)
+  assert linked.links[0].parent_pci_function_index == 1
   root.remove(p"sys/class/net/eth0/device")?
   root.write(p"sys/class/net/eth0/device", "not a symlink")?
   let failed = collector.link_network_device_sources(root, source, [], [])
-  (failed.status.state == report_model.Partial)
+  assert (failed.status.state == report_model.Partial)
   let parent_issues = failed.issues |> where .field == "links.2.parent"
-  parent_issues.len() == 1
-  (parent_issues[0].state == report_model.ReadFailure)
-  (parent_issues[0].errno != null)
+  assert parent_issues.len() == 1
+  assert (parent_issues[0].state == report_model.ReadFailure)
+  assert (parent_issues[0].errno != null)
 }
 
 test test_system_report_usb_descriptors_keep_configuration_and_endpoint_ownership {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let descriptors = b"\t\x02\x19\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x07\x05\x81\x02@\0\0\t\x02\x19\0\x01\x02\0\x802\t\x04\0\0\x01\x08\x06P\0\x07\x05\x82\x02\0\x02\0"
   let alternates = collector.parse_usb_alternates(descriptors)?
-  alternates.len() == 2
-  alternates[0].configuration_value == 1
-  alternates[1].configuration_value == 2
-  alternates[0].endpoints.len() == 1
-  alternates[1].endpoints.len() == 1
-  alternates[0].endpoints[0].address == 129
-  alternates[1].endpoints[0].address == 130
+  assert alternates.len() == 2
+  assert alternates[0].configuration_value == 1
+  assert alternates[1].configuration_value == 2
+  assert alternates[0].endpoints.len() == 1
+  assert alternates[1].endpoints.len() == 1
+  assert alternates[0].endpoints[0].address == 129
+  assert alternates[1].endpoints[0].address == 130
 }
 
 test test_system_report_usb_descriptor_parser_rejects_truncated_and_orphan_records {
@@ -485,13 +485,13 @@ VERSION="v\\$token"
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let fallback = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let fallback_os = fallback.identity.os_release.require(report_model.OsRelease)?
-  fallback_os.id == "vendor"
-  fallback_os.pretty_name == "Vendor \"Linux\""
-  fallback_os.version == "v$token"
-  fallback.scope.uts_namespace.value == "uts:[1001]"
-  fallback.scope.ipc_namespace.value == "ipc:[1002]"
-  fallback.scope.user_namespace.value == "user:[1003]"
-  fallback.scope.time_namespace.value == "time:[1004]"
+  assert fallback_os.id == "vendor"
+  assert fallback_os.pretty_name == "Vendor \"Linux\""
+  assert fallback_os.version == "v$token"
+  assert fallback.scope.uts_namespace.value == "uts:[1001]"
+  assert fallback.scope.ipc_namespace.value == "ipc:[1002]"
+  assert fallback.scope.user_namespace.value == "user:[1003]"
+  assert fallback.scope.time_namespace.value == "time:[1004]"
   root.mkdir(p"etc", parents: true)?
   root.write(
         p"etc/os-release",
@@ -500,8 +500,8 @@ VERSION="v\\$token"
   )?
   let local = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let local_os = local.identity.os_release.require(report_model.OsRelease)?
-  local_os.id == "local"
-  local_os.pretty_name == null
+  assert local_os.id == "local"
+  assert local_os.pretty_name == null
 }
 
 test test_system_report_identity_withholds_malformed_os_release_values_without_vendor_fallback {
@@ -528,13 +528,13 @@ not-an-assignment
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let report = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let os = report.identity.os_release.require(report_model.OsRelease)?
-  os.id == "local"
-  os.version_id == null
-  os.pretty_name == "Local System"
-  os.name == null
-  (report.issues |> any .field == "os_release.VERSION_ID" and .state == report_model.Malformed)
-  (report.issues |> any .field == "os_release.NAME" and .state == report_model.Malformed)
-  (report.issues |> any .field == "os_release.line.5" and .state == report_model.Malformed)
+  assert os.id == "local"
+  assert os.version_id == null
+  assert os.pretty_name == "Local System"
+  assert os.name == null
+  assert (report.issues |> any .field == "os_release.VERSION_ID" and .state == report_model.Malformed)
+  assert (report.issues |> any .field == "os_release.NAME" and .state == report_model.Malformed)
+  assert (report.issues |> any .field == "os_release.line.5" and .state == report_model.Malformed)
 
   root.write(
     p"etc/os-release",
@@ -545,9 +545,9 @@ VERSION_ID=2
   )?
   let repeated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let repeated_os = repeated.identity.os_release.require(report_model.OsRelease)?
-  repeated_os.id == "second"
-  repeated_os.version_id == "2"
-  ! (repeated.issues |> any .field.starts_with("os_release."))
+  assert repeated_os.id == "second"
+  assert repeated_os.version_id == "2"
+  assert ! (repeated.issues |> any .field.starts_with("os_release."))
 
   root.write(
     p"etc/os-release",
@@ -558,9 +558,9 @@ VERSION_ID=2
   )?
   let malformed_duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let retained_os = malformed_duplicate.identity.os_release.require(report_model.OsRelease)?
-  retained_os.id == "first"
-  retained_os.version_id == "2"
-  (malformed_duplicate.issues |> any .field == "os_release.ID" and .state == report_model.Malformed)
+  assert retained_os.id == "first"
+  assert retained_os.version_id == "2"
+  assert (malformed_duplicate.issues |> any .field == "os_release.ID" and .state == report_model.Malformed)
 }
 
 test test_system_report_identity_marks_os_release_without_id_partial {
@@ -609,11 +609,11 @@ PRETTY_NAME="Local Test System"
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let os = collected.identity.os_release.require(report_model.OsRelease)?
-  os.id == null
-  os.name == "Local System"
-  os.pretty_name == "Local Test System"
-  collected.identity.status.state == report_model.Partial
-  (collected.issues |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)
+  assert os.id == null
+  assert os.name == "Local System"
+  assert os.pretty_name == "Local Test System"
+  assert collected.identity.status.state == report_model.Partial
+  assert (collected.issues |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)
 
   root.write(
     p"etc/os-release",
@@ -624,8 +624,8 @@ NAME="Local System"
   )?
   let malformed_duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let retained = malformed_duplicate.identity.os_release.require(report_model.OsRelease)?
-  retained.id == "first"
-  (malformed_duplicate.issues
+  assert retained.id == "first"
+  assert (malformed_duplicate.issues
       |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)
 
   root.write(
@@ -635,18 +635,18 @@ ID="Not A Distro"
 """,
   )?
   let invalid_spelling = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
-  invalid_spelling.identity.os_release.require(report_model.OsRelease)?.id == "first"
-  (invalid_spelling.issues |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)
+  assert invalid_spelling.identity.os_release.require(report_model.OsRelease)?.id == "first"
+  assert (invalid_spelling.issues |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)
 }
 
 test test_system_report_os_release_value_parser_rejects_malformed_assignments {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
-  collectors.decode_os_release_value("\"Local \\\"System\\\"\"") == "Local \"System\""
-  collectors.decode_os_release_value("\"v\\$token\"") == "v$token"
-  collectors.decode_os_release_value("'literal $value'") == "literal $value"
-  collectors.decode_os_release_value("plain") == "plain"
-  collectors.decode_os_release_value("v1.2-release_3") == "v1.2-release_3"
-  collectors.decode_os_release_value("\"https://example.test/path?query=yes\"") == "https://example.test/path?query=yes"
+  assert collectors.decode_os_release_value("\"Local \\\"System\\\"\"") == "Local \"System\""
+  assert collectors.decode_os_release_value("\"v\\$token\"") == "v$token"
+  assert collectors.decode_os_release_value("'literal $value'") == "literal $value"
+  assert collectors.decode_os_release_value("plain") == "plain"
+  assert collectors.decode_os_release_value("v1.2-release_3") == "v1.2-release_3"
+  assert collectors.decode_os_release_value("\"https://example.test/path?query=yes\"") == "https://example.test/path?query=yes"
   for malformed in [
     "\"unterminated",
     "Unquoted Name",
@@ -661,30 +661,30 @@ test test_system_report_os_release_value_parser_rejects_malformed_assignments {
     "trailing ",
     "\"quoted\" ",
   ] {
-    (collectors.decode_os_release_value(malformed) == null)
+    assert (collectors.decode_os_release_value(malformed) == null)
   }
 
-  collectors.valid_os_release_key("VERSION_ID")
-  collectors.valid_os_release_key("VENDOR_FIELD2")
+  assert collectors.valid_os_release_key("VERSION_ID")
+  assert collectors.valid_os_release_key("VENDOR_FIELD2")
   for valid_id in ["linux", "my_os-2.3", "0"] {
-    collectors.valid_os_release_id(valid_id)
+    assert collectors.valid_os_release_id(valid_id)
   }
 
   for invalid_id in ["", "Ubuntu", "with space", "has/slash", "with:colon", "\u{e9}"] {
-    ! collectors.valid_os_release_id(invalid_id)
+    assert ! collectors.valid_os_release_id(invalid_id)
   }
 
   for malformed_key in ["", "1ID", "ID-NAME", "ID "] {
-    ! collectors.valid_os_release_key(malformed_key)
+    assert ! collectors.valid_os_release_key(malformed_key)
   }
 }
 
 test test_system_report_device_tree_strings_require_complete_terminated_values {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
-  collectors.decode_device_tree_strings("ARM Test Board\0") == ["ARM Test Board"]
-  collectors.decode_device_tree_strings("vendor,board\0vendor,soc\0") == ["vendor,board", "vendor,soc"]
+  assert collectors.decode_device_tree_strings("ARM Test Board\0") == ["ARM Test Board"]
+  assert collectors.decode_device_tree_strings("vendor,board\0vendor,soc\0") == ["vendor,board", "vendor,soc"]
   for malformed in ["", "ARM Test Board", "vendor,board\0vendor,soc", "vendor,board\0\0", "\0"] {
-    (collectors.decode_device_tree_strings(malformed) == null)
+    assert (collectors.decode_device_tree_strings(malformed) == null)
   }
 }
 
@@ -731,41 +731,41 @@ Features: fp asimd crc32
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let identity = collector.collect_from_root(root, "aarch64", 65536, 100, "identity", true)?
   let platform = identity.identity.firmware.require(report_model.FirmwareIdentity)?
-  identity.identity.architecture == "aarch64"
-  platform.source == "device-tree"
-  platform.device_tree_model.value == "ARM Example Board"
-  platform.device_tree_compatible.len() == 2
-  platform.device_tree_compatible[0].value == "vendor,example"
-  platform.device_tree_compatible[1].value == "arm,v8"
-  platform.vendor == null
+  assert identity.identity.architecture == "aarch64"
+  assert platform.source == "device-tree"
+  assert platform.device_tree_model.value == "ARM Example Board"
+  assert platform.device_tree_compatible.len() == 2
+  assert platform.device_tree_compatible[0].value == "vendor,example"
+  assert platform.device_tree_compatible[1].value == "arm,v8"
+  assert platform.vendor == null
   let cpus = collector.collect_from_root(root, "aarch64", 65536, 100, "cpu", true)?
-  cpus.cpu.cpus.len() == 2
-  cpus.cpu.cpus[0].model_id == "0xd05"
-  cpus.cpu.cpus[0].model == "Cortex-A55"
-  cpus.cpu.cpus[1].model_id == "0xd0b"
-  cpus.cpu.cpus[1].model == "Cortex-A76"
+  assert cpus.cpu.cpus.len() == 2
+  assert cpus.cpu.cpus[0].model_id == "0xd05"
+  assert cpus.cpu.cpus[0].model == "Cortex-A55"
+  assert cpus.cpu.cpus[1].model_id == "0xd0b"
+  assert cpus.cpu.cpus[1].model == "Cortex-A76"
   let firmware = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
-  firmware.firmware.source == "device-tree"
-  firmware.firmware.records.len() == 0
+  assert firmware.firmware.source == "device-tree"
+  assert firmware.firmware.records.len() == 0
 
   root.remove(p"sys/firmware/devicetree/base/model")?
   let compatible_only = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
-  compatible_only.firmware.source == "device-tree"
-  compatible_only.firmware.records.len() == 0
+  assert compatible_only.firmware.source == "device-tree"
+  assert compatible_only.firmware.records.len() == 0
 
   root.write(p"sys/firmware/devicetree/base/model", "ARM Example Board")?
   root.write(p"sys/firmware/devicetree/base/compatible", "vendor,example\0arm,v8")?
   let invalid = collector.collect_from_root(root, "aarch64", 65536, 100, "identity", true)?
   let invalid_platform = invalid.identity.firmware.require(report_model.FirmwareIdentity)?
-  invalid_platform.source == "unavailable"
-  invalid_platform.device_tree_model.state == report_model.Malformed
-  invalid_platform.device_tree_compatible.len() == 0
-  (invalid.issues |> any .field == "firmware.device_tree_model" and .state == report_model.Malformed)
-  (invalid.issues |> any .field == "firmware.device_tree_compatible" and .state == report_model.Malformed)
+  assert invalid_platform.source == "unavailable"
+  assert invalid_platform.device_tree_model.state == report_model.Malformed
+  assert invalid_platform.device_tree_compatible.len() == 0
+  assert (invalid.issues |> any .field == "firmware.device_tree_model" and .state == report_model.Malformed)
+  assert (invalid.issues |> any .field == "firmware.device_tree_compatible" and .state == report_model.Malformed)
   let invalid_firmware = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
-  invalid_firmware.firmware.source == "unavailable"
-  (invalid_firmware.issues |> any .field == "device_tree_model" and .state == report_model.Malformed)
-  (invalid_firmware.issues |> any .field == "device_tree_compatible" and .state == report_model.Malformed)
+  assert invalid_firmware.firmware.source == "unavailable"
+  assert (invalid_firmware.issues |> any .field == "device_tree_model" and .state == report_model.Malformed)
+  assert (invalid_firmware.issues |> any .field == "device_tree_compatible" and .state == report_model.Malformed)
 }
 
 test test_system_report_identity_rejects_truncated_source_prefixes {
@@ -815,24 +815,24 @@ ${padding}""",
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let partial = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
-  partial.identity.os_release == null
-  partial.identity.uptime_seconds == null
+  assert partial.identity.os_release == null
+  assert partial.identity.uptime_seconds == null
   let firmware = partial.identity.firmware.require(report_model.FirmwareIdentity)?
-  firmware.vendor == null
-  firmware.device_tree_compatible == []
-  firmware.source == "unavailable"
+  assert firmware.vendor == null
+  assert firmware.device_tree_compatible == []
+  assert firmware.source == "unavailable"
   for field in ["os_release", "uptime", "firmware.vendor", "firmware.device_tree_compatible"] {
-    (partial.issues |> any .section == "identity" and .field == field and .state == report_model.Truncated)
+    assert (partial.issues |> any .section == "identity" and .field == field and .state == report_model.Truncated)
   }
 
-  partial.identity.status.state == report_model.Partial
+  assert partial.identity.status.state == report_model.Partial
 
   root.write(p"sys/firmware/devicetree/base/compatible", "acme,board\0acme,soc\0")?
   let complete_dt = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let observed = complete_dt.identity.firmware.require(report_model.FirmwareIdentity)?
-  observed.source == "device-tree"
-  observed.device_tree_compatible.len() == 2
-  observed.device_tree_compatible[0].value == "acme,board"
+  assert observed.source == "device-tree"
+  assert observed.device_tree_compatible.len() == 2
+  assert observed.device_tree_compatible[0].value == "acme,board"
 }
 
 test test_system_report_identity_retains_dmi_placeholder_text_as_raw_values {
@@ -863,13 +863,13 @@ test test_system_report_identity_retains_dmi_placeholder_text_as_raw_values {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
   let firmware = collected.identity.firmware.require(report_model.FirmwareIdentity)?
-  firmware.source == "dmi"
-  firmware.vendor == "To Be Filled By O.E.M."
-  firmware.product == "Default string"
-  firmware.board_product == "Not Specified"
-  firmware.serial.state == report_model.Observed
-  firmware.serial.value == "System Serial Number"
-  ! (collected.issues |> any .field.starts_with("firmware."))
+  assert firmware.source == "dmi"
+  assert firmware.vendor == "To Be Filled By O.E.M."
+  assert firmware.product == "Default string"
+  assert firmware.board_product == "Not Specified"
+  assert firmware.serial.state == report_model.Observed
+  assert firmware.serial.value == "System Serial Number"
+  assert ! (collected.issues |> any .field.starts_with("firmware."))
 }
 
 test test_system_report_scope_keeps_all_process_visible_namespace_identities {
@@ -921,17 +921,17 @@ test test_system_report_scope_keeps_all_process_visible_namespace_identities {
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
-  "process-visible" in collected.scope.host_claim
-  collected.scope.mount_namespace.value == "mnt:[101]"
-  collected.scope.network_namespace.value == "net:[102]"
-  collected.scope.pid_namespace.value == "pid:[103]"
-  collected.scope.cgroup_namespace.value == "cgroup:[104]"
-  collected.scope.uts_namespace.value == "uts:[105]"
-  collected.scope.ipc_namespace.value == "ipc:[106]"
-  collected.scope.user_namespace.value == "user:[107]"
-  collected.scope.time_namespace.value == "time:[108]"
-  collected.scope.visible_cgroup.value == "0::/container.slice/workload"
-  ! (collected.issues |> any .section == "scope")
+  assert "process-visible" in collected.scope.host_claim
+  assert collected.scope.mount_namespace.value == "mnt:[101]"
+  assert collected.scope.network_namespace.value == "net:[102]"
+  assert collected.scope.pid_namespace.value == "pid:[103]"
+  assert collected.scope.cgroup_namespace.value == "cgroup:[104]"
+  assert collected.scope.uts_namespace.value == "uts:[105]"
+  assert collected.scope.ipc_namespace.value == "ipc:[106]"
+  assert collected.scope.user_namespace.value == "user:[107]"
+  assert collected.scope.time_namespace.value == "time:[108]"
+  assert collected.scope.visible_cgroup.value == "0::/container.slice/workload"
+  assert ! (collected.issues |> any .section == "scope")
 }
 
 test test_system_report_identity_preserves_namespace_link_failures {
@@ -941,15 +941,15 @@ test test_system_report_identity_preserves_namespace_link_failures {
   root.write(p"proc/self/ns/mnt", "not a symlink")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
-  (snapshot.scope.mount_namespace.state == report_model.ReadFailure)
-  snapshot.scope.mount_namespace.value == null
+  assert (snapshot.scope.mount_namespace.state == report_model.ReadFailure)
+  assert snapshot.scope.mount_namespace.value == null
   let failures = snapshot.issues |> where .section == "scope" and .field == "mount_namespace"
-  failures.len() == 1
-  (failures[0].state == report_model.ReadFailure)
-  (failures[0].errno != null)
-  (snapshot.scope.network_namespace.state == report_model.Absent)
+  assert failures.len() == 1
+  assert (failures[0].state == report_model.ReadFailure)
+  assert (failures[0].errno != null)
+  assert (snapshot.scope.network_namespace.state == report_model.Absent)
   let selected = report_model.select_report_section(snapshot, "identity")?.require(report_model.SystemReport)?
-  (selected.issues |> where .section == "scope" and .field == "mount_namespace").len() == 1
+  assert (selected.issues |> where .section == "scope" and .field == "mount_namespace").len() == 1
 }
 
 pure cpu_policy(name: Str, related_cpus: List[Int], affected_cpus: List[Int]) -> FixtureCpuFreqPolicy {
@@ -1522,10 +1522,10 @@ test test_system_report_model_relationships {
   ]
 
   let offline_member_policy = model.frequency_policies_for_cpu(policies, 2)
-  offline_member_policy.len() == 1
+  assert offline_member_policy.len() == 1
   let selected_policy = offline_member_policy[0]
-  selected_policy.name == "policy0"
-  model.frequency_policies_for_cpu(policies, 4).len() == 0
+  assert selected_policy.name == "policy0"
+  assert model.frequency_policies_for_cpu(policies, 4).len() == 0
 
   let functions = [
     pci_function("0000:00:01.0", null),
@@ -1535,27 +1535,27 @@ test test_system_report_model_relationships {
   let child = functions[1]
   let parent = model.pci_parent_function(functions, child)
   if parent != null {
-    parent.address == "0000:00:01.0"
+    assert parent.address == "0000:00:01.0"
   } else {
     test.fail("indexed PCI parent did not resolve")?
   }
 
   let root_function = functions[0]
-  model.pci_parent_function(functions, root_function) == null
+  assert model.pci_parent_function(functions, root_function) == null
 
   let unresolved_child = functions[2]
-  model.pci_parent_function(functions, unresolved_child) == null
+  assert model.pci_parent_function(functions, unresolved_child) == null
 }
 
 test test_system_report_cpu_list_parser_handles_sparse_and_large_ids {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let sparse = model.parse_cpu_list("2-4,66,129-130")?
-  sparse == [2, 3, 4, 66, 129, 130]
+  assert sparse == [2, 3, 4, 66, 129, 130]
 
   let many = model.parse_cpu_list("0-127")?
-  many.len() == 128
-  (65 in many)
-  (127 in many)
+  assert many.len() == 128
+  assert (65 in many)
+  assert (127 in many)
 
   test.error_kind(model.parse_cpu_list(""), "SystemReportError.InvalidCpuList")?
   test.error_kind(model.parse_cpu_list("4,,8"), "SystemReportError.InvalidCpuList")?
@@ -1590,12 +1590,12 @@ test test_system_report_cpu_collection_preserves_128_present_ids {
   root.write(p"sys/devices/system/cpu/offline", "\n")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.status.enumeration_succeeded
-  value.cpu.present.len() == 128
-  value.cpu.cpus.len() == 128
-  value.cpu.cpus[0].id == 0
-  value.cpu.cpus[127].id == 127
-  value.cpu.online.len() == 128
+  assert value.cpu.status.enumeration_succeeded
+  assert value.cpu.present.len() == 128
+  assert value.cpu.cpus.len() == 128
+  assert value.cpu.cpus[0].id == 0
+  assert value.cpu.cpus[127].id == 127
+  assert value.cpu.online.len() == 128
 }
 
 test test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable {
@@ -1626,13 +1626,13 @@ test test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable {
   root.write(p"sys/devices/system/cpu/offline", "\n")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.status.enumeration_succeeded
-  value.cpu.cpus.len() == 1
-  value.cpu.frequency_policies.len() == 0
-  value.cpu.cpus[0].policy == null
-  value.cpu.idle_states.len() == 0
-  value.cpu.global_idle_driver == null
-  value.identity.kernel_release == "fixture-vm-release"
+  assert value.cpu.status.enumeration_succeeded
+  assert value.cpu.cpus.len() == 1
+  assert value.cpu.frequency_policies.len() == 0
+  assert value.cpu.cpus[0].policy == null
+  assert value.cpu.idle_states.len() == 0
+  assert value.cpu.global_idle_driver == null
+  assert value.identity.kernel_release == "fixture-vm-release"
 }
 
 test test_system_report_uptime_parser_requires_complete_two_column_decimal {
@@ -1646,33 +1646,33 @@ test test_system_report_uptime_parser_requires_complete_two_column_decimal {
     errno: null,
     error_kind: null,
   )
-  collectors.parse_uptime_seconds(observed).value == 73
-  collectors.parse_uptime_seconds(
+  assert collectors.parse_uptime_seconds(observed).value == 73
+  assert collectors.parse_uptime_seconds(
       {...observed, observation.value: "9007199254740991.99 0.00"},
     ).value == 9007199254740991
   let unsafe = collectors.parse_uptime_seconds(
     {...observed, observation.value: "9007199254740992.00 0.00"},
   )
-  unsafe.value == null
-  (unsafe.state == report_model.RangeFailure)
+  assert unsafe.value == null
+  assert (unsafe.state == report_model.RangeFailure)
   for malformed in ["73", "73 0.00", "73.50", "-1.00 0.00", "73. 0.00", "73.50 0.x", "73.50 0.00 extra"] {
     let parsed = collectors.parse_uptime_seconds(
       {...observed, observation.value: malformed},
     )
-    parsed.value == null
-    (parsed.state == report_model.Malformed)
+    assert parsed.value == null
+    assert (parsed.state == report_model.Malformed)
   }
 
   let truncated = collectors.parse_uptime_seconds(
     {...observed, observation.state: report_model.Truncated},
   )
-  truncated.value == null
-  (truncated.state == report_model.Truncated)
+  assert truncated.value == null
+  assert (truncated.state == report_model.Truncated)
   let absent = collectors.parse_uptime_seconds(
     {...observed, observation.state: report_model.Absent, observation.value: null},
   )
-  absent.value == null
-  (absent.state == report_model.Absent)
+  assert absent.value == null
+  assert (absent.state == report_model.Absent)
 }
 
 test test_system_report_bounded_number_respects_source_state_and_json_range {
@@ -1687,53 +1687,53 @@ test test_system_report_bounded_number_respects_source_state_and_json_range {
     error_kind: null,
   )
   let signed = collectors.bounded_number(observed, false)
-  signed.value == -5000
-  (signed.state == null)
+  assert signed.value == -5000
+  assert (signed.state == null)
   let unsigned = collectors.bounded_number(observed, true)
-  (unsigned.value == null)
-  (unsigned.state == report_model.Malformed)
-  unsigned.error_kind == "negative_integer"
-  (collectors.bounded_number({...observed, observation.value: "-0"}, true).state == report_model.Malformed)
+  assert (unsigned.value == null)
+  assert (unsigned.state == report_model.Malformed)
+  assert unsigned.error_kind == "negative_integer"
+  assert (collectors.bounded_number({...observed, observation.value: "-0"}, true).state == report_model.Malformed)
   let maximum = collectors.bounded_number(
     {...observed, observation.value: "9007199254740991"},
     true,
   )
-  maximum.value == 9007199254740991
+  assert maximum.value == 9007199254740991
   let unsafe_json = collectors.bounded_number(
     {...observed, observation.value: "9007199254740992"},
     true,
   )
-  (unsafe_json.value == null)
-  (unsafe_json.state == report_model.RangeFailure)
+  assert (unsafe_json.value == null)
+  assert (unsafe_json.state == report_model.RangeFailure)
   let overflow = collectors.bounded_number(
     {...observed, observation.value: "999999999999999999999999"},
     true,
   )
-  (overflow.state == report_model.RangeFailure)
+  assert (overflow.state == report_model.RangeFailure)
   let invalid = collectors.bounded_number({...observed, observation.value: "42 C"}, false)
-  (invalid.state == report_model.Malformed)
+  assert (invalid.state == report_model.Malformed)
   for text_value in ["0x2a", "1_000", "+42"] {
     let nondecimal = collectors.bounded_number(
       {...observed, observation.value: text_value},
       false,
     )
-    (nondecimal.value == null)
-    (nondecimal.state == report_model.Malformed)
+    assert (nondecimal.value == null)
+    assert (nondecimal.state == report_model.Malformed)
   }
 
-  collectors.bounded_number({...observed, observation.value: "007"}, true).value == 7
+  assert collectors.bounded_number({...observed, observation.value: "007"}, true).value == 7
   let truncated = collectors.bounded_number(
     {...observed, observation.state: report_model.Truncated, observation.value: "68"},
     true,
   )
-  (truncated.value == null)
-  (truncated.state == report_model.Truncated)
+  assert (truncated.value == null)
+  assert (truncated.state == report_model.Truncated)
   let absent = collectors.bounded_number(
     {...observed, observation.state: report_model.Absent, observation.value: null},
     true,
   )
-  (absent.value == null)
-  (absent.state == null)
+  assert (absent.value == null)
+  assert (absent.state == null)
   let denied = collectors.bounded_number(
     {
       ...observed,
@@ -1744,8 +1744,8 @@ test test_system_report_bounded_number_respects_source_state_and_json_range {
     },
     true,
   )
-  (denied.state == report_model.PermissionDenied)
-  denied.errno == 13
+  assert (denied.state == report_model.PermissionDenied)
+  assert denied.errno == 13
 }
 
 test test_system_report_bounded_size_bytes_checks_scaled_json_range {
@@ -1759,32 +1759,32 @@ test test_system_report_bounded_size_bytes_checks_scaled_json_range {
     errno: null,
     error_kind: null,
   )
-  collectors.bounded_size_bytes(observed).value == 9007199254739968
+  assert collectors.bounded_size_bytes(observed).value == 9007199254739968
   let kilobyte_overflow = collectors.bounded_size_bytes(
     {...observed, observation.value: "8796093022208K"},
   )
-  (kilobyte_overflow.value == null)
-  (kilobyte_overflow.state == report_model.RangeFailure)
-  collectors.bounded_size_bytes({...observed, observation.value: "8589934591M"}).value == 9007199253692416
-  (collectors.bounded_size_bytes({...observed, observation.value: "8589934592M"}).state == report_model.RangeFailure)
-  collectors.bounded_size_bytes({...observed, observation.value: "8388607G"}).value == 9007198180999168
-  (collectors.bounded_size_bytes({...observed, observation.value: "8388608G"}).state == report_model.RangeFailure)
-  collectors.bounded_size_bytes({...observed, observation.value: "9007199254740991"}).value == 9007199254740991
-  (collectors.bounded_size_bytes({...observed, observation.value: "9007199254740992"}).state == report_model.RangeFailure)
-  (collectors.bounded_size_bytes({...observed, observation.value: "1T"}).state == report_model.Malformed)
-  (collectors.bounded_size_bytes({...observed, observation.value: "0x10K"}).state == report_model.Malformed)
-  (collectors.bounded_size_bytes({...observed, observation.value: "-1K"}).state == report_model.Malformed)
+  assert (kilobyte_overflow.value == null)
+  assert (kilobyte_overflow.state == report_model.RangeFailure)
+  assert collectors.bounded_size_bytes({...observed, observation.value: "8589934591M"}).value == 9007199253692416
+  assert (collectors.bounded_size_bytes({...observed, observation.value: "8589934592M"}).state == report_model.RangeFailure)
+  assert collectors.bounded_size_bytes({...observed, observation.value: "8388607G"}).value == 9007198180999168
+  assert (collectors.bounded_size_bytes({...observed, observation.value: "8388608G"}).state == report_model.RangeFailure)
+  assert collectors.bounded_size_bytes({...observed, observation.value: "9007199254740991"}).value == 9007199254740991
+  assert (collectors.bounded_size_bytes({...observed, observation.value: "9007199254740992"}).state == report_model.RangeFailure)
+  assert (collectors.bounded_size_bytes({...observed, observation.value: "1T"}).state == report_model.Malformed)
+  assert (collectors.bounded_size_bytes({...observed, observation.value: "0x10K"}).state == report_model.Malformed)
+  assert (collectors.bounded_size_bytes({...observed, observation.value: "-1K"}).state == report_model.Malformed)
   let truncated = collectors.bounded_size_bytes(
     {...observed, observation.state: report_model.Truncated, observation.value: "512K"},
   )
-  (truncated.value == null)
-  (truncated.state == report_model.Truncated)
+  assert (truncated.value == null)
+  assert (truncated.state == report_model.Truncated)
 }
 
 test test_system_report_psi_average_parser_rejects_invalid_percentages {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   for value in ["0.00", "1.50", "99.99", "100.00"] {
-    collectors.valid_psi_average(value)
+    assert collectors.valid_psi_average(value)
   }
 
   for value in [
@@ -1798,15 +1798,15 @@ test test_system_report_psi_average_parser_rejects_invalid_percentages {
     "0x1.00",
     "1_0.00",
   ] {
-    ! collectors.valid_psi_average(value)
+    assert ! collectors.valid_psi_average(value)
   }
 }
 
 test test_system_report_thp_policy_parser_keeps_unknown_selected_value {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let policy = collectors.parse_thp_policy("always [future_policy] never")?
-  policy.selected == "future_policy"
-  policy.available == ["always", "future_policy", "never"]
+  assert policy.selected == "future_policy"
+  assert policy.available == ["always", "future_policy", "never"]
   for value in [
     "always future_policy never",
     "[always] [never]",
@@ -1823,24 +1823,24 @@ test test_system_report_pci_and_usb_source_parsers {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
 
   let address: PciAddress = collectors.parse_pci_address("0001:af:1f.7")?
-  address == {domain: 1, bus: 175, device: 31, function: 7}
-  (collectors.parse_pci_hex_value("0x10DE")?) == 4318
-  (collectors.parse_pci_hex_value("10de")?) == 4318
+  assert address == {domain: 1, bus: 175, device: 31, function: 7}
+  assert (collectors.parse_pci_hex_value("0x10DE")?) == 4318
+  assert (collectors.parse_pci_hex_value("10de")?) == 4318
   test.error_kind(collectors.parse_pci_address("0000:00:20.0"), "SystemReportSourceError.InvalidPciAddress")?
   test.error_kind(collectors.parse_pci_address("0000:00:01.8"), "SystemReportSourceError.InvalidPciAddress")?
   test.error_kind(collectors.parse_pci_address("00:00:01.0"), "SystemReportSourceError.InvalidPciAddress")?
   test.error_kind(collectors.parse_pci_hex_value("0x10xz"), "SystemReportSourceError.InvalidPciId")?
-  collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, "0001:02:03.0") == "0001:02:01.0"
-  (collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:03.0, "0001:02:03.0") == null)
-  (collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:01.0, "0001:02:03.0") == null)
+  assert collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, "0001:02:03.0") == "0001:02:01.0"
+  assert (collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:03.0, "0001:02:03.0") == null)
+  assert (collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:01.0, "0001:02:03.0") == null)
 
   let descriptors = collectors.parse_usb_descriptor_stream(b"\x03\x99B\x02\xfe")?
-  descriptors.len() == 2
-  descriptors[0].offset == 0
-  descriptors[0].descriptor_type == 153
-  descriptors[0].raw == b"\x03\x99B"
-  descriptors[1].offset == 3
-  descriptors[1].descriptor_type == 254
+  assert descriptors.len() == 2
+  assert descriptors[0].offset == 0
+  assert descriptors[0].descriptor_type == 153
+  assert descriptors[0].raw == b"\x03\x99B"
+  assert descriptors[1].offset == 3
+  assert descriptors[1].descriptor_type == 254
   test.error_kind(collectors.parse_usb_descriptor_stream(b"\x01\x02"), "SystemReportSourceError.InvalidUsbDescriptor")?
   test.error_kind(collectors.parse_usb_descriptor_stream(b"\x04\x01x"), "SystemReportSourceError.InvalidUsbDescriptor")?
   test.error_kind(collectors.parse_usb_descriptor_stream(b"\t"), "SystemReportSourceError.InvalidUsbDescriptor")?
@@ -1890,15 +1890,15 @@ test test_system_report_pci_collection_links_a_child_to_its_bridge {
 
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let collection = collectors.collect_pci(root)
-  collection.status.enumeration_succeeded
-  collection.functions.len() == 2
-  collection.functions[0].vendor_id == collection.functions[1].vendor_id
-  collection.functions[0].device_id == collection.functions[1].device_id
-  (collection.functions[0].address != collection.functions[1].address)
-  collection.functions[0].driver == null
-  collection.functions[1].driver == null
-  (collection.functions[0].parent_function_index == null)
-  collection.functions[1].parent_function_index == 0
+  assert collection.status.enumeration_succeeded
+  assert collection.functions.len() == 2
+  assert collection.functions[0].vendor_id == collection.functions[1].vendor_id
+  assert collection.functions[0].device_id == collection.functions[1].device_id
+  assert (collection.functions[0].address != collection.functions[1].address)
+  assert collection.functions[0].driver == null
+  assert collection.functions[1].driver == null
+  assert (collection.functions[0].parent_function_index == null)
+  assert collection.functions[1].parent_function_index == 0
 }
 
 test test_system_report_pci_collection_reports_non_utf8_names_without_losing_valid_functions {
@@ -1921,15 +1921,15 @@ test test_system_report_pci_collection_reports_non_utf8_names_without_losing_val
     )?
   }
 
-  root.children(p"sys/bus/pci/devices")?.children.len() == 2
+  assert root.children(p"sys/bus/pci/devices")?.children.len() == 2
 
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let collected = collectors.collect_pci(root)
-  collected.functions.len() == 1
-  collected.functions[0].address == "0000:00:01.0"
+  assert collected.functions.len() == 1
+  assert collected.functions[0].address == "0000:00:01.0"
   let invalid_issues = collected.issues |> where .error_kind == "invalid_pci_address"
-  invalid_issues.len() == 1
-  (collected.status.state == report_model.Partial)
+  assert invalid_issues.len() == 1
+  assert (collected.status.state == report_model.Partial)
 }
 
 test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
@@ -2002,23 +2002,23 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
 
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let collection = collectors.collect_pci(root)
-  collection.functions.len() == 2
-  collection.functions[0].address == "0000:01:02.0"
-  collection.functions[0].function == 0
-  collection.functions[1].address == "0000:01:02.1"
-  collection.functions[1].function == 1
-  collection.functions[0].current_link_speed == "8.0 GT/s PCIe"
-  collection.functions[0].current_link_width == 8
-  collection.functions[0].maximum_link_speed == "16.0 GT/s PCIe"
-  collection.functions[0].maximum_link_width == 16
-  collection.functions[0].numa_node == null
-  ! (collection.issues |> any .field == "functions.0000:01:02.0.numa_node")
-  collection.functions[1].current_link_speed == null
-  collection.functions[1].current_link_width == null
-  collection.functions[1].maximum_link_speed == null
-  collection.functions[1].maximum_link_width == null
-  ! (collection.issues |> any .field.starts_with("functions.0000:01:02.1.current_link"))
-  ! (collection.issues |> any .field.starts_with("functions.0000:01:02.1.maximum_link"))
+  assert collection.functions.len() == 2
+  assert collection.functions[0].address == "0000:01:02.0"
+  assert collection.functions[0].function == 0
+  assert collection.functions[1].address == "0000:01:02.1"
+  assert collection.functions[1].function == 1
+  assert collection.functions[0].current_link_speed == "8.0 GT/s PCIe"
+  assert collection.functions[0].current_link_width == 8
+  assert collection.functions[0].maximum_link_speed == "16.0 GT/s PCIe"
+  assert collection.functions[0].maximum_link_width == 16
+  assert collection.functions[0].numa_node == null
+  assert ! (collection.issues |> any .field == "functions.0000:01:02.0.numa_node")
+  assert collection.functions[1].current_link_speed == null
+  assert collection.functions[1].current_link_width == null
+  assert collection.functions[1].maximum_link_speed == null
+  assert collection.functions[1].maximum_link_width == null
+  assert ! (collection.issues |> any .field.starts_with("functions.0000:01:02.1.current_link"))
+  assert ! (collection.issues |> any .field.starts_with("functions.0000:01:02.1.maximum_link"))
 
   root.write(
     fp"${second_path}/current_link_width",
@@ -2026,22 +2026,22 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
 """,
   )?
   let malformed = collectors.collect_pci(root)
-  (malformed.status.state == report_model.Partial)
-  (malformed.issues |> any .field == "functions.0000:01:02.1.current_link_width" and .state == report_model.Malformed)
-  malformed.functions[1].current_link_width == null
+  assert (malformed.status.state == report_model.Partial)
+  assert (malformed.issues |> any .field == "functions.0000:01:02.1.current_link_width" and .state == report_model.Malformed)
+  assert malformed.functions[1].current_link_width == null
   root.write(
         fp"${second_path}/current_link_width",
     """0x8
 """,
   )?
   let radix = collectors.collect_pci(root)
-  (radix.issues |> any .field == "functions.0000:01:02.1.current_link_width" and .state == report_model.Malformed)
-  radix.functions[1].current_link_width == null
+  assert (radix.issues |> any .field == "functions.0000:01:02.1.current_link_width" and .state == report_model.Malformed)
+  assert radix.functions[1].current_link_width == null
   root.write(fp"${first_path}/driver", "not-a-symlink")?
   root.write(fp"${first_path}/iommu_group", "not-a-symlink")?
   let failed_links = collectors.collect_pci(root)
-  (failed_links.issues |> any .field == "functions.0000:01:02.0.driver" and .state == report_model.ReadFailure)
-  (failed_links.issues |> any .field == "functions.0000:01:02.0.iommu_group" and .state == report_model.ReadFailure)
+  assert (failed_links.issues |> any .field == "functions.0000:01:02.0.driver" and .state == report_model.ReadFailure)
+  assert (failed_links.issues |> any .field == "functions.0000:01:02.0.iommu_group" and .state == report_model.ReadFailure)
   var padding = " "
   while padding.count_chars() < 4096 {
     padding = f"${padding}${padding}"
@@ -2058,16 +2058,16 @@ ${padding}""",
 ${padding}""",
   )?
   let truncated_links = collectors.collect_pci(root)
-  truncated_links.functions[0].current_link_speed == null
-  truncated_links.functions[0].maximum_link_speed == null
-  (truncated_links.issues |> any .field == "functions.0000:01:02.0.current_link_speed" and .state == report_model.Truncated)
-  (truncated_links.issues |> any .field == "functions.0000:01:02.0.maximum_link_speed" and .state == report_model.Truncated)
+  assert truncated_links.functions[0].current_link_speed == null
+  assert truncated_links.functions[0].maximum_link_speed == null
+  assert (truncated_links.issues |> any .field == "functions.0000:01:02.0.current_link_speed" and .state == report_model.Truncated)
+  assert (truncated_links.issues |> any .field == "functions.0000:01:02.0.maximum_link_speed" and .state == report_model.Truncated)
 }
 
 test test_system_report_usb_controller_path_handles_pci_and_platform_roots {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
-  collector.usb_parent_address(../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2) == "0000:04:00.4"
-  (collector.usb_parent_address(../../../devices/platform/soc/usb1/1-2) == null)
+  assert collector.usb_parent_address(../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2) == "0000:04:00.4"
+  assert (collector.usb_parent_address(../../../devices/platform/soc/usb1/1-2) == null)
 }
 
 test test_system_report_usb_parent_join_handles_root_hubs_sorted_last {
@@ -2079,12 +2079,12 @@ test test_system_report_usb_parent_join_handles_root_hubs_sorted_last {
   let grandchild = {...source, sysfs_name: "4-2.3", bus_number: 4, parent_device_index: null, is_root_hub: false}
   let root_hub = {...source, sysfs_name: "usb4", bus_number: 4, parent_device_index: null, is_root_hub: true}
   let linked = collector.link_usb_parents([child, grandchild, root_hub])
-  linked[0].vendor_id == linked[1].vendor_id
-  linked[0].product_id == linked[1].product_id
-  (linked[0].sysfs_name != linked[1].sysfs_name)
-  linked[0].parent_device_index == 2
-  linked[1].parent_device_index == 0
-  (linked[2].parent_device_index == null)
+  assert linked[0].vendor_id == linked[1].vendor_id
+  assert linked[0].product_id == linked[1].product_id
+  assert (linked[0].sysfs_name != linked[1].sysfs_name)
+  assert linked[0].parent_device_index == 2
+  assert linked[1].parent_device_index == 0
+  assert (linked[2].parent_device_index == null)
 }
 
 test test_system_report_usb_keeps_a_device_with_missing_numeric_identity {
@@ -2136,16 +2136,16 @@ test test_system_report_usb_keeps_a_device_with_missing_numeric_identity {
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
-  value.usb.devices.len() == 3
-  value.usb.devices[0].vendor_id == 4660
-  (value.usb.devices[1].vendor_id == null)
+  assert value.usb.devices.len() == 3
+  assert value.usb.devices[0].vendor_id == 4660
+  assert (value.usb.devices[1].vendor_id == null)
   let missing_vendor = value.issues |> where .field == "devices.1-3.vendor_id"
-  missing_vendor.len() == 1
-  missing_vendor[0].state == report_model.Absent
-  (value.usb.devices[2].vendor_id == null)
+  assert missing_vendor.len() == 1
+  assert missing_vendor[0].state == report_model.Absent
+  assert (value.usb.devices[2].vendor_id == null)
   let malformed_vendor = value.issues |> where .field == "devices.1-4.vendor_id"
-  malformed_vendor.len() == 1
-  malformed_vendor[0].state == report_model.Malformed
+  assert malformed_vendor.len() == 1
+  assert malformed_vendor[0].state == report_model.Malformed
 }
 
 test test_system_report_usb_power_read_failures_make_section_partial {
@@ -2166,15 +2166,15 @@ test test_system_report_usb_power_read_failures_make_section_partial {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
-  value.usb.devices.len() == 1
-  value.usb.devices[0].power_control == null
-  value.usb.devices[0].autosuspend_delay_ms == null
-  value.usb.devices[0].runtime_status == null
-  value.usb.status.state == report_model.Partial
+  assert value.usb.devices.len() == 1
+  assert value.usb.devices[0].power_control == null
+  assert value.usb.devices[0].autosuspend_delay_ms == null
+  assert value.usb.devices[0].runtime_status == null
+  assert value.usb.status.state == report_model.Partial
   for field in ["devices.1-2.power_control", "devices.1-2.autosuspend_delay_ms", "devices.1-2.runtime_status"] {
     let matches = value.issues |> where .section == "usb" and .field == field
-    matches.len() == 1
-    matches[0].state == report_model.ReadFailure
+    assert matches.len() == 1
+    assert matches[0].state == report_model.ReadFailure
   }
 }
 
@@ -2195,14 +2195,14 @@ test test_system_report_usb_identity_read_failures_keep_field_issues {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
-  value.usb.devices.len() == 1
-  value.usb.devices[0].class_code == null
-  value.usb.devices[0].manufacturer.value == null
-  value.usb.status.state == report_model.Partial
+  assert value.usb.devices.len() == 1
+  assert value.usb.devices[0].class_code == null
+  assert value.usb.devices[0].manufacturer.value == null
+  assert value.usb.status.state == report_model.Partial
   for field in ["devices.1-2.class_code", "devices.1-2.manufacturer"] {
     let matches = value.issues |> where .section == "usb" and .field == field
-    matches.len() == 1
-    matches[0].state == report_model.ReadFailure
+    assert matches.len() == 1
+    assert matches[0].state == report_model.ReadFailure
   }
 
   root.remove(p"sys/bus/usb/devices/1-2/bDeviceClass", dir: true)?
@@ -2212,24 +2212,24 @@ test test_system_report_usb_identity_read_failures_keep_field_issues {
 """,
   )?
   let malformed = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
-  malformed.usb.devices[0].class_code == null
-  (malformed.issues |> any .section == "usb" and .field == "devices.1-2.class_code" and .state == report_model.Malformed)
+  assert malformed.usb.devices[0].class_code == null
+  assert (malformed.issues |> any .section == "usb" and .field == "devices.1-2.class_code" and .state == report_model.Malformed)
   root.write(
         p"sys/bus/usb/devices/1-2/busnum",
     """invalid
 """,
   )?
   let invalid_bus = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
-  invalid_bus.usb.devices[0].bus_number == null
-  (invalid_bus.issues |> any .section == "usb" and .field == "devices.1-2.bus_number" and .state == report_model.Malformed)
+  assert invalid_bus.usb.devices[0].bus_number == null
+  assert (invalid_bus.issues |> any .section == "usb" and .field == "devices.1-2.bus_number" and .state == report_model.Malformed)
   root.write(
         p"sys/bus/usb/devices/1-2/busnum",
     """9007199254740992
 """,
   )?
   let unsafe_bus = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
-  unsafe_bus.usb.devices[0].bus_number == null
-  (unsafe_bus.issues |> any .section == "usb" and .field == "devices.1-2.bus_number" and .state == report_model.Malformed)
+  assert unsafe_bus.usb.devices[0].bus_number == null
+  assert (unsafe_bus.issues |> any .section == "usb" and .field == "devices.1-2.bus_number" and .state == report_model.Malformed)
 }
 
 test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes {
@@ -2280,23 +2280,23 @@ ${padding}""",
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
-  value.usb.devices.len() == 1
+  assert value.usb.devices.len() == 1
   let observed = value.usb.devices[0]
-  observed.vendor_id == null
-  observed.product_id == 22136
-  observed.bus_number == null
-  observed.speed_mbps == null
-  observed.power_control == null
-  observed.runtime_status == null
+  assert observed.vendor_id == null
+  assert observed.product_id == 22136
+  assert observed.bus_number == null
+  assert observed.speed_mbps == null
+  assert observed.power_control == null
+  assert observed.runtime_status == null
   for field in ["vendor_id", "bus_number", "speed_mbps", "power_control", "runtime_status"] {
-    (value.issues |> any .section == "usb" and .field == f"devices.1-2.${field}" and .state == report_model.Truncated)
+    assert (value.issues |> any .section == "usb" and .field == f"devices.1-2.${field}" and .state == report_model.Truncated)
   }
 }
 
 test test_system_report_block_class_path_identifies_its_pci_controller {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
-  collector.pci_address_in_target(../../devices/pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1) == "0000:01:00.0"
-  (collector.pci_address_in_target(../../devices/virtual/block/loop0) == null)
+  assert collector.pci_address_in_target(../../devices/pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1) == "0000:01:00.0"
+  assert (collector.pci_address_in_target(../../devices/virtual/block/loop0) == null)
 }
 
 test test_system_report_assembles_network_links_addresses_routes_and_rules {
@@ -2515,52 +2515,52 @@ test test_system_report_assembles_network_links_addresses_routes_and_rules {
   }
 
   let result = collector.assemble_network_dump(dump)
-  result.status.state == report_model.Partial
-  result.status.enumeration_succeeded == true
-  result.links[0].name.value == "eth0"
-  result.links[0].mac.value == "02:00:00:00:00:01"
-  ("lower_up" in result.links[0].flags)
-  result.links[0].counters[0].value == 4096
-  result.links[0].addresses[0].address.value == "192.0.2.10"
-  result.links[0].addresses[0].family == "ipv4"
-  result.links[0].addresses[1].family == "ipv6"
-  result.links[0].addresses[1].address.value == "2001:db8::10"
-  result.links[0].addresses[1].prefix_length == 64
-  result.links[0].addresses[1].preferred_lifetime_seconds == 120
-  result.links[0].addresses[1].valid_lifetime_seconds == 240
-  result.links[0].addresses.len() == 2
-  result.links[1].name.value == "eth0.42"
-  result.links[1].kind == "vlan"
-  result.links[1].lower_ifindex == 2
-  result.links[1].addresses.len() == 1
-  result.links[1].addresses[0].address.value == "2001:db8:42::5"
-  result.links[0].attributes[0].data.value == "AgA="
-  result.routes[0].destination.value == "0.0.0.0"
-  result.routes[0].route_type == "route_type_222"
-  result.routes[0].protocol == "protocol_77"
-  result.routes[0].nexthops.len() == 0
-  result.routes[1].family == "ipv6"
-  result.routes[1].nexthops[0].ifindex == 9
-  result.routes[1].nexthops[0].flags == 2
-  result.routes[1].nexthops[0].hops == 3
-  result.routes[1].nexthops[0].gateway.value == "2001:db8::1"
-  result.rules[0].input_ifindex == 2
-  result.rules[0].action == "action_50"
-  result.rules[1].family == "ipv6"
-  result.rules[1].source.value == "2001:db8::"
-  result.rules[1].source_prefix_length == 64
-  result.rules[1].input_ifindex == 3
-  result.rules[1].output_ifindex == 2
-  result.rules[1].table == 1000
-  result.rules[1].fwmark == 7
-  result.rules[1].fwmask == 255
-  result.rules[1].action == "to_table"
-  result.rules[2].action == "goto"
-  result.rules[2].attributes[0].kind == 4
-  result.rules[2].attributes[0].data.value == "ewAAAA=="
-  result.issues[0].state == report_model.Malformed
-  result.issues[1].field == "netlink.links.2.rx_bytes"
-  result.issues[1].state == report_model.RangeFailure
+  assert result.status.state == report_model.Partial
+  assert result.status.enumeration_succeeded == true
+  assert result.links[0].name.value == "eth0"
+  assert result.links[0].mac.value == "02:00:00:00:00:01"
+  assert ("lower_up" in result.links[0].flags)
+  assert result.links[0].counters[0].value == 4096
+  assert result.links[0].addresses[0].address.value == "192.0.2.10"
+  assert result.links[0].addresses[0].family == "ipv4"
+  assert result.links[0].addresses[1].family == "ipv6"
+  assert result.links[0].addresses[1].address.value == "2001:db8::10"
+  assert result.links[0].addresses[1].prefix_length == 64
+  assert result.links[0].addresses[1].preferred_lifetime_seconds == 120
+  assert result.links[0].addresses[1].valid_lifetime_seconds == 240
+  assert result.links[0].addresses.len() == 2
+  assert result.links[1].name.value == "eth0.42"
+  assert result.links[1].kind == "vlan"
+  assert result.links[1].lower_ifindex == 2
+  assert result.links[1].addresses.len() == 1
+  assert result.links[1].addresses[0].address.value == "2001:db8:42::5"
+  assert result.links[0].attributes[0].data.value == "AgA="
+  assert result.routes[0].destination.value == "0.0.0.0"
+  assert result.routes[0].route_type == "route_type_222"
+  assert result.routes[0].protocol == "protocol_77"
+  assert result.routes[0].nexthops.len() == 0
+  assert result.routes[1].family == "ipv6"
+  assert result.routes[1].nexthops[0].ifindex == 9
+  assert result.routes[1].nexthops[0].flags == 2
+  assert result.routes[1].nexthops[0].hops == 3
+  assert result.routes[1].nexthops[0].gateway.value == "2001:db8::1"
+  assert result.rules[0].input_ifindex == 2
+  assert result.rules[0].action == "action_50"
+  assert result.rules[1].family == "ipv6"
+  assert result.rules[1].source.value == "2001:db8::"
+  assert result.rules[1].source_prefix_length == 64
+  assert result.rules[1].input_ifindex == 3
+  assert result.rules[1].output_ifindex == 2
+  assert result.rules[1].table == 1000
+  assert result.rules[1].fwmark == 7
+  assert result.rules[1].fwmask == 255
+  assert result.rules[1].action == "to_table"
+  assert result.rules[2].action == "goto"
+  assert result.rules[2].attributes[0].kind == 4
+  assert result.rules[2].attributes[0].data.value == "ewAAAA=="
+  assert result.issues[0].state == report_model.Malformed
+  assert result.issues[1].field == "netlink.links.2.rx_bytes"
+  assert result.issues[1].state == report_model.RangeFailure
 
   let denied = collector.assemble_network_dump({
     ...dump,
@@ -2578,9 +2578,9 @@ test test_system_report_assembles_network_links_addresses_routes_and_rules {
     error_kind: "io",
   }],
   })
-  denied.status.state == report_model.SectionPermissionDenied
-  denied.status.enumeration_succeeded == false
-  denied.issues[0].errno == 13
+  assert denied.status.state == report_model.SectionPermissionDenied
+  assert denied.status.enumeration_succeeded == false
+  assert denied.issues[0].errno == 13
 }
 
 test test_system_report_section_selection_marks_excluded_domains {
@@ -2591,41 +2591,41 @@ test test_system_report_section_selection_marks_excluded_domains {
   let cpu_only_wire = json.decode(model.encode_report_json(cpu_only, true, false)?)?.require(report_model.SystemReportJson)?
   let cpu_only_text = model.render_text(cpu_only, true, false)?
 
-  cpu_only.identity.hostname.value == "workstation-name"
-  cpu_only_wire.cpu.status.state == "complete"
-  cpu_only_wire.memory.status.state == "not_requested"
-  ! cpu_only_wire.memory.status.enumeration_succeeded
-  cpu_only_wire.memory.host.total_bytes == null
-  cpu_only_wire.pci.status.state == "not_requested"
-  cpu_only_wire.pci.functions.len() == 0
-  cpu_only_wire.network.status.state == "not_requested"
-  cpu_only.issues.len() == 1
-  "PCI: not requested" in cpu_only_text
-  ("PCI functions:" not in cpu_only_text)
+  assert cpu_only.identity.hostname.value == "workstation-name"
+  assert cpu_only_wire.cpu.status.state == "complete"
+  assert cpu_only_wire.memory.status.state == "not_requested"
+  assert ! cpu_only_wire.memory.status.enumeration_succeeded
+  assert cpu_only_wire.memory.host.total_bytes == null
+  assert cpu_only_wire.pci.status.state == "not_requested"
+  assert cpu_only_wire.pci.functions.len() == 0
+  assert cpu_only_wire.network.status.state == "not_requested"
+  assert cpu_only.issues.len() == 1
+  assert "PCI: not requested" in cpu_only_text
+  assert ("PCI functions:" not in cpu_only_text)
 
   let usb_only = model.select_report_section(report, "usb")?
-  usb_only.pci.status.state == report_model.Complete
-  usb_only.usb.status.state == report_model.Complete
-  usb_only.storage.status.state == report_model.SectionNotRequested
-  usb_only.network.status.state == report_model.SectionNotRequested
+  assert usb_only.pci.status.state == report_model.Complete
+  assert usb_only.usb.status.state == report_model.Complete
+  assert usb_only.storage.status.state == report_model.SectionNotRequested
+  assert usb_only.network.status.state == report_model.SectionNotRequested
 
   let network_only = model.select_report_section(report, "network")?
-  network_only.pci.status.state == report_model.Complete
-  network_only.usb.status.state == report_model.Complete
-  network_only.network.status.state == report_model.Complete
-  network_only.storage.status.state == report_model.SectionNotRequested
+  assert network_only.pci.status.state == report_model.Complete
+  assert network_only.usb.status.state == report_model.Complete
+  assert network_only.network.status.state == report_model.Complete
+  assert network_only.storage.status.state == report_model.SectionNotRequested
 
   let sensors_only = model.select_report_section(report, "sensors")?
-  sensors_only.pci.status.state == report_model.Complete
-  sensors_only.usb.status.state == report_model.Complete
-  sensors_only.sensors.status.state == report_model.Complete
-  sensors_only.devices.status.state == report_model.SectionNotRequested
+  assert sensors_only.pci.status.state == report_model.Complete
+  assert sensors_only.usb.status.state == report_model.Complete
+  assert sensors_only.sensors.status.state == report_model.Complete
+  assert sensors_only.devices.status.state == report_model.SectionNotRequested
 
   let processes_only = model.select_report_section(report, "processes")?
-  processes_only.processes.status.state == report_model.Complete
-  processes_only.processes.processes[0].cgroup.value == "/user.slice/private"
-  processes_only.processes.processes[0].cgroup_resource_index == null
-  processes_only.memory.status.state == report_model.SectionNotRequested
+  assert processes_only.processes.status.state == report_model.Complete
+  assert processes_only.processes.processes[0].cgroup.value == "/user.slice/private"
+  assert processes_only.processes.processes[0].cgroup_resource_index == null
+  assert processes_only.memory.status.state == report_model.SectionNotRequested
 
   test.error_kind(model.select_report_section(report, "hardware"), "SystemReportError.InvalidSection")?
 }
@@ -2637,102 +2637,102 @@ test test_system_report_json_round_trip_and_redaction {
   let decoded = model.decode_report_json(encoded_source)?
   let decoded_wire = json.decode(model.encode_report_json(decoded, true, false)?)?.require(report_model.SystemReportJson)?
 
-  decoded.schema_version == 1
-  decoded_wire.source_mode == "synthetic_fixture"
-  decoded.identity.hostname.value == "workstation-name"
-  decoded_wire.identity.kernel_build == "Linux version 6.12-test (builder@private-build-host)"
-  decoded.pci.status.enumeration_succeeded
-  decoded.pci.functions.len() == 2
+  assert decoded.schema_version == 1
+  assert decoded_wire.source_mode == "synthetic_fixture"
+  assert decoded.identity.hostname.value == "workstation-name"
+  assert decoded_wire.identity.kernel_build == "Linux version 6.12-test (builder@private-build-host)"
+  assert decoded.pci.status.enumeration_succeeded
+  assert decoded.pci.functions.len() == 2
 
   let safe_json = model.encode_report_json(decoded, false, false)?
   let safe = model.decode_report_json(safe_json)?
   let safe_wire = json.decode(safe_json)?.require(report_model.SystemReportJson)?
   let safe_text = model.render_text(decoded, true, false)?
-  safe.redacted
-  safe_wire.identity.status.state == "complete"
-  safe_wire.identity.hostname.state == "redacted"
-  (safe_wire.identity.kernel_build == null)
-  ("private-build-host" not in safe_json)
-  ("private-build-host" not in safe_text)
-  (safe.issues |> any .section == "identity" and .field == "kernel_build" and .state == report_model.Redacted)
-  (model.encode_report_json(safe, false, false)?) == safe_json
-  safe.identity.hostname.value == null
-  safe_wire.scope.network_namespace.state == "redacted"
-  safe_wire.scope.uts_namespace.state == "redacted"
-  safe_wire.scope.ipc_namespace.state == "redacted"
-  safe_wire.scope.user_namespace.state == "redacted"
-  safe_wire.scope.time_namespace.state == "redacted"
-  safe_wire.scope.source_roots == ["redacted", "redacted"]
-  safe.cpu.online == [0, 1, 2]
-  safe_wire.pci.functions[0].address == null
-  safe_wire.pci.functions[0].domain == null
-  safe_wire.pci.functions[0].vendor_id == 32902
-  safe_wire.pci.functions[1].parent_function_index == 0
-  ("0000:00:1f.6" not in safe_json)
-  ("0000:00:1f.6" not in safe_text)
-  safe_wire.issues[1].field == "functions.redacted.vendor_id"
-  ("private PCI source path" not in safe_json)
+  assert safe.redacted
+  assert safe_wire.identity.status.state == "complete"
+  assert safe_wire.identity.hostname.state == "redacted"
+  assert (safe_wire.identity.kernel_build == null)
+  assert ("private-build-host" not in safe_json)
+  assert ("private-build-host" not in safe_text)
+  assert (safe.issues |> any .section == "identity" and .field == "kernel_build" and .state == report_model.Redacted)
+  assert (model.encode_report_json(safe, false, false)?) == safe_json
+  assert safe.identity.hostname.value == null
+  assert safe_wire.scope.network_namespace.state == "redacted"
+  assert safe_wire.scope.uts_namespace.state == "redacted"
+  assert safe_wire.scope.ipc_namespace.state == "redacted"
+  assert safe_wire.scope.user_namespace.state == "redacted"
+  assert safe_wire.scope.time_namespace.state == "redacted"
+  assert safe_wire.scope.source_roots == ["redacted", "redacted"]
+  assert safe.cpu.online == [0, 1, 2]
+  assert safe_wire.pci.functions[0].address == null
+  assert safe_wire.pci.functions[0].domain == null
+  assert safe_wire.pci.functions[0].vendor_id == 32902
+  assert safe_wire.pci.functions[1].parent_function_index == 0
+  assert ("0000:00:1f.6" not in safe_json)
+  assert ("0000:00:1f.6" not in safe_text)
+  assert safe_wire.issues[1].field == "functions.redacted.vendor_id"
+  assert ("private PCI source path" not in safe_json)
   if let Ok(vulnerability) = safe.cpu.vulnerabilities.get(0) {
-    vulnerability.description.value == "mitigation active"
+    assert vulnerability.description.value == "mitigation active"
   } else {
     test.fail("CPU vulnerability fixture did not round-trip")?
   }
 
   if let Ok(_) = safe.memory.swaps.get(0) {
-    safe_wire.memory.swaps[0].name.state == "redacted"
+    assert safe_wire.memory.swaps[0].name.state == "redacted"
   } else {
     test.fail("swap fixture did not round-trip")?
   }
 
   if let Ok(_) = safe.usb.devices.get(0) {
-    safe_wire.usb.devices[0].sysfs_name == null
-    safe_wire.usb.devices[0].port_path == null
-    safe_wire.usb.devices[0].bus_number == null
-    safe_wire.usb.devices[0].controller_pci_index == 1
-    safe_wire.usb.devices[0].vendor_id == 4660
-    safe_wire.usb.devices[0].interfaces[0].name == null
-    safe_wire.usb.devices[0].interfaces[0].alternate_settings[0].configuration_value == 1
-    safe_wire.usb.devices[0].interfaces[0].alternate_settings[1].configuration_value == 2
-    safe_wire.usb.devices[0].serial.state == "redacted"
-    ("1-2.3" not in safe_json)
-    ("1-2.3" not in safe_text)
+    assert safe_wire.usb.devices[0].sysfs_name == null
+    assert safe_wire.usb.devices[0].port_path == null
+    assert safe_wire.usb.devices[0].bus_number == null
+    assert safe_wire.usb.devices[0].controller_pci_index == 1
+    assert safe_wire.usb.devices[0].vendor_id == 4660
+    assert safe_wire.usb.devices[0].interfaces[0].name == null
+    assert safe_wire.usb.devices[0].interfaces[0].alternate_settings[0].configuration_value == 1
+    assert safe_wire.usb.devices[0].interfaces[0].alternate_settings[1].configuration_value == 2
+    assert safe_wire.usb.devices[0].serial.state == "redacted"
+    assert ("1-2.3" not in safe_json)
+    assert ("1-2.3" not in safe_text)
   } else {
     test.fail("USB fixture did not round-trip")?
   }
 
   if let Ok(block_device) = safe.storage.devices.get(0) {
-    safe_wire.storage.devices[0].name == null
-    safe_wire.storage.devices[0].major == null
-    block_device.parent_pci_function_index == 1
-    safe_wire.storage.devices[0].parent_pci_function_index == 1
-    safe_wire.storage.devices[0].model.state == "redacted"
-    ("nvme0n1" not in safe_json)
-    ("nvme0n1" not in safe_text)
+    assert safe_wire.storage.devices[0].name == null
+    assert safe_wire.storage.devices[0].major == null
+    assert block_device.parent_pci_function_index == 1
+    assert safe_wire.storage.devices[0].parent_pci_function_index == 1
+    assert safe_wire.storage.devices[0].model.state == "redacted"
+    assert ("nvme0n1" not in safe_json)
+    assert ("nvme0n1" not in safe_text)
   } else {
     test.fail("block device fixture did not round-trip")?
   }
 
   if let Ok(_) = safe.storage.mounts.get(0) {
-    safe_wire.storage.mounts[0].major == null
-    safe_wire.storage.mounts[0].minor == null
-    safe_wire.storage.mounts[0].block_device_index == 0
-    safe_wire.storage.mounts[0].target.state == "redacted"
-    safe_wire.storage.mounts[0].mount_options == ["rw", "relatime", "redacted"]
-    safe_wire.storage.mounts[0].optional_fields == ["shared:42", "redacted"]
-    safe_wire.storage.mounts[0].super_options == ["rw", "redacted", "redacted", "redacted"]
-    ("private-mount-label" not in safe_json)
-    ("private-mount-field" not in safe_json)
-    ("/private/host/snapshot" not in safe_json)
-    ("mount-secret" not in safe_json)
+    assert safe_wire.storage.mounts[0].major == null
+    assert safe_wire.storage.mounts[0].minor == null
+    assert safe_wire.storage.mounts[0].block_device_index == 0
+    assert safe_wire.storage.mounts[0].target.state == "redacted"
+    assert safe_wire.storage.mounts[0].mount_options == ["rw", "relatime", "redacted"]
+    assert safe_wire.storage.mounts[0].optional_fields == ["shared:42", "redacted"]
+    assert safe_wire.storage.mounts[0].super_options == ["rw", "redacted", "redacted", "redacted"]
+    assert ("private-mount-label" not in safe_json)
+    assert ("private-mount-field" not in safe_json)
+    assert ("/private/host/snapshot" not in safe_json)
+    assert ("mount-secret" not in safe_json)
   } else {
     test.fail("mount fixture did not round-trip")?
   }
 
   if let Ok(link) = safe.network.links.get(0) {
-    safe_wire.network.links[0].mac.state == "redacted"
-    safe_wire.network.links[0].attributes[0].data.state == "redacted"
+    assert safe_wire.network.links[0].mac.state == "redacted"
+    assert safe_wire.network.links[0].attributes[0].data.state == "redacted"
     if let Ok(_) = link.addresses.get(0) {
-      safe_wire.network.links[0].addresses[0].address.state == "redacted"
+      assert safe_wire.network.links[0].addresses[0].address.state == "redacted"
     } else {
       test.fail("network address fixture did not round-trip")?
     }
@@ -2741,20 +2741,20 @@ test test_system_report_json_round_trip_and_redaction {
   }
 
   if let Ok(safe_route) = safe.network.routes.get(0) {
-    safe_route.output_ifindex == 2
-    safe_route.nexthops[0].ifindex == 2
-    safe_route.gateway.state == report_model.Redacted
-    safe_route.nexthops[0].gateway.state == report_model.Redacted
-    safe_wire.network.routes[0].attributes[0].data.state == "redacted"
+    assert safe_route.output_ifindex == 2
+    assert safe_route.nexthops[0].ifindex == 2
+    assert safe_route.gateway.state == report_model.Redacted
+    assert safe_route.nexthops[0].gateway.state == report_model.Redacted
+    assert safe_wire.network.routes[0].attributes[0].data.state == "redacted"
   } else {
     test.fail("network route fixture did not round-trip")?
   }
 
-  safe_wire.sensors.channels[0].label.state == "redacted"
-  ("private-sensor-label" not in safe_json)
+  assert safe_wire.sensors.channels[0].label.state == "redacted"
+  assert ("private-sensor-label" not in safe_json)
   if let Ok(firmware_record) = safe.firmware.records.get(0) {
     if let Ok(_) = firmware_record.strings.get(0) {
-      safe_wire.firmware.records[0].strings[0].state == "redacted"
+      assert safe_wire.firmware.records[0].strings[0].state == "redacted"
     } else {
       test.fail("firmware string fixture did not round-trip")?
     }
@@ -2763,21 +2763,21 @@ test test_system_report_json_round_trip_and_redaction {
   }
 
   if let Ok(_) = safe.kernel.parameters.get(0) {
-    safe_wire.kernel.parameters[0].value.state == "redacted"
+    assert safe_wire.kernel.parameters[0].value.state == "redacted"
   } else {
     test.fail("kernel parameter fixture did not round-trip")?
   }
 
   if let Ok(process_item) = safe.processes.processes.get(0) {
-    process_item.command.value == "worker"
-    safe_wire.processes.processes[0].cgroup.state == "redacted"
+    assert process_item.command.value == "worker"
+    assert safe_wire.processes.processes[0].cgroup.state == "redacted"
   } else {
     test.fail("process fixture did not round-trip")?
   }
 
   if let Ok(device) = safe.devices.devices.get(0) {
     if let Ok(_) = device.attributes.get(0) {
-      safe_wire.devices.devices[0].attributes[0].value.state == "redacted"
+      assert safe_wire.devices.devices[0].attributes[0].value.state == "redacted"
     } else {
       test.fail("device attribute fixture did not round-trip")?
     }
@@ -2786,30 +2786,30 @@ test test_system_report_json_round_trip_and_redaction {
   }
 
   if let Ok(_) = safe.issues.get(0) {
-    safe_wire.issues[0].detail.state == "redacted"
+    assert safe_wire.issues[0].detail.state == "redacted"
   } else {
     test.fail("issue fixture did not round-trip")?
   }
 
   let sensitive_json = model.encode_report_json(decoded, true, false)?
-  ("/private/host/snapshot" in sensitive_json)
-  ("mount-secret" not in sensitive_json)
-  ("private-mount-field" not in sensitive_json)
-  json.decode(sensitive_json)?.storage.mounts[0].super_options[2] == "redacted"
-  json.decode(sensitive_json)?.storage.mounts[0].super_options[3] == "redacted"
-  json.decode(sensitive_json)?.storage.mounts[0].optional_fields == ["shared:42", "redacted"]
-  ("private-sensor-label" in sensitive_json)
+  assert ("/private/host/snapshot" in sensitive_json)
+  assert ("mount-secret" not in sensitive_json)
+  assert ("private-mount-field" not in sensitive_json)
+  assert json.decode(sensitive_json)?.storage.mounts[0].super_options[2] == "redacted"
+  assert json.decode(sensitive_json)?.storage.mounts[0].super_options[3] == "redacted"
+  assert json.decode(sensitive_json)?.storage.mounts[0].optional_fields == ["shared:42", "redacted"]
+  assert ("private-sensor-label" in sensitive_json)
   let sensitive = model.decode_report_json(sensitive_json)?
-  ! sensitive.redacted
-  sensitive.identity.hostname.value == "workstation-name"
-  sensitive.pci.functions[0].address == "0000:00:1f.6"
-  sensitive.usb.devices[0].sysfs_name == "1-2.3"
-  sensitive.storage.devices[0].name == "nvme0n1"
-  sensitive.network.links[0].attributes[0].data.value == "eA=="
-  sensitive.network.routes[0].nexthops[0].gateway.value == "192.0.2.1"
+  assert ! sensitive.redacted
+  assert sensitive.identity.hostname.value == "workstation-name"
+  assert sensitive.pci.functions[0].address == "0000:00:1f.6"
+  assert sensitive.usb.devices[0].sysfs_name == "1-2.3"
+  assert sensitive.storage.devices[0].name == "nvme0n1"
+  assert sensitive.network.links[0].attributes[0].data.value == "eA=="
+  assert sensitive.network.routes[0].nexthops[0].gateway.value == "192.0.2.1"
 
   let route_text = model.render_text(sensitive, true, true)?
-  "nexthop ifindex=2 flags=1 hops=0 gateway=\"192.0.2.1\"" in route_text
+  assert "nexthop ifindex=2 flags=1 hops=0 gateway=\"192.0.2.1\"" in route_text
 
   let unsupported_version = json.encode({...source, schema_version: 2})?
   test.error_kind(model.decode_report_json(unsupported_version), "SystemReportError.UnsupportedSchema")?
@@ -2851,10 +2851,10 @@ test test_system_report_thermal_trip_indexes_round_trip_and_legacy_unknown {
   let decoded = model.decode_report_json(json.encode(indexed)?)?
   let trip_indexes = decoded.sensors.thermal_zones[0].trips |> map .index
   let expected_trip_indexes: List[Int?] = [0, 2]
-  trip_indexes == expected_trip_indexes
+  assert trip_indexes == expected_trip_indexes
   let encoded = model.encode_report_json(decoded, true, false)?
-  (json.get(json.decode(encoded)?, ["sensors", "thermal_zones", 0, "trips", 1, "index"])?.require(Int)?) == 2
-  "trip 2 \"passive\"" in (model.render_text(decoded, true, false)?)
+  assert (json.get(json.decode(encoded)?, ["sensors", "thermal_zones", 0, "trips", 1, "index"])?.require(Int)?) == 2
+  assert "trip 2 \"passive\"" in (model.render_text(decoded, true, false)?)
   let legacy_zone = {
     ...zone,
     trips: [
@@ -2866,7 +2866,7 @@ test test_system_report_thermal_trip_indexes_round_trip_and_legacy_unknown {
     ],
   }
   let legacy = model.decode_report_json(json.encode(json.set(source, ["sensors", "thermal_zones"], [legacy_zone])?)?)?
-  legacy.sensors.thermal_zones[0].trips[0].index == null
+  assert legacy.sensors.thermal_zones[0].trips[0].index == null
   let duplicate = {...zone, trips: [zone.trips[0], {...zone.trips[1], index: 0}]}
   test.error_kind(
     model.decode_report_json(json.encode(json.set(source, ["sensors", "thermal_zones"], [duplicate])?)?),
@@ -2883,21 +2883,21 @@ test test_system_report_cpufreq_scaling_current_replays_legacy_requested_name {
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.decode(encoded_fixture)?
   let decoded = model.decode_report_json(json.encode(source)?)?
-  decoded.cpu.frequency_policies[0].scaling_current_khz == 1800000
+  assert decoded.cpu.frequency_policies[0].scaling_current_khz == 1800000
   let saved = json.decode(model.encode_report_json(decoded, true, false)?)?
-  (json.get(saved, ["cpu", "frequency_policies", 0, "scaling_current_khz"])?.require(Int)?) == 1800000
-  (json.get(saved, ["cpu", "frequency_policies", 0, "requested_current_khz"], null) == null)
+  assert (json.get(saved, ["cpu", "frequency_policies", 0, "scaling_current_khz"])?.require(Int)?) == 1800000
+  assert (json.get(saved, ["cpu", "frequency_policies", 0, "requested_current_khz"], null) == null)
   var legacy = json.remove(source, ["cpu", "frequency_policies", 0, "scaling_current_khz"])?
   legacy = json.set(legacy, ["cpu", "frequency_policies", 0, "requested_current_khz"], 1800000)?
-  model.decode_report_json(json.encode(legacy)?)?.cpu.frequency_policies[0].scaling_current_khz == 1800000
+  assert model.decode_report_json(json.encode(legacy)?)?.cpu.frequency_policies[0].scaling_current_khz == 1800000
   let redundant = json.set(source, ["cpu", "frequency_policies", 0, "requested_current_khz"], 1800000)?
-  model.decode_report_json(json.encode(redundant)?)?.cpu.frequency_policies[0].scaling_current_khz == 1800000
+  assert model.decode_report_json(json.encode(redundant)?)?.cpu.frequency_policies[0].scaling_current_khz == 1800000
   let legacy_absent = json.set(
     json.remove(source, ["cpu", "frequency_policies", 0, "scaling_current_khz"])?,
     ["cpu", "frequency_policies", 0, "requested_current_khz"],
     null,
   )?
-  model.decode_report_json(json.encode(legacy_absent)?)?.cpu.frequency_policies[0].scaling_current_khz == null
+  assert model.decode_report_json(json.encode(legacy_absent)?)?.cpu.frequency_policies[0].scaling_current_khz == null
   let conflicting = json.set(source, ["cpu", "frequency_policies", 0, "requested_current_khz"], 1700000)?
   test.error_kind(model.decode_report_json(json.encode(conflicting)?), "SystemReportError.InvalidJson")?
 }
@@ -2907,9 +2907,9 @@ test test_system_report_usb_runtime_status_replays_legacy_absence {
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.decode(encoded_fixture)?
   let decoded = model.decode_report_json(json.encode(source)?)?
-  decoded.usb.devices[0].runtime_status == "active"
+  assert decoded.usb.devices[0].runtime_status == "active"
   let old = json.remove(source, ["usb", "devices", 0, "runtime_status"])?
-  model.decode_report_json(json.encode(old)?)?.usb.devices[0].runtime_status == null
+  assert model.decode_report_json(json.encode(old)?)?.usb.devices[0].runtime_status == null
   let malformed = json.set(source, ["usb", "devices", 0, "runtime_status"], 7)?
   test.error_kind(model.decode_report_json(json.encode(malformed)?), "SystemReportError.InvalidJson")?
 }
@@ -2923,10 +2923,10 @@ test test_system_report_v1_replay_marks_unrecorded_namespaces_unsupported {
   }
 
   let restored = model.decode_report_json(json.encode(old)?)?
-  restored.scope.uts_namespace.state == report_model.Unsupported
-  restored.scope.ipc_namespace.state == report_model.Unsupported
-  restored.scope.user_namespace.state == report_model.Unsupported
-  restored.scope.time_namespace.state == report_model.Unsupported
+  assert restored.scope.uts_namespace.state == report_model.Unsupported
+  assert restored.scope.ipc_namespace.state == report_model.Unsupported
+  assert restored.scope.user_namespace.state == report_model.Unsupported
+  assert restored.scope.time_namespace.state == report_model.Unsupported
 
   let malformed = json.set(old, ["scope", "uts_namespace"], null)?
   test.error_kind(model.decode_report_json(json.encode(malformed)?), "SystemReportError.InvalidJson")?
@@ -2947,10 +2947,10 @@ test test_system_report_v1_replay_keeps_unrecorded_idle_state_index_unknown {
   let encoded_fixture = json.encode(json_report_fixture())?
   let old = json.set(json.decode(encoded_fixture)?, ["cpu", "idle_states"], [legacy_state])?
   let restored = model.decode_report_json(json.encode(old)?)?
-  restored.cpu.idle_states.len() == 1
-  restored.cpu.idle_states[0].state_index == null
+  assert restored.cpu.idle_states.len() == 1
+  assert restored.cpu.idle_states[0].state_index == null
   let current = json.decode(model.encode_report_json(restored, true, false)?)?
-  json.get(current, ["cpu", "idle_states", 0, "state_index"])?.require(Int?)? == null
+  assert json.get(current, ["cpu", "idle_states", 0, "state_index"])?.require(Int?)? == null
   let invalid = json.set(old, ["cpu", "idle_states", 0, "state_index"], -1)?
   test.error_kind(model.decode_report_json(json.encode(invalid)?), "SystemReportError.InvalidJson")?
   let indexed_state = {...legacy_state, state_index: 0}
@@ -2972,13 +2972,13 @@ test test_system_report_v1_replay_restores_legacy_powercap_constraint {
   let encoded_fixture = json.encode(json_report_fixture())?
   let old = json.set(json.decode(encoded_fixture)?, ["power", "cap_zones"], [legacy_zone])?
   let restored = model.decode_report_json(json.encode(old)?)?
-  restored.power.cap_zones.len() == 1
-  restored.power.cap_zones[0].entry_name == "package-0"
-  restored.power.cap_zones[0].constraints.len() == 1
-  restored.power.cap_zones[0].constraints[0].index == 0
-  restored.power.cap_zones[0].constraints[0].power_limit_uw == 45000000
+  assert restored.power.cap_zones.len() == 1
+  assert restored.power.cap_zones[0].entry_name == "package-0"
+  assert restored.power.cap_zones[0].constraints.len() == 1
+  assert restored.power.cap_zones[0].constraints[0].index == 0
+  assert restored.power.cap_zones[0].constraints[0].power_limit_uw == 45000000
   let wire = json.decode(model.encode_report_json(restored, true, false)?)?
-  json.get(wire, ["power", "cap_zones", 0, "constraints", 0, "power_limit_uw"])?.require(Int)? == 45000000
+  assert json.get(wire, ["power", "cap_zones", 0, "constraints", 0, "power_limit_uw"])?.require(Int)? == 45000000
   test.error_kind(json.get(wire, ["power", "cap_zones", 0, "power_limit_uw"]), "json-path")?
 
   let invalid = json.set(old, ["power", "cap_zones", 0, "power_limit_uw"], "invalid")?
@@ -3011,14 +3011,14 @@ test test_system_report_powercap_constraints_round_trip_and_render {
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.set(json.decode(encoded_fixture)?, ["power", "cap_zones"], [zone])?
   let decoded = model.decode_report_json(json.encode(source)?)?
-  decoded.power.cap_zones[0].entry_name == "intel-rapl:0"
-  decoded.power.cap_zones[0].constraints.len() == 2
+  assert decoded.power.cap_zones[0].entry_name == "intel-rapl:0"
+  assert decoded.power.cap_zones[0].constraints.len() == 2
   let text = model.render_text(decoded, true, true)?
-  "constraint 0 \"long_term\" limit=45000000 uW window=1000000 us" in text
-  "constraint 1 \"short_term\" limit=65000000 uW window=250000 us" in text
+  assert "constraint 0 \"long_term\" limit=45000000 uW window=1000000 us" in text
+  assert "constraint 1 \"short_term\" limit=65000000 uW window=250000 us" in text
   let encoded = model.encode_report_json(decoded, true, false)?
   let restored = model.decode_report_json(encoded)?
-  restored.power.cap_zones[0].constraints == decoded.power.cap_zones[0].constraints
+  assert restored.power.cap_zones[0].constraints == decoded.power.cap_zones[0].constraints
   let duplicate = json.set(source, ["power", "cap_zones", 0, "constraints", 1, "index"], 0)?
   test.error_kind(model.decode_report_json(json.encode(duplicate)?), "SystemReportError.InvalidJson")?
 }
@@ -3031,10 +3031,10 @@ test test_system_report_replay_withholds_mount_credentials_in_sensitive_json {
     json_observation("observed", "smb://user:private-secret@host/share"),
   )?
   let decoded = model.decode_report_json(json.encode(raw)?)?
-  decoded.storage.mounts[0].source.state == report_model.Redacted
+  assert decoded.storage.mounts[0].source.state == report_model.Redacted
   let sensitive_json = model.encode_report_json(decoded, true, false)?
-  ("private-secret" not in sensitive_json)
-  json.decode(sensitive_json)?.storage.mounts[0].source.state == "redacted"
+  assert ("private-secret" not in sensitive_json)
+  assert json.decode(sensitive_json)?.storage.mounts[0].source.state == "redacted"
 }
 
 test test_system_report_text_output_escapes_untrusted_controls {
@@ -3054,14 +3054,14 @@ attack""",
   let decoded = model.decode_report_json(json.encode(hostile_source)?)?
   let rendered = model.render_text(decoded, true, false)?
 
-  ("\u{202e}" not in rendered)
-  ("\u{1b}" not in rendered)
-  "\\u{202e}" in rendered
-  "6.12\\nattack" in rendered
-  ("""6.12
+  assert ("\u{202e}" not in rendered)
+  assert ("\u{1b}" not in rendered)
+  assert "\\u{202e}" in rendered
+  assert "6.12\\nattack" in rendered
+  assert ("""6.12
 attack""" not in rendered)
-  "does not guarantee anonymity" in rendered
-  "Uptime: unknown seconds" in rendered
+  assert "does not guarantee anonymity" in rendered
+  assert "Uptime: unknown seconds" in rendered
 }
 
 test test_system_report_full_text_renders_numeric_relationship_lists {
@@ -3109,9 +3109,9 @@ test test_system_report_full_text_renders_numeric_relationship_lists {
   )?
   let report = model.decode_report_json(json.encode(with_devices)?)?
   let rendered = model.render_text(report, true, true)?
-  "shared CPUs 0,2" in rendered
-  "holders=1 slaves=" in rendered
-  "holders= slaves=0" in rendered
+  assert "shared CPUs 0,2" in rendered
+  assert "holders=1 slaves=" in rendered
+  assert "holders= slaves=0" in rendered
 }
 
 test test_system_report_command_replays_saved_json_offline { |ctx|
@@ -3120,69 +3120,69 @@ test test_system_report_command_replays_saved_json_offline { |ctx|
 
   let projected = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json ?
   let decoded = json.decode(projected)?
-  decoded.schema_version == 1
-  decoded.identity.hostname.state == "redacted"
-  decoded.cpu.status.state == "complete"
-  decoded.memory.status.state == "not_requested"
-  ("workstation-name" not in projected)
+  assert decoded.schema_version == 1
+  assert decoded.identity.hostname.state == "redacted"
+  assert decoded.cpu.status.state == "complete"
+  assert decoded.memory.status.state == "not_requested"
+  assert ("workstation-name" not in projected)
   let json_full = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json --full ?
-  json_full == projected
+  assert json_full == projected
 
   let sensitive = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --sensitive --json ?
-  ("workstation-name" in sensitive)
+  assert ("workstation-name" in sensitive)
   let default_json = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --json ?
-  ("/private/host/snapshot" not in default_json)
-  ("mount-secret" not in default_json)
-  ("private-sensor-label" not in default_json)
+  assert ("/private/host/snapshot" not in default_json)
+  assert ("mount-secret" not in default_json)
+  assert ("private-sensor-label" not in default_json)
 
   let overview = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path ?
-  "XSH system report v1" in overview
-  "2 identical policy group on CPUs 0,1" in overview
-  "1 identical policy group on CPUs 2" in overview
-  ("3 identical policy group" not in overview)
+  assert "XSH system report v1" in overview
+  assert "2 identical policy group on CPUs 0,1" in overview
+  assert "1 identical policy group on CPUs 2" in overview
+  assert ("3 identical policy group" not in overview)
 
   let version = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --version ?
-  version == """system-report schema v1
+  assert version == """system-report schema v1
 """
 
   let help = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --help ?
-  "--from FILE" in help
-  "--section NAME" in help
+  assert "--from FILE" in help
+  assert "--section NAME" in help
 }
 
 test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
   let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware ?
-  outcome.status.exited_with(3)
-  outcome.stdout == ""
-  "error: SystemReportCliError.Usage:" in outcome.stderr
-  "caused by: SystemReportError.InvalidSection:" in outcome.stderr
-  outcome.stderr.split("unknown report section 'hardware'").len() == 3
+  assert outcome.status.exited_with(3)
+  assert outcome.stdout == ""
+  assert "error: SystemReportCliError.Usage:" in outcome.stderr
+  assert "caused by: SystemReportError.InvalidSection:" in outcome.stderr
+  assert outcome.stderr.split("unknown report section 'hardware'").len() == 3
 }
 
 test test_system_report_command_rejects_malformed_replay { |ctx|
   let report_path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
   let stderr = test.temp_path(ctx, name: "system-report-invalid.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path 2> $stderr
-  ! status.exited_with(0)
-  "invalid replay report" in (stderr.read_text()?)
+  assert ! status.exited_with(0)
+  assert "invalid replay report" in (stderr.read_text()?)
 
   let invalid_utf8 = test.temp_file(ctx, name: "system-report-invalid-utf8.json", contents: b"\xff")?
   let utf8_stderr = test.temp_path(ctx, name: "system-report-invalid-utf8.stderr")
   let utf8_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $invalid_utf8 2> $utf8_stderr
-  ! utf8_status.exited_with(0)
-  "not valid UTF-8" in (utf8_stderr.read_text()?)
+  assert ! utf8_status.exited_with(0)
+  assert "not valid UTF-8" in (utf8_stderr.read_text()?)
 
   let unsupported_path = test.temp_path(ctx, name: "system-report-unsupported-schema.json")
   unsupported_path.write(json.encode({...json_report_fixture().require(report_model.SystemReportJson)?, schema_version: 99})?)?
   let unsupported_stderr = test.temp_path(ctx, name: "system-report-unsupported-schema.stderr")
   let unsupported_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $unsupported_path 2> $unsupported_stderr
-  ! unsupported_status.exited_with(0)
-  "unsupported schema version" in (unsupported_stderr.read_text()?)
+  assert ! unsupported_status.exited_with(0)
+  assert "unsupported schema version" in (unsupported_stderr.read_text()?)
 
   let section_stderr = test.temp_path(ctx, name: "system-report-invalid-section.stderr")
   let section_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware 2> $section_stderr
-  ! section_status.exited_with(0)
-  (section_stderr.read_text()?.trim() != "")
+  assert ! section_status.exited_with(0)
+  assert (section_stderr.read_text()?.trim() != "")
 }
 
 test test_system_report_live_collection_uses_explicit_root_and_redacts_by_default {
@@ -3227,18 +3227,18 @@ VERSION_ID=1
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let share_safe = collector.collect_from_root(root, "fixture-arch", 65536, 250, "identity")?
-  share_safe.source_mode == report_model.SyntheticFixture
-  share_safe.identity.kernel_release == "fixture-release"
-  share_safe.identity.architecture == "fixture-arch"
-  share_safe.identity.uptime_seconds == 73
-  share_safe.identity.hostname.state == report_model.Redacted
-  share_safe.identity.hostname.value == null
-  share_safe.cpu.status.state == report_model.SectionNotRequested
-  share_safe.redacted == true
+  assert share_safe.source_mode == report_model.SyntheticFixture
+  assert share_safe.identity.kernel_release == "fixture-release"
+  assert share_safe.identity.architecture == "fixture-arch"
+  assert share_safe.identity.uptime_seconds == 73
+  assert share_safe.identity.hostname.state == report_model.Redacted
+  assert share_safe.identity.hostname.value == null
+  assert share_safe.cpu.status.state == report_model.SectionNotRequested
+  assert share_safe.redacted == true
 
   let sensitive = collector.collect_from_root(root, "fixture-arch", 65536, 250, "identity", true)?
-  sensitive.identity.hostname.value == "private-fixture-host"
-  sensitive.identity.hostname.state == report_model.Observed
+  assert sensitive.identity.hostname.value == "private-fixture-host"
+  assert sensitive.identity.hostname.state == report_model.Observed
 }
 
 test test_system_report_cpu_collection_does_not_invent_absent_cpu_zero {
@@ -3252,14 +3252,14 @@ test test_system_report_cpu_collection_does_not_invent_absent_cpu_zero {
   root.write(p"sys/devices/system/cpu/offline", "4")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  snapshot.cpu.status.enumeration_succeeded
-  snapshot.cpu.possible == [0, 1, 2, 3, 4]
-  snapshot.cpu.present == [2, 4]
-  snapshot.cpu.cpus.len() == 2
-  snapshot.cpu.cpus[0].id == 2
-  (snapshot.cpu.cpus[0].online == true)
-  snapshot.cpu.cpus[1].id == 4
-  (snapshot.cpu.cpus[1].online == false)
+  assert snapshot.cpu.status.enumeration_succeeded
+  assert snapshot.cpu.possible == [0, 1, 2, 3, 4]
+  assert snapshot.cpu.present == [2, 4]
+  assert snapshot.cpu.cpus.len() == 2
+  assert snapshot.cpu.cpus[0].id == 2
+  assert (snapshot.cpu.cpus[0].online == true)
+  assert snapshot.cpu.cpus[1].id == 4
+  assert (snapshot.cpu.cpus[1].online == false)
 }
 
 test test_system_report_cpu_enumeration_requires_a_valid_present_list {
@@ -3273,18 +3273,18 @@ test test_system_report_cpu_enumeration_requires_a_valid_present_list {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
 
   let malformed = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  malformed.cpu.possible == [0]
-  malformed.cpu.present == []
-  ! malformed.cpu.status.enumeration_succeeded
-  (malformed.issues |> where .section == "cpu" and .field == "present").len() == 1
+  assert malformed.cpu.possible == [0]
+  assert malformed.cpu.present == []
+  assert ! malformed.cpu.status.enumeration_succeeded
+  assert (malformed.issues |> where .section == "cpu" and .field == "present").len() == 1
 
   root.write(p"sys/devices/system/cpu/present", "0")?
   root.remove(p"sys/devices/system/cpu/possible")?
   let present = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  present.cpu.possible == []
-  present.cpu.present == [0]
-  present.cpu.status.enumeration_succeeded
-  present.cpu.status.state == report_model.Partial
+  assert present.cpu.possible == []
+  assert present.cpu.present == [0]
+  assert present.cpu.status.enumeration_succeeded
+  assert present.cpu.status.state == report_model.Partial
 
   var padding = " "
   while padding.count_chars() < 65536 {
@@ -3293,11 +3293,11 @@ test test_system_report_cpu_enumeration_requires_a_valid_present_list {
 
   root.write(p"sys/devices/system/cpu/present", f"0${padding}")?
   let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  truncated.cpu.present == []
-  ! truncated.cpu.status.enumeration_succeeded
+  assert truncated.cpu.present == []
+  assert ! truncated.cpu.status.enumeration_succeeded
   let present_issues = truncated.issues |> where .section == "cpu" and .field == "present"
-  present_issues.len() == 1
-  (present_issues[0].state == report_model.Truncated)
+  assert present_issues.len() == 1
+  assert (present_issues[0].state == report_model.Truncated)
 }
 
 test test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_root {
@@ -3312,17 +3312,17 @@ test test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_r
 
   root.symlink(p"present", p"sys/devices/system/cpu/present")?
   let cycled = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  cycled.cpu.present == []
-  ! cycled.cpu.status.enumeration_succeeded
-  (cycled.issues |> where .section == "cpu" and .field == "present").len() == 1
+  assert cycled.cpu.present == []
+  assert ! cycled.cpu.status.enumeration_succeeded
+  assert (cycled.issues |> where .section == "cpu" and .field == "present").len() == 1
 
   root.remove(p"sys/devices/system/cpu/present")?
   let outside_path = outside.host_path()?
   root.symlink(fp"${outside_path}/present", p"sys/devices/system/cpu/present")?
   let escaped = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  escaped.cpu.present == []
-  ! escaped.cpu.status.enumeration_succeeded
-  (escaped.issues |> where .section == "cpu" and .field == "present").len() == 1
+  assert escaped.cpu.present == []
+  assert ! escaped.cpu.status.enumeration_succeeded
+  assert (escaped.issues |> where .section == "cpu" and .field == "present").len() == 1
 }
 
 test test_system_report_cpu_directory_failures_keep_source_issues {
@@ -3352,19 +3352,19 @@ test test_system_report_cpu_directory_failures_keep_source_issues {
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   for field in ["cpu0.cache", "cpu0.cpuidle", "vulnerabilities"] {
     let matches = value.issues |> where .section == "cpu" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.ReadFailure)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.ReadFailure)
   }
 
-  value.cpu.status.state == report_model.Partial
+  assert value.cpu.status.state == report_model.Partial
 
   root.remove(p"sys/devices/system/cpu/cpu0/cache")?
   root.remove(p"sys/devices/system/cpu/cpu0/cpuidle")?
   root.remove(p"sys/devices/system/cpu/cpu0", dir: true)?
   let disappeared = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   let enumeration_issues = disappeared.issues |> where .section == "cpu" and .field == "cpu0.enumeration"
-  enumeration_issues.len() == 1
-  (enumeration_issues[0].state == report_model.Absent)
+  assert enumeration_issues.len() == 1
+  assert (enumeration_issues[0].state == report_model.Absent)
 }
 
 test test_system_report_cpu_vulnerability_read_failures_keep_named_issues {
@@ -3404,18 +3404,18 @@ test test_system_report_cpu_vulnerability_read_failures_keep_named_issues {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   let valid = value.cpu.vulnerabilities |> where .name == "spectre_v2"
-  valid.len() == 1
-  valid[0].description.value == "Mitigation: fixture policy"
+  assert valid.len() == 1
+  assert valid[0].description.value == "Mitigation: fixture policy"
   let vanished = value.cpu.vulnerabilities |> where .name == "spectre_v1"
-  vanished.len() == 1
-  (vanished[0].description.state == report_model.Absent)
+  assert vanished.len() == 1
+  assert (vanished[0].description.state == report_model.Absent)
   let truncated = value.cpu.vulnerabilities |> where .name == "mmio_stale_data"
-  truncated.len() == 1
-  (truncated[0].description.state == report_model.Truncated)
-  (value.issues |> any .section == "cpu" and .field == "vulnerabilities.spectre_v1" and .state == report_model.Absent)
-  (value.issues
+  assert truncated.len() == 1
+  assert (truncated[0].description.state == report_model.Truncated)
+  assert (value.issues |> any .section == "cpu" and .field == "vulnerabilities.spectre_v1" and .state == report_model.Absent)
+  assert (value.issues
       |> any .section == "cpu" and .field == "vulnerabilities.mmio_stale_data" and .state == report_model.Truncated)
-  (value.cpu.status.state == report_model.Partial)
+  assert (value.cpu.status.state == report_model.Partial)
 }
 
 test test_system_report_effective_cpuset_rejects_a_truncated_source {
@@ -3447,10 +3447,10 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  snapshot.cpu.effective_cpuset == []
+  assert snapshot.cpu.effective_cpuset == []
   let cpuset_issues = snapshot.issues |> where .section == "cpu" and .field == "cgroup.effective_cpuset"
-  cpuset_issues.len() == 1
-  (cpuset_issues[0].state == report_model.Truncated)
+  assert cpuset_issues.len() == 1
+  assert (cpuset_issues[0].state == report_model.Truncated)
 
   root.write(p"sys/fs/cgroup/cpuset.cpus.effective", "0")?
   root.write(
@@ -3460,15 +3460,15 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
 """,
   )?
   let selected_mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  selected_mount.cpu.effective_cpuset == [0]
+  assert selected_mount.cpu.effective_cpuset == [0]
   root.write(
         p"proc/self/mountinfo",
     """31 20 0:25 / /sys/fs/cgroup - cgroup2 cgroup rw
 """,
   )?
   let malformed_mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  malformed_mount.cpu.effective_cpuset == []
-  (malformed_mount.issues
+  assert malformed_mount.cpu.effective_cpuset == []
+  assert (malformed_mount.issues
       |> any .section == "cpu" and .field == "cgroup.effective_cpuset" and .state == report_model.Malformed)
   root.write(
         p"proc/self/mountinfo",
@@ -3476,8 +3476,8 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
 """,
   )?
   let missing_separator = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  missing_separator.cpu.effective_cpuset == []
-  (missing_separator.issues
+  assert missing_separator.cpu.effective_cpuset == []
+  assert (missing_separator.issues
       |> any .section == "cpu" and .field == "cgroup.effective_cpuset" and .state == report_model.Malformed)
   root.write(
         p"proc/self/mountinfo",
@@ -3485,8 +3485,8 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
 """,
   )?
   let incomplete_row = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  incomplete_row.cpu.effective_cpuset == []
-  (incomplete_row.issues
+  assert incomplete_row.cpu.effective_cpuset == []
+  assert (incomplete_row.issues
       |> any .section == "cpu" and .field == "cgroup.effective_cpuset" and .state == report_model.Malformed)
   root.write(
         p"proc/self/mountinfo",
@@ -3495,10 +3495,10 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
   )?
   root.write(p"proc/self/cgroup", f"0::/${padding}")?
   let truncated_membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  truncated_membership.cpu.effective_cpuset == []
+  assert truncated_membership.cpu.effective_cpuset == []
   let membership_issues = truncated_membership.issues |> where .section == "cpu" and .field == "cgroup.effective_cpuset"
-  membership_issues.len() == 1
-  (membership_issues[0].state == report_model.Truncated)
+  assert membership_issues.len() == 1
+  assert (membership_issues[0].state == report_model.Truncated)
 
   root.write(
     p"proc/self/cgroup",
@@ -3507,8 +3507,8 @@ test test_system_report_effective_cpuset_rejects_a_truncated_source {
 """,
   )?
   let duplicate_membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  duplicate_membership.cpu.effective_cpuset == []
-  (duplicate_membership.issues
+  assert duplicate_membership.cpu.effective_cpuset == []
+  assert (duplicate_membership.issues
       |> any .section == "cpu" and .field == "cgroup.effective_cpuset" and .state == report_model.Malformed)
 }
 
@@ -3768,45 +3768,45 @@ Features: fp asimd
 """,
   )?
   let policies = root.children(p"sys/devices/system/cpu/cpufreq")?
-  policies.state == "complete"
-  (policies.children |> where .name().starts_with("policy")).len() == 2
+  assert policies.state == "complete"
+  assert (policies.children |> where .name().starts_with("policy")).len() == 2
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.possible == [0, 1, 2]
-  value.cpu.present == [0, 2]
-  value.cpu.offline == [1]
-  value.cpu.affinity == [0, 2]
-  value.cpu.effective_cpuset == [0, 2]
-  value.cpu.cpus[0].model == "Intel fixture"
-  value.cpu.cpus[1].model == "AMD fixture"
-  value.cpu.frequency_policies.len() == 2
-  value.cpu.cpus[0].policy == "policy3"
-  value.cpu.cpus[1].policy == "policy9"
-  value.cpu.frequency_policies.len() == 2
-  value.cpu.frequency_policies[1].governor == "unlisted-governor"
-  value.cpu.frequency_policies[1].related_cpus == [1, 2]
-  value.cpu.frequency_policies[1].affected_cpus == [2]
-  value.cpu.frequency_policies[0].hardware_min_khz == 800000
-  value.cpu.frequency_policies[1].hardware_max_khz == 4000000
-  value.cpu.frequency_policies[0].scaling_min_khz == 1000000
-  value.cpu.frequency_policies[1].scaling_max_khz == 3000000
-  value.cpu.frequency_policies[0].energy_performance_preference == "balance_performance"
-  value.cpu.frequency_policies[1].available_energy_performance_preferences == ["performance", "balance_performance", "power"]
-  value.cpu.frequency_policies[0].boost_allowed == true
-  value.cpu.frequency_policies[0].boost_supported == true
-  value.cpu.frequency_policies[0].boost_active == null
-  value.cpu.frequency_policies[1].boost_scope == "system"
-  value.identity.kernel_release == "fixture-release"
-  value.cpu.caches.len() == 1
-  value.cpu.caches[0].sysfs_index == 7
-  value.cpu.caches[0].level == 2
-  value.cpu.caches[0].shared_cpus == [0, 2]
-  value.cpu.cpus[0].numa_node == 0
-  value.cpu.cpus[1].numa_node == 1
-  value.cpu.cpus[0].cache_ids == [0]
-  value.cpu.cpus[1].cache_ids == [0]
-  value.cpu.vulnerabilities[0].description.value == "Mitigation: fixture policy"
+  assert value.cpu.possible == [0, 1, 2]
+  assert value.cpu.present == [0, 2]
+  assert value.cpu.offline == [1]
+  assert value.cpu.affinity == [0, 2]
+  assert value.cpu.effective_cpuset == [0, 2]
+  assert value.cpu.cpus[0].model == "Intel fixture"
+  assert value.cpu.cpus[1].model == "AMD fixture"
+  assert value.cpu.frequency_policies.len() == 2
+  assert value.cpu.cpus[0].policy == "policy3"
+  assert value.cpu.cpus[1].policy == "policy9"
+  assert value.cpu.frequency_policies.len() == 2
+  assert value.cpu.frequency_policies[1].governor == "unlisted-governor"
+  assert value.cpu.frequency_policies[1].related_cpus == [1, 2]
+  assert value.cpu.frequency_policies[1].affected_cpus == [2]
+  assert value.cpu.frequency_policies[0].hardware_min_khz == 800000
+  assert value.cpu.frequency_policies[1].hardware_max_khz == 4000000
+  assert value.cpu.frequency_policies[0].scaling_min_khz == 1000000
+  assert value.cpu.frequency_policies[1].scaling_max_khz == 3000000
+  assert value.cpu.frequency_policies[0].energy_performance_preference == "balance_performance"
+  assert value.cpu.frequency_policies[1].available_energy_performance_preferences == ["performance", "balance_performance", "power"]
+  assert value.cpu.frequency_policies[0].boost_allowed == true
+  assert value.cpu.frequency_policies[0].boost_supported == true
+  assert value.cpu.frequency_policies[0].boost_active == null
+  assert value.cpu.frequency_policies[1].boost_scope == "system"
+  assert value.identity.kernel_release == "fixture-release"
+  assert value.cpu.caches.len() == 1
+  assert value.cpu.caches[0].sysfs_index == 7
+  assert value.cpu.caches[0].level == 2
+  assert value.cpu.caches[0].shared_cpus == [0, 2]
+  assert value.cpu.cpus[0].numa_node == 0
+  assert value.cpu.cpus[1].numa_node == 1
+  assert value.cpu.cpus[0].cache_ids == [0]
+  assert value.cpu.cpus[1].cache_ids == [0]
+  assert value.cpu.vulnerabilities[0].description.value == "Mitigation: fixture policy"
   root.write(
         p"sys/devices/system/cpu/cpufreq/policy9/scaling_governor",
     """userspace
@@ -3818,16 +3818,16 @@ Features: fp asimd
 """,
   )?
   let userspace = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  userspace.cpu.frequency_policies[0].governor_requested_khz == null
-  userspace.cpu.frequency_policies[1].governor_requested_khz == 1900000
+  assert userspace.cpu.frequency_policies[0].governor_requested_khz == null
+  assert userspace.cpu.frequency_policies[1].governor_requested_khz == 1900000
   root.write(
         p"sys/devices/system/cpu/cpufreq/policy9/scaling_setspeed",
     """invalid
 """,
   )?
   let malformed = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  malformed.cpu.frequency_policies[1].governor_requested_khz == null
-  (malformed.issues |> any .section == "cpu" and .field == "policy9.scaling_setspeed" and .state == report_model.Malformed)
+  assert malformed.cpu.frequency_policies[1].governor_requested_khz == null
+  assert (malformed.issues |> any .section == "cpu" and .field == "policy9.scaling_setspeed" and .state == report_model.Malformed)
 }
 
 test test_system_report_cpufreq_policy_rejects_truncated_field_prefixes {
@@ -3908,18 +3908,18 @@ ${padding}""",
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.frequency_policies.len() == 1
+  assert value.cpu.frequency_policies.len() == 1
   let policy = value.cpu.frequency_policies[0]
-  policy.related_cpus == []
-  policy.affected_cpus == []
-  policy.driver == null
-  policy.governor == null
-  policy.scaling_min_khz == null
-  policy.available_frequencies_khz == []
-  policy.energy_performance_preference == null
-  policy.boost_supported == null
-  policy.boost_allowed == null
-  policy.boost_scope == null
+  assert policy.related_cpus == []
+  assert policy.affected_cpus == []
+  assert policy.driver == null
+  assert policy.governor == null
+  assert policy.scaling_min_khz == null
+  assert policy.available_frequencies_khz == []
+  assert policy.energy_performance_preference == null
+  assert policy.boost_supported == null
+  assert policy.boost_allowed == null
+  assert policy.boost_scope == null
   let truncated_fields = value.issues |> where .section == "cpu" and .state == report_model.Truncated
   for field in [
     "policy0.related_cpus",
@@ -3931,16 +3931,16 @@ ${padding}""",
     "policy0.energy_performance_preference",
     "boost",
   ] {
-    (truncated_fields |> any .field == field)
+    assert (truncated_fields |> any .field == field)
   }
 
   root.remove(fp"${policy_path}/scaling_min_freq")?
   root.mkdir(fp"${policy_path}/scaling_min_freq")?
   let unreadable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  unreadable.cpu.frequency_policies[0].scaling_min_khz == null
+  assert unreadable.cpu.frequency_policies[0].scaling_min_khz == null
   let failed_minimum = unreadable.issues |> where .section == "cpu" and .field == "policy0.scaling_min_freq"
-  failed_minimum.len() == 1
-  failed_minimum[0].state == report_model.ReadFailure
+  assert failed_minimum.len() == 1
+  assert failed_minimum[0].state == report_model.ReadFailure
 }
 
 test test_system_report_affinity_rejects_duplicate_status_field {
@@ -3972,8 +3972,8 @@ Cpus_allowed_list:	1
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.affinity == []
-  (value.issues
+  assert value.cpu.affinity == []
+  assert (value.issues
       |> any .section == "cpu" and .field == "affinity" and .state == report_model.Malformed and .error_kind == "duplicate_cpu_list")
 }
 
@@ -4010,15 +4010,15 @@ test test_system_report_idle_governor_uses_read_only_source_when_writable_source
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.global_idle_governor == "menu"
-  ! (value.issues |> any .field == "cpuidle.current_governor")
+  assert value.cpu.global_idle_governor == "menu"
+  assert ! (value.issues |> any .field == "cpuidle.current_governor")
   root.write(
         p"sys/devices/system/cpu/cpuidle/current_governor",
     """teo
 """,
   )?
   let writable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  writable.cpu.global_idle_governor == "teo"
+  assert writable.cpu.global_idle_governor == "teo"
 }
 
 test test_system_report_idle_and_affinity_reject_truncated_prefixes {
@@ -4112,28 +4112,28 @@ ${padding}""",
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.affinity == []
-  value.cpu.global_idle_driver == null
-  value.cpu.global_idle_governor == null
-  value.cpu.available_idle_governors == []
+  assert value.cpu.affinity == []
+  assert value.cpu.global_idle_driver == null
+  assert value.cpu.global_idle_governor == null
+  assert value.cpu.available_idle_governors == []
   let malformed = (value.cpu.idle_states
     |> where .name == "state0"
     |> first())?
-  malformed.state_index == 0
-  malformed.description == null
-  malformed.disable_setting == null
-  malformed.latency_us == null
-  malformed.residency_us == 123
-  malformed.usage_count == null
-  malformed.time_us == null
+  assert malformed.state_index == 0
+  assert malformed.description == null
+  assert malformed.disable_setting == null
+  assert malformed.latency_us == null
+  assert malformed.residency_us == 123
+  assert malformed.usage_count == null
+  assert malformed.time_us == null
   let valid = (value.cpu.idle_states
     |> where .name == "C1"
     |> first())?
-  valid.state_index == 1
-  valid.disable_setting == 0
-  valid.latency_us == 9
-  value.cpu.idle_states.len() == 2
-  (value.issues |> any .field == "cpu0.state9007199254740992" and .error_kind == "invalid_idle_state_index")
+  assert valid.state_index == 1
+  assert valid.disable_setting == 0
+  assert valid.latency_us == 9
+  assert value.cpu.idle_states.len() == 2
+  assert (value.issues |> any .field == "cpu0.state9007199254740992" and .error_kind == "invalid_idle_state_index")
   let truncated_fields = value.issues |> where .section == "cpu" and .state == report_model.Truncated
   for field in [
     "affinity",
@@ -4145,11 +4145,11 @@ ${padding}""",
     "cpu0.state0.latency",
     "cpu0.state0.time",
   ] {
-    (truncated_fields |> any .field == field)
+    assert (truncated_fields |> any .field == field)
   }
 
-  (value.issues |> any .field == "cpu0.state0.disable" and .state == report_model.Malformed)
-  (value.issues |> any .field == "cpu0.state0.usage" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "cpu0.state0.disable" and .state == report_model.Malformed)
+  assert (value.issues |> any .field == "cpu0.state0.usage" and .state == report_model.RangeFailure)
 
   root.remove(p"sys/devices/system/cpu/cpu0/cpuidle/state1/latency")?
   root.mkdir(p"sys/devices/system/cpu/cpu0/cpuidle/state1/latency")?
@@ -4157,11 +4157,11 @@ ${padding}""",
   let idle_state = (unreadable.cpu.idle_states
     |> where .name == "C1"
     |> first())?
-  idle_state.disable_setting == 0
-  idle_state.latency_us == null
+  assert idle_state.disable_setting == 0
+  assert idle_state.latency_us == null
   let failed_latency = unreadable.issues |> where .section == "cpu" and .field == "cpu0.state1.latency"
-  failed_latency.len() == 1
-  failed_latency[0].state == report_model.ReadFailure
+  assert failed_latency.len() == 1
+  assert failed_latency[0].state == report_model.ReadFailure
 }
 
 test test_system_report_cpuinfo_rejects_a_truncated_complete_looking_prefix {
@@ -4198,11 +4198,11 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.cpus.len() == 1
-  value.cpu.cpus[0].model == null
+  assert value.cpu.cpus.len() == 1
+  assert value.cpu.cpus[0].model == null
   let matches = value.issues |> where .section == "cpu" and .field == "cpuinfo"
-  matches.len() == 1
-  (matches[0].state == report_model.Truncated)
+  assert matches.len() == 1
+  assert (matches[0].state == report_model.Truncated)
 }
 
 test test_system_report_cpu_topology_rejects_truncated_scalar_prefixes {
@@ -4258,14 +4258,14 @@ ${padding}""",
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  collected.cpu.cpus.len() == 1
+  assert collected.cpu.cpus.len() == 1
   let cpu_item = collected.cpu.cpus[0]
-  cpu_item.package_id == null
-  cpu_item.die_id == null
-  cpu_item.core_id == null
-  cpu_item.thread_siblings == []
+  assert cpu_item.package_id == null
+  assert cpu_item.die_id == null
+  assert cpu_item.core_id == null
+  assert cpu_item.thread_siblings == []
   for field in ["physical_package_id", "die_id", "core_id", "thread_siblings_list"] {
-    (collected.issues |> any .section == "cpu" and .field == f"cpu0.topology.${field}" and .state == report_model.Truncated)
+    assert (collected.issues |> any .section == "cpu" and .field == f"cpu0.topology.${field}" and .state == report_model.Truncated)
   }
 
   root.write(
@@ -4274,8 +4274,8 @@ ${padding}""",
 """,
   )?
   let unsafe_core = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  unsafe_core.cpu.cpus[0].core_id == null
-  (unsafe_core.issues |> any .field == "cpu0.topology.core_id" and .state == report_model.RangeFailure)
+  assert unsafe_core.cpu.cpus[0].core_id == null
+  assert (unsafe_core.issues |> any .field == "cpu0.topology.core_id" and .state == report_model.RangeFailure)
 }
 
 test test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation {
@@ -4332,17 +4332,17 @@ test test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation {
   root.write(p"sys/devices/system/cpu/cpu0/cache/index8/size", f"512K${padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.caches.len() == 2
+  assert value.cpu.caches.len() == 2
   for cache in value.cpu.caches {
-    (cache.size_bytes == null)
+    assert (cache.size_bytes == null)
   }
 
   let overflow = value.issues |> where .section == "cpu" and .field == "cpu0.cache.index7.size"
-  overflow.len() == 1
-  (overflow[0].state == report_model.RangeFailure)
+  assert overflow.len() == 1
+  assert (overflow[0].state == report_model.RangeFailure)
   let truncated = value.issues |> where .section == "cpu" and .field == "cpu0.cache.index8.size"
-  truncated.len() == 1
-  (truncated[0].state == report_model.Truncated)
+  assert truncated.len() == 1
+  assert (truncated[0].state == report_model.Truncated)
   let incomplete_cache = p"sys/devices/system/cpu/cpu0/cache/index9"
   root.mkdir(incomplete_cache, parents: true)?
   root.write(
@@ -4371,14 +4371,14 @@ ${padding}""",
 ${padding}""",
   )?
   let incomplete = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  incomplete.cpu.caches.len() == 2
-  (incomplete.issues |> any .field == "cpu0.cache.index9.level" and .state == report_model.Truncated)
+  assert incomplete.cpu.caches.len() == 2
+  assert (incomplete.issues |> any .field == "cpu0.cache.index9.level" and .state == report_model.Truncated)
   let first_cache = incomplete.cpu.caches |> where .sysfs_index == 7
-  first_cache.len() == 1
-  first_cache[0].line_size_bytes == null
-  first_cache[0].sets == null
-  (incomplete.issues |> any .field == "cpu0.cache.index7.coherency_line_size" and .state == report_model.Truncated)
-  (incomplete.issues |> any .field == "cpu0.cache.index7.number_of_sets" and .state == report_model.Truncated)
+  assert first_cache.len() == 1
+  assert first_cache[0].line_size_bytes == null
+  assert first_cache[0].sets == null
+  assert (incomplete.issues |> any .field == "cpu0.cache.index7.coherency_line_size" and .state == report_model.Truncated)
+  assert (incomplete.issues |> any .field == "cpu0.cache.index7.number_of_sets" and .state == report_model.Truncated)
   root.write(
         fp"${incomplete_cache}/level",
     """4
@@ -4390,8 +4390,8 @@ ${padding}""",
 ${padding}""",
   )?
   let incomplete_kind = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  incomplete_kind.cpu.caches.len() == 2
-  (incomplete_kind.issues |> any .field == "cpu0.cache.index9.type" and .state == report_model.Truncated)
+  assert incomplete_kind.cpu.caches.len() == 2
+  assert (incomplete_kind.issues |> any .field == "cpu0.cache.index9.type" and .state == report_model.Truncated)
 }
 
 test test_system_report_cpu_cache_rejects_ambiguous_shared_cpu_list {
@@ -4441,11 +4441,11 @@ test test_system_report_cpu_cache_rejects_ambiguous_shared_cpu_list {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.caches.len() == 1
-  value.cpu.caches[0].shared_cpus == []
+  assert value.cpu.caches.len() == 1
+  assert value.cpu.caches[0].shared_cpus == []
   let matching = value.issues |> where .section == "cpu" and .field == "cpu0.cache.index7.shared_cpu_list"
-  matching.len() == 1
-  (matching[0].state == report_model.Malformed)
+  assert matching.len() == 1
+  assert (matching[0].state == report_model.Malformed)
 }
 
 test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing {
@@ -4500,17 +4500,17 @@ test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing {
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
-  value.cpu.caches.len() == 2
-  value.cpu.caches[0].sysfs_index == 7
-  value.cpu.caches[1].sysfs_index == 8
-  value.cpu.cpus[0].cache_ids == [0, 1]
+  assert value.cpu.caches.len() == 2
+  assert value.cpu.caches[0].sysfs_index == 7
+  assert value.cpu.caches[1].sysfs_index == 8
+  assert value.cpu.cpus[0].cache_ids == [0, 1]
 }
 
 test test_system_report_live_collection_rejects_linux_dry_run {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   env XSH_LINUX_DRY_RUN=1 {
     if let Err(error) = collector.collect_live() {
-      "dry-run mode" in error.message
+      assert "dry-run mode" in error.message
     } else {
       test.fail("live collection accepted dry-run mode")?
     }
@@ -4530,22 +4530,22 @@ test test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "storage", true, true)?
-  value.storage.mounts.len() == 3
+  assert value.storage.mounts.len() == 3
   let first = value.storage.mounts[0]
-  first.mount_id == 12
-  first.target.value == "/mnt/a b"
-  first.filesystem == "ext4"
-  first.source.value == "/dev/sda1"
-  first.super_options == ["rw", "errors=remount-ro", "redacted"]
-  first.usage_state == report_model.Disappeared
-  value.storage.mounts[1].mount_id == 13
-  value.storage.mounts[1].usage_state == report_model.Disappeared
-  value.storage.mounts[2].mount_id == 14
-  value.storage.mounts[2].usage_state == report_model.NotRequested
-  value.storage.mounts[2].source.state == report_model.Redacted
-  value.storage.mounts[2].source.value == null
+  assert first.mount_id == 12
+  assert first.target.value == "/mnt/a b"
+  assert first.filesystem == "ext4"
+  assert first.source.value == "/dev/sda1"
+  assert first.super_options == ["rw", "errors=remount-ro", "redacted"]
+  assert first.usage_state == report_model.Disappeared
+  assert value.storage.mounts[1].mount_id == 13
+  assert value.storage.mounts[1].usage_state == report_model.Disappeared
+  assert value.storage.mounts[2].mount_id == 14
+  assert value.storage.mounts[2].usage_state == report_model.NotRequested
+  assert value.storage.mounts[2].source.state == report_model.Redacted
+  assert value.storage.mounts[2].source.value == null
   let fixture_only = collector.collect_from_root(root, "fixture-arch", 65536, 250, "storage", true)?
-  fixture_only.storage.mounts[0].usage_state == report_model.NotRequested
+  assert fixture_only.storage.mounts[0].usage_state == report_model.NotRequested
 }
 
 test test_system_report_storage_mounts_reject_truncated_complete_looking_prefix {
@@ -4562,8 +4562,8 @@ test test_system_report_storage_mounts_reject_truncated_complete_looking_prefix 
   root.write(p"proc/self/mountinfo", valid + padding)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  value.storage.mounts.len() == 0
-  (value.issues |> any .section == "storage" and .field == "mounts" and .state == report_model.Truncated)
+  assert value.storage.mounts.len() == 0
+  assert (value.issues |> any .section == "storage" and .field == "mounts" and .state == report_model.Truncated)
 }
 
 test test_system_report_storage_usage_skips_shadowed_and_automount_descendants {
@@ -4582,14 +4582,14 @@ test test_system_report_storage_usage_skips_shadowed_and_automount_descendants {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true, true)?
-  value.storage.mounts.len() == 6
-  (value.storage.mounts[0].usage_state == report_model.Observed)
+  assert value.storage.mounts.len() == 6
+  assert (value.storage.mounts[0].usage_state == report_model.Observed)
   for index in [1, 2, 3, 4] {
-    (value.storage.mounts[index].usage_state == report_model.NotRequested)
-    value.storage.mounts[index].usage_total_bytes == null
+    assert (value.storage.mounts[index].usage_state == report_model.NotRequested)
+    assert value.storage.mounts[index].usage_total_bytes == null
   }
 
-  (value.storage.mounts[5].usage_state == report_model.Disappeared)
+  assert (value.storage.mounts[5].usage_state == report_model.Disappeared)
 }
 
 test test_system_report_storage_mount_rejects_json_unsafe_identity {
@@ -4605,11 +4605,11 @@ test test_system_report_storage_mount_rejects_json_unsafe_identity {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true, true)?
-  value.storage.mounts.len() == 1
-  value.storage.mounts[0].mount_id == 3
-  value.storage.mounts[0].usage_state == report_model.NotRequested
-  (value.issues |> any .field == "mounts.line.0" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "mounts.line.1" and .state == report_model.RangeFailure)
+  assert value.storage.mounts.len() == 1
+  assert value.storage.mounts[0].mount_id == 3
+  assert value.storage.mounts[0].usage_state == report_model.NotRequested
+  assert (value.issues |> any .field == "mounts.line.0" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "mounts.line.1" and .state == report_model.RangeFailure)
 }
 
 test test_system_report_storage_links_block_devices_to_pci_controllers {
@@ -4690,7 +4690,7 @@ test test_system_report_storage_links_block_devices_to_pci_controllers {
     """0x01
 """,
   )?
-  root.children(p"sys/bus/pci/devices")?.children.len() == 1
+  assert root.children(p"sys/bus/pci/devices")?.children.len() == 1
   root.symlink(../../devices/pci0001:02/0001:02:03.0/block/nvme0n1, p"sys/class/block/nvme0n1")?
   root.symlink(../../nvme0, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/device")?
   root.write(
@@ -4765,8 +4765,8 @@ test test_system_report_storage_links_block_devices_to_pci_controllers {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  value.pci.functions.len() == 1
-  value.pci.functions[0].domain == 1
+  assert value.pci.functions.len() == 1
+  assert value.pci.functions[0].domain == 1
   if value.storage.devices.len() == 0 {
     test.fail(
       (value.issues
@@ -4775,21 +4775,21 @@ test test_system_report_storage_links_block_devices_to_pci_controllers {
     )?
   }
 
-  value.storage.devices.len() == 1
-  value.storage.devices[0].kind == "disk"
-  value.storage.devices[0].size_bytes == 8192
-  value.storage.devices[0].parent_pci_function_index == 0
-  value.storage.mounts[0].block_device_index == 0
+  assert value.storage.devices.len() == 1
+  assert value.storage.devices[0].kind == "disk"
+  assert value.storage.devices[0].size_bytes == 8192
+  assert value.storage.devices[0].parent_pci_function_index == 0
+  assert value.storage.mounts[0].block_device_index == 0
 }
 
 test test_system_report_block_scheduler_requires_one_selected_choice {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let selected = collectors.parse_block_scheduler("none [mq-deadline] kyber").require(BlockScheduler)?
-  selected.active == "mq-deadline"
-  selected.available == ["none", "mq-deadline", "kyber"]
+  assert selected.active == "mq-deadline"
+  assert selected.available == ["none", "mq-deadline", "kyber"]
   let tabbed = collectors.parse_block_scheduler("[none]\tfixture-scheduler").require(BlockScheduler)?
-  tabbed.active == "none"
-  tabbed.available == ["none", "fixture-scheduler"]
+  assert tabbed.active == "none"
+  assert tabbed.available == ["none", "fixture-scheduler"]
   for invalid in [
     "",
     "none mq-deadline",
@@ -4799,7 +4799,7 @@ test test_system_report_block_scheduler_requires_one_selected_choice {
     """[none]
 kyber""",
   ] {
-    (collectors.parse_block_scheduler(invalid) == null)
+    assert (collectors.parse_block_scheduler(invalid) == null)
   }
 }
 
@@ -4862,20 +4862,20 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  value.storage.devices.len() == 1
+  assert value.storage.devices.len() == 1
   let device = value.storage.devices[0]
-  device.major == null
-  device.minor == null
-  device.size_bytes == null
-  device.logical_sector_bytes == null
-  device.removable == null
-  device.active_scheduler == null
-  device.available_schedulers == []
-  device.io_counters == []
-  device.model.value == null
-  device.firmware.value == null
-  (device.model.state == report_model.Truncated)
-  (device.firmware.state == report_model.Truncated)
+  assert device.major == null
+  assert device.minor == null
+  assert device.size_bytes == null
+  assert device.logical_sector_bytes == null
+  assert device.removable == null
+  assert device.active_scheduler == null
+  assert device.available_schedulers == []
+  assert device.io_counters == []
+  assert device.model.value == null
+  assert device.firmware.value == null
+  assert (device.model.state == report_model.Truncated)
+  assert (device.firmware.state == report_model.Truncated)
   for field in [
     "major_minor",
     "size",
@@ -4887,8 +4887,8 @@ ${padding}""",
     "firmware",
   ] {
     let matches = value.issues |> where .section == "storage" and .field == f"devices.loop0.${field}"
-    matches.len() == 1
-    (matches[0].state == report_model.Truncated)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.Truncated)
   }
 
   root.write(
@@ -4897,12 +4897,12 @@ ${padding}""",
 """,
   )?
   let malformed_scheduler = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  malformed_scheduler.storage.devices[0].active_scheduler == null
-  malformed_scheduler.storage.devices[0].available_schedulers == []
+  assert malformed_scheduler.storage.devices[0].active_scheduler == null
+  assert malformed_scheduler.storage.devices[0].available_schedulers == []
   let scheduler_issues = malformed_scheduler.issues
     |> where .section == "storage" and .field == "devices.loop0.scheduler"
-  scheduler_issues.len() == 1
-  scheduler_issues[0].state == report_model.Malformed
+  assert scheduler_issues.len() == 1
+  assert scheduler_issues[0].state == report_model.Malformed
 
   root.write(
     p"sys/class/block/loop0/queue/logical_block_size",
@@ -4946,14 +4946,14 @@ ${padding}""",
   )?
   let invalid_queue = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
   let queue_device = invalid_queue.storage.devices[0]
-  queue_device.logical_sector_bytes == null
-  queue_device.physical_sector_bytes == null
-  queue_device.removable == null
-  queue_device.rotational == null
-  queue_device.read_only == null
-  queue_device.read_ahead_kb == null
-  queue_device.discard_granularity_bytes == null
-  queue_device.discard_max_bytes == null
+  assert queue_device.logical_sector_bytes == null
+  assert queue_device.physical_sector_bytes == null
+  assert queue_device.removable == null
+  assert queue_device.rotational == null
+  assert queue_device.read_only == null
+  assert queue_device.read_ahead_kb == null
+  assert queue_device.discard_granularity_bytes == null
+  assert queue_device.discard_max_bytes == null
   for expected in [
     {
       field: "logical_sector_bytes",
@@ -4989,8 +4989,8 @@ ${padding}""",
     },
   ] {
     let matches = invalid_queue.issues |> where .section == "storage" and .field == f"devices.loop0.${expected.field}"
-    matches.len() == 1
-    matches[0].state == expected.state
+    assert matches.len() == 1
+    assert matches[0].state == expected.state
   }
 
   root.write(
@@ -4999,10 +4999,10 @@ ${padding}""",
 """,
   )?
   let unsafe_identity = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  unsafe_identity.storage.devices[0].major == null
+  assert unsafe_identity.storage.devices[0].major == null
   let invalid = unsafe_identity.issues |> where .section == "storage" and .field == "devices.loop0.major_minor"
-  invalid.len() == 1
-  (invalid[0].state == report_model.RangeFailure)
+  assert invalid.len() == 1
+  assert (invalid[0].state == report_model.RangeFailure)
 
   root.write(
     p"sys/class/block/loop0/dev",
@@ -5015,17 +5015,17 @@ ${padding}""",
 """,
   )?
   let maximum = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  maximum.storage.devices[0].size_bytes == 9007199254740480
+  assert maximum.storage.devices[0].size_bytes == 9007199254740480
   root.write(
         p"sys/class/block/loop0/size",
     """17592186044416
 """,
   )?
   let oversized = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  oversized.storage.devices[0].size_bytes == null
+  assert oversized.storage.devices[0].size_bytes == null
   let size_issues = oversized.issues |> where .section == "storage" and .field == "devices.loop0.size"
-  size_issues.len() == 1
-  (size_issues[0].state == report_model.RangeFailure)
+  assert size_issues.len() == 1
+  assert (size_issues[0].state == report_model.RangeFailure)
 
   root.write(
     p"sys/class/block/loop0/size",
@@ -5033,10 +5033,10 @@ ${padding}""",
 """,
   )?
   let negative_zero = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  negative_zero.storage.devices[0].size_bytes == null
+  assert negative_zero.storage.devices[0].size_bytes == null
   let negative_size = negative_zero.issues |> where .section == "storage" and .field == "devices.loop0.size"
-  negative_size.len() == 1
-  negative_size[0].state == report_model.Malformed
+  assert negative_size.len() == 1
+  assert negative_size[0].state == report_model.Malformed
 
   root.write(
     p"sys/class/block/loop0/size",
@@ -5049,11 +5049,11 @@ ${padding}""",
 """,
   )?
   let counters = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  ! (counters.storage.devices[0].io_counters |> any .name == "read_ios")
-  (counters.storage.devices[0].io_counters |> any .name == "read_sectors" and .value == 8)
+  assert ! (counters.storage.devices[0].io_counters |> any .name == "read_ios")
+  assert (counters.storage.devices[0].io_counters |> any .name == "read_sectors" and .value == 8)
   let counter_issues = counters.issues |> where .section == "storage" and .field == "devices.loop0.stat.read_ios"
-  counter_issues.len() == 1
-  (counter_issues[0].state == report_model.RangeFailure)
+  assert counter_issues.len() == 1
+  assert (counter_issues[0].state == report_model.RangeFailure)
 
   root.write(
     p"sys/class/block/loop0/stat",
@@ -5062,12 +5062,12 @@ ${padding}""",
   )?
   let full_stats = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
   let values = full_stats.storage.devices[0].io_counters
-  values.len() == 17
-  (values |> any .name == "discard_ios" and .value == 5)
-  (values |> any .name == "discard_sectors" and .value == 7)
-  (values |> any .name == "flush_ios" and .value == 9)
-  (values |> any .name == "flush_ms" and .value == 10)
-  ! (full_stats.issues |> any .field == "devices.loop0.stat")
+  assert values.len() == 17
+  assert (values |> any .name == "discard_ios" and .value == 5)
+  assert (values |> any .name == "discard_sectors" and .value == 7)
+  assert (values |> any .name == "flush_ios" and .value == 9)
+  assert (values |> any .name == "flush_ms" and .value == 10)
+  assert ! (full_stats.issues |> any .field == "devices.loop0.stat")
 
   root.write(
     p"sys/class/block/loop0/stat",
@@ -5075,10 +5075,10 @@ ${padding}""",
 """,
   )?
   let incomplete_stats = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  incomplete_stats.storage.devices[0].io_counters == []
+  assert incomplete_stats.storage.devices[0].io_counters == []
   let incomplete_issue = incomplete_stats.issues |> where .section == "storage" and .field == "devices.loop0.stat"
-  incomplete_issue.len() == 1
-  (incomplete_issue[0].state == report_model.Malformed)
+  assert incomplete_issue.len() == 1
+  assert (incomplete_issue[0].state == report_model.Malformed)
 
   root.write(
     p"sys/class/block/loop0/stat",
@@ -5086,18 +5086,18 @@ ${padding}""",
 """,
   )?
   let future_stats = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  future_stats.storage.devices[0].io_counters.len() == 17
+  assert future_stats.storage.devices[0].io_counters.len() == 17
   let unknown = future_stats.issues |> where .section == "storage" and .field == "devices.loop0.stat"
-  unknown.len() == 1
-  (unknown[0].state == report_model.Unsupported)
+  assert unknown.len() == 1
+  assert (unknown[0].state == report_model.Unsupported)
 
   root.remove(p"sys/class/block/loop0/queue/read_ahead_kb")?
   root.mkdir(p"sys/class/block/loop0/queue/read_ahead_kb")?
   let unreadable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  unreadable.storage.devices[0].read_ahead_kb == null
+  assert unreadable.storage.devices[0].read_ahead_kb == null
   let failed_read_ahead = unreadable.issues |> where .section == "storage" and .field == "devices.loop0.read_ahead_kb"
-  failed_read_ahead.len() == 1
-  failed_read_ahead[0].state == report_model.ReadFailure
+  assert failed_read_ahead.len() == 1
+  assert failed_read_ahead[0].state == report_model.ReadFailure
 }
 
 test test_system_report_storage_keeps_a_device_with_missing_numbers {
@@ -5111,13 +5111,13 @@ test test_system_report_storage_keeps_a_device_with_missing_numbers {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  value.storage.devices.len() == 1
-  value.storage.devices[0].name == "mystery0"
-  (value.storage.devices[0].major == null)
-  (value.storage.devices[0].minor == null)
+  assert value.storage.devices.len() == 1
+  assert value.storage.devices[0].name == "mystery0"
+  assert (value.storage.devices[0].major == null)
+  assert (value.storage.devices[0].minor == null)
   let missing_numbers = value.issues |> where .field == "devices.mystery0.major_minor"
-  missing_numbers.len() == 1
-  missing_numbers[0].state == report_model.Absent
+  assert missing_numbers.len() == 1
+  assert missing_numbers[0].state == report_model.Absent
 }
 
 test test_system_report_storage_links_layered_block_devices_by_identity {
@@ -5150,18 +5150,18 @@ test test_system_report_storage_links_layered_block_devices_by_identity {
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  value.storage.status.state == report_model.Complete
-  value.storage.devices.len() == 2
+  assert value.storage.status.state == report_model.Complete
+  assert value.storage.devices.len() == 2
   let base = (value.storage.devices |> where .name == "sda")[0]
   let stacked = (value.storage.devices |> where .name == "dm-0")[0]
-  base.major == 8
-  stacked.major == 253
-  base.holder_indices.len() == 1
-  stacked.slave_indices.len() == 1
-  value.storage.devices[base.holder_indices[0]].name == "dm-0"
-  value.storage.devices[stacked.slave_indices[0]].name == "sda"
-  base.slave_indices == []
-  stacked.holder_indices == []
+  assert base.major == 8
+  assert stacked.major == 253
+  assert base.holder_indices.len() == 1
+  assert stacked.slave_indices.len() == 1
+  assert value.storage.devices[base.holder_indices[0]].name == "dm-0"
+  assert value.storage.devices[stacked.slave_indices[0]].name == "sda"
+  assert base.slave_indices == []
+  assert stacked.holder_indices == []
 }
 
 test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links {
@@ -5209,17 +5209,17 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  value.storage.status.state == report_model.Complete
-  value.storage.devices.len() == 3
-  (value.storage.devices |> where .name == "sda2").len() == 0
+  assert value.storage.status.state == report_model.Complete
+  assert value.storage.devices.len() == 3
+  assert (value.storage.devices |> where .name == "sda2").len() == 0
   let disk = (value.storage.devices |> where .name == "sda")[0]
-  disk.kind == "disk"
-  disk.size_bytes == 524288
+  assert disk.kind == "disk"
+  assert disk.size_bytes == 524288
   for name in ["sda1", "sda3"] {
     let partition = (value.storage.devices |> where .name == name)[0]
-    partition.kind == "partition"
-    value.storage.devices[partition.parent_device_index ?? -1].name == "sda"
-    partition.size_bytes == 65536
+    assert partition.kind == "partition"
+    assert value.storage.devices[partition.parent_device_index ?? -1].name == "sda"
+    assert partition.size_bytes == 65536
   }
 }
 
@@ -5236,34 +5236,34 @@ test test_system_report_storage_keeps_holder_and_slave_enumeration_failures {
   root.write(p"sys/class/block/fixture/slaves", "not a directory")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
-  value.storage.devices.len() == 1
+  assert value.storage.devices.len() == 1
   for field in ["devices.fixture.holders", "devices.fixture.slaves"] {
     let matches = value.issues |> where .section == "storage" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.ReadFailure)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.ReadFailure)
   }
 
-  (value.issues |> where .section == "storage" and .field == "devices.fixture.sysfs_target").len() == 0
+  assert (value.issues |> where .section == "storage" and .field == "devices.fixture.sysfs_target").len() == 0
 
   root.write(p"sys/class/block/not-a-directory", "not a block device")?
   let failed_link = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
   let link_issues = failed_link.issues
     |> where .section == "storage" and .field == "devices.not-a-directory.sysfs_target"
-  link_issues.len() == 1
-  (link_issues[0].state == report_model.ReadFailure)
-  (link_issues[0].errno != null)
+  assert link_issues.len() == 1
+  assert (link_issues[0].state == report_model.ReadFailure)
+  assert (link_issues[0].errno != null)
 }
 
 test test_system_report_process_stat_parser_preserves_start_identity {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let stat = collector.parse_proc_stat("123 (worker (pool)) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2")?
-  stat.pid == 123
-  stat.parent_pid == 1
-  stat.command == "worker (pool)"
-  stat.thread_count == 2
-  stat.start_ticks == 100
-  stat.virtual_bytes == 8192
-  stat.resident_pages == 2
+  assert stat.pid == 123
+  assert stat.parent_pid == 1
+  assert stat.command == "worker (pool)"
+  assert stat.thread_count == 2
+  assert stat.start_ticks == 100
+  assert stat.virtual_bytes == 8192
+  assert stat.resident_pages == 2
   let error_kind = f"${fs.cwd()?.display()}/core/lib/system_report.xsh.SystemReportError.InvalidProcStat"
   for invalid in [
     "0x7b (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2",
@@ -5278,12 +5278,12 @@ test test_system_report_process_stat_parser_preserves_start_identity {
   let oversized_optional = collector.parse_proc_stat(
     "123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 9007199254740992 0 100 9007199254740992 9007199254740992",
   )?
-  oversized_optional.thread_count == null
-  oversized_optional.virtual_bytes == null
-  oversized_optional.resident_pages == null
-  (oversized_optional.field_issues |> any .field == "thread_count" and .state == report_model.RangeFailure)
-  (oversized_optional.field_issues |> any .field == "virtual_bytes" and .state == report_model.RangeFailure)
-  (oversized_optional.field_issues |> any .field == "resident_pages" and .state == report_model.RangeFailure)
+  assert oversized_optional.thread_count == null
+  assert oversized_optional.virtual_bytes == null
+  assert oversized_optional.resident_pages == null
+  assert (oversized_optional.field_issues |> any .field == "thread_count" and .state == report_model.RangeFailure)
+  assert (oversized_optional.field_issues |> any .field == "virtual_bytes" and .state == report_model.RangeFailure)
+  assert (oversized_optional.field_issues |> any .field == "resident_pages" and .state == report_model.RangeFailure)
 }
 
 test test_system_report_process_statm_overflow_does_not_publish_stat_fallback {
@@ -5313,12 +5313,12 @@ test test_system_report_process_statm_overflow_does_not_publish_stat_fallback {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
-  value.processes.processes.len() == 1
-  value.processes.processes[0].virtual_bytes == null
-  value.processes.processes[0].resident_bytes == null
-  (value.issues |> any .field == "123.statm.virtual_bytes" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "123.statm.resident_bytes" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "9007199254740992.pid" and .state == report_model.RangeFailure)
+  assert value.processes.processes.len() == 1
+  assert value.processes.processes[0].virtual_bytes == null
+  assert value.processes.processes[0].resident_bytes == null
+  assert (value.issues |> any .field == "123.statm.virtual_bytes" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "123.statm.resident_bytes" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "9007199254740992.pid" and .state == report_model.RangeFailure)
 }
 
 test test_system_report_process_statm_requires_all_kernel_fields {
@@ -5347,10 +5347,10 @@ test test_system_report_process_statm_requires_all_kernel_fields {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
-  value.processes.processes.len() == 1
-  value.processes.processes[0].virtual_bytes == null
-  value.processes.processes[0].resident_bytes == null
-  (value.issues |> any .field == "123.statm" and .state == report_model.Malformed)
+  assert value.processes.processes.len() == 1
+  assert value.processes.processes[0].virtual_bytes == null
+  assert value.processes.processes[0].resident_bytes == null
+  assert (value.issues |> any .field == "123.statm" and .state == report_model.Malformed)
 
   root.write(
     p"proc/123/statm",
@@ -5358,9 +5358,9 @@ test test_system_report_process_statm_requires_all_kernel_fields {
 """,
   )?
   let malformed = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
-  malformed.processes.processes[0].virtual_bytes == null
-  malformed.processes.processes[0].resident_bytes == null
-  (malformed.issues |> any .field == "123.statm" and .state == report_model.Malformed)
+  assert malformed.processes.processes[0].virtual_bytes == null
+  assert malformed.processes.processes[0].resident_bytes == null
+  assert (malformed.issues |> any .field == "123.statm" and .state == report_model.Malformed)
 
   root.write(
     p"proc/123/statm",
@@ -5368,8 +5368,8 @@ test test_system_report_process_statm_requires_all_kernel_fields {
 """,
   )?
   let unused_large = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
-  unused_large.processes.processes[0].virtual_bytes == 131072
-  unused_large.processes.processes[0].resident_bytes == 65536
+  assert unused_large.processes.processes[0].virtual_bytes == 131072
+  assert unused_large.processes.processes[0].resident_bytes == 65536
 }
 
 test test_system_report_process_cgroup_requires_one_absolute_v2_path {
@@ -5399,9 +5399,9 @@ test test_system_report_process_cgroup_requires_one_absolute_v2_path {
 """,
   )?
   let relative = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  relative.processes.processes[0].cgroup.value == null
-  relative.processes.processes[0].cgroup.state == report_model.Malformed
-  (relative.issues |> any .field == "123.cgroup" and .state == report_model.Malformed)
+  assert relative.processes.processes[0].cgroup.value == null
+  assert relative.processes.processes[0].cgroup.state == report_model.Malformed
+  assert (relative.issues |> any .field == "123.cgroup" and .state == report_model.Malformed)
 
   root.write(
     p"proc/123/cgroup",
@@ -5410,8 +5410,8 @@ test test_system_report_process_cgroup_requires_one_absolute_v2_path {
 """,
   )?
   let duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  duplicate.processes.processes[0].cgroup.value == null
-  duplicate.processes.processes[0].cgroup.state == report_model.Malformed
+  assert duplicate.processes.processes[0].cgroup.value == null
+  assert duplicate.processes.processes[0].cgroup.state == report_model.Malformed
 
   root.write(
     p"proc/123/cgroup",
@@ -5419,8 +5419,8 @@ test test_system_report_process_cgroup_requires_one_absolute_v2_path {
 """,
   )?
   let legacy = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  legacy.processes.processes[0].cgroup.value == null
-  legacy.processes.processes[0].cgroup.state == report_model.Unsupported
+  assert legacy.processes.processes[0].cgroup.value == null
+  assert legacy.processes.processes[0].cgroup.state == report_model.Unsupported
 
   root.write(
     p"proc/123/cgroup",
@@ -5429,8 +5429,8 @@ test test_system_report_process_cgroup_requires_one_absolute_v2_path {
 """,
   )?
   let valid = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  valid.processes.processes[0].cgroup.value == "/tenant/worker"
-  valid.processes.processes[0].cgroup.state == report_model.Observed
+  assert valid.processes.processes[0].cgroup.value == "/tenant/worker"
+  assert valid.processes.processes[0].cgroup.state == report_model.Observed
 }
 
 test test_system_report_process_uid_requires_one_complete_numeric_status_row {
@@ -5461,8 +5461,8 @@ Uid:	1234	1235	1235	1235
 """,
   )?
   let valid = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  valid.processes.processes[0].uid == 1234
-  (valid.issues |> where .field == "123.uid").len() == 0
+  assert valid.processes.processes[0].uid == 1234
+  assert (valid.issues |> where .field == "123.uid").len() == 0
 
   root.write(
     p"proc/123/status",
@@ -5471,8 +5471,8 @@ Uid:	2000	2000	2000	2000
 """,
   )?
   let duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  duplicate.processes.processes[0].uid == null
-  (duplicate.issues |> any .field == "123.uid" and .state == report_model.Malformed)
+  assert duplicate.processes.processes[0].uid == null
+  assert (duplicate.issues |> any .field == "123.uid" and .state == report_model.Malformed)
 
   root.write(
     p"proc/123/status",
@@ -5480,8 +5480,8 @@ Uid:	2000	2000	2000	2000
 """,
   )?
   let short = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  short.processes.processes[0].uid == null
-  (short.issues |> any .field == "123.uid" and .state == report_model.Malformed)
+  assert short.processes.processes[0].uid == null
+  assert (short.issues |> any .field == "123.uid" and .state == report_model.Malformed)
 }
 
 test test_system_report_process_collection_scales_pages_and_omits_private_sources {
@@ -5511,11 +5511,11 @@ Uid:	1234	1234	1234	1234
   )?
   root.write(p"proc/123/environ", "PRIVATE_ENVIRONMENT_TOKEN=secret\0")?
   root.write(p"proc/123/cmdline", "private-command-argument\0")?
-  root.children(p"proc")?.children.len() == 1
+  assert root.children(p"proc")?.children.len() == 1
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
-  value.scope.page_size_bytes == 65536
-  value.scope.clock_ticks_per_second == 250
+  assert value.scope.page_size_bytes == 65536
+  assert value.scope.clock_ticks_per_second == 250
   if value.processes.processes.len() == 0 {
     test.fail(
       (value.issues
@@ -5524,23 +5524,23 @@ Uid:	1234	1234	1234	1234
     )?
   }
 
-  value.processes.processes.len() == 1
+  assert value.processes.processes.len() == 1
   let process_item = value.processes.processes[0]
-  process_item.pid == 123
-  process_item.parent_pid == 1
-  process_item.uid == 1234
-  process_item.command.value == "worker"
-  process_item.start_ticks == 100
-  process_item.resident_bytes == 65536
-  process_item.virtual_bytes == 131072
-  process_item.cgroup.value == "/fixture/group"
-  process_item.cgroup_resource_index == null
+  assert process_item.pid == 123
+  assert process_item.parent_pid == 1
+  assert process_item.uid == 1234
+  assert process_item.command.value == "worker"
+  assert process_item.start_ticks == 100
+  assert process_item.resident_bytes == 65536
+  assert process_item.virtual_bytes == 131072
+  assert process_item.cgroup.value == "/fixture/group"
+  assert process_item.cgroup_resource_index == null
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let sensitive_json = model.encode_report_json(value, true, false)?
-  ("PRIVATE_ENVIRONMENT_TOKEN" not in sensitive_json)
-  ("private-command-argument" not in sensitive_json)
-  ("\"environment\"" not in sensitive_json)
-  ("\"cmdline\"" not in sensitive_json)
+  assert ("PRIVATE_ENVIRONMENT_TOKEN" not in sensitive_json)
+  assert ("private-command-argument" not in sensitive_json)
+  assert ("\"environment\"" not in sensitive_json)
+  assert ("\"cmdline\"" not in sensitive_json)
 }
 
 test test_system_report_process_collection_rejects_truncated_stat_and_field_prefixes {
@@ -5557,10 +5557,10 @@ test test_system_report_process_collection_rejects_truncated_stat_and_field_pref
   root.write(p"proc/123/stat", f"${stat}${padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let truncated_stat = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  truncated_stat.processes.processes == []
+  assert truncated_stat.processes.processes == []
   let stat_issues = truncated_stat.issues |> where .section == "processes" and .field == "123.stat"
-  stat_issues.len() == 1
-  (stat_issues[0].state == report_model.Truncated)
+  assert stat_issues.len() == 1
+  assert (stat_issues[0].state == report_model.Truncated)
 
   root.write(p"proc/123/stat", stat)?
   root.write(
@@ -5579,16 +5579,16 @@ ${padding}""",
 ${padding}""",
   )?
   let truncated_fields = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
-  truncated_fields.processes.processes.len() == 1
+  assert truncated_fields.processes.processes.len() == 1
   let item = truncated_fields.processes.processes[0]
-  item.virtual_bytes == 8192
-  item.resident_bytes == 8192
-  item.uid == null
-  (item.cgroup.state == report_model.Truncated)
-  item.cgroup.value == null
-  (truncated_fields.issues |> any .field == "123.statm" and .state == report_model.Truncated)
-  (truncated_fields.issues |> any .field == "123.status" and .state == report_model.Truncated)
-  (truncated_fields.issues |> any .field == "123.cgroup" and .state == report_model.Truncated)
+  assert item.virtual_bytes == 8192
+  assert item.resident_bytes == 8192
+  assert item.uid == null
+  assert (item.cgroup.state == report_model.Truncated)
+  assert item.cgroup.value == null
+  assert (truncated_fields.issues |> any .field == "123.statm" and .state == report_model.Truncated)
+  assert (truncated_fields.issues |> any .field == "123.status" and .state == report_model.Truncated)
+  assert (truncated_fields.issues |> any .field == "123.cgroup" and .state == report_model.Truncated)
 }
 
 test test_system_report_joins_visible_process_cgroups_to_resource_records {
@@ -5655,13 +5655,13 @@ VendorCounter: 12 widgets
   let process_item = (value.processes.processes
     |> where .pid == 123
     |> first())?
-  process_item.cgroup.value == "/fixture/group"
+  assert process_item.cgroup.value == "/fixture/group"
   if process_item.cgroup_resource_index == null {
     test.fail("process cgroup relationship was not resolved")?
   }
 
   let resource = value.memory.cgroup[process_item.cgroup_resource_index ?? -1]
-  resource.path.value == process_item.cgroup.value
+  assert resource.path.value == process_item.cgroup.value
 }
 
 test test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors {
@@ -5775,37 +5775,37 @@ throttled_usec 450
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "memory", true)?
   let memory_limits = value.memory.cgroup |> where .controller == "memory" and .resource == "memory.max"
-  memory_limits.len() == 2
+  assert memory_limits.len() == 2
   let current_limit = memory_limits[0]
-  current_limit.hierarchy_level == 0
-  current_limit.maximum_unlimited == true
-  current_limit.current_value == 1024
-  current_limit.unit == "bytes"
+  assert current_limit.hierarchy_level == 0
+  assert current_limit.maximum_unlimited == true
+  assert current_limit.current_value == 1024
+  assert current_limit.unit == "bytes"
   let cpu_limit = (value.memory.cgroup
     |> where .resource == "cpu.max"
     |> first())?
-  cpu_limit.quota == 50000
-  cpu_limit.period == 100000
+  assert cpu_limit.quota == 50000
+  assert cpu_limit.period == 100000
   let swap_limit = (value.memory.cgroup
     |> where .resource == "memory.swap.max"
     |> first())?
-  swap_limit.maximum_value == 262144
-  swap_limit.current_value == 65536
+  assert swap_limit.maximum_value == 262144
+  assert swap_limit.current_value == 65536
   let cpu_usage = (value.memory.cgroup
     |> where .resource == "cpu.stat.usage_usec"
     |> first())?
-  cpu_usage.current_value == 9000
-  cpu_usage.unit == "microseconds"
+  assert cpu_usage.current_value == 9000
+  assert cpu_usage.unit == "microseconds"
   let cpuset = (value.memory.cgroup
     |> where .resource == "cpuset.cpus.effective"
     |> first())?
-  cpuset.effective_cpus == [0, 1]
+  assert cpuset.effective_cpus == [0, 1]
   let io_bytes = (value.memory.cgroup
     |> where .resource == "io.stat.8:0.rbytes"
     |> first())?
-  io_bytes.current_value == 4096
-  io_bytes.unit == "bytes"
-  (value.memory.host.counters |> any .name == "VendorCounter" and .value == 12 and .unit == "widgets")
+  assert io_bytes.current_value == 4096
+  assert io_bytes.unit == "bytes"
+  assert (value.memory.host.counters |> any .name == "VendorCounter" and .value == 12 and .unit == "widgets")
 
   let invalid_root = fs.tempdir()?
   defer invalid_root.close()?
@@ -5821,8 +5821,8 @@ throttled_usec 450
 """,
   )?
   let invalid = collector.collect_from_root(invalid_root, "fixture-arch", 4096, 100, "memory", true)?
-  invalid.memory.host.total_bytes == null
-  (invalid.issues |> any .field == "meminfo.MemTotal" and .state == report_model.Malformed)
+  assert invalid.memory.host.total_bytes == null
+  assert (invalid.issues |> any .field == "meminfo.MemTotal" and .state == report_model.Malformed)
 }
 
 test test_system_report_memory_preserves_colons_in_cgroup_membership_path {
@@ -5863,10 +5863,10 @@ test test_system_report_memory_preserves_colons_in_cgroup_membership_path {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   let limits = value.memory.cgroup |> where .resource == "memory.max" and .hierarchy_level == 0
-  limits.len() == 1
-  limits[0].path.value == "/team:blue"
-  limits[0].maximum_value == 4096
-  limits[0].current_value == 1024
+  assert limits.len() == 1
+  assert limits[0].path.value == "/team:blue"
+  assert limits[0].maximum_value == 4096
+  assert limits[0].current_value == 1024
 
   root.mkdir(p"sys/fs/cgroup/selected", parents: true)?
   root.write(
@@ -5889,9 +5889,9 @@ test test_system_report_memory_preserves_colons_in_cgroup_membership_path {
   let selected_limit = (selected.memory.cgroup
     |> where .resource == "memory.max" and .hierarchy_level == 0
     |> first())?
-  selected_limit.path.value == "/team:blue"
-  selected_limit.maximum_value == 8192
-  selected_limit.current_value == 2048
+  assert selected_limit.path.value == "/team:blue"
+  assert selected_limit.maximum_value == 8192
+  assert selected_limit.current_value == 2048
 
   root.write(
     p"proc/self/mountinfo",
@@ -5899,16 +5899,16 @@ test test_system_report_memory_preserves_colons_in_cgroup_membership_path {
 """,
   )?
   let malformed_mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  malformed_mount.memory.cgroup == []
-  (malformed_mount.issues |> any .section == "memory" and .field == "cgroup.mountinfo" and .state == report_model.Malformed)
+  assert malformed_mount.memory.cgroup == []
+  assert (malformed_mount.issues |> any .section == "memory" and .field == "cgroup.mountinfo" and .state == report_model.Malformed)
   root.write(
         p"proc/self/mountinfo",
     """32 20 0:25 /team:blue /sys/fs/cgroup/selected rw cgroup2 cgroup rw
 """,
   )?
   let missing_separator = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  missing_separator.memory.cgroup == []
-  (missing_separator.issues
+  assert missing_separator.memory.cgroup == []
+  assert (missing_separator.issues
       |> any .section == "memory" and .field == "cgroup.mountinfo" and .state == report_model.Malformed)
   root.write(
         p"proc/self/mountinfo",
@@ -5923,8 +5923,8 @@ test test_system_report_memory_preserves_colons_in_cgroup_membership_path {
 """,
   )?
   let duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  duplicate.memory.cgroup == []
-  (duplicate.issues |> any .section == "memory" and .field == "cgroup.membership" and .state == report_model.Malformed)
+  assert duplicate.memory.cgroup == []
+  assert (duplicate.issues |> any .section == "memory" and .field == "cgroup.membership" and .state == report_model.Malformed)
 }
 
 test test_system_report_memory_directory_failures_keep_source_issues {
@@ -5943,14 +5943,14 @@ MemFree: 8 kB
   root.write(p"sys/devices/system/node", "not a directory")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let top = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  top.memory.host.total_bytes == 16384
+  assert top.memory.host.total_bytes == 16384
   for field in ["huge_pages.enumeration", "numa.enumeration"] {
     let matches = top.issues |> where .section == "memory" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.ReadFailure)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.ReadFailure)
   }
 
-  top.memory.status.state == report_model.Partial
+  assert top.memory.status.state == report_model.Partial
 
   root.remove(p"sys/devices/system/node")?
   root.mkdir(p"sys/devices/system/node/node0", parents: true)?
@@ -5958,14 +5958,14 @@ MemFree: 8 kB
   root.write(p"sys/devices/system/node/node0/hugepages", "not a directory")?
   let nested = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   let nested_issues = nested.issues |> where .section == "memory" and .field == "numa.node0.huge_pages"
-  nested_issues.len() == 1
-  (nested_issues[0].state == report_model.ReadFailure)
+  assert nested_issues.len() == 1
+  assert (nested_issues[0].state == report_model.ReadFailure)
   let meminfo_issues = nested.issues |> where .section == "memory" and .field == "numa.node0.meminfo"
-  meminfo_issues.len() == 1
-  (meminfo_issues[0].state == report_model.Absent)
+  assert meminfo_issues.len() == 1
+  assert (meminfo_issues[0].state == report_model.Absent)
   let invalid_node = nested.issues |> where .section == "memory" and .field == "numa.nodebad"
-  invalid_node.len() == 1
-  (invalid_node[0].state == report_model.Malformed)
+  assert invalid_node.len() == 1
+  assert (invalid_node[0].state == report_model.Malformed)
 }
 
 test test_system_report_huge_page_pools_reject_unsafe_sizes_and_partial_counts {
@@ -6019,25 +6019,25 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  value.memory.huge_pages.len() == 3
+  assert value.memory.huge_pages.len() == 3
   let global = (value.memory.huge_pages
     |> where .node_id == null and .page_size_bytes == 2097152
     |> first())?
-  global.page_size_bytes == 2097152
-  global.total == 2
-  global.free == null
+  assert global.page_size_bytes == 2097152
+  assert global.total == 2
+  assert global.free == null
   let safe_edge = (value.memory.huge_pages
     |> where .page_size_bytes == 9007199254739968
     |> first())?
-  safe_edge.total == 1
+  assert safe_edge.total == 1
   let node = (value.memory.huge_pages
     |> where .node_id == 0
     |> first())?
-  node.page_size_bytes == 2097152
-  node.total == 3
-  (value.issues |> any .field == "huge_pages.hugepages-8796093022208kB.page_size" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "huge_pages.hugepages-1024kB.total" and .state == report_model.Truncated)
-  (value.issues |> any .field == "huge_pages.hugepages-2048kB.free" and .state == report_model.Malformed)
+  assert node.page_size_bytes == 2097152
+  assert node.total == 3
+  assert (value.issues |> any .field == "huge_pages.hugepages-8796093022208kB.page_size" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "huge_pages.hugepages-1024kB.total" and .state == report_model.Truncated)
+  assert (value.issues |> any .field == "huge_pages.hugepages-2048kB.free" and .state == report_model.Malformed)
 
   let empty_root = fs.tempdir()?
   defer empty_root.close()?
@@ -6049,8 +6049,8 @@ ${padding}""",
 """,
   )?
   let empty = collector.collect_from_root(empty_root, "fixture-arch", 4096, 100, "memory", true)?
-  empty.memory.huge_pages.len() == 0
-  ! (empty.issues |> any .field == "huge_pages.enumeration")
+  assert empty.memory.huge_pages.len() == 0
+  assert ! (empty.issues |> any .field == "huge_pages.enumeration")
 }
 
 test test_system_report_numa_meminfo_requires_complete_rows_and_exact_bytes {
@@ -6085,15 +6085,15 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  value.memory.numa.len() == 1
-  value.memory.numa[0].name == "node0.MemTotal"
-  value.memory.numa[0].value == 9007199254739968
-  value.memory.numa[0].unit == "bytes"
-  (value.issues |> any .field == "numa.node0.MemFree" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "numa.node0.Vendor" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "numa.node0.Active" and .state == report_model.Malformed)
-  (value.issues |> any .field == "numa.node0.Broken" and .state == report_model.Malformed)
-  (value.issues |> any .field == "numa.node1.meminfo" and .state == report_model.Truncated)
+  assert value.memory.numa.len() == 1
+  assert value.memory.numa[0].name == "node0.MemTotal"
+  assert value.memory.numa[0].value == 9007199254739968
+  assert value.memory.numa[0].unit == "bytes"
+  assert (value.issues |> any .field == "numa.node0.MemFree" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "numa.node0.Vendor" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "numa.node0.Active" and .state == report_model.Malformed)
+  assert (value.issues |> any .field == "numa.node0.Broken" and .state == report_model.Malformed)
+  assert (value.issues |> any .field == "numa.node1.meminfo" and .state == report_model.Truncated)
 }
 
 test test_system_report_pressure_keeps_complete_rows_and_unavailable_sources_distinct {
@@ -6130,22 +6130,22 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  value.memory.pressure.len() == 2
+  assert value.memory.pressure.len() == 2
   let cpu_pressure = (value.memory.pressure
     |> where .resource == "cpu"
     |> first())?
-  cpu_pressure.kind == "some"
-  cpu_pressure.avg60 == "1.50"
-  cpu_pressure.total_us == 9007199254740991
-  (value.issues |> any .field == "pressure.cpu.full" and .state == report_model.Malformed)
+  assert cpu_pressure.kind == "some"
+  assert cpu_pressure.avg60 == "1.50"
+  assert cpu_pressure.total_us == 9007199254740991
+  assert (value.issues |> any .field == "pressure.cpu.full" and .state == report_model.Malformed)
   let memory = (value.memory.pressure
     |> where .resource == "memory"
     |> first())?
-  memory.kind == "full"
-  memory.total_us == 4
-  (value.issues |> any .field == "pressure.memory.some" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "pressure.memory.full" and .error_kind == "duplicate_psi_kind")
-  (value.issues |> any .field == "pressure.io" and .state == report_model.Truncated)
+  assert memory.kind == "full"
+  assert memory.total_us == 4
+  assert (value.issues |> any .field == "pressure.memory.some" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "pressure.memory.full" and .error_kind == "duplicate_psi_kind")
+  assert (value.issues |> any .field == "pressure.io" and .state == report_model.Truncated)
 
   let unavailable_root = fs.tempdir()?
   defer unavailable_root.close()?
@@ -6156,9 +6156,9 @@ ${padding}""",
 """,
   )?
   let unavailable = collector.collect_from_root(unavailable_root, "fixture-arch", 4096, 100, "memory", true)?
-  unavailable.memory.pressure.len() == 0
+  assert unavailable.memory.pressure.len() == 0
   for resource in ["cpu", "memory", "io"] {
-    (unavailable.issues |> any .field == f"pressure.${resource}" and .state == report_model.Absent)
+    assert (unavailable.issues |> any .field == f"pressure.${resource}" and .state == report_model.Absent)
   }
 }
 
@@ -6180,9 +6180,9 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=0
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  (value.memory.pressure |> where .resource == "cpu").len() == 0
-  (value.memory.pressure |> where .resource == "memory").len() == 2
-  (value.issues
+  assert (value.memory.pressure |> where .resource == "cpu").len() == 0
+  assert (value.memory.pressure |> where .resource == "memory").len() == 2
+  assert (value.issues
       |> any .section == "memory" and .field == "pressure.cpu" and .state == report_model.Malformed and .error_kind == "empty_psi_source")
 }
 
@@ -6208,7 +6208,7 @@ test test_system_report_transparent_huge_page_policy_preserves_unknown_selection
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  value.memory.transparent_huge_pages == ["enabled=always [future_policy] never", "defrag=always defer [madvise] never"]
+  assert value.memory.transparent_huge_pages == ["enabled=always [future_policy] never", "defrag=always defer [madvise] never"]
 
   var padding = " "
   while padding.count_chars() < 4096 {
@@ -6226,9 +6226,9 @@ ${padding}""",
 """,
   )?
   let incomplete = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  incomplete.memory.transparent_huge_pages.len() == 0
-  (incomplete.issues |> any .field == "transparent_huge_pages.enabled" and .state == report_model.Truncated)
-  (incomplete.issues |> any .field == "transparent_huge_pages.defrag" and .state == report_model.Malformed)
+  assert incomplete.memory.transparent_huge_pages.len() == 0
+  assert (incomplete.issues |> any .field == "transparent_huge_pages.enabled" and .state == report_model.Truncated)
+  assert (incomplete.issues |> any .field == "transparent_huge_pages.defrag" and .state == report_model.Malformed)
 }
 
 test test_system_report_hwmon_identity_separates_duplicate_chip_names {
@@ -6292,18 +6292,18 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
   let channels = snapshot.sensors.channels
-  channels.len() == 2
-  (channels |> any .chip_entry_name == "hwmon0")
-  (channels |> any .chip_entry_name == "hwmon1")
-  (channels |> all .chip == "same_chip")
+  assert channels.len() == 2
+  assert (channels |> any .chip_entry_name == "hwmon0")
+  assert (channels |> any .chip_entry_name == "hwmon1")
+  assert (channels |> all .chip == "same_chip")
   let attached = (channels
     |> where .chip_entry_name == "hwmon0"
     |> first())?
-  attached.parent_pci_function_index == 0
+  assert attached.parent_pci_function_index == 0
   let sensitive = model.encode_report_json(snapshot, true, false)?
   let legacy = json.remove(json.decode(sensitive)?, ["sensors", "channels", 0, "chip_entry_name"])?
   let replay = model.decode_report_json(json.encode(legacy)?)?
-  replay.sensors.channels[0].chip_entry_name == null
+  assert replay.sensors.channels[0].chip_entry_name == null
   let invalid_parent = json.set(json.decode(sensitive)?, ["sensors", "channels", 0, "parent_pci_function_index"], 99)?
   test.error_kind(model.decode_report_json(json.encode(invalid_parent)?), "SystemReportError.InvalidJson")?
   root.write(
@@ -6315,8 +6315,8 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   let unfamiliar = (with_unfamiliar_name.sensors.channels
     |> where .channel == "inputfoo"
     |> first())?
-  unfamiliar.kind == "unknown"
-  unfamiliar.unit == "raw"
+  assert unfamiliar.kind == "unknown"
+  assert unfamiliar.unit == "raw"
 }
 
 test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attributes {
@@ -6456,23 +6456,23 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let no_thermal = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
-  no_thermal.sensors.thermal_zones == []
-  no_thermal.sensors.status.state == report_model.Complete
-  no_thermal.sensors.channels.len() == 2
+  assert no_thermal.sensors.thermal_zones == []
+  assert no_thermal.sensors.status.state == report_model.Complete
+  assert no_thermal.sensors.channels.len() == 2
   let temperature = (no_thermal.sensors.channels
     |> where .channel == "temp1"
     |> first())?
-  temperature.value == 42000
-  temperature.unit == "millidegrees_celsius"
-  temperature.label.value == "CPU Package"
-  temperature.maximum == 100000
-  temperature.alarm == false
+  assert temperature.value == 42000
+  assert temperature.unit == "millidegrees_celsius"
+  assert temperature.label.value == "CPU Package"
+  assert temperature.maximum == 100000
+  assert temperature.alarm == false
   let unknown = (no_thermal.sensors.channels
     |> where .channel == "mystery0"
     |> first())?
-  unknown.kind == "unknown"
-  unknown.value == 17
-  unknown.unit == "raw"
+  assert unknown.kind == "unknown"
+  assert unknown.value == 17
+  assert unknown.unit == "raw"
 
   root.mkdir(p"sys/class/thermal/thermal_zone3", parents: true)?
   root.write(
@@ -6511,19 +6511,19 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
 """,
   )?
   let thermal = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
-  thermal.sensors.status.state == report_model.Complete
-  thermal.sensors.thermal_zones.len() == 1
-  thermal.sensors.thermal_zones[0].id == 3
+  assert thermal.sensors.status.state == report_model.Complete
+  assert thermal.sensors.thermal_zones.len() == 1
+  assert thermal.sensors.thermal_zones[0].id == 3
   let thermal_trip_indexes = thermal.sensors.thermal_zones[0].trips |> map .index
   let expected_trip_indexes: List[Int?] = [0, 2]
-  thermal_trip_indexes == expected_trip_indexes
-  thermal.sensors.thermal_zones[0].temperature_millidegrees == 41000
-  thermal.sensors.thermal_zones[0].trips[0].temperature_millidegrees == 95000
-  thermal.sensors.thermal_zones[0].trips[0].hysteresis_millidegrees == 2000
+  assert thermal_trip_indexes == expected_trip_indexes
+  assert thermal.sensors.thermal_zones[0].temperature_millidegrees == 41000
+  assert thermal.sensors.thermal_zones[0].trips[0].temperature_millidegrees == 95000
+  assert thermal.sensors.thermal_zones[0].trips[0].hysteresis_millidegrees == 2000
   root.mkdir(p"sys/class/thermal/thermal_zone03", parents: true)?
   let malformed_zone = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
-  malformed_zone.sensors.thermal_zones.len() == 1
-  (malformed_zone.issues |> any .field == "thermal_zones.thermal_zone03" and .state == report_model.Malformed)
+  assert malformed_zone.sensors.thermal_zones.len() == 1
+  assert (malformed_zone.issues |> any .field == "thermal_zones.thermal_zone03" and .state == report_model.Malformed)
   root.write(
         p"sys/class/thermal/thermal_zone3/trip_point_02_temp",
     """85000
@@ -6531,43 +6531,43 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
   )?
   let malformed_trip = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
   let malformed_trip_indexes = malformed_trip.sensors.thermal_zones[0].trips |> map .index
-  malformed_trip_indexes == expected_trip_indexes
-  (malformed_trip.issues
+  assert malformed_trip_indexes == expected_trip_indexes
+  assert (malformed_trip.issues
       |> any .field == "thermal_zones.thermal_zone3.trip_point_02_temp" and .state == report_model.Malformed)
 
   let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
-  power.power.status.state == report_model.Complete
-  power.power.supplies.len() == 1
-  power.power.supplies[0].capacity_percent == 68
-  power.power.supplies[0].charge_now_uah == 2000000
-  power.power.supplies[0].current_now_ua == -250000
-  (power.power.supplies[0].energy_now_uwh == null)
-  power.power.cap_zones.len() == 2
+  assert power.power.status.state == report_model.Complete
+  assert power.power.supplies.len() == 1
+  assert power.power.supplies[0].capacity_percent == 68
+  assert power.power.supplies[0].charge_now_uah == 2000000
+  assert power.power.supplies[0].current_now_ua == -250000
+  assert (power.power.supplies[0].energy_now_uwh == null)
+  assert power.power.cap_zones.len() == 2
   let package_zone = (power.power.cap_zones
     |> where .name == "package-0"
     |> first())?
-  package_zone.entry_name == "intel-rapl:0"
-  (package_zone.parent == null)
-  package_zone.energy_uj == 123456
-  package_zone.constraints.len() == 4
-  (package_zone.constraints |> map .index) == [0, 1, 2, 10]
+  assert package_zone.entry_name == "intel-rapl:0"
+  assert (package_zone.parent == null)
+  assert package_zone.energy_uj == 123456
+  assert package_zone.constraints.len() == 4
+  assert (package_zone.constraints |> map .index) == [0, 1, 2, 10]
   let long_term = (package_zone.constraints
     |> where .index == 0
     |> first())?
-  long_term.name == "long_term"
-  long_term.power_limit_uw == 45000000
-  long_term.time_window_us == 1000000
+  assert long_term.name == "long_term"
+  assert long_term.power_limit_uw == 45000000
+  assert long_term.time_window_us == 1000000
   let short_term = (package_zone.constraints
     |> where .index == 1
     |> first())?
-  short_term.name == "short_term"
-  short_term.power_limit_uw == 65000000
-  short_term.time_window_us == 250000
+  assert short_term.name == "short_term"
+  assert short_term.power_limit_uw == 65000000
+  assert short_term.time_window_us == 250000
   let core_zone = (power.power.cap_zones
     |> where .name == "core-0"
     |> first())?
-  core_zone.entry_name == "intel-rapl:0:0"
-  core_zone.parent == "intel-rapl:0"
+  assert core_zone.entry_name == "intel-rapl:0:0"
+  assert core_zone.parent == "intel-rapl:0"
 }
 
 test test_system_report_sensor_units_and_powercap_ranges_are_bounded {
@@ -6623,37 +6623,37 @@ test test_system_report_sensor_units_and_powercap_ranges_are_bounded {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let sensors = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
-  sensors.sensors.channels.len() == 1
-  (sensors.sensors.channels[0].value == null)
+  assert sensors.sensors.channels.len() == 1
+  assert (sensors.sensors.channels[0].value == null)
   let sensor_issues = sensors.issues |> where .section == "sensors" and .field == "hwmon.hwmon0.temp1_input"
-  sensor_issues.len() == 1
-  (sensor_issues[0].state == report_model.Malformed)
+  assert sensor_issues.len() == 1
+  assert (sensor_issues[0].state == report_model.Malformed)
 
   let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
-  (power.power.supplies[0].capacity_percent == null)
+  assert (power.power.supplies[0].capacity_percent == null)
   let capacity_issues = power.issues |> where .section == "power" and .field == "supplies.BAT0.capacity"
-  capacity_issues.len() == 1
-  (capacity_issues[0].state == report_model.Malformed)
-  power.power.cap_zones.len() == 1
-  (power.power.cap_zones[0].energy_uj == null)
-  (power.power.cap_zones[0].maximum_energy_range_uj == null)
-  power.power.cap_zones[0].constraints.len() == 1
-  (power.power.cap_zones[0].constraints[0].power_limit_uw == null)
-  power.power.cap_zones[0].constraints[0].time_window_us == 1000000
+  assert capacity_issues.len() == 1
+  assert (capacity_issues[0].state == report_model.Malformed)
+  assert power.power.cap_zones.len() == 1
+  assert (power.power.cap_zones[0].energy_uj == null)
+  assert (power.power.cap_zones[0].maximum_energy_range_uj == null)
+  assert power.power.cap_zones[0].constraints.len() == 1
+  assert (power.power.cap_zones[0].constraints[0].power_limit_uw == null)
+  assert power.power.cap_zones[0].constraints[0].time_window_us == 1000000
   for field in ["cap_zones.intel-rapl:0.energy_uj", "cap_zones.intel-rapl:0.max_energy_range_uj"] {
     let matches = power.issues |> where .section == "power" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.RangeFailure)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.RangeFailure)
   }
 
   let negative_limit = power.issues
     |> where .section == "power" and .field == "cap_zones.intel-rapl:0.constraint_0_power_limit_uw"
-  negative_limit.len() == 1
-  (negative_limit[0].state == report_model.Malformed)
+  assert negative_limit.len() == 1
+  assert (negative_limit[0].state == report_model.Malformed)
   let invalid_index = power.issues
     |> where .section == "power" and .field == "cap_zones.intel-rapl:0.constraint_bad_power_limit_uw"
-  invalid_index.len() == 1
-  invalid_index[0].error_kind == "invalid_constraint_index"
+  assert invalid_index.len() == 1
+  assert invalid_index[0].error_kind == "invalid_constraint_index"
 }
 
 test test_system_report_thermal_and_battery_reads_reject_truncated_prefixes {
@@ -6684,30 +6684,30 @@ test test_system_report_thermal_and_battery_reads_reject_truncated_prefixes {
   root.write(p"sys/class/power_supply/BAT0/capacity", f"68${padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let sensors = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
-  sensors.sensors.channels[0].value == -5000
-  sensors.sensors.channels[0].chip == "hwmon0"
-  (sensors.sensors.thermal_zones[0].temperature_millidegrees == null)
-  (sensors.sensors.thermal_zones[0].kind == null)
-  sensors.sensors.thermal_zones[0].trips[0].kind == "unknown"
+  assert sensors.sensors.channels[0].value == -5000
+  assert sensors.sensors.channels[0].chip == "hwmon0"
+  assert (sensors.sensors.thermal_zones[0].temperature_millidegrees == null)
+  assert (sensors.sensors.thermal_zones[0].kind == null)
+  assert sensors.sensors.thermal_zones[0].trips[0].kind == "unknown"
   for field in [
     "hwmon.hwmon0.name",
     "thermal_zones.thermal_zone0.type",
     "thermal_zones.thermal_zone0.trip_point_0_type",
   ] {
     let matches = sensors.issues |> where .section == "sensors" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.Truncated)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.Truncated)
   }
 
   let thermal_issues = sensors.issues |> where .section == "sensors" and .field == "thermal_zones.thermal_zone0.temp"
-  thermal_issues.len() == 1
-  (thermal_issues[0].state == report_model.Truncated)
+  assert thermal_issues.len() == 1
+  assert (thermal_issues[0].state == report_model.Truncated)
 
   let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
-  (power.power.supplies[0].capacity_percent == null)
+  assert (power.power.supplies[0].capacity_percent == null)
   let battery_issues = power.issues |> where .section == "power" and .field == "supplies.BAT0.capacity"
-  battery_issues.len() == 1
-  (battery_issues[0].state == report_model.Truncated)
+  assert battery_issues.len() == 1
+  assert (battery_issues[0].state == report_model.Truncated)
 }
 
 test test_system_report_nested_sensor_and_power_directories_keep_issues {
@@ -6723,20 +6723,20 @@ test test_system_report_nested_sensor_and_power_directories_keep_issues {
   let sensors = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
   for field in ["hwmon.hwmon0.attributes", "thermal_zones.thermal_zone0.attributes"] {
     let matches = sensors.issues |> where .section == "sensors" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.ReadFailure)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.ReadFailure)
   }
 
-  sensors.sensors.status.state == report_model.Partial
+  assert sensors.sensors.status.state == report_model.Partial
 
   let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
   for field in ["cap_zones.intel-rapl:0.name", "cap_zones.intel-rapl:0.attributes"] {
     let matches = power.issues |> where .section == "power" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.ReadFailure)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.ReadFailure)
   }
 
-  power.power.status.state == report_model.Partial
+  assert power.power.status.state == report_model.Partial
 }
 
 test test_system_report_powercap_enumeration_failure_is_partial {
@@ -6747,10 +6747,10 @@ test test_system_report_powercap_enumeration_failure_is_partial {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
   let matches = value.issues |> where .section == "power" and .field == "cap_zones"
-  matches.len() == 1
-  (matches[0].state == report_model.ReadFailure)
-  value.power.status.state == report_model.Partial
-  value.power.status.enumeration_succeeded == false
+  assert matches.len() == 1
+  assert (matches[0].state == report_model.ReadFailure)
+  assert value.power.status.state == report_model.Partial
+  assert value.power.status.enumeration_succeeded == false
 }
 
 test test_system_report_powercap_rejects_truncated_names {
@@ -6771,16 +6771,16 @@ test test_system_report_powercap_rejects_truncated_names {
   root.write(p"sys/class/powercap/intel-rapl:0/constraint_0_name", f"limit-prefix${padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
-  value.power.cap_zones.len() == 1
-  value.power.cap_zones[0].name == "intel-rapl:0"
-  (value.power.cap_zones[0].constraints[0].name == null)
+  assert value.power.cap_zones.len() == 1
+  assert value.power.cap_zones[0].name == "intel-rapl:0"
+  assert (value.power.cap_zones[0].constraints[0].name == null)
   for field in ["cap_zones.intel-rapl:0.name", "cap_zones.intel-rapl:0.constraint_0_name"] {
     let matches = value.issues |> where .section == "power" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.Truncated)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.Truncated)
   }
 
-  value.power.status.state == report_model.Partial
+  assert value.power.status.state == report_model.Partial
 }
 
 test test_system_report_power_supply_rejects_truncated_text_attributes {
@@ -6797,17 +6797,17 @@ test test_system_report_power_supply_rejects_truncated_text_attributes {
   root.write(p"sys/class/power_supply/BAT0/health", f"Good${padding}")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
-  value.power.supplies.len() == 1
-  (value.power.supplies[0].kind == null)
-  (value.power.supplies[0].status == null)
-  (value.power.supplies[0].health == null)
+  assert value.power.supplies.len() == 1
+  assert (value.power.supplies[0].kind == null)
+  assert (value.power.supplies[0].status == null)
+  assert (value.power.supplies[0].health == null)
   for field in ["supplies.BAT0.type", "supplies.BAT0.status", "supplies.BAT0.health"] {
     let matches = value.issues |> where .section == "power" and .field == field
-    matches.len() == 1
-    (matches[0].state == report_model.Truncated)
+    assert matches.len() == 1
+    assert (matches[0].state == report_model.Truncated)
   }
 
-  value.power.status.state == report_model.Partial
+  assert value.power.status.state == report_model.Partial
 }
 
 test test_system_report_memory_reports_malformed_and_oversized_meminfo_fields {
@@ -6829,29 +6829,29 @@ VendorHuge: 9007199254740992 widgets
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  (value.memory.host.total_bytes == null)
-  (value.memory.host.free_bytes == null)
-  (value.memory.host.cached_bytes == null)
-  value.memory.host.available_bytes == 8192
-  value.memory.host.active_bytes == 9007199254739968
+  assert (value.memory.host.total_bytes == null)
+  assert (value.memory.host.free_bytes == null)
+  assert (value.memory.host.cached_bytes == null)
+  assert value.memory.host.available_bytes == 8192
+  assert value.memory.host.active_bytes == 9007199254739968
   let invalid_row = value.issues |> where .field == "meminfo.line.0"
-  invalid_row.len() == 1
-  invalid_row[0].state == report_model.Malformed
+  assert invalid_row.len() == 1
+  assert invalid_row[0].state == report_model.Malformed
   let invalid_unit = value.issues |> where .field == "meminfo.MemTotal"
-  invalid_unit[0].error_kind == "invalid_byte_counter_unit"
+  assert invalid_unit[0].error_kind == "invalid_byte_counter_unit"
   let empty_value = value.issues |> where .field == "meminfo.MemFree"
-  empty_value[0].error_kind == "missing_integer"
+  assert empty_value[0].error_kind == "missing_integer"
   let overflow = value.issues |> where .field == "meminfo.Cached"
-  overflow[0].state == report_model.RangeFailure
+  assert overflow[0].state == report_model.RangeFailure
   let vendor_overflow = value.issues |> where .field == "meminfo.VendorHuge"
-  vendor_overflow.len() == 1
-  vendor_overflow[0].state == report_model.RangeFailure
-  vendor_overflow[0].error_kind == "json_integer_out_of_range"
-  ! (value.memory.host.counters |> any .name == "VendorHuge")
+  assert vendor_overflow.len() == 1
+  assert vendor_overflow[0].state == report_model.RangeFailure
+  assert vendor_overflow[0].error_kind == "json_integer_out_of_range"
+  assert ! (value.memory.host.counters |> any .name == "VendorHuge")
   let vendor = value.memory.host.counters |> where .name == "VendorCounter"
-  vendor.len() == 1
-  vendor[0].value == 12
-  vendor[0].unit == "widgets"
+  assert vendor.len() == 1
+  assert vendor[0].value == 12
+  assert vendor[0].unit == "widgets"
 }
 
 test test_system_report_memory_accepts_tabbed_values_and_withholds_duplicate_fields {
@@ -6869,19 +6869,19 @@ VendorCounter:	12	widgets
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  value.memory.host.total_bytes == null
-  value.memory.host.free_bytes == 4096
-  ! (value.memory.host.counters |> any .name == "MemTotal")
+  assert value.memory.host.total_bytes == null
+  assert value.memory.host.free_bytes == 4096
+  assert ! (value.memory.host.counters |> any .name == "MemTotal")
   let free = value.memory.host.counters |> where .name == "MemFree"
-  free.len() == 1
-  free[0].value == 4096
-  free[0].unit == "bytes"
+  assert free.len() == 1
+  assert free[0].value == 4096
+  assert free[0].unit == "bytes"
   let vendor = value.memory.host.counters |> where .name == "VendorCounter"
-  vendor.len() == 1
-  vendor[0].value == 12
-  vendor[0].unit == "widgets"
+  assert vendor.len() == 1
+  assert vendor[0].value == 12
+  assert vendor[0].unit == "widgets"
   let duplicates = value.issues |> where .field == "meminfo.MemTotal" and .error_kind == "duplicate_field"
-  duplicates.len() == 1
+  assert duplicates.len() == 1
 }
 
 test test_system_report_cgroup_inventory_rejects_partial_membership_and_mounts {
@@ -6921,8 +6921,8 @@ ${membership_padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  membership.memory.cgroup.len() == 0
-  (membership.issues |> any .section == "memory" and .field == "cgroup.membership" and .state == report_model.Truncated)
+  assert membership.memory.cgroup.len() == 0
+  assert (membership.issues |> any .section == "memory" and .field == "cgroup.membership" and .state == report_model.Truncated)
 
   root.write(
     p"proc/self/cgroup",
@@ -6940,8 +6940,8 @@ ${membership_padding}""",
 ${mount_padding}""",
   )?
   let mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  mount.memory.cgroup.len() == 0
-  (mount.issues |> any .section == "memory" and .field == "cgroup.mountinfo" and .state == report_model.Truncated)
+  assert mount.memory.cgroup.len() == 0
+  assert (mount.issues |> any .section == "memory" and .field == "cgroup.mountinfo" and .state == report_model.Truncated)
 }
 
 test test_system_report_cgroup_limits_keep_source_and_numeric_failures {
@@ -7004,24 +7004,24 @@ ${padding}""",
   let memory_limit = (value.memory.cgroup
     |> where .resource == "memory.max"
     |> first())?
-  memory_limit.maximum_value == 1048576
-  memory_limit.current_value == null
-  memory_limit.state == report_model.Truncated
+  assert memory_limit.maximum_value == 1048576
+  assert memory_limit.current_value == null
+  assert memory_limit.state == report_model.Truncated
   let swap_limit = (value.memory.cgroup
     |> where .resource == "memory.swap.max"
     |> first())?
-  swap_limit.maximum_value == null
-  swap_limit.current_value == 65536
-  swap_limit.state == report_model.Malformed
+  assert swap_limit.maximum_value == null
+  assert swap_limit.current_value == 65536
+  assert swap_limit.state == report_model.Malformed
   let pids_limit = (value.memory.cgroup
     |> where .resource == "pids.max"
     |> first())?
-  pids_limit.maximum_value == null
-  pids_limit.current_value == 8
-  pids_limit.state == report_model.RangeFailure
-  (value.issues |> any .field == "cgroup.0.memory.current" and .state == report_model.Truncated)
-  (value.issues |> any .field == "cgroup.0.memory.swap.max" and .state == report_model.Malformed)
-  (value.issues |> any .field == "cgroup.0.pids.max" and .state == report_model.RangeFailure)
+  assert pids_limit.maximum_value == null
+  assert pids_limit.current_value == 8
+  assert pids_limit.state == report_model.RangeFailure
+  assert (value.issues |> any .field == "cgroup.0.memory.current" and .state == report_model.Truncated)
+  assert (value.issues |> any .field == "cgroup.0.memory.swap.max" and .state == report_model.Malformed)
+  assert (value.issues |> any .field == "cgroup.0.pids.max" and .state == report_model.RangeFailure)
 }
 
 test test_system_report_cgroup_cpu_and_io_counters_reject_partial_and_unsafe_values {
@@ -7075,16 +7075,16 @@ ${cpuset_padding}""",
   let cpu_limit = (value.memory.cgroup
     |> where .resource == "cpu.max"
     |> first())?
-  cpu_limit.quota == 50000
-  cpu_limit.period == 100000
-  (value.memory.cgroup |> any .resource == "cpu.stat.user_usec" and .current_value == 3)
-  ! (value.memory.cgroup |> any .resource == "cpu.stat.usage_usec")
-  (value.memory.cgroup |> any .resource == "io.stat.8:0.wbytes" and .current_value == 1024)
-  ! (value.memory.cgroup |> any .resource == "io.stat.8:0.rbytes")
-  ! (value.memory.cgroup |> any .resource == "cpuset.cpus.effective")
-  (value.issues |> any .field == "cgroup.0.cpu.stat.usage_usec" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "cgroup.0.io.stat.8:0.rbytes" and .state == report_model.RangeFailure)
-  (value.issues |> any .field == "cgroup.0.cpuset.cpus.effective" and .state == report_model.Truncated)
+  assert cpu_limit.quota == 50000
+  assert cpu_limit.period == 100000
+  assert (value.memory.cgroup |> any .resource == "cpu.stat.user_usec" and .current_value == 3)
+  assert ! (value.memory.cgroup |> any .resource == "cpu.stat.usage_usec")
+  assert (value.memory.cgroup |> any .resource == "io.stat.8:0.wbytes" and .current_value == 1024)
+  assert ! (value.memory.cgroup |> any .resource == "io.stat.8:0.rbytes")
+  assert ! (value.memory.cgroup |> any .resource == "cpuset.cpus.effective")
+  assert (value.issues |> any .field == "cgroup.0.cpu.stat.usage_usec" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "cgroup.0.io.stat.8:0.rbytes" and .state == report_model.RangeFailure)
+  assert (value.issues |> any .field == "cgroup.0.cpuset.cpus.effective" and .state == report_model.Truncated)
 
   root.write(
     p"sys/fs/cgroup/group/cpu.stat",
@@ -7099,12 +7099,12 @@ user_usec 3
 """,
   )?
   let duplicate_fields = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  ! (duplicate_fields.memory.cgroup |> any .resource == "cpu.stat.usage_usec")
-  (duplicate_fields.memory.cgroup |> any .resource == "cpu.stat.user_usec" and .current_value == 3)
-  ! (duplicate_fields.memory.cgroup |> any .resource == "io.stat.8:0.rbytes")
-  (duplicate_fields.memory.cgroup |> any .resource == "io.stat.8:0.wbytes" and .current_value == 4)
-  (duplicate_fields.issues |> any .field == "cgroup.0.cpu.stat.usage_usec" and .state == report_model.Malformed)
-  (duplicate_fields.issues |> any .field == "cgroup.0.io.stat.8:0.rbytes" and .state == report_model.Malformed)
+  assert ! (duplicate_fields.memory.cgroup |> any .resource == "cpu.stat.usage_usec")
+  assert (duplicate_fields.memory.cgroup |> any .resource == "cpu.stat.user_usec" and .current_value == 3)
+  assert ! (duplicate_fields.memory.cgroup |> any .resource == "io.stat.8:0.rbytes")
+  assert (duplicate_fields.memory.cgroup |> any .resource == "io.stat.8:0.wbytes" and .current_value == 4)
+  assert (duplicate_fields.issues |> any .field == "cgroup.0.cpu.stat.usage_usec" and .state == report_model.Malformed)
+  assert (duplicate_fields.issues |> any .field == "cgroup.0.io.stat.8:0.rbytes" and .state == report_model.Malformed)
 
   root.write(
     p"sys/fs/cgroup/group/io.stat",
@@ -7114,9 +7114,9 @@ user_usec 3
 """,
   )?
   let duplicate_device = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  ! (duplicate_device.memory.cgroup |> any .resource.starts_with("io.stat.8:0."))
-  (duplicate_device.memory.cgroup |> any .resource == "io.stat.9:0.rbytes" and .current_value == 7)
-  (duplicate_device.issues |> any .field == "cgroup.0.io.stat.8:0" and .state == report_model.Malformed)
+  assert ! (duplicate_device.memory.cgroup |> any .resource.starts_with("io.stat.8:0."))
+  assert (duplicate_device.memory.cgroup |> any .resource == "io.stat.9:0.rbytes" and .current_value == 7)
+  assert (duplicate_device.issues |> any .field == "cgroup.0.io.stat.8:0" and .state == report_model.Malformed)
 
   root.write(
     p"sys/fs/cgroup/group/io.stat",
@@ -7125,9 +7125,9 @@ user_usec 3
 """,
   )?
   let empty_device = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  (empty_device.memory.cgroup |> any .resource == "io.stat.8:0.rbytes" and .current_value == 17)
-  ! (empty_device.memory.cgroup |> any .resource.starts_with("io.stat.7:7."))
-  ! (empty_device.issues |> any .field == "cgroup.0.io.stat")
+  assert (empty_device.memory.cgroup |> any .resource == "io.stat.8:0.rbytes" and .current_value == 17)
+  assert ! (empty_device.memory.cgroup |> any .resource.starts_with("io.stat.7:7."))
+  assert ! (empty_device.issues |> any .field == "cgroup.0.io.stat")
 
   var cpu_padding = " "
   while cpu_padding.count_chars() < 4096 {
@@ -7140,8 +7140,8 @@ user_usec 3
 ${cpu_padding}""",
   )?
   let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  ! (truncated.memory.cgroup |> any .resource == "cpu.max")
-  (truncated.issues |> any .field == "cgroup.0.cpu.max" and .state == report_model.Truncated)
+  assert ! (truncated.memory.cgroup |> any .resource == "cpu.max")
+  assert (truncated.issues |> any .field == "cgroup.0.cpu.max" and .state == report_model.Truncated)
 
   var cpu_stat_padding = " "
   while cpu_stat_padding.count_chars() < 16384 {
@@ -7164,10 +7164,10 @@ ${cpu_stat_padding}""",
 ${io_padding}""",
   )?
   let incomplete_counters = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  ! (incomplete_counters.memory.cgroup |> any .resource == "cpu.stat.user_usec")
-  ! (incomplete_counters.memory.cgroup |> any .resource == "io.stat.8:0.wbytes")
-  (incomplete_counters.issues |> any .field == "cgroup.0.cpu.stat" and .state == report_model.Truncated)
-  (incomplete_counters.issues |> any .field == "cgroup.0.io.stat" and .state == report_model.Truncated)
+  assert ! (incomplete_counters.memory.cgroup |> any .resource == "cpu.stat.user_usec")
+  assert ! (incomplete_counters.memory.cgroup |> any .resource == "io.stat.8:0.wbytes")
+  assert (incomplete_counters.issues |> any .field == "cgroup.0.cpu.stat" and .state == report_model.Truncated)
+  assert (incomplete_counters.issues |> any .field == "cgroup.0.io.stat" and .state == report_model.Truncated)
 }
 
 test test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation {
@@ -7207,9 +7207,9 @@ test test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation {
   let memory_limit = (value.memory.cgroup
     |> where .resource == "memory.max"
     |> first())?
-  memory_limit.maximum_value == 1048576
-  memory_limit.current_value == 512
-  (value.issues |> any .field == "cgroup.v1" and .state == report_model.Unsupported)
+  assert memory_limit.maximum_value == 1048576
+  assert memory_limit.current_value == 512
+  assert (value.issues |> any .field == "cgroup.v1" and .state == report_model.Unsupported)
 
   root.write(
     p"proc/self/mountinfo",
@@ -7217,8 +7217,8 @@ test test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation {
 """,
   )?
   let hidden_v1_mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  (hidden_v1_mount.memory.cgroup |> any .resource == "memory.max" and .maximum_value == 1048576)
-  (hidden_v1_mount.issues |> any .field == "cgroup.v1" and .state == report_model.Unsupported)
+  assert (hidden_v1_mount.memory.cgroup |> any .resource == "memory.max" and .maximum_value == 1048576)
+  assert (hidden_v1_mount.issues |> any .field == "cgroup.v1" and .state == report_model.Unsupported)
 }
 
 test test_system_report_memory_marks_an_empty_meminfo_file_malformed {
@@ -7228,10 +7228,10 @@ test test_system_report_memory_marks_an_empty_meminfo_file_malformed {
   root.write(p"proc/meminfo", "")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  (value.memory.host.total_bytes == null)
+  assert (value.memory.host.total_bytes == null)
   let empty_file = value.issues |> where .field == "meminfo"
-  empty_file.len() == 1
-  empty_file[0].state == report_model.Malformed
+  assert empty_file.len() == 1
+  assert empty_file[0].state == report_model.Malformed
 }
 
 test test_system_report_memory_does_not_parse_truncated_meminfo_prefix {
@@ -7250,10 +7250,10 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  (value.memory.host.total_bytes == null)
+  assert (value.memory.host.total_bytes == null)
   let matches = value.issues |> where .section == "memory" and .field == "meminfo"
-  matches.len() == 1
-  (matches[0].state == report_model.Truncated)
+  assert matches.len() == 1
+  assert (matches[0].state == report_model.Truncated)
 }
 
 test test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources {
@@ -7277,23 +7277,23 @@ test test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  value.memory.swaps.len() == 2
-  value.memory.swaps[0].name.value == "/dev/zram0"
-  value.memory.swaps[0].size_bytes == 9007199254739968
-  value.memory.swaps[0].used_bytes == 1024
-  value.memory.swaps[0].priority == 42
-  value.memory.swaps[1].name.value == "/swap file"
-  value.memory.swaps[1].kind == "file"
-  value.memory.swaps[1].priority == -1
+  assert value.memory.swaps.len() == 2
+  assert value.memory.swaps[0].name.value == "/dev/zram0"
+  assert value.memory.swaps[0].size_bytes == 9007199254739968
+  assert value.memory.swaps[0].used_bytes == 1024
+  assert value.memory.swaps[0].priority == 42
+  assert value.memory.swaps[1].name.value == "/swap file"
+  assert value.memory.swaps[1].kind == "file"
+  assert value.memory.swaps[1].priority == -1
   let overflow = value.issues
     |> where .section == "memory" and .field == "swaps" and .state == report_model.RangeFailure
-  overflow.len() == 1
-  (overflow[0].state == report_model.RangeFailure)
+  assert overflow.len() == 1
+  assert (overflow[0].state == report_model.RangeFailure)
   let malformed = value.issues |> where .section == "memory" and .field == "swaps" and .error_kind == "invalid_swap_row"
-  malformed.len() == 1
+  assert malformed.len() == 1
   let invalid_priority = value.issues
     |> where .section == "memory" and .field == "swaps" and .error_kind == "invalid_swap_priority"
-  invalid_priority.len() == 1
+  assert invalid_priority.len() == 1
 
   var padding = " "
   while padding.count_chars() < 262144 {
@@ -7307,10 +7307,10 @@ test test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources
 ${padding}""",
   )?
   let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  truncated.memory.swaps.len() == 0
+  assert truncated.memory.swaps.len() == 0
   let incomplete = truncated.issues |> where .section == "memory" and .field == "swaps"
-  incomplete.len() == 1
-  (incomplete[0].state == report_model.Truncated)
+  assert incomplete.len() == 1
+  assert (incomplete[0].state == report_model.Truncated)
 
   root.write(
     p"proc/swaps",
@@ -7318,8 +7318,8 @@ ${padding}""",
 """,
   )?
   let headerless = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  headerless.memory.swaps.len() == 0
-  (headerless.issues |> any .field == "swaps" and .error_kind == "invalid_swap_header")
+  assert headerless.memory.swaps.len() == 0
+  assert (headerless.issues |> any .field == "swaps" and .error_kind == "invalid_swap_header")
 }
 
 test test_system_report_swap_devices_reject_duplicate_identity_and_impossible_usage {
@@ -7344,14 +7344,14 @@ test test_system_report_swap_devices_reject_duplicate_identity_and_impossible_us
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
   let swap_names = value.memory.swaps |> map .name.value
   let expected_swap_names: List[Str?] = ["/dev/zram0", "/swap file"]
-  swap_names == expected_swap_names
+  assert swap_names == expected_swap_names
   let duplicates = value.issues
     |> where .section == "memory" and .field == "swaps" and .error_kind == "duplicate_swap_name"
   let overused = value.issues
     |> where .section == "memory" and .field == "swaps" and .error_kind == "invalid_swap_usage"
-  duplicates.len() == 1
-  overused.len() == 1
-  (value.memory.status.state == report_model.Partial)
+  assert duplicates.len() == 1
+  assert overused.len() == 1
+  assert (value.memory.status.state == report_model.Partial)
 }
 
 test test_system_report_kernel_modules_reject_truncated_source_prefix {
@@ -7375,11 +7375,11 @@ ${padding}""",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
-  value.kernel.modules == []
-  ! value.kernel.status.enumeration_succeeded
+  assert value.kernel.modules == []
+  assert ! value.kernel.status.enumeration_succeeded
   let matches = value.issues |> where .section == "kernel" and .field == "modules"
-  matches.len() == 1
-  (matches[0].state == report_model.Truncated)
+  assert matches.len() == 1
+  assert (matches[0].state == report_model.Truncated)
 }
 
 test test_system_report_kernel_modules_keep_valid_rows_with_malformed_neighbor {
@@ -7401,18 +7401,18 @@ busy 4096 9007199254740992 - Live 0x0
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
-  value.kernel.status.enumeration_succeeded
-  (value.kernel.status.state == report_model.Partial)
-  value.kernel.modules.len() == 1
-  value.kernel.modules[0].name == "example"
-  value.kernel.modules[0].size_bytes == 4096
+  assert value.kernel.status.enumeration_succeeded
+  assert (value.kernel.status.state == report_model.Partial)
+  assert value.kernel.modules.len() == 1
+  assert value.kernel.modules[0].name == "example"
+  assert value.kernel.modules[0].size_bytes == 4096
   let malformed = value.issues |> where .section == "kernel" and .field == "modules.line.1"
-  malformed.len() == 1
-  (malformed[0].state == report_model.Malformed)
+  assert malformed.len() == 1
+  assert (malformed[0].state == report_model.Malformed)
   let oversized = value.issues |> where .section == "kernel" and .state == report_model.RangeFailure
-  oversized.len() == 2
-  (oversized |> any .field == "modules.line.2")
-  (oversized |> any .field == "modules.line.3")
+  assert oversized.len() == 2
+  assert (oversized |> any .field == "modules.line.2")
+  assert (oversized |> any .field == "modules.line.3")
 }
 
 test test_system_report_kernel_modules_accept_taint_flags_and_reject_extra_columns {
@@ -7432,13 +7432,13 @@ extra 2048 0 - Live 0x1 (OE) unknown
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
-  value.kernel.status.enumeration_succeeded
-  value.kernel.modules.len() == 1
-  value.kernel.modules[0].name == "tainted"
-  value.kernel.modules[0].users == 1
+  assert value.kernel.status.enumeration_succeeded
+  assert value.kernel.modules.len() == 1
+  assert value.kernel.modules[0].name == "tainted"
+  assert value.kernel.modules[0].users == 1
   let malformed = value.issues |> where .section == "kernel" and .field == "modules.line.1"
-  malformed.len() == 1
-  (malformed[0].state == report_model.Malformed)
+  assert malformed.len() == 1
+  assert (malformed[0].state == report_model.Malformed)
 }
 
 test test_system_report_kernel_modules_preserve_unavailable_use_count {
@@ -7457,13 +7457,13 @@ test test_system_report_kernel_modules_preserve_unavailable_use_count {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
-  value.kernel.status.enumeration_succeeded
-  value.kernel.modules.len() == 1
-  value.kernel.modules[0].name == "permanent"
-  value.kernel.modules[0].users == null
-  (value.issues |> where .section == "kernel" and .field.starts_with("modules")).len() == 0
+  assert value.kernel.status.enumeration_succeeded
+  assert value.kernel.modules.len() == 1
+  assert value.kernel.modules[0].name == "permanent"
+  assert value.kernel.modules[0].users == null
+  assert (value.issues |> where .section == "kernel" and .field.starts_with("modules")).len() == 0
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
-  "\"permanent\" size=4096 bytes users=unknown state=\"Live\"" in (model.render_text(value, true, true)?)
+  assert "\"permanent\" size=4096 bytes users=unknown state=\"Live\"" in (model.render_text(value, true, true)?)
 }
 
 test test_system_report_kernel_modules_reject_duplicate_identity_with_valid_neighbor {
@@ -7484,14 +7484,14 @@ beta 8192 0 - Live 0x2
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
-  value.kernel.status.enumeration_succeeded
-  (value.kernel.status.state == report_model.Partial)
-  (value.kernel.modules |> map .name) == ["alpha", "beta"]
-  value.kernel.modules[0].users == 1
+  assert value.kernel.status.enumeration_succeeded
+  assert (value.kernel.status.state == report_model.Partial)
+  assert (value.kernel.modules |> map .name) == ["alpha", "beta"]
+  assert value.kernel.modules[0].users == 1
   let duplicates = value.issues |> where .section == "kernel" and .field == "modules.line.1"
-  duplicates.len() == 1
-  (duplicates[0].state == report_model.Malformed)
-  duplicates[0].error_kind == "duplicate_module_name"
+  assert duplicates.len() == 1
+  assert (duplicates[0].state == report_model.Malformed)
+  assert duplicates[0].error_kind == "duplicate_module_name"
 }
 
 test test_system_report_kernel_command_line_preserves_source_whitespace {
@@ -7503,12 +7503,12 @@ test test_system_report_kernel_command_line_preserves_source_whitespace {
   root.write(p"proc/modules", "")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
-  value.kernel.command_line.state == report_model.Observed
-  value.kernel.command_line.value == source
+  assert value.kernel.command_line.state == report_model.Observed
+  assert value.kernel.command_line.value == source
   let redacted = report_model.redact_report(value)
-  redacted.kernel.command_line.state == report_model.Redacted
-  redacted.kernel.command_line.value == null
-  redacted.kernel.command_line.raw_bytes_base64 == null
+  assert redacted.kernel.command_line.state == report_model.Redacted
+  assert redacted.kernel.command_line.value == null
+  assert redacted.kernel.command_line.raw_bytes_base64 == null
 }
 
 test test_system_report_source_text_preserves_exact_whitespace_when_requested {
@@ -7521,8 +7521,8 @@ test test_system_report_source_text_preserves_exact_whitespace_when_requested {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let normalized = collectors.read_source_text(root, p"cmdline")
   let exact = collectors.read_source_text(root, p"cmdline", 65536, true)
-  normalized.observation.value == "root=private  quiet"
-  exact.observation.value == ("  root=private  quiet  " + "\n")
+  assert normalized.observation.value == "root=private  quiet"
+  assert exact.observation.value == ("  root=private  quiet  " + "\n")
 }
 
 test test_system_report_kernel_parameter_allowlist_keeps_values_and_absence {
@@ -7548,14 +7548,14 @@ test test_system_report_kernel_parameter_allowlist_keeps_values_and_absence {
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
-  value.kernel.sysctls.len() == 6
-  value.kernel.parameters.len() == 3
-  value.kernel.sysctls[0].name == "kernel.pid_max"
-  value.kernel.sysctls[0].value.value == "4194304"
-  value.kernel.sysctls[1].value.state == report_model.Absent
-  value.kernel.parameters[0].name == "usbcore.autosuspend"
-  value.kernel.parameters[0].value.value == "2"
-  value.kernel.parameters[1].value.state == report_model.Absent
+  assert value.kernel.sysctls.len() == 6
+  assert value.kernel.parameters.len() == 3
+  assert value.kernel.sysctls[0].name == "kernel.pid_max"
+  assert value.kernel.sysctls[0].value.value == "4194304"
+  assert value.kernel.sysctls[1].value.state == report_model.Absent
+  assert value.kernel.parameters[0].name == "usbcore.autosuspend"
+  assert value.kernel.parameters[0].value.value == "2"
+  assert value.kernel.parameters[1].value.state == report_model.Absent
 }
 
 test test_system_report_collects_swap_limit_without_memory_limit_files {
@@ -7598,55 +7598,55 @@ test test_system_report_collects_swap_limit_without_memory_limit_files {
   let swap_limit = (value.memory.cgroup
     |> where .resource == "memory.swap.max"
     |> first())?
-  swap_limit.maximum_value == 262144
-  swap_limit.current_value == 65536
+  assert swap_limit.maximum_value == 262144
+  assert swap_limit.current_value == 65536
 }
 
 test test_system_report_smbios_parser_preserves_records_and_reports_bad_string_indexes {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let table = b"\x01\x084\x12\x01\x02\x03\0Vendor\0Model\0Version\0\0\x7f\x04\0\0\0\0"
   let parsed = collector.parse_smbios_table(table)?
-  parsed.truncated == false
-  parsed.issues == []
-  parsed.records.len() == 2
-  parsed.records[0].record_type == 1
-  parsed.records[0].handle == 4660
-  parsed.records[0].strings.len() == 3
-  parsed.records[0].strings[1].value == "Model"
-  parsed.records[1].record_type == 127
+  assert parsed.truncated == false
+  assert parsed.issues == []
+  assert parsed.records.len() == 2
+  assert parsed.records[0].record_type == 1
+  assert parsed.records[0].handle == 4660
+  assert parsed.records[0].strings.len() == 3
+  assert parsed.records[0].strings[1].value == "Model"
+  assert parsed.records[1].record_type == 127
 
   let bad_index = b"\x01\x084\x12\x04\x02\x03\0Vendor\0Model\0Version\0\0\x7f\x04\0\0\0\0"
   let partial = collector.parse_smbios_table(bad_index)?
-  partial.records.len() == 2
-  (partial.issues.len() > 0)
+  assert partial.records.len() == 2
+  assert (partial.issues.len() > 0)
 
   let invalid_length = collector.parse_smbios_table(b"\x01\x03\0\0")?
-  invalid_length.records.len() == 0
-  invalid_length.truncated == false
-  invalid_length.issues.len() == 1
+  assert invalid_length.records.len() == 0
+  assert invalid_length.truncated == false
+  assert invalid_length.issues.len() == 1
 
   let root = fs.tempdir()?
   defer root.close()?
   root.mkdir(p"sys/firmware/dmi/tables", parents: true)?
   root.write(p"sys/firmware/dmi/tables/DMI", bad_index)?
   let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "firmware", true)?
-  collected.firmware.status.state == report_model.Partial
+  assert collected.firmware.status.state == report_model.Partial
   let parser_issue = (collected.issues
     |> where .field == "smbios.issue.0"
     |> first())?
-  (parser_issue.detail.value != null)
+  assert (parser_issue.detail.value != null)
 }
 
 test test_system_report_smbios_unknown_type_keeps_record_identity {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let table = b"\x90\x06E#\xaa\xbb\0\0\x7f\x04\0\0\0\0"
   let parsed = collector.parse_smbios_table(table)?
-  parsed.issues == []
-  parsed.records.len() == 2
-  parsed.records[0].record_type == 144
-  parsed.records[0].handle == 9029
-  parsed.records[0].formatted_length == 6
-  parsed.records[0].fields.len() == 0
+  assert parsed.issues == []
+  assert parsed.records.len() == 2
+  assert parsed.records[0].record_type == 144
+  assert parsed.records[0].handle == 9029
+  assert parsed.records[0].formatted_length == 6
+  assert parsed.records[0].fields.len() == 0
 }
 
 test test_system_report_smbios_type16_reads_device_count_from_short_form {
@@ -7660,14 +7660,14 @@ test test_system_report_smbios_type16_reads_device_count_from_short_form {
     ],
   )
   let parsed = collector.parse_smbios_table(table)?
-  parsed.issues == []
-  parsed.records.len() == 2
-  parsed.records[0].formatted_length == 15
+  assert parsed.issues == []
+  assert parsed.records.len() == 2
+  assert parsed.records[0].formatted_length == 15
   let count = (parsed.records[0].fields
     |> where .name == "number_of_devices"
     |> first())?
-  count.value == 2
-  count.unit == "count"
+  assert count.value == 2
+  assert count.unit == "count"
 }
 
 test test_system_report_smbios_sentinel_size_requires_complete_formatted_field {
@@ -7682,12 +7682,12 @@ test test_system_report_smbios_sentinel_size_requires_complete_formatted_field {
     ],
   )
   let short_record = collector.parse_smbios_table(short_table)?
-  short_record.issues == []
-  short_record.records.len() == 2
-  (short_record.records[0].fields
+  assert short_record.issues == []
+  assert short_record.records.len() == 2
+  assert (short_record.records[0].fields
       |> where .name == "size_raw"
       |> first())?.value == 32767
-  (short_record.records[0].fields |> where .name == "extended_size_raw").len() == 0
+  assert (short_record.records[0].fields |> where .name == "extended_size_raw").len() == 0
 
   let complete_table = bytes.concat(
     [
@@ -7699,8 +7699,8 @@ test test_system_report_smbios_sentinel_size_requires_complete_formatted_field {
     ],
   )
   let complete_record = collector.parse_smbios_table(complete_table)?
-  complete_record.issues == []
-  (complete_record.records[0].fields
+  assert complete_record.issues == []
+  assert (complete_record.records[0].fields
       |> where .name == "extended_size_raw"
       |> first())?.value == 65536
 }
