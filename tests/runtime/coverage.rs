@@ -909,8 +909,8 @@ fn xsht_lint_accepts_current_syntax_and_ignores_strings_and_comments() {
 # old examples: fmt\"x\" glob\"*.rs\" run.capture --text echo $name run (target)
 let label = f\"hello\"
 let files = g\"*.rs\"
-let shell = \"printf '$HOME' run.capture (target)\"
-let target = p\"target/debug/tool\"
+const shell = \"printf '$HOME' run.capture (target)\"
+const target = p\"target/debug/tool\"
 let opts = {tool: target}
 run.status $target --flag $opts.tool
 print ${label}

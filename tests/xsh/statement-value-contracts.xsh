@@ -236,7 +236,7 @@ print after
 }
 
 test status_as_data { |ctx|
-  let output = test.run_script(ctx, r"""let status = run.status --accept=[1] /usr/bin/false
+  let output = test.run_script(ctx, r"""let status = run.status --accept=[1] false
 print ${status.exit_code()?}
 let _ = status
 print done
