@@ -206,6 +206,12 @@ The full native suite takes 20+ minutes and saturates the machine. Many
   shared prepared module or an in-process call would do.
 - Merge redundant system-report cases.
 - Cap default `xsht test` parallelism at a reasonable share of cores.
+- Profile `xsht` itself. A single test process often pins one core for a
+  minute, and under load `xsht` took 45–110 s just to start. Measure where time
+  goes: startup, loading, checking, preparation, and execution of large module
+  graphs such as system-report (about 703 MB of retained checked facts). Then
+  decide between per-phase speedups, caching prepared modules within a run, and
+  parallelism inside one test file.
 - Killing `xsht test` currently leaves the `xsh` children it spawned (e.g.
   system-report subprocesses from `test.run_script`) running as orphans, each
   pinning a core. Run test children in the runner's process group and terminate
