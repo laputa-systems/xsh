@@ -5,7 +5,7 @@ use super::{
     common_module_overload_expected_arena, module_overload_matches_arena, module_sig_accepts_arg_name_at_arena,
     module_sig_accepts_arity, module_sig_accepts_names_arena,
 };
-use crate::sema::check::{ApiArgCheck, MethodSig};
+use crate::sema::check::{ApiArgCheck, MethodSig, ModuleFnSig};
 use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 
 /// Registered method calls instantiate receiver relationships before checking
@@ -401,7 +401,23 @@ impl Checker {
             self.error(span, &format!("unsupported Map key type {key}"), "check.map-key");
             return Type::Invalid;
         }
+        if receiver != MethodReceiver::PathConstructor {
+            self.publish_api_call(arena, args, span, Some(receiver), &method.sig, &instance.signature);
+        }
         instance.signature.return_ty
+    }
+
+    /// Publishes the selected overload's binding for lowering. Spread and
+    /// splice entries have no static plan and lower through their own paths.
+    pub(super) fn publish_api_call(
+        &mut self, arena: &ArenaProgram, args: &[ArenaCallArg], span: Span,
+        receiver: Option<MethodReceiver>, sig: &'static ModuleFnSig, concrete: &ModuleFnSig,
+    ) {
+        let Ok(expanded) = crate::sema::arguments::expand_named_arguments(arena, args, |_| None) else { return; };
+        let params = crate::sema::builtin_templates::callable_parameters(concrete);
+        let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &expanded) else { return; };
+        let params = params.into_iter().map(|param| param.ty).collect();
+        self.api_calls.insert(span, super::CheckedApiCall { receiver, sig, params, argument_slots: binding.argument_slots });
     }
 
     fn report_unknown_method(

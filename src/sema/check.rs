@@ -90,6 +90,17 @@ pub enum StatementPosition {
     Value,
 }
 
+/// A registered method or module function call's selected overload: its
+/// registry signature, concrete parameter types, and each source argument
+/// entry's parameter slot. Module functions have no receiver.
+#[derive(Clone, Debug)]
+pub struct CheckedApiCall {
+    pub receiver: Option<MethodReceiver>,
+    pub sig: &'static ModuleFnSig,
+    pub params: Vec<Type>,
+    pub argument_slots: Vec<usize>,
+}
+
 /// A stage retains its checked input context and output contract independently
 /// of the enclosing pipeline's final result.
 #[derive(Clone, Debug)]
@@ -125,6 +136,7 @@ pub struct CheckOutput {
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
+    pub api_calls: BTreeMap<Span, CheckedApiCall>,
     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     /// `with` error handlers retain the common nominal error of their checked inputs.
@@ -382,6 +394,7 @@ pub struct Checker {
     membership_migration_spans: BTreeSet<Span>,
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
+    api_calls: BTreeMap<Span, CheckedApiCall>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
     /// Lowering needs facts for embedded implementation bodies; other checks
@@ -508,6 +521,7 @@ impl Checker {
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
+                api_calls: checker.api_calls,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
             }
@@ -608,6 +622,7 @@ impl Checker {
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
+                api_calls: checker.api_calls,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
             }
@@ -666,6 +681,7 @@ impl Checker {
             membership_migration_spans: BTreeSet::new(),
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
+            api_calls: BTreeMap::new(),
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),
             check_embedded_bodies: false,

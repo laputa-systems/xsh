@@ -148,6 +148,7 @@ fn seed_fixed_parameters(template: &Type, domain: &Type, parameters: &mut BTreeM
     }
 }
 
+#[cfg(test)]
 pub(crate) fn concrete_method_signature(method: &crate::modules::signature::MethodSig, receiver: &Type) -> Option<ModuleFnSig> {
     let mut constraints = TypeConstraints::default();
     let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(receiver), &mut constraints, Span::at(crate::source::SourceId::new(0), 0)).ok()?;

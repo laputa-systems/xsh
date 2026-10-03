@@ -908,7 +908,10 @@ spans, retaining parentheses and surrounding block trivia.
 fields and retains each source entry's index. `bind_static_arguments` resolves
 those fields and ordinary arguments to callable parameter slots before runtime
 lowering; absent slots continue to select ordinary defaults. Expression calls
-and structured stages share these facts. `lower_expanded_argument_values`
+and structured stages share these facts. For registered method and module
+function calls, `Checker::publish_api_call` records the selected overload's
+binding once as `CheckedApiCall`; lowering consumes it instead of selecting
+an overload. `lower_expanded_argument_values`
 creates source-ordered hygienic slots and projects each spread before the next
 entry. `wrap_argument_bindings` sequences the initialization around existing
 call and operation rows. Compiler-generated projection IDs are transient and

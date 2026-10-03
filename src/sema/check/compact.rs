@@ -80,6 +80,9 @@ pub struct CompactBodyFacts {
     /// Optional receivers whose checked presence proof makes their fallback unreachable.
     pub proven_nonnull_fallback_receivers: FxHashSet<ExprId>,
     pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
+    /// Registered method and module function calls keyed by call expression;
+    /// a stage callable's plan is keyed by its callee.
+    pub api_calls: FxHashMap<ExprId, super::CheckedApiCall>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     /// `with` handler slots retain the common nominal error of their checked inputs.
     pub handler_input_types: FxHashMap<BlockId, Type>,
@@ -99,6 +102,7 @@ impl CompactBodyFacts {
             if let Some(target) = checked.requirement_targets.get(&span) { facts.requirement_targets.insert(id, target.clone()); }
             if checked.projections.contains_key(&span) { facts.projections.insert(id); }
             if checked.proven_nonnull_fallback_receivers.contains(&span) { facts.proven_nonnull_fallback_receivers.insert(id); }
+            if let Some(call) = checked.api_calls.get(&span) { facts.api_calls.insert(id, call.clone()); }
             if let ArenaExprKind::Call { callee, .. } = expression.kind
                 && let Some(fact) = checked.record_constructor_instances.get(&span) {
                 record_constructor_types.insert(callee, fact.ty.clone());
