@@ -1,4 +1,4 @@
-test test_file_audit_findings [fs, process, error] { |ctx|
+test test_file_audit_findings { |ctx|
   let root = test.temp_dir(ctx, name: "file-audit")?
   let outside = test.temp_dir(ctx, name: "file-audit-outside")?
   fp"${root}/world.txt".write("world")?
@@ -27,7 +27,7 @@ test test_file_audit_findings [fs, process, error] { |ctx|
   }
 }
 
-test test_file_audit_distinguishes_non_utf8_sibling_paths [fs, process, env, error] { |ctx|
+test test_file_audit_distinguishes_non_utf8_sibling_paths { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return

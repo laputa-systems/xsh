@@ -1,4 +1,4 @@
-test test_ini_decode_encode_and_files [fs, error] { |ctx|
+test test_ini_decode_encode_and_files { |ctx|
   let config = ini.decode("""global: root
 [server]
 Host = example.test
@@ -37,7 +37,7 @@ pure encode_message(result: Result[Str]) -> Str {
   }
 }
 
-test test_ini_encode_orders_globals_then_sections [fs, error] {
+test test_ini_encode_orders_globals_then_sections {
   # An empty record emits no lines at all, so there is no final newline either.
   ini.encode({})? == ""
 
@@ -86,7 +86,7 @@ f = 4
 """
 }
 
-test test_ini_encode_normalizes_section_keys [fs, error] {
+test test_ini_encode_normalizes_section_keys {
   # Global keys keep their spelling; section keys are lowercased. The two
   # normalizations are independent, so a global key is never lowercased.
   ini.encode({Host: "1"})? == """Host = 1
@@ -132,7 +132,7 @@ k=v = 2
 """
 }
 
-test test_ini_encode_rejects_invalid_names [fs, error] {
+test test_ini_encode_rejects_invalid_names {
   # A global key is validated exactly as written; an empty key and a key
   # holding NUL, newline, `[`, or `]` are rejected.
   test.error_kind(ini.encode({"a[b": "1"}), "ini-key")?
@@ -186,7 +186,7 @@ b""": {
   encode_message(ini.encode({"a[b": "1", s: {c: 2}})) == "INI section values must be strings"
 }
 
-test test_ini_encode_rejects_non_string_values [fs, error] {
+test test_ini_encode_rejects_non_string_values {
   # A top-level field must be a global string or a section record.
   test.error_kind(ini.encode({a: 1}), "ini-encode")?
   encode_message(ini.encode({a: 1})) == "INI records may contain only global string keys or section records"
@@ -214,7 +214,7 @@ test test_ini_encode_rejects_non_string_values [fs, error] {
   encode_message(ini.encode({s: {"c]d": "2", a: 1}})) == "INI section values must be strings"
 }
 
-test test_ini_encode_writes_multiline_values [fs, error] {
+test test_ini_encode_writes_multiline_values {
   # Embedded newlines become two-space continuation lines, so the value reads
   # back as the same string.
   ini.encode({

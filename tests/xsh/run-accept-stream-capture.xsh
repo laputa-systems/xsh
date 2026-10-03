@@ -1,4 +1,4 @@
-test test_accept_late_stream_completion_is_a_checked_process_error [error] { |ctx|
+test test_accept_late_stream_completion_is_a_checked_process_error { |ctx|
   let output = test.run_script(ctx, r"""
 let rejected: Result[Unit, ProcessError] = try {
   ctx "stream completion" {
@@ -23,7 +23,7 @@ match rejected {
   (output.stdout) == ("row\nfinal\ncaptured\n")
 }
 
-test test_accept_stream_decode_failure_is_a_checked_process_error [error] { |ctx|
+test test_accept_stream_decode_failure_is_a_checked_process_error { |ctx|
   let output = test.run_script(ctx, r"""
 let rejected: Result[Unit, ProcessError] = try {
   let rows = run.stream --text --accept=[0] sh -c "printf '\\377'" ?
@@ -41,7 +41,7 @@ match rejected {
   (output.stdout) == ("captured decode\n")
 }
 
-test test_accept_malformed_stream_option_stays_outside_checked_capture [error] { |ctx|
+test test_accept_malformed_stream_option_stays_outside_checked_capture { |ctx|
   let output = test.run_script(ctx, r"""
 proc policy() [] -> List[Int] {
   print "option evaluated"

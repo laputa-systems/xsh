@@ -1,4 +1,4 @@
-test test_mv_file_and_target_directory [fs, process, env, error] { |ctx|
+test test_mv_file_and_target_directory { |ctx|
   let root = test.temp_dir(ctx, name: "mv")?
   let src = fp"${root}/src.txt"
   src.write("hello")?

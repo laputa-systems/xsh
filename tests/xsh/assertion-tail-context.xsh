@@ -1,4 +1,4 @@
-test test_propagated_bool_statement_tails_assert_without_unit_value_context [error] { |ctx|
+test test_propagated_bool_statement_tails_assert_without_unit_value_context { |ctx|
   let output = test.run_script(ctx, r"""
 proc statement_tail() [fs, error] -> Unit { p".".exists()? }
 proc result_tail() [fs, error] -> Result[Unit] { p".".exists()? }
@@ -16,7 +16,7 @@ print "done"
   output.stdout == "done\n"
 }
 
-test test_result_bool_statement_tail_requires_explicit_propagation [error] { |ctx|
+test test_result_bool_statement_tail_requires_explicit_propagation { |ctx|
   let output = test.run_script(ctx, r"""
 proc statement_tail() [fs, error] -> Unit { p".".exists() }
 statement_tail()
@@ -25,7 +25,7 @@ statement_tail()
   assert "check.ignored-result" in output.stderr, output.stderr
 }
 
-test test_propagated_false_statement_tail_captures_after_cleanup [error] { |ctx|
+test test_propagated_false_statement_tail_captures_after_cleanup { |ctx|
   let output = test.run_script(ctx, r"""
 proc cleanup() [io] -> Unit { print "cleaned" }
 proc statement_tail() [fs, io, error] -> Unit {

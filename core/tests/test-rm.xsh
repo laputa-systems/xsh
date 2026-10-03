@@ -1,4 +1,4 @@
-test test_rm_force_recursive [fs, process, env, error] { |ctx|
+test test_rm_force_recursive { |ctx|
   let root = test.temp_dir(ctx, name: "rm")?
   let dir = fp"${root}/dir"
   dir.mkdir()?

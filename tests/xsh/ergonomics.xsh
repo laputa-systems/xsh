@@ -27,7 +27,7 @@ pure ergonomics_pattern_name(value: Any) -> Str {
   "missing"
 }
 
-test test_ergonomics_boolean_branch_tails_and_pattern_values [error] {
+test test_ergonomics_boolean_branch_tails_and_pattern_values {
   !ergonomics_result_flag(Ok(1))
   let outcome = Ok(1)
   let accepted = outcome is Ok(_)
@@ -43,7 +43,7 @@ test test_ergonomics_boolean_branch_tails_and_pattern_values [error] {
   filtered == [1, 3]
 }
 
-test test_ergonomics_guarded_return_narrows_nullable_payload [error] {
+test test_ergonomics_guarded_return_narrows_nullable_payload {
   ergonomics_guarded_name(null) == "default"
   ergonomics_guarded_name("  configured  ") == "configured"
   ergonomics_conditional_name(null) == "default"
@@ -52,7 +52,7 @@ test test_ergonomics_guarded_return_narrows_nullable_payload [error] {
   ergonomics_pattern_name(42) == "missing"
 }
 
-test test_ergonomics_retry_branch_false_is_a_value [error] {
+test test_ergonomics_retry_branch_false_is_a_value {
   let value = retry [] {
     if true {
       let outcome = Ok(false)
@@ -64,7 +64,7 @@ test test_ergonomics_retry_branch_false_is_a_value [error] {
   !value
 }
 
-test test_ergonomics_optional_method_retains_result_layer [error] {
+test test_ergonomics_optional_method_retains_result_layer {
   let absent: Str? = null
   let present: Str? = "42"
   let absent_result = absent?.parse_int()
@@ -73,7 +73,7 @@ test test_ergonomics_optional_method_retains_result_layer [error] {
   (present_result ?? Ok(0))? == 42
 }
 
-test test_ergonomics_nullable_bytes_slice_and_fallback [error] {
+test test_ergonomics_nullable_bytes_slice_and_fallback {
   let absent: Bytes? = null
   let present: Bytes? = b"abcdef"
   (absent?[1..4] ?? b"fallback") == b"fallback"
@@ -82,7 +82,7 @@ test test_ergonomics_nullable_bytes_slice_and_fallback [error] {
   present?[4..] == b"ef"
 }
 
-test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions [error] {
+test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
   let packages = [
     {name: "first", build: {jobs: [1, 2]}},
     {name: "second", build: {jobs: [3, 4]}},
@@ -103,7 +103,7 @@ test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions [error] {
   combined == ["second:3", "second:4", "last"]
 }
 
-test test_ergonomics_optional_call_skips_punned_argument_evaluation [error] { |ctx|
+test test_ergonomics_optional_call_skips_punned_argument_evaluation { |ctx|
   let output = test.run_script(
     ctx,
     """var calls = 0
@@ -124,7 +124,7 @@ print (skipped_effect ?? "absent")
   output.stdout == "1\nabsent\nabsent\n"
 }
 
-test test_ergonomics_failed_chain_reports_only_reached_operands [error] { |ctx|
+test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
   let output = test.run_script(
     ctx,
     """proc skipped() [] -> Int {
@@ -140,7 +140,7 @@ test test_ergonomics_failed_chain_reports_only_reached_operands [error] { |ctx|
   "2" in output.stderr
 }
 
-test test_ergonomics_statement_branch_false_still_asserts [error] { |ctx|
+test test_ergonomics_statement_branch_false_still_asserts { |ctx|
   let output = test.run_script(
     ctx,
     """proc check_branch() [] {
@@ -157,7 +157,7 @@ check_branch()?
   "assert" in output.stderr
 }
 
-test test_ergonomics_list_concatenation_does_not_merge_maps [error] { |ctx|
+test test_ergonomics_list_concatenation_does_not_merge_maps { |ctx|
   for source in [
     "let table: Map[Int] = {x: 1}\nlet merged = table + table\n",
     "var table: Map[Int] = {x: 1}\ntable += {y: 2}\n",

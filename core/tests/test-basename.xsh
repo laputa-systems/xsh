@@ -1,16 +1,16 @@
-test test_basename_basic [process, env, error] { |ctx|
+test test_basename_basic { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/basename.xsh" -- /tmp/demo.txt ?
   output.trim() == "demo.txt"
 }
 
-test test_basename_suffix_and_multiple [process, env, error] { |ctx|
+test test_basename_suffix_and_multiple { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/basename.xsh" -- -a -s .txt /tmp/demo.txt /tmp/other.txt ?
 
   output.trim() == """demo
 other"""
 }
 
-test test_basename_runs_as_executable_shebang_script [fs, process, env, error] { |ctx|
+test test_basename_runs_as_executable_shebang_script { |ctx|
   if ! p"/bin/xsh".exists()? {
     test.skip("/bin/xsh is not installed")?
   }

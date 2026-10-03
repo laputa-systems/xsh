@@ -1,4 +1,4 @@
-test test_loc [fs, process, error] { |ctx|
+test test_loc { |ctx|
   let root = test.temp_dir(ctx, name: "loc-root")?
 
   fp"${root}/main.rs".write("""fn main() {

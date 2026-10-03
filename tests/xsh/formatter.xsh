@@ -14,7 +14,7 @@ proc assert_fmt_fixture(ctx: TestContext, source_path: Path, expected_path: Path
   assert stable.status.exited_with(0), stable.stderr
 }
 
-test test_fmt_fixture [fs, process, error] { |ctx|
+test test_fmt_fixture { |ctx|
   assert_fmt_fixture(
     ctx,
     p"tests/fixtures/fmt/beauty.xsh",
@@ -23,7 +23,7 @@ test test_fmt_fixture [fs, process, error] { |ctx|
   )?
 }
 
-test test_fmt_nested_multiline_string_preserves_value [fs, process, error] { |ctx|
+test test_fmt_nested_multiline_string_preserves_value { |ctx|
   let source = p"tests/fixtures/fmt/nested-multiline-string.xsh".read_text()?
   let before = test.run_script(ctx, source)?
   assert before.success, before.stderr

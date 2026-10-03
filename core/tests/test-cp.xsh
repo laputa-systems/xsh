@@ -1,4 +1,4 @@
-test test_cp_file_and_recursive_dir [fs, process, env, error] { |ctx|
+test test_cp_file_and_recursive_dir { |ctx|
   let root = test.temp_dir(ctx, name: "cp")?
   let src = fp"${root}/src.txt"
   let dst = fp"${root}/dst.txt"

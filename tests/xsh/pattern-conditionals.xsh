@@ -13,7 +13,7 @@ pure pattern_conditional_label(outcome: Result[Int]) -> Str {
   }
 }
 
-test test_pattern_conditionals_bind_immutable_branch_payloads [error] { |ctx|
+test test_pattern_conditionals_bind_immutable_branch_payloads { |ctx|
   let output = test.run_script(ctx, r"""enum PatternBranchTag { SelectedBranch(Int), OtherBranch }
 proc witness() [error] {
   let outcome: Result[Int] = Ok(7)
@@ -47,7 +47,7 @@ witness()
   output.stdout == ""
 }
 
-test test_pattern_conditionals_produce_values_and_keep_literal_results [error] {
+test test_pattern_conditionals_produce_values_and_keep_literal_results {
   let outcome = Ok(9)
   let selected = if let Ok(value) = outcome { value + 1 } else { 0 }
   (selected) == (10)
@@ -63,7 +63,7 @@ test test_pattern_conditionals_produce_values_and_keep_literal_results [error] {
   }
 }
 
-test test_pattern_loops_reevaluate_after_continue_and_keep_lexical_targets [error] {
+test test_pattern_loops_reevaluate_after_continue_and_keep_lexical_targets {
   var index = 0
   var total = 0
   while let Ok(value) = pattern_loop_subject(index) {
@@ -79,7 +79,7 @@ test test_pattern_loops_reevaluate_after_continue_and_keep_lexical_targets [erro
   }
 }
 
-test test_pattern_conditionals_reject_irrefutable_and_leaking_captures [error] { |ctx|
+test test_pattern_conditionals_reject_irrefutable_and_leaking_captures { |ctx|
   for source in [
     "if let value = 1 { print $value }\n",
     "while let _ = 1 { break }\n",
@@ -101,7 +101,7 @@ test test_pattern_conditionals_reject_irrefutable_and_leaking_captures [error] {
 }
 
 
-test test_pattern_conditionals_reuse_nested_record_type_and_facet_patterns [error] { |ctx|
+test test_pattern_conditionals_reuse_nested_record_type_and_facet_patterns { |ctx|
   let output = test.run_script(ctx, r"""error PatternLoopError = Done(detail: Str) : NotFound
 pure pattern_condition_dynamic() -> Any { "hello" }
 proc witness() [error] {
@@ -139,7 +139,7 @@ witness()
   output.stdout == ""
 }
 
-test test_pattern_conditionals_evaluate_once_and_cleanup_loop_defers [error] { |ctx|
+test test_pattern_conditionals_evaluate_once_and_cleanup_loop_defers { |ctx|
   let output = test.run_script(ctx, r"""
 error Finish = Done(detail: Str)
 proc subject(index: Int) -> Result[Int] {
@@ -164,7 +164,7 @@ print finished
   (output.stdout) == ("5\nmismatch\n0\ncleanup 0\n1\ncleanup 1\n2\nfinished\n")
 }
 
-test test_pattern_conditionals_propagate_explicit_subject_errors [error] { |ctx|
+test test_pattern_conditionals_propagate_explicit_subject_errors { |ctx|
   let output = test.run_script(ctx, r"""
 error Finish = Done(detail: Str)
 proc subject() -> Result[Int] { return Err(Finish.Done(detail: "subject failed")) }
@@ -176,7 +176,7 @@ if let 7 = subject()? { print selected } else { print unexpected }
   ("result.propagate" in output.stderr)
 }
 
-test test_pattern_conditional_lint_and_formatter_fixes_are_stable [fs, process, error] { |ctx|
+test test_pattern_conditional_lint_and_formatter_fixes_are_stable { |ctx|
   for source in [
     "let outcome = Ok(7)\nmatch outcome { Ok(value) => { print $value }, Err(_) => { print missing } }\n",
     "let outcome = Ok(7)\nlet selected = match outcome { Ok(value) => value + 1, Err(_) => 0 }\nprint $selected\n",
@@ -218,7 +218,7 @@ test test_pattern_conditional_lint_and_formatter_fixes_are_stable [fs, process, 
   }
 }
 
-test test_pattern_conditional_lint_retains_comments_guards_and_error_bindings [fs, process, error] { |ctx|
+test test_pattern_conditional_lint_retains_comments_guards_and_error_bindings { |ctx|
   for source in [
     "let outcome = Ok(7)\nmatch outcome {\n  # selected payload\n  Ok(value) => { print $value }, Err(_) => {}\n}\n",
     "let outcome = Ok(7)\nmatch outcome { Ok(value) if value > 0 => { print $value }, _ => {} }\n",
@@ -230,7 +230,7 @@ test test_pattern_conditional_lint_retains_comments_guards_and_error_bindings [f
   }
 }
 
-test test_pattern_condition_formatter_retains_loop_and_multiline_syntax [fs, process, error] { |ctx|
+test test_pattern_condition_formatter_retains_loop_and_multiline_syntax { |ctx|
   let source = r"""let outcome = Ok(7)
 while let
   Ok(value)
@@ -262,7 +262,7 @@ while let
   (output.stdout) == ("7\n")
 }
 
-test test_pattern_conditionals_match_lists_and_bind_typed_remainders [error] { |ctx|
+test test_pattern_conditionals_match_lists_and_bind_typed_remainders { |ctx|
   let output = test.run_script(ctx, r"""
 proc witness() [error] {
   let argv = ["build", "native", "debug"]
@@ -294,7 +294,7 @@ proc pattern_conditional_open_root(root_path: Path) [fs, error] -> Result[FsRoot
   if let Ok(root) = fs.open_root(root_path) { root } else { fs.open_root(root_path)? }
 }
 
-test test_pattern_conditionals_preserve_escaping_owned_resources [fs, error] { |ctx|
+test test_pattern_conditionals_preserve_escaping_owned_resources { |ctx|
   let root_path = test.temp_dir(ctx, name: "pattern-root")?
   let root = pattern_conditional_open_root(root_path)?
   root.write(p"value", "retained")?
@@ -311,7 +311,7 @@ pure pattern_sibling_label(subject: PatternSiblingValue) -> Str {
   }
 }
 
-test test_pattern_conditionals_preserve_sibling_match_capture_reuse [error] {
+test test_pattern_conditionals_preserve_sibling_match_capture_reuse {
   (pattern_sibling_label(SiblingWord("word"))) == ("word")
   (pattern_sibling_label(SiblingNumber(7))) == ("7")
 }

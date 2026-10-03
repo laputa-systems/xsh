@@ -1,4 +1,4 @@
-test test_rmdir_parents [fs, process, env, error] { |ctx|
+test test_rmdir_parents { |ctx|
   let root = test.temp_dir(ctx, name: "rmdir")?
   let nested = fp"${root}/a/b/c"
   nested.mkdir()?

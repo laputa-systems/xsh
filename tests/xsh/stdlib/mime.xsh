@@ -20,7 +20,7 @@ pure parsed_params(result: Result[MimeParse]) -> Map[Str] {
   if let Ok(parsed) = result { parsed.params } else { {} }
 }
 
-test test_mime_lookup_and_parse [fs, error] {
+test test_mime_lookup_and_parse {
   let info = mime.lookup_ext("tar.gz") ?? {mime: "missing", exts: ["missing"]}
   info.mime == "application/tar+gzip"
   info.exts[0] == "tar.gz"
@@ -34,7 +34,7 @@ test test_mime_lookup_and_parse [fs, error] {
   test.error_kind(mime.parse("not a media type"), "mime-parse")?
 }
 
-test test_mime_lookup_ext_normalizes_the_query_spelling [fs, error] {
+test test_mime_lookup_ext_normalizes_the_query_spelling {
   # Leading dots are dropped and ASCII case is folded before the table is
   # consulted, so these four spellings are one key.
   for spelling in ["gz", ".gz", "GZ", "..GZ"] {
@@ -56,7 +56,7 @@ test test_mime_lookup_ext_normalizes_the_query_spelling [fs, error] {
   jpeg.exts.join(",") == "jpg,jpeg"
 }
 
-test test_mime_lookup_ext_rejects_unusable_extensions [fs, error] {
+test test_mime_lookup_ext_rejects_unusable_extensions {
   # An empty query, and a query that normalization empties, are not lookups.
   mime.lookup_ext("") == null
   mime.lookup_ext(".") == null
@@ -73,7 +73,7 @@ test test_mime_lookup_ext_rejects_unusable_extensions [fs, error] {
   mime.lookup_ext("definitelymissingxsh") == null
 }
 
-test test_mime_lookup_path_tries_longest_suffix_first [fs, error] {
+test test_mime_lookup_path_tries_longest_suffix_first {
   # `tar.gz` is a table key in its own right, so the compound suffix of the
   # same name wins over the `gz` suffix the name also ends with.
   let compound = mime.lookup_path(p"archive.tar.gz") ?? missing_info()
@@ -93,7 +93,7 @@ test test_mime_lookup_path_tries_longest_suffix_first [fs, error] {
   (mime.lookup_path(p"archive.tar.gz.bak") ?? missing_info()).mime == "missing"
 }
 
-test test_mime_lookup_path_uses_only_the_final_component [fs, error] {
+test test_mime_lookup_path_uses_only_the_final_component {
   # A dot in a directory name is not a suffix of the file.
   (mime.lookup_path(p"dir.d/file") ?? missing_info()).mime == "missing"
   (mime.lookup_path(p"dir.d/file.txt") ?? missing_info()).mime == "text/plain"
@@ -109,7 +109,7 @@ test test_mime_lookup_path_uses_only_the_final_component [fs, error] {
   (mime.lookup_path(p"..")) == (null)
 }
 
-test test_mime_parse_lowercases_the_type_and_parameter_names [error] {
+test test_mime_parse_lowercases_the_type_and_parameter_names {
   # The `type/subtype` field is ASCII-lowercased.
   parsed_type(mime.parse("TEXT/PLAIN")) == "text/plain"
   parsed_type(mime.parse("Application/Vnd.Demo+Json")) == "application/vnd.demo+json"
@@ -121,7 +121,7 @@ test test_mime_parse_lowercases_the_type_and_parameter_names [error] {
   ((parsed.get("NAME") ?? "absent")) == ("absent")
 }
 
-test test_mime_parse_splits_on_semicolons_before_interpreting_quotes [error] {
+test test_mime_parse_splits_on_semicolons_before_interpreting_quotes {
   # The split happens first, so a semicolon inside a quoted value ends the
   # parameter and leaves an unterminated quote behind.
   parsed_type(mime.parse("text/plain; name=\"a;b\"")) == "rejected"
@@ -139,7 +139,7 @@ test test_mime_parse_splits_on_semicolons_before_interpreting_quotes [error] {
   ((parsed_params(mime.parse("text/plain;;")).get("a") ?? "absent")) == ("absent")
 }
 
-test test_mime_parse_keeps_the_last_repeated_parameter [error] {
+test test_mime_parse_keeps_the_last_repeated_parameter {
   # A repeated name replaces the earlier value, and the names collide only
   # after ASCII case folding.
   ((parsed_params(mime.parse("text/plain; a=1; a=2")).get("a") ?? "absent")) == ("2")
@@ -147,7 +147,7 @@ test test_mime_parse_keeps_the_last_repeated_parameter [error] {
   ((parsed_params(mime.parse("text/plain; a=1; b=2; a=3")).get("b") ?? "absent")) == ("2")
 }
 
-test test_mime_parse_reads_quoted_parameter_values [error] {
+test test_mime_parse_reads_quoted_parameter_values {
   # The outer quotes are removed; a backslash keeps the next character
   # literally, so an escaped quote or backslash survives as data.
   ((parsed_params(mime.parse("text/plain; name=\"a b\"")).get("name") ?? "absent")) == ("a b")
@@ -163,7 +163,7 @@ test test_mime_parse_reads_quoted_parameter_values [error] {
   ((parsed_params(mime.parse("text/plain; name= \"a b\"")).get("name") ?? "absent")) == ("a b")
 }
 
-test test_mime_parse_rejects_invalid_media_types [error] {
+test test_mime_parse_rejects_invalid_media_types {
   # The type field must be a non-empty `token/token` pair.
   for value in [
     "",
@@ -181,7 +181,7 @@ test test_mime_parse_rejects_invalid_media_types [error] {
   test.error_kind(mime.parse(""), "mime-parse")?
 }
 
-test test_mime_parse_rejects_malformed_parameters [error] {
+test test_mime_parse_rejects_malformed_parameters {
   # A parameter must be `name=value` with a token name and a token or quoted
   # value, and nothing may follow the closing quote.
   for value in [

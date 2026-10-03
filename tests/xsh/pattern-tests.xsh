@@ -1,4 +1,4 @@
-test test_pattern_predicates_inspect_results_and_nested_payloads [error] {
+test test_pattern_predicates_inspect_results_and_nested_payloads {
   let successful = Ok(7)
   let failed = Err("expected")
   let yes = successful is Ok(_)
@@ -29,7 +29,7 @@ test test_pattern_predicates_inspect_results_and_nested_payloads [error] {
 
 pure pattern_test_dynamic_value() -> Any { "hello" }
 
-test test_pattern_predicates_narrow_stable_dynamic_bindings [error] {
+test test_pattern_predicates_narrow_stable_dynamic_bindings {
   let value = pattern_test_dynamic_value()
   let is_string = value is Str
   (is_string) == (true)
@@ -40,7 +40,7 @@ test test_pattern_predicates_narrow_stable_dynamic_bindings [error] {
   }
 }
 
-test test_pattern_predicates_reject_bindings_and_alternation [error] { |ctx|
+test test_pattern_predicates_reject_bindings_and_alternation { |ctx|
   for fixture in [
     {source: "let outcome: Result[Int] = Ok(1)\nlet matches = outcome is Ok(payload)\n", diagnostic: "check.pattern-test-binding"},
     {source: "let value = {answer: 42}\nlet matches = value is {answer}\n", diagnostic: "check.pattern-test-binding"},
@@ -63,7 +63,7 @@ error PredicateError = Missing(message: Str) : NotFound | Broken(message: Str) :
 
 pure pattern_test_tag_value() -> Any { PayloadChoice(7, "payload") }
 
-test test_pattern_predicates_keep_nominal_tags_and_error_facets [error] {
+test test_pattern_predicates_keep_nominal_tags_and_error_facets {
   (EmptyChoice is EmptyChoice) == (true)
   (PayloadChoice(7, "payload") is PayloadChoice(7, "payload")) == (true)
   (PayloadChoice(7, "payload") is PayloadChoice(8, _)) == (false)
@@ -82,7 +82,7 @@ test test_pattern_predicates_keep_nominal_tags_and_error_facets [error] {
   (failure is Err(is NotFound)) == (true)
 }
 
-test test_pattern_predicates_evaluate_subject_once [error] { |ctx|
+test test_pattern_predicates_evaluate_subject_once { |ctx|
   let output = test.run_script(ctx, r"""proc subject() -> Result[Int] {
   print "subject"
   return Ok(7)
@@ -97,7 +97,7 @@ print ${selected}
   (output.stdout) == ("subject\ntrue\n")
 }
 
-test test_pattern_predicate_statements_assert_and_values_do_not_propagate [error] { |ctx|
+test test_pattern_predicate_statements_assert_and_values_do_not_propagate { |ctx|
   let output = test.run_script(ctx, r"""let outcome = Err("failed")
 let tested = outcome is Ok(_)
 print ${tested}
@@ -110,7 +110,7 @@ print "unreachable"
   "AssertionError.Failed" in output.stderr
 }
 
-test test_pattern_predicate_lint_fixes_converge_and_formatter_retains_syntax [fs, process, error] { |ctx|
+test test_pattern_predicate_lint_fixes_converge_and_formatter_retains_syntax { |ctx|
   let source = r"""let value = Ok(7)
 let selected = match value { Ok(_) => true, Err(_) => false }
 print ${selected}
@@ -152,7 +152,7 @@ print ${selected}
   (output.stdout) == ("true\n")
 }
 
-test test_pattern_predicate_lint_preserves_comments_and_bindings [fs, process, error] { |ctx|
+test test_pattern_predicate_lint_preserves_comments_and_bindings { |ctx|
   for source in [
     "let value = Ok(7)\nlet selected = match value {\n  # Preserve this explanation.\n  Ok(_) => true,\n  _ => false\n}\nprint done\n",
     "let value = Ok(7)\nlet selected = match value { Ok(payload) => true, _ => false }\nprint done\n",
@@ -164,7 +164,7 @@ test test_pattern_predicate_lint_preserves_comments_and_bindings [fs, process, e
   }
 }
 
-test test_pattern_predicates_resolve_qualified_constructor_type_and_facet_names [fs, error] { |ctx|
+test test_pattern_predicates_resolve_qualified_constructor_type_and_facet_names { |ctx|
   let root = test.temp_dir(ctx, name: "predicate-module")?
   fp"${root}/predicate.xsh".write("""
 ##! Pattern predicate fixture module.
@@ -200,7 +200,7 @@ print $ready_matches $payload_matches $type_matches $variant_matches $facet_matc
 
 pure pattern_test_dynamic_list() -> Any { [1, 2] }
 
-test test_pattern_predicates_resolve_parameterized_types_and_multiline_tests [error] { |ctx|
+test test_pattern_predicates_resolve_parameterized_types_and_multiline_tests { |ctx|
   let value = pattern_test_dynamic_list()
   let matched = value is List[Int]
   (matched) == (true)
@@ -221,7 +221,7 @@ print ${matched}
   (output.stdout) == ("true\n")
 }
 
-test test_pattern_predicate_formatter_preserves_parameterized_types [fs, process, error] { |ctx|
+test test_pattern_predicate_formatter_preserves_parameterized_types { |ctx|
   let source = r"""pure subject() -> Any { [1, 2] }
 let selected = subject() is List[Int]
 print ${selected}
@@ -248,7 +248,7 @@ print ${selected}
   (output.stdout) == ("true\n")
 }
 
-test test_pattern_predicates_leave_control_body_braces [error] {
+test test_pattern_predicates_leave_control_body_braces {
   let missing: PredicateError = PredicateError.Missing(message: "missing")
   var branches = 0
   if missing is PredicateError.Missing {
@@ -268,7 +268,7 @@ test test_pattern_predicates_leave_control_body_braces [error] {
   (branches) == (2)
 }
 
-test test_pattern_predicates_keep_following_type_pattern_match_arms [error] { |ctx|
+test test_pattern_predicates_keep_following_type_pattern_match_arms { |ctx|
   let output = test.run_script(ctx, r"""error ArmError = Missing(message: Str) : NotFound
 pure describe(value: Error) -> Str {
   match value {
@@ -295,7 +295,7 @@ print (describe(missing)) (describe_expression(missing))
   (output.stdout) == ("missing missing\n")
 }
 
-test test_pattern_predicate_facet_narrowing_retains_nominal_fallback_errors [error] { |ctx|
+test test_pattern_predicate_facet_narrowing_retains_nominal_fallback_errors { |ctx|
   let output = test.run_script(ctx, r"""
 error BuildError = Missing(message: Str) : NotFound
 pure nominal_message(failure: BuildError) -> Str { failure.message }
@@ -314,7 +314,7 @@ if let is NotFound = failure { print ${nominal_message(failure)} }
   (output.stdout) == ("absentabsent\nconditional\n")
 }
 
-test test_pattern_predicate_dynamic_facets_retain_the_error_api [error] { |ctx|
+test test_pattern_predicate_dynamic_facets_retain_the_error_api { |ctx|
   let output = test.run_script(ctx, r"""
 error BuildError = Missing(message: Str) : NotFound
 pure dynamic_failure() -> Any { BuildError.Missing(message: "absent") }

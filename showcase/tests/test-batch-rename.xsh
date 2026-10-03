@@ -1,4 +1,4 @@
-test test_batch_rename [fs, process, error] { |ctx|
+test test_batch_rename { |ctx|
   let root = test.temp_dir(ctx, name: "rename")?
   fp"${root}/hello world.txt".write("a")?
   fp"${root}/foo bar.txt".write("b")?

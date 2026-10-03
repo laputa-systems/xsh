@@ -1,6 +1,6 @@
 use system_report_sensors_check as sensors_reference
 
-test test_system_report_sensors_json_reference_uses_raw_subfeature_names [error] {
+test test_system_report_sensors_json_reference_uses_raw_subfeature_names {
   let output = """{"coretemp-isa-0000":{"Adapter":"ISA adapter","Core 0":{"temp2_input":41.125,"temp2_max":100.0}},"nvme-pci-0100":{"Adapter":"PCI adapter","Composite":{"temp1_input":36.85,"temp1_alarm":0.0}},"BAT1-isa-00ba":{"Adapter":"ISA adapter","curr1":{"curr1_input":0.0}}}"""
   let parsed = sensors_reference.parse_sensors_json(output)?
   parsed.len() == 5
@@ -13,7 +13,7 @@ test test_system_report_sensors_json_reference_uses_raw_subfeature_names [error]
   test.error_kind(sensors_reference.parse_sensors_json("{bad json"), "json")?
 }
 
-test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_readings_partial [error] {
+test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_readings_partial {
   let first = sensors_reference.parse_sensors_json(
     """{"coretemp-isa-0000":{"Adapter":"ISA adapter","Core 0":{"temp2_input":41.125}},"nvme-pci-0100":{"Adapter":"PCI adapter","Composite":{"temp1_input":36.85}}}""",
   )?
@@ -56,7 +56,7 @@ test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
   known_only.compared == 1
 }
 
-test test_system_report_sensors_json_live_reference_runs_only_explicit_tools [fs, process, time, error] {
+test test_system_report_sensors_json_live_reference_runs_only_explicit_tools {
   let tools_root = fs.tempdir()?
   defer tools_root.close()?
   tools_root.write(
@@ -92,7 +92,7 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
   result.before_sha256_hex == result.after_sha256_hex
 }
 
-test test_system_report_sensors_json_cli_dispatch_requires_explicit_utility [fs, process, error] { |ctx|
+test test_system_report_sensors_json_cli_dispatch_requires_explicit_utility { |ctx|
   let tools_root = fs.tempdir()?
   defer tools_root.close()?
   tools_root.write(

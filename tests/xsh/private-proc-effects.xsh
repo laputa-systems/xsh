@@ -1,4 +1,4 @@
-test test_private_proc_effects_are_inferred_transitively [error] { |ctx|
+test test_private_proc_effects_are_inferred_transitively { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int {
   forwarding()
@@ -17,7 +17,7 @@ print \${caller()}
 }
 
 
-test test_private_proc_effects_reach_recursive_fixed_point [error] { |ctx|
+test test_private_proc_effects_reach_recursive_fixed_point { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { even(4) }
 proc even(value: Int) -> Int {
@@ -31,7 +31,7 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_keep_transitive_host_requirements [error] { |ctx|
+test test_private_proc_effects_keep_transitive_host_requirements { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [time] -> Int { forwarding() }
 proc forwarding() -> Int { clock() }
@@ -45,7 +45,7 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_enforce_explicit_upper_bounds [error] { |ctx|
+test test_private_proc_effects_enforce_explicit_upper_bounds { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { deliberate_bound() }
 proc deliberate_bound() [time] -> Int { 42 }
@@ -55,7 +55,7 @@ proc deliberate_bound() [time] -> Int { 42 }
   ("time" in output.stderr) == true
 }
 
-test test_private_proc_effects_do_not_execute_references [error] { |ctx|
+test test_private_proc_effects_do_not_execute_references { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int {
   let reference = clock
@@ -71,7 +71,7 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_preserve_proc_pure_separation [error] { |ctx|
+test test_private_proc_effects_preserve_proc_pure_separation { |ctx|
   let output = test.run_xsh(ctx, """
 pure caller() -> Int { helper() }
 proc helper() -> Int { 42 }
@@ -80,7 +80,7 @@ proc helper() -> Int { 42 }
   ("check.pure-effect" in output.stderr) == true
 }
 
-test test_private_proc_effects_report_unknown_dynamic_call_chain [error] { |ctx|
+test test_private_proc_effects_report_unknown_dynamic_call_chain { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller(callback: Proc) [] -> Int { forwarding(callback) }
 proc forwarding(callback: Proc) -> Int { dynamic(callback) }
@@ -94,7 +94,7 @@ proc dynamic(callback: Proc) -> Int {
   ("forwarding -> dynamic -> Proc.call" in output.stderr) == true
 }
 
-test test_private_proc_effects_include_implicit_assertion_failure [error] { |ctx|
+test test_private_proc_effects_include_implicit_assertion_failure { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { checked() }
 proc checked() -> Int {
@@ -107,7 +107,7 @@ proc checked() -> Int {
   ("error" in output.stderr) == true
 }
 
-test test_private_proc_effects_capture_assertion_error_locally [error] { |ctx|
+test test_private_proc_effects_capture_assertion_error_locally { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { locally_caught() }
 proc locally_caught() -> Int {
@@ -120,7 +120,7 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_capture_keeps_host_requirements [error] { |ctx|
+test test_private_proc_effects_capture_keeps_host_requirements { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { locally_caught() }
 proc locally_caught() -> Int {
@@ -136,7 +136,7 @@ proc locally_caught() -> Int {
   ("time" in output.stderr) == true
 }
 
-test test_private_proc_effects_distinguish_captured_mutation_from_host_effects [error] { |ctx|
+test test_private_proc_effects_distinguish_captured_mutation_from_host_effects { |ctx|
   let output = test.run_xsh(ctx, """
 var count = 0
 proc caller() [] -> Int { increment() }
@@ -150,7 +150,7 @@ print \${caller()}
   output.stdout == "1\n"
 }
 
-test test_private_proc_effects_propagate_host_requirement_through_recursion [error] { |ctx|
+test test_private_proc_effects_propagate_host_requirement_through_recursion { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [time] -> Int { second(1) }
 proc first(value: Int) -> Int {
@@ -167,7 +167,7 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_preserve_authored_public_upper_bound [error] { |ctx|
+test test_private_proc_effects_preserve_authored_public_upper_bound { |ctx|
   let output = test.run_xsh(ctx, """
 ##! Public effect boundary.
 ## Retains its written host capability promise even when unused.
@@ -179,7 +179,7 @@ proc caller() [] -> Int { published() }
   ("time" in output.stderr) == true
 }
 
-test test_private_proc_effects_preserve_authored_stream_upper_bound [error] { |ctx|
+test test_private_proc_effects_preserve_authored_stream_upper_bound { |ctx|
   let output = test.run_xsh(ctx, """
 stream values() [time] -> Stream[Int] { yield 42 }
 proc caller() [] -> Stream[Int] { values() }
@@ -189,7 +189,7 @@ proc caller() [] -> Stream[Int] { values() }
   ("time" in output.stderr) == true
 }
 
-test test_private_proc_effects_capture_transitive_plain_return_failure [error] { |ctx|
+test test_private_proc_effects_capture_transitive_plain_return_failure { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [] -> Int { locally_caught() }
 proc locally_caught() -> Int {
@@ -207,7 +207,7 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_include_explicit_result_propagation [error] { |ctx|
+test test_private_proc_effects_include_explicit_result_propagation { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller() [error] -> Int { parsed() }
 proc parsed() -> Int { "42".parse_int()? }
@@ -217,7 +217,7 @@ print \${caller()}
   output.stdout == "42\n"
 }
 
-test test_private_proc_effects_keep_erased_pure_calls_unknown [error] { |ctx|
+test test_private_proc_effects_keep_erased_pure_calls_unknown { |ctx|
   let output = test.run_xsh(ctx, """
 proc caller(callback: Pure) [] -> Int { forwarding(callback) }
 proc forwarding(callback: Pure) -> Int {
@@ -230,7 +230,7 @@ proc forwarding(callback: Pure) -> Int {
   ("forwarding -> Pure.call" in output.stderr) == true
 }
 
-test test_private_proc_effects_include_typed_method_requirements [error] { |ctx|
+test test_private_proc_effects_include_typed_method_requirements { |ctx|
   let accepted = test.run_xsh(ctx, """
 proc caller(file: Path) [fs, error] -> Str { reader(file) }
 proc reader(file: Path) -> Str { file.read_text()? }
@@ -245,7 +245,7 @@ proc reader(file: Path) -> Str { file.read_text()? }
   ("fs" in rejected.stderr) == true
 }
 
-test test_private_proc_effects_include_executed_stage_body_requirements [error] { |ctx|
+test test_private_proc_effects_include_executed_stage_body_requirements { |ctx|
   let accepted = test.run_xsh(ctx, """
 proc caller() [time] -> List[Int] { projected() }
 proc projected() -> List[Int] {
@@ -270,7 +270,7 @@ proc projected() -> List[Int] {
   ("time" in rejected.stderr) == true
 }
 
-test test_private_proc_effects_infer_module_call_and_propagation_requirements [error] { |ctx|
+test test_private_proc_effects_infer_module_call_and_propagation_requirements { |ctx|
   let declaration = r"""type Manifest = {name: Str}
 proc read_manifest(file: Path) -> Result[Manifest] {
   json.read(file)?.require(Manifest)?
@@ -287,7 +287,7 @@ proc read_manifest(file: Path) -> Result[Manifest] {
   }
 }
 
-test test_private_proc_effects_leave_missing_public_and_stream_clauses_unrestricted [error] { |ctx|
+test test_private_proc_effects_leave_missing_public_and_stream_clauses_unrestricted { |ctx|
   for source in [
     "export proc published() -> Int { 42 }\nproc caller() [] -> Int { published() }\n",
     "stream values() -> Stream[Int] { yield 42 }\nproc caller() [] -> Stream[Int] { values() }\n",

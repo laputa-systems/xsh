@@ -15,7 +15,7 @@ iface eth0 inet static
   )?
 }
 
-test test_ifdown_all_removes_configured_interfaces [fs, process, env, error] { |ctx|
+test test_ifdown_all_removes_configured_interfaces { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-all")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -42,7 +42,7 @@ test test_ifdown_all_removes_configured_interfaces [fs, process, env, error] { |
   "\"interface\":\"eth0\"" in linux_text
 }
 
-test test_ifdown_runs_hooks [fs, process, env, error] { |ctx|
+test test_ifdown_runs_hooks { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-hooks")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -60,7 +60,7 @@ test test_ifdown_runs_hooks [fs, process, env, error] { |ctx|
   "post-down:post-down" in hooks
 }
 
-test test_ifdown_dhcp_sends_release [fs, process, env, error] { |ctx|
+test test_ifdown_dhcp_sends_release { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-dhcp-release")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -88,7 +88,7 @@ iface eth0 inet dhcp
   "\"op\":\"del_default_ipv4_route\"" in linux_text
 }
 
-test test_ifdown_skips_unconfigured_interface [fs, process, env, error] { |ctx|
+test test_ifdown_skips_unconfigured_interface { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-skip")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -109,7 +109,7 @@ iface eth0 inet static
   linux_log.exists()? == false
 }
 
-test test_ifdown_logical_selection [fs, process, env, error] { |ctx|
+test test_ifdown_logical_selection { |ctx|
   let root = test.temp_dir(ctx, name: "ifdown-logical")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"

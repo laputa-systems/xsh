@@ -6,7 +6,7 @@ proc safe_div(x: Int) [error] -> Result[Int] {
   Ok(100 / x)
 }
 
-test test_par_map_explicit_propagation_stops_on_error [error] { |ctx|
+test test_par_map_explicit_propagation_stops_on_error { |ctx|
   let failed = test.run_script(
     ctx,
     """
@@ -44,7 +44,7 @@ main()?
   }
 }
 
-test test_par_map_all_ok [error] {
+test test_par_map_all_ok {
   let results = [1, 2, 3]
     |> par-map { |x|
       safe_div(x)
@@ -56,7 +56,7 @@ test test_par_map_all_ok [error] {
   results[2] == Ok(33)
 }
 
-test test_par_map_collect_all_retains_nominal_error_data_in_order [error] {
+test test_par_map_collect_all_retains_nominal_error_data_in_order {
   let results = [10, 0, 20] |> par-map { |x| safe_div(x) }
   (results.len()) == (3)
   (results[0]?) == (10)

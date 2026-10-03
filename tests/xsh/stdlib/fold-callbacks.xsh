@@ -1,4 +1,4 @@
-test test_fold_and_reduce_reject_callback_result_lifting [error] { |ctx|
+test test_fold_and_reduce_reject_callback_result_lifting { |ctx|
   for stage in ["fold", "reduce"] {
     let source = "let total = [1, 2] |> " + stage + "(0) { |acc, item| Ok(acc + item) }\n"
     let output = test.run_script(ctx, source)?
@@ -15,7 +15,7 @@ test test_fold_and_reduce_reject_callback_result_lifting [error] { |ctx|
   }
 }
 
-test test_fold_and_reduce_allow_explicit_callback_propagation [error] { |ctx|
+test test_fold_and_reduce_allow_explicit_callback_propagation { |ctx|
   for stage in ["fold", "reduce"] {
     let source = "let total = [1, 2] |> " + stage + "(0) { |acc, item| Ok(acc + item)? }\nprint $total\n"
     let output = test.run_script(ctx, source)?
@@ -27,7 +27,7 @@ test test_fold_and_reduce_allow_explicit_callback_propagation [error] { |ctx|
   }
 }
 
-test test_fold_and_reduce_preserve_result_accumulators_as_data [error] { |ctx|
+test test_fold_and_reduce_preserve_result_accumulators_as_data { |ctx|
   for stage in ["fold", "reduce"] {
     let source = r"""error CombineError = Stop(item: Int)
 let initial: Result[Int, CombineError] = Ok(0)
@@ -51,7 +51,7 @@ match outcome {
   }
 }
 
-test test_fold_explicit_callback_error_closes_scopes_before_next_pull [error] { |ctx|
+test test_fold_explicit_callback_error_closes_scopes_before_next_pull { |ctx|
   let output = test.run_script(ctx, r"""error CombineError = Stop(item: Int)
 pure combine(acc: Int, item: Int) -> Result[Int, CombineError] {
   if item == 2 { Err(CombineError.Stop(item)) } else { acc + item }
@@ -81,7 +81,7 @@ match outcome {
   (output.stdout) == ("pull 1\ncallback closed 1\npull 2\ncallback closed 2\nsource closed\ncaught\n")
 }
 
-test test_reduce_by_requires_explicit_record_callback_propagation [error] { |ctx|
+test test_reduce_by_requires_explicit_record_callback_propagation { |ctx|
   let rejected = test.run_script(ctx, r"""let totals = [1, 2] |> reduce-by(sum: true) { |item|
   Ok({key: "total", value: item})
 }

@@ -18,7 +18,7 @@ type IRWireReport = {
   script: IRCorpusReport[IRScriptScan],
 }
 
-test test_ir_coverage_cli_retains_typed_report_and_scan_counts [fs, process, error] { |ctx|
+test test_ir_coverage_cli_retains_typed_report_and_scan_counts { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "ir-coverage-wire")?.resolve()?
   fp"${root}/src/syntax".mkdir()?
@@ -108,7 +108,7 @@ let values = [1, 2] |> batch(count: 1)
   stderr_path.read_text()? != ""
 }
 
-test test_ir_coverage_report_validation_rejects_incomplete_wire_data [error] {
+test test_ir_coverage_report_validation_rejects_incomplete_wire_data {
   let incomplete = json.decode(r"""{"rows": []}""")?
   test.error_kind(incomplete.require(IRWireReport), "schema")?
 }

@@ -1,4 +1,4 @@
-test test_dedup [fs, process, error] { |ctx|
+test test_dedup { |ctx|
   let root = test.temp_dir(ctx, name: "dedup")?
   fp"${root}/a.txt".write("same content")?
   fp"${root}/b.txt".write("same content")?

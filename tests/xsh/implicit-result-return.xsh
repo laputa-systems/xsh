@@ -37,7 +37,7 @@ proc middle(value: Int) [error] -> Result[Int] {
   leaf(value)?
 }
 
-test test_value_returning_error_helper [fs, error] { |ctx|
+test test_value_returning_error_helper { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -87,7 +87,7 @@ print parse_uint("not-a-number", 10)
   "parse-int: invalid integer" in invalid.stderr
 }
 
-test test_implicit_result_return_in_par_map [error] {
+test test_implicit_result_return_in_par_map {
   let values = [1, 2]
     |> par-map(jobs: 2) { |_|
       build()
@@ -105,7 +105,7 @@ test test_implicit_result_return_in_par_map [error] {
   block_values == [["ok"], ["ok"]]
 }
 
-test test_result_return_shapes_agree [error] {
+test test_result_return_shapes_agree {
   build()? == ["ok"]
   implicit_unit()?
 
@@ -122,7 +122,7 @@ test test_result_return_shapes_agree [error] {
   }
 }
 
-test test_nested_result_calls_in_par_map [error] {
+test test_nested_result_calls_in_par_map {
   let values = [1, 2]
     |> par-map(jobs: 2) { |value|
       middle(value)
@@ -132,11 +132,11 @@ test test_nested_result_calls_in_par_map [error] {
   values[1]? == 2
 }
 
-test test_result_alias_return_shape [error] {
+test test_result_alias_return_shape {
   build_bare_through_alias()? == ["ok"]
 }
 
-test test_explicit_result_return_shapes [fs, error] { |ctx|
+test test_explicit_result_return_shapes { |ctx|
   let output = test.run_script(
     ctx,
     """type StringListResult = Result[List[Str]]
@@ -169,7 +169,7 @@ print direct[0] alias[0] middle(3)?
 """
 }
 
-test test_implicit_result_return_through_module [fs, error] { |ctx|
+test test_implicit_result_return_through_module { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-result-module")?
   let module_dir = fp"${root}/lib"
   module_dir.mkdir()?

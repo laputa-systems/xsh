@@ -1,4 +1,4 @@
-test test_comparison_chain_adjacent_types_and_order [error] {
+test test_comparison_chain_adjacent_types_and_order {
   0 <= 1 < 2 <= 2
   4 > 3 >= 3 > 1
   1 < 3 > 2
@@ -12,7 +12,7 @@ test test_comparison_chain_adjacent_types_and_order [error] {
   (1 < 2) == true
 }
 
-test test_comparison_chain_evaluates_reached_operands_once [error] { |ctx|
+test test_comparison_chain_evaluates_reached_operands_once { |ctx|
   let reached = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
   print f"${n}"
   return n
@@ -34,7 +34,7 @@ print f"${result}"
   skipped.stdout == "3\n2\nfalse\n"
 }
 
-test test_comparison_chain_rejects_invalid_adjacent_types [error] { |ctx|
+test test_comparison_chain_rejects_invalid_adjacent_types { |ctx|
   let invalid = test.run_script(ctx, "let value = 0 < 1 < \"two\"\n")?
   assert ! invalid.success, invalid.stderr
   "check.type-mismatch" in invalid.stderr
@@ -46,7 +46,7 @@ test test_comparison_chain_rejects_invalid_adjacent_types [error] { |ctx|
   "comparison requires Int, Float, Str, or Duration" in grouped.stderr
 }
 
-test test_comparison_chain_requires_grouping_for_mixed_tests [error] { |ctx|
+test test_comparison_chain_requires_grouping_for_mixed_tests { |ctx|
   for source in [
     "let value = 0 < 1 < 2 == true\n",
     "let value = (0 + 0) < 1 < 2 == true\n",
@@ -63,7 +63,7 @@ test test_comparison_chain_requires_grouping_for_mixed_tests [error] { |ctx|
   assert explicit.success, explicit.stderr
 }
 
-test test_comparison_chain_skips_failing_last_operand [error] { |ctx|
+test test_comparison_chain_skips_failing_last_operand { |ctx|
   let result = test.run_script(ctx, r"""let result = 2 < 1 < (1 / 0)
 print f"${result}"
 """)?
@@ -74,7 +74,7 @@ print f"${result}"
   "division-by-zero" in reached.stderr
 }
 
-test test_comparison_chain_bare_assertion_reports_reached_failed_pair [error] { |ctx|
+test test_comparison_chain_bare_assertion_reports_reached_failed_pair { |ctx|
   let failed = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
   print f"${n}"
   return n

@@ -1,4 +1,4 @@
-test test_parse_log [fs, process, error] { |ctx|
+test test_parse_log { |ctx|
   let input = test.temp_file(
     ctx,
     name: "app.log",

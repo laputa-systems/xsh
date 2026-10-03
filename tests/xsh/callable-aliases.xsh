@@ -1,4 +1,4 @@
-test test_callable_alias_retains_labels_defaults_and_alias_chain [fs, error] { |ctx|
+test test_callable_alias_retains_labels_defaults_and_alias_chain { |ctx|
   let result = test.run_script(ctx, """
 pure render(value: Str, prefix: Str = "label:") -> Str { prefix + value }
 let format = render
@@ -11,7 +11,7 @@ print again(...fields) format.call(value: "four")
   result.stdout == "label:one item:two\nname:three label:four\n"
 }
 
-test test_callable_alias_preserves_capture_snapshot_and_initializer_timing [fs, error] { |ctx|
+test test_callable_alias_preserves_capture_snapshot_and_initializer_timing { |ctx|
   let result = test.run_script(ctx, """
 let prefix = "captured:"
 pure render(value: Str) -> Str { prefix + value }
@@ -26,7 +26,7 @@ type AliasApi = module {
   export pure format(value: Str, prefix: Str = "label:") -> Str
 }
 
-test test_callable_alias_exports_preserve_module_contracts [fs, error] { |ctx|
+test test_callable_alias_exports_preserve_module_contracts { |ctx|
   let root = test.temp_dir(ctx, name: "callable-alias-exports")?
   fp"${root}/implementation.xsh".write("""
 ##! Callable implementation.
@@ -54,7 +54,7 @@ print format(prefix: "item:", value: "two")
   result.stdout == "private:item:two\n"
 }
 
-test test_callable_alias_keeps_effects_and_erased_boundaries [fs, error] { |ctx|
+test test_callable_alias_keeps_effects_and_erased_boundaries { |ctx|
   for source in [
     "pure inferred(value: Int) { value }; export let public = inferred\n",
     "proc effect() [env] -> Result[Unit] { env.set(\"ALIAS_TEST\", \"yes\")? }; let alias = effect; pure invalid() -> Result[Unit] { alias() }\n",
@@ -68,7 +68,7 @@ test test_callable_alias_keeps_effects_and_erased_boundaries [fs, error] { |ctx|
   }
 }
 
-test test_callable_alias_keeps_lexical_shadowing_and_captured_aliases [fs, error] { |ctx|
+test test_callable_alias_keeps_lexical_shadowing_and_captured_aliases { |ctx|
   let result = test.run_script(ctx, """
 pure increment(value: Int) -> Int { value + 1 }
 pure ten_more(value: Int) -> Int { value + 10 }
@@ -83,7 +83,7 @@ print choose(true) choose(false) selected(value: 2)
   result.stdout == "11 2 3\n"
 }
 
-test test_callable_alias_retains_argument_order_and_typed_conversions [fs, error] { |ctx|
+test test_callable_alias_retains_argument_order_and_typed_conversions { |ctx|
   let result = test.run_script(ctx, """
 proc mark(value: Int) [io] -> Int { print $value; value }
 proc combine(left: Int, right: Int = 10) [] -> Int { left + right }
@@ -100,7 +100,7 @@ print (parsed(value: "4")?)
   result.stdout == "2\n1\n3 13\nconfig\n4\n"
 }
 
-test test_callable_alias_retains_checked_module_projection_signature [fs, error] { |ctx|
+test test_callable_alias_retains_checked_module_projection_signature { |ctx|
   let root = test.temp_dir(ctx, name: "callable-alias-projection")?
   fp"${root}/plugin.xsh".write("""
 ##! Callable plugin.
@@ -122,7 +122,7 @@ print projected[0]
   result.stdout == "captured:one! captured:two?\ncaptured:three!\n"
 }
 
-test test_callable_alias_retains_inferred_proc_effect_identity [fs, error] { |ctx|
+test test_callable_alias_retains_inferred_proc_effect_identity { |ctx|
   let result = test.run_script(ctx, """
 proc increment(value: Int) -> Int { value + 1 }
 let invoke = increment
@@ -141,7 +141,7 @@ print bounded(4)
   }
 }
 
-test test_callable_alias_retains_stream_stage_signature [fs, error] { |ctx|
+test test_callable_alias_retains_stream_stage_signature { |ctx|
   let result = test.run_script(ctx, r"""
 let prefix = "item:"
 pure render(value: Str, suffix: Str = "!") -> Str { prefix + value + suffix }

@@ -1,4 +1,4 @@
-test test_accept_scoped_delegation_restores_consumer_and_cancels_child [fs, error] { |ctx|
+test test_accept_scoped_delegation_restores_consumer_and_cancels_child { |ctx|
   let root = test.temp_dir(ctx, name: "accept-scoped-stream")?
   let output = test.run_script(ctx, r"""
 stream scoped(root: Path) [fs, env, process, error] -> Stream[Str] {
@@ -38,7 +38,7 @@ proc main(...argv: List[Str]) [fs, env, process, time, error] {
   (output.stdout) == ("inner\ncleanup:inner\nfalse\n")
 }
 
-test test_accept_scoped_rejected_eof_runs_cleanup_once_before_restoration [fs, error] { |ctx|
+test test_accept_scoped_rejected_eof_runs_cleanup_once_before_restoration { |ctx|
   let root = test.temp_dir(ctx, name: "accept-scoped-rejection")?
   let output = test.run_script(ctx, r"""
 stream scoped(root: Path) [fs, env, process, error] -> Stream[Str] {
@@ -85,7 +85,7 @@ proc main(...argv: List[Str]) [fs, env, process, error] {
   (output.stdout) == ("inner\ncleanup:inner\nrejected zero\n")
 }
 
-test test_accept_named_stage_direct_rejection_stops_before_next_item [error] { |ctx|
+test test_accept_named_stage_direct_rejection_stops_before_next_item { |ctx|
   let output = test.run_script(ctx, r"""
 proc validate(item: Int) [process, error] -> Int {
   print f"seen:${item}"
@@ -110,7 +110,7 @@ match outcome {
   (output.stdout) == ("seen:1\nrejected zero\n")
 }
 
-test test_accept_named_stage_result_data_and_sink_propagation_stay_distinct [error] { |ctx|
+test test_accept_named_stage_result_data_and_sink_propagation_stay_distinct { |ctx|
   let callback = r"""
 proc validate(item: Int) [process] -> Result[Unit, ProcessError] {
   print f"seen:${item}"
@@ -146,7 +146,7 @@ let ignored = items() |> """ + stage + "(validate)\nprint unreachable\n")?
   }
 }
 
-test test_accept_typed_causes_preserve_rejected_zero_status_and_spans [error] { |ctx|
+test test_accept_typed_causes_preserve_rejected_zero_status_and_spans { |ctx|
   for body in [
     "let status = run.status --accept=[1] sh -c \"exit 0\"\n",
     "let rows = run.stream --text --accept=[1] sh -c \"printf 'row\\n'; exit 0\" ?\nfor row in rows { print $row }\n",
@@ -199,7 +199,7 @@ match transported {
   }
 }
 
-test test_accept_callable_alias_defaults_evaluate_once_before_each_child [fs, error] { |ctx|
+test test_accept_callable_alias_defaults_evaluate_once_before_each_child { |ctx|
   let root = test.temp_dir(ctx, name: "accept-alias-policy-order")?
   let output = test.run_script(ctx, r"""
 proc codes(marker: Path, accepted: List[Int] = [0, 1]) [fs, error] -> List[Int] {
@@ -232,7 +232,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   (output.stdout) == ("created\npolicy:3\nchild\npolicy:3\nchild\npolicy:3\nchild\n")
 }
 
-test test_accept_callable_alias_retains_inferred_error_and_local_capture [error] { |ctx|
+test test_accept_callable_alias_retains_inferred_error_and_local_capture { |ctx|
   let declaration = r"""
 proc validate() {
   let status = run.status --accept=[1] sh -c "exit 0"

@@ -8,7 +8,7 @@ proc coverage_merge_script(source: Str, root: Path) [error] -> Result[Str] {
     + "\nlet report = merge_reports(root, [{name: \"sample\", path: \"input.json\"}])?\nprint json.encode(report)?\n"
 }
 
-test test_combined_coverage_report_includes_standard_api_hits [fs, process, env, error] { |ctx|
+test test_combined_coverage_report_includes_standard_api_hits { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "combined-coverage")?.resolve()?
   let tests = fp"${root}/tests/xsh"
@@ -45,7 +45,7 @@ test test_combined_coverage_report_includes_standard_api_hits [fs, process, env,
   text_path.exists()?
 }
 
-test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_values [fs, process, error] { |ctx|
+test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_values { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "coverage-wire")?.resolve()?
   let input = fp"${root}/input.json"

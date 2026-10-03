@@ -1,4 +1,4 @@
-test test_removed_compatibility_vocabulary_prevents_execution [error] { |ctx|
+test test_removed_compatibility_vocabulary_prevents_execution { |ctx|
   for source in [
     "print \"unreachable\"\nlet old = ARGV\n",
     "print \"unreachable\"\nlet old = \"é\".count_bytes()\n",
@@ -14,7 +14,7 @@ test test_removed_compatibility_vocabulary_prevents_execution [error] { |ctx|
   }
 }
 
-test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts [fs, error] { |ctx|
+test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts { |ctx|
   "é🍃".byte_len() == 6
   "é🍃".count_chars() == 2
   let root = test.temp_dir(ctx, name: "canonical-children")?
@@ -27,7 +27,7 @@ test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts [fs,
   fs.children(absent) is Err(_)
 }
 
-test test_compatibility_vocabulary_migration_preserves_comments_and_rechecks [fs, process, error] { |ctx|
+test test_compatibility_vocabulary_migration_preserves_comments_and_rechecks { |ctx|
   let root = test.temp_dir(ctx, name: "vocabulary-migration")?
   fs.write(fp"${root}/entry", "data")?
   let source = f"""# café ARGV fs.ls run.builtin count_bytes
@@ -68,7 +68,7 @@ print \$capture.stdout
   candidate.read_text()? == fixed
 }
 
-test test_compatibility_vocabulary_migration_preserves_shorthand_wire_keys [fs, process, error] { |ctx|
+test test_compatibility_vocabulary_migration_preserves_shorthand_wire_keys { |ctx|
   let source = r"""pure count(ARGV: List[Str]) -> Int { ARGV.len() }
 let record_value = {ARGV}
 print ${record_value.ARGV.len()}
@@ -89,7 +89,7 @@ print ${count(ARGV:)}
   output.stdout == "0\n0\n0\n"
 }
 
-test test_compatibility_vocabulary_keeps_user_names_and_refuses_shadowed_targets [fs, process, error] { |ctx|
+test test_compatibility_vocabulary_keeps_user_names_and_refuses_shadowed_targets { |ctx|
   let source = "let ARGV = [\"local\"]\nlet object = {count_bytes: 7}\nprint \${ARGV[0]} \${object.count_bytes}\nrun printf \"%s\\n\" ARGV run.builtin fs.ls count_bytes ?\n"
   let output = test.run_script(ctx, source)?
   let {success: succeeded, stderr: failure_details, ..} = output
@@ -111,7 +111,7 @@ test test_compatibility_vocabulary_keeps_user_names_and_refuses_shadowed_targets
   }
 }
 
-test test_run_qualifier_migration_keeps_each_result_mode [fs, process, error] { |ctx|
+test test_run_qualifier_migration_keeps_each_result_mode { |ctx|
   for source in [
     "run.builtin printf \"plain\\n\" ?\n",
     "let status = run.builtin.status false\nprint \${status.ok}\n",
@@ -138,7 +138,7 @@ test test_run_qualifier_migration_keeps_each_result_mode [fs, process, error] { 
   }
 }
 
-test test_compatibility_vocabulary_public_inventory_is_canonical [process, error] {
+test test_compatibility_vocabulary_public_inventory_is_canonical {
   let removed = run.capture --text "xsht" api --format jsonl --strict api:fs.ls method:Str.count_bytes ?
   let removed_absent = ! removed.status.exited_with(0)
   let removed_details = removed.stdout
@@ -151,7 +151,7 @@ test test_compatibility_vocabulary_public_inventory_is_canonical [process, error
   "\"status\":\"exact\"" in canonical.stdout
 }
 
-test test_compatibility_vocabulary_migration_keeps_imported_user_methods [fs, process, error] { |ctx|
+test test_compatibility_vocabulary_migration_keeps_imported_user_methods { |ctx|
   let root = test.temp_dir(ctx, name: "compatibility-import")?
   let library = fp"${root}/custom.xsh"
   library.write("##! Custom fixture.\n## Returns a user-defined count.\nexport pure count_bytes() -> Int { 7 }\n")?
@@ -172,7 +172,7 @@ test test_compatibility_vocabulary_migration_keeps_imported_user_methods [fs, pr
   output.stdout == "7\ntrue\n"
 }
 
-test test_compatibility_vocabulary_keeps_environment_names_and_serialized_keys [error] { |ctx|
+test test_compatibility_vocabulary_keeps_environment_names_and_serialized_keys { |ctx|
   let output = test.run_script(ctx, r"""run ARGV="kept" printenv ARGV ?
 let object = {ARGV: "wire", count_bytes: 7}
 print $object.ARGV
@@ -182,7 +182,7 @@ print $object.ARGV
   output.stdout == "kept\nwire\n"
 }
 
-test test_compatibility_vocabulary_trace_has_no_removed_dispatch_names [error] { |ctx|
+test test_compatibility_vocabulary_trace_has_no_removed_dispatch_names { |ctx|
   let traced = test.run_xsht_trace(ctx, r"""let byte_count = "é".byte_len()
 let children = fs.children(p".")?
 let child_count = children |> count()
@@ -196,7 +196,7 @@ print $byte_count $child_count
   "method.Str.count_bytes" not in traced.stderr
 }
 
-test test_compatibility_vocabulary_migration_rechecks_inferred_pures_and_pipeline_receivers [fs, process, error] { |ctx|
+test test_compatibility_vocabulary_migration_rechecks_inferred_pures_and_pipeline_receivers { |ctx|
   let source = r"""pure byte_count(value: Str) { value.count_bytes() }
 let sizes = ["a", "é"] |> map .count_bytes()
 let captured = run.builtin.text printf "capture" ?
@@ -219,7 +219,7 @@ print $direct_size $second_size $captured
   output.stdout == "2 2 capture\n"
 }
 
-test test_checked_compatibility_migration_preserves_literal_bytes_and_line_endings [fs, process, error] { |ctx|
+test test_checked_compatibility_migration_preserves_literal_bytes_and_line_endings { |ctx|
   let source = "# café ARGV count_bytes\r\nlet width = \"é🍃\".count_bytes() # keep\r\nprint $width\r\n"
   let candidate = test.temp_file(ctx, name: "checked-vocabulary-layout.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?

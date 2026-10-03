@@ -1,4 +1,4 @@
-test test_boolean_statement_failure_stops_script [error] { |ctx|
+test test_boolean_statement_failure_stops_script { |ctx|
   let output = test.run_script(ctx, "1 == 2\nprint \"unreachable\"\n")?
   output.status == 3
   output.stdout == ""
@@ -6,7 +6,7 @@ test test_boolean_statement_failure_stops_script [error] { |ctx|
   assert "AssertionError" in output.stderr, output.stderr
 }
 
-test test_boolean_values_and_explicit_discards_remain_values [error] { |ctx|
+test test_boolean_values_and_explicit_discards_remain_values { |ctx|
   let output = test.run_script(ctx, """
 pure predicate() -> Bool { false }
 pure dynamic() -> Any { false }
@@ -21,7 +21,7 @@ print f"\${value} \${dynamic()} \${wrapped()?} \${wrapped_any()?} \${retried}"
   output.stdout == "false false false false false\n"
 }
 
-test test_unit_tail_and_non_tail_booleans_assert [error] { |ctx|
+test test_unit_tail_and_non_tail_booleans_assert { |ctx|
   let output = test.run_script(ctx, """
 proc check() { 2 > 3 }
 check()?
@@ -31,7 +31,7 @@ print "unreachable"
   output.stdout == ""
 }
 
-test test_membership_checks_map_keys_and_record_fields [error] {
+test test_membership_checks_map_keys_and_record_fields {
   let empty: Map[Int?] = {}
   let mapping = empty.set("present", null)
   ("present" in mapping)
@@ -44,7 +44,7 @@ test test_membership_checks_map_keys_and_record_fields [error] {
   "value" not in {key: "value"}
 }
 
-test test_assertion_single_evaluation_short_circuit_and_value_predicates [error] { |ctx|
+test test_assertion_single_evaluation_short_circuit_and_value_predicates { |ctx|
   let output = test.run_script(ctx, """
 var calls = 0
 proc tick() -> Result[Int] { calls += 1; calls }
@@ -66,7 +66,7 @@ print "done"
   output.stdout == "done\n"
 }
 
-test test_assertion_nominal_error_handlers_and_retry [error] { |ctx|
+test test_assertion_nominal_error_handlers_and_retry { |ctx|
   let output = test.run_script(ctx, """
 pure fail() -> Result[Unit, AssertionError] { false }
 match fail() {
@@ -86,7 +86,7 @@ attempts == 3
   assert "unexpected" not in output.stdout, output.stdout
 }
 
-test test_assertion_defers_preserve_primary_failure [error] { |ctx|
+test test_assertion_defers_preserve_primary_failure { |ctx|
   let output = test.run_script(ctx, """
 proc cleanup(value: Str) { print $value }
 proc broken_cleanup() { error.fail("cleanup failed")? }
@@ -105,7 +105,7 @@ print "unreachable"
   assert "8 < 3" in output.stderr, output.stderr
 }
 
-test test_assertion_contexts_require_result_effect_and_compatible_error [error] { |ctx|
+test test_assertion_contexts_require_result_effect_and_compatible_error { |ctx|
   for source in [
     "pure fail() -> Unit { false }\n",
     "proc fail() [] { false }\n",
@@ -118,7 +118,7 @@ test test_assertion_contexts_require_result_effect_and_compatible_error [error] 
   }
 }
 
-test test_membership_domains_views_and_source_order [error] { |ctx|
+test test_membership_domains_views_and_source_order { |ctx|
   let output = test.run_script(ctx, """
 var order = ""
 proc needle() -> Result[Str] { order = order + "n"; "é" }
@@ -143,7 +143,7 @@ print "done"
   output.stdout == "done\n"
 }
 
-test test_boolean_literals_names_and_statement_match_tails [error] { |ctx|
+test test_boolean_literals_names_and_statement_match_tails { |ctx|
   let passed = test.run_script(ctx, """
 true
 let condition = true
@@ -167,7 +167,7 @@ print "done"
   literal.stdout == ""
 }
 
-test test_assertion_aliases_dynamic_boundaries_and_integer_status [error] { |ctx|
+test test_assertion_aliases_dynamic_boundaries_and_integer_status { |ctx|
   let output = test.run_script(ctx, """
 type Predicate = Bool
 type PredicateResult = Result[Bool]
@@ -189,7 +189,7 @@ print "done"
   integer.status == 7
 }
 
-test test_retained_helpers_share_core_nominal_failure [error] { |ctx|
+test test_retained_helpers_share_core_nominal_failure { |ctx|
   let output = test.run_script(ctx, """
 for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)] {
   match failure {
@@ -203,7 +203,7 @@ for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)]
   assert "unexpected" not in output.stdout, output.stdout
 }
 
-test test_assertion_diagnostics_include_values_and_only_evaluated_operands [error] { |ctx|
+test test_assertion_diagnostics_include_values_and_only_evaluated_operands { |ctx|
   let equality = test.run_script(ctx, "let actual = [1, 2]\nactual == [1, 3]\n")?
   equality.status == 3
   assert "left: [1, 2]" in equality.stderr, equality.stderr
@@ -227,7 +227,7 @@ test test_assertion_diagnostics_include_values_and_only_evaluated_operands [erro
   assert "+new" in difference.stderr, difference.stderr
 }
 
-test test_assertion_diagnostics_bound_record_field_names [error] { |ctx|
+test test_assertion_diagnostics_bound_record_field_names { |ctx|
   var field = ""
   for _ in range(1000) { field = field + "abcdefghij" }
   let source = f"""
@@ -241,7 +241,7 @@ test test_assertion_diagnostics_bound_record_field_names [error] { |ctx|
   output.stderr.byte_len() < 4096
 }
 
-test test_assertion_attempt_local_effects_and_unwrapped_exists [error] { |ctx|
+test test_assertion_attempt_local_effects_and_unwrapped_exists { |ctx|
   let output = test.run_script(ctx, """
 proc local() [] {
   let attempt = retry [] { false; let _ = 0 }
@@ -258,7 +258,7 @@ p".".exists()?
   assert "unexpected" not in output.stdout, output.stdout
 }
 
-test test_retained_assertion_named_arguments_keep_source_evaluation_order [error] { |ctx|
+test test_retained_assertion_named_arguments_keep_source_evaluation_order { |ctx|
   let output = test.run_script(ctx, """
 var order = 0
 proc left() -> Result[Int] { order = order * 10 + 1; 1 }
@@ -269,7 +269,7 @@ order == 21
   assert output.success, output.stderr
 }
 
-test test_user_fields_and_functions_named_membership_aliases_remain_usable [fs, error] { |ctx|
+test test_user_fields_and_functions_named_membership_aliases_remain_usable { |ctx|
   let helper = fp"${ctx.temp_root}/custom.xsh"
   helper.write("""
 ##! Caller-owned functions.
@@ -297,7 +297,7 @@ print "done"
 
 pure assertion_negated(flag: Bool) -> Bool { !flag }
 
-test test_boolean_value_contexts_do_not_assert [error] { |ctx|
+test test_boolean_value_contexts_do_not_assert { |ctx|
   let output = test.run_script(ctx, """stream flags() [] -> Stream[Bool] {
   yield false
   yield 1 > 2
@@ -318,7 +318,7 @@ print $yielded.len()
   !reached
 }
 
-test test_status_and_optional_statements_have_no_truthiness [process, error] { |ctx|
+test test_status_and_optional_statements_have_no_truthiness { |ctx|
   let output = test.run_script(ctx, """let failed = run.status false
 (failed)
 let absent: Bool? = false
@@ -332,7 +332,7 @@ print "done"
   "check.type-mismatch" in integer.stderr
 }
 
-test test_removed_membership_apis_and_unsupported_domains_are_rejected [error] { |ctx|
+test test_removed_membership_apis_and_unsupported_domains_are_rejected { |ctx|
   for statement in [
     "let text = \"abc\"\nlet _ = text.contains(\"a\")",
     "let data = b\"abc\"\nlet _ = data.contains(b\"a\")",
@@ -358,7 +358,7 @@ test test_removed_membership_apis_and_unsupported_domains_are_rejected [error] {
   }
 }
 
-test test_imported_module_boolean_statement_is_rejected [fs, error] { |ctx|
+test test_imported_module_boolean_statement_is_rejected { |ctx|
   fp"${ctx.temp_root}/statement_module.xsh".write("##! Runs a statement.\n## A public field.\nexport let present = 1\ntrue\n")?
   let output = test.run_script(ctx, "use statement_module\nprint \"unreachable\"\n")?
   assert output.status == 2, output.stderr

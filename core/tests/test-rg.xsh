@@ -1,11 +1,11 @@
-test test_rg_reports_matches_with_line_numbers [fs, process, env, error] { |ctx|
+test test_rg_reports_matches_with_line_numbers { |ctx|
   let file = test.temp_file(ctx, name: "notes.txt", contents: b"alpha\nbeta\nalphabet\n")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/rg.xsh" -- -n alpha $file ?
   "1:alpha" in output
   "3:alphabet" in output
 }
 
-test test_rg_count_and_filename [fs, process, env, error] { |ctx|
+test test_rg_count_and_filename { |ctx|
   let left = test.temp_file(ctx, name: "left.txt", contents: b"needle\n")?
   let right = test.temp_file(ctx, name: "right.txt", contents: b"needle\n")?
   let no_filename = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/rg.xsh" -- -h needle $left $right ?
@@ -21,7 +21,7 @@ needle
   f"${right}:1" in named_counts
 }
 
-test test_rg_word_line_pattern_and_globs [fs, process, env, error] { |ctx|
+test test_rg_word_line_pattern_and_globs { |ctx|
   let root = test.temp_dir(ctx, name: "rg-more")?
   let keep = fp"${root}/keep.txt"
   let drop = fp"${root}/drop.log"

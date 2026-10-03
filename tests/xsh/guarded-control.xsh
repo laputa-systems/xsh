@@ -8,14 +8,14 @@ pure guarded_unless(cached: Str?) -> Str {
   "missing"
 }
 
-test test_guarded_return_narrows_selected_branch_and_falls_through [error] {
+test test_guarded_return_narrows_selected_branch_and_falls_through {
   guarded_cached("hit") == "hit"
   guarded_cached(null) == "missing"
   guarded_unless("hit") == "hit"
   guarded_unless(null) == "missing"
 }
 
-test test_guarded_control_checks_condition_before_lazy_payload [error] { |ctx|
+test test_guarded_control_checks_condition_before_lazy_payload { |ctx|
   let output = test.run_script(ctx, r"""
 proc condition(selected: Bool) [] -> Bool {
   print "condition"
@@ -46,7 +46,7 @@ print $value
   output.stdout == "condition\nfallback\ncleanup\n9\ncondition\npayload\ncleanup\n7\ncondition\ncondition\npayload\n7\n"
 }
 
-test test_guarded_yield_skips_unselected_items [error] { |ctx|
+test test_guarded_yield_skips_unselected_items { |ctx|
   let output = test.run_script(ctx, r"""
 stream guarded_items() [] -> Stream[Int] {
   yield 99 when false
@@ -62,7 +62,7 @@ for item in guarded_items() {
   output.stdout == "1\n2\n"
 }
 
-test test_guarded_run_payload_keeps_literal_argv_and_status_conditions [error] { |ctx|
+test test_guarded_run_payload_keeps_literal_argv_and_status_conditions { |ctx|
   let output = test.run_script(ctx, r"""
 proc capture(selected: Bool) [process, error] -> Str {
   return (run.text /usr/bin/printf "selected")? when selected
@@ -85,7 +85,7 @@ print ${status_condition()}
   output.stdout == "fallback\nselected\nwhen\nunless\n\n1\n"
 }
 
-test test_guarded_payload_propagation_and_result_wrapping [error] { |ctx|
+test test_guarded_payload_propagation_and_result_wrapping { |ctx|
   let output = test.run_script(ctx, r"""
 proc cleanup() [] {
   print "cleanup"
@@ -106,7 +106,7 @@ let _ = pick(true)?
   output.stdout == "cleanup\n9\npayload\ncleanup\n"
 }
 
-test test_guarded_yield_keeps_cleanup_on_early_consumer_exit [error] { |ctx|
+test test_guarded_yield_keeps_cleanup_on_early_consumer_exit { |ctx|
   let output = test.run_script(ctx, r"""
 proc cleanup() [] {
   print "cleanup"

@@ -1,6 +1,6 @@
 use system_report_cpupower_check as cpupower_reference
 
-test test_system_report_cpupower_saved_output_scores_policy_and_idle_metadata [error] {
+test test_system_report_cpupower_saved_output_scores_policy_and_idle_metadata {
   let frequency = cpupower_reference.parse_cpupower_frequency(
     """analyzing CPU 0:
   driver: amd-pstate-epp
@@ -38,7 +38,7 @@ Available idle states: POLL C1
   ("idle_state_names" in shifted_comparison.mismatches)
 }
 
-test test_system_report_cpupower_rejects_ambiguous_or_malformed_utility_output [error] {
+test test_system_report_cpupower_rejects_ambiguous_or_malformed_utility_output {
   test.error_kind(
     cpupower_reference.parse_cpupower_frequency(
   """driver: x
@@ -68,7 +68,7 @@ Available idle states: C1
   )?
 }
 
-test test_system_report_cpupower_live_reference_runs_only_selected_forms [fs, process, time, error] {
+test test_system_report_cpupower_live_reference_runs_only_selected_forms {
   let tools_root = fs.tempdir()?
   defer tools_root.close()?
   tools_root.write(

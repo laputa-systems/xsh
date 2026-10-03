@@ -8,7 +8,7 @@ type JsonRequireConfig = {jobs: UInt}
 
 type JsonRequireEnvelope = {cpus: List[JsonNestedRow], config: JsonRequireConfig}
 
-test test_json_require_preserves_extra_and_nested_fields_roundtrip [error] {
+test test_json_require_preserves_extra_and_nested_fields_roundtrip {
   let raw = json.decode("{\"aardvark\":17,\"config\":{\"jobs\":3,\"extra\":\"kept\"},\"cpus\":[{\"cpu\":2,\"online\":true,\"extra\":false}],\"tail\":{\"kept\":true}}")?
   let checked = raw.require(JsonRequireEnvelope)?
   checked.cpus[0].cpu == 2
@@ -18,7 +18,7 @@ test test_json_require_preserves_extra_and_nested_fields_roundtrip [error] {
   json.encode(checked)? == "{\"aardvark\":17,\"config\":{\"extra\":\"kept\",\"jobs\":3},\"cpus\":[{\"cpu\":2,\"extra\":false,\"online\":true}],\"tail\":{\"kept\":true}}"
 }
 
-test test_json_require_checks_nested_named_record_fields [error] {
+test test_json_require_checks_nested_named_record_fields {
   let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
   valid.require(JsonNestedRows)?.cpus[0].online == true
   let wrong_type = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":\"yes\"}]}")?
@@ -27,7 +27,7 @@ test test_json_require_checks_nested_named_record_fields [error] {
   test.error_kind(missing_field.require(JsonNestedRows), "schema")?
 }
 
-test test_float_arithmetic_and_json_record_boundary [error] {
+test test_float_arithmetic_and_json_record_boundary {
   let ratio = 5.float() / 2.0
   var adjusted: Float = ratio
   adjusted += 0.25
@@ -38,7 +38,7 @@ test test_float_arithmetic_and_json_record_boundary [error] {
   encoded == "{\"ratio\":1.5,\"value\":2.75}"
 }
 
-test test_json_read_write_lines_and_paths [fs, error] { |ctx|
+test test_json_read_write_lines_and_paths { |ctx|
   let root = test.temp_dir(ctx, name: "json")?
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true}}")?
   (json.get(value, ["name"])?) == ("pkg")
@@ -59,7 +59,7 @@ test test_json_read_write_lines_and_paths [fs, error] { |ctx|
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
 }
 
-test test_json_decode_type_patterns_and_public_boundaries [error] {
+test test_json_decode_type_patterns_and_public_boundaries {
   let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
   (decoded.quote) == ("\"")
 
@@ -104,7 +104,7 @@ pure json_label(value: Any) -> Result[Str] {
   }
 }
 
-test test_json_path_helpers_report_invalid_paths [error] {
+test test_json_path_helpers_report_invalid_paths {
   let data = {items: [1]}
   test.error_kind(json.get(data, ["items", 4]), "json-path")?
   test.error_kind(json.set(data, ["items", 2], 3), "json-path")?
@@ -112,7 +112,7 @@ test test_json_path_helpers_report_invalid_paths [error] {
   test.error_kind(json.get(data, [-1]), "json-path")?
 }
 
-test test_json_rejection_is_trace_visible [error] { |ctx|
+test test_json_rejection_is_trace_visible { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
@@ -167,7 +167,7 @@ proc expect_record(label: Str, value: Any) [error] {
   }
 }
 
-test test_json_path_get_walks_records_and_lists [error] {
+test test_json_path_get_walks_records_and_lists {
   let value = json.decode(
     "{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null,\"deep\":{\"rows\":[{\"cell\":7}]}}",
   )?
@@ -202,7 +202,7 @@ test test_json_path_get_walks_records_and_lists [error] {
   rejection_message(json.get(value, ["items", "x"]))? == "expected object at key `x`, found List"
 }
 
-test test_json_path_get_keeps_maps_and_passes_values_through [error] {
+test test_json_path_get_keeps_maps_and_passes_values_through {
   let empty: Map[Any] = {}
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("nil", null)
   (json.get(tree, ["inner", "leaf"])?) == (0)
@@ -227,7 +227,7 @@ test test_json_path_get_keeps_maps_and_passes_values_through [error] {
   expect_map("a mixed path keeps the Map", json.get(mixed, ["rows", 0])?)?
 }
 
-test test_json_path_is_interpreted_before_traversal [error] {
+test test_json_path_is_interpreted_before_traversal {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2]}")?
 
   # Indexes are positions, so a negative one is rejected outright.
@@ -254,7 +254,7 @@ test test_json_path_is_interpreted_before_traversal [error] {
   test.error_kind(json.remove(value, [null]), "json-path")?
 }
 
-test test_json_set_updates_the_named_position [error] {
+test test_json_set_updates_the_named_position {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path replaces the value itself.
@@ -300,7 +300,7 @@ test test_json_set_updates_the_named_position [error] {
   test.error_kind(json.set(value, [-1], path_value), "json-compatible")?
 }
 
-test test_json_remove_drops_the_named_position [error] {
+test test_json_remove_drops_the_named_position {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path removes nothing and answers `null`.
@@ -348,7 +348,7 @@ test test_json_remove_drops_the_named_position [error] {
   (json.get(kept, ["raw"])?) == (b"raw")
 }
 
-test test_json_get_overloads_and_encoded_lines [error] {
+test test_json_get_overloads_and_encoded_lines {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"nil\":null}")?
 
   # The two-argument overload answers with the read or with the rejection.
@@ -398,7 +398,7 @@ b""",
   test.error_kind(json.encode_lines([path_value, 1]), "json-compatible")?
 }
 
-test test_json_path_rejects_a_non_list_path [error] { |ctx|
+test test_json_path_rejects_a_non_list_path { |ctx|
   # The public path parameter requires a checked List shape. An unchecked
   # dynamic path is rejected before process execution or runtime path traversal.
   let read = test.run_xsht_trace(
@@ -445,7 +445,7 @@ let _lines = json.encode_lines(items) ?
   "Path is not JSON-compatible" in lines.stderr
 }
 
-test test_json_lines_result_retains_list_type_in_record_fields [error] { |ctx|
+test test_json_lines_result_retains_list_type_in_record_fields { |ctx|
   let output = test.run_script(ctx, r"""
 type Event = {event: Str}
 let decoded_events = "{\"event\":\"start\"}\n{\"event\":\"stop\"}\n" |> json.lines
@@ -460,7 +460,7 @@ print f"${summary.events}:${summary.complete}"
   (output.stdout) == ("2:true\n")
 }
 
-test test_json_set_keeps_path_segments_and_runtime_validation [error] {
+test test_json_set_keeps_path_segments_and_runtime_validation {
   let input = {rows: [{name: "first"}]}
   json.encode(json.set(input, ["rows", 0, "name"], "second")?)? == "{\"rows\":[{\"name\":\"second\"}]}"
   test.error_kind(json.set(input, ["rows", 1.5], "second"), "json-path")?

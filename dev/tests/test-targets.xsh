@@ -6,7 +6,7 @@ use release as releases
 use stage as stages
 use targets as target_policy
 
-test test_supported_target_records_and_default [error] {
+test test_supported_target_records_and_default {
   target_policy.default_triple == "x86_64-unknown-linux-musl"
   (target_policy.host_default_triple(target_policy.Linux, target_policy.X86_64)?) == "x86_64-unknown-linux-musl"
   (target_policy.host_default_triple(target_policy.Linux, target_policy.Aarch64)?) == "aarch64-unknown-linux-musl"
@@ -27,7 +27,7 @@ test test_supported_target_records_and_default [error] {
   ("target-cpu=apple-m1" in darwin.cpu_rustflags)
 }
 
-test test_host_classification [error] {
+test test_host_classification {
   (target_policy.host_os("Linux")?) == "linux"
   (target_policy.host_os("Darwin")?) == "darwin"
   (target_policy.host_arch("amd64")?) == "x86_64"
@@ -38,7 +38,7 @@ test test_host_classification [error] {
   }
 }
 
-test test_target_flags_native_selection_and_coverage_backend_policy [error] {
+test test_target_flags_native_selection_and_coverage_backend_policy {
   let x86_env = target_policy.distribution_env(
     "x86_64-unknown-linux-musl",
     "-C debuginfo=1",
@@ -73,7 +73,7 @@ test test_target_flags_native_selection_and_coverage_backend_policy [error] {
   coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl") == "x86_64-unknown-linux-musl"
 }
 
-test test_docker_argv_is_direct_and_carries_mount_environment_policy [error] {
+test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   let ctx = fixtures.linux_aarch64_context(/repo, "dev")?
   let argv = docker_workflows.internal_argv(
     ctx,
@@ -99,7 +99,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy [error] {
   ("-c" not in argv)
 }
 
-test test_release_names_and_core_paths_are_deterministic [error] {
+test test_release_names_and_core_paths_are_deterministic {
   (target_policy.release_suffix("x86_64-unknown-linux-musl")?) == "x86_64-linux-musl"
   (target_policy.release_suffix("aarch64-unknown-linux-musl")?) == "aarch64-linux-musl"
   (target_policy.release_suffix("aarch64-apple-darwin")?) == "aarch64-apple-darwin"
@@ -110,7 +110,7 @@ test test_release_names_and_core_paths_are_deterministic [error] {
   releases.core_install_path(p"lib/auth.xsh").display() == "core/lib/auth.xsh"
 }
 
-test test_core_archive_stages_command_and_library_paths [fs, error] { |ctx|
+test test_core_archive_stages_command_and_library_paths { |ctx|
   let root = test.temp_dir(ctx, name: "core-archive")?
   fp"${root}/core".mkdir()?
   fp"${root}/core/bin".mkdir()?
@@ -143,7 +143,7 @@ test test_core_archive_stages_command_and_library_paths [fs, error] { |ctx|
 """ in (fp"${root}/dist/core-fixture.sha256".read_text()?)
 }
 
-test test_core_archive_rejects_conflicting_artifact_before_writing [fs, error] { |ctx|
+test test_core_archive_rejects_conflicting_artifact_before_writing { |ctx|
   let root = test.temp_dir(ctx, name: "core-archive-conflict")?
   fp"${root}/core".mkdir()?
   fp"${root}/core/report.xsh".write("""print "ok"
@@ -162,7 +162,7 @@ test test_core_archive_rejects_conflicting_artifact_before_writing [fs, error] {
   ! fp"${root}/dist/core-fixture.sha256".exists()?
 }
 
-test test_core_archive_contains_current_system_report [fs, error] { |ctx|
+test test_core_archive_contains_current_system_report { |ctx|
   let repository = ctx.core_dir.parent()
   let artifact_dir = test.temp_dir(ctx, name: "system-report-core-archive")?
   let base = fixtures.linux_context(repository, "dev")?
@@ -189,7 +189,7 @@ test test_core_archive_contains_current_system_report [fs, error] { |ctx|
   (fp"${extracted}/core/lib/system_report.xsh".exists()?)
 }
 
-test test_release_checksum_sidecars_keep_a_relative_artifact_name [fs, error] { |ctx|
+test test_release_checksum_sidecars_keep_a_relative_artifact_name { |ctx|
   let root = test.temp_dir(ctx, name: "release-checksum")?
   let artifact = fp"${root}/dist/xsh-release-x86_64-linux-musl"
   artifact.parent().mkdir()?
@@ -199,7 +199,7 @@ test test_release_checksum_sidecars_keep_a_relative_artifact_name [fs, error] { 
 """ in checksum, checksum
 }
 
-test test_release_validation_requires_exactly_the_nine_expected_products [fs, error] { |ctx|
+test test_release_validation_requires_exactly_the_nine_expected_products { |ctx|
   let root = test.temp_dir(ctx, name: "release-validation")?
   let artifact_dir = fp"${root}/dist"
   artifact_dir.mkdir()?
@@ -230,14 +230,14 @@ test test_release_validation_requires_exactly_the_nine_expected_products [fs, er
   }
 }
 
-test test_unsupported_target_remains_a_structured_error [error] {
+test test_unsupported_target_remains_a_structured_error {
   match target_policy.resolve("riscv64-unknown-linux-musl") {
     Ok(_) => test.fail("unsupported target resolved")?
     Err(error) => error.message == "TargetError.Unsupported"
   }
 }
 
-test test_context_paths_and_missing_tools_have_named_failures [process, error] {
+test test_context_paths_and_missing_tools_have_named_failures {
   lifecycle.repo_path(/repo, "target/custom").display() == "/repo/target/custom"
   lifecycle.repo_path(/repo, "/tmp/custom").display() == "/tmp/custom"
 
@@ -247,7 +247,7 @@ test test_context_paths_and_missing_tools_have_named_failures [process, error] {
   }
 }
 
-test test_failed_stage_reports_its_stage_and_target [process, error, io] {
+test test_failed_stage_reports_its_stage_and_target {
   match stages.execute(
     stages.command(
       "selfhost-stage",
@@ -263,7 +263,7 @@ test test_failed_stage_reports_its_stage_and_target [process, error, io] {
   }
 }
 
-test test_subprocess_wrong_directory_has_a_named_failure [fs, error] { |ctx|
+test test_subprocess_wrong_directory_has_a_named_failure { |ctx|
   let repository = fs.cwd()?
   let module_path = fp"${repository}/dev".display()
   let wrong_directory = test.run_script(
@@ -286,7 +286,7 @@ ${wrong_directory.stderr}"""
   assert "ContextError.WrongDirectory" in wrong_directory.stdout, wrong_directory.stdout
 }
 
-test test_context_target_and_docker_platform_overrides [fs, env, error] { |ctx|
+test test_context_target_and_docker_platform_overrides { |ctx|
   let repository = fs.cwd()?
   let module_path = fp"${repository}/dev".display()
   let context_default = test.run_script(
@@ -358,7 +358,7 @@ main()?
   platform.stdout.trim() == "linux/override"
 }
 
-test test_dev_main_target_override_reaches_context [fs, process, error] { |ctx|
+test test_dev_main_target_override_reaches_context { |ctx|
   let root = fs.cwd()?
   let output = test.temp_path(ctx, name: "dev-target.stdout")
   let stderr = test.temp_path(ctx, name: "dev-target.stderr")
@@ -369,7 +369,7 @@ test test_dev_main_target_override_reaches_context [fs, process, error] { |ctx|
   "system-report coverage manifest" in (output.read_text()?)
 }
 
-test test_rustybench_override_stays_a_direct_argv_prefix [fs, error] { |ctx|
+test test_rustybench_override_stays_a_direct_argv_prefix { |ctx|
   let repository = fs.cwd()?
   let module_path = fp"${repository}/dev".display()
 

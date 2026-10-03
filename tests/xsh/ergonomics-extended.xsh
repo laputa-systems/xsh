@@ -17,7 +17,7 @@ pure extended_valid_name(name: Str) {
   rx"^[a-z]+$".matches(name)
 }
 
-test test_extended_constructor_splices_patterns_and_inferred_values [error] {
+test test_extended_constructor_splices_patterns_and_inferred_values {
   let label = "ship"
   let original = ExtendedOptions(label:)
   var options = original
@@ -29,7 +29,7 @@ test test_extended_constructor_splices_patterns_and_inferred_values [error] {
   !extended_valid_name("not-valid")
 }
 
-test test_extended_map_iteration_keeps_typed_list_values [error] {
+test test_extended_map_iteration_keeps_typed_list_values {
   var commands: Map[List[Str]] = {}
   commands["second"] = ["skip"]
   commands["first"] = ["build", "app", "quiet"]
@@ -42,7 +42,7 @@ test test_extended_map_iteration_keeps_typed_list_values [error] {
   selected == ["first:app", "first:quiet"]
 }
 
-test test_extended_error_fallback_binds_nominal_error [error] {
+test test_extended_error_fallback_binds_nominal_error {
   let result: Result[Str, ExtendedError] = Err(ExtendedError.Missing(message: "absent"))
   let label = result ?? { |failure|
     let is_missing = failure is NotFound
@@ -51,7 +51,7 @@ test test_extended_error_fallback_binds_nominal_error [error] {
   label == "absent"
 }
 
-test test_extended_while_pattern_updates_spliced_list_values [error] {
+test test_extended_while_pattern_updates_spliced_list_values {
   var commands = [["build", "app"], ["skip"], ["build", "tool", "fast"]]
   var selected = []
   while let [command, ..remaining] = commands {
@@ -61,7 +61,7 @@ test test_extended_while_pattern_updates_spliced_list_values [error] {
   selected == ["app", "ignored", "tool", "fast"]
 }
 
-test test_extended_delegated_yield_keeps_guarded_control_and_cleanup [error] { |ctx|
+test test_extended_delegated_yield_keeps_guarded_control_and_cleanup { |ctx|
   let output = test.run_script(ctx, r"""stream child() [io] -> Stream[Int] {
   defer { print "child-close" }
   yield @[1, 2, 3]

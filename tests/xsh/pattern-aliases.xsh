@@ -15,7 +15,7 @@ pure alias_event_name(event: AliasEvent) -> Str {
   }
 }
 
-test test_pattern_aliases_capture_whole_nodes_and_preserve_types [error] { |ctx|
+test test_pattern_aliases_capture_whole_nodes_and_preserve_types { |ctx|
   (alias_event_name(Added("one"))) == ("one")
   (alias_event_name(Changed("two"))) == ("two")
   let output = test.run_script(ctx, r"""proc witness() [error] {
@@ -36,7 +36,7 @@ witness()
   output.stdout == ""
 }
 
-test test_pattern_alternatives_publish_only_first_complete_match [error] { |ctx|
+test test_pattern_alternatives_publish_only_first_complete_match { |ctx|
   let output = test.run_script(ctx, r"""
 proc witness() [error] {
   let result = match [[99], [7, 8]] {
@@ -60,7 +60,7 @@ witness()
   output.stdout == ""
 }
 
-test test_pattern_aliases_work_in_iflet_and_whilelet [error] {
+test test_pattern_aliases_work_in_iflet_and_whilelet {
   if let (Added(file) | Changed(file)) as original = Changed("selected") {
     (file) == ("selected")
     (original is Changed(_)) == (true)
@@ -75,7 +75,7 @@ test test_pattern_aliases_work_in_iflet_and_whilelet [error] {
   (total) == (3)
 }
 
-test test_pattern_aliases_and_alternatives_evaluate_subject_and_guard_once [error] { |ctx|
+test test_pattern_aliases_and_alternatives_evaluate_subject_and_guard_once { |ctx|
   let source = r"""proc subject() [io] -> List[Int] { print "subject"; [1] }
 proc allowed() [io] -> Bool { print "guard"; false }
 let selected = match subject() {
@@ -92,14 +92,14 @@ print $selected
   (result.stdout) == ("subject\nguard\n9\n")
 }
 
-test test_pattern_tests_accept_only_grouped_capture_free_alternatives [error] {
+test test_pattern_tests_accept_only_grouped_capture_free_alternatives {
   (1 is (1 | 2)) == (true)
   (3 is (1 | 2)) == (false)
   (["build"] is (["build"] | ["clean"])) == (true)
   (Added("item") is (Added(_) | Changed(_))) == (true)
 }
 
-test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alternatives [error] { |ctx|
+test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alternatives { |ctx|
   for source in [
     "let result = match [1] { [value] as value => value _ => 0 }\n",
     "let result = match {left: 1, right: 2} { {left: value, right: value} => value _ => 0 }\n",
@@ -142,7 +142,7 @@ test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alter
   }
 }
 
-test test_pattern_alternatives_compare_resolved_type_aliases [error] { |ctx|
+test test_pattern_alternatives_compare_resolved_type_aliases { |ctx|
   let output = test.run_script(ctx, r"""type AliasText = Str
 type AliasOtherText = Str
 proc witness() [error] {
@@ -164,7 +164,7 @@ witness()
   output.stdout == ""
 }
 
-test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing [error] {
+test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing {
   let selected = match [4, 7] {
     [left, right] | [right, left] => left * 10 + right
     _ => 0
@@ -176,7 +176,7 @@ test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing 
   } else { test.fail("expected string")? }
 }
 
-test test_pattern_aliases_preserve_nominal_error_identity_and_inferred_returns [error] { |ctx|
+test test_pattern_aliases_preserve_nominal_error_identity_and_inferred_returns { |ctx|
   let output = test.run_script(ctx, r"""error AliasFailure = Missing(message: Str) : NotFound | Denied(message: Str) : PermissionDenied
 
 pure alias_failure_message(failure: AliasFailure) -> Str {
@@ -213,7 +213,7 @@ witness()
   output.stdout == ""
 }
 
-test test_pattern_aliases_keep_list_value_semantics [error] {
+test test_pattern_aliases_keep_list_value_semantics {
   let source = [1, 2]
   if let [head, ..tail] as original = source {
     var copied = original
@@ -229,7 +229,7 @@ test test_pattern_aliases_keep_list_value_semantics [error] {
   }
 }
 
-test test_pattern_tests_require_grouping_for_nested_alternatives [error] { |ctx|
+test test_pattern_tests_require_grouping_for_nested_alternatives { |ctx|
   let bad = test.run_script(ctx, "let selected = [1] is [1 | 2]\n")?
   {
     let assertion_condition = ! bad.success

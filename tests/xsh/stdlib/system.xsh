@@ -1,4 +1,4 @@
-test test_system_module [env, error] {
+test test_system_module {
   (system.hostname()? != "")
   let uname = system.uname()?
   (uname.sysname != "")
@@ -15,7 +15,7 @@ test test_system_module [env, error] {
   (units.clock_ticks_per_second > 0)
 }
 
-test test_system_memory_reads_the_host_text [env, error] {
+test test_system_memory_reads_the_host_text {
   guard system.uname()?.sysname == "Linux" else {
     # The entry reads `/proc/meminfo` on Linux only.
     test.skip("system.memory reads /proc/meminfo on Linux only")
@@ -34,7 +34,7 @@ test test_system_memory_reads_the_host_text [env, error] {
   (memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)
 }
 
-test test_system_os_release_reads_the_host_text [env, error] {
+test test_system_os_release_reads_the_host_text {
   guard system.uname()?.sysname == "Linux" else {
     # The entry reads `/etc/os-release` on Linux only.
     test.skip("system.os_release reads /etc/os-release on Linux only")

@@ -18,7 +18,7 @@ not a numeric row
 1000 100% 100% 10 100% 100% (TOTAL)
 """
 
-test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports [fs, error] { |ctx|
+test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports { |ctx|
   let root = test.temp_dir(ctx, name: "llvm-lines-report")?
   let input = fp"${root}/capture.txt"
   input.write(llvm_lines_capture)?
@@ -55,7 +55,7 @@ test test_llvm_lines_repeat_offenders_preserves_text_and_json_reports [fs, error
   filtered.duplicated == 20
 }
 
-test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals [fs, error] { |ctx|
+test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals { |ctx|
   let root = test.temp_dir(ctx, name: "llvm-lines-invalid")?
   let input = fp"${root}/capture.txt"
   let source = fp"${fs.cwd()?}/tools/llvm-lines-repeat-offenders.xsh".read_text()?

@@ -1,4 +1,4 @@
-test test_tar_create_list_extract [fs, process, env, error] { |ctx|
+test test_tar_create_list_extract { |ctx|
   let root = test.temp_dir(ctx, name: "tar-src")?
   fp"${root}/file.txt".write("tar payload")?
   fp"${root}/other.txt".write("other payload")?

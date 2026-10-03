@@ -1,4 +1,4 @@
-test test_paste_parallel_serial_and_delimiters [fs, process, env, error] { |ctx|
+test test_paste_parallel_serial_and_delimiters { |ctx|
   let left = test.temp_file(ctx, name: "left.txt", contents: b"a\nb\n")?
   let right = test.temp_file(ctx, name: "right.txt", contents: b"1\n2\n3\n")?
   let parallel = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/paste.xsh" -- $left $right ?
@@ -14,7 +14,7 @@ b	2
 """
 }
 
-test test_paste_reads_stdin_and_rejects_flags [fs, process, env, error] { |ctx|
+test test_paste_reads_stdin_and_rejects_flags { |ctx|
   let script = fp"${ctx.core_dir}/paste.xsh"
 
   let command = f"""printf 'a

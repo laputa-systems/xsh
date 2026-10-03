@@ -1,4 +1,4 @@
-test test_generic_constructor_fields_establish_concrete_instances [error] { |ctx|
+test test_generic_constructor_fields_establish_concrete_instances { |ctx|
   let executed = test.run_script(ctx, r"""type Box[T] = {value: T, items: List[T] = []}
 type Observation[T] = {value: T? = null, samples: List[T] = []}
 let count = Box(value: 12)
@@ -14,7 +14,7 @@ print ${count.items.len()}
   executed.stdout == "19\nDEMO\n7\n0\n"
 }
 
-test test_generic_constructor_context_anchors_null_empty_and_unused_parameters [error] { |ctx|
+test test_generic_constructor_context_anchors_null_empty_and_unused_parameters { |ctx|
   let executed = test.run_script(ctx, r"""type Observation[T] = {value: T? = null, samples: List[T] = []}
 type Marker[T] = {name: Str}
 let absent: Observation[Int] = Observation(value: null)
@@ -28,7 +28,7 @@ print $marker.name
   executed.stdout == "8\n0\nanchored\n"
 }
 
-test test_generic_constructor_unresolved_and_conflicting_fields_are_rejected [error] { |ctx|
+test test_generic_constructor_unresolved_and_conflicting_fields_are_rejected { |ctx|
   for source in [
     "type Box[T] = {value: T?}\nlet missing = Box(value: null)\n",
     "type Box[T] = {values: List[T]}\nlet empty = Box(values: [])\n",
@@ -42,7 +42,7 @@ test test_generic_constructor_unresolved_and_conflicting_fields_are_rejected [er
   }
 }
 
-test test_generic_constructor_nested_fields_share_only_occurrence_constraints [error] { |ctx|
+test test_generic_constructor_nested_fields_share_only_occurrence_constraints { |ctx|
   let executed = test.run_script(ctx, r"""type Inner[T] = {value: T?}
 type Outer[T] = {inner: Inner[T], anchor: T}
 type Marker[T] = {name: Str}
@@ -60,7 +60,7 @@ print ${contextual[0].name}
   executed.stdout == "7\ninner\nkept\nlist\n"
 }
 
-test test_generic_constructor_uses_annotated_function_slots_and_returns [error] { |ctx|
+test test_generic_constructor_uses_annotated_function_slots_and_returns { |ctx|
   let executed = test.run_script(ctx, r"""type Marker[T] = {name: Str}
 type Observation[T] = {value: T?}
 pure use_marker(value: Marker[Int]) -> Str {
@@ -84,7 +84,7 @@ print (result_marker()?.name)
   executed.stdout == "slot\n7\nreturn\nresult\n"
 }
 
-test test_generic_constructor_preserves_named_spreads_puns_and_field_order [error] { |ctx|
+test test_generic_constructor_preserves_named_spreads_puns_and_field_order { |ctx|
   let executed = test.run_script(ctx, r"""type Pair[T] = {left: T, right: T, items: List[T] = []}
 var visits = 0
 proc next() -> Int {
@@ -107,7 +107,7 @@ print $visits
   "check." in duplicate.stderr
 }
 
-test test_generic_constructor_constants_use_the_same_field_and_context_constraints [error] { |ctx|
+test test_generic_constructor_constants_use_the_same_field_and_context_constraints { |ctx|
   let executed = test.run_script(ctx, r"""type Inner[T] = {value: T?}
 type Outer[T] = {inner: Inner[T], anchor: T, items: List[T] = []}
 type Marker[T] = {name: Str}
@@ -123,7 +123,7 @@ print ${inferred.items.len()}
   executed.stdout == "7\nconstant\ntext\n0\n"
 }
 
-test test_generic_constructor_retains_both_typed_map_parameters [error] { |ctx|
+test test_generic_constructor_retains_both_typed_map_parameters { |ctx|
   let executed = test.run_script(ctx, r"""type Table[K, V] = {entries: Map[K, V]}
 let numbers = Table(entries: {[1]: "one", [2]: "two"})
 let strings = Table(entries: {one: 1, two: 2})
@@ -138,7 +138,7 @@ print ${prepared.entries[3]}
   executed.stdout == "ONE\n3\n0\nthree\n"
 }
 
-test test_generic_constructor_context_reaches_nested_container_instances [error] { |ctx|
+test test_generic_constructor_context_reaches_nested_container_instances { |ctx|
   let executed = test.run_script(ctx, r"""type Marker[T] = {name: Str}
 type Batch[T] = {markers: List[Marker[T]], keyed: Map[Marker[T]], anchor: T}
 let value = Batch(markers: [Marker(name: "list")], keyed: {first: Marker(name: "map")}, anchor: 7)
@@ -154,7 +154,7 @@ print ${made.keyed["first"].name}
   executed.stdout == "list\nmap\nexpected\nconstant\nprepared\n"
 }
 
-test test_generic_constructor_phantom_arguments_preserve_structural_assignability [error] { |ctx|
+test test_generic_constructor_phantom_arguments_preserve_structural_assignability { |ctx|
   let executed = test.run_script(ctx, r"""type Marker[T] = {name: Str}
 type Wrap[T] = {marker: Marker[T]}
 let marker: Marker[Str] = Marker(name: "structural")
@@ -168,7 +168,7 @@ print $wrapped.marker.name
   "check.constructor-inference" in unresolved.stderr
 }
 
-test test_generic_constructor_qualified_aliases_keep_private_schema_owners [fs, error] { |ctx|
+test test_generic_constructor_qualified_aliases_keep_private_schema_owners { |ctx|
   let root = test.temp_dir(ctx, name: "generic-constructor-module")?
   fp"${root}/model.xsh".write_atomic("""##! Schemas retain private field ownership.
 type Local = {name: Str}
@@ -188,7 +188,7 @@ print ${count.owner.name.upper()}
   executed.stdout == "10\nPRIVATE\n"
 }
 
-test test_generic_constructor_explicit_any_and_null_are_authoritative [error] { |ctx|
+test test_generic_constructor_explicit_any_and_null_are_authoritative { |ctx|
   let executed = test.run_script(ctx, r"""type Box[T] = {value: T}
 let dynamic: Box[Any] = Box(value: 7)
 let nothing: Box[Null] = Box(value: null)
@@ -202,7 +202,7 @@ print ${nothing.value == null}
   "check.constructor-inference" in rejected.stderr
 }
 
-test test_generic_constructor_receiver_slots_retain_declared_application_context [error] { |ctx|
+test test_generic_constructor_receiver_slots_retain_declared_application_context { |ctx|
   let executed = test.run_script(ctx, r"""type Marker[T] = {name: Str}
 type Holder[T] = {items: List[Marker[T]]}
 pure initial() -> List[Marker[Int]] { [] }
@@ -228,7 +228,7 @@ print ${fifth[0].name}
   "check.constructor-inference" in rejected.stderr
 }
 
-test test_generic_constructor_infers_exact_instances_without_later_use_evidence [error] { |ctx|
+test test_generic_constructor_infers_exact_instances_without_later_use_evidence { |ctx|
   let declaration = r"""enum ObservationState { Observed, Absent }
 type Observation[T] = {state: ObservationState, value: T?}
 """

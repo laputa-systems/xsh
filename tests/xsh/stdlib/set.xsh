@@ -1,4 +1,4 @@
-test test_set_module [error] {
+test test_set_module {
   let empty = set.empty()
   ("alpha" not in empty)
   let items = set.from(["alpha", "beta", "alpha"])

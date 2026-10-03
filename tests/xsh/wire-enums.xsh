@@ -1,4 +1,4 @@
-test test_wire_enum_nested_json_round_trip [error] { |ctx|
+test test_wire_enum_nested_json_round_trip { |ctx|
   let executed = test.run_script(ctx, r"""enum State: Str { Seen = "seen", Missing = "", Unsupported = "unsupported" }
 type Row = {state: State, history: List[State], optional: State?}
 let raw = json.decode("{\"state\":\"seen\",\"history\":[\"\",\"unsupported\"],\"optional\":null}")?
@@ -16,7 +16,7 @@ print ("seen".require(State)? == Seen)
   (executed.stdout) == ("true\ntrue\n{\"history\":[\"\",\"unsupported\"],\"optional\":null,\"state\":\"seen\"}\n\"seen\"\ntrue\n")
 }
 
-test test_wire_enum_require_is_atomic_and_type_patterns_do_not_convert [error] { |ctx|
+test test_wire_enum_require_is_atomic_and_type_patterns_do_not_convert { |ctx|
   let executed = test.run_script(ctx, r"""enum State: Str { Seen = "seen", Missing = "missing" }
 type Row = {states: List[State], state: State}
 let raw = json.decode("{\"states\":[\"seen\",\"unknown\"],\"state\":\"seen\"}")?
@@ -44,7 +44,7 @@ match tag { _ is State => print "actual enum"; _ => print "wrong tag" }
   }
 }
 
-test test_wire_enum_rejects_ambient_coercion_and_invalid_declarations [error] { |ctx|
+test test_wire_enum_rejects_ambient_coercion_and_invalid_declarations { |ctx|
   for source in [
     "enum State: Str { Seen = \"seen\" }\nlet state: State = \"seen\"\n",
     "enum State: Int { Seen = 1 }\n",
@@ -64,7 +64,7 @@ test test_wire_enum_rejects_ambient_coercion_and_invalid_declarations [error] { 
   }
 }
 
-test test_wire_enum_import_identity_and_ordinary_enum_rejection [fs, error] { |ctx|
+test test_wire_enum_import_identity_and_ordinary_enum_rejection { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-imports")?
   fp"${root}/first.xsh".write_atomic("##! First nominal state.\n## Stable wire spelling.\nexport const spelling = \"same\"\n## First state.\nexport enum State: Str { Seen = spelling }\n## Prepared state.\nexport const prepared = Seen\n")?
   fp"${root}/second.xsh".write_atomic("##! Second nominal state.\n## Second state.\nexport enum State: Str { Seen = \"same\" }\n")?
@@ -101,7 +101,7 @@ match right.require(a.State) { Err(_) => print "require rejected"; Ok(_) => prin
   ("json-compatible" in dynamic.stderr)
 }
 
-test test_wire_enum_map_values_and_missing_defaults [error] { |ctx|
+test test_wire_enum_map_values_and_missing_defaults { |ctx|
   let executed = test.run_script(ctx, r"""enum State: Str { Seen = "seen", Missing = "missing" }
 type Row = {states: Map[State], note: Str = "default"}
 let raw = json.decode("{\"states\":{\"a\":\"seen\",\"b\":\"missing\"},\"note\":\"supplied\"}")?
@@ -122,7 +122,7 @@ match invalid.require(Row) { Err(failure) => print $failure.message; Ok(_) => pr
 }
 
 
-test test_wire_enum_constant_mappings_and_values [error] { |ctx|
+test test_wire_enum_constant_mappings_and_values { |ctx|
   let executed = test.run_script(ctx, r"""const prefix = "rea"
 const ready_text = prefix + "dy"
 enum State: Str { Ready = ready_text, Empty = "" }
@@ -145,7 +145,7 @@ print ("ready".require(State)? == prepared)
   ("check.enum-wire-mapping" in duplicate.stderr)
 }
 
-test test_wire_enum_json_write_pretty_and_raw_decode [fs, error] { |ctx|
+test test_wire_enum_json_write_pretty_and_raw_decode { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-json-write")?
   let executed = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Empty = "" }
 type Packet = {state: State, history: List[State]}
@@ -167,7 +167,7 @@ print ("\"ready\"" in json.encode(restored, pretty: true)?)
   (executed.stdout) == ("ready\ntrue\n{\"history\":[\"\",\"ready\"],\"state\":\"ready\"}\ntrue\n")
 }
 
-test test_wire_enum_static_import_and_dynamic_module_load_share_identity [fs, error] { |ctx|
+test test_wire_enum_static_import_and_dynamic_module_load_share_identity { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-dynamic-identity")?
   let source = fp"${root}/state.xsh"
   source.write_atomic("##! State identity fixture.\n## External state.\nexport enum State: Str { Ready = \"ready\" }\n## Prepared state.\nexport const prepared = Ready\n")?
@@ -187,7 +187,7 @@ proc main(source: Path) [fs, error] {
   (executed.stdout) == ("true\n\"ready\"\nsame constructor\n")
 }
 
-test test_wire_enum_imported_generic_records_keep_declaring_mapping [fs, error] { |ctx|
+test test_wire_enum_imported_generic_records_keep_declaring_mapping { |ctx|
   let root = test.temp_dir(ctx, name: "wire-enum-generic-records")?
   fp"${root}/state.xsh".write_atomic("##! Generic state schema.\n## Stable external spelling.\nexport const spelling = \"ready\"\n## Declared state.\nexport enum State: Str { Ready = spelling, Empty = \"\" }\n## Generic packet.\nexport type Packet[T] = {state: State, values: List[T], optional: State?}\n## Concrete packet alias.\nexport type States = Packet[State]\n")?
   let executed = test.run_script(ctx, r"""use state as model
@@ -212,7 +212,7 @@ print json.encode(invalid)?
 }
 
 
-test test_wire_enum_strings_preserve_case_escapes_and_unicode [error] { |ctx|
+test test_wire_enum_strings_preserve_case_escapes_and_unicode { |ctx|
   let executed = test.run_script(ctx, r"""enum State: Str { Upper = "Ready", Lower = "ready", Escaped = "\0\\\"日本語" }
 let values = [Upper, Lower, Escaped]
 let encoded = json.encode(values)?
@@ -230,7 +230,7 @@ print (json.encode(decoded.require(List[State])?)? == encoded)
   (executed.stdout) == ("true\ntrue\ntrue\ncase rejected\ntrue\n")
 }
 
-test test_wire_enum_typed_map_values_preserve_key_domains [error] { |ctx|
+test test_wire_enum_typed_map_values_preserve_key_domains { |ctx|
   let executed = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Empty = "" }
 const prepared: Map[Int, State] = {[1]: Ready, [2]: Empty}
 print (prepared.get(1)? == Ready)

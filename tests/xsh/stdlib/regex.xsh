@@ -1,4 +1,4 @@
-test test_regex_module_and_methods [error] {
+test test_regex_module_and_methods {
   let re = rx"([A-Z]+)-(\d+)"
   re.matches("ERR-42")
   re.captures("ERR-42")[1] == "ERR"

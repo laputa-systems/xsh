@@ -1,4 +1,4 @@
-test test_retry_repeats_until_attempt_succeeds [error] { |ctx|
+test test_retry_repeats_until_attempt_succeeds { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -32,7 +32,7 @@ print f"\${value} \${attempts}"
   output.stderr == ""
 }
 
-test test_retry_exhaustion_returns_final_error [error] { |ctx|
+test test_retry_exhaustion_returns_final_error { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -56,7 +56,7 @@ retry [0ms, 0ms] {
   "traceback" in output.stderr
 }
 
-test test_retry_attempt_defers_run_before_next_attempt [error] { |ctx|
+test test_retry_attempt_defers_run_before_next_attempt { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -96,7 +96,7 @@ print f"\${value} \${attempts} \${cleaned}"
   output.stderr == ""
 }
 
-test test_return_inside_retry_returns_from_enclosing_proc [error] { |ctx|
+test test_return_inside_retry_returns_from_enclosing_proc { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -123,7 +123,7 @@ print \${result}
   output.stderr == ""
 }
 
-test test_retry_attempts_are_traced [error] { |ctx|
+test test_retry_attempts_are_traced { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
@@ -162,7 +162,7 @@ print \${value}
   "\"kind\":\"RetryError.Transient\"" in output.stderr
 }
 
-test test_retry_filter_stops_on_first_nonmatching_error [error] { |ctx|
+test test_retry_filter_stops_on_first_nonmatching_error { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0
@@ -188,7 +188,7 @@ print f"\${attempts} \${delays} \${cleaned}"
   (output.stdout) == ("original\n1 2 1\n")
 }
 
-test test_retry_filter_matching_exhaustion_and_mixed_failures [error] { |ctx|
+test test_retry_filter_matching_exhaustion_and_mixed_failures { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Timeout(message: Str) | Fatal(message: Str)
 var attempts = 0
@@ -221,7 +221,7 @@ print \${attempts}
   (output.stdout) == ("attempt 3\nsecond\n2\n")
 }
 
-test test_retry_filter_empty_delays_success_and_nested_retry [error] { |ctx|
+test test_retry_filter_empty_delays_success_and_nested_retry { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0
@@ -247,7 +247,7 @@ match nested { Err(FetchError.Busy {message}) => print \${message}; _ => print "
   (output.stdout) == ("1\nok\n2\nlast\n")
 }
 
-test test_retry_filter_trace_records_selection_and_stop_reason [error] { |ctx|
+test test_retry_filter_trace_records_selection_and_stop_reason { |ctx|
   let output = test.run_xsht_trace(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Fatal(message: "original")) }
@@ -264,7 +264,7 @@ match result { Err(_) => print "stopped"; _ => print "wrong" }
   ("\"stop_reason\":\"nonmatching\"" in output.stderr)
 }
 
-test test_retry_filter_rejects_captures_and_impossible_families [error] { |ctx|
+test test_retry_filter_rejects_captures_and_impossible_families { |ctx|
   let capture = test.run_script(ctx, """
 error FetchError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
@@ -282,7 +282,7 @@ let result = retry [] on (OtherError.Busy) { attempt()? }
   ("check.pattern-type" in impossible.stderr)
 }
 
-test test_retry_filter_facets_and_cleanup_failure_priority [error] { |ctx|
+test test_retry_filter_facets_and_cleanup_failure_priority { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) : NotFound | Fatal(message: Str) : InvalidData
 var attempts = 0
@@ -310,7 +310,7 @@ print f"\${attempts} \${cleaned}"
   ("secondary" in output.stderr)
 }
 
-test test_retry_filter_does_not_retry_abort [error] { |ctx|
+test test_retry_filter_does_not_retry_abort { |ctx|
   let output = test.run_script(ctx, """
 let result = retry [0ms] on (_) {
   print "attempt"
@@ -322,7 +322,7 @@ print "after"
   (output.stdout) == ("attempt\n")
 }
 
-test test_retry_filter_alias_and_impossible_facet_diagnostics [error] { |ctx|
+test test_retry_filter_alias_and_impossible_facet_diagnostics { |ctx|
   for source in [
     "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (FetchError.Busy as failure) { attempt()? }\n",
     "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (NotFound) { attempt()? }\n",
@@ -333,7 +333,7 @@ test test_retry_filter_alias_and_impossible_facet_diagnostics [error] { |ctx|
   }
 }
 
-test test_retry_filter_cleanup_failure_becomes_attempt_error [error] { |ctx|
+test test_retry_filter_cleanup_failure_becomes_attempt_error { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var cleaned = 0
@@ -355,7 +355,7 @@ print \${cleaned}
   (output.stdout) == ("cleanup\n1\n")
 }
 
-test test_retry_filter_rejects_string_classification [error] { |ctx|
+test test_retry_filter_rejects_string_classification { |ctx|
   let output = test.run_script(ctx, """
 proc attempt() -> Result[Str, Str] { Err("busy") }
 let result = retry [] on ("busy") { attempt()? }
@@ -364,7 +364,7 @@ let result = retry [] on ("busy") { attempt()? }
   ("check.retry-pattern" in output.stderr)
 }
 
-test test_retry_filter_nested_try_and_lexical_return_keep_destinations [error] { |ctx|
+test test_retry_filter_nested_try_and_lexical_return_keep_destinations { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0

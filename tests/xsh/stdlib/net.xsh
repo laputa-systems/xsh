@@ -1,4 +1,4 @@
-test test_net_module_with_mocks [fs, net, error] { |ctx|
+test test_net_module_with_mocks { |ctx|
   let response = {
     status: 200,
     reason: "OK",
@@ -98,7 +98,7 @@ proc net_start_scoped_helper() [net] -> Result[NetJob] {
   })
 }
 
-test test_net_start_mock_job_is_single_consumption [net, error] { |ctx|
+test test_net_start_mock_job_is_single_consumption { |ctx|
   let response = {
     status: 200,
     reason: "OK",
@@ -114,7 +114,7 @@ test test_net_start_mock_job_is_single_consumption [net, error] { |ctx|
   test.error_kind(job.cancel(), "net-job-not-live")?
 }
 
-test test_net_job_progresses_while_synchronous_request_waits [net, env, error] {
+test test_net_job_progresses_while_synchronous_request_waits {
   let url = env.get_or("XSH_NET_TEST_CONCURRENT_URL", "")?
   if url == "" {
     test.skip("requires concurrent NetJob transport fixture")
@@ -139,7 +139,7 @@ test test_net_job_progresses_while_synchronous_request_waits [net, env, error] {
   job.wait()?.body.utf8()? == "job"
 }
 
-test test_net_start_transfers_returned_job_ownership [net, error] { |ctx|
+test test_net_start_transfers_returned_job_ownership { |ctx|
   let response = {
     status: 200,
     reason: "OK",
@@ -154,7 +154,7 @@ test test_net_start_transfers_returned_job_ownership [net, error] { |ctx|
   job.wait()?.body == b"ok"
 }
 
-test test_net_start_aliases_share_one_consumption [net, error] { |ctx|
+test test_net_start_aliases_share_one_consumption { |ctx|
   let response = {
     status: 204,
     reason: "No Content",
@@ -172,7 +172,7 @@ test test_net_start_aliases_share_one_consumption [net, error] { |ctx|
   (test.calls(ctx, "net.start")[0].args.method) == ("GET")
 }
 
-test test_net_start_enforces_live_job_capacity [net, error] { |ctx|
+test test_net_start_enforces_live_job_capacity { |ctx|
   let response = {
     status: 204,
     reason: "No Content",
@@ -209,7 +209,7 @@ test test_net_start_enforces_live_job_capacity [net, error] { |ctx|
   }
 }
 
-test test_net_start_scope_cleanup_releases_admission [net, error] { |ctx|
+test test_net_start_scope_cleanup_releases_admission { |ctx|
   let response = {
     status: 204,
     reason: "No Content",
@@ -241,7 +241,7 @@ test test_net_start_scope_cleanup_releases_admission [net, error] { |ctx|
   released.cancel()?
 }
 
-test test_net_start_loop_control_cleans_lexical_job_scopes [net, error] { |ctx|
+test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
   let response = {
     status: 204,
     reason: "No Content",
@@ -287,7 +287,7 @@ test test_net_start_loop_control_cleans_lexical_job_scopes [net, error] { |ctx|
   final_job.wait()?.status == 204
 }
 
-test test_net_job_trace_is_correlated_and_redacts_request_secrets [net, env, error] { |ctx|
+test test_net_job_trace_is_correlated_and_redacts_request_secrets { |ctx|
   let url = env.get_or("XSH_NET_TEST_URL", "")?
   if url == "" {
     test.skip("requires XSH_NET_TEST_URL fixture")
@@ -327,7 +327,7 @@ print \${response.status}
   }
 }
 
-test test_net_runtime_descriptors_do_not_survive_exec [fs, net, process, env, error] { |ctx|
+test test_net_runtime_descriptors_do_not_survive_exec { |ctx|
   let url = env.get_or("XSH_NET_TEST_URL", "")?
   let helper = env.get_or("XSH_NET_FD_HELPER", "")?
   if url == "" or helper == "" {
@@ -345,7 +345,7 @@ test test_net_runtime_descriptors_do_not_survive_exec [fs, net, process, env, er
   output.read_text()? == inherited
 }
 
-test test_net_transport_http_contracts [fs, net, env, error] { |ctx|
+test test_net_transport_http_contracts { |ctx|
   let url = env.get_or("XSH_NET_TEST_URL", "")?
   if url == "" {
     test.skip("requires XSH_NET_TEST_URL fixture")
@@ -429,7 +429,7 @@ test test_net_transport_http_contracts [fs, net, env, error] { |ctx|
   net.close_all_pools()?
 }
 
-test test_net_transport_error_contracts [fs, net, env, error] { |ctx|
+test test_net_transport_error_contracts { |ctx|
   let url = env.get_or("XSH_NET_TEST_URL", "")?
   if url == "" {
     test.skip("requires XSH_NET_TEST_URL fixture")
@@ -484,7 +484,7 @@ proc assert_invalid_net_input(ctx: TestContext, source: Str, kind: Str) [error] 
   kind in output.stderr
 }
 
-test test_net_transport_rejects_invalid_shapes [fs, net, error] { |ctx|
+test test_net_transport_rejects_invalid_shapes { |ctx|
   let root = test.temp_dir(ctx, name: "net-invalid")?
   let missing_source = fp"${root}/missing.txt"
 
@@ -539,7 +539,7 @@ test test_net_transport_rejects_invalid_shapes [fs, net, error] { |ctx|
   )?
 }
 
-test test_net_transport_timeout_contracts [fs, net, env, error] { |ctx|
+test test_net_transport_timeout_contracts { |ctx|
   let url = env.get_or("XSH_NET_TEST_URL", "")?
   if url == "" {
     test.skip("requires XSH_NET_TEST_URL fixture")
@@ -574,7 +574,7 @@ test test_net_transport_timeout_contracts [fs, net, env, error] { |ctx|
   }
 }
 
-test test_net_transport_batch_contracts [fs, net, env, error] { |ctx|
+test test_net_transport_batch_contracts { |ctx|
   let url = env.get_or("XSH_NET_TEST_URL", "")?
   if url == "" {
     test.skip("requires XSH_NET_TEST_URL fixture")
@@ -664,7 +664,7 @@ test test_net_transport_batch_contracts [fs, net, env, error] { |ctx|
   queued_timeout_requests[1]?.body.utf8()? == "hello"
 }
 
-test test_net_transport_batch_download_error_contract [fs, net, env, error] { |ctx|
+test test_net_transport_batch_download_error_contract { |ctx|
   let url = env.get_or("XSH_NET_TEST_URL", "")?
   if url == "" {
     test.skip("requires XSH_NET_TEST_URL fixture")
@@ -705,7 +705,7 @@ test test_net_transport_batch_download_error_contract [fs, net, env, error] { |c
   limited.read_text()? == "previous"
 }
 
-test test_net_transport_tls_contracts [net, env, error] {
+test test_net_transport_tls_contracts {
   let url = env.get_or("XSH_NET_TEST_TLS_URL", "")?
   let ca = env.get_or("XSH_NET_TEST_CA", "")?
   if url == "" or ca == "" {
@@ -730,7 +730,7 @@ test test_net_transport_tls_contracts [net, env, error] {
   verified.body.utf8()? == "secure"
 }
 
-test test_net_transport_https_http1_contract [net, env, error] {
+test test_net_transport_https_http1_contract {
   let url = env.get_or("XSH_NET_TEST_H1_URL", "")?
   let ca = env.get_or("XSH_NET_TEST_CA", "")?
   if url == "" or ca == "" {
@@ -748,7 +748,7 @@ test test_net_transport_https_http1_contract [net, env, error] {
   response.body.utf8()? == "secure"
 }
 
-test test_net_transport_request_many_https_h2_contract [net, env, error] {
+test test_net_transport_request_many_https_h2_contract {
   let url = env.get_or("XSH_NET_TEST_H2_URL", "")?
   let ca = env.get_or("XSH_NET_TEST_CA", "")?
   if url == "" or ca == "" {
@@ -778,7 +778,7 @@ test test_net_transport_request_many_https_h2_contract [net, env, error] {
   requests[1]?.body.utf8()? == "h2"
 }
 
-test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy [net, env, error] {
+test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
   let url = env.get_or("XSH_NET_TEST_H2_CANCEL_URL", "")?
   let ca = env.get_or("XSH_NET_TEST_CA", "")?
   if url == "" or ca == "" {
@@ -820,7 +820,7 @@ test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy [net, env, error] {
   later[0]?.body.utf8()? == "later"
 }
 
-test test_net_transport_download_many_https_h2_contract [fs, net, env, error] { |ctx|
+test test_net_transport_download_many_https_h2_contract { |ctx|
   let url = env.get_or("XSH_NET_TEST_H2_URL", "")?
   let ca = env.get_or("XSH_NET_TEST_CA", "")?
   if url == "" or ca == "" {
@@ -842,7 +842,7 @@ test test_net_transport_download_many_https_h2_contract [fs, net, env, error] { 
   dest.read_text()? == "h2"
 }
 
-test test_net_transport_linux_system_ca_dir [net, env, error] {
+test test_net_transport_linux_system_ca_dir {
   let url = env.get_or("XSH_NET_TEST_TLS_URL", "")?
   if url == "" {
     test.skip("requires Linux TLS fixture")

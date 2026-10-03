@@ -4,7 +4,7 @@ type Plugin = module {
   export proc execute(root: Path) [fs, error] -> Result[Unit]
 }
 
-test test_module_load [fs, error] { |ctx|
+test test_module_load { |ctx|
   let root = test.temp_dir(ctx, name: "module")?
   let plugin_path = fp"${root}/plugin.xsh"
 
@@ -35,7 +35,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   fp"${root}/out.txt".read_text()? == "demo"
 }
 
-test test_module_load_exports_private_fields_and_contract_errors [fs, error] { |ctx|
+test test_module_load_exports_private_fields_and_contract_errors { |ctx|
   let root = test.temp_dir(ctx, name: "dynamic-module-contract")?
   fp"${root}/helper.xsh".write(r"""
 ##! Dynamic helper module.
@@ -135,7 +135,7 @@ match loaded.require(BadPackage) {
   }
 }
 
-test test_module_load_rejects_undocumented_export [fs, error] { |ctx|
+test test_module_load_rejects_undocumented_export { |ctx|
   let root = test.temp_dir(ctx, name: "undocumented-module")?
   let plugin_path = fp"${root}/undocumented.xsh"
   fs.write(
@@ -154,7 +154,7 @@ test test_module_load_rejects_undocumented_export [fs, error] { |ctx|
   "undocumented exports" in output.stderr
 }
 
-test test_module_load_rejects_forbidden_top_level_forms [fs, error] { |ctx|
+test test_module_load_rejects_forbidden_top_level_forms { |ctx|
   let root = test.temp_dir(ctx, name: "module-top-level")?
   for fixture in [
     {
@@ -203,7 +203,7 @@ export let name = "bad"
   hook.name() in output.stderr
 }
 
-test test_static_and_loaded_modules_reject_the_same_contract_mismatches [fs, error] { |ctx|
+test test_static_and_loaded_modules_reject_the_same_contract_mismatches { |ctx|
   let root = test.temp_dir(ctx, name: "module-contract-mismatches")?
   let optional_path = fp"${root}/bad_optional.xsh"
   let effect_path = fp"${root}/bad_effect.xsh"
@@ -256,7 +256,7 @@ let _ = module.load(p"${effect_path}")?.require(Runner)?
   }
 }
 
-test test_static_module_namespace_satisfies_the_same_contract [fs, error] { |ctx|
+test test_static_module_namespace_satisfies_the_same_contract { |ctx|
   let root = test.temp_dir(ctx, name: "static-module-contract")?
   fp"${root}/runner.xsh".write("""
 ##! Static runner fixture.
@@ -292,7 +292,7 @@ main()?
   fp"${root}/out.txt".read_text()? == "static"
 }
 
-test test_same_basename_modules_keep_separate_top_level_bindings [fs, error] { |ctx|
+test test_same_basename_modules_keep_separate_top_level_bindings { |ctx|
   let root = test.temp_dir(ctx, name: "same-basename-modules")?
   fp"${root}/alpha".mkdir()?
   fp"${root}/beta".mkdir()?
@@ -343,7 +343,7 @@ print ${beta.count_words()}
 """
 }
 
-test test_imported_local_args_shadows_predeclared_script_arguments [fs, error] { |ctx|
+test test_imported_local_args_shadows_predeclared_script_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "imported-if-list")?
   fp"${root}/selector.xsh".write("""
 ##! Selects a list in an imported function.
@@ -371,7 +371,7 @@ print ${selector.select(["unknown"]).len()}
 """
 }
 
-test test_imported_error_constructor_named_fields_preserve_identity_and_order [fs, error] { |ctx|
+test test_imported_error_constructor_named_fields_preserve_identity_and_order { |ctx|
   let root = test.temp_dir(ctx)?
   fp"${root}/helper.xsh".write(r"""
 ##! Imported error constructor fixture.
@@ -431,7 +431,7 @@ print \${provider.failure() is Err(_)}
   (loaded.stdout) == ("true\n")
 }
 
-test test_static_module_exports_bind_one_namespace [fs, error] { |ctx|
+test test_static_module_exports_bind_one_namespace { |ctx|
   let root = test.temp_dir(ctx, name: "module-namespace")?
   fp"${root}/helper.xsh".write("""
 ##! Namespace-only static module fixture.
@@ -568,7 +568,7 @@ HelperError.Failed(detail: "failed")
   }
 }
 
-test test_qualified_module_functions_remain_callable_as_values [fs, error] { |ctx|
+test test_qualified_module_functions_remain_callable_as_values { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-functions")?
   fp"${root}/package.xsh".write(r"""
 ##! Qualified values fixture module.
@@ -612,7 +612,7 @@ pkg:demo
 """
 }
 
-test test_qualified_record_fields_pass_to_effectful_module_proc [fs, error] { |ctx|
+test test_qualified_record_fields_pass_to_effectful_module_proc { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-record")?
   fp"${root}/target.xsh".write(r"""
 ##! Target fixture module.
@@ -661,7 +661,7 @@ l.normalize(context)?
 """
 }
 
-test test_module_proc_call_preserves_runtime_cwd [fs, error] { |ctx|
+test test_module_proc_call_preserves_runtime_cwd { |ctx|
   let root = test.temp_dir(ctx, name: "module-proc-cwd")?
   let src = fp"${root}/src"
   let out = fp"${root}/cwd.txt"
@@ -705,7 +705,7 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
   out.read_text()? == src.display()
 }
 
-test test_module_path_resolves_nested_module_with_default_alias [fs, error] { |ctx|
+test test_module_path_resolves_nested_module_with_default_alias { |ctx|
   let root = test.temp_dir(ctx, name: "nested-module-path")?
   let lib = fp"${root}/lib"
   fp"${lib}/pm".mkdir()?
@@ -736,7 +736,7 @@ print ${configure.label("pkgconf")}
   output.stderr == ""
 }
 
-test test_module_import_alias_trace_and_cycle [fs, error] { |ctx|
+test test_module_import_alias_trace_and_cycle { |ctx|
   let root = test.temp_dir(ctx, name: "module-imports")?
   fp"${root}/helper.xsh".write(r"""
 ##! Helper fixture module.
@@ -825,7 +825,7 @@ export let value = 2
   "parse.module-cycle" in cycle.stderr
 }
 
-test test_package_hook_module_calls_keep_dynamic_and_static_cwd [fs, error] { |ctx|
+test test_package_hook_module_calls_keep_dynamic_and_static_cwd { |ctx|
   let root = test.temp_dir(ctx, name: "package-hook-modules")?
   let dynamic_out = fp"${root}/dynamic-out"
   let static_src = fp"${root}/static-src"
@@ -888,7 +888,7 @@ main(@args)?
 """
 }
 
-test test_stream_exports_are_namespace_members_not_module_contract_members [fs, error] { |ctx|
+test test_stream_exports_are_namespace_members_not_module_contract_members { |ctx|
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""
 export stream numbers() [] -> Stream[Int] {

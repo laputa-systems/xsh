@@ -1,4 +1,4 @@
-test test_assertion_forms_share_nominal_capture_inference [error] { |ctx|
+test test_assertion_forms_share_nominal_capture_inference { |ctx|
   let output = test.run_script(ctx, r"""pure checked(failure: AssertionError) -> AssertionError { failure }
 pure captured() -> Result[Unit, AssertionError] {
   try { assert false, "private capture" }
@@ -24,7 +24,7 @@ for result in [bare, explicit, chain, captured()] {
   assert "unexpected" not in output.stdout, output.stdout
 }
 
-test test_assertion_nominal_filter_runs_attempt_cleanup [error] { |ctx|
+test test_assertion_nominal_filter_runs_attempt_cleanup { |ctx|
   let output = test.run_script(ctx, r"""var attempts = 0
 proc attempt() -> Int { attempts += 1; attempts }
 proc cleanup() [io] -> Unit { print "cleaned" }
@@ -39,7 +39,7 @@ print $attempts
   output.stdout == "cleaned\ncleaned\ndone\n2\n"
 }
 
-test test_assertion_message_failure_keeps_its_nominal_type [error] { |ctx|
+test test_assertion_message_failure_keeps_its_nominal_type { |ctx|
   let output = test.run_script(ctx, r"""error MessageError = Failed(message: Str)
 proc message() [error, io] -> Result[Str, MessageError] {
   print "message"
@@ -62,7 +62,7 @@ match failure {
   output.stdout == "message\ncleaned\npassed\nmessage failure\n"
 }
 
-test test_membership_assertions_preserve_typed_map_key_domains [error] { |ctx|
+test test_membership_assertions_preserve_typed_map_key_domains { |ctx|
   let output = test.run_script(ctx, r"""let integers: Map[Int, Str] = {[1]: "one"}
 let flags: Map[Bool, Int] = {[true]: 1}
 let delays: Map[Duration, Int] = {[3ms]: 1}
@@ -94,7 +94,7 @@ print "checked"
   assert "check.type-mismatch" not in removed.stderr, removed.stderr
 }
 
-test test_membership_assertions_accept_checked_module_exports [fs, error] { |ctx|
+test test_membership_assertions_accept_checked_module_exports { |ctx|
   fp"${ctx.temp_root}/membership_merge.xsh".write("##! Provides a checked export.\n## A public field.\nexport let present = 1\n")?
   let output = test.run_script(ctx, r"""use membership_merge
 "present" in membership_merge.keys()

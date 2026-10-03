@@ -1,4 +1,4 @@
-test test_record_update_nested_spread_before_witness [error] { |ctx|
+test test_record_update_nested_spread_before_witness { |ctx|
   let output = test.run_script(ctx, r"""
 proc witness() [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
@@ -19,7 +19,7 @@ witness()
   output.stdout == ""
 }
 
-test test_record_update_disjoint_paths_match_nested_spreads [error] { |ctx|
+test test_record_update_disjoint_paths_match_nested_spreads { |ctx|
   let output = test.run_script(ctx, r"""
 proc witness() [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
@@ -36,7 +36,7 @@ witness()
   output.stdout == ""
 }
 
-test test_record_update_keeps_schema_and_contextual_replacements [error] { |ctx|
+test test_record_update_keeps_schema_and_contextual_replacements { |ctx|
   let output = test.run_script(ctx, r"""type RecordUpdateFlags = {debug: Bool, optimize: Bool}
 type RecordUpdateBuild = {jobs: Int, flags: RecordUpdateFlags, tags: List[Str]}
 type RecordUpdateConfig = {build: RecordUpdateBuild, name: Str = "default"}
@@ -59,7 +59,7 @@ witness()
   output.stdout == ""
 }
 
-test test_record_update_evaluates_snapshot_and_rhs_in_source_order [error] { |ctx|
+test test_record_update_evaluates_snapshot_and_rhs_in_source_order { |ctx|
   let output = test.run_xsh(ctx, r"""
 type Flags = {debug: Bool, optimize: Bool}
 type Build = {jobs: Int, flags: Flags}
@@ -85,7 +85,7 @@ inspect()
   (output.stdout) == ("base\njobs\noptimize\noriginal,8,false,true\noriginal,false,changed,true\n")
 }
 
-test test_record_update_failure_stops_later_rhs_and_keeps_published_value [error] { |ctx|
+test test_record_update_failure_stops_later_rhs_and_keeps_published_value { |ctx|
   let output = test.run_xsh(ctx, r"""
 error UpdateError = Failed(code: Int)
 type Flags = {debug: Bool}
@@ -112,7 +112,7 @@ print f"${published.name},${published.build.jobs},${published.build.flags.debug}
   (output.stdout) == ("first\nfailure\nclosed\ncaught=7\noriginal,2,false\n")
 }
 
-test test_record_update_rejects_bases_targets_and_replacements [error] { |ctx|
+test test_record_update_rejects_bases_targets_and_replacements { |ctx|
   let prefix = "let config = {build: {jobs: 2, flags: {debug: false}}, name: \"demo\"}\n"
   for {source, code} in [
     {source: "let updated = {build.jobs: 8}\n", code: "check.record-update-base"},

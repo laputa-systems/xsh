@@ -1,4 +1,4 @@
-test test_ls [fs, process, env, error] { |ctx|
+test test_ls { |ctx|
   let root = test.temp_dir(ctx, name: "ls")?
   fp"${root}/a.txt".write("a")?
   fp"${root}/b.txt".write("bb")?

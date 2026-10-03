@@ -1,24 +1,24 @@
 type Entry = {name: Str, score: Int}
 
-test test_list_comprehension_basic_transform [error] {
+test test_list_comprehension_basic_transform {
   let nums = [1, 2, 3]
   let doubled = [x * 2 for x in nums]
   doubled == [2, 4, 6]
 }
 
-test test_list_comprehension_with_guard_filters_elements [error] {
+test test_list_comprehension_with_guard_filters_elements {
   let nums = [1, 2, 3, 4, 5]
   let evens = [x for x in nums if x % 2 == 0]
   evens == [2, 4]
 }
 
-test test_list_comprehension_guard_can_produce_empty_list [error] {
+test test_list_comprehension_guard_can_produce_empty_list {
   let nums = [1, 3, 5]
   let evens = [x for x in nums if x % 2 == 0]
   evens |> count() == 0
 }
 
-test test_list_comprehension_with_record_destructuring [error] {
+test test_list_comprehension_with_record_destructuring {
   let entries: List[Entry] = [{name: "alice", score: 90}, {name: "bob", score: 55}, {name: "carol", score: 80}]
   let passing = [name for {name, score} in entries if score >= 60]
   passing == ["alice", "carol"]
@@ -30,7 +30,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
   Err(FsError.NotFound(file:))
 }
 
-test test_nominal_error_payload_and_facet_patterns [error] {
+test test_nominal_error_payload_and_facet_patterns {
   match missing(p"missing") {
     Ok(text) => test.fail(f"unexpected ok ${text}")?
     Err(FsError.NotFound {file: file}) => file.display() == "missing"
@@ -57,7 +57,7 @@ pure count_lines(lines: List[Str]) -> Stats {
   stats
 }
 
-test test_local_accumulator_field_mutation [error] {
+test test_local_accumulator_field_mutation {
   let stats = count_lines(["alpha", "", "# note", "beta"])
   var counts: Map[Int] = {}
   counts["code"] = stats.code
@@ -67,7 +67,7 @@ test test_local_accumulator_field_mutation [error] {
   (counts.get("comments") ?? 0) == 1
 }
 
-test test_compact_sugar_forms [error] { |ctx|
+test test_compact_sugar_forms { |ctx|
   let root = test.temp_dir(ctx, name: "compact-sugar")?
 
   let output = test.run_script(
@@ -94,7 +94,7 @@ print \${label} \${value} \${files |> count()}
 """
 }
 
-test test_ergonomic_sugar_pass_forms [fs, error] { |ctx|
+test test_ergonomic_sugar_pass_forms { |ctx|
   let root = test.temp_dir(ctx, name: "ergonomic-sugar")?
   fs.remove(root, missing_ok: true)?
   fs.mkdir(fp"${root}/nested/dir")?
@@ -122,7 +122,7 @@ test test_ergonomic_sugar_pass_forms [fs, error] { |ctx|
   metadata.jobs == "1"
 }
 
-test test_multi_clause_list_comprehension_encounter_order [error] {
+test test_multi_clause_list_comprehension_encounter_order {
   let pairs = [
     outer * 10 + inner
     for outer in [1, 2, 3]
@@ -141,7 +141,7 @@ test test_multi_clause_list_comprehension_encounter_order [error] {
   empty == []
 }
 
-test test_multi_clause_comprehension_bindings_are_lexical [error] { |ctx|
+test test_multi_clause_comprehension_bindings_are_lexical { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -157,7 +157,7 @@ proc main() [io] {
   output.stdout == "2,3,10\n"
 }
 
-test test_multi_clause_map_comprehension_later_entries_win [error] {
+test test_multi_clause_map_comprehension_later_entries_win {
   let entries = [{key: "a", values: [1, 2]}, {key: "b", values: [3]}, {key: "a", values: [4]}]
   let by_key = {
     entry.key: number
@@ -169,7 +169,7 @@ test test_multi_clause_map_comprehension_later_entries_win [error] {
   (by_key.get("b") ?? 0) == 3
 }
 
-test test_multi_clause_comprehension_evaluates_only_reached_clauses [error] { |ctx|
+test test_multi_clause_comprehension_evaluates_only_reached_clauses { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -192,7 +192,7 @@ proc main() [io] {
   output.stdout == "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n"
 }
 
-test test_multi_clause_comprehension_pulls_streams_lazily_and_closes [error] { |ctx|
+test test_multi_clause_comprehension_pulls_streams_lazily_and_closes { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -219,7 +219,7 @@ proc main() [io] {
   output.stdout == "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n"
 }
 
-test test_multi_clause_comprehension_failure_closes_nested_streams [error] { |ctx|
+test test_multi_clause_comprehension_failure_closes_nested_streams { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -246,7 +246,7 @@ proc main() [io, error] {
   "failure" in output.stderr
 }
 
-test test_multi_clause_comprehension_rejects_forward_bindings [error] { |ctx|
+test test_multi_clause_comprehension_rejects_forward_bindings { |ctx|
   let output = test.run_script(ctx, "let values = [inner for outer in [1] if inner == 1 for inner in [outer]]\n")?
   ! output.success
   "inner" in output.stderr
@@ -256,7 +256,7 @@ pure comprehension_values(number: Int) -> Result[List[Int]] {
   [number, number + 1]
 }
 
-test test_multi_clause_comprehension_accepts_fallible_iterables [error] {
+test test_multi_clause_comprehension_accepts_fallible_iterables {
   let values = [
     inner
     for outer in comprehension_values(1)
@@ -266,7 +266,7 @@ test test_multi_clause_comprehension_accepts_fallible_iterables [error] {
   values == [1, 3]
 }
 
-test test_multi_clause_comprehension_propagation_retains_result_and_cleanup [error] { |ctx|
+test test_multi_clause_comprehension_propagation_retains_result_and_cleanup { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -300,7 +300,7 @@ pure list_splice_default(values = [1, @[2, 3]]) -> List[Int] {
   values
 }
 
-test test_list_literal_splicing_preserves_types_nesting_and_aliases [error] {
+test test_list_literal_splicing_preserves_types_nesting_and_aliases {
   var middle = [2, 3]
   let source_alias = middle
   var combined = [1, @middle, 4, @[], @[5, 6]]
@@ -332,7 +332,7 @@ test test_list_literal_splicing_preserves_types_nesting_and_aliases [error] {
   declared == [p"first", p"second"]
 }
 
-test test_list_literal_splicing_evaluates_left_to_right_once [error] { |ctx|
+test test_list_literal_splicing_evaluates_left_to_right_once { |ctx|
   let result = test.run_script(
     ctx,
     r"""proc item(value: Int) [io] -> Int {
@@ -352,7 +352,7 @@ print result.len()
   result.stdout == "item 1\nsplice 2\nitem 4\nsplice 5\n6\n"
 }
 
-test test_list_literal_splicing_propagates_before_later_elements [error] { |ctx|
+test test_list_literal_splicing_propagates_before_later_elements { |ctx|
   let result = test.run_script(
     ctx,
     r"""error SpliceFailure = Stopped(message: Str)
@@ -375,7 +375,7 @@ print values.len()
   result.stdout == "item 1\nflags\n"
 }
 
-test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements [error] { |ctx|
+test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements { |ctx|
   for source in [
     "let value = [@\"text\"]\n",
     "let value = [@b\"bytes\"]\n",
@@ -398,14 +398,14 @@ test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements [err
   "parse." in ambiguous.stderr
 }
 
-test test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv [error] {
+test test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv {
   let loaded = Ok(["-O2", "-g"])
   let argv = ["cc", @(loaded?), "-o", "app"]
   let _ = process.command_argv("true", ["true", @argv])
   argv == ["cc", "-O2", "-g", "-o", "app"]
 }
 
-test test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers [error] { |ctx|
+test test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers { |ctx|
   let output = test.run_script(ctx, r"""
 error FixtureError = Failure(message: Str)
 stream numbers(label: Str) [io] -> Stream[Int] {

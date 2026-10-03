@@ -1,4 +1,4 @@
-test test_fd_finds_by_name_extension_and_type [fs, process, env, error] { |ctx|
+test test_fd_finds_by_name_extension_and_type { |ctx|
   let root = test.temp_dir(ctx, name: "fd")?
   fp"${root}/alpha.txt".write("a")?
   fp"${root}/beta.log".write("b")?
@@ -7,7 +7,7 @@ test test_fd_finds_by_name_extension_and_type [fs, process, env, error] { |ctx|
   ! ("beta.log" in output)
 }
 
-test test_fd_hidden_and_glob [fs, process, env, error] { |ctx|
+test test_fd_hidden_and_glob { |ctx|
   let root = test.temp_dir(ctx, name: "fd-hidden")?
   fp"${root}/.hidden.txt".write("hidden")?
   fp"${root}/visible.txt".write("visible")?
@@ -19,7 +19,7 @@ test test_fd_hidden_and_glob [fs, process, env, error] { |ctx|
   "visible.txt" in globbed
 }
 
-test test_fd_multiple_roots_exclude_depth_and_executable [fs, process, env, error] { |ctx|
+test test_fd_multiple_roots_exclude_depth_and_executable { |ctx|
   let left = test.temp_dir(ctx, name: "fd-left")?
   let right = test.temp_dir(ctx, name: "fd-right")?
   fp"${left}/keep.sh".write("echo keep")?

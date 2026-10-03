@@ -1,4 +1,4 @@
-test test_stage_functions_use_one_item_calls_and_per_call_defaults [error] { |ctx|
+test test_stage_functions_use_one_item_calls_and_per_call_defaults { |ctx|
   let output = test.run_script(ctx, r"""
 proc add(item: Int, amount: Int = 10) [] -> Int { print "call"; return item + amount }
 pure positive(item: Int) -> Bool { item > 0 }
@@ -22,7 +22,7 @@ proc main() [] {
   (output.stdout) == ("0\ncall\ncall\n11\n12\n1\n4\ntrue\ntrue\n")
 }
 
-test test_stage_functions_supply_independent_aggregate_defaults [error] { |ctx|
+test test_stage_functions_supply_independent_aggregate_defaults { |ctx|
   let output = test.run_script(ctx, r"""
 proc size(item: Int, values: List[Int] = []) [] -> Int {
   var copy = values
@@ -42,7 +42,7 @@ proc main() [] {
   (output.stdout) == ("1\n1\n")
 }
 
-test test_stage_functions_cover_keys_sinks_named_configuration_and_results [error] { |ctx|
+test test_stage_functions_cover_keys_sinks_named_configuration_and_results { |ctx|
   let output = test.run_script(ctx, r"""
 pure key(item: Int) -> Int { 0 - item }
 pure bucket(item: Int) -> Str { if item > 1 { "large" } else { "small" } }
@@ -70,7 +70,7 @@ proc main() [] {
   (output.stdout) == ("direction\n1\n3\n2\n2\nseen:1\nseen:2\ntrue\nseen:3\ntrue\ntrue\n")
 }
 
-test test_stage_functions_short_circuit_and_cancel_child_cleanup [error] { |ctx|
+test test_stage_functions_short_circuit_and_cancel_child_cleanup { |ctx|
   let output = test.run_script(ctx, r"""
 proc cleanup() [] { print "cleanup" }
 stream numbers() [error] -> Stream[Int] {
@@ -95,7 +95,7 @@ proc main() [error] {
   (output.stdout) == ("pull:1\ntest:1\npull:2\ntest:2\ncleanup\ntrue\npull:1\ntest:1\ncleanup\nfalse\n")
 }
 
-test test_stage_functions_for_break_matches_explicit_wrapper_pull_order [error] { |ctx|
+test test_stage_functions_for_break_matches_explicit_wrapper_pull_order { |ctx|
   for body in ["map(add)", "map { |item| add(item) }"] {
     let output = test.run_script(ctx, r"""
 proc cleanup() [] { print "cleanup" }
@@ -116,7 +116,7 @@ proc main() [error] {
   }
 }
 
-test test_stage_functions_side_effect_failure_and_late_source_failure [error] { |ctx|
+test test_stage_functions_side_effect_failure_and_late_source_failure { |ctx|
   for stage in ["each", "tee"] {
     let output = test.run_script(ctx, r"""
 proc cleanup() [] { print "cleanup" }
@@ -153,7 +153,7 @@ proc main() [error] { let _ = numbers() |> map(observe) }
   (late.stdout) == ("seen:1\ncleanup\n")
 }
 
-test test_stage_functions_reject_erasure_shadowing_partial_methods_and_bad_contracts [error] { |ctx|
+test test_stage_functions_reject_erasure_shadowing_partial_methods_and_bad_contracts { |ctx|
   for source in [
     "pure f(item: Int) -> Int { item }\nproc main() [] { let f: Pure = f; let _ = [1] |> map(f) }",
     "pure f(item: Int) -> Int { item }\nproc apply(f: Pure) [] { let _ = [1] |> map(f) }",
@@ -183,7 +183,7 @@ test test_stage_functions_reject_erasure_shadowing_partial_methods_and_bad_contr
   }
 }
 
-test test_stage_functions_keep_qualified_import_identity_and_defaults [fs, error] { |ctx|
+test test_stage_functions_keep_qualified_import_identity_and_defaults { |ctx|
   let directory = test.temp_dir(ctx, name: "stage-call-import")?
   fp"${directory}/helpers.xsh".write(r"""##! Named stage functions.
 ## Add a default amount to the item.
@@ -205,7 +205,7 @@ print ${(["a"] |> map(helpers.surround))[0]}
   (output.stdout) == ("5\n[a\n")
 }
 
-test test_stage_functions_select_standard_overloads_from_the_item_type [fs, error] { |ctx|
+test test_stage_functions_select_standard_overloads_from_the_item_type { |ctx|
   let file = test.temp_file(ctx, name: "digest-input", contents: b"abc")?
   let output = test.run_script(ctx, r"""
 use hash
@@ -235,7 +235,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 }
 
-test test_stage_functions_tooling_fixes_only_transparent_wrappers [fs, process, error] { |ctx|
+test test_stage_functions_tooling_fixes_only_transparent_wrappers { |ctx|
   let source = r"""pure increment(item: Int, amount: Int = 1) -> Int { item + amount }
 pure result(item: Int) -> Result[Int] { Ok(item) }
 proc main() [error] {

@@ -1,4 +1,4 @@
-test test_existing_lvalue_observes_current_root_after_rhs [error] {
+test test_existing_lvalue_observes_current_root_after_rhs {
   var row = {count: 1, untouched: 2}
   row.count += if true {
     row = {count: 10, untouched: 20}
@@ -15,7 +15,7 @@ test test_existing_lvalue_observes_current_root_after_rhs [error] {
   values.get("untouched")? == 40
 }
 
-test test_list_element_assignment_and_aliases [error] {
+test test_list_element_assignment_and_aliases {
   var values = [1, 2, 3]
   let alias = values
   values[1] = 8
@@ -24,7 +24,7 @@ test test_list_element_assignment_and_aliases [error] {
   alias == [1, 2, 3]
 }
 
-test test_list_assignment_selector_and_rhs_observe_current_root [error] {
+test test_list_assignment_selector_and_rhs_observe_current_root {
   var values = [1, 2]
   values[if true {
     values = [10, 20]
@@ -48,7 +48,7 @@ test test_list_assignment_selector_and_rhs_observe_current_root [error] {
 
 type ListAssignmentRow = {count: Int, children: List[Int]}
 
-test test_list_assignment_traverses_record_map_and_list_paths [error] {
+test test_list_assignment_traverses_record_map_and_list_paths {
   let empty: Map[List[ListAssignmentRow]] = {}
   var root = {groups: empty.set("first", [{count: 1, children: [2, 3]}])}
   let alias = root
@@ -67,7 +67,7 @@ test test_list_assignment_traverses_record_map_and_list_paths [error] {
   earlier == [[1, 2], [3, 4]]
 }
 
-test test_list_assignment_preserves_contextual_element_schema [error] {
+test test_list_assignment_preserves_contextual_element_schema {
   var rows: List[ListAssignmentRow] = [{count: 1, children: [2]}]
   rows[0] = {count: 4, children: []}
   rows[0].children = []
@@ -76,7 +76,7 @@ test test_list_assignment_preserves_contextual_element_schema [error] {
   rows[0].children == [3]
 }
 
-test test_list_assignment_rejects_indexing_bounds_after_rhs [error] { |ctx|
+test test_list_assignment_rejects_indexing_bounds_after_rhs { |ctx|
   for index in [-1, 2, 9223372036854775807] {
     let output = test.run_script(ctx, f"""
 var values = [1, 2]
@@ -92,7 +92,7 @@ values[${index}] = if true {
   }
 }
 
-test test_list_assignment_failed_arithmetic_keeps_ancestors [error] { |ctx|
+test test_list_assignment_failed_arithmetic_keeps_ancestors { |ctx|
   let output = test.run_script(ctx, r"""
 var rows = [{count: 7, untouched: [3]}]
 let alias = rows
@@ -108,7 +108,7 @@ rows[0].count /= if true {
   output.stdout == "rhs\n[{\"count\":7,\"untouched\":[9]}] [{\"count\":7,\"untouched\":[3]}]\n"
 }
 
-test test_list_assignment_rejects_immutable_temporary_and_non_list_roots [error] { |ctx|
+test test_list_assignment_rejects_immutable_temporary_and_non_list_roots { |ctx|
   for source in [
     "let values = [1]\nvalues[0] = 2\n",
     "var values = [1]\nvalues[\"first\"] = 2\n",
@@ -124,7 +124,7 @@ test test_list_assignment_rejects_immutable_temporary_and_non_list_roots [error]
   }
 }
 
-test test_existing_lvalue_failure_retains_rhs_root_effects [error] { |ctx|
+test test_existing_lvalue_failure_retains_rhs_root_effects { |ctx|
   let output = test.run_script(ctx, r"""
 var row = {count: 7, untouched: 3}
 defer { print $row.count $row.untouched }
@@ -139,7 +139,7 @@ row.count /= if true {
   output.stdout == "rhs\n8 9\n"
 }
 
-test test_list_assignment_evaluates_each_selector_and_rhs_once [error] {
+test test_list_assignment_evaluates_each_selector_and_rhs_once {
   let empty: Map[List[Int]] = {}
   var root = [empty.set("selected", [1, 2])]
   var seen = []
@@ -161,7 +161,7 @@ test test_list_assignment_evaluates_each_selector_and_rhs_once [error] {
   root[0].get("selected")? == [4, 40]
 }
 
-test test_list_assignment_propagates_original_result_before_commit [error] { |ctx|
+test test_list_assignment_propagates_original_result_before_commit { |ctx|
   let output = test.run_script(ctx, r"""
 error AssignmentError = Failed(code: Int)
 pure failed() -> Result[Int, AssignmentError] {
@@ -190,7 +190,7 @@ proc main() [io, error] {
 
 type ListAssignmentStats = {blanks: Int = 0, code: Int = 0, comments: Int = 0}
 
-test test_list_assignment_retains_specialized_record_storage [error] {
+test test_list_assignment_retains_specialized_record_storage {
   var rows = [ListAssignmentStats()]
   let alias = rows
   rows[0].code += 3
@@ -207,6 +207,6 @@ pure list_assignment_unit() -> Unit {
 
 pure list_assignment_empty_unit() -> Unit {}
 
-test test_list_assignment_is_unit [error] {
+test test_list_assignment_is_unit {
   list_assignment_unit() == list_assignment_empty_unit()
 }

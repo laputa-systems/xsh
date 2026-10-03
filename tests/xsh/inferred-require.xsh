@@ -1,11 +1,11 @@
 type RequirementManifest = {name: Str, jobs: UInt}
 type RequirementEnvelope = {manifest: RequirementManifest}
 
-test test_require_tail_propagation_consumes_success_unit [error] {
+test test_require_tail_propagation_consumes_success_unit {
   1 == 1
 }
 
-test test_require_infers_target_from_annotated_binding [error] {
+test test_require_infers_target_from_annotated_binding {
   let raw: Any = {name: "ready", jobs: 4}
   let manifest: RequirementManifest = raw.require()?
   manifest.name == "ready"
@@ -27,7 +27,7 @@ proc require_manifest_branch(raw: Any, choose: Bool) [error] -> Result[Requireme
 
 pure require_manifest_name(manifest: RequirementManifest) -> Str { manifest.name }
 
-test test_require_uses_returns_branches_blocks_and_parameters [error] {
+test test_require_uses_returns_branches_blocks_and_parameters {
   let raw: Any = {name: "ready", jobs: 4}
   require_manifest(raw)?.name == "ready"
   require_manifest_return(raw)?.name == "ready"
@@ -43,7 +43,7 @@ test test_require_uses_returns_branches_blocks_and_parameters [error] {
   wrapped?.jobs == 4
 }
 
-test test_require_keeps_validation_and_unsigned_conversion [error] {
+test test_require_keeps_validation_and_unsigned_conversion {
   let invalid: Any = {name: "ready", jobs: -1}
   let rejected: Result[RequirementManifest] = invalid.require()
   rejected is Err(_)
@@ -52,7 +52,7 @@ test test_require_keeps_validation_and_unsigned_conversion [error] {
   also_rejected is Err(_)
 }
 
-test test_require_rejects_unanchored_targets [error] { |ctx|
+test test_require_rejects_unanchored_targets { |ctx|
   for source in [
     "let raw: Any = 1\nlet value = raw.require()\n",
     "let raw: Any = 1\nlet value: Any = raw.require()?\n",
@@ -70,7 +70,7 @@ test test_require_rejects_unanchored_targets [error] { |ctx|
   }
 }
 
-test test_require_preserves_wire_enum_conversion_and_nested_contexts [error] { |ctx|
+test test_require_preserves_wire_enum_conversion_and_nested_contexts { |ctx|
   let executed = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Missing = "" }
 type Envelope[T] = {value: T, items: List[T]}
 let raw: Any = "ready"
@@ -86,7 +86,7 @@ print (mapping.get("item")? == Ready)
   executed.stdout == "true\ntrue\ntrue\n"
 }
 
-test test_require_evaluates_receiver_once_and_matches_explicit_failure [error] {
+test test_require_evaluates_receiver_once_and_matches_explicit_failure {
   var calls = 0
   let input: Any = {name: "ready", jobs: 4}
   let manifest: RequirementManifest = (if true { calls += 1; input } else { input }).require()?
@@ -102,7 +102,7 @@ test test_require_evaluates_receiver_once_and_matches_explicit_failure [error] {
   }
 }
 
-test test_require_preserves_each_result_layer [error] {
+test test_require_preserves_each_result_layer {
   let raw: Any = Ok(7)
   let inner: Result[Int] = raw.require()?
   inner? == 7
@@ -113,7 +113,7 @@ test test_require_preserves_each_result_layer [error] {
   manifest?.name == "ready"
 }
 
-test test_require_keeps_actual_error_contract_and_rejects_future_evidence [error] { |ctx|
+test test_require_keeps_actual_error_contract_and_rejects_future_evidence { |ctx|
   for source in [
     "error Narrow = Bad(message: Str)\ntype Row = {name: Str}\nproc validate(raw: Any) [error] -> Result[Row, Narrow] { raw.require()? }\n",
     "let raw: Any = {name: \"ready\"}\nlet value = raw.require()?\nprint value.name\n",

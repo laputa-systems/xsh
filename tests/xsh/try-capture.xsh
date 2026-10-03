@@ -1,4 +1,4 @@
-test test_try_captures_once_and_preserves_result_data [error] { |ctx|
+test test_try_captures_once_and_preserves_result_data { |ctx|
   let output = test.run_script(ctx, """
 var calls = 0
 proc operation() -> Result[Int] {
@@ -17,7 +17,7 @@ print f"\${value} \${nested} \${calls}"
   (output.stdout) == ("7 7 2\n")
 }
 
-test test_try_captures_nearest_nominal_error_and_returns_lexically [error] { |ctx|
+test test_try_captures_nearest_nominal_error_and_returns_lexically { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc fail() [] -> Result[Int, LocalError] { Err(LocalError.Failed(message: "local")) }
@@ -41,7 +41,7 @@ print escape()?
   (output.stdout) == ("true\ntrue\nouter\n")
 }
 
-test test_try_bool_empty_cleanup_and_loop_targets [error] { |ctx|
+test test_try_bool_empty_cleanup_and_loop_targets { |ctx|
   let output = test.run_script(ctx, """
 var cleaned = 0
 proc cleanup() -> Result[Unit] { print "cleanup"; cleaned += 1 }
@@ -68,7 +68,7 @@ print f"\${value} \${cleaned} \${rounds}"
   (output.stdout) == ("cleanup\ncleanup\ncleanup\ncleanup\nfalse 4 3\n")
 }
 
-test test_try_assertions_capture_but_trace_has_no_retry_events [error] { |ctx|
+test test_try_assertions_capture_but_trace_has_no_retry_events { |ctx|
   let output = test.run_xsht_trace(ctx, """
 let result = try {
   false
@@ -84,7 +84,7 @@ print (result is Err(_))
   ("retry.attempt" not in output.stderr)
 }
 
-test test_try_outer_propagation_still_requires_error_effect [error] { |ctx|
+test test_try_outer_propagation_still_requires_error_effect { |ctx|
   let output = test.run_script(ctx, """
 proc bad() [] -> Int {
   try { 7 }?
@@ -94,7 +94,7 @@ proc bad() [] -> Int {
   ("check.effect-violation" in output.stderr)
 }
 
-test test_try_error_only_requires_success_annotation [error] { |ctx|
+test test_try_error_only_requires_success_annotation { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 let result = try { Err(LocalError.Failed(message: "unknown success"))? }
@@ -103,7 +103,7 @@ let result = try { Err(LocalError.Failed(message: "unknown success"))? }
   ("check.try-success-type" in output.stderr)
 }
 
-test test_try_unit_context_asserts_and_auto_propagates [error] { |ctx|
+test test_try_unit_context_asserts_and_auto_propagates { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc unit_fail() [] -> Result[Unit, LocalError] { Err(LocalError.Failed(message: "unit")) }
@@ -121,7 +121,7 @@ print (success is Ok(_))
   (output.stdout) == ("true\ntrue\ntrue\n")
 }
 
-test test_try_cleanup_failure_is_captured_and_primary_error_wins [error] { |ctx|
+test test_try_cleanup_failure_is_captured_and_primary_error_wins { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc cleanup() [] -> Result[Unit, LocalError] { Err(LocalError.Failed(message: "cleanup")) }
@@ -149,7 +149,7 @@ match primary {
   (output.stdout) == ("cleanup\nprimary\n")
 }
 
-test test_try_rejects_incompatible_nominal_error_annotation [error] { |ctx|
+test test_try_rejects_incompatible_nominal_error_annotation { |ctx|
   let output = test.run_script(ctx, """
 error FirstError = Failed(message: Str)
 error SecondError = Failed(message: Str)
@@ -160,7 +160,7 @@ let value: Result[Int, SecondError] = try { fail()? }
   ("type mismatch" in output.stderr)
 }
 
-test test_try_global_assignments_reach_cleanup_and_survive_transfer [error] { |ctx|
+test test_try_global_assignments_reach_cleanup_and_survive_transfer { |ctx|
   let output = test.run_script(ctx, """
 var count = 0
 proc cleanup() -> Result[Unit] {
@@ -188,7 +188,7 @@ print \$count
   (output.stdout) == ("cleanup 1\n1 11\ncleanup 11\ncleanup 21\n31\n")
 }
 
-test test_try_function_unit_tail_consumes_assertion [error] { |ctx|
+test test_try_function_unit_tail_consumes_assertion { |ctx|
   let output = test.run_script(ctx, """
 proc capture() [] -> Result[Unit] { try { false } }
 print (capture() is Err(_))
@@ -200,7 +200,7 @@ print (capture() is Err(_))
   (output.stdout) == ("true\n")
 }
 
-test test_try_error_data_needs_its_nested_success_annotation [error] { |ctx|
+test test_try_error_data_needs_its_nested_success_annotation { |ctx|
   let unknown = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 let value = try { Err(LocalError.Failed(message: "nested")) }
@@ -219,7 +219,7 @@ print (value? is Err(LocalError.Failed))
   (known.stdout) == ("true\n")
 }
 
-test test_try_captures_plain_return_error_effect_call [error] { |ctx|
+test test_try_captures_plain_return_error_effect_call { |ctx|
   let output = test.run_script(ctx, """
 proc fail() [error] -> Int { "invalid".parse_int()? }
 proc capture() [] -> Result[Int] { try { fail() } }
@@ -232,7 +232,7 @@ print (capture() is Err(_))
   (output.stdout) == ("true\n")
 }
 
-test test_try_plain_run_failure_captures_and_abort_escapes [error] { |ctx|
+test test_try_plain_run_failure_captures_and_abort_escapes { |ctx|
   let failed = test.run_script(ctx, """
 let value: Result[Unit] = try { run false }
 print (value is Err(_))
@@ -250,7 +250,7 @@ print "unexpected"
   (aborted.stdout) == ("")
 }
 
-test test_try_producer_yields_suspend_inside_capture [error] { |ctx|
+test test_try_producer_yields_suspend_inside_capture { |ctx|
   let output = test.run_script(ctx, """
 stream rows() -> Stream[Int] {
   let value: Result[Unit] = try {
@@ -270,7 +270,7 @@ print "yielded"
   (output.stdout) == ("yielded\n")
 }
 
-test test_try_process_cleanup_preserves_process_error_data [error] { |ctx|
+test test_try_process_cleanup_preserves_process_error_data { |ctx|
   let output = test.run_script(ctx, """
 proc cleanup() [process, error] -> Result[Unit, ProcessError] { run false }
 let value: Result[Int, ProcessError] = try {
@@ -286,7 +286,7 @@ print (value is Err(_))
   (output.stdout) == ("true\n")
 }
 
-test test_try_producer_capture_and_cancellation_run_cleanup_once [error] { |ctx|
+test test_try_producer_capture_and_cancellation_run_cleanup_once { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc cleanup() -> Result[Unit, LocalError] { print "cleanup" }
@@ -312,7 +312,7 @@ print "finished"
   (output.stdout) == ("cleanup\ntrue\ncleanup\nfinished\n")
 }
 
-test test_try_recursive_calls_use_frames_and_err_return_stays_lexical [error] { |ctx|
+test test_try_recursive_calls_use_frames_and_err_return_stays_lexical { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc descend(n: Int) [] -> Result[Int] {
@@ -337,7 +337,7 @@ match escape() {
   (output.stdout) == ("4096\nouter\n")
 }
 
-test test_try_explicit_return_uses_result_annotation [error] { |ctx|
+test test_try_explicit_return_uses_result_annotation { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc assertion() [] -> Result[Unit] { return try { false } }

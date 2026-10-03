@@ -1,7 +1,7 @@
 type ProofFirmware = {vendor: Str?}
 type ProofReport = {firmware: ProofFirmware}
 
-test test_record_projection_proof_through_boolean_alias [error] {
+test test_record_projection_proof_through_boolean_alias {
   let report = ProofReport(firmware: {vendor: " ready "})
   let available = report.firmware.vendor != null
   let retained = available
@@ -12,7 +12,7 @@ test test_record_projection_proof_through_boolean_alias [error] {
 
 type ProofPair = {left: Str?, right: Int}
 
-test test_record_projection_proofs_keep_disjoint_updates_and_snapshots [error] {
+test test_record_projection_proofs_keep_disjoint_updates_and_snapshots {
   var pair = ProofPair(left: "ready", right: 1)
   let available = pair.left != null
   pair.right = 2
@@ -38,7 +38,7 @@ pure proof_early_exit(report: ProofReport) -> Str {
   report.firmware.vendor
 }
 
-test test_record_projection_aliases_short_circuit_and_assert_success [error] {
+test test_record_projection_aliases_short_circuit_and_assert_success {
   let report = ProofReport(firmware: {vendor: "ready"})
   let available = report.firmware.vendor != null
   let accepted = available and proof_accept(report.firmware.vendor)
@@ -48,7 +48,7 @@ test test_record_projection_aliases_short_circuit_and_assert_success [error] {
   (proof_early_exit(report)) == ("ready")
 }
 
-test test_record_projection_proofs_reject_mutation_shadowing_and_recovery [error] { |ctx|
+test test_record_projection_proofs_reject_mutation_shadowing_and_recovery { |ctx|
   for source in [
     "type Pair = {left: Str?, right: Int}\nvar pair: Pair = {left: \"ready\", right: 1}\nlet available = pair.left != null\npair.left = null\nguard available else { abort(1) }\nlet value: Str = pair.left\n",
     "type Inner = {value: Str?}\ntype Outer = {inner: Inner}\nvar outer: Outer = {inner: {value: \"ready\"}}\nlet available = outer.inner.value != null\nouter.inner = {value: null}\nguard available else { abort(1) }\nlet value: Str = outer.inner.value\n",
@@ -72,7 +72,7 @@ proc proof_joined(report: ProofReport, choose: Bool) [error] -> Str {
   report.firmware.vendor
 }
 
-test test_record_projection_join_keeps_only_common_success_proofs [error] { |ctx|
+test test_record_projection_join_keeps_only_common_success_proofs { |ctx|
   let report = ProofReport(firmware: {vendor: "ready"})
   (proof_joined(report, true)) == ("ready")
   (proof_joined(report, false)) == ("ready")
@@ -80,7 +80,7 @@ test test_record_projection_join_keeps_only_common_success_proofs [error] { |ctx
   (rejected.success) == (false)
 }
 
-test test_record_projection_alias_dag_is_bounded_without_expansion [error] { |ctx|
+test test_record_projection_alias_dag_is_bounded_without_expansion { |ctx|
   var source = "let value: Str? = \"ready\"\nlet available = value != null\n"
   var previous = "available"
   for index in range(256) {
@@ -106,7 +106,7 @@ test test_record_projection_alias_dag_is_bounded_without_expansion [error] { |ct
   (executed.stdout) == ("ready\n")
 }
 
-test test_record_projection_proved_fallback_skips_runtime_calls [error] { |ctx|
+test test_record_projection_proved_fallback_skips_runtime_calls { |ctx|
   let executed = test.run_script(ctx, r"""var calls = 0
 proc fallback() [] -> Str { calls += 1; "fallback" }
 proc select(value: Str?) [] -> Str {
@@ -136,7 +136,7 @@ print $selected $checked
   (retained.stdout) == ("ready ready\n")
 }
 
-test test_record_projection_aliases_combine_presence_and_nullable_field_proofs [error] {
+test test_record_projection_aliases_combine_presence_and_nullable_field_proofs {
   let report = ProofReport(firmware: {vendor: "ready"})
   let shape = ("extra" in report.firmware)
   let available = report.firmware.vendor != null
@@ -159,7 +159,7 @@ proc proof_exit_mutation(choose: Bool) [] -> Str {
   checked
 }
 
-test test_record_projection_exiting_mutations_do_not_reach_success [error] { |ctx|
+test test_record_projection_exiting_mutations_do_not_reach_success { |ctx|
   (proof_exit_mutation(false)) == ("ready")
   (proof_exit_mutation(true)) == ("early")
   let rejected = test.run_script(ctx, "var value: Str? = \"ready\"\nlet available = value != null\nlet choose = true\nif choose { value = null }\nguard available else { abort(1) }\nlet checked: Str = value\n")?
@@ -167,7 +167,7 @@ test test_record_projection_exiting_mutations_do_not_reach_success [error] { |ct
 }
 
 
-test test_record_projection_continue_keeps_success_proof [error] {
+test test_record_projection_continue_keeps_success_proof {
   let values = proof_nullable_strings([null, "ready"])
   for value in values {
     let available = value != null
@@ -179,7 +179,7 @@ test test_record_projection_continue_keeps_success_proof [error] {
 
 
 type ProofData = {payload: Any}
-test test_record_projection_type_and_presence_aliases [error] {
+test test_record_projection_type_and_presence_aliases {
   let data = ProofData(payload: "ready")
   let text = data.payload is Str
   guard text else { return error.fail("not text") }

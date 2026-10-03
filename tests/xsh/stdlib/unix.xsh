@@ -1,6 +1,6 @@
 type DryRunChildEvent = {pid: Int, status: Status}
 
-test test_unix_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
+test test_unix_dry_run_covers_module_surface { |ctx|
   let root = test.temp_dir(ctx, name: "unix")?
   let log = fp"${root}/unix.jsonl"
   let command = process.command_argv("demo", ["demo", "arg"])
@@ -53,7 +53,7 @@ test test_unix_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
   "\"op\":\"exec\"" in log_text
 }
 
-test test_unix_dry_run_child_events_are_typed [process, env, error] {
+test test_unix_dry_run_child_events_are_typed {
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_EVENT_KIND=child XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_DRY_RUN_CHILD_PID=43 XSH_UNIX_DRY_RUN_STATUS_KIND=signal XSH_UNIX_DRY_RUN_STATUS_CODE=15 {
     let events: List[DryRunChildEvent] = unix.reap_child_events()?.collect()
     events[0].pid == 43
@@ -62,13 +62,13 @@ test test_unix_dry_run_child_events_are_typed [process, env, error] {
   } ?
 }
 
-test test_unix_set_hostname_requires_explicit_mode [process, env, error] {
+test test_unix_set_hostname_requires_explicit_mode {
   env XSH_UNIX_DRY_RUN="" XSH_UNIX_REAL="" {
     test.error_kind(unix.set_hostname("xsh"), "unix-real-required")?
   } ?
 }
 
-test test_unix_uptime_seconds_dry_run_log [fs, process, env, error] { |ctx|
+test test_unix_uptime_seconds_dry_run_log { |ctx|
   let root = test.temp_dir(ctx, name: "unix-uptime")?
   let log = fp"${root}/unix.jsonl"
 
@@ -89,7 +89,7 @@ test test_unix_uptime_seconds_dry_run_log [fs, process, env, error] { |ctx|
   } ?
 }
 
-test test_unix_uptime_seconds_log_failure_kind [fs, process, env, error] { |ctx|
+test test_unix_uptime_seconds_log_failure_kind { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     # The script-backed entry reports a log failure as the call's `Err`, while
     # the native dry-run arm raises it, so the failure is only a value on the
@@ -109,7 +109,7 @@ test test_unix_uptime_seconds_log_failure_kind [fs, process, env, error] { |ctx|
   } ?
 }
 
-test test_unix_uptime_seconds_reads_the_host_text [process, env, error] {
+test test_unix_uptime_seconds_reads_the_host_text {
   guard system.uname()?.sysname == "Linux" else {
     # The entry reads `/proc/uptime` on Linux only; on other platforms the
     # binding is still native, so there is nothing to add here.
@@ -129,7 +129,7 @@ test test_unix_uptime_seconds_reads_the_host_text [process, env, error] {
   } ?
 }
 
-test test_wait_pid1_event_timeout_kind [process, env, error] {
+test test_wait_pid1_event_timeout_kind {
   # The optional timeout argument is accepted and the dry-run path reports the
   # `timeout` event kind. (The native deadline loop returning `timeout` on expiry
   # is exercised outside the shared test process to avoid installing real PID 1

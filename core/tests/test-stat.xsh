@@ -1,4 +1,4 @@
-test test_stat [fs, process, env, error] { |ctx|
+test test_stat { |ctx|
   let target = test.temp_file(ctx, name: "stat.txt", contents: b"hello")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/stat.xsh" -- $target ?
   "kind file" in output

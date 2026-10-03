@@ -4,14 +4,14 @@ pure show_run_row(row: RunRow, prefix: Str) -> Str {
   f"${prefix} ${row.name}"
 }
 
-test test_command_proc_args_resolve_bare_value_references [error] {
+test test_command_proc_args_resolve_bare_value_references {
   let rows = [{name: "alpha"}]
   let prefix = "item"
   show_run_row(rows[0], prefix) == "item alpha"
   show_run_row(rows[0], "prefix") == "prefix alpha"
 }
 
-test test_mutable_string_accumulator_uses_string_addition_in_loop [error] { |ctx|
+test test_mutable_string_accumulator_uses_string_addition_in_loop { |ctx|
   let output = test.run_script(
     ctx,
     """proc main() {
@@ -32,7 +32,7 @@ test test_mutable_string_accumulator_uses_string_addition_in_loop [error] { |ctx
   output.stderr == ""
 }
 
-test test_reassigning_let_names_mutable_binding [error] { |ctx|
+test test_reassigning_let_names_mutable_binding { |ctx|
   let output = test.run_script(
     ctx,
     """let x = 1
@@ -44,7 +44,7 @@ x = 2
   "declare with `var`" in output.stderr
 }
 
-test test_checker_errors_prevent_execution [error] { |ctx|
+test test_checker_errors_prevent_execution { |ctx|
   let output = test.run_script(
     ctx,
     """print "before"
@@ -57,7 +57,7 @@ print $value.length()
   "check.unknown-method" in output.stderr
 }
 
-test test_runtime_unknown_method_names_receiver_and_candidate [error] { |ctx|
+test test_runtime_unknown_method_names_receiver_and_candidate { |ctx|
   let output = test.run_script(
     ctx,
     """let value: Any = "abc"
@@ -69,7 +69,7 @@ print $value.length()
   "count_chars" in output.stderr
 }
 
-test test_grouped_multiline_run_invocation_executes [process, error] {
+test test_grouped_multiline_run_invocation_executes {
   (run.text (
       printf
       "%s %s\n"
@@ -79,7 +79,7 @@ test test_grouped_multiline_run_invocation_executes [process, error] {
 """
 }
 
-test test_run_status_can_drive_conditions [process, error] {
+test test_run_status_can_drive_conditions {
   var seen = []
 
   if ! run.status false {
@@ -93,13 +93,13 @@ test test_run_status_can_drive_conditions [process, error] {
   seen == ["missing", "ok"]
 }
 
-test test_path_absolute_uses_current_runtime_cwd_without_existing_path [fs, error] {
+test test_path_absolute_uses_current_runtime_cwd_without_existing_path {
   let cwd = fs.cwd()?
   let p = path.absolute(p"target/../target/lang-absolute-demo")?
   p == fp"${cwd}/target/lang-absolute-demo"
 }
 
-test test_boolean_operators_short_circuit [error] {
+test test_boolean_operators_short_circuit {
   let items = [1]
   var seen = []
 
@@ -118,15 +118,15 @@ test test_boolean_operators_short_circuit [error] {
   seen == ["ok-or", "ok-and"]
 }
 
-test test_result_unit_statements_propagate_by_default [time, error] {
+test test_result_unit_statements_propagate_by_default {
   time.sleep(1ms)
 }
 
-test test_script_stdout_can_emit_invalid_utf8_bytes [error, io] {
+test test_script_stdout_can_emit_invalid_utf8_bytes {
   io.write_stdout_bytes(b"\xff\0a")?
 }
 
-test test_run_capture_record_captures_status_stdout_and_stderr [process, error] {
+test test_run_capture_record_captures_status_stdout_and_stderr {
   let text_capture = run.capture --text sh -c "printf out; printf err >&2; exit 7" ?
   text_capture.status.exited_with(7)
   text_capture.stdout == "out"
@@ -136,7 +136,7 @@ test test_run_capture_record_captures_status_stdout_and_stderr [process, error] 
   byte_capture.stderr.len() == 1
 }
 
-test test_run_text_captures_stdout_and_inherits_stderr [error] { |ctx|
+test test_run_text_captures_stdout_and_inherits_stderr { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -151,7 +151,7 @@ print ${out}
   output.stderr == "err"
 }
 
-test test_run_forms_preserve_status_text_and_capture [process, error] {
+test test_run_forms_preserve_status_text_and_capture {
   let status = run.status false
   status.exited_with(1)
   let text = run.text echo hello ?
@@ -161,7 +161,7 @@ test test_run_forms_preserve_status_text_and_capture [process, error] {
   capture.stdout == "out"
 }
 
-test test_dynamic_module_proc_preserves_bareword_run_arguments [fs, error] { |ctx|
+test test_dynamic_module_proc_preserves_bareword_run_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "module-run-arguments")?
   let module_path = fp"${root}/package.xsh"
   module_path.write(r"""
@@ -203,14 +203,14 @@ build_fn.call()?
   }
 }
 
-test test_run_unknown_name_returns_process_error [process, env, error] {
+test test_run_unknown_name_returns_process_error {
   env PATH="/bin:/usr/bin" {
     let missing = run.text command-not-builtin
     test.error_kind(missing, "not-found")?
   }
 }
 
-test test_modules_are_not_command_namespaces [error] { |ctx|
+test test_modules_are_not_command_namespaces { |ctx|
   let output = test.run_script(
     ctx,
     """use fs
@@ -222,7 +222,7 @@ fs read
   "check.unresolved-proc-command" in output.stderr
 }
 
-test test_call_splices_preserve_shared_and_constant_lists [error] { |ctx|
+test test_call_splices_preserve_shared_and_constant_lists { |ctx|
   let result = test.run_script(ctx, r"""
 const prepared = ["constant", "backing"]
 proc pair(a: Str, b: Str) -> Result[Unit] {
@@ -245,7 +245,7 @@ print $order
   (result.stdout) == ("left right\nconstant backing\nleft right\nconstant backing\nfirst second\n12\n")
 }
 
-test test_nul_run_targets_proc_splice_and_match_diagnostics [error] { |ctx|
+test test_nul_run_targets_proc_splice_and_match_diagnostics { |ctx|
   let nul_target = test.run_script(
     ctx,
     """
@@ -312,7 +312,7 @@ match value {
   "match did not match any arm" in no_arm.stderr
 }
 
-test test_legacy_test_and_getopt_spellings_are_not_command_aliases [error] { |ctx|
+test test_legacy_test_and_getopt_spellings_are_not_command_aliases { |ctx|
   for source in [
     """test -f file
 """,
@@ -338,7 +338,7 @@ test test_legacy_test_and_getopt_spellings_are_not_command_aliases [error] { |ct
   }
 }
 
-test test_function_tail_values_return_declared_values [error] { |ctx|
+test test_function_tail_values_return_declared_values { |ctx|
   let output = test.run_script(ctx, r"""pure run_object_path(src: Path) -> Path { src.with_ext("o") }
 proc run_wrap_tail(value: Str) [error] -> Result[Str] { Ok(f"${value}.ok") }
 proc run_command_tail(value: Str) [error] -> Result[Str] {
@@ -370,13 +370,13 @@ witness()
   output.stdout == ""
 }
 
-test test_byte_pipeline_executes_without_shell_and_redirects_stdout [fs, process, error] { |ctx|
+test test_byte_pipeline_executes_without_shell_and_redirects_stdout { |ctx|
   let out = test.temp_path(ctx)
   run printf "%s\n" "hello" | run tr a-z A-Z > $out ?
   (out.read_bytes()?) == b"HELLO\n"
 }
 
-test test_acceptance_tar_gzip_pipeline_writes_archive [fs, process, env, error] { |ctx|
+test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
   let root = test.temp_dir(ctx, name: "tar-gzip")?
   let src = fp"${root}/src"
   let tarball = fp"${root}/archive.tar.gz"
@@ -392,7 +392,7 @@ test test_acceptance_tar_gzip_pipeline_writes_archive [fs, process, env, error] 
   (tarball.metadata()?.size > 0)
 }
 
-test test_plain_run_updates_last_status_and_direct_binding [process, error] {
+test test_plain_run_updates_last_status_and_direct_binding {
   run.status false
   let last = $?
   last.exited_with(1)
@@ -401,7 +401,7 @@ test test_plain_run_updates_last_status_and_direct_binding [process, error] {
   bound.ok == false
 }
 
-test test_redirection_paths_and_fd_duplication_use_typed_boundaries [fs, process, error] { |ctx|
+test test_redirection_paths_and_fd_duplication_use_typed_boundaries { |ctx|
   let root = test.temp_dir(ctx, name: "redir")?
   let spaced = fp"${root}/space name"
 
@@ -423,7 +423,7 @@ name"""
   (errlog.read_bytes()?) == b"errmore"
 }
 
-test test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments [fs, process, env, error] { |ctx|
+test test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments { |ctx|
   env PATH="/bin:/usr/bin" {
     let status = run xsh-definitely-missing-command | run true
     (status.segments[0].kind) == ("exec")
@@ -438,25 +438,25 @@ test test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments [fs, p
 """
 }
 
-test test_signaled_status_exposes_total_signal_helpers [process, error] {
+test test_signaled_status_exposes_total_signal_helpers {
   let status = run sh -c "kill -TERM $$"
   status.signaled()
   (status.signal_number()? > 0)
 }
 
-test test_large_stdout_capture_drains_and_limit_is_error [process, error] {
+test test_large_stdout_capture_drains_and_limit_is_error {
   let out = run.bytes head -c 131072 /dev/zero ?
   out.len() == 131072
   let too_large = run.bytes head -c 16777217 /dev/zero
   test.error_kind(too_large, "capture-limit")?
 }
 
-test test_invalid_utf8_text_capture_is_a_run_error [process, error] {
+test test_invalid_utf8_text_capture_is_a_run_error {
   let invalid = run.text sh -c "printf '\\377'"
   test.error_kind(invalid, "invalid-utf8")?
 }
 
-test test_whole_script_exit_status_and_abort_behavior [error] { |ctx|
+test test_whole_script_exit_status_and_abort_behavior { |ctx|
   let int_status = test.run_script(
     ctx,
     """
@@ -534,7 +534,7 @@ print "unreachable"
   quiet_validation_failure.stderr == ""
 }
 
-test test_whole_script_cli_usage_and_auto_main_errors [error] { |ctx|
+test test_whole_script_cli_usage_and_auto_main_errors { |ctx|
   let help = test.run_script(
     ctx,
     """
@@ -603,7 +603,7 @@ proc main(...argv: List[Str]) [error] {
   "bad args" in auto_main.stderr
 }
 
-test test_explicit_zero_arg_main_runs_once [error] { |ctx|
+test test_explicit_zero_arg_main_runs_once { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -621,7 +621,7 @@ main()?
   output.stderr == ""
 }
 
-test test_whole_script_run_error_diagnostics [error] { |ctx|
+test test_whole_script_run_error_diagnostics { |ctx|
   let details = test.run_script(
     ctx,
     """run false "two words" ?
@@ -646,7 +646,7 @@ test test_whole_script_run_error_diagnostics [error] { |ctx|
   "127" not in missing.stderr
 }
 
-test test_pipeline_failures_and_trace_are_visible [error] { |ctx|
+test test_pipeline_failures_and_trace_are_visible { |ctx|
   let plain = test.run_script(
     ctx,
     """run false | run true ?
@@ -692,7 +692,7 @@ test test_pipeline_failures_and_trace_are_visible [error] { |ctx|
   "\"success\":false" in json_trace.stderr
 }
 
-test test_run_trace_reports_redirection_method_and_env_details [error] { |ctx|
+test test_run_trace_reports_redirection_method_and_env_details { |ctx|
   let redirection = test.run_xsht_trace(
     ctx,
     f"""
@@ -754,7 +754,7 @@ cd tests {
   "index-out-of-range" in cd_error.stderr
 }
 
-test test_trace_output_covers_baseline_event_kinds [error] { |ctx|
+test test_trace_output_covers_baseline_event_kinds { |ctx|
   let success = test.run_xsht_trace(
     ctx,
     """
@@ -826,7 +826,7 @@ main(args)?
   "index-out-of-range" in runtime_error.stderr
 }
 
-test test_run_fixture_behaviors [process, error] { |ctx|
+test test_run_fixture_behaviors { |ctx|
   (run.text printf "%s\n" "hello world"?) == """hello world
 """
 
@@ -846,7 +846,7 @@ test test_run_fixture_behaviors [process, error] { |ctx|
   raw == b"\0"
 }
 
-test test_signaled_status_exit_code_is_structured_error [error] { |ctx|
+test test_signaled_status_exit_code_is_structured_error { |ctx|
   let output = test.run_script(
     ctx,
     """let status = run sh -c "kill -TERM $$"
@@ -858,7 +858,7 @@ let _ = status.exit_code()?
   "status-kind" in output.stderr
 }
 
-test test_nested_traceback_includes_user_procs_and_pure_functions [error] { |ctx|
+test test_nested_traceback_includes_user_procs_and_pure_functions { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -894,7 +894,7 @@ main(args)?
   "nul-path" in output.stderr
 }
 
-test test_foundation_literals_defers_streams_and_builders [fs, process, time, error] { |ctx|
+test test_foundation_literals_defers_streams_and_builders { |ctx|
   let root = test.temp_dir(ctx, name: "foundation")?
   let marker = fp"${root}/marker"
   defer marker.write("cleaned")?
@@ -926,7 +926,7 @@ beta
 """
 }
 
-test test_run_timeout_error [error] { |ctx|
+test test_run_timeout_error { |ctx|
   let output = test.run_script(
     ctx,
     """let _ = run --timeout=10ms sh -c "sleep 1" ?

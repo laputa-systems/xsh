@@ -1,4 +1,4 @@
-test fs_root_methods_keep_child_independent_after_parent_close [fs, error] { |ctx|
+test fs_root_methods_keep_child_independent_after_parent_close { |ctx|
   let root = fs.open_root(test.temp_dir(ctx, name: "root-methods")?)?
   root.mkdir(p"child")?
   let child = root.open_root(p"child")?
@@ -13,7 +13,7 @@ test fs_root_methods_keep_child_independent_after_parent_close [fs, error] { |ct
   (child.exists(p"../escape") is Err(_))
 }
 
-test fs_root_methods_preserve_bounded_observations_and_raw_names [fs, error] {
+test fs_root_methods_preserve_bounded_observations_and_raw_names {
   let root = fs.tempdir()?
   defer root.close()?
   let raw = Path.parse_bytes(b"raw-name")?
@@ -40,7 +40,7 @@ test fs_root_methods_preserve_bounded_observations_and_raw_names [fs, error] {
   (root.read_result(p"missing")?.state) == ("absent")
 }
 
-test fs_root_methods_keep_mutation_defaults_and_symlink_confinement [fs, error] { |ctx|
+test fs_root_methods_keep_mutation_defaults_and_symlink_confinement { |ctx|
   let root = fs.tempdir()?
   defer root.close()?
   root.mkdir(p"nested/child", parents: true)?
@@ -63,7 +63,7 @@ test fs_root_methods_keep_mutation_defaults_and_symlink_confinement [fs, error] 
   (root.host_path() is Ok(_))
 }
 
-test fs_root_methods_named_arguments_evaluate_in_source_order [error] { |ctx|
+test fs_root_methods_named_arguments_evaluate_in_source_order { |ctx|
   let output = test.run_script(ctx, r"""
 let root = fs.tempdir()?
 defer root.close()?
@@ -82,7 +82,7 @@ print (root.read_text(p"data")?)
   (output.stdout) == ("data\npath\npayload\n")
 }
 
-test fs_root_methods_reject_structural_forgery_aliases_and_missing_effect [error] { |ctx|
+test fs_root_methods_reject_structural_forgery_aliases_and_missing_effect { |ctx|
   for source in [
     "let forged: FsRoot = {id: 1}\n",
     "let forged: Any = {id: 1}\nlet _ = forged.require(FsRoot)?\n",
@@ -94,7 +94,7 @@ test fs_root_methods_reject_structural_forgery_aliases_and_missing_effect [error
   }
 }
 
-test fs_root_removed_spellings_remain_usable_as_user_module_functions [fs, error] { |ctx|
+test fs_root_removed_spellings_remain_usable_as_user_module_functions { |ctx|
   let root = test.temp_dir(ctx, name: "root-user-module")?
   fp"${root}/helper.xsh".write_atomic("""
 ##! Caller-owned functions.
@@ -113,7 +113,7 @@ print helper.close_root("closed")
 }
 
 
-test fs_root_methods_optional_receiver_keeps_arguments_lazy [fs, error] {
+test fs_root_methods_optional_receiver_keeps_arguments_lazy {
   let absent: FsRoot? = null
   let missing = absent?.read_bytes(optional_root_path())
   (missing) == (null)
@@ -128,7 +128,7 @@ proc optional_root_path() [error] -> Path {
 }
 
 
-test fs_root_methods_trace_retains_native_host_operation_identity [error] { |ctx|
+test fs_root_methods_trace_retains_native_host_operation_identity { |ctx|
   let output = test.run_xsht_trace(ctx, """
 let root = fs.tempdir()?
 defer root.close()?

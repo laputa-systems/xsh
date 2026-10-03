@@ -1,7 +1,7 @@
 type JsonPackage = {name: Str, version: Str}
 type PackageName = {name: Str}
 
-test test_record_schema_validation_and_any_require [error] {
+test test_record_schema_validation_and_any_require {
   let required = json.decode("{\"name\":\"pkg\",\"version\":\"1\",\"extra\":1}")?.require(PackageName)?
   (required.name) == ("pkg")
   ("extra" in required)
@@ -16,7 +16,7 @@ test test_record_schema_validation_and_any_require [error] {
   test.error_kind(row.get("missing"), "missing-field")?
 }
 
-test test_standard_record_schemas_reject_bad_dynamic_records [error] { |ctx|
+test test_standard_record_schemas_reject_bad_dynamic_records { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -45,7 +45,7 @@ print ${entry_name(raw)}
   "check.dynamic-boundary" in output.stderr
 }
 
-test test_schema_runtime_checks_unknown_values [error] { |ctx|
+test test_schema_runtime_checks_unknown_values { |ctx|
   let output = test.run_script(
     ctx,
     r"""

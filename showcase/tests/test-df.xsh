@@ -1,4 +1,4 @@
-test test_showcase_df_root [fs, process, error] {
+test test_showcase_df_root {
   let root_mount = fs.mount_for(/)?
   let output = run.text "xsh" "showcase/df.xsh" -- / ?
   "Filesystem" in output
@@ -6,7 +6,7 @@ test test_showcase_df_root [fs, process, error] {
   root_mount.filesystem in output
 }
 
-test test_showcase_df_kp_path [fs, process, error] { |ctx|
+test test_showcase_df_kp_path { |ctx|
   let root = test.temp_dir(ctx, name: "showcase-df")?
   let mount = fs.mount_for(root)?
   let output = run.text "xsh" "showcase/df.xsh" -- -kP $root ?

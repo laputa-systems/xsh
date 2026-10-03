@@ -1,4 +1,4 @@
-test test_result_return_match_preserves_constructor_context [error] { |ctx|
+test test_result_return_match_preserves_constructor_context { |ctx|
   let output = test.run_script(ctx, r"""
 error DecodeError = Invalid(message: Str)
 enum Json { JNum(Float) }
@@ -30,7 +30,7 @@ print ${block_result()?}
   (output.stdout) == ("true\ntrue\n7\n11\ntrue\n13\n")
 }
 
-test test_result_unit_nested_match_tail_keeps_error_data [error] { |ctx|
+test test_result_unit_nested_match_tail_keeps_error_data { |ctx|
   let output = test.run_script(ctx, r"""
 error E = Failed(message: Str)
 let original: Result[Unit, E] = Err(E.Failed(message: "inner"))

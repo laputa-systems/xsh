@@ -8,7 +8,7 @@ pure list_shape(values: List[Int]) -> Str {
   }
 }
 
-test test_list_pattern_exact_and_trailing_rest [error] {
+test test_list_pattern_exact_and_trailing_rest {
   list_shape([]) == "empty"
   list_shape([4]) == "many:4:0"
   list_shape([4, 5]) == "two:4:5"
@@ -21,7 +21,7 @@ test test_list_pattern_exact_and_trailing_rest [error] {
   selected == "kernel"
 }
 
-test test_list_pattern_nested_records_and_constructors [error] {
+test test_list_pattern_nested_records_and_constructors {
   let values: List[ListEntry] = [
     {labels: ["build", "kernel"], result: Ok(7)},
   ]
@@ -34,7 +34,7 @@ test test_list_pattern_nested_records_and_constructors [error] {
   selected == "kernel:7:0"
 }
 
-test test_list_pattern_mismatch_does_not_index_or_publish_bindings [error] {
+test test_list_pattern_mismatch_does_not_index_or_publish_bindings {
   let short = match [1] {
     [first, 99] => first
     [matched] => matched + 10
@@ -49,7 +49,7 @@ test test_list_pattern_mismatch_does_not_index_or_publish_bindings [error] {
   nested == 5
 }
 
-test test_list_pattern_rest_preserves_value_semantics [error] {
+test test_list_pattern_rest_preserves_value_semantics {
   var values = [1, 2, 3]
   let rest = if let [_, ..tail] = values {
     tail
@@ -65,7 +65,7 @@ test test_list_pattern_rest_preserves_value_semantics [error] {
   values == [1, 2, 3, 99]
 }
 
-test test_list_pattern_nonbinding_predicates [error] {
+test test_list_pattern_nonbinding_predicates {
   let values = ["build", "kernel"]
   values is ["build", _]
   values is ["build", _, ..]
@@ -74,7 +74,7 @@ test test_list_pattern_nonbinding_predicates [error] {
   values is [..]
 }
 
-test test_list_pattern_dynamic_elements_keep_type_narrowing [error] {
+test test_list_pattern_dynamic_elements_keep_type_narrowing {
   let value = json.decode("[7, \"kernel\"]")?
   let selected = if let [count is Int, name is Str] = value {
     f"${count + 1}:${name.upper()}"
@@ -87,7 +87,7 @@ test test_list_pattern_dynamic_elements_keep_type_narrowing [error] {
   ! (scalar is [..])
 }
 
-test test_list_pattern_rejects_unsupported_subjects_and_bindings [error] { |ctx|
+test test_list_pattern_rejects_unsupported_subjects_and_bindings { |ctx|
   for source in [
     "let selected = match \"abc\" { [_, ..] => 1 _ => 0 }\n",
     "let selected = match b\"abc\" { [_, ..] => 1 _ => 0 }\n",
@@ -117,7 +117,7 @@ test test_list_pattern_rejects_unsupported_subjects_and_bindings [error] { |ctx|
   assert rejected, rejection_details
 }
 
-test test_list_pattern_rejects_middle_and_duplicate_rests [error] { |ctx|
+test test_list_pattern_rejects_middle_and_duplicate_rests { |ctx|
   for source in [
     "let selected = match [1, 2] { [..tail, last] => last _ => 0 }\n",
     "let selected = match [1, 2] { [first, ..tail, ..other] => first _ => 0 }\n",
@@ -130,7 +130,7 @@ test test_list_pattern_rejects_middle_and_duplicate_rests [error] { |ctx|
   }
 }
 
-test test_list_pattern_exhaustiveness_is_conservative [error] { |ctx|
+test test_list_pattern_exhaustiveness_is_conservative { |ctx|
   for source in [
     "pure selected(values: List[Int]) -> Int { match values { [] => 0, [_, ..] => 1 } }\n",
     "pure selected(values: List[Int]) -> Int { match values { [..tail] => tail.len() } }\n",
@@ -152,7 +152,7 @@ test test_list_pattern_exhaustiveness_is_conservative [error] { |ctx|
   }
 }
 
-test test_list_pattern_rejects_duplicates_and_honors_guards [error] { |ctx|
+test test_list_pattern_rejects_duplicates_and_honors_guards { |ctx|
   let guarded = match [1, 2] {
     [head, ..tail] if head == 9 => tail.len()
     [head, ..tail] => head + tail.len()
@@ -169,7 +169,7 @@ test test_list_pattern_rejects_duplicates_and_honors_guards [error] { |ctx|
   assert succeeded, failure_details
 }
 
-test test_list_pattern_ordinary_literals [error] {
+test test_list_pattern_ordinary_literals {
   let values = json.decode("[null, true, 1.5]")?
   values is [null, true, 1.5]
   [b"abc"] is [b"abc"]

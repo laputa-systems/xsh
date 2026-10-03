@@ -1,4 +1,4 @@
-test test_missing_file_read_propagates_structured_error [fs, error] { |ctx|
+test test_missing_file_read_propagates_structured_error { |ctx|
   let missing = test.temp_path(ctx, name: "missing-read")
   let output = test.run_script(
     ctx,
@@ -10,7 +10,7 @@ test test_missing_file_read_propagates_structured_error [fs, error] { |ctx|
   "fs-read" in output.stderr
 }
 
-test test_fs_walk_and_files_take_any_break_and_count [fs, error] { |ctx|
+test test_fs_walk_and_files_take_any_break_and_count { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-stage")?
   var index = 0
   while index < 50 {
@@ -34,7 +34,7 @@ test test_fs_walk_and_files_take_any_break_and_count [fs, error] { |ctx|
   fs.files(root) |> count() == 50
 }
 
-test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary [fs, error] { |ctx|
+test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fs.write(fp"${root}/file.txt", "data")?
   let output = test.run_script(
@@ -50,7 +50,7 @@ print \${entry.size}
   "metadata-unavailable" in output.stderr
 }
 
-test test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata [fs, error] { |ctx|
+test test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-stat-record")?
   let file = fp"${root}/entry.txt"
   file.write("old")?
@@ -66,7 +66,7 @@ test test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata [fs, er
   (walked.get("size")?) == (3)
 }
 
-test test_fs_files_dynamic_walk_flags_are_evaluated [fs, error] { |ctx|
+test test_fs_files_dynamic_walk_flags_are_evaluated { |ctx|
   let root = test.temp_dir(ctx, name: "fs-files-dynamic-flags")?
   fs.write(fp"${root}/normal.txt", "data")?
   fs.write(fp"${root}/ignored.txt", "ignored")?
@@ -106,7 +106,7 @@ print \${entry.size}
   "metadata-unavailable" in unstat.stderr
 }
 
-test test_fs_tree_metadata_install_and_locking [fs, error] { |ctx|
+test test_fs_tree_metadata_install_and_locking { |ctx|
   let root = test.temp_dir(ctx, name: "fs")?
   let src = fp"${root}/src"
   let nested = fp"${src}/nested"
@@ -246,7 +246,7 @@ print \$entry.size
   test.error_kind(fs.project_root("bogus", "dev", "LaputaSystems", "xsh-test"), "fs-dir")?
 }
 
-test test_fs_root_operations_reject_traversal [fs, error] { |ctx|
+test test_fs_root_operations_reject_traversal { |ctx|
   let root_dir = test.temp_dir(ctx, name: "fs-root")?
   let outside = test.temp_dir(ctx, name: "fs-root-outside")?
   fp"${outside}/secret.txt".write("secret")?
@@ -351,7 +351,7 @@ test test_fs_root_operations_reject_traversal [fs, error] { |ctx|
   root.close()?
 }
 
-test test_fs_root_and_children_preserve_non_utf8_name [fs, env, error] { |ctx|
+test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
   if system.uname()?.sysname == "Darwin" {
     test.skip("macOS filesystems reject non-UTF-8 filenames")
     return
@@ -371,7 +371,7 @@ test test_fs_root_and_children_preserve_non_utf8_name [fs, env, error] { |ctx|
   root.close()?
 }
 
-test test_fs_root_symlink_preserves_default_parents_with_named_overwrite [fs, error] { |ctx|
+test test_fs_root_symlink_preserves_default_parents_with_named_overwrite { |ctx|
   let root_dir = test.temp_dir(ctx, name: "root-symlink-overwrite-defaults")?
   let root = fs.open_root(root_dir)?
   let overwrite = false
@@ -380,7 +380,7 @@ test test_fs_root_symlink_preserves_default_parents_with_named_overwrite [fs, er
   root.close()?
 }
 
-test test_fs_walk_filters_large_flat_directory [fs, error] { |ctx|
+test test_fs_walk_filters_large_flat_directory { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-flat")?
   let sub = fp"${root}/sub"
   let ignored = fp"${root}/ignored"
@@ -411,7 +411,7 @@ test test_fs_walk_filters_large_flat_directory [fs, error] { |ctx|
   has_hidden == false
 }
 
-test test_fs_walk_honors_gitignore_by_default_and_can_disable_it [fs, error] { |ctx|
+test test_fs_walk_honors_gitignore_by_default_and_can_disable_it { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-gitignore")?
   fp"${root}/ignored".mkdir()?
   fp"${root}/nested".mkdir()?
@@ -475,7 +475,7 @@ test test_fs_walk_honors_gitignore_by_default_and_can_disable_it [fs, error] { |
   (".env" in raw_hidden)
 }
 
-test test_fs_optional_arguments_accept_positional_forms [fs, error] { |ctx|
+test test_fs_optional_arguments_accept_positional_forms { |ctx|
   # Positional optional arguments must compile and behave identically to the
   # equivalent named form (regression for compact-runtime fs.files/fs.walk).
   let root = test.temp_dir(ctx, name: "fs-positional-optional")?
@@ -520,7 +520,7 @@ test test_fs_optional_arguments_accept_positional_forms [fs, error] { |ctx|
   ("nested/c.txt" in by_name.join(","))
 }
 
-test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext [fs, error] { |ctx|
+test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext { |ctx|
   let root = test.temp_dir(ctx, name: "fs-files-recursive")?
   fp"${root}/include/bits".mkdir()?
   fp"${root}/include/sys".mkdir()?
@@ -605,7 +605,7 @@ print \$entry.size
   cheap_c.path.strip_prefix(root)?.display() == "src/main.c"
 }
 
-test test_filesystem_path_and_install_apis [fs, error] { |ctx|
+test test_filesystem_path_and_install_apis { |ctx|
   let root = test.temp_dir(ctx, name: "fs-path-install")?
   let note = fp"${root}/note.txt"
   note.write_atomic("old")?
@@ -685,7 +685,7 @@ test test_filesystem_path_and_install_apis [fs, error] { |ctx|
   scratch.close()?
 }
 
-test test_filesystem_package_policy_apis [fs, error] { |ctx|
+test test_filesystem_package_policy_apis { |ctx|
   let root = test.temp_dir(ctx, name: "package-policy-fs")?
   let src = fp"${root}/src"
   fp"${src}/dir".mkdir()?
@@ -721,7 +721,7 @@ test test_filesystem_package_policy_apis [fs, error] { |ctx|
   test.error_kind(fs.copy_tree(src, fp"${root}/copy"), "fs-copy-tree")?
 }
 
-test test_stable_tables_sort_files_and_process_records [fs, process, error] { |ctx|
+test test_stable_tables_sort_files_and_process_records { |ctx|
   let root = test.temp_dir(ctx, name: "table-sort-process")?
   fp"${root}/small".write("a")?
   fp"${root}/large".write("abcd")?

@@ -1,4 +1,4 @@
-test test_display_commands_preserve_scalar_domains_and_inherited_output [error] { |ctx|
+test test_display_commands_preserve_scalar_domains_and_inherited_output { |ctx|
   let source = r"""proc text(value: Str) [] -> Unit { print $value }
 proc integer(value: Int) [] -> Unit { print $value }
 proc floating(value: Float) [] -> Unit { print $value }
@@ -27,7 +27,7 @@ eprint diagnostic
   inherited.stdout == "inherited\n"
 }
 
-test test_display_and_wait_reject_invalid_boundaries_before_execution [error] { |ctx|
+test test_display_and_wait_reject_invalid_boundaries_before_execution { |ctx|
   for source in [
     r"print ${[7]}" + "\n",
     r"eprint prefix${[7]}suffix" + "\n",

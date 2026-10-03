@@ -59,7 +59,7 @@ pure rest_field(result: Result[Record], name: Str) -> Result[Str] {
   }
 }
 
-test test_cli_usage_renders_the_command_line_and_its_sections [error] {
+test test_cli_usage_renders_the_command_line_and_its_sections {
   # Positionals contribute to the command line in sorted schema-name order, and
   # each is bare when it is required and bracketed when it is not. A positional
   # with no explicit `required` and no default is required; an explicit
@@ -153,7 +153,7 @@ options:
   -h, --help  show this help"""
 }
 
-test test_cli_usage_rejects_a_schema_it_cannot_interpret [error] { |ctx|
+test test_cli_usage_rejects_a_schema_it_cannot_interpret { |ctx|
   # A renderer reads the schema with the same interpreter the parser uses, so a
   # descriptor that interpreter rejects rejects the whole call with its kind and
   # message, exactly as the baseline's native route does. The rejection is a
@@ -193,7 +193,7 @@ print cli.usage({helper: {kind: "Bool", long: ["help"]}}, "demo")
   "cli-parse: `--help` is reserved by cli.parse" in reserved_help.stderr
 }
 
-test test_cli_tokens_splits_values_clusters_and_operands [error] {
+test test_cli_tokens_splits_values_clusters_and_operands {
   # A long option carries an attached value; a short name that takes a value
   # consumes the rest of its cluster or the next argument; a negative number,
   # `-`, and everything after `--` are operands. A token with no value records
@@ -237,7 +237,7 @@ test test_cli_tokens_splits_values_clusters_and_operands [error] {
   cli.tokens([])?.len() == 0
 }
 
-test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
+test test_cli_commands_dispatch_names_aliases_and_forms {
   let schema = {
     build: {
       positionals: [
@@ -315,7 +315,7 @@ test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
     ) == "duplicate command alias `b`"
 }
 
-test test_cli_commands_rootless_and_fallback_routing [fs, error] {
+test test_cli_commands_rootless_and_fallback_routing {
   let schema = {build: {rest: "raw"}, clean: {positionals: ["root"], types: {root: "Str"}}}
 
   # A rootless default takes a first token that names no command, and the whole
@@ -357,7 +357,7 @@ test test_cli_commands_rootless_and_fallback_routing [fs, error] {
   failure_message(cli.commands(["x"], "nope", {clean: {rest: "raw"}})) == "unknown rootless default command `nope`"
 }
 
-test test_cli_commands_convert_positionals_and_collect_the_rest [fs, error] {
+test test_cli_commands_convert_positionals_and_collect_the_rest {
   let basic = {t: {positionals: ["n", "where"], types: {n: "Int", where: "Path"}}}
 
   # The declared type decides the conversion: an integer, a path, a flag
@@ -406,7 +406,7 @@ test test_cli_commands_convert_positionals_and_collect_the_rest [fs, error] {
   "usage:" not in failure_message(cli.commands([], basic))
 }
 
-test test_cli_command_options_split_values_and_defaults [fs, error] {
+test test_cli_command_options_split_values_and_defaults {
   let schema = {
     go: {
       positionals: [
@@ -494,7 +494,7 @@ test test_cli_command_options_split_values_and_defaults [fs, error] {
   (rest_field(cli.commands(["build", "--", "-x"], {build: {rest: "raw"}}), "raw")?) == ("--,-x")
 }
 
-test test_cli_command_options_validate_values_and_relationships [fs, error] {
+test test_cli_command_options_validate_values_and_relationships {
   # Conflicting, required, and grouped options are checked after the walk, in
   # sorted schema-name order, so the first relationship that fails is the one
   # reported.
@@ -622,7 +622,7 @@ test test_cli_command_options_validate_values_and_relationships [fs, error] {
   (failure_message(cli.commands(["go", "r"], dynamic_cli_schema({go: {options: {helper: {kind: "Bool", long: ["help"]}}}})))) == ("`--help` is reserved by cli.parse")
 }
 
-test test_cli_command_option_path_constraints [fs, error] { |ctx|
+test test_cli_command_option_path_constraints { |ctx|
   let present = test.temp_file(ctx, name: "cli-present.txt", contents: b"text")?
   let root = test.temp_dir(ctx, name: "cli-root")?
   let missing = test.temp_path(ctx, name: "cli-missing")
@@ -693,7 +693,7 @@ test test_cli_command_option_path_constraints [fs, error] { |ctx|
     ) == f"option --target expects an existing path: ${dangling.display()}"
 }
 
-test test_cli_parse_returns_values_and_asks_for_help [fs, error] {
+test test_cli_parse_returns_values_and_asks_for_help {
   # A supplied value keeps the spelling it was given, takes the declared type,
   # or is `true` for a flag that appeared. An entry no argument supplies falls
   # back to its default, to `false` for a flag, and to `null` for an optional
@@ -770,7 +770,7 @@ options:
   -h, --help  show this help"""
 }
 
-test test_cli_parse_full_reports_sources_and_warnings [fs, error] {
+test test_cli_parse_full_reports_sources_and_warnings {
   # `parse_full` reports the record `parse` returns under `values`, where every
   # value came from under `sources`, and the walk's warnings. A value an
   # argument supplied names `argv`, an environment name it read names `env`, a
@@ -823,7 +823,7 @@ options:
   (json.encode(cli.parse_full(["--old"], {old: {kind: "Bool", deprecated: "use --new"}}, {}, "demo")?) ?? "") == """{"sources":{"old":"argv"},"values":{"old":true},"warnings":["use --new"]}"""
 }
 
-test test_cli_applet_applies_the_three_policy_deltas [fs, error] {
+test test_cli_applet_applies_the_three_policy_deltas {
   # One: the short `h` is not reserved, so an applet may claim it. The strict
   # reader rejects that schema outright, and the applet's help line then names
   # `--help` alone because `-h` belongs to the descriptor.
@@ -912,7 +912,7 @@ options:
   -h, --help  show this help"""
 }
 
-test test_cli_parse_names_the_program_and_presents_at_the_boundary [fs, error] { |ctx|
+test test_cli_parse_names_the_program_and_presents_at_the_boundary { |ctx|
   # The usage label defaults to the name the program was invoked under, read
   # when the entry is called: the nested script is named for the label, so its
   # usage line starts with that name rather than with the renderer's own

@@ -1,4 +1,4 @@
-test test_signature_cli_binds_typed_positionals_options_and_rest [fs, error] { |ctx|
+test test_signature_cli_binds_typed_positionals_options_and_rest { |ctx|
   let result = test.run_script(ctx, r"""
 cli main(zlabel: Str, count: Int, jobs: Int = 4, verbose: Bool = false, tags: List[Str] = ["base"], ...files: List[Path]) [error] {
   let names = [file.display() for file in files].join(",")
@@ -12,7 +12,7 @@ cli main(zlabel: Str, count: Int, jobs: Int = 4, verbose: Bool = false, tags: Li
   (result.stdout) == ("source 3 8 true base,one,two first,-last\n")
 }
 
-test test_signature_cli_help_and_invalid_arguments_skip_initializers_and_body [fs, error] { |ctx|
+test test_signature_cli_help_and_invalid_arguments_skip_initializers_and_body { |ctx|
   let source = """
 ##! A typed signature entry.
 proc mark() [] -> Int { print "INITIALIZER-MARKER"; 1 }
@@ -55,7 +55,7 @@ cli main(root: Path, jobs: Int = 4) [] { print "BODY-MARKER" }
   }
 }
 
-test test_signature_cli_rejects_invalid_declaration_shapes [fs, error] { |ctx|
+test test_signature_cli_rejects_invalid_declaration_shapes { |ctx|
   for source in [
     "cli other() [] {}\n",
     "cli main() [] {}\ncli main() [] {}\n",
@@ -81,7 +81,7 @@ test test_signature_cli_rejects_invalid_declaration_shapes [fs, error] { |ctx|
   }
 }
 
-test test_signature_cli_prepared_defaults_alias_parsers_and_kebab_options [fs, error] { |ctx|
+test test_signature_cli_prepared_defaults_alias_parsers_and_kebab_options { |ctx|
   let source = r"""
 type Count = UInt
 type Tags = List[Int]
@@ -128,7 +128,7 @@ cli main(root: Path, worker_count: Count = DEFAULT_COUNT, tags: Tags = DEFAULT_T
   }
 }
 
-test test_signature_cli_rest_is_ordered_after_option_termination [fs, error] { |ctx|
+test test_signature_cli_rest_is_ordered_after_option_termination { |ctx|
   let source = r"""
 cli main(...operands: List[Str]) [] { print ${operands.join(",")} }
 """

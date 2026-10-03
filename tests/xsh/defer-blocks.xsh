@@ -1,4 +1,4 @@
-test test_defer_blocks_register_lexically_and_read_values_at_cleanup [error] { |ctx|
+test test_defer_blocks_register_lexically_and_read_values_at_cleanup { |ctx|
   let output = test.run_script(ctx, r"""
 proc log(message: Str) [] { print $message }
 proc exercise() [error] {
@@ -23,7 +23,7 @@ exercise()
   output.stdout == "body\ninner\noutside\nblock:cleanup:registered\nfirst\n"
 }
 
-test test_defer_blocks_keep_loop_cleanup_local_and_nested_defers_lifo [error] { |ctx|
+test test_defer_blocks_keep_loop_cleanup_local_and_nested_defers_lifo { |ctx|
   let output = test.run_script(ctx, r"""
 proc exercise() [] {
   for item in [1, 2] {
@@ -49,7 +49,7 @@ exercise()
   output.stdout == "body:1\ncleanup:1:2\nnested\nbody:2\ncleanup:2:2\nnested\ndone\n"
 }
 
-test test_defer_block_failure_stops_its_body_and_keeps_other_actions [error] { |ctx|
+test test_defer_block_failure_stops_its_body_and_keeps_other_actions { |ctx|
   let output = test.run_script(ctx, r"""
 proc exercise() [error] {
   defer { print "remaining" }
@@ -67,7 +67,7 @@ exercise()?
   "cleanup failure" in output.stderr
 }
 
-test test_defer_blocks_preserve_primary_failure_and_report_secondary_cleanup [error] { |ctx|
+test test_defer_blocks_preserve_primary_failure_and_report_secondary_cleanup { |ctx|
   let output = test.run_script(ctx, r"""
 proc exercise() [error] {
   defer { print "remaining" }
@@ -86,7 +86,7 @@ exercise()?
   "cleanup error [" in output.stderr
 }
 
-test test_defer_blocks_run_bare_assertions_and_implicit_result_unit [error] { |ctx|
+test test_defer_blocks_run_bare_assertions_and_implicit_result_unit { |ctx|
   let output = test.run_script(ctx, r"""
 proc failure() [error] {
   let _ = "result cleanup failure".parse_int()?
@@ -108,7 +108,7 @@ exercise()?
   "result cleanup failure" in output.stderr
 }
 
-test test_defer_blocks_unwind_started_stream_on_early_consumer_exit [error] { |ctx|
+test test_defer_blocks_unwind_started_stream_on_early_consumer_exit { |ctx|
   let output = test.run_script(ctx, r"""
 stream values() [] -> Stream[Int] {
   defer { print "outer" }
@@ -127,7 +127,7 @@ print "done"
   output.stdout == "1\ninner:1\nouter\ndone\n"
 }
 
-test test_defer_blocks_reject_escaping_control_and_check_unselected_effects [error] { |ctx|
+test test_defer_blocks_reject_escaping_control_and_check_unselected_effects { |ctx|
   for source in [
     "proc bad() [] { defer { return } }\n",
     "proc bad() [] { while true { defer { break }; break } }\n",
@@ -144,7 +144,7 @@ test test_defer_blocks_reject_escaping_control_and_check_unselected_effects [err
   }
 }
 
-test test_defer_blocks_skip_unregistered_actions_and_continue_expression_failures [error] { |ctx|
+test test_defer_blocks_skip_unregistered_actions_and_continue_expression_failures { |ctx|
   let output = test.run_script(ctx, r"""
 proc failure(message: Str) [error] { let _ = message.parse_int()? }
 proc exercise() [error] {
@@ -162,7 +162,7 @@ exercise()?
   "second cleanup" in output.stderr
 }
 
-test test_defer_blocks_unwind_failed_module_procedure [fs, error] { |ctx|
+test test_defer_blocks_unwind_failed_module_procedure { |ctx|
   let root = test.temp_dir(ctx, name: "defer-module")?
   fp"${root}/cleanup.xsh".write(r"""
 ##! Cleanup module witness.
@@ -179,7 +179,7 @@ export proc exercise() [error] {
   "module failure" in output.stderr
 }
 
-test test_defer_blocks_unwind_return_and_keep_return_value [error] { |ctx|
+test test_defer_blocks_unwind_return_and_keep_return_value { |ctx|
   let output = test.run_script(ctx, r"""
 proc value() [] -> Int {
   defer { print "outer" }
@@ -195,7 +195,7 @@ print ${value()}
   output.stdout == "inner\nouter\n7\n"
 }
 
-test test_defer_block_force_abort_skips_remaining_actions [error] { |ctx|
+test test_defer_block_force_abort_skips_remaining_actions { |ctx|
   let output = test.run_script(ctx, r"""
 proc exercise() [] {
   defer { print "skipped" }
@@ -207,7 +207,7 @@ exercise()
   output.stdout == ""
 }
 
-test test_defer_block_force_abort_during_failure_keeps_force_status [error] { |ctx|
+test test_defer_block_force_abort_during_failure_keeps_force_status { |ctx|
   let output = test.run_script(ctx, r"""
 proc exercise() [error] {
   defer { print "skipped" }
@@ -220,7 +220,7 @@ exercise()?
   output.stdout == ""
 }
 
-test test_defer_block_top_level_force_abort_during_failure [error] { |ctx|
+test test_defer_block_top_level_force_abort_during_failure { |ctx|
   let output = test.run_script(ctx, r"""
 defer { print "skipped" }
 defer { abort(9, force: true) }
@@ -230,7 +230,7 @@ let _ = "primary".parse_int()?
   output.stdout == ""
 }
 
-test test_defer_blocks_reject_delegated_yield_during_checking [error] { |ctx|
+test test_defer_blocks_reject_delegated_yield_during_checking { |ctx|
   let output = test.run_script(ctx, "stream bad() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\nlet _ = bad() |> collect\n")?
   assert ! output.success, output.stderr
   "check.defer-control-flow" in output.stderr

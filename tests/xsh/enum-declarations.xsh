@@ -1,4 +1,4 @@
-test test_enum_singleton_and_alias [error] { |ctx|
+test test_enum_singleton_and_alias { |ctx|
   let executed = test.run_script(ctx, r"""enum Token { Present(Str) }
 type Alias = Token
 pure render(token: Alias) -> Str {
@@ -11,13 +11,13 @@ print (Present("same") == Present("same"))
   executed.stdout == "ready\ntrue\n"
 }
 
-test test_enum_legacy_declaration_is_migration_error [error] { |ctx|
+test test_enum_legacy_declaration_is_migration_error { |ctx|
   let rejected = test.run_script(ctx, "type Mode = Fast | Slow\nprint Fast\n")?
   assert ! rejected.success, rejected.stderr
   "parse.enum-migration" in rejected.stderr
 }
 
-test test_enum_rejects_invalid_declarations [error] { |ctx|
+test test_enum_rejects_invalid_declarations { |ctx|
   for source in [
     "enum Empty {}\n",
     "enum Duplicate { Repeated, Repeated }\n",
@@ -33,7 +33,7 @@ test test_enum_rejects_invalid_declarations [error] { |ctx|
   }
 }
 
-test test_enum_module_constructor_namespace_and_labels [fs, error] { |ctx|
+test test_enum_module_constructor_namespace_and_labels { |ctx|
   let root = test.temp_dir(ctx, name: "enum-module")?
   fp"${root}/choice.xsh".write_atomic("""##! Nominal choices.
 ## A singleton payload.
@@ -58,7 +58,7 @@ print $word
   assert ! invalid.success, invalid.stderr
 }
 
-test test_enum_multiline_payload_equality_and_exhaustive_matches [error] { |ctx|
+test test_enum_multiline_payload_equality_and_exhaustive_matches { |ctx|
   let declaration = r"""enum Mode {
   Fast,
   Thorough,

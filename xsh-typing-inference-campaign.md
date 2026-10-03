@@ -1,7 +1,7 @@
 # XSH typing inference: plan
 
 Status: decisions settled on 2026-10-02. Execute the work items in order
-(1 → 5). Items with disjoint files may run as parallel lanes (see Orchestration).
+(1 → 6). Items with disjoint files may run as parallel lanes (see Orchestration).
 
 ## Where things stand
 
@@ -54,7 +54,7 @@ the existing checker, lint and tooling, not the runtime architecture.
 - **Signatures at declaration boundaries; inference inside bodies.** Required
   parameters of named declarations, public contracts (exported returns and
   effects), schema and validation boundaries, and recursive declarations
-  (unless item 5 lands) stay annotated.
+  (unless item 6 lands) stay annotated.
 - **Inference stays local and monomorphic.** The checker publishes concrete
   types, so lowering and execution need no generic evidence.
 - **Bool values are always data; assertions are explicit.** A Bool expression
@@ -196,7 +196,24 @@ This replaces the implicit-Bool design.
   - Reuse `src/sema/check/infer_return.rs`. Exported and recursive procs keep
     explicit returns.
 
-### 5. Optional: monomorphic recursive private returns
+### 5. Make the test suites fast enough to run routinely
+
+The full native suite takes 20+ minutes and saturates the machine. Many
+`tests/xsh/system-report.xsh` cases take 50–70 s each in debug builds.
+
+- Rank the slowest tests from one full run's timings.
+- Remove repeated whole-module-graph checking and subprocess re-parsing where a
+  shared prepared module or an in-process call would do.
+- Merge redundant system-report cases.
+- Cap default `xsht test` parallelism at a reasonable share of cores.
+- Killing `xsht test` currently leaves the `xsh` children it spawned (e.g.
+  system-report subprocesses from `test.run_script`) running as orphans, each
+  pinning a core. Run test children in the runner's process group and terminate
+  them when the runner exits or is interrupted.
+- Target: the full native suite under 5 minutes in debug, without dropping
+  coverage.
+
+### 6. Optional: monomorphic recursive private returns
 
 Budget: about 400 lines.
 
@@ -231,6 +248,11 @@ This campaign runs in Claude Code.
   - searches and inventories.
 - **Parallel start:** items 1, 2, 3c and 4a have disjoint owners. Then 3a → 3b →
   4b → 4c → 4d run in sequence, because they share the checker and lowerer.
+- **Bound machine load.** Lanes never run the full native suite. They run
+  targeted files and `xsht test tests/xsh/stdlib --jobs 2`, one test process at
+  a time. Only the integrator runs the full suite, and only one full suite runs
+  on the machine at a time. Docker/Linux verification is deferred to final
+  verification.
 - **Keep bookkeeping out of the repo.** Keep at most one Cargo process per
   target directory. Do not create tracking files, ledgers, or agent-written
   plans; the integrator keeps the ownership list in context.

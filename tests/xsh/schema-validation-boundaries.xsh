@@ -1,4 +1,4 @@
-test test_schema_validation_preserves_contextual_composite_wire_and_uint_rules [error] { |ctx|
+test test_schema_validation_preserves_contextual_composite_wire_and_uint_rules { |ctx|
   let output = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Missing = "missing" }
 type Marker[T] = {amount: UInt, state: State}
 type TextMarker = Marker[Str]
@@ -25,7 +25,7 @@ match wrong.require(TextMarker) {
   output.stdout == "validated\nrejected\n"
 }
 
-test test_schema_validation_keeps_the_declaring_private_schema [fs, error] { |ctx|
+test test_schema_validation_keeps_the_declaring_private_schema { |ctx|
   let root = test.temp_dir(ctx, name: "schema-validation-owner")?
   fp"${root}/model.xsh".write_atomic(r"""##! Schema declarations with private owners.
 type Private = {count: UInt}
@@ -47,7 +47,7 @@ print "validated"
   output.stdout == "validated\n"
 }
 
-test test_schema_validation_rejects_context_inferred_from_desired_access [error] { |ctx|
+test test_schema_validation_rejects_context_inferred_from_desired_access { |ctx|
   for source in [
     "let raw: Any = {name: \"valid\"}\nlet name = raw.require()?.name\nprint reached\n",
     "pure invalid(raw: Any) -> Result[Any] { raw.require()? }\nprint reached\n",

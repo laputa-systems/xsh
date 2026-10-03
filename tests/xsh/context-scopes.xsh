@@ -1,4 +1,4 @@
-test test_cd_value_scope_consumes_tail_and_restores_context [fs, env, error] { |ctx|
+test test_cd_value_scope_consumes_tail_and_restores_context { |ctx|
   let root = test.temp_dir(ctx)?
   let original = fs.cwd()?
   let inside = cd (root) { fs.cwd()? }?
@@ -12,7 +12,7 @@ test test_cd_value_scope_consumes_tail_and_restores_context [fs, env, error] { |
   ! predicate
 }
 
-test test_scope_command_capture_tails_keep_values_and_restore_context [error] { |ctx|
+test test_scope_command_capture_tails_keep_values_and_restore_context { |ctx|
   let output = test.run_script(ctx, r"""
 let original = fs.cwd()?
 let revision: Str = cd (p".") { run.text sh -c "printf revision" ? }?
@@ -45,7 +45,7 @@ print "done"
   output.stdout == "done\n"
 }
 
-test test_env_value_scope_accepts_typed_overlays_and_restores [env, error] {
+test test_env_value_scope_accepts_typed_overlays_and_restores {
   let original = env.get_or("XSH_VALUE_SCOPE", "absent")?
   let selected = env ({XSH_VALUE_SCOPE: "inner", XSH_SCOPE_NUMBER: 7}) {
     env.get("XSH_SCOPE_NUMBER")? == "7"
@@ -65,14 +65,14 @@ proc scope_body_failure(root: Path) [env, error] -> Result[Int] {
   Ok(99)
 }
 
-test test_scope_body_propagation_reaches_outer_function_and_restores [fs, env, error] { |ctx|
+test test_scope_body_propagation_reaches_outer_function_and_restores { |ctx|
   let root = test.temp_dir(ctx)?
   let original = fs.cwd()?
   scope_body_failure(root) is Err(_)
   fs.cwd()? == original
 }
 
-test test_scope_defers_run_before_environment_restoration [env, error] {
+test test_scope_defers_run_before_environment_restoration {
   let original = env.get_or("XSH_VALUE_SCOPE", "absent")?
   var observed = ""
   let result = env ({XSH_VALUE_SCOPE: "deferred"}) {
@@ -89,7 +89,7 @@ proc scope_lexical_return() [env, error] -> Int {
   99
 }
 
-test test_scope_lexical_return_and_loop_transfers_restore [env, error] {
+test test_scope_lexical_return_and_loop_transfers_restore {
   let original = env.get_or("XSH_SCOPE_RETURN", "absent")?
   scope_lexical_return() == 17
   env.get_or("XSH_SCOPE_RETURN", "absent")? == original
@@ -108,7 +108,7 @@ test test_scope_lexical_return_and_loop_transfers_restore [env, error] {
   env.get_or("XSH_SCOPE_RETURN", "absent")? == original
 }
 
-test test_scope_entry_failure_is_data_and_skips_body [fs, env, error] { |ctx|
+test test_scope_entry_failure_is_data_and_skips_body { |ctx|
   let root = test.temp_dir(ctx)?
   let missing = fp"${root}/missing"
   var entered = false
@@ -121,7 +121,7 @@ test test_scope_entry_failure_is_data_and_skips_body [fs, env, error] { |ctx|
   ! entered
 }
 
-test test_nested_scopes_restore_to_the_immediate_parent [env, error] {
+test test_nested_scopes_restore_to_the_immediate_parent {
   let original = env.get_or("XSH_SCOPE_NESTED", "absent")?
   let selected = env ({XSH_SCOPE_NESTED: "outer"}) {
     (env ({XSH_SCOPE_NESTED: "inner"}) { env.get("XSH_SCOPE_NESTED")? }?) == "inner"
@@ -131,7 +131,7 @@ test test_nested_scopes_restore_to_the_immediate_parent [env, error] {
   env.get_or("XSH_SCOPE_NESTED", "absent")? == original
 }
 
-test test_scope_body_error_is_caught_only_by_the_outer_capture [env, error] {
+test test_scope_body_error_is_caught_only_by_the_outer_capture {
   let original = env.get_or("XSH_SCOPE_CAPTURE", "absent")?
   let failure = try {
     let _ = env ({XSH_SCOPE_CAPTURE: "inner"}) { error.fail("transparent")?; 7 }
@@ -141,7 +141,7 @@ test test_scope_body_error_is_caught_only_by_the_outer_capture [env, error] {
   env.get_or("XSH_SCOPE_CAPTURE", "absent")? == original
 }
 
-test test_scope_input_and_scalar_fields_evaluate_once_in_order [env, error] {
+test test_scope_input_and_scalar_fields_evaluate_once_in_order {
   var sequence = 0
   let value = env ({FIRST: { sequence = sequence * 10 + 1; "first" }, SECOND: { sequence = sequence * 10 + 2; 2 }}) {
     sequence = sequence * 10 + 3
@@ -151,7 +151,7 @@ test test_scope_input_and_scalar_fields_evaluate_once_in_order [env, error] {
   value == "2"
 }
 
-test test_scope_rejects_null_overlay_values_and_escaping_producers [error] { |ctx|
+test test_scope_rejects_null_overlay_values_and_escaping_producers { |ctx|
   let null_value = test.run_script(ctx, "let value = env ({X: null}) { 7 }\n")?
   ! null_value.success
   "check.env-value" in null_value.stderr
@@ -172,7 +172,7 @@ test test_scope_rejects_null_overlay_values_and_escaping_producers [error] { |ct
   "check.context-scope-escape" in returned.stderr
 }
 
-test test_suspended_producer_context_is_private_across_pulls_and_delegation [error] { |ctx|
+test test_suspended_producer_context_is_private_across_pulls_and_delegation { |ctx|
   let output = test.run_script(ctx, r"""stream context_rows() [env, error] -> Stream[Str] {
   let ignored = env ({XSH_SCOPE_PRODUCER: "producer"}) {
     yield env.get("XSH_SCOPE_PRODUCER")?
@@ -197,7 +197,7 @@ env ({XSH_SCOPE_PRODUCER: "consumer"}) {
   output.stdout == "producer consumer\nproducer consumer\nproducer consumer\nproducer consumer\ndelegator consumer\n"
 }
 
-test test_cancelled_producer_defers_see_its_context_before_restoration [error] { |ctx|
+test test_cancelled_producer_defers_see_its_context_before_restoration { |ctx|
   let output = test.run_script(ctx, r"""stream rows() [env, error] -> Stream[Str] {
   let ignored = env ({XSH_SCOPE_PRODUCER: "producer"}) {
     defer { print ${env.get("XSH_SCOPE_PRODUCER")?} }
@@ -227,7 +227,7 @@ proc scope_statement_failure() [env, error] {
   env ({XSH_SCOPE_TAIL: "inner"}) { error.fail("statement failure") }
 }
 
-test test_scope_function_tails_consume_declared_values_and_statement_results_propagate [env, error] {
+test test_scope_function_tails_consume_declared_values_and_statement_results_propagate {
   let original = env.get_or("XSH_SCOPE_TAIL", "absent")?
   scope_tail_value()? == 17
   scope_statement_failure() is Err(_)
@@ -237,14 +237,14 @@ test test_scope_function_tails_consume_declared_values_and_statement_results_pro
   env.get_or("XSH_SCOPE_TAIL", "absent")? == original
 }
 
-test test_scope_tail_inside_an_inferred_value_block_consumes_false_as_data [env, error] {
+test test_scope_tail_inside_an_inferred_value_block_consumes_false_as_data {
   let nested = try { env ({XSH_SCOPE_VALUE: "inner"}) { false }? }
   nested == Ok(false)
   let value = { cd (p".") { false }? }
   ! value
 }
 
-test test_suspended_cwd_scope_is_private_and_cleanup_uses_its_directory [error] { |ctx|
+test test_suspended_cwd_scope_is_private_and_cleanup_uses_its_directory { |ctx|
   let output = test.run_script(ctx, r"""stream paths() [fs, env, error] -> Stream[Path] {
   let ignored = cd (p"/") {
     defer { print ${fs.cwd()?.display()} }
@@ -264,7 +264,7 @@ print ${fs.cwd()? == original}
   output.stdout == "/ true\n/ true\n/\ntrue\n/ true\n/\ntrue\n"
 }
 
-test test_scope_cleanup_failure_preserves_primary_error_and_restores [env, error] { |ctx|
+test test_scope_cleanup_failure_preserves_primary_error_and_restores { |ctx|
   let output = test.run_script(ctx, r"""env ({XSH_SCOPE_CLEANUP: "outer"}) {
   var observed = ""
   let failure = try {
@@ -288,7 +288,7 @@ test test_scope_cleanup_failure_preserves_primary_error_and_restores [env, error
   "secondary cleanup" in output.stderr
 }
 
-test test_scope_rejects_producers_hidden_in_error_causes [error] { |ctx|
+test test_scope_rejects_producers_hidden_in_error_causes { |ctx|
   let declarations = r"""error Inner = Failed(resource: Stream[Int])
 error Outer = Failed(message: Str)
 stream rows() [] -> Stream[Int] { yield 1 }
@@ -336,7 +336,7 @@ for item in translated() { print "escaped" }
   }
 }
 
-test test_scope_rejects_producers_hidden_in_process_error_causes [error] { |ctx|
+test test_scope_rejects_producers_hidden_in_process_error_causes { |ctx|
   let output = test.run_script(ctx, r"""error Inner = Failed(resource: Stream[Int])
 stream rows() [] -> Stream[Int] { yield 1 }
 let original: Result[Unit, ProcessError] = try { run sh -c "exit 7" }
@@ -356,7 +356,7 @@ match original {
   output.stdout == ""
 }
 
-test test_scope_preserves_scalar_error_causes_as_data [error] { |ctx|
+test test_scope_preserves_scalar_error_causes_as_data { |ctx|
   let output = test.run_script(ctx, r"""error Outer = Failed(message: Str)
 error Inner = Failed(message: Str)
 let escaped = env ({X: "inner"}) {
@@ -373,7 +373,7 @@ escaped?
   assert cause_retained, failure_details
 }
 
-test test_env_assignment_double_block_form_is_removed_before_execution [error] { |ctx|
+test test_env_assignment_double_block_form_is_removed_before_execution { |ctx|
   let rejected = test.run_script(ctx, "print unreachable\nenv { XSH_REMOVED_SCOPE = \"release\" } {\n  print body\n}\n")?
   ! rejected.success
   rejected.stdout == ""

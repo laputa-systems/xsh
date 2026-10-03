@@ -15,7 +15,7 @@ iface eth0 inet static
   )?
 }
 
-test test_ifup_all_applies_auto_static_and_hooks [fs, process, env, error] { |ctx|
+test test_ifup_all_applies_auto_static_and_hooks { |ctx|
   let root = test.temp_dir(ctx, name: "ifup-all")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -40,7 +40,7 @@ test test_ifup_all_applies_auto_static_and_hooks [fs, process, env, error] { |ct
   "eth0=eth0" in state.read_text()?
 }
 
-test test_ifup_dhcp_runs_discovery [fs, process, env, error] { |ctx|
+test test_ifup_dhcp_runs_discovery { |ctx|
   let root = test.temp_dir(ctx, name: "ifup-dhcp")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -68,7 +68,7 @@ iface eth0 inet dhcp
   "no DHCP offer" in err.read_text()?
 }
 
-test test_ifup_state_skips_configured_interface [fs, process, env, error] { |ctx|
+test test_ifup_state_skips_configured_interface { |ctx|
   let root = test.temp_dir(ctx, name: "ifup-state")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -83,7 +83,7 @@ test test_ifup_state_skips_configured_interface [fs, process, env, error] { |ctx
   hook_log.read_text()?.split("up:eth0").len() == 2
 }
 
-test test_ifup_logical_selection [fs, process, env, error] { |ctx|
+test test_ifup_logical_selection { |ctx|
   let root = test.temp_dir(ctx, name: "ifup-logical")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -103,7 +103,7 @@ test test_ifup_logical_selection [fs, process, env, error] { |ctx|
   "eth0=office" in state.read_text()?
 }
 
-test test_ifup_source_glob [fs, process, env, error] { |ctx|
+test test_ifup_source_glob { |ctx|
   let root = test.temp_dir(ctx, name: "ifup-source")?
   let interfaces = fp"${root}/interfaces"
   let sourced = fp"${root}/interfaces.d"

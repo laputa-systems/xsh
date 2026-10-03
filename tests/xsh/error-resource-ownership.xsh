@@ -15,7 +15,7 @@ proc return_cause_child() [process, error] -> Result[CauseChildBundle] {
   )
 }
 
-test test_error_payload_transfers_child_to_caller [process, error] {
+test test_error_payload_transfers_child_to_caller {
   match return_error_child() {
     Err(ChildError.Owned {child}) => {
       defer child.cancel(signal: "TERM", kill_after: 0ms)
@@ -25,7 +25,7 @@ test test_error_payload_transfers_child_to_caller [process, error] {
   }
 }
 
-test test_error_cause_transfers_child_to_caller [process, error] {
+test test_error_cause_transfers_child_to_caller {
   let bundle = return_cause_child()?
   defer process.kill(bundle.pid, signal: "TERM")
   assert (process.list()? |> any .pid == bundle.pid), "child held only by a typed cause must survive callee cleanup"
@@ -33,7 +33,7 @@ test test_error_cause_transfers_child_to_caller [process, error] {
 
 error CauseOwnerError = Failed(pid: Int)
 
-test test_try_error_payload_transfers_child_before_nested_cleanup [process, error] {
+test test_try_error_payload_transfers_child_before_nested_cleanup {
   let captured: Result[Unit] = try {
     let child = spawn run sh -c "sleep 10" ?
     {
@@ -50,7 +50,7 @@ test test_try_error_payload_transfers_child_before_nested_cleanup [process, erro
   }
 }
 
-test test_try_error_cause_transfers_child_before_cleanup [process, error] {
+test test_try_error_cause_transfers_child_before_cleanup {
   let captured: Result[Unit] = try {
     let child = spawn run sh -c "sleep 10" ?
     Err(CauseOwnerError.Failed(pid: child.pid), cause: ChildError.Owned(child:))?
@@ -65,7 +65,7 @@ test test_try_error_cause_transfers_child_before_cleanup [process, error] {
   }
 }
 
-test test_driver_try_error_payload_and_cause_transfer [error] { |ctx|
+test test_driver_try_error_payload_and_cause_transfer { |ctx|
   let output = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 error CauseOwnerError = Failed(pid: Int)
 let direct: Result[Unit] = try {
@@ -103,7 +103,7 @@ proc propagate_child_from_plain_callee() [process, error] -> Unit {
   { Err(ChildError.Owned(child:))? }
 }
 
-test test_try_plain_callee_failure_transfers_child [process, error] {
+test test_try_plain_callee_failure_transfers_child {
   let captured = try { propagate_child_from_plain_callee() }
   match captured {
     Err(ChildError.Owned {child}) => {
@@ -115,7 +115,7 @@ test test_try_plain_callee_failure_transfers_child [process, error] {
   }
 }
 
-test test_scoped_propagated_resource_cannot_reach_outer_try [error] { |ctx|
+test test_scoped_propagated_resource_cannot_reach_outer_try { |ctx|
   let output = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 let captured: Result[Unit] = try {
   env ({XSH_SCOPE_CHILD: "inner"}) {
@@ -129,7 +129,7 @@ print "unreachable"
   "cannot escape a restored context" in output.stderr
 }
 
-test test_inner_try_retains_resource_inside_same_context [process, env, error] {
+test test_inner_try_retains_resource_inside_same_context {
   let _ = env ({XSH_SCOPE_CHILD: "inner"}) {
     let captured: Result[Unit] = try {
       let child = spawn run sh -c "sleep 10" ?
@@ -147,7 +147,7 @@ test test_inner_try_retains_resource_inside_same_context [process, env, error] {
   }?
 }
 
-test test_heap_scoped_causes_and_callee_failures_cannot_escape [error] { |ctx|
+test test_heap_scoped_causes_and_callee_failures_cannot_escape { |ctx|
   let caused = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 error OuterError = Failed(message: Str)
 proc scope_cause() [process, env, error] -> Result[Unit] {
@@ -176,7 +176,7 @@ scoped_failure()?
   "cannot escape a restored context" in callee.stderr
 }
 
-test test_retry_exhaustion_retains_resource_in_original_failure [process, time, error] {
+test test_retry_exhaustion_retains_resource_in_original_failure {
   let exhausted = retry[0ms] {
     let child = spawn run sh -c "sleep 10" ?
     Err(ChildError.Owned(child:))?
@@ -202,7 +202,7 @@ proc cleanup_cause_child() [process, error] {
   Err(CauseOwnerError.Failed(pid: child.pid), cause: ChildError.Owned(child:))
 }
 
-test test_primary_defer_error_retains_child_after_exhausted_block [process, error] {
+test test_primary_defer_error_retains_child_after_exhausted_block {
   let captured = try { defer cleanup_error_child()? }
   match captured {
     Err(ChildError.Owned {child}) => {
@@ -214,7 +214,7 @@ test test_primary_defer_error_retains_child_after_exhausted_block [process, erro
   }
 }
 
-test test_primary_defer_cause_retains_child [process, error] {
+test test_primary_defer_cause_retains_child {
   let captured = try { { defer cleanup_cause_child()? } }
   match captured {
     Err(CauseOwnerError.Failed {pid}) => {
@@ -232,7 +232,7 @@ proc cleanup_marked_error_child(marker: Path) [process, fs, error] {
   Err(ChildError.Owned(child:))
 }
 
-test test_secondary_defer_failure_releases_its_child [process, fs, error] { |ctx|
+test test_secondary_defer_failure_releases_its_child { |ctx|
   let marker = test.temp_path(ctx, name: "secondary-child-pid")
   let captured: Result[Unit] = try {
     defer cleanup_marked_error_child(marker)?
@@ -247,7 +247,7 @@ test test_secondary_defer_failure_releases_its_child [process, fs, error] { |ctx
   assert !(process.list()? |> any .pid == pid), "secondary cleanup resource must close locally"
 }
 
-test test_scoped_primary_defer_resources_are_rejected_before_restore [error] { |ctx|
+test test_scoped_primary_defer_resources_are_rejected_before_restore { |ctx|
   let normal = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 error OuterError = Failed(message: Str)
 proc cleanup_cause() [process, error] -> Result[Unit] {
@@ -276,7 +276,7 @@ print "unreachable"
   "cannot escape a restored context" in returning.stderr
 }
 
-test test_inner_try_primary_defer_can_retain_resource_inside_context [process, env, error] {
+test test_inner_try_primary_defer_can_retain_resource_inside_context {
   let _ = env ({X: "inner"}) {
     let captured = try { defer cleanup_error_child()? }
     match captured {
@@ -291,7 +291,7 @@ test test_inner_try_primary_defer_can_retain_resource_inside_context [process, e
   }?
 }
 
-test test_scoped_stream_cancel_failure_rejects_resource_before_restore [error] { |ctx|
+test test_scoped_stream_cancel_failure_rejects_resource_before_restore { |ctx|
   let output = test.run_script(ctx, r"""error ChildError = Owned(child: ProcessHandle)
 proc cleanup_child() [process, error] -> Result[Unit] {
   let child = spawn run sh -c "sleep 10" ?

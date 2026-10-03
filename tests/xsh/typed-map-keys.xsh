@@ -1,6 +1,6 @@
 pure typed_unsigned_keys(keys: List[UInt]) -> List[UInt] { keys }
 
-test test_typed_map_integer_keys_order_and_lookup [error] { |ctx|
+test test_typed_map_integer_keys_order_and_lookup { |ctx|
   let output = test.run_script(ctx, r"""
 var numbers: Map[Int, Str] = {}
 numbers[20] = "twenty"
@@ -20,7 +20,7 @@ print (numbers.get(99) ?? "missing")
 
 type Identifier = Int
 
-test test_typed_map_scalar_domains_aliases_and_updates [error] {
+test test_typed_map_scalar_domains_aliases_and_updates {
   var numbers: Map[Identifier, Str] = { [20]: "twenty", [3]: "three", [-1]: "negative"}
   let snapshot = numbers
   numbers[3] = "changed"
@@ -49,7 +49,7 @@ test test_typed_map_scalar_domains_aliases_and_updates [error] {
   (strings.keys()) == (["a", "z"])
 }
 
-test test_typed_map_inference_comprehension_null_and_empty [error] {
+test test_typed_map_inference_comprehension_null_and_empty {
   let inferred = { [20]: "twenty", [3]: "three"}
   let first_key = inferred.keys()[0]
   let first_value = inferred.values()[0]
@@ -72,7 +72,7 @@ test test_typed_map_inference_comprehension_null_and_empty [error] {
   (nested[1]) == ([2, 3])
 }
 
-test test_typed_map_rejects_mixed_and_unsupported_keys [error] { |ctx|
+test test_typed_map_rejects_mixed_and_unsupported_keys { |ctx|
   for source in [
     "let mixed = {[1]: 1, [\"one\"]: 2}\n",
     "let invalid: Map[Float, Int] = {}\n",
@@ -87,7 +87,7 @@ test test_typed_map_rejects_mixed_and_unsupported_keys [error] { |ctx|
   }
 }
 
-test test_typed_map_json_rejects_non_string_keys [error] {
+test test_typed_map_json_rejects_non_string_keys {
   let number: Any = {[1]: 1}
   let flag: Any = {[false]: 1}
   let data: Any = {[b"a"]: 1}
@@ -104,7 +104,7 @@ test test_typed_map_json_rejects_non_string_keys [error] {
 
 type UnsignedIdentifier = UInt
 
-test test_typed_map_unsigned_keys_reject_negative_boundaries [error] { |ctx|
+test test_typed_map_unsigned_keys_reject_negative_boundaries { |ctx|
   for source in [
     "let values: Map[UInt, Str] = {[-1]: \"bad\"}\n",
     "var values: Map[UInt, Str] = {}\nvalues[-1] = \"bad\"\n",
@@ -131,7 +131,7 @@ test test_typed_map_unsigned_keys_reject_negative_boundaries [error] { |ctx|
   (values.get(3)?) == ("three")
 }
 
-test test_typed_map_path_and_bytes_keep_native_identity [error] {
+test test_typed_map_path_and_bytes_keep_native_identity {
   let first = Path.parse_bytes(b"\xff")?
   let second = Path.parse_bytes(b"\xfe")?
   let paths: Map[Path, Int] = {[first]: 1, [second]: 2}
@@ -144,7 +144,7 @@ test test_typed_map_path_and_bytes_keep_native_identity [error] {
   (data.get(b"\xff")?) == (1)
 }
 
-test test_typed_map_erased_updates_reject_mixed_domains [error] { |ctx|
+test test_typed_map_erased_updates_reject_mixed_domains { |ctx|
   for source in [
     "let values: Any = {[1]: 2}\nprint (values.set(\"one\", 3))\n",
   ] {
@@ -169,7 +169,7 @@ const prepared_path_keys: Map[Path, Int] = {[p"z"]: 2, [p"a"]: 1}
 const prepared_duration_keys = {[20ms]: 2, [3ms]: 1}
 const prepared_unsigned_keys: Map[UInt, Str] = {[3]: "three"}
 
-test test_typed_map_prepared_constants_keep_scalar_keys [error] {
+test test_typed_map_prepared_constants_keep_scalar_keys {
   (prepared_numeric_keys.keys()) == ([3, 20])
   (prepared_numeric_keys.get(3)?) == ("three")
   (prepared_flag_keys.keys()) == ([false, true])
@@ -179,7 +179,7 @@ test test_typed_map_prepared_constants_keep_scalar_keys [error] {
   (prepared_unsigned_keys.get(3)?) == ("three")
 }
 
-test test_typed_map_prepared_constants_reject_mixed_and_unsigned_negative_keys [error] { |ctx|
+test test_typed_map_prepared_constants_reject_mixed_and_unsigned_negative_keys { |ctx|
   for source in [
     "const values = {[1]: 1, [\"one\"]: 2}\n",
     "const values: Map[UInt, Str] = {[-1]: \"bad\"}\n",

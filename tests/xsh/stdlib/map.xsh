@@ -1,4 +1,4 @@
-test test_map_module_and_methods [error] {
+test test_map_module_and_methods {
   let m0: Map[Int] = {}
   let m1 = m0.set("one", 1).set("two", 2)
   ("one" in m1)
@@ -10,7 +10,7 @@ test test_map_module_and_methods [error] {
   test.error_kind(m1.get("missing"), "map-missing")?
 }
 
-test test_map_updates_preserve_older_values_and_nested_lists [error] {
+test test_map_updates_preserve_older_values_and_nested_lists {
   let base: Map[List[Int]] = {items: [1]}
   let alias = base
   let replaced = base.set("items", [9])
@@ -30,7 +30,7 @@ test test_map_updates_preserve_older_values_and_nested_lists [error] {
   pushed.get("items")? == [1, 2]
 }
 
-test test_map_index_updates_group_push_and_comprehension [error] {
+test test_map_index_updates_group_push_and_comprehension {
   var counts: Map[Int] = {}
   counts["pkg"] = (counts.get("pkg") ?? 0) + 1
   counts["pkg"] = (counts.get("pkg") ?? 0) + 4
@@ -46,7 +46,7 @@ test test_map_index_updates_group_push_and_comprehension [error] {
   versions.get("tool")? == "2"
 }
 
-test test_map_iteration_item_shape_order_and_snapshot [error] {
+test test_map_iteration_item_shape_order_and_snapshot {
   var counts: Map[Int] = {beta: 2, alpha: 1}
   var seen = []
   for entry in counts {
@@ -65,7 +65,7 @@ test test_map_iteration_item_shape_order_and_snapshot [error] {
 
 type MapIterationPayload = {label: Str, amount: Int}
 
-test test_map_iteration_nested_targets_and_qualifiers [error] {
+test test_map_iteration_nested_targets_and_qualifiers {
   let values: Map[MapIterationPayload] = {
     second: {label: "two", amount: 2},
     first: {label: "one", amount: 1},
@@ -106,7 +106,7 @@ pure map_iteration_success_source() -> Result[Map[Int], MapIterationError] {
   {first: 4}
 }
 
-test test_map_iteration_result_sources_preserve_nominal_errors [error] {
+test test_map_iteration_result_sources_preserve_nominal_errors {
   if let Err(MapIterationError.Missing {code}) = map_iteration_collect_failure() {
     code == 7
   } else {
@@ -129,7 +129,7 @@ test test_map_iteration_result_sources_preserve_nominal_errors [error] {
   ([entry.value for entry in wrapped]) == ([4])
 }
 
-test test_map_iteration_break_continue_restore_outer_bindings [error] {
+test test_map_iteration_break_continue_restore_outer_bindings {
   let values: Map[Int] = {alpha: 1, beta: 2, gamma: 3}
   let outer_key = "outer"
   var sum = 0
@@ -142,7 +142,7 @@ test test_map_iteration_break_continue_restore_outer_bindings [error] {
   (outer_key) == ("outer")
 }
 
-test test_map_iteration_evaluates_source_once_and_unwinds_failure [error] { |ctx|
+test test_map_iteration_evaluates_source_once_and_unwinds_failure { |ctx|
   let output = test.run_xsh(
     ctx,
     """
@@ -173,7 +173,7 @@ match gather() {
   (output.stdout) == ("source\nalpha=1\nbeta=2\nclosed\ncaught=7\n")
 }
 
-test test_map_literals_computed_constant_keys_spreads_and_aliases [error] {
+test test_map_literals_computed_constant_keys_spreads_and_aliases {
   let name = "beta"
   let inferred = {[name]: 2, alpha: 1, "literal.dot": 3}
   (inferred.keys()) == (["alpha", "beta", "literal.dot"])
@@ -201,7 +201,7 @@ test test_map_literals_computed_constant_keys_spreads_and_aliases [error] {
   (seen) == (["alpha", "beta", "literal.dot"])
 }
 
-test test_map_literals_evaluate_keys_values_spreads_and_overwrites_once [error] { |ctx|
+test test_map_literals_evaluate_keys_values_spreads_and_overwrites_once { |ctx|
   let output = test.run_script(ctx, r"""proc key(value: Str) [io] -> Str {
   print f"key $value"
   return value
@@ -224,7 +224,7 @@ print (values.get("same") ?? 0) (values.get("last") ?? 0)
   (output.stdout) == ("key same\nvalue 1\nvalue 2\nspread\nkey last\nvalue 4\n3 4\n")
 }
 
-test test_map_literals_failure_stops_before_value_and_later_entries [error] { |ctx|
+test test_map_literals_failure_stops_before_value_and_later_entries { |ctx|
   let output = test.run_script(ctx, r"""error BuildError = Stopped(message: Str)
 proc key() [io] -> Result[Str, BuildError] {
   print "key"
@@ -243,7 +243,7 @@ print values.len()
   (output.stdout) == ("value\nkey\n")
 }
 
-test test_map_literals_reject_wrong_key_context_bad_spreads_and_incompatible_values [error] { |ctx|
+test test_map_literals_reject_wrong_key_context_bad_spreads_and_incompatible_values { |ctx|
   for source in [
     "let value: Map[Int] = {[1]: 2}\n",
     "let key: Any = \"name\"\nlet value = {[key]: 2}\n",
@@ -269,7 +269,7 @@ pure map_literal_parameter(input: Map[Int]) -> Int { (input.get("answer") ?? 0) 
 pure map_literal_nested(input: List[Map[Int]]) -> List[Map[Int]] { input }
 type MapLiteralEnvelope = {values: Map[Int]}
 
-test test_map_literals_expected_context_reaches_returns_arguments_and_nested_values [error] {
+test test_map_literals_expected_context_reaches_returns_arguments_and_nested_values {
   (map_literal_return().get("answer")?) == (42)
   (map_literal_tail().get("answer")?) == (43)
   (map_literal_parameter({answer: 44})) == (44)
@@ -290,7 +290,7 @@ test test_map_literals_expected_context_reaches_returns_arguments_and_nested_val
 pure map_literal_default(input: Map[List[Int]] = {empty: [], ["numbers"]: [1, 2]}) -> Map[List[Int]] { input }
 pure map_literal_spread_default(input = {["first"]: 1, ...{second: 2}}) -> Map[Int] { input }
 
-test test_map_literal_defaults_keep_context_and_independent_values [error] {
+test test_map_literal_defaults_keep_context_and_independent_values {
   let first = map_literal_default()
   var second = map_literal_default()
   second["numbers"] = [9]
@@ -301,7 +301,7 @@ test test_map_literal_defaults_keep_context_and_independent_values [error] {
 
 type MapLiteralDefaults = {counts: Map[Int] = {fixed: 1, ["other"]: 2}}
 
-test test_map_literal_record_defaults_retain_map_identity_and_aliases [error] {
+test test_map_literal_record_defaults_retain_map_identity_and_aliases {
   let earlier = MapLiteralDefaults()
   var changed = MapLiteralDefaults()
   changed.counts = changed.counts.set("fixed", 9)
@@ -310,7 +310,7 @@ test test_map_literal_record_defaults_retain_map_identity_and_aliases [error] {
   (changed.counts.keys()) == (["fixed", "other"])
 }
 
-test test_map_iteration_binding_is_entry_record_and_result_sources_need_error [error] { |ctx|
+test test_map_iteration_binding_is_entry_record_and_result_sources_need_error { |ctx|
   let counts: Map[Int] = {beta: 2, alpha: 1}
   ([entry for entry in counts]) == ([{key: "alpha", value: 1}, {key: "beta", value: 2}])
   ([entry.value for entry in counts]) == (counts.values())

@@ -1,4 +1,4 @@
-test test_default_parameters_infer_const_projection_primitive_and_constructor_types [error] { |ctx|
+test test_default_parameters_infer_const_projection_primitive_and_constructor_types { |ctx|
   let output = test.run_script(ctx, r"""const defaults = {jobs: 4, timeout: 30s}
 pure jobs(value = defaults.jobs + 1) -> Int { value }
 pure timeout(value = defaults.timeout) -> Duration { value }
@@ -9,7 +9,7 @@ print ${jobs()} ${jobs(9)} ${timeout() == 30s} ${default_path().display()}
   output.stdout == "5 9 true config\n"
 }
 
-test test_default_parameters_keep_already_checked_call_defaults [error] { |ctx|
+test test_default_parameters_keep_already_checked_call_defaults { |ctx|
   let output = test.run_script(ctx, r"""pure next() -> Int { 4 }
 pure explicit(jobs: Int = next()) -> Int { jobs }
 pure inferred(jobs = next()) -> Int { jobs }
@@ -19,7 +19,7 @@ print ${explicit()} ${inferred()} ${inferred(9)}
   output.stdout == "4 4 9\n"
 }
 
-test test_default_parameters_cli_uses_checked_inferred_prepared_types [error] { |ctx|
+test test_default_parameters_cli_uses_checked_inferred_prepared_types { |ctx|
   let source = r"""const defaults = {jobs: 4, delay: 20ms, verbose: false, tags: [1, 2]}
 cli main(jobs = defaults.jobs + 1, delay = defaults.delay, verbose = defaults.verbose, tags = defaults.tags) [] {
   let checked_jobs: Int = jobs
@@ -41,7 +41,7 @@ cli main(jobs = defaults.jobs + 1, delay = defaults.delay, verbose = defaults.ve
   assert "Duration, default: 20ms" in help.stdout, help.stdout
 }
 
-test test_default_parameters_cli_rejects_runtime_defaults_without_execution [error] { |ctx|
+test test_default_parameters_cli_rejects_runtime_defaults_without_execution { |ctx|
   let source = r"""proc runtime_default() [io] -> Int { print DEFAULT_EXECUTED; 4 }
 cli main(jobs = runtime_default()) [io] { print BODY_EXECUTED }
 """
@@ -53,7 +53,7 @@ cli main(jobs = runtime_default()) [io] { print BODY_EXECUTED }
   }
 }
 
-test test_default_parameters_static_alias_keeps_effectful_defaults_once_and_named_slots [error] { |ctx|
+test test_default_parameters_static_alias_keeps_effectful_defaults_once_and_named_slots { |ctx|
   let output = test.run_script(ctx, r"""proc default_value(label: Str, value: Int) [io] -> Int { print $label; value }
 proc combine(left = default_value("left default", 1), right = default_value("right default", 2)) [io] -> Int { left + right }
 let shared = combine
@@ -68,7 +68,7 @@ print ${named.call(left: 9)}
   output.stdout == "left default\nright default\n3\nsupplied\nleft default\n9\n19\nright default\n11\n"
 }
 
-test test_default_parameters_keep_generic_constructor_grounding_in_the_default [error] { |ctx|
+test test_default_parameters_keep_generic_constructor_grounding_in_the_default { |ctx|
   let output = test.run_script(ctx, r"""type Envelope[T] = {value: T}
 type IntEnvelope = Envelope[Int]
 pure explicit(box = IntEnvelope(value: 4)) -> Int { box.value }
@@ -84,7 +84,7 @@ print ${unresolved()}
   assert !rejected.success, rejected.stdout
 }
 
-test test_default_parameters_nested_local_alias_calls_keep_heap_frames [error] { |ctx|
+test test_default_parameters_nested_local_alias_calls_keep_heap_frames { |ctx|
   let output = test.run_script(ctx, r"""pure depth(value = 0) -> Int {
   if value < 1200 {
     let next = depth
@@ -97,7 +97,7 @@ print ${depth()}
   output.stdout == "1200\n"
 }
 
-test test_default_parameters_keep_stream_defaults_lazy_and_supplied_arguments_eager [error] { |ctx|
+test test_default_parameters_keep_stream_defaults_lazy_and_supplied_arguments_eager { |ctx|
   let output = test.run_script(ctx, r"""proc value(label: Str) [io] -> Int {
   print $label
   7
@@ -124,7 +124,7 @@ for item in supplied { print $item }
   output.stdout == "supplied\nbefore\nexplicit default\nbody\n7\ninferred default\nbody\n7\nbody\n7\n"
 }
 
-test test_default_parameters_resolve_imported_constants [fs, error] { |ctx|
+test test_default_parameters_resolve_imported_constants { |ctx|
   let root = test.temp_dir(ctx, name: "default-module")?
   fp"${root}/config.xsh".write_atomic(r"""##! Build defaults.
 ## The default worker count.
@@ -138,7 +138,7 @@ print ${choose()}
   output.stdout == "6\n"
 }
 
-test test_default_parameters_keep_omitted_order_lazy_effects_and_cleanup [error] { |ctx|
+test test_default_parameters_keep_omitted_order_lazy_effects_and_cleanup { |ctx|
   let output = test.run_script(ctx, r"""proc mark(name: Str) [io] { print $name }
 proc value(name: Str, count: Int) [io, error] -> Int {
   defer mark("default cleanup")
@@ -154,7 +154,7 @@ print ${choose(8, 9)}
   output.stdout == "left\ndefault cleanup\nright\ndefault cleanup\n3\nsupplied\ndefault cleanup\nleft\ndefault cleanup\n10\n17\n"
 }
 
-test test_default_parameters_require_anchors_and_keep_parameter_scope [error] { |ctx|
+test test_default_parameters_require_anchors_and_keep_parameter_scope { |ctx|
   for source in [
     "pure choose(value = null) -> Int { 1 }\n",
     "pure choose(value = []) -> Int { 1 }\n",
@@ -169,7 +169,7 @@ test test_default_parameters_require_anchors_and_keep_parameter_scope [error] { 
   }
 }
 
-test test_default_parameters_use_outer_names_and_checked_dependency_signatures [error] { |ctx|
+test test_default_parameters_use_outer_names_and_checked_dependency_signatures { |ctx|
   let output = test.run_script(ctx, r"""let count = 5
 pure dependent(value = target()) -> Int { value }
 pure target() { 7 }
@@ -181,7 +181,7 @@ print ${dependent()} ${shadow()} ${shadow(9)} ${anchored()}
   output.stdout == "7 5 9 7\n"
 }
 
-test test_default_parameters_keep_error_propagation_and_skip_later_defaults [error] { |ctx|
+test test_default_parameters_keep_error_propagation_and_skip_later_defaults { |ctx|
   let output = test.run_script(ctx, r"""proc mark(message: Str) [io] { print $message }
 error DefaultError = invalid(message: Str)
 proc failing() [io, error] -> Result[Int] {
@@ -198,7 +198,7 @@ print ${choose(8, 9)?}
   output.stdout == "cleanup\ntrue\n17\n"
 }
 
-test test_default_parameters_keep_explicit_anchors_across_declaration_cycles [error] { |ctx|
+test test_default_parameters_keep_explicit_anchors_across_declaration_cycles { |ctx|
   let output = test.run_script(ctx, r"""pure first(value = second(3)) -> Int { value }
 pure second(value: Int = first(4)) -> Int { value }
 print ${first()} ${second()}
@@ -211,7 +211,7 @@ pure second(value = first()) { value }
   assert !rejected.success, rejected.stdout
 }
 
-test test_default_parameters_use_the_callable_return_target [error] { |ctx|
+test test_default_parameters_use_the_callable_return_target { |ctx|
   let output = test.run_script(ctx, r"""pure explicit(value: Int = if true { return 7 } else { 4 }) -> Int { value + 1 }
 pure inferred(value = if true { return 7 } else { 4 }) -> Int { value + 1 }
 print ${explicit()} ${inferred()} ${inferred(9)}
@@ -220,7 +220,7 @@ print ${explicit()} ${inferred()} ${inferred(9)}
   output.stdout == "7 7 10\n"
 }
 
-test test_default_parameters_nested_calls_use_heap_frames [error] { |ctx|
+test test_default_parameters_nested_calls_use_heap_frames { |ctx|
   var source = "pure step_0() -> Int { 7 }\n"
   for index in range(1, 1201) {
     let step = f"""
@@ -235,7 +235,7 @@ test test_default_parameters_nested_calls_use_heap_frames [error] { |ctx|
   output.stdout == "7\n"
 }
 
-test test_default_parameters_keep_omitted_effects_in_callable_contracts [error] { |ctx|
+test test_default_parameters_keep_omitted_effects_in_callable_contracts { |ctx|
   let output = test.run_script(ctx, r"""proc emit() [io] -> Int { print "default"; 4 }
 proc choose(value = emit()) -> Int { value }
 print ${choose(9)}
@@ -256,7 +256,7 @@ print ${choose(9)}
   assert !pure_rejected.success, pure_rejected.stdout
 }
 
-test test_default_parameters_preserve_nullable_result_and_record_payload_types [error] { |ctx|
+test test_default_parameters_preserve_nullable_result_and_record_payload_types { |ctx|
   let output = test.run_script(ctx, r"""const defaults = {jobs: 4}
 pure maybe_name() -> Str? { "label" }
 pure name(value = maybe_name()) -> Str? { value }
@@ -269,7 +269,7 @@ print ${name() ?? "missing"} ${name(null) ?? "missing"} ${config()} ${result()?}
   output.stdout == "label missing 4 7\n"
 }
 
-test test_default_parameters_local_cleanup_precedes_body_and_lexical_return [error] { |ctx|
+test test_default_parameters_local_cleanup_precedes_body_and_lexical_return { |ctx|
   let output = test.run_script(ctx, r"""proc mark(message: Str) [io] -> Unit { print $message }
 proc choose(value = { defer mark("local"); 4 }) [io] -> Int { print "body"; value }
 proc leaves(value = if true { defer mark("return cleanup"); return 7 } else { 4 }) [io] -> Int { print "unreached"; value }
@@ -281,7 +281,7 @@ print ${leaves()}
   output.stdout == "local\nbody\n4\nbody\n9\nreturn cleanup\n7\n"
 }
 
-test test_default_parameters_preserve_callable_handle_domains [error] { |ctx|
+test test_default_parameters_preserve_callable_handle_domains { |ctx|
   let output = test.run_script(ctx, r"""pure identity(value: Int) -> Int { value }
 pure choose(callback = identity) -> Pure { callback }
 let callback = choose()
@@ -291,7 +291,7 @@ print ${callback.call(7).require(Int)?}
   output.stdout == "7\n"
 }
 
-test test_default_parameters_inferred_types_constrain_arguments_spreads_and_bodies [error] { |ctx|
+test test_default_parameters_inferred_types_constrain_arguments_spreads_and_bodies { |ctx|
   let declaration = r"""const defaults = {jobs: 4, timeout: 30s}
 proc build(jobs = defaults.jobs, timeout = defaults.timeout) -> Str { f"$jobs $timeout" }
 """

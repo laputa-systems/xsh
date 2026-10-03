@@ -1,4 +1,4 @@
-test test_chmod_recursive [fs, process, env, error] { |ctx|
+test test_chmod_recursive { |ctx|
   let root = test.temp_dir(ctx, name: "chmod")?
   let dir = fp"${root}/dir"
   dir.mkdir()?

@@ -1,4 +1,4 @@
-test test_error_variant_payloads_evaluate_once_in_written_order [error] { |ctx|
+test test_error_variant_payloads_evaluate_once_in_written_order { |ctx|
   let output = test.run_script(ctx, r"""
 error Failure = Failed(kind: Str, message: Str) : InvalidData
 proc marker(label: Str) [io] -> Str { print $label; label }
@@ -14,7 +14,7 @@ match made() {
   output.stdout == "message\nkind\nkind message\n"
 }
 
-test test_error_variant_wrong_payload_field_refuses_before_effects [error] { |ctx|
+test test_error_variant_wrong_payload_field_refuses_before_effects { |ctx|
   for expression in [
     "Failure.Failed(message: 4)",
     "Failure.Failed(other: \"wrong\")",
@@ -28,7 +28,7 @@ test test_error_variant_wrong_payload_field_refuses_before_effects [error] { |ct
   }
 }
 
-test test_err_typed_cause_preserves_outer_nominal_contract [error] { |ctx|
+test test_err_typed_cause_preserves_outer_nominal_contract { |ctx|
   let output = test.run_script(ctx, """
 error BuildError = Failed(message: Str, cause: Str) : InvalidData
 error InputError = Missing(message: Str) : NotFound
@@ -54,7 +54,7 @@ translated?
   ("InputError.Missing" in output.stderr)
 }
 
-test test_err_typed_cause_aliases_and_generic_one_argument_remain_data [error] { |ctx|
+test test_err_typed_cause_aliases_and_generic_one_argument_remain_data { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
@@ -76,7 +76,7 @@ Err(alias)?
   }
 }
 
-test test_err_typed_cause_arguments_run_once_in_written_order [error] { |ctx|
+test test_err_typed_cause_arguments_run_once_in_written_order { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
@@ -99,7 +99,7 @@ print $history
   (output.stdout) == ("12\n21\n12\n")
 }
 
-test test_err_typed_cause_explicit_replacement_preserves_supplied_chain [error] { |ctx|
+test test_err_typed_cause_explicit_replacement_preserves_supplied_chain { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
@@ -125,7 +125,7 @@ translated?
   }
 }
 
-test test_err_typed_cause_rejects_invalid_arguments [error] { |ctx|
+test test_err_typed_cause_rejects_invalid_arguments { |ctx|
   for source in [
     "error E = Failed(message: Str)\nlet value = Err(E.Failed(message: \"outer\"), cause: \"text\")\n",
     "error E = Failed(message: Str)\nlet value = Err(\"text\", cause: E.Failed(message: \"inner\"))\n",
@@ -143,7 +143,7 @@ test test_err_typed_cause_rejects_invalid_arguments [error] { |ctx|
   }
 }
 
-test test_err_typed_cause_human_rendering_escapes_control_characters [error] { |ctx|
+test test_err_typed_cause_human_rendering_escapes_control_characters { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
@@ -164,7 +164,7 @@ translated?
   }
 }
 
-test test_err_typed_cause_trace_preserves_process_status_and_context_spans [error] { |ctx|
+test test_err_typed_cause_trace_preserves_process_status_and_context_spans { |ctx|
   let output = test.run_xsht_trace(ctx, r"""
 error BuildError = Failed(message: Str)
 let outcome: Result[Unit, ProcessError] = try {
@@ -187,7 +187,7 @@ ctx "publish" { translated? }
   ("\"causes_truncated\":false" in output.stderr)
 }
 
-test test_err_typed_cause_one_argument_retains_existing_chain_through_try [error] { |ctx|
+test test_err_typed_cause_one_argument_retains_existing_chain_through_try { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
@@ -203,7 +203,7 @@ ctx "caller" { preserved? }
   ("caller" in output.stderr)
 }
 
-test test_err_typed_cause_abort_operand_keeps_control_transfer [error] { |ctx|
+test test_err_typed_cause_abort_operand_keeps_control_transfer { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
@@ -221,7 +221,7 @@ print "wrong after abort"
   (output.stderr) == ("")
 }
 
-test test_err_typed_cause_procedure_frames_construct_result_data [error] { |ctx|
+test test_err_typed_cause_procedure_frames_construct_result_data { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
@@ -238,7 +238,7 @@ data?
   ("InnerError.Failed" in output.stderr)
 }
 
-test test_err_typed_cause_long_native_chain_reports_truncation [error] { |ctx|
+test test_err_typed_cause_long_native_chain_reports_truncation { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 var current: Error = OuterError.Failed(message: "leaf")
@@ -258,7 +258,7 @@ outcome?
   }
 }
 
-test test_err_typed_cause_retains_checked_assertion_failure [error] { |ctx|
+test test_err_typed_cause_retains_checked_assertion_failure { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 let outcome: Result[Unit] = try { assert false, "checked leaf" }
@@ -274,7 +274,7 @@ translated?
   ("checked leaf" in output.stderr)
 }
 
-test test_err_one_argument_generic_propagation_keeps_existing_diagnostic [error] { |ctx|
+test test_err_one_argument_generic_propagation_keeps_existing_diagnostic { |ctx|
   let output = test.run_script(ctx, r"""
 let value: Result[Unit, Str] = Err("generic error data")
 value?
@@ -288,7 +288,7 @@ value?
   }
 }
 
-test test_err_typed_cause_process_outer_survives_cleanup_transport [error] { |ctx|
+test test_err_typed_cause_process_outer_survives_cleanup_transport { |ctx|
   let output = test.run_script(ctx, r"""
 error OuterError = Failed(message: Str)
 proc cleanup(original: ProcessError) -> Result[Unit, ProcessError] {

@@ -1,3 +1,3 @@
-test test_cpu_count [error] {
+test test_cpu_count {
   (cpu.count() > 0)
 }

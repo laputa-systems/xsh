@@ -1,9 +1,9 @@
-test test_git_digest_usage [process, error] {
+test test_git_digest_usage {
   let output = run.text "xsh" "showcase/git-digest.xsh" -- --help ?
   "usage:" in output
 }
 
-test test_git_digest_counts_integer_statistics_and_binary_placeholders [fs, process, error] { |ctx|
+test test_git_digest_counts_integer_statistics_and_binary_placeholders { |ctx|
   let repo = test.temp_dir(ctx, name: "git-digest-counts")?
   run git -C $repo init --quiet ?
   run git -C $repo config user.name Tester ?
@@ -29,7 +29,7 @@ test test_git_digest_counts_integer_statistics_and_binary_placeholders [fs, proc
   "binary.dat" in output
 }
 
-test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting [fs, process, env, error] { |ctx|
+test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return

@@ -6,7 +6,7 @@ type AuthModule = module {
   export pure render_shadow(records: List[auth_types.ShadowRecord]) -> Str
 }
 
-test test_auth_lib_passwd_and_shadow_parse_render [fs, error] {
+test test_auth_lib_passwd_and_shadow_parse_render {
   let auth = module.load(p"core/lib/auth.xsh")?.require(AuthModule)?
 
   let passwd = auth.parse_passwd("""root:x:0:0:root:/root:/bin/sh
@@ -32,7 +32,7 @@ raw-line
 """
 }
 
-test test_applet_auth_helpers_and_sessions [fs, process, env, error] { |ctx|
+test test_applet_auth_helpers_and_sessions { |ctx|
   let root = test.temp_dir(ctx, name: "applet-auth")?
   let home = fp"${root}/home"
   fs.mkdir(home)?
@@ -72,7 +72,7 @@ exit 17
   test.error_kind(applet.hash_password("secret", "bogus"), "applet-hash-password")?
 }
 
-test test_applet_mdev_scans_empty_roots [fs, process, env, error] { |ctx|
+test test_applet_mdev_scans_empty_roots { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     test.skip("mdev is Linux-only")
     return

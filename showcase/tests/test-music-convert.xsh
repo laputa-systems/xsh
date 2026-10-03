@@ -1,4 +1,4 @@
-test test_music_convert [fs, process, error] { |ctx|
+test test_music_convert { |ctx|
   let root = test.temp_dir(ctx, name: "music")?
   fp"${root}/track.mp3".write("fake")?
   let out = test.temp_path(ctx, name: "music-out")

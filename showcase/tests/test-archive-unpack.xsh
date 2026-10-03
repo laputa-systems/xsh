@@ -1,4 +1,4 @@
-test test_archive_unpack [fs, process, error] { |ctx|
+test test_archive_unpack { |ctx|
   let src = test.temp_dir(ctx, name: "arc-src")?
   fp"${src}/a.txt".write("alpha")?
   fp"${src}/b.txt".write("beta")?
@@ -13,7 +13,7 @@ test test_archive_unpack [fs, process, error] { |ctx|
   "usage:" in usage
 }
 
-test test_archive_unpack_failure_leaves_existing_destination_untouched [fs, process, error] { |ctx|
+test test_archive_unpack_failure_leaves_existing_destination_untouched { |ctx|
   let src = test.temp_dir(ctx, name: "partial-src")?
   fp"${src}/a.txt".write("first")?
   fp"${src}/b.txt".write("second")?
@@ -29,7 +29,7 @@ test test_archive_unpack_failure_leaves_existing_destination_untouched [fs, proc
   fp"${out}/b.txt/marker".read_text()? == "untouched"
 }
 
-test test_archive_unpack_cleans_partial_staging_after_unsafe_member [fs, process, error] { |ctx|
+test test_archive_unpack_cleans_partial_staging_after_unsafe_member { |ctx|
   let src = test.temp_dir(ctx, name: "unsafe-src")?
   fp"${src}/a.txt".write("first")?
   fs.symlink(../outside, fp"${src}/bad")?
@@ -44,7 +44,7 @@ test test_archive_unpack_cleans_partial_staging_after_unsafe_member [fs, process
   assert ! pending.exists()?, "failed extraction must clean its staging directory"
 }
 
-test test_archive_unpack_compress_and_decompress_publish_files [fs, process, error] { |ctx|
+test test_archive_unpack_compress_and_decompress_publish_files { |ctx|
   let source = test.temp_file(ctx, name: "compress.txt", contents: b"round trip")?
   run.text "xsh" "showcase/archive-unpack.xsh" -- --compress $source --dry-run=false ?
   let compressed = fp"${source}.gz"
@@ -55,7 +55,7 @@ test test_archive_unpack_compress_and_decompress_publish_files [fs, process, err
   ! fp"${restored.parent}/.${restored.name()}.xsh-stage".exists()?
 }
 
-test test_archive_unpack_cancellation_during_compression_cleans_staging [fs, process, time, error] { |ctx|
+test test_archive_unpack_cancellation_during_compression_cleans_staging { |ctx|
   let source = test.temp_path(ctx, name: "compress-fifo")
   fs.mkfifo(source, 0o600)?
   let dest = fp"${source}.gz"

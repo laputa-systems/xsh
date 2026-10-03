@@ -6,7 +6,7 @@ pure spread_map_default(options: Map[Int] = {}, count = 3) -> Int { options.len(
 pure spread_label(first: Int, label: Str? = "default") -> Str? { let _ = first; label }
 pure spread_rest(first: Int, ...items: List[Int]) -> List[Int] { [first, @items] }
 
-test test_named_argument_spreads_use_visible_fields_and_constructor_defaults [error] {
+test test_named_argument_spreads_use_visible_fields_and_constructor_defaults {
   let options = {first: 2, second: 3}
   (spread_sum(...options)) == (5)
   (spread_sum(...{first: 4})) == (24)
@@ -26,7 +26,7 @@ test test_named_argument_spreads_use_visible_fields_and_constructor_defaults [er
   (spread_label(...{first: 1, label: null})) == (null)
 }
 
-test test_named_argument_spreads_evaluate_entries_once_in_source_order [error] { |ctx|
+test test_named_argument_spreads_evaluate_entries_once_in_source_order { |ctx|
   let executed = test.run_script(ctx, r"""type Pair = {first: Int, second: Int}
 proc options() -> Pair {
   print spread
@@ -47,7 +47,7 @@ print ${sum(third: marked(7), ...options())}
   (executed.stdout) == ("7\nspread\n12\n")
 }
 
-test test_named_argument_spreads_keep_defaults_in_the_declaration_environment [error] { |ctx|
+test test_named_argument_spreads_keep_defaults_in_the_declaration_environment { |ctx|
   let output = test.run_script(ctx, r"""type Third = {third: Int}
 const lexical = 4
 pure total(left: Int = lexical, right: Int = 2, third: Int = 3) -> Int { left + right + third }
@@ -64,7 +64,7 @@ print ${caller()}
   output.stdout == "7\nspread\n20\n"
 }
 
-test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes [error] { |ctx|
+test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes { |ctx|
   for source in [
     "pure f(first: Int) -> Int { first }\nf(...{other: 2})\n",
     "pure f(first: Int) -> Int { first }\nf(first: 1, ...{first: 2})\n",
@@ -88,7 +88,7 @@ test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes [er
   }
 }
 
-test test_named_argument_spreads_support_modules_methods_and_rest [error] {
+test test_named_argument_spreads_support_modules_methods_and_rest {
   ("abc".replace(...{from: "b", to: "X"})) == ("aXc")
   (shlex.join(...{argv: ["a", "b"]})) == ("a b")
   (spread_rest(...{first: 1}, 2, 3)) == ([1, 2, 3])
@@ -96,7 +96,7 @@ test test_named_argument_spreads_support_modules_methods_and_rest [error] {
   (spread_rest(...{first: 1}, @tail)) == ([1, 2, 3])
 }
 
-test test_named_argument_spreads_project_before_later_mutation [error] {
+test test_named_argument_spreads_project_before_later_mutation {
   var options = {first: 1}
   let total = spread_sum(...options, second: if true {
     let next = 2
@@ -107,7 +107,7 @@ test test_named_argument_spreads_project_before_later_mutation [error] {
   (options.first) == (99)
 }
 
-test test_named_argument_spreads_evaluate_receiver_first_and_stop_on_failure [error] { |ctx|
+test test_named_argument_spreads_evaluate_receiver_first_and_stop_on_failure { |ctx|
   let ordered = test.run_script(ctx, r"""type ReplaceOptions = {from: Str, to: Str}
 proc receiver() -> Str { print receiver; return "abc" }
 proc options() -> ReplaceOptions { print options; return ReplaceOptions(from: "b", to: "X") }
@@ -139,7 +139,7 @@ print ${total(...(options()?), third: later())}
 }
 
 error SpreadPayload = Bad(message: Str, code: Int)
-test test_named_argument_spreads_support_static_error_payloads [error] {
+test test_named_argument_spreads_support_static_error_payloads {
   let failure = SpreadPayload.Bad(...{code: 3, message: "supplied"})
   if let SpreadPayload.Bad {code, message} = failure {
     code == 3
@@ -152,7 +152,7 @@ test test_named_argument_spreads_support_static_error_payloads [error] {
 type SpreadModule = module {
   export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int
 }
-test test_named_argument_spreads_bind_checked_loaded_module_contracts [fs, error] { |ctx|
+test test_named_argument_spreads_bind_checked_loaded_module_contracts { |ctx|
   let root = test.temp_dir(ctx, name: "named-spread-module")?
   let source_path = fp"${root}/math.xsh"
   source_path.write("""##! Checked static argument fixture.
@@ -163,7 +163,7 @@ export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int { first 
   (loaded.total(...{first: 1, third: 3})) == (24)
 }
 
-test test_named_argument_spreads_native_method_signatures [error] {
+test test_named_argument_spreads_native_method_signatures {
   ("alphabet".starts_with(...{prefix: "alpha"})) == (true)
   ("alphabet".ends_with(...{suffix: "bet"})) == (true)
   ("alphabet".find(...{needle: "pha"})) == (2)
@@ -171,7 +171,7 @@ test test_named_argument_spreads_native_method_signatures [error] {
   (failure is Err(_)) == (true)
 }
 
-test test_named_argument_spreads_preserve_native_omitted_slots [fs, error] { |ctx|
+test test_named_argument_spreads_preserve_native_omitted_slots { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"${root}/payload.txt"
   let compressed = fp"${root}/payload.gz"

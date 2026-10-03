@@ -1,4 +1,4 @@
-test test_io_stdin_text_line_bytes_and_stdout [fs, process, error] { |ctx|
+test test_io_stdin_text_line_bytes_and_stdout { |ctx|
   let text_script = test.temp_file(
     ctx,
     name: "io-text.xsh",

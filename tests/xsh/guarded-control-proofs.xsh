@@ -1,4 +1,4 @@
-test guarded_return_preserves_the_reaching_branch_proof [fs, process, error] { |ctx|
+test guarded_return_preserves_the_reaching_branch_proof { |ctx|
   let before = r"""pure read(raw: Str?) -> Str {
   if raw == null { return "missing" }
   let selected: Str = raw
@@ -27,7 +27,7 @@ print ${read(" ready ")}
   }
 }
 
-test guarded_return_preserves_boolean_alias_and_unless_proofs [fs, process, error] { |ctx|
+test guarded_return_preserves_boolean_alias_and_unless_proofs { |ctx|
   let source = r"""type Item = {raw: Str?}
 pure read(item: Item) -> Str {
   let available = item.raw != null
@@ -49,7 +49,7 @@ print ${read({raw: " ready "})}
   output == "missing\nready\n"
 }
 
-test guarded_loop_exits_preserve_only_the_reaching_iteration_proof [fs, process, error] { |ctx|
+test guarded_loop_exits_preserve_only_the_reaching_iteration_proof { |ctx|
   let source = r"""let continued: List[Str?] = [null, " first ", " last "]
 for raw in continued {
   continue when raw == null
@@ -73,7 +73,7 @@ for raw in stopped {
   output == "first\nlast\nfirst\n"
 }
 
-test guarded_yield_and_invalid_targets_do_not_establish_continuation_proofs [fs, process, error] { |ctx|
+test guarded_yield_and_invalid_targets_do_not_establish_continuation_proofs { |ctx|
   for source in [
     "stream values(raw: Str?) [] -> Stream[Str] { yield \"missing\" when raw == null; yield raw }\n",
     "let raw: Str? = null\nreturn \"missing\" when raw == null\nlet selected: Str = raw\n",
@@ -89,7 +89,7 @@ test guarded_yield_and_invalid_targets_do_not_establish_continuation_proofs [fs,
   }
 }
 
-test guarded_return_keeps_the_continuation_binding_after_exiting_mutation [fs, process, error] { |ctx|
+test guarded_return_keeps_the_continuation_binding_after_exiting_mutation { |ctx|
   let source = r"""var raw: Str? = " ready "
 proc mutate() [] -> Str { raw = null; "changed" }
 proc read() [] -> Str {

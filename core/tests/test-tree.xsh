@@ -1,4 +1,4 @@
-test test_tree_renders_sorted_branches_and_symlinks [fs, process, env, error] { |ctx|
+test test_tree_renders_sorted_branches_and_symlinks { |ctx|
   let root = test.temp_dir(ctx, name: "tree")?
   fp"${root}/dir".mkdir()?
   fp"${root}/dir/file.txt".write("ok")?
@@ -25,7 +25,7 @@ test test_tree_renders_sorted_branches_and_symlinks [fs, process, env, error] { 
   ! ("file.txt" in shallow)
 }
 
-test test_tree_supports_multiple_roots_and_rejects_flags [fs, process, env, error] { |ctx|
+test test_tree_supports_multiple_roots_and_rejects_flags { |ctx|
   let left = test.temp_dir(ctx, name: "tree-left")?
   let right = test.temp_dir(ctx, name: "tree-right")?
   fp"${left}/a".write("a")?

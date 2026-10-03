@@ -1,4 +1,4 @@
-test test_du [fs, process, env, error] { |ctx|
+test test_du { |ctx|
   let target = test.temp_file(ctx, name: "du.txt", contents: b"abcdef")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/du.xsh" -- $target ?
   "du.txt" in output
@@ -8,7 +8,7 @@ test test_du [fs, process, env, error] { |ctx|
   "K" in human
 }
 
-test test_du_recursive_all_and_total [fs, process, env, error] { |ctx|
+test test_du_recursive_all_and_total { |ctx|
   let root = test.temp_dir(ctx, name: "du-tree")?
   fp"${root}/a.txt".write("aaa")?
   fs.mkdir(fp"${root}/sub")?

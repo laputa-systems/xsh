@@ -1,4 +1,4 @@
-test test_bare_blocks_preserve_values_and_cleanup [error] { |ctx|
+test test_bare_blocks_preserve_values_and_cleanup { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 var count = 0
 {
@@ -19,7 +19,7 @@ print \${answer} \${negative} \${grouped} \${shorthand.answer}
   output.stdout == "statement cleanup\nvalue cleanup\n42 false 42 42\n"
 }
 
-test test_bare_statement_blocks_assert_false [error] { |ctx|
+test test_bare_statement_blocks_assert_false { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 {
   defer mark("cleanup")
@@ -38,11 +38,11 @@ pure lexical_tail() -> Bool {
   { false }
 }
 
-test test_bare_value_tail_preserves_false [error] {
+test test_bare_value_tail_preserves_false {
   ! lexical_tail()
 }
 
-test test_bare_blocks_preserve_lexical_transfers [error] { |ctx|
+test test_bare_blocks_preserve_lexical_transfers { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 proc answer() [error] -> Int {
   {
@@ -69,7 +69,7 @@ visit()
   output.stdout == "return cleanup\n7\n1\nloop cleanup\nloop cleanup\nloop cleanup\n"
 }
 
-test test_bare_blocks_preserve_literal_and_callable_tails [error] { |ctx|
+test test_bare_blocks_preserve_literal_and_callable_tails { |ctx|
   let output = test.run_script(ctx, r"""
 pure calculated() -> Int { 9 }
 type Row = {value: Int}
@@ -88,7 +88,7 @@ print ${empty.len()} ${named.if} ${updated.get("next")?} ${called} ${selected.va
   output.stdout == "0 1 4 9 5 6 3\n"
 }
 
-test test_bare_blocks_keep_checker_and_result_boundaries [error] { |ctx|
+test test_bare_blocks_keep_checker_and_result_boundaries { |ctx|
   for source in [
     "{ let hidden = 1 }\nprint $hidden\n",
     "let value = { |input| input }\n",
@@ -114,7 +114,7 @@ print ${data ?? {|failure| failure.message}}
   output.stdout == "identity\ndata\n"
 }
 
-test test_bare_blocks_run_cleanup_before_exposing_values [error] { |ctx|
+test test_bare_blocks_run_cleanup_before_exposing_values { |ctx|
   let output = test.run_script(ctx, r"""
 proc mark(message: Str) [] { print $message }
 error BlockError = Failed(message: Str)
@@ -133,7 +133,7 @@ print ${primary ?? {|failure| failure.message}}
   "assertion" in output.stdout
 }
 
-test test_lexical_block_lint_preserves_scope_comments_and_converges [fs, process, error] { |ctx|
+test test_lexical_block_lint_preserves_scope_comments_and_converges { |ctx|
   let source = r"""proc mark(message: Str) [] { print $message }
 var selected = 0
 if true { # Keep the scope rationale.
@@ -168,7 +168,7 @@ print $selected
   candidate.read_text()? == fixed
 }
 
-test test_lexical_block_lint_declines_changed_value_and_comment_boundaries [fs, process, error] { |ctx|
+test test_lexical_block_lint_declines_changed_value_and_comment_boundaries { |ctx|
   for source in [
     "if true # condition rationale\n{ let value = 1; print $value }\n",
     "if true { print yes } else { print no }\n",
@@ -186,7 +186,7 @@ test test_lexical_block_lint_declines_changed_value_and_comment_boundaries [fs, 
   }
 }
 
-test test_bare_blocks_preserve_stream_cancellation_cleanup [error] { |ctx|
+test test_bare_blocks_preserve_stream_cancellation_cleanup { |ctx|
   let output = test.run_script(ctx, r"""
 stream values() [] -> Stream[Int] {
   defer { print outer }
@@ -204,7 +204,7 @@ print done
   output.stdout == "1\ninner\nouter\ndone\n"
 }
 
-test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions [fs, error] { |ctx|
+test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions { |ctx|
   let root = test.temp_dir(ctx, name: "lexical-module")?
   let module_path = fp"${root}/invalid.xsh"
   module_path.write("##! Invalid executable module.\n{ print forbidden }\n## Exported name.\nexport let name = \"invalid\"\n")?
@@ -238,7 +238,7 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions [fs, erro
   assert status == expected_status, status_details
 }
 
-test test_bare_statement_discard_preserves_callable_return_contracts [error] { |ctx|
+test test_bare_statement_discard_preserves_callable_return_contracts { |ctx|
   for source in [
     "pure value() -> Unit { 7 }\n",
     "pure value() -> Unit { { 7 } }\n",
@@ -257,7 +257,7 @@ test test_bare_statement_discard_preserves_callable_return_contracts [error] { |
   written == "retained\n"
 }
 
-test test_bare_block_resource_escape_keeps_explicit_cleanup_validity [error] { |ctx|
+test test_bare_block_resource_escape_keeps_explicit_cleanup_validity { |ctx|
   let output = test.run_script(ctx, r"""
 let live = { fs.tempdir()? }
 print ${live.exists(p".")?}
@@ -275,7 +275,7 @@ print ${inspected ?? false}
   output.stdout == "true\nfalse\n"
 }
 
-test test_bare_block_grep_and_refactor_preserve_literal_distinctions [fs, process, error] { |ctx|
+test test_bare_block_grep_and_refactor_preserve_literal_distinctions { |ctx|
   let reference = run.capture --text "xsht" api "language:core.bare-blocks" ?
   let reference_succeeded = reference.status.exited_with(0)
   let reference_failure_details = reference.stderr
@@ -311,7 +311,7 @@ print $answer ${row.answer}
   checked.stdout == "9 9\n"
 }
 
-test test_bare_blocks_preserve_implicit_stream_item_values [error] { |ctx|
+test test_bare_blocks_preserve_implicit_stream_item_values { |ctx|
   let output = test.run_script(ctx, r"""
 let selected = [{value: 7}] |> map { { .value } }
 print ${selected[0]}

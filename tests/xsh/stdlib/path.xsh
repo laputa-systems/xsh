@@ -1,9 +1,9 @@
-test test_path_absolute [fs, error] {
+test test_path_absolute {
   let absolute = path.absolute(p"docs")?
   absolute.display().ends_with("/docs")
 }
 
-test test_membership_operator_supports_strings_lists_bytes_and_paths [error] {
+test test_membership_operator_supports_strings_lists_bytes_and_paths {
   ("lib" in "usr/lib/libz.so")
   ("libz.so" in ["libz.so", "libc.so"])
   (b"TODO" in b"one TODO two")
@@ -11,7 +11,7 @@ test test_membership_operator_supports_strings_lists_bytes_and_paths [error] {
   (p"bin" in p"usr/lib/libz.so") == false
 }
 
-test test_path_methods [fs, error] { |ctx|
+test test_path_methods { |ctx|
   let root = test.temp_dir(ctx, name: "path-methods")?
   let file = fp"${root}/dir/file.txt"
   file.parent().mkdir()?
@@ -70,7 +70,7 @@ test test_path_methods [fs, error] { |ctx|
   Path.parse_bytes(b"byte/path")?.display() == "byte/path"
 }
 
-test test_path_edge_cases_and_standard_record_schema [fs, process, error] { |ctx|
+test test_path_edge_cases_and_standard_record_schema { |ctx|
   let root = test.temp_dir(ctx, name: "path-edge")?
   let spaced = fp"${root}/space name"
 
@@ -108,7 +108,7 @@ pure path_entry_name(entry: FsEntry) -> Str {
   entry.name
 }
 
-test test_absolute_glob_traverses_symlinked_literal_components [fs, error] { |ctx|
+test test_absolute_glob_traverses_symlinked_literal_components { |ctx|
   let root = test.temp_dir(ctx, name: "absolute-glob-symlink")?
   let real = fp"${root}/real"
   let link = fp"${root}/link"
@@ -133,7 +133,7 @@ print \${files[0]}
 """
 }
 
-test test_path_interpolation_retains_native_bytes_and_text_boundaries [error] { |ctx|
+test test_path_interpolation_retains_native_bytes_and_text_boundaries { |ctx|
   let raw = Path.parse_bytes(b"raw\xff name")?
   fp"prefix/${raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?
   fp"${p"left"}/${"right"}/${7}/${false}" == p"left/right/7/false"
@@ -151,7 +151,7 @@ run printf "%s" "--target=$raw" ?
   output.stdout_bytes == b"--target=raw\xff name/'\""
 }
 
-test test_path_text_conversions_remain_distinct_from_native_arguments [error] { |ctx|
+test test_path_text_conversions_remain_distinct_from_native_arguments { |ctx|
   let output = test.run_script(ctx, r"""
 let raw = Path.parse_bytes(b"raw\xff name")?
 run printf "%s\n" "--target=${raw.display()}" ?
@@ -165,7 +165,7 @@ run printf "%s\n" (raw) ?
   output.stdout_bytes == b"--target=raw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name/child\nraw\xff name\n"
 }
 
-test test_path_interpolation_rejects_nul_and_keeps_effect_order [error] { |ctx|
+test test_path_interpolation_rejects_nul_and_keeps_effect_order { |ctx|
   let failed = test.run_script(ctx, r"""
 let text = "\0"
 let invalid = fp"prefix/${text}"

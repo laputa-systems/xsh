@@ -1,4 +1,4 @@
-test test_predicate_stages_require_direct_bool_callbacks [error] { |ctx|
+test test_predicate_stages_require_direct_bool_callbacks { |ctx|
   for stage in ["where", "any", "all"] {
     let rejected = test.run_script(ctx, "let value = [1, 2] |> " + stage + " { |item| Ok(item > 0) }\n")?
     {
@@ -20,7 +20,7 @@ test test_predicate_stages_require_direct_bool_callbacks [error] { |ctx|
   }
 }
 
-test test_predicate_callable_requires_direct_bool_return [error] { |ctx|
+test test_predicate_callable_requires_direct_bool_return { |ctx|
   let output = test.run_script(ctx, r"""pure keep(item: Int) -> Result[Bool] { Ok(item > 0) }
 let values = [1, 2] |> where(keep)
 """)?
@@ -36,7 +36,7 @@ let values = [1, 2] |> where(keep)
   }
 }
 
-test test_count_and_sort_by_require_direct_supported_keys [error] { |ctx|
+test test_count_and_sort_by_require_direct_supported_keys { |ctx|
   let counted = test.run_script(ctx, r"""let counts = [1, 2] |> count { |item| Ok(item) }
 """)?
   {
@@ -72,7 +72,7 @@ print ${counts.get("1")?} ${values[0]}
   (accepted.stdout) == ("2 1\n")
 }
 
-test test_map_and_par_map_preserve_complete_result_values [error] { |ctx|
+test test_map_and_par_map_preserve_complete_result_values { |ctx|
   for stage in ["map", "par-map(jobs: 1)", "par-map(jobs: 2)"] {
     let source = r"""error ItemError = Stop(item: Int)
 pure classify(item: Int) -> Result[Int, ItemError] {
@@ -90,7 +90,7 @@ print ${values.len()} ${values[0] is Ok(1)} ${values[1] is Err(ItemError.Stop {i
   }
 }
 
-test test_group_by_and_unique_by_preserve_result_keys_as_data [error] { |ctx|
+test test_group_by_and_unique_by_preserve_result_keys_as_data { |ctx|
   let output = test.run_script(ctx, r"""error KeyError = Missing(code: Int)
 pure key(item: Int) -> Result[Int, KeyError] {
   if item == 2 { Err(KeyError.Missing(code: 7)) } else { item % 2 }
@@ -106,7 +106,7 @@ print ${groups[0].key is Ok(1)} ${groups[0].items.len()} ${groups[1].key is Err(
   (output.stdout) == ("true 2 true 2\n")
 }
 
-test test_flat_map_preserves_existing_result_collection_boundary [error] { |ctx|
+test test_flat_map_preserves_existing_result_collection_boundary { |ctx|
   let accepted = test.run_script(ctx, r"""let values = [1, 2] |> flat-map { |item| Ok([item, item]) }
 print ${values.len()} ${values[0]} ${values[3]}
 """)?
@@ -133,7 +133,7 @@ let values = [1, 2, 3] |> flat-map { |item| expand(item) }
   }
 }
 
-test test_par_map_explicit_callback_propagation_retains_nominal_error [error] { |ctx|
+test test_par_map_explicit_callback_propagation_retains_nominal_error { |ctx|
   for jobs in ["1", "2"] {
     let source = r"""error ItemError = Stop(item: Int)
 pure classify(item: Int) -> Result[Int, ItemError] {
@@ -151,7 +151,7 @@ print ${outcome is Err(ItemError.Stop {item: 2})}
   }
 }
 
-test test_par_map_result_data_retains_materialization_and_cleanup_order [error] { |ctx|
+test test_par_map_result_data_retains_materialization_and_cleanup_order { |ctx|
   let output = test.run_script(ctx, r"""error ItemError = Stop(item: Int)
 stream numbers() [io] -> Stream[Int] {
   defer { print "source closed" }
@@ -172,7 +172,7 @@ print ${values[1] is Err(ItemError.Stop {item: 2})}
   (output.stdout) == ("pull 1\npull 2\npull 3\nsource closed\ncallback 1\ncallback closed 1\ncallback 2\ncallback closed 2\ncallback 3\ncallback closed 3\ntrue\n")
 }
 
-test test_par_map_runtime_faults_remain_outside_local_capture [error] { |ctx|
+test test_par_map_runtime_faults_remain_outside_local_capture { |ctx|
   for jobs in ["1", "2"] {
     let source = "let captured = try { [1, 2, 3] |> par-map(jobs: " + jobs + ") { |item| 10 / (item - 2) } }\nprint \"captured\"\n"
     let output = test.run_script(ctx, source)?

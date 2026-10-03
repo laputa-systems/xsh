@@ -33,7 +33,7 @@ ${body}
   fs.chmod(tool_path, 0o755)?
 }
 
-test test_build_failure_stops_at_the_cargo_boundary [fs, env, error] { |ctx|
+test test_build_failure_stops_at_the_cargo_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "build-failure")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -72,7 +72,7 @@ match build.build(ctx) {
   cargo_marker.exists()?
 }
 
-test test_check_lint_runs_only_the_read_only_performance_gate [fs, error] { |ctx|
+test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
   let root = test.temp_dir(ctx, name: "check-lint")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -106,7 +106,7 @@ match build.check_lint(ctx) {
   cargo_marker.read_text()? == "test|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
-test test_lint_fix_rebuilds_the_debug_xsh_binary [fs, error] { |ctx|
+test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
   let root = test.temp_dir(ctx, name: "lint-build-xsh")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -150,7 +150,7 @@ ${result.stderr}"""
   assert "--bin|xsh" in xsh_arguments, xsh_diagnostic
 }
 
-test test_docker_container_failure_runs_target_ownership_cleanup [fs, error] { |ctx|
+test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
   let root = test.temp_dir(ctx, name: "container-cleanup")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -194,7 +194,7 @@ match internal.linux_ci_test(ctx) {
   cleanup_marker.exists()?
 }
 
-test test_docker_image_and_container_failures_are_staged [fs, error] { |ctx|
+test test_docker_image_and_container_failures_are_staged { |ctx|
   let root = test.temp_dir(ctx, name: "docker-failures")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -233,7 +233,7 @@ match docker.run_internal(ctx, "dist", false, []) {
   "run" in docker_marker.read_text()?
 }
 
-test test_docker_image_build_failure_prevents_the_container_stage [fs, error] { |ctx|
+test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
   let root = test.temp_dir(ctx, name: "docker-image-failure")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -268,7 +268,7 @@ match docker.run_internal(ctx, "dist", false, []) {
   "build" in docker_marker.read_text()?
 }
 
-test test_trace_keeps_process_status_for_a_failed_child [error] { |ctx|
+test test_trace_keeps_process_status_for_a_failed_child { |ctx|
   let traced = test.run_xsht_trace(
     ctx,
     """
@@ -282,7 +282,7 @@ run.status false
   "status={kind:exit success:false code:1}" in traced.stderr
 }
 
-test test_make_facade_only_delegates_to_the_development_entrypoint [fs, error] {
+test test_make_facade_only_delegates_to_the_development_entrypoint {
   let facade = p"Makefile".read_text()?
 
   for command in [
@@ -303,7 +303,7 @@ test test_make_facade_only_delegates_to_the_development_entrypoint [fs, error] {
   }
 }
 
-test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary [fs, process, error] { |ctx|
+test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx|
   match process.which("make") {
     Err(_) => {
       test.skip("requires make executable")
@@ -347,7 +347,7 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary [fs, p
 """
 }
 
-test test_codesign_failure_stops_darwin_installation [fs, error] { |ctx|
+test test_codesign_failure_stops_darwin_installation { |ctx|
   let root = test.temp_dir(ctx, name: "codesign-failure")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -400,7 +400,7 @@ match install.darwin(ctx) {
   assert "build-std" in cargo_arguments, cargo_diagnostic
 }
 
-test test_darwin_install_rejects_linux_target_before_building [fs, error] { |ctx|
+test test_darwin_install_rejects_linux_target_before_building { |ctx|
   let root = test.temp_dir(ctx, name: "darwin-rejects-linux")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -448,7 +448,7 @@ match install.darwin(ctx) {
   assert ! cargo_marker.exists()?, "darwin install with a Linux target must fail before cargo"
 }
 
-test test_linux_install_requires_native_musl_target [fs, error] { |ctx|
+test test_linux_install_requires_native_musl_target { |ctx|
   let root = test.temp_dir(ctx, name: "linux-requires-native")?
   let tools = fp"${root}/tools"
   tools.mkdir()?

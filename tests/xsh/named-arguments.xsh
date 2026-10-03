@@ -2,7 +2,7 @@ pure named_argument_values(first: Int, second: Int, third = 30) -> List[Int] {
   [first, second, third]
 }
 
-test test_named_argument_puns_use_lexical_values [error] {
+test test_named_argument_puns_use_lexical_values {
   let first = 10
   let second = 20
   let third = 40
@@ -15,7 +15,7 @@ test test_named_argument_puns_use_lexical_values [error] {
     )) == ([10, 21, 40])
 }
 
-test test_named_argument_puns_preserve_source_order_and_effects [error] { |ctx|
+test test_named_argument_puns_preserve_source_order_and_effects { |ctx|
   let executed = test.run_script(
     ctx,
     """proc marked(label: Str, value: Int) -> Int {
@@ -39,7 +39,7 @@ print $result
   (executed.stdout) == ("first\nthird\n60\n")
 }
 
-test test_named_argument_puns_keep_resolution_and_call_errors [error] { |ctx|
+test test_named_argument_puns_keep_resolution_and_call_errors { |ctx|
   let missing = test.run_script(
     ctx,
     """pure accept(value: Int) -> Int { value }
@@ -89,7 +89,7 @@ print $result
   ("Str" in wrong_type.stderr)
 }
 
-test test_named_argument_puns_apply_to_module_and_method_calls [fs, error] { |ctx|
+test test_named_argument_puns_apply_to_module_and_method_calls { |ctx|
   let name = "punned-temp.xsh"
   let contents = b"punning"
   let candidate = test.temp_file(ctx, name:, contents:)?
@@ -102,7 +102,7 @@ b"abcde".slice(offset:, length:) == b"bcd"
   assert method_success, method_message
 }
 
-test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent [fs, process, error] { |ctx|
+test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent { |ctx|
   let source = p"tests/fixtures/syntax/valid/named-argument-pun-explicit.xsh".read_text()?
   let before = test.run_script(ctx, source)?
   {
@@ -141,7 +141,7 @@ test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent [fs, p
   }
 }
 
-test test_named_argument_pun_fixes_shared_import_once [fs, process, error] { |ctx|
+test test_named_argument_pun_fixes_shared_import_once { |ctx|
   let root = test.temp_dir(ctx, name: "named-pun-shared")?
   let helper = fp"${root}/helper.xsh"
   helper.write_atomic(p"tests/fixtures/syntax/valid/named-argument-pun-module.xsh".read_text()?)?

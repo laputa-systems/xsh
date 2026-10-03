@@ -1,4 +1,4 @@
-test test_builtin_templates_keep_positional_defaults_errors_and_value_semantics [error] { |ctx|
+test test_builtin_templates_keep_positional_defaults_errors_and_value_semantics { |ctx|
   let output = test.run_script(ctx, r"""
 proc main() [error] {
   let words = ["one", "two"]
@@ -23,7 +23,7 @@ proc main() [error] {
   output.stdout == "onetwo\none:two\n7\ntrue\ntrue\n0\n9\ntwo\none:two\n0\n"
 }
 
-test test_builtin_templates_preserve_nested_values_across_call_spellings [error] { |ctx|
+test test_builtin_templates_preserve_nested_values_across_call_spellings { |ctx|
   let output = test.run_script(ctx, r"""
 error NestedError = Missing(code: Int)
 pure wrap(value: Int) -> Result[List[Int], NestedError] { return [value] }
@@ -50,7 +50,7 @@ proc main() [error] {
   output.stdout == "7\n7\n7\n3\n9\n2\none,two\n"
 }
 
-test test_builtin_templates_evaluate_named_arguments_in_source_order [error] { |ctx|
+test test_builtin_templates_evaluate_named_arguments_in_source_order { |ctx|
   let output = test.run_script(ctx, r"""
 proc key() [] -> Str { print "key"; return "two" }
 proc value() [] -> Int { print "value"; return 2 }
@@ -69,7 +69,7 @@ proc main() [] {
   output.stdout == "receiver\nvalue\nkey\n2\nfalse\ntrue\n"
 }
 
-test test_builtin_templates_reject_incompatible_concrete_operands [error] { |ctx|
+test test_builtin_templates_reject_incompatible_concrete_operands { |ctx|
   for source in [
     r"""let values: List[Int] = [1]; let _ = values.push("bad")""",
     r"""let values: List[Int] = [1]; let _ = (values.get(9) ?? "bad")""",
@@ -87,7 +87,7 @@ test test_builtin_templates_reject_incompatible_concrete_operands [error] { |ctx
   }
 }
 
-test test_builtin_templates_instantiate_empty_maps_from_independent_contexts [error] { |ctx|
+test test_builtin_templates_instantiate_empty_maps_from_independent_contexts { |ctx|
   let output = test.run_script(ctx, r"""
 proc discard() [] -> Unit { let _ = map.empty(); map.empty() }
 proc main() [error] {
@@ -107,7 +107,7 @@ proc main() [error] {
   output.stdout == "0\n7\ntwo\n0\n"
 }
 
-test test_builtin_templates_keep_result_return_contracts_under_success_contexts [error] { |ctx|
+test test_builtin_templates_keep_result_return_contracts_under_success_contexts { |ctx|
   let output = test.run_script(ctx, r"""
 pure parsed_tail(value: Str) -> Result[Int] { value.parse_int() }
 pure parsed_return(value: Str) -> Result[Int] { return value.parse_int() }
@@ -127,7 +127,7 @@ proc main() [error] {
   assert "check.type-mismatch" in invalid.stderr, invalid.stderr
 }
 
-test test_builtin_templates_match_materialized_line_and_collection_values [error] { |ctx|
+test test_builtin_templates_match_materialized_line_and_collection_values { |ctx|
   let output = test.run_script(ctx, r"""
 pure text_lines(value: Str) -> Int {
   let lines: List[Str] = value.lines()
@@ -153,7 +153,7 @@ proc main() [] {
   output.stdout == "2\n1\n3\n1\n"
 }
 
-test test_builtin_templates_do_not_certify_dynamic_receiver_domains [fs, process, error] { |ctx|
+test test_builtin_templates_do_not_certify_dynamic_receiver_domains { |ctx|
   for source in [
     r"""let values: List[Any] = [1]; let selected: Result[Int] = values.get(0)""",
     r"""let values: Map[Str, Any] = {one: 1}; let selected: Result[Int] = values.get("one")""",
@@ -165,7 +165,7 @@ test test_builtin_templates_do_not_certify_dynamic_receiver_domains [fs, process
   }
 }
 
-test test_builtin_templates_carry_typed_map_key_and_value_parameters [error] { |ctx|
+test test_builtin_templates_carry_typed_map_key_and_value_parameters { |ctx|
   let declaration = "let table: Map[Int, Str] = {[1]: \"one\"}\n"
   let accepted = test.run_script(ctx, declaration + r"""let keys: List[Int] = table.keys()
 let values: List[Str] = table.values()

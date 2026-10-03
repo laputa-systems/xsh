@@ -3,7 +3,7 @@ type ConstructorConfig = {name: Str, enabled: Bool = true, names: List[Str] = re
 type ConstructorAlias = ConstructorConfig
 pure constructor_config(name: Str) -> ConstructorConfig { ConstructorConfig(name:) }
 
-test test_record_constructors_defaults_aliases_and_puns [error] {
+test test_record_constructors_defaults_aliases_and_puns {
   let name = "demo"
   let config = ConstructorAlias(name:)
   (constructor_config("pure").name) == ("pure")
@@ -22,7 +22,7 @@ test test_record_constructors_defaults_aliases_and_puns [error] {
   (record_default_names) == (["initial"])
 }
 
-test test_record_constructors_evaluate_supplied_arguments_in_source_order [error] { |ctx|
+test test_record_constructors_evaluate_supplied_arguments_in_source_order { |ctx|
   let executed = test.run_script(ctx, r"""type Pair = {first: Int = 0, second: Int = 0}
 proc marked(value: Int) -> Int {
   print $value
@@ -39,7 +39,7 @@ print $pair.second
   (executed.stdout) == ("2\n1\n1\n2\n")
 }
 
-test test_record_constructors_reject_invalid_calls_and_defaults [error] { |ctx|
+test test_record_constructors_reject_invalid_calls_and_defaults { |ctx|
   for source in [
     "type Config = {name: Str}\nlet config = Config()\n",
     "type Config = {name: Str}\nlet config = Config(\"demo\")\n",
@@ -76,7 +76,7 @@ test test_record_constructors_reject_invalid_calls_and_defaults [error] { |ctx|
   }
 }
 
-test test_record_constructors_resolve_defaults_in_defining_module [fs, error] { |ctx|
+test test_record_constructors_resolve_defaults_in_defining_module { |ctx|
   let root = test.temp_dir(ctx, name: "record-constructor-module")?
   fp"${root}/config.xsh".write_atomic("""##! Constructor defaults and aliases.
 let name = "module"
@@ -120,7 +120,7 @@ print $third.name
   (executed.stdout) == ("OTHER\n5\nMODULE\nMODULE\nmodule\nREQUIRED\n9\nmodule\nmodule\nmodule\n")
 }
 
-test test_record_constructor_defaults_do_not_change_require_or_json_validation [error] { |ctx|
+test test_record_constructor_defaults_do_not_change_require_or_json_validation { |ctx|
   let executed = test.run_script(ctx, r"""type Config = {name: Str = "demo"}
 let raw: Record = {}
 match raw.require(Config) {
@@ -140,7 +140,7 @@ match decoded.require(Config) {
   (executed.stdout) == ("missing-record\nmissing-json\n")
 }
 
-test test_record_constructor_tooling_preserves_behavior_and_converges [fs, process, error] { |ctx|
+test test_record_constructor_tooling_preserves_behavior_and_converges { |ctx|
   let source = p"tests/fixtures/syntax/valid/record-constructor-explicit.xsh".read_text()?
   let before = test.run_script(ctx, source)?
   {
@@ -173,7 +173,7 @@ test test_record_constructor_tooling_preserves_behavior_and_converges [fs, proce
   (candidate.read_text()?) == (fixed)
 }
 
-test test_record_constructors_bound_scalar_defaults_and_static_identity [error] { |ctx|
+test test_record_constructors_bound_scalar_defaults_and_static_identity { |ctx|
   let accepted = test.run_script(ctx, r"""let base_path: Path = p"base"
 type Paths = {root: Path = base_path}
 print ${Paths().root.display()}

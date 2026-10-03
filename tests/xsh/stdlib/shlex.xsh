@@ -1,4 +1,4 @@
-test test_shlex_quote_and_join [error] {
+test test_shlex_quote_and_join {
   shlex.quote("") == "''"
   shlex.quote("two words") == "'two words'"
   shlex.quote("can't") == "'can'\\''t'"
@@ -7,7 +7,7 @@ test test_shlex_quote_and_join [error] {
 
 # Every case the removed native helper tests covered, plus the byte-class edge
 # cases for the ASCII safe set and non-ASCII input.
-test test_shlex_quote_preserves_safe_set_and_escapes [error] {
+test test_shlex_quote_preserves_safe_set_and_escapes {
   shlex.quote("install") == "install"
   shlex.quote("-m") == "-m"
   shlex.quote("a/b_c-1.2") == "a/b_c-1.2"
@@ -24,7 +24,7 @@ b'"""
   shlex.quote("~") == "'~'"
 }
 
-test test_shlex_join_quotes_each_argument_independently [error] {
+test test_shlex_join_quotes_each_argument_independently {
   shlex.join([]) == ""
   shlex.join([""]) == "''"
   shlex.join(["a", "b"]) == "a b"

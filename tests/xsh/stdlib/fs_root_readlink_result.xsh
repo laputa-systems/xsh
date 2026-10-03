@@ -1,4 +1,4 @@
-test test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure [fs, error] {
+test test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure {
   let root = fs.tempdir()?
   defer root.close()?
   root.mkdir(p"nested", parents: true)?

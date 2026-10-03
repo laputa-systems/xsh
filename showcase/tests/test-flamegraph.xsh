@@ -1,10 +1,10 @@
-test test_flamegraph [process, error] {
+test test_flamegraph {
   let output = run.text "xsh" "showcase/flamegraph.xsh" ?
   "<svg" in output
   "Flamegraph" in output
 }
 
-test test_flamegraph_rejects_non_integer_sample_counts [fs, process, error] { |ctx|
+test test_flamegraph_rejects_non_integer_sample_counts { |ctx|
   for count in ["1.5", "null", "\"wrong\""] {
     let folded = f"""
       script;leaf ${count}

@@ -1,4 +1,4 @@
-test test_cat_file_and_stdin [fs, process, env, error] { |ctx|
+test test_cat_file_and_stdin { |ctx|
   let input = test.temp_file(ctx, name: "input.txt", contents: b"file\n")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/cat.xsh" -- $input ?
 
@@ -12,7 +12,7 @@ test test_cat_file_and_stdin [fs, process, env, error] { |ctx|
 """
 }
 
-test test_cat_preserves_non_utf8_file_and_stdin_bytes [fs, process, env, error] { |ctx|
+test test_cat_preserves_non_utf8_file_and_stdin_bytes { |ctx|
   let input = test.temp_file(ctx, name: "binary.dat", contents: b"\0\xff\n")?
   (run.bytes ${ctx.xsh_bin} fp"${ctx.core_dir}/cat.xsh" -- $input?) == b"\0\xff\n"
   (run.bytes ${ctx.xsh_bin} fp"${ctx.core_dir}/cat.xsh" < ${input}?) == b"\0\xff\n"

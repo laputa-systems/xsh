@@ -5,7 +5,7 @@ type ProjectionPlugin = module {
   export pure increment(value: Int = 1) -> Int
 }
 
-test test_constant_key_projection_module_index_and_callable [fs, error] { |ctx|
+test test_constant_key_projection_module_index_and_callable { |ctx|
   let root = test.temp_dir(ctx, name: "constant-key-projection")?
   let module_path = fp"${root}/plugin.xsh"
   module_path.write("""
@@ -32,7 +32,7 @@ export let maybe: Str? = null
 
 type ProjectionConfig = {workers: Int, value: Str?, if: Bool}
 
-test test_constant_key_projection_nullable_and_keyword_labels [error] {
+test test_constant_key_projection_nullable_and_keyword_labels {
   let config = ProjectionConfig(workers: 4, value: null, if: true)
   const field = "workers"
   let workers = config.get(field)?
@@ -45,7 +45,7 @@ test test_constant_key_projection_nullable_and_keyword_labels [error] {
   test.error_kind(config.get("absent"), "missing-field")?
 }
 
-test test_constant_key_projection_rejects_incompatible_known_field_type [error] { |ctx|
+test test_constant_key_projection_rejects_incompatible_known_field_type { |ctx|
   for source in [
     "const field = \"workers\"\ntype Config = {workers: Int}\nlet config: Config = {workers: 4}\nlet value: Str = config.get(field)?\n",
     "type Config = {workers: Int}\nlet config: Config = {workers: 4}\nlet value: Str = config[\"workers\"]\n",
@@ -56,7 +56,7 @@ test test_constant_key_projection_rejects_incompatible_known_field_type [error] 
   }
 }
 
-test test_constant_key_projection_evaluates_receiver_once [error] { |ctx|
+test test_constant_key_projection_evaluates_receiver_once { |ctx|
   let output = test.run_script(ctx, """
 type Config = {workers: Int}
 proc config() -> Config { print "receiver"; {workers: 4} }
@@ -68,7 +68,7 @@ print (config()[field])
   output.stdout == "receiver\n4\nreceiver\n4\n"
 }
 
-test test_constant_key_projection_imported_const_key [fs, error] { |ctx|
+test test_constant_key_projection_imported_const_key { |ctx|
   let root = test.temp_dir(ctx, name: "imported-projection-key")?
   fp"${root}/keys.xsh".write_atomic(r"""##! Selection keys.
 ## Visible worker field.
@@ -87,7 +87,7 @@ print (config[keys.workers])
 type ProjectionWide = {workers: Int, hidden: Bool}
 type ProjectionVisible = {workers: Int}
 
-test test_constant_key_projection_dynamic_and_hidden_fields_keep_validation [error] {
+test test_constant_key_projection_dynamic_and_hidden_fields_keep_validation {
   let wide = ProjectionWide(workers: 4, hidden: true)
   let visible: ProjectionVisible = wide
   var field = "workers"
@@ -100,7 +100,7 @@ test test_constant_key_projection_dynamic_and_hidden_fields_keep_validation [err
 
 type ProjectionNamedGet = module { export pure get(value: Str) -> Str }
 
-test test_constant_key_projection_keeps_exported_get_function [fs, error] { |ctx|
+test test_constant_key_projection_keeps_exported_get_function { |ctx|
   let root = test.temp_dir(ctx, name: "named-get-export")?
   let module_path = fp"${root}/getter.xsh"
   module_path.write_atomic("""
@@ -114,7 +114,7 @@ export pure get(value: Str) -> Str { f"user:$value" }
   getter.call("workers") == "user:workers"
 }
 
-test test_constant_key_projection_requires_constant_keys_for_field_types [error] { |ctx|
+test test_constant_key_projection_requires_constant_keys_for_field_types { |ctx|
   let declaration = "type Config = {workers: Int}\nlet config: Config = {workers: 4}\n"
   let accepted = test.run_script(ctx, declaration + r"""const field = "workers"
 let fetched: Int = config.get(field)?

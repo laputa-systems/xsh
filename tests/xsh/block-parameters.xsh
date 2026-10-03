@@ -1,4 +1,4 @@
-test test_error_handler_headers_bind_nominal_errors [error] { |ctx|
+test test_error_handler_headers_bind_nominal_errors { |ctx|
   let output = test.run_script(ctx, r"""
 error HeaderError = failed(message: Str)
 pure fail() -> Result[Int, HeaderError] { Err(HeaderError.failed(message: "nominal")) }
@@ -18,7 +18,7 @@ with value = fail() {} else { |failure|
   output.stdout == "nominal\nnominal\n"
 }
 
-test test_with_bindings_are_sequential_and_stop_at_the_first_error [error] { |ctx|
+test test_with_bindings_are_sequential_and_stop_at_the_first_error { |ctx|
   let output = test.run_script(ctx, r"""
 error HeaderError = failed(message: Str)
 proc reached(value: Int) [] -> Result[Int] { print $value; Ok(value) }
@@ -35,7 +35,7 @@ print after
   output.stdout == "1\n2\n2\n3\nstop\nafter\n"
 }
 
-test test_error_headers_accept_comments_newlines_omission_and_discard [error] { |ctx|
+test test_error_headers_accept_comments_newlines_omission_and_discard { |ctx|
   let output = test.run_script(ctx, r"""
 error HeaderError = failed(message: Str)
 pure failed() -> Result[Int, HeaderError] { Err(HeaderError.failed(message: "inside")) }
@@ -54,7 +54,7 @@ print $failure
   output.stdout == "inside\nomitted\ndiscarded\n5\noutside\n"
 }
 
-test test_error_headers_reject_missing_inputs_and_invalid_bindings [error] { |ctx|
+test test_error_headers_reject_missing_inputs_and_invalid_bindings { |ctx|
   for {source, code} in [
     {source: "with value = Ok(1) {} else { |a, b| print $a $b }\n", code: "check.handler-block-params"},
     {source: "proc bad() [] { guard let value = Ok(1) else { |a, a| return }; print $value }\n", code: "check.duplicate-name"},
@@ -74,7 +74,7 @@ test test_error_headers_reject_missing_inputs_and_invalid_bindings [error] { |ct
   }
 }
 
-test test_outside_error_headers_are_rejected_before_execution [error] { |ctx|
+test test_outside_error_headers_are_rejected_before_execution { |ctx|
   for source in [
     "print reached\nwith value = Ok(1) {} else |failure| { print $failure }\n",
     "print reached\nproc bad() [] { guard let value = Ok(1) else |_| { return }; print $value }\n",
@@ -87,7 +87,7 @@ test test_outside_error_headers_are_rejected_before_execution [error] { |ctx|
   }
 }
 
-test test_with_headers_preserve_cleanup_and_lexical_transfers [error] { |ctx|
+test test_with_headers_preserve_cleanup_and_lexical_transfers { |ctx|
   let output = test.run_script(ctx, r"""
 proc exercise() [] -> Int {
   defer { print outer }
@@ -112,7 +112,7 @@ print ${exercise()} ${escape()}
   output.stdout == "1\ncleanup:1\n2\ncleanup:2\nouter\n2 8\n"
 }
 
-test test_with_handler_errors_and_body_propagation_keep_their_identity [error] { |ctx|
+test test_with_handler_errors_and_body_propagation_keep_their_identity { |ctx|
   for {body, expected} in [
     {body: "with value = failed() {} else { |_| defer { print cleanup }; Err(HeaderError.handler(message: \"handler\"))? }", expected: "handler"},
     {body: "with value = Ok(1) { defer { print cleanup }; failed()? } else { |_| print wrongly_caught }", expected: "primary"},
@@ -125,7 +125,7 @@ test test_with_handler_errors_and_body_propagation_keep_their_identity [error] {
   }
 }
 
-test test_block_header_migration_preserves_comments_and_converges [fs, process, error] { |ctx|
+test test_block_header_migration_preserves_comments_and_converges { |ctx|
   let source = r"""proc recover() [] -> Int {
   guard let value = "invalid".parse_int() else |failure| {
     # Keep the handler body and its comment.
@@ -153,7 +153,7 @@ print recover()
   "else { |failure|" in candidate.read_text()?
 }
 
-test test_block_header_migration_refuses_header_comments_and_unrelated_errors [fs, process, error] { |ctx|
+test test_block_header_migration_refuses_header_comments_and_unrelated_errors { |ctx|
   for source in [
     r"""proc recover() [] -> Int {
  guard let value = "bad".parse_int() else |failure| # header comment
@@ -172,7 +172,7 @@ print ${recover()}
   }
 }
 
-test test_error_headers_suspend_in_streams_and_cleanup_on_cancellation [error] { |ctx|
+test test_error_headers_suspend_in_streams_and_cleanup_on_cancellation { |ctx|
   let output = test.run_script(ctx, r"""
 stream values() [] -> Stream[Int] {
   with value = Ok(1) {
@@ -203,7 +203,7 @@ proc header_open_root(root_path: Path) [fs, error] -> Result[FsRoot] {
   } else { |failure| return Err(failure) }
 }
 
-test test_with_headers_preserve_escaping_owned_prefix_values [fs, error] { |ctx|
+test test_with_headers_preserve_escaping_owned_prefix_values { |ctx|
   let root_path = test.temp_dir(ctx, name: "header-root")?
   let root = header_open_root(root_path)?
   root.write(p"value", "retained")?
@@ -211,7 +211,7 @@ test test_with_headers_preserve_escaping_owned_prefix_values [fs, error] { |ctx|
   root.close()?
 }
 
-test test_block_header_migration_rechecks_imports_and_deduplicates_edits [fs, process, error] { |ctx|
+test test_block_header_migration_rechecks_imports_and_deduplicates_edits { |ctx|
   let directory = test.temp_dir(ctx, name: "header-imports")?
   let shared = fp"${directory}/shared.xsh"
   let shared_source = r"""##! Shared header fixture.
@@ -240,7 +240,7 @@ print recover()
   shared.read_text()? == rewritten
 }
 
-test test_with_initializers_use_the_existing_heap_frame_stack [error] { |ctx|
+test test_with_initializers_use_the_existing_heap_frame_stack { |ctx|
   let output = test.run_script(ctx, r"""
 proc count(depth: Int) [] -> Int {
   if depth == 0 { return 0 }
@@ -252,7 +252,7 @@ print count(2000)
   output.stdout == "2000\n"
 }
 
-test test_with_compound_initializers_keep_nominal_errors [error] { |ctx|
+test test_with_compound_initializers_keep_nominal_errors { |ctx|
   let output = test.run_script(ctx, r"""
 error HeaderError = failed(message: Str)
 pure failed() -> Result[Int, HeaderError] { Err(HeaderError.failed(message: "compound")) }

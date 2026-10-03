@@ -1,4 +1,4 @@
-test test_date_format [process, env, error] { |ctx|
+test test_date_format { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/date.xsh" -- -u +%Y ?
   output.trim().count_chars() == 4
   let offset = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/date.xsh" -- -u +%z ?

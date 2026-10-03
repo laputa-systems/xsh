@@ -26,7 +26,7 @@ proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
   Err(BusyboxTestError.ProcessList(message: f"spawned process ${pid} was not visible"))
 }
 
-test test_pstree_renders_tree_with_pid_labels [process, env, time, error] { |ctx|
+test test_pstree_renders_tree_with_pid_labels { |ctx|
   let child = spawn run sleep 30 ?
   let parent_pid = parent_for(child.pid)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
@@ -36,14 +36,14 @@ test test_pstree_renders_tree_with_pid_labels [process, env, time, error] { |ctx
   ! ("->" in output)
 }
 
-test test_pstree_rejects_unknown_pid [fs, process, env, error] { |ctx|
+test test_pstree_rejects_unknown_pid { |ctx|
   let err = test.temp_path(ctx, name: "pstree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- 999999999 2> $err
   ! status.exited_with(0)
   "no such pid" in (err.read_text()?)
 }
 
-test test_pstree_default_prints_visible_root [process, env, error] { |ctx|
+test test_pstree_default_prints_visible_root { |ctx|
   if system.uname()?.sysname == "Darwin" {
     match process.which("pstree") {
       Err(_) => test.skip("macOS pstree is unavailable")?

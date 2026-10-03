@@ -1,7 +1,7 @@
 type WireEntry = {type: Str, in: Int, match: Bool = true}
 error WireError = Invalid(type: Str, in: Int)
 
-test test_keyword_field_labels_preserve_known_types_and_wire_bytes [error] {
+test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
   let entry = WireEntry(type: "file", in: 2)
   entry.type == "file"
   entry.in == 2
@@ -37,7 +37,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes [error] {
 type WireMeta = {type: Str, in: Int}
 type WireRow = {name: Str, meta: WireMeta}
 
-test test_keyword_field_labels_in_update_paths_and_constant_map_keys [error] { |ctx|
+test test_keyword_field_labels_in_update_paths_and_constant_map_keys { |ctx|
   let row = WireRow(name: "entry", meta: WireMeta(type: "file", in: 1))
   let updated = {...row, meta.type: "directory", meta.in: 2}
   updated.meta.type == "directory"
@@ -51,7 +51,7 @@ test test_keyword_field_labels_in_update_paths_and_constant_map_keys [error] { |
   "check.duplicate-record-field" in duplicate.stderr
 }
 
-test test_keyword_field_labels_across_keyword_spellings [error] { |ctx|
+test test_keyword_field_labels_across_keyword_spellings { |ctx|
   for label in ["and", "assert", "break", "const", "continue", "defer", "else", "enum", "export", "false", "for", "guard", "if", "in", "let", "loop", "match", "not", "null", "or", "proc", "pure", "retry", "return", "run", "spawn", "stream", "test", "true", "try", "type", "unless", "use", "var", "wait", "when", "with", "yield"] {
     let source = "type Wire = {" + label + ": Int}\nlet row = Wire(" + label + ": 1)\nlet {" + label + ": selected, ..} = row\nprint $selected\nprint $row." + label + "\n"
     let executed = test.run_script(ctx, source)?
@@ -60,7 +60,7 @@ test test_keyword_field_labels_across_keyword_spellings [error] { |ctx|
   }
 }
 
-test test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing [error] { |ctx|
+test test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing { |ctx|
   for source in [
     "let type = 1\n",
     "pure value(in: Int) -> Int { 1 }\n",
@@ -78,7 +78,7 @@ test test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing
   }
 }
 
-test test_keyword_field_labels_reject_introducer_bindings_and_puns [error] { |ctx|
+test test_keyword_field_labels_reject_introducer_bindings_and_puns { |ctx|
   for label in ["assert", "const", "enum", "test", "try"] {
     for source in [
       "let " + label + " = 1\n",
@@ -96,7 +96,7 @@ test test_keyword_field_labels_reject_introducer_bindings_and_puns [error] { |ct
   }
 }
 
-test test_keyword_field_labels_retain_dynamic_validation_and_duplicate_checks [error] { |ctx|
+test test_keyword_field_labels_retain_dynamic_validation_and_duplicate_checks { |ctx|
   let source = r"""type Entry = {type: Str, in: Int}
 let raw = json.decode("{\"type\":\"file\",\"in\":2}")?
 let row = raw.require(Entry)?
@@ -119,7 +119,7 @@ let selected: Int = raw.type
   }
 }
 
-test test_keyword_field_label_tooling_preserves_execution_and_converges [fs, process, error] { |ctx|
+test test_keyword_field_label_tooling_preserves_execution_and_converges { |ctx|
   let source = r"""let row = {"type": "file", r"in": 2, "wire.type": 3} # Keep the wire explanation.
 let label: Str = row.get("type")?
 print $label $row.in ${row["wire.type"]}

@@ -6,7 +6,7 @@ const constant_options = {
   zoptional: {kind: "Int", form: "OPTIONAL", required: false},
 }
 
-test cli_constants_retain_the_inline_descriptor_shape [fs, error] {
+test cli_constants_retain_the_inline_descriptor_shape {
   let options = cli.parse(["workspace", "--jobs", "6", "--tag", "one"], constant_options)?
   let {jobs, root, verbose, tag: tags, ..} = options
   let optional: Int? = options.zoptional
@@ -26,7 +26,7 @@ test cli_constants_retain_the_inline_descriptor_shape [fs, error] {
 }
 
 
-test cli_constants_reject_invalid_known_descriptors_during_checking [error] { |ctx|
+test cli_constants_reject_invalid_known_descriptors_during_checking { |ctx|
   let rejected = test.run_script(ctx, "const schema = {count: {kind: \"Nope\"}}\nlet _ = cli.parse([], schema)\n")?
   (rejected.success) == (false)
   ("check.cli-descriptor" in rejected.stderr)
@@ -34,7 +34,7 @@ test cli_constants_reject_invalid_known_descriptors_during_checking [error] { |c
 }
 
 
-test cli_constants_import_projection_and_composition_keep_types [fs, error] { |ctx|
+test cli_constants_import_projection_and_composition_keep_types { |ctx|
   let root = test.temp_dir(ctx, name: "cli-constant-module")?
   fp"${root}/config.xsh".write_atomic(r"""##! CLI configuration.
 ## Prepared descriptor fields.
@@ -65,7 +65,7 @@ print $default_jobs
 
 pure dynamic_options(value: Record) -> Record { value }
 
-test cli_constants_dynamic_descriptors_keep_runtime_validation [fs, error] {
+test cli_constants_dynamic_descriptors_keep_runtime_validation {
   let dynamic = cli.parse(["--jobs", "8"], dynamic_options({jobs: {kind: "Int"}}))?
   let jobs = dynamic.get("jobs")?.require(Int)?
   (jobs) == (8)
@@ -73,7 +73,7 @@ test cli_constants_dynamic_descriptors_keep_runtime_validation [fs, error] {
 }
 
 
-test cli_constants_invalid_imported_composition_reports_original_descriptor [fs, error] { |ctx|
+test cli_constants_invalid_imported_composition_reports_original_descriptor { |ctx|
   let root = test.temp_dir(ctx, name: "cli-invalid-module")?
   fp"${root}/invalid_config.xsh".write_atomic(r"""##! Invalid descriptor fixture.
 ## Known malformed option.
@@ -89,7 +89,7 @@ let _ = cli.parse([], schema)
   ("unsupported option type `Nope`" in rejected.stderr)
 }
 
-test cli_constants_named_arguments_evaluate_once_in_source_order [error] { |ctx|
+test cli_constants_named_arguments_evaluate_once_in_source_order { |ctx|
   let output = test.run_script(ctx, r"""const schema = {jobs: {kind: "Int", default: 4}}
 proc operands() [io] -> List[Str] { print "argv"; [] }
 proc label() [io] -> Str { print "command"; "demo" }
@@ -107,7 +107,7 @@ print ${dynamic.get("jobs")?.require(Int)?}
 }
 
 
-test cli_constants_forced_non_bool_flags_keep_dynamic_values [fs, error] {
+test cli_constants_forced_non_bool_flags_keep_dynamic_values {
   const schema = {switch: {kind: "Int", flag: true}, many: {kind: "Str", flag: true, repeated: true}}
   let unvalued = cli.parse(["--switch", "--many"], schema)?
   (unvalued.switch.require(Bool)?) == (true)
@@ -117,7 +117,7 @@ test cli_constants_forced_non_bool_flags_keep_dynamic_values [fs, error] {
   (valued.many[0].require(Str)?) == ("text")
 }
 
-test cli_constants_and_inline_descriptors_establish_the_same_field_types [error] { |ctx|
+test cli_constants_and_inline_descriptors_establish_the_same_field_types { |ctx|
   let descriptor = r"""{
   jobs: {kind: "Int", form: "-j --jobs N", default: 4, positive: true},
   root: {kind: "Path", form: "ROOT"},

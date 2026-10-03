@@ -10,7 +10,7 @@ proc normalize_df_mounts(text: Str) [error] -> Str {
   lines.join("\n")
 }
 
-test test_df [fs, process, env, error] { |ctx|
+test test_df { |ctx|
   let root = test.temp_dir(ctx, name: "df")?
   fp"${root}/payload.txt".write("abcdef")?
   let resolved = root.resolve()?
@@ -22,7 +22,7 @@ test test_df [fs, process, env, error] { |ctx|
   ! (f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}" in output)
 }
 
-test test_df_matches_alpine_kp [fs, process, env, error] { |ctx|
+test test_df_matches_alpine_kp { |ctx|
   if env.bool("XSH_SKIP_LIVE_COREUTILS_COMPARISONS")? {
     test.skip("live coreutils comparison disabled")
   }

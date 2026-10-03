@@ -1,4 +1,4 @@
-test str_iteration_keeps_unicode_scalars_and_nul [error] {
+test str_iteration_keeps_unicode_scalars_and_nul {
   var characters = []
   for character in "A\u{e9}e\u{301}\u{1f642}\0" {
     characters += [character]
@@ -7,7 +7,7 @@ test str_iteration_keeps_unicode_scalars_and_nul [error] {
   ([character for character in ""]) == ([])
 }
 
-test bytes_iteration_keeps_all_octets_without_decoding [error] {
+test bytes_iteration_keeps_all_octets_without_decoding {
   var octets = []
   for octet in b"\x00\x7f\x80\xff" {
     octets += [octet]
@@ -16,7 +16,7 @@ test bytes_iteration_keeps_all_octets_without_decoding [error] {
   ([octet for octet in b""]) == ([])
 }
 
-test scalar_iteration_retains_sources_across_reassignment [error] {
+test scalar_iteration_retains_sources_across_reassignment {
   var text = "\u{e9}ab"
   var characters = []
   for character in text {
@@ -33,7 +33,7 @@ test scalar_iteration_retains_sources_across_reassignment [error] {
   (octets) == ([0, 255])
 }
 
-test scalar_comprehensions_keep_types_nested_order_and_guards [error] {
+test scalar_comprehensions_keep_types_nested_order_and_guards {
   let pairs = [f"$character:$octet" for character in "\u{e9}x" for octet in b"\x01\x02" if octet == 2]
   (pairs) == (["\u{e9}:2", "x:2"])
   let entries = {character: character.byte_len() for character in "a\u{e9}"}
@@ -46,7 +46,7 @@ proc missing_scalar_source() [error] -> Result[Str, ScalarSourceFailure] {
   Err(ScalarSourceFailure.Missing(source: "text"))
 }
 
-test scalar_result_iteration_keeps_error_identity_and_cleanup [error] { |ctx|
+test scalar_result_iteration_keeps_error_identity_and_cleanup { |ctx|
   let output = test.run_script(ctx, r"""error SourceFailure = Missing(source: Str) : NotFound
 proc missing() [error] -> Result[Bytes, SourceFailure] { Err(SourceFailure.Missing(source: "bytes")) }
 ctx "iteration" {
@@ -72,7 +72,7 @@ ctx "iteration" {
   ([octet for octet in Ok(b"\xff")]) == ([255])
 }
 
-test scalar_iteration_evaluates_source_once_and_keeps_cleanup_transfers [error] { |ctx|
+test scalar_iteration_evaluates_source_once_and_keeps_cleanup_transfers { |ctx|
   let output = test.run_script(ctx, r"""proc source() [error] -> Str { print "source"; "abc" }
 for character in source() {
   defer { print f"cleanup:$character" }
@@ -92,7 +92,7 @@ for octet in octets() { print $octet; break }
   (output.stdout) == ("source\ncleanup:a\nb\ncleanup:b\n1\noctet:1\n")
 }
 
-test scalar_iteration_bindings_remain_immutable_and_protocols_stay_bounded [error] { |ctx|
+test scalar_iteration_bindings_remain_immutable_and_protocols_stay_bounded { |ctx|
   for source in ["for character in \"ab\" { character = \"x\" }", "for octet in b\"ab\" { octet = 1 }", "let characters = [@\"ab\"]", "stream bad() [] -> Stream[Str] { yield @\"ab\" }"] {
     let output = test.run_script(ctx, source)?
     {
@@ -103,14 +103,14 @@ test scalar_iteration_bindings_remain_immutable_and_protocols_stay_bounded [erro
   }
 }
 
-test scalar_iteration_preserves_source_view_bounds [error] {
+test scalar_iteration_preserves_source_view_bounds {
   let text = "a\u{e9}\u{1f642}z".byte_slice(1, 6)
   ([character for character in text]) == (["\u{e9}", "\u{1f642}"])
   let payload = b"\x01\x00\xff\x02"[1..3]
   ([octet for octet in payload]) == ([0, 255])
 }
 
-test scalar_comprehension_errors_keep_nominal_payloads [error] {
+test scalar_comprehension_errors_keep_nominal_payloads {
   let actual = try { [character for character in missing_scalar_source()] }
   if let Err(ScalarSourceFailure.Missing {source}) = actual {
     source == "text"
@@ -119,7 +119,7 @@ test scalar_comprehension_errors_keep_nominal_payloads [error] {
   }
 }
 
-test scalar_result_sources_keep_error_effect_checks [error] { |ctx|
+test scalar_result_sources_keep_error_effect_checks { |ctx|
   for source in [
     "proc forbidden(value: Result[Str]) [] { for character in value { let _ = character } }",
     "proc forbidden(value: Result[Bytes]) [] { let _ = [octet for octet in value] }",
@@ -134,7 +134,7 @@ test scalar_result_sources_keep_error_effect_checks [error] { |ctx|
   }
 }
 
-test scalar_iteration_returns_and_string_producer_cancellation_keep_cleanup [error] { |ctx|
+test scalar_iteration_returns_and_string_producer_cancellation_keep_cleanup { |ctx|
   let output = test.run_script(ctx, r"""proc pick() [] -> Int {
   for character in "ab" {
     defer { print $character }
@@ -158,7 +158,7 @@ for character in characters() { print $character; break }
   (output.stdout) == ("a\nb\n7\né\ncleanup:é\n")
 }
 
-test scalar_iteration_body_failure_stops_before_later_items_and_finishes_defers [error] { |ctx|
+test scalar_iteration_body_failure_stops_before_later_items_and_finishes_defers { |ctx|
   let output = test.run_script(ctx, r"""ctx "characters" {
   defer { print "outer" }
   for character in "éx🙂" {

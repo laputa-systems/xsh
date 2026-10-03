@@ -1,4 +1,4 @@
-test test_indexed_execution_fixture_runs_on_standard_path [fs, error] { |ctx|
+test test_indexed_execution_fixture_runs_on_standard_path { |ctx|
   let source = p"tests/fixtures/frontend-indexed/indexed-execution.xsh".read_text()?
   let output = test.run_script(ctx, source, [], {}, b"", "indexed-execution.xsh")?
   assert output.success, output.stderr
@@ -6,7 +6,7 @@ test test_indexed_execution_fixture_runs_on_standard_path [fs, error] { |ctx|
 """
 }
 
-test test_indexed_method_call_fixture_runs_on_standard_path [fs, error] { |ctx|
+test test_indexed_method_call_fixture_runs_on_standard_path { |ctx|
   let source = p"tests/fixtures/frontend-indexed/indexed-method-call.xsh".read_text()?
   let output = test.run_script(ctx, source, [], {}, b"", "indexed-method-call.xsh")?
   assert output.success, output.stderr
@@ -15,7 +15,7 @@ test test_indexed_method_call_fixture_runs_on_standard_path [fs, error] { |ctx|
   output.stderr == ""
 }
 
-test test_nested_bindings_shadow_and_restore_outer_scope [fs, error] { |ctx|
+test test_nested_bindings_shadow_and_restore_outer_scope { |ctx|
   # Keep the source under fixtures: it deliberately violates the corpus shadowing lint.
   let source = p"tests/fixtures/runtime/lexical-shadowing.xsh".read_text()?
   let output = test.run_script(ctx, source, [], {}, b"", "lexical-shadowing.xsh")?

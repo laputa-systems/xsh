@@ -1,4 +1,4 @@
-test test_projection_native_arguments_keep_order_cleanup_and_trace_boundaries [error] { |ctx|
+test test_projection_native_arguments_keep_order_cleanup_and_trace_boundaries { |ctx|
   let source = r"""
 type Leaf = {value: Int}
 proc rows(fail: Bool) [error] -> Result[List[Leaf]] {

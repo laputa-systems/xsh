@@ -1,4 +1,4 @@
-test test_absence_lookup_find_preserves_zero_byte_offsets_and_empty_needles [error] {
+test test_absence_lookup_find_preserves_zero_byte_offsets_and_empty_needles {
   "a:b".find("a") == 0
   "a:b".find(":") == 1
   "é:x".find(":") == 2
@@ -12,7 +12,7 @@ test test_absence_lookup_find_preserves_zero_byte_offsets_and_empty_needles [err
   "a:b".find(":", start: 0) == 1
 }
 
-test test_absence_lookup_byte_at_returns_null_outside_byte_domain [error] {
+test test_absence_lookup_byte_at_returns_null_outside_byte_domain {
   "é".byte_at(index: 0) == 195
   "é".byte_at(1) == 169
   "é".byte_at(2) == null
@@ -23,7 +23,7 @@ test test_absence_lookup_byte_at_returns_null_outside_byte_domain [error] {
   b"\x00\xff".byte_at(-1) == null
 }
 
-test test_absence_lookup_collection_get_preserves_present_null_and_typed_errors [error] {
+test test_absence_lookup_collection_get_preserves_present_null_and_typed_errors {
   let values: List[Int?] = [null, 3]
   let entries: Map[Int?] = {present: null, count: 3}
   (values.get(0) ?? 7) == null
@@ -34,7 +34,7 @@ test test_absence_lookup_collection_get_preserves_present_null_and_typed_errors 
   test.error_kind(entries.get("missing"), "map-missing")?
 }
 
-test test_absence_lookup_removed_overloads_are_rejected [error] { |ctx|
+test test_absence_lookup_removed_overloads_are_rejected { |ctx|
   for source in ["let value = [1].get(0, 7)", "let value = {one: 1}.get(\"one\", 7)", "let value = \"a\".byte_at(0, -1)", "let value = b\"a\".byte_at(0, -1)", "let value = [1].get(index: 0, fallback: 7)", "let value = \"a\".byte_at(index: 0, default: 7)"] {
     let invalid = test.run_script(ctx, source)?
     assert !invalid.success, invalid.stderr
@@ -51,7 +51,7 @@ pure absence_lookup_integer_byte(text: Str, index: Int) -> Int {
   byte
 }
 
-test test_absence_lookup_nullable_and_integer_fast_paths_agree [error] {
+test test_absence_lookup_nullable_and_integer_fast_paths_agree {
   for index in [-1, 0, 1, 2, 9223372036854775807] {
     absence_lookup_nullable_byte("é", index) == "é".byte_at(index)
     absence_lookup_integer_byte("é", index) == ("é".byte_at(index) ?? -1)
@@ -60,7 +60,7 @@ test test_absence_lookup_nullable_and_integer_fast_paths_agree [error] {
   "é:x".find("é", 1) == null
 }
 
-test test_absence_lookup_lazy_fallback_and_authored_eager_snapshots [error] { |ctx|
+test test_absence_lookup_lazy_fallback_and_authored_eager_snapshots { |ctx|
   let output = test.run_script(ctx, r"""proc receiver() [io] -> List[Int] { print "receiver"; [3] }
 proc index() [io] -> Int { print "index"; 0 }
 proc fallback() [io] -> Int { print "fallback"; 7 }
@@ -84,7 +84,7 @@ print ${missing_byte}
   output.stdout == "receiver\nindex\n3\nreceiver\nindex\nfallback\n3\nfallback\n7\n97\nfallback\n7\n"
 }
 
-test test_absence_lookup_eager_snapshots_keep_receiver_and_index_before_mutation [error] { |ctx|
+test test_absence_lookup_eager_snapshots_keep_receiver_and_index_before_mutation { |ctx|
   let output = test.run_script(ctx, r"""proc witness() [io] -> Int {
   var values = [3]
   var selected = 0

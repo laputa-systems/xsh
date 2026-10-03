@@ -9,7 +9,7 @@ pure fallback_outcome(success: Bool) -> Result[Str] {
 
 pure fallback_nominal_message(failure: FallbackError) -> Str { failure.message }
 
-test test_error_fallback_is_lazy_and_binds_exact_error [error] {
+test test_error_fallback_is_lazy_and_binds_exact_error {
   var calls = 0
   let loaded = fallback_outcome(true) ?? { |failure|
     calls += 1
@@ -28,7 +28,7 @@ test test_error_fallback_is_lazy_and_binds_exact_error [error] {
   message == "nominal"
 }
 
-test test_error_fallback_evaluates_result_once_before_handler [error] { |ctx|
+test test_error_fallback_evaluates_result_once_before_handler { |ctx|
   let output = test.run_script(ctx, r"""error LoadError = Missing(message: Str)
 proc load(found: Bool) [io] -> Result[Str, LoadError] {
   print f"load ${found}"
@@ -43,7 +43,7 @@ print $loaded $recovered
   output.stdout == "load true\nload false\nhandler missing\nloaded fallback\n"
 }
 
-test test_error_fallback_boolean_tail_is_a_value [error] {
+test test_error_fallback_boolean_tail_is_a_value {
   let outcome: Result[Bool, FallbackError] = Err(FallbackError.invalid(message: "invalid"))
   let recovered = outcome ?? { |_|
     let answer = false
@@ -52,13 +52,13 @@ test test_error_fallback_boolean_tail_is_a_value [error] {
   !recovered
 }
 
-test test_error_fallback_keeps_record_expression [error] {
+test test_error_fallback_keeps_record_expression {
   let outcome: Result[FallbackRecord, FallbackError] = Err(FallbackError.invalid(message: "invalid"))
   let recovered = outcome ?? {message: "record"}
   recovered == {message: "record"}
 }
 
-test test_error_fallback_literal_error_and_right_associativity [error] {
+test test_error_fallback_literal_error_and_right_associativity {
   let direct = Err(FallbackError.invalid(message: "direct")) ?? { |failure| failure.message }
   direct.trim() == "direct"
   let first = Ok("first")
@@ -72,7 +72,7 @@ test test_error_fallback_literal_error_and_right_associativity [error] {
   reached == 1
 }
 
-test test_error_fallback_cleanup_and_lexical_return [error] { |ctx|
+test test_error_fallback_cleanup_and_lexical_return { |ctx|
   let output = test.run_script(ctx, r"""error FallbackError = invalid(message: Str)
 proc mark(message: Str) [] { print $message }
 proc value() [error] -> Int { mark("value"); 7 }
@@ -100,7 +100,7 @@ print ${recover()} ${escape()}
   output.stdout == "failed\nvalue\ncleanup\nafter\nreturn cleanup\n7 9\n"
 }
 
-test test_error_fallback_keeps_enclosing_loop_targets [error] {
+test test_error_fallback_keeps_enclosing_loop_targets {
   var visited = 0
   for number in [1, 2, 3] {
     let outcome: Result[Int] = Err(FallbackError.invalid(message: "failed"))
@@ -123,7 +123,7 @@ test test_error_fallback_keeps_enclosing_loop_targets [error] {
   visited == 1
 }
 
-test test_error_fallback_failure_propagates_to_retry_attempt [error] { |ctx|
+test test_error_fallback_failure_propagates_to_retry_attempt { |ctx|
   let output = test.run_script(ctx, r"""error FallbackError = invalid(message: Str)
 proc main() [time, error] {
 var attempts = 0
@@ -142,7 +142,7 @@ print $recovered $attempts
   output.stdout == "recovered 2\n"
 }
 
-test test_error_fallback_rejects_invalid_contexts [error] { |ctx|
+test test_error_fallback_rejects_invalid_contexts { |ctx|
   for {source, code} in [
     {source: "let absent: Str? = null\nlet value = absent ?? { |_| \"no\" }\n", code: "check.fallback-block-result"},
     {source: "let value = Ok(1) ?? { |a, b| 2 }\n", code: "check.fallback-block-params"},
@@ -159,7 +159,7 @@ test test_error_fallback_rejects_invalid_contexts [error] { |ctx|
   }
 }
 
-test test_error_fallback_handler_failure_retains_its_error [error] { |ctx|
+test test_error_fallback_handler_failure_retains_its_error { |ctx|
   let output = test.run_script(ctx, r"""error FallbackError = source(message: Str) | handler(message: Str)
 let failed: Result[Str] = Err(FallbackError.source(message: "primary"))
 let value = failed ?? { |_|

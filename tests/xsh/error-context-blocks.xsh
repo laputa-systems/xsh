@@ -2,7 +2,7 @@ pure ctx_data_result() -> Result[Unit] {
   ctx "data" { return error.fail("untouched") }
 }
 
-test test_ctx_propagation_attaches_inner_to_outer_and_preserves_error_data [error] {
+test test_ctx_propagation_attaches_inner_to_outer_and_preserves_error_data {
   let original = error.fail("base")
   let failure = retry [] {
     ctx "outer" {
@@ -32,7 +32,7 @@ test test_ctx_propagation_attaches_inner_to_outer_and_preserves_error_data [erro
   }
 }
 
-test test_ctx_value_and_named_ctx_bindings_remain_ordinary [error] { |harness|
+test test_ctx_value_and_named_ctx_bindings_remain_ordinary { |harness|
   harness.xsh_bin.display().count_chars() > 0
   let value = ctx "compute" { 42 }
   value == 42
@@ -46,7 +46,7 @@ test test_ctx_value_and_named_ctx_bindings_remain_ordinary [error] { |harness|
   handled == 7
 }
 
-test test_ctx_label_evaluates_once_and_failed_label_uses_only_enclosing_context [error] { |ctx|
+test test_ctx_label_evaluates_once_and_failed_label_uses_only_enclosing_context { |ctx|
   let output = test.run_script(ctx, r"""proc label() -> Str { print "label"; "operation" }
 ctx label() { print "body" }
 ctx "enclosing" { ctx f"${"not an integer".parse_int()?}" { print "skipped" } }
@@ -57,7 +57,7 @@ ctx "enclosing" { ctx f"${"not an integer".parse_int()?}" { print "skipped" } }
   "ctx: operation" not in output.stderr
 }
 
-test test_ctx_finishes_defers_before_contextualizing_primary_or_cleanup_failure [error] { |ctx|
+test test_ctx_finishes_defers_before_contextualizing_primary_or_cleanup_failure { |ctx|
   let output = test.run_script(ctx, r"""ctx "region" {
   defer { print "cleanup" }
   error.fail("primary")?
@@ -77,7 +77,7 @@ test test_ctx_finishes_defers_before_contextualizing_primary_or_cleanup_failure 
   "cleanup failed (ctx: cleanup region)" in cleanup.stderr
 }
 
-test test_ctx_does_not_convert_abort_into_an_error [error] { |ctx|
+test test_ctx_does_not_convert_abort_into_an_error { |ctx|
   let output = test.run_script(ctx, r"""ctx "abort region" {
   defer { print "cleanup" }
   abort(17)
@@ -88,7 +88,7 @@ test test_ctx_does_not_convert_abort_into_an_error [error] { |ctx|
   "ctx: abort region" not in output.stderr
 }
 
-test test_ctx_stream_suspension_retains_region_and_runs_cleanup_on_early_exit [error] { |ctx|
+test test_ctx_stream_suspension_retains_region_and_runs_cleanup_on_early_exit { |ctx|
   let output = test.run_script(ctx, r"""stream values() [error] -> Stream[Int] {
   defer { print "outer" }
   ctx "producer" {
@@ -112,7 +112,7 @@ let values = values() |> collect
   "late (ctx: producer)" in failed.stderr
 }
 
-test test_ctx_keeps_loop_transfers_and_value_evaluation_before_defers [error] { |ctx|
+test test_ctx_keeps_loop_transfers_and_value_evaluation_before_defers { |ctx|
   let output = test.run_script(ctx, r"""var count = 0
 for item in [1, 2, 3] {
   ctx "loop" {
@@ -130,7 +130,7 @@ print $count $value
 }
 
 error CtxFailure = Failed(message: Str, code: Int) : InvalidData
-test test_ctx_preserves_nominal_payloads_and_callable_ctx_names [error] { |harness|
+test test_ctx_preserves_nominal_payloads_and_callable_ctx_names { |harness|
   let called = test.run_script(harness, r"""pure ctx(value: Int) -> Int { value + 1 }
 print ${ctx(4)}
 """)?
@@ -147,7 +147,7 @@ print ${ctx(4)}
   }
 }
 
-test test_ctx_rejects_non_string_labels_and_keeps_statement_boolean_assertions [error] { |ctx|
+test test_ctx_rejects_non_string_labels_and_keeps_statement_boolean_assertions { |ctx|
   let wrong = test.run_script(ctx, "ctx 7 { print \"skipped\" }\n")?
   assert ! wrong.success, wrong.stderr
   "check.type" in wrong.stderr
@@ -161,13 +161,13 @@ test test_ctx_rejects_non_string_labels_and_keeps_statement_boolean_assertions [
 
 proc ctx_function_tail() [] -> Int { ctx "tail" { 7 } }
 pure ctx_inferred_tail() { ctx "inferred" { 9 } }
-test test_ctx_function_tail_and_inference_keep_consumed_values [error] {
+test test_ctx_function_tail_and_inference_keep_consumed_values {
   let inferred = ctx_inferred_tail()
   inferred == 9
   ctx_function_tail() == 7
 }
 
-test test_ctx_secondary_cleanup_diagnostics_keep_enclosing_region [error] { |ctx|
+test test_ctx_secondary_cleanup_diagnostics_keep_enclosing_region { |ctx|
   let output = test.run_script(ctx, r"""ctx "outer" { ctx "inner" {
   defer { error.fail("cleanup")? }
   error.fail("primary")?
@@ -178,7 +178,7 @@ test test_ctx_secondary_cleanup_diagnostics_keep_enclosing_region [error] { |ctx
   "cleanup (ctx: inner) (ctx: outer)" in output.stderr
 }
 
-test test_ctx_callee_cleanup_failures_keep_callers_regions [error] { |ctx|
+test test_ctx_callee_cleanup_failures_keep_callers_regions { |ctx|
   let output = test.run_script(ctx, r"""proc fail() [error] -> Result[Unit] {
   defer { error.fail("cleanup")? }
   return error.fail("primary")?
@@ -190,7 +190,7 @@ ctx "outer" { ctx "inner" { fail()? } }
   "cleanup (ctx: inner) (ctx: outer)" in output.stderr
 }
 
-test test_ctx_suspended_call_cleanup_keeps_regions [error] { |ctx|
+test test_ctx_suspended_call_cleanup_keeps_regions { |ctx|
   let output = test.run_script(ctx, r"""proc fail() [error] -> Result[Unit] {
   defer { error.fail("cleanup")? }
   return error.fail("primary")?

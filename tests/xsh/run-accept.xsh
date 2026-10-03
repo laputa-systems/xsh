@@ -1,4 +1,4 @@
-test test_accepted_exit_codes_keep_actual_status [process, error] {
+test test_accepted_exit_codes_keep_actual_status {
   run --accept=[0, 1] sh -c "exit 1"
   let status = run.status --accept=[0, 1] sh -c "exit 1"
   (status.exit_code()?) == (1)
@@ -7,7 +7,7 @@ test test_accepted_exit_codes_keep_actual_status [process, error] {
   (copied) == ("accepted")
 }
 
-test test_accept_rejections_and_capture_record_status [process, error] {
+test test_accept_rejections_and_capture_record_status {
   let rejected_1 = run.text --accept=[0, 1] sh -c "exit 2"
   test.error_kind(rejected_1, "unexpected-exit")?
   let rejected_2 = run.bytes --accept=[1] sh -c "exit 0"
@@ -21,7 +21,7 @@ test test_accept_rejections_and_capture_record_status [process, error] {
   test.error_kind(rejected_3, "unexpected-exit")?
 }
 
-test test_accept_never_normalizes_signals_setup_or_decode_failures [process, error] {
+test test_accept_never_normalizes_signals_setup_or_decode_failures {
   let rejected_4 = run.text --accept=[0, 143] sh -c "kill -TERM $$"
   test.error_kind(rejected_4, "signal")?
   let rejected_5 = run.text --accept=[0, 127] xsh-accept-definitely-missing-command
@@ -32,7 +32,7 @@ test test_accept_never_normalizes_signals_setup_or_decode_failures [process, err
   test.error_kind(rejected_7, "timeout")?
 }
 
-test test_accept_command_and_owned_wait_preserve_policy [process, error] {
+test test_accept_command_and_owned_wait_preserve_policy {
   let command = process.command {
     accept = [0, 1]
     run sh -c "exit 1"
@@ -52,7 +52,7 @@ test test_accept_command_and_owned_wait_preserve_policy [process, error] {
   canceled.cancel(kill_after: 0ms)?
 }
 
-test test_accept_status_plain_pipeline_and_external_argv [error] { |ctx|
+test test_accept_status_plain_pipeline_and_external_argv { |ctx|
   for source in [
     "run --accept=[0] sh -c \"exit 1\"\nprint unreachable\n",
     "let status = run.status --accept=[0] sh -c \"exit 1\"\nprint unreachable\n",
@@ -77,7 +77,7 @@ test test_accept_status_plain_pipeline_and_external_argv [error] { |ctx|
   (literal.stdout) == ("--accept=[9]\n")
 }
 
-test test_accept_invalid_policy_is_rejected_before_spawn [error] { |ctx|
+test test_accept_invalid_policy_is_rejected_before_spawn { |ctx|
   for policy in ["[]", "[0,0]", "[-1]", "[256]", "[true]", "0"] {
     let source = f"""
       run --accept=${policy} sh -c \"printf spawned\"
@@ -99,7 +99,7 @@ test test_accept_invalid_policy_is_rejected_before_spawn [error] { |ctx|
   ("accept-policy" in dynamic.stderr)
 }
 
-test test_accept_process_stream_reports_late_failure [error] { |ctx|
+test test_accept_process_stream_reports_late_failure { |ctx|
   let output = test.run_script(ctx, "let rows = run.stream --text --accept=[0] sh -c \"printf 'row\\n'; exit 1\" ?\nfor row in rows { print $row }\nprint unreachable\n")?
   (! output.success)
   {
@@ -119,21 +119,21 @@ test test_accept_process_stream_reports_late_failure [error] { |ctx|
   (unterminated.stdout) == ("final\n")
 }
 
-test test_accept_owned_child_keeps_a_validated_snapshot [process, error] {
+test test_accept_owned_child_keeps_a_validated_snapshot {
   var codes = [0, 1]
   let child = spawn run --accept=(codes) sh -c "exit 1" ?
   codes[1] = 2
   ((wait child?).exited_with(1))
 }
 
-test test_accept_wait_any_and_ready_apply_the_owned_policy [process, error] {
+test test_accept_wait_any_and_ready_apply_the_owned_policy {
   let selected = spawn run --accept=[0] sh -c "exit 1" ?
   test.error_kind(process.wait_any([selected]), "unexpected-exit")?
   let ready = spawn run --accept=[0] sh -c "exit 1" ?
   test.error_kind(process.wait_ready([ready]), "unexpected-exit")?
 }
 
-test test_accept_direct_status_capture_keeps_nominal_error_and_actual_zero [process, error] {
+test test_accept_direct_status_capture_keeps_nominal_error_and_actual_zero {
   let rejected = try {
     let _ = run.status --accept=[1] sh -c "exit 0"
     print "unreachable"
@@ -149,7 +149,7 @@ test test_accept_direct_status_capture_keeps_nominal_error_and_actual_zero [proc
   }
 }
 
-test test_accept_validation_effect_is_inferred_and_can_be_captured [error] { |ctx|
+test test_accept_validation_effect_is_inferred_and_can_be_captured { |ctx|
   let denied = test.run_script(ctx, """
 proc validate_status() {
   let observed = run.status --accept=[0] sh -c "exit 0"
@@ -175,7 +175,7 @@ match captured_status() {
   (captured.stdout) == ("rejected\n")
 }
 
-test test_accept_dynamic_configuration_stays_outside_completion_capture [error] { |ctx|
+test test_accept_dynamic_configuration_stays_outside_completion_capture { |ctx|
   let output = test.run_script(ctx, """
 var codes = [0]
 codes = [256]

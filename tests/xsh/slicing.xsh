@@ -1,4 +1,4 @@
-test test_slice_existing_list_and_unicode_scalar_normalization [error] {
+test test_slice_existing_list_and_unicode_scalar_normalization {
   let values = [10, 20, 30, 40]
   (values[1..3]) == ([20, 30])
   (values[..2]) == ([10, 20])
@@ -24,7 +24,7 @@ test test_slice_existing_list_and_unicode_scalar_normalization [error] {
   (""[-1..99]) == ("")
 }
 
-test test_slice_bytes_normalization_and_nested_views [error] { |ctx|
+test test_slice_bytes_normalization_and_nested_views { |ctx|
   let output = test.run_script(ctx, r"""
 proc witness() [error] {
   let data = b"a\0\xffbcd"
@@ -51,7 +51,7 @@ witness()
   output.stdout == ""
 }
 
-test test_slice_list_aliases_keep_value_semantics [error] {
+test test_slice_list_aliases_keep_value_semantics {
   var data = [1, 2, 3]
   var selected = data[1..]
   selected += [9]
@@ -60,7 +60,7 @@ test test_slice_list_aliases_keep_value_semantics [error] {
   (selected) == ([2, 3, 9])
 }
 
-test test_slice_evaluates_receiver_and_bounds_once_in_order [error] { |ctx|
+test test_slice_evaluates_receiver_and_bounds_once_in_order { |ctx|
   let output = test.run_script(ctx, r"""
 proc receiver() [io] -> Bytes {
   print "receiver"
@@ -84,7 +84,7 @@ print ${all.base64()}
   (output.stdout) == ("receiver\nstart\nend\nYmM=\nreceiver\nsuffix\nY2Q=\nreceiver\nYWJjZA==\n")
 }
 
-test test_slice_brackets_preserve_distinct_offset_count_errors [error] { |ctx|
+test test_slice_brackets_preserve_distinct_offset_count_errors { |ctx|
   let negative_offset = test.run_script(ctx, "let part = b\"abc\".slice(-1)\n")?
   (negative_offset.success) == (false)
   ("bytes-slice" in negative_offset.stderr)
@@ -103,7 +103,7 @@ test test_slice_brackets_preserve_distinct_offset_count_errors [error] { |ctx|
   assert equivalent_success, equivalent_message
 }
 
-test test_slice_dynamic_bounds_require_validation_and_receivers_keep_runtime_errors [error] { |ctx|
+test test_slice_dynamic_bounds_require_validation_and_receivers_keep_runtime_errors { |ctx|
   let bound_error = test.run_script(ctx, "let bound: Any = true\nlet part = [1, 2][bound..]\n")?
   (bound_error.success) == (false)
   ("check.dynamic-boundary" in bound_error.stderr)
@@ -120,7 +120,7 @@ test test_slice_dynamic_bounds_require_validation_and_receivers_keep_runtime_err
   ("cannot slice Int" in receiver_error.stderr)
 }
 
-test test_slice_rejects_colon_inclusive_stride_and_range_values [error] { |ctx|
+test test_slice_rejects_colon_inclusive_stride_and_range_values { |ctx|
   for source in [
     "let part = [1, 2, 3][0:2]\n",
     "let part = [1, 2, 3][0..=2]\n",

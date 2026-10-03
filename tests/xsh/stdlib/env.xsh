@@ -16,7 +16,7 @@ pure int_failure(result: Result[Int]) -> Str {
   }
 }
 
-test test_env_get_or_yields_the_fallback_only_for_an_unset_name [env, error] {
+test test_env_get_or_yields_the_fallback_only_for_an_unset_name {
   env ({
     XSH_ENV_EMPTY: "",
     XSH_ENV_TEXT: "value",
@@ -44,7 +44,7 @@ test test_env_get_or_yields_the_fallback_only_for_an_unset_name [env, error] {
   } ?
 }
 
-test test_env_bool_accepts_only_the_baseline_spellings [env, error] {
+test test_env_bool_accepts_only_the_baseline_spellings {
   env ({
     XSH_ENV_BOOL_ONE: "1",
     XSH_ENV_BOOL_TRUE: "true",
@@ -99,7 +99,7 @@ test test_env_bool_accepts_only_the_baseline_spellings [env, error] {
   } ?
 }
 
-test test_env_int_parses_the_baseline_grammar [env, error] {
+test test_env_int_parses_the_baseline_grammar {
   env ({
     XSH_ENV_INT_ZERO: "0",
     XSH_ENV_INT_PLAIN: "42",
@@ -143,7 +143,7 @@ test test_env_int_parses_the_baseline_grammar [env, error] {
   } ?
 }
 
-test test_env_int_rejects_unparsable_and_out_of_range_text [env, error] {
+test test_env_int_rejects_unparsable_and_out_of_range_text {
   env ({
     XSH_ENV_BAD_EMPTY: "",
     XSH_ENV_BAD_SPACES: "   ",
@@ -198,7 +198,7 @@ test test_env_int_rejects_unparsable_and_out_of_range_text [env, error] {
   } ?
 }
 
-test test_env_conversions_read_the_scoped_overlay [env, error] {
+test test_env_conversions_read_the_scoped_overlay {
   env XSH_ENV_OVERLAY=outer {
     env.get_or("XSH_ENV_OVERLAY")? == "outer"
     test.error_kind(env.int("XSH_ENV_OVERLAY", 7), "env-int")?
@@ -225,7 +225,7 @@ test test_env_conversions_read_the_scoped_overlay [env, error] {
   } ?
 }
 
-test test_env_functions_and_path_list [fs, process, env, error] { |ctx|
+test test_env_functions_and_path_list { |ctx|
   let root = test.temp_dir(ctx, name: "env")?
   let tool_dir = fp"${root}/bin"
   fs.mkdir(tool_dir)?
@@ -274,7 +274,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
   } ?
 }
 
-test test_env_overlays_blocks_lookup_and_path_mutation_affect_children [fs, process, env, error] { |ctx|
+test test_env_overlays_blocks_lookup_and_path_mutation_affect_children { |ctx|
   let root = test.temp_dir(ctx, name: "env-scope")?
   let tool = fp"${root}/env-scope-tool"
 
@@ -320,7 +320,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
   (root not in env.PATH)
 }
 
-test test_path_literals_method_sugar_and_expr_env_blocks [fs, process, env, error] { |ctx|
+test test_path_literals_method_sugar_and_expr_env_blocks { |ctx|
   let root = test.temp_dir(ctx, name: "sugar")?
   let child_name = "child"
   let child = fp"${root}/${child_name}"
@@ -352,7 +352,7 @@ beta """.trim()
   } ?
 }
 
-test test_env_path_membership_matches_exact_entries [env, error] {
+test test_env_path_membership_matches_exact_entries {
   env PATH="/opt/xsh-membership/bin:/opt/xsh-other" {
     p"/opt/xsh-membership/bin" in env.PATH
     p"/opt/xsh-other" in env.PATH

@@ -1,7 +1,7 @@
 type RecordBuild = {jobs: Int, target: Str}
 type RecordConfig = {root: Str, build: RecordBuild}
 
-test test_nested_renamed_record_binding_preserves_field_types [error] {
+test test_nested_renamed_record_binding_preserves_field_types {
   let config = RecordConfig(root: "src", build: {jobs: 3, target: "native"})
   let {root, build: {jobs, target: target_name, ..}, ..} = config
   (root) == ("src")
@@ -9,7 +9,7 @@ test test_nested_renamed_record_binding_preserves_field_types [error] {
   (target_name.upper()) == ("NATIVE")
 }
 
-test test_nested_record_var_values_preserve_source_aliases [error] {
+test test_nested_record_var_values_preserve_source_aliases {
   let config = RecordConfig(root: "src", build: {jobs: 3, target: "native"})
   var {build: selected_build, root: _, ..} = config
   selected_build.jobs = 9
@@ -20,7 +20,7 @@ test test_nested_record_var_values_preserve_source_aliases [error] {
   (config.build.jobs) == (3)
 }
 
-test test_nested_record_iteration_and_comprehension_targets [error] {
+test test_nested_record_iteration_and_comprehension_targets {
   let configs: List[RecordConfig] = [
     {root: "src", build: {jobs: 3, target: "native"}},
     {root: "lib", build: {jobs: 1, target: "other"}},
@@ -40,7 +40,7 @@ pure record_config_result() -> Result[RecordConfig] {
   Ok({root: "src", build: {jobs: 3, target: "native"}})
 }
 
-test test_nested_record_guard_target [error] {
+test test_nested_record_guard_target {
   guard let {root, build: {jobs, target: target_name, ..}, ..} = record_config_result() else {
     return
   }
@@ -49,7 +49,7 @@ test test_nested_record_guard_target [error] {
   (target_name) == ("native")
 }
 
-test test_nested_record_binding_rejects_duplicate_and_unknown_fields [error] { |ctx|
+test test_nested_record_binding_rejects_duplicate_and_unknown_fields { |ctx|
   let prelude = "type Build = {jobs: Int, target: Str}\ntype Config = {root: Str, build: Build}\nlet config = Config(root: \"src\", build: {jobs: 3, target: \"native\"})\n"
   for fixture in [
     {binding: "let {root: name, build: {target: name, ..}, ..} = config\n", diagnostic: "check.duplicate-name"},
@@ -61,7 +61,7 @@ test test_nested_record_binding_rejects_duplicate_and_unknown_fields [error] { |
   }
 }
 
-test test_nested_record_iteration_restores_shadowed_outer_bindings [error] { |ctx|
+test test_nested_record_iteration_restores_shadowed_outer_bindings { |ctx|
   let output = test.run_script(ctx, r"""type RecordBuild = {jobs: Int, target: Str}
 type RecordConfig = {root: Str, build: RecordBuild}
 proc witness() [error] {
@@ -86,7 +86,7 @@ witness()
   output.stdout == ""
 }
 
-test test_nested_record_source_once_and_stream_cleanup [error] { |ctx|
+test test_nested_record_source_once_and_stream_cleanup { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -117,7 +117,7 @@ for {build: {target: target_name, ..}, ..} in configs() {
   (output.stdout) == ("source\nsrc:3:native\nnative\nclosed\n")
 }
 
-test test_nested_record_dynamic_stream_target_requires_validation [error] { |ctx|
+test test_nested_record_dynamic_stream_target_requires_validation { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -142,7 +142,7 @@ for {first, nested: {missing, ..}, ..} in records() {
 }
 
 
-test test_nested_record_dynamic_stream_validation_failure_runs_cleanup [error] { |ctx|
+test test_nested_record_dynamic_stream_validation_failure_runs_cleanup { |ctx|
   let output = test.run_script(
     ctx,
     """

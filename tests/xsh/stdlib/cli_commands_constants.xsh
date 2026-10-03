@@ -1,4 +1,4 @@
-test cli_commands_constants_preserve_known_shape [fs, error] { |ctx|
+test cli_commands_constants_preserve_known_shape { |ctx|
   let output = test.run_script(ctx, r"""
 const commands = {
   build: {positionals: ["root"], types: {root: "Path"}, rest: "raw", options: {jobs: {kind: "Int", default: 4}, verbose: "Bool", tag: "List[Str]", label: {kind: "Str", required: false}}},
@@ -21,7 +21,7 @@ print (label == null)
   (output.stdout) == ("workspace extra 6 false one\ntrue\n")
 }
 
-test cli_commands_constants_reject_unreachable_invalid_descriptor [error] { |ctx|
+test cli_commands_constants_reject_unreachable_invalid_descriptor { |ctx|
   let output = test.run_script(ctx, r"""
 const commands = {build: {positionals: ["root"], types: {root: "NotAType"}}}
 if false { let _ = cli.commands(["build", "workspace"], commands) }
@@ -34,7 +34,7 @@ if false { let _ = cli.commands(["build", "workspace"], commands) }
   ("check.cli-descriptor" in output.stderr)
 }
 
-test cli_commands_constants_preserve_fallback_and_rootless_selection [fs, error] { |ctx|
+test cli_commands_constants_preserve_fallback_and_rootless_selection { |ctx|
   let output = test.run_script(ctx, r"""
 const commands = {build: {aliases: ["compile"], positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
 const fallback = {positionals: ["action", "root"], types: {root: "Path"}, rest: "raw", command_like: true}
@@ -57,7 +57,7 @@ print root.name()
   (output.stdout) == ("deploy demo extra\nbuild\ndemo\n")
 }
 
-test cli_commands_constants_import_projection_and_named_spread [fs, error] { |ctx|
+test cli_commands_constants_import_projection_and_named_spread { |ctx|
   let root = test.temp_dir(ctx, name: "cli-command-descriptors")?
   fp"${root}/config.xsh".write(r"""##! Command descriptor configuration.
 ## Prepared command records.
@@ -79,7 +79,7 @@ print root.display() ${rest[0]}
   (output.stdout) == ("workspace extra\n")
 }
 
-test cli_commands_constants_keep_dynamic_validation_and_command_fields [fs, error] { |ctx|
+test cli_commands_constants_keep_dynamic_validation_and_command_fields { |ctx|
   let output = test.run_script(ctx, r"""
 proc descriptor() [] -> Record { {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}} }
 type ParsedCommand = {command: Str, action: Str, root: Path, raw: List[Str]}
@@ -99,7 +99,7 @@ print dynamic_fallback.root.display()
   (output.stdout) == ("workspace\n3\nfallback once\nworkspace\n")
 }
 
-test cli_dynamic_full_descriptor_preserves_outcome_envelope [error] { |ctx|
+test cli_dynamic_full_descriptor_preserves_outcome_envelope { |ctx|
   let output = test.run_script(ctx, r"""
 proc descriptor() [] -> Record { {count: {kind: "Int", default: 2, deprecated: "use jobs"}} }
 type ParsedValues = {count: Int}
@@ -116,7 +116,7 @@ print ${values.count} $source warnings.len()
   (output.stdout) == ("4 argv 1\n")
 }
 
-test cli_prepared_descriptors_check_annotated_result_after_refinement [fs, error] { |ctx|
+test cli_prepared_descriptors_check_annotated_result_after_refinement { |ctx|
   let output = test.run_script(ctx, r"""
 type ParsedValues = {count: Int}
 type CommandValues = {command: Str, action: Str, root: Path, raw: List[Str]}

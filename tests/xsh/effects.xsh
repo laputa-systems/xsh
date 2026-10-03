@@ -13,7 +13,7 @@ proc run_lint(src: Path) [fs, process] -> Result[Str] {
   err.read_text()
 }
 
-test test_module_call_blocked_by_annotation [fs, process, error] { |ctx|
+test test_module_call_blocked_by_annotation { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [fs] {\n  dns.lookup(\"g.com\")\n}\n")?
   let result = run_check(src)?
   assert ! result.ok, "expected check failure"
@@ -21,7 +21,7 @@ test test_module_call_blocked_by_annotation [fs, process, error] { |ctx|
   "net" in result.out
 }
 
-test test_correct_annotation_passes [fs, process, error] { |ctx|
+test test_correct_annotation_passes { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
@@ -32,7 +32,7 @@ test test_correct_annotation_passes [fs, process, error] { |ctx|
   assert result.ok, "expected clean check"
 }
 
-test test_print_requires_no_effect [fs, process, error] { |ctx|
+test test_print_requires_no_effect { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
@@ -42,7 +42,7 @@ test test_print_requires_no_effect [fs, process, error] { |ctx|
   assert result.ok, "print and eprint should require no effect"
 }
 
-test test_io_covers_net [fs, process, error] { |ctx|
+test test_io_covers_net { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
@@ -53,7 +53,7 @@ test test_io_covers_net [fs, process, error] { |ctx|
   assert result.ok, "io should cover net"
 }
 
-test test_io_does_not_cover_time [fs, process, error] { |ctx|
+test test_io_does_not_cover_time { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [io] {\n  let _ = time.now()\n}\n")?
   let result = run_check(src)?
   assert ! result.ok, "expected check failure"
@@ -61,7 +61,7 @@ test test_io_does_not_cover_time [fs, process, error] { |ctx|
   "time" in result.out
 }
 
-test test_question_mark_requires_error_effect [fs, process, error] { |ctx|
+test test_question_mark_requires_error_effect { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
@@ -74,7 +74,7 @@ test test_question_mark_requires_error_effect [fs, process, error] { |ctx|
   "error" in result.out
 }
 
-test test_run_form_requires_process_effect [fs, process, error] { |ctx|
+test test_run_form_requires_process_effect { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [fs] {\n  run echo hello\n}\n")?
   let result = run_check(src)?
   assert ! result.ok, "expected check failure"
@@ -82,7 +82,7 @@ test test_run_form_requires_process_effect [fs, process, error] { |ctx|
   "process" in result.out
 }
 
-test test_unrestricted_proc_unchecked [fs, process, error] { |ctx|
+test test_unrestricted_proc_unchecked { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
@@ -93,7 +93,7 @@ test test_unrestricted_proc_unchecked [fs, process, error] { |ctx|
   assert result.ok, "private proc effects should be inferred"
 }
 
-test test_restricted_cannot_call_unrestricted_proc [fs, process, error] { |ctx|
+test test_restricted_cannot_call_unrestricted_proc { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
@@ -105,7 +105,7 @@ test test_restricted_cannot_call_unrestricted_proc [fs, process, error] { |ctx|
   "check.effect-violation" in result.out
 }
 
-test test_proc_to_proc_subset_passes [fs, process, error] { |ctx|
+test test_proc_to_proc_subset_passes { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
@@ -116,28 +116,28 @@ test test_proc_to_proc_subset_passes [fs, process, error] { |ctx|
   assert result.ok, "superset caller should pass"
 }
 
-test test_linter_infers_fs_error [fs, process, error] { |ctx|
+test test_linter_infers_fs_error { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc main() {\n  let _ = fs.read_text(p\"x\")?\n}\n")?
   let out = run_lint(src)?
   "lint.unannotated-effects" in out
   "[fs, error]" in out
 }
 
-test test_linter_infers_net [fs, process, error] { |ctx|
+test test_linter_infers_net { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc main() {\n  let _ = dns.lookup(\"x.test\")\n}\n")?
   let out = run_lint(src)?
   "lint.unannotated-effects" in out
   "[net]" in out
 }
 
-test test_linter_infers_process_from_run [fs, process, error] { |ctx|
+test test_linter_infers_process_from_run { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc main() {\n  run echo hello\n}\n")?
   let out = run_lint(src)?
   "lint.unannotated-effects" in out
   "process" in out
 }
 
-test test_annotated_proc_not_flagged_by_linter [fs, process, error] { |ctx|
+test test_annotated_proc_not_flagged_by_linter { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",

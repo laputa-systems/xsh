@@ -1,4 +1,4 @@
-test test_constructor_application_preserves_closed_callable_boundaries [fs, process, error] { |ctx|
+test test_constructor_application_preserves_closed_callable_boundaries { |ctx|
   let file = test.temp_file(ctx, name: "constructor-definition.xsh", contents: bytes.from_text(r"""type Box[T] = {value: T, items: List[T] = []}
 type Marker[T] = {name: Str}
 pure make(value: UInt) -> Box[UInt] { Box(value: value) }
@@ -13,7 +13,7 @@ let word = text("word")
   checked.stdout == ""
 }
 
-test test_constructor_application_preserves_partial_spread_context_and_owned_defaults [error] { |ctx|
+test test_constructor_application_preserves_partial_spread_context_and_owned_defaults { |ctx|
   let executed = test.run_script(ctx, r"""type Pair[T] = {left: T, right: T, items: List[T] = []}
 pure pair(left: UInt, right: UInt) -> Pair[UInt] {
   Pair(...{left: left}, right: right)

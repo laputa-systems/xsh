@@ -1,4 +1,4 @@
-test test_tui_helpers [error] {
+test test_tui_helpers {
   tui.clear() == "\u{1b}[2J"
   tui.home() == "\u{1b}[H"
   tui.erase_line() == "\u{1b}[2K"
@@ -25,7 +25,7 @@ test test_tui_helpers [error] {
 
 # Every sequence producer, asserted against its exact bytes rather than a shape
 # check, so a wrong or truncated selector cannot pass.
-test test_tui_sequence_bytes [error] {
+test test_tui_sequence_bytes {
   tui.reset() == "\u{1b}[0m"
   tui.bold() == "\u{1b}[1m"
   tui.dim() == "\u{1b}[2m"
@@ -46,7 +46,7 @@ test test_tui_sequence_bytes [error] {
 
 # Text that already reaches the requested width is returned byte-identical, in
 # both directions, including when it is wider than the request.
-test test_tui_pad_already_wide_enough [error] {
+test test_tui_pad_already_wide_enough {
   tui.left_pad("abcd", 4) == "abcd"
   tui.right_pad("abcd", 4) == "abcd"
   tui.left_pad("abcde", 3) == "abcde"
@@ -57,7 +57,7 @@ test test_tui_pad_already_wide_enough [error] {
 
 # A negative width clamps to zero, and a zero width never pads: both leave the
 # text unchanged, including empty text.
-test test_tui_pad_zero_and_negative_width [error] {
+test test_tui_pad_zero_and_negative_width {
   tui.left_pad("x", 0) == "x"
   tui.right_pad("x", 0) == "x"
   tui.left_pad("x", -1) == "x"
@@ -70,7 +70,7 @@ test test_tui_pad_zero_and_negative_width [error] {
   tui.right_pad("", -5) == ""
 }
 
-test test_tui_pad_large_width_keeps_space_filler [error] {
+test test_tui_pad_large_width_keeps_space_filler {
   # The seed and each doubling boundary must keep exact output widths.
   for width in [31, 32, 33, 64, 65, 100] {
     let left = tui.left_pad("x", width)
@@ -86,7 +86,7 @@ test test_tui_pad_large_width_keeps_space_filler [error] {
 
 # Escape sequences occupy no columns, so styled text pads to its displayed
 # width and the sequences stay intact around the inserted spaces.
-test test_tui_pad_ignores_escape_sequences [error] {
+test test_tui_pad_ignores_escape_sequences {
   let styled = f"${tui.red()}x${tui.reset()}"
   tui.left_pad(styled, 1) == styled
   tui.left_pad(styled, 3) == f"  ${styled}"
@@ -100,7 +100,7 @@ test test_tui_pad_ignores_escape_sequences [error] {
 
 # Width counts Unicode scalar values, not display cells and not graphemes: a
 # combining mark and an astral emoji each count as one.
-test test_tui_pad_counts_unicode_scalars [error] {
+test test_tui_pad_counts_unicode_scalars {
   tui.left_pad("h\u{e9}llo", 6) == " h\u{e9}llo"
   tui.right_pad("h\u{e9}llo", 6) == "h\u{e9}llo "
   tui.left_pad("\u{65e5}\u{672c}", 3) == " \u{65e5}\u{672c}"
@@ -109,7 +109,7 @@ test test_tui_pad_counts_unicode_scalars [error] {
 
 # CR and LF are zero-width, so text carrying line breaks pads on visible
 # characters and keeps its line breaks in place.
-test test_tui_pad_treats_cr_and_lf_as_zero_width [error] {
+test test_tui_pad_treats_cr_and_lf_as_zero_width {
   tui.left_pad(
   """a\r
 b""",
@@ -145,7 +145,7 @@ b  """
 # An `ESC` that does not open a CSI sequence is an ordinary character and keeps
 # its width; an unterminated CSI sequence runs to the end of the value and
 # contributes nothing.
-test test_tui_pad_lone_and_unterminated_escapes [error] {
+test test_tui_pad_lone_and_unterminated_escapes {
   tui.right_pad("a\u{1b}b", 3) == "a\u{1b}b"
   tui.right_pad("a\u{1b}", 3) == "a\u{1b} "
   tui.right_pad("a\u{1b}[3", 4) == "a\u{1b}[3   "
@@ -154,7 +154,7 @@ test test_tui_pad_lone_and_unterminated_escapes [error] {
   tui.right_pad("\u{1b}[", 2) == "\u{1b}[  "
 }
 
-test test_tui_read_secret_piped_lines [fs, process, error] { |ctx|
+test test_tui_read_secret_piped_lines { |ctx|
   let script = test.temp_file(
     ctx,
     name: "read-secret.xsh",

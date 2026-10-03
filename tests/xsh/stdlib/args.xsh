@@ -27,7 +27,7 @@ type RgAppletOptions = {color: Str, pattern: Str, globs: List[Str], roots: List[
 
 type CpAppletOptions = {no_clobber: Bool, force: Bool, target: Path?, operands: List[Str]}
 
-test test_args_parse_tokens_and_commands [error] {
+test test_args_parse_tokens_and_commands {
   let parsed: ParsedArgs = cli.parse(
     ["--count", "3", "-D", "one", "-Dtwo", "--verbose", "src/main.xsh"],
     {
@@ -108,7 +108,7 @@ test test_args_parse_tokens_and_commands [error] {
   explicit.root.name() == "demo"
 }
 
-test test_cli_parse_compact_forms [error] {
+test test_cli_parse_compact_forms {
   let parsed: ParsedArgs = cli.parse(
     ["--total", "3", "-D", "one", "-Dtwo", "--verbose", "src/main.xsh"],
     {
@@ -140,7 +140,7 @@ test test_cli_parse_compact_forms [error] {
   cli_tokens[0].value == "json"
 }
 
-test test_cli_applet_parses_head_attached_value [error] {
+test test_cli_applet_parses_head_attached_value {
   let parsed: HeadAppletOptions = cli.applet(
     ["-n2", "file"],
     {
@@ -159,7 +159,7 @@ test test_cli_applet_parses_head_attached_value [error] {
   parsed.files[0] == "file"
 }
 
-test test_cli_applet_parses_sort_cluster_and_attached_values [error] {
+test test_cli_applet_parses_sort_cluster_and_attached_values {
   let parsed: SortAppletOptions = cli.applet(
     ["-nr", "-k2", "-t,", "file"],
     {
@@ -193,7 +193,7 @@ test test_cli_applet_parses_sort_cluster_and_attached_values [error] {
   parsed.files[0] == "file"
 }
 
-test test_cli_applet_parses_fd_clusters_and_repeated_values [error] {
+test test_cli_applet_parses_fd_clusters_and_repeated_values {
   let parsed: FdAppletOptions = cli.applet(
     ["-HI", "-e", "xsh", "-E", "target", "pattern", "root"],
     {
@@ -226,7 +226,7 @@ test test_cli_applet_parses_fd_clusters_and_repeated_values [error] {
   parsed.operands.join(",") == "pattern,root"
 }
 
-test test_cli_applet_parses_rg_long_assignment_and_attached_values [error] {
+test test_cli_applet_parses_rg_long_assignment_and_attached_values {
   let parsed: RgAppletOptions = cli.applet(
     ["--color=always", "-efoo", "-g*.xsh", "root"],
     {
@@ -254,7 +254,7 @@ test test_cli_applet_parses_rg_long_assignment_and_attached_values [error] {
   parsed.roots[0] == "root"
 }
 
-test test_cli_applet_parses_cp_compatibility_flags [error] {
+test test_cli_applet_parses_cp_compatibility_flags {
   let parsed: CpAppletOptions = cli.applet(
     ["-n", "-f", "-t", "dest", "src1", "src2"],
     {
@@ -309,7 +309,7 @@ test test_cli_applet_parses_cp_compatibility_flags [error] {
   ! reversed.force
 }
 
-test test_cli_applet_last_scalar_occurrence_wins [error] {
+test test_cli_applet_last_scalar_occurrence_wins {
   match cli.parse(
     ["-v", "-v"],
     {verbose: {form: "-v", default: false}},
@@ -325,7 +325,7 @@ test test_cli_applet_last_scalar_occurrence_wins [error] {
   parsed.verbose
 }
 
-test test_cli_parse_advanced_descriptors [fs, error] {
+test test_cli_parse_advanced_descriptors {
   let root_handle = fs.tempdir()?
   defer root_handle.close()?
   let root = root_handle.host_path()?
@@ -464,7 +464,7 @@ test test_cli_parse_advanced_descriptors [fs, error] {
   }
 }
 
-test test_cli_commands_accept_aliases_forms_and_options [error] {
+test test_cli_commands_accept_aliases_forms_and_options {
   let command: CommandOptions = cli.commands(
     ["b", "--verbose", "target/demo", "--", "--dry-run"],
     {
@@ -493,7 +493,7 @@ test test_cli_commands_accept_aliases_forms_and_options [error] {
   command.rest[0] == "--dry-run"
 }
 
-test test_cli_parse_positional_default_is_optional [error] {
+test test_cli_parse_positional_default_is_optional {
   let absent = cli.parse([], {kind: {form: "KIND", default: "rust"}})?
   absent.kind == "rust"
 

@@ -1,14 +1,14 @@
-test test_test_helpers [error] {
+test test_test_helpers {
   1 != 2
   test.error_kind(test.fail("covered failure"), "AssertionError.Failed")?
 }
 
-test test_error_fail_constructs_validation_result [error] {
+test test_error_fail_constructs_validation_result {
   let failure = error.fail("header is missing")
   test.error_kind(failure, "validation")?
 }
 
-test test_run_script_captures_status_env_args_and_bytes [error] { |ctx|
+test test_run_script_captures_status_env_args_and_bytes { |ctx|
   let ok = test.run_script(
     ctx,
     """
@@ -55,7 +55,7 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
   failed.status == 7
 }
 
-test test_run_xsht_trace_accepts_trace_flags_and_script_args [error] { |ctx|
+test test_run_xsht_trace_accepts_trace_flags_and_script_args { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
@@ -82,7 +82,7 @@ test test_skip_function_is_covered {
   test.skip("covered skip")
 }
 
-test test_native_script_arguments_preserve_a_leading_separator [error] { |ctx|
+test test_native_script_arguments_preserve_a_leading_separator { |ctx|
   let source = r"""print ${args.join(",")}"""
   let script = test.run_script(ctx, source, ["--", "one"])?
   {

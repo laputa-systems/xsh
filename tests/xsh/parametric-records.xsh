@@ -1,5 +1,5 @@
 
-test test_parametric_record_aliases_keep_selected_field_types [error] { |ctx|
+test test_parametric_record_aliases_keep_selected_field_types { |ctx|
   let output = test.run_script(ctx, r"""type ParametricObservation[T] = {state: Str, value: T? = null, samples: List[T] = [], options: Map[T] = {}}
 type ParametricName = ParametricObservation[Str]
 type ParametricCount = ParametricObservation[Int]
@@ -29,7 +29,7 @@ witness()
   output.stdout == ""
 }
 
-test test_parametric_records_reject_wrong_specializations_and_nonuniversal_defaults [error] { |ctx|
+test test_parametric_records_reject_wrong_specializations_and_nonuniversal_defaults { |ctx|
   for source in [
     "type Box[T] = {value: T}\ntype Count = Box[Int]\nlet value = Count(value: \"wrong\")\n",
     "type Box[T] = {value: T = 1}\n",
@@ -47,7 +47,7 @@ test test_parametric_records_reject_wrong_specializations_and_nonuniversal_defau
   }
 }
 
-test test_parametric_records_reject_invalid_parameters_and_expanding_types [error] { |ctx|
+test test_parametric_records_reject_invalid_parameters_and_expanding_types { |ctx|
   for source in [
     "type Box[T, T] = {value: T}\n",
     "type Box[Int] = {value: Int}\n",
@@ -76,7 +76,7 @@ test test_parametric_records_reject_invalid_parameters_and_expanding_types [erro
 
 }
 
-test test_parametric_record_require_preserves_nested_selected_types [error] { |ctx|
+test test_parametric_record_require_preserves_nested_selected_types { |ctx|
   let executed = test.run_script(ctx, r"""type Box[T] = {value: T}
 type Envelope[T] = {item: Box[T], items: List[Box[T]], maybe: Box[T]?}
 type CountEnvelope = Envelope[Int]
@@ -96,7 +96,7 @@ match wrong.require(CountEnvelope) {
   (executed.stdout) == ("12\nrejected\n")
 }
 
-test test_parametric_records_use_declaring_private_dependencies [fs, error] { |ctx|
+test test_parametric_records_use_declaring_private_dependencies { |ctx|
   let root = test.temp_dir(ctx, name: "parametric-schema-module")?
   fp"${root}/model.xsh".write_atomic("""##! Parameterized schemas with private dependencies.
 type Local = {name: Str}
@@ -121,7 +121,7 @@ print ${value.owner.name.upper()}
   (executed.stdout) == ("12\nOWNER\n")
 }
 
-test test_parametric_records_prepare_concrete_alias_constructors_and_typed_literals [error] { |ctx|
+test test_parametric_records_prepare_concrete_alias_constructors_and_typed_literals { |ctx|
   let executed = test.run_script(ctx, r"""type Box[T] = {value: T, items: List[T] = []}
 type Count = Box[Int]
 const literal: Box[Int] = {value: 3, items: [4]}
@@ -138,7 +138,7 @@ print $spread.value
   (executed.stdout) == ("7\n7\n9\n")
 }
 
-test test_parametric_records_keep_specialization_through_nested_updates [error] { |ctx|
+test test_parametric_records_keep_specialization_through_nested_updates { |ctx|
   let executed = test.run_script(ctx, r"""type Box[T] = {value: T}
 type Envelope[T] = {item: Box[T], label: Str}
 type Counts = Envelope[Int]
@@ -154,7 +154,7 @@ print $changed.label
   (executed.stdout) == ("10\nsame\n")
 }
 
-test test_parametric_records_preserve_nominal_enum_arguments [error] { |ctx|
+test test_parametric_records_preserve_nominal_enum_arguments { |ctx|
   let accepted = test.run_script(ctx, r"""enum State { Ready, Absent }
 type Box[T] = {value: T}
 type StateBox = Box[State]
@@ -180,7 +180,7 @@ let wrong = FirstBox(value: Second)
   ("check.type-mismatch" in rejected.stderr)
 }
 
-test test_parametric_record_instances_keep_exact_field_types [error] { |ctx|
+test test_parametric_record_instances_keep_exact_field_types { |ctx|
   let declaration = r"""type Observation[T] = {state: Str, value: T? = null, samples: List[T] = []}
 type CountObservation = Observation[Int]
 let count = CountObservation(state: "observed", value: 7, samples: [7])
@@ -203,7 +203,7 @@ print ${sample + (maybe ?? 0) + generic.samples.len()}
   }
 }
 
-test test_parametric_records_do_not_add_generic_functions_or_error_families [error] { |ctx|
+test test_parametric_records_do_not_add_generic_functions_or_error_families { |ctx|
   for source in [
     "pure first[T](value: T) -> T { value }\n",
     "error Failure[T] = Bad(value: T)\n",

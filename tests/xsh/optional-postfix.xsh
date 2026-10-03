@@ -10,7 +10,7 @@ proc optional_postfix_observation(present: Bool) [] -> OptionalPostfixObservatio
   {target: null, state: "observed"}
 }
 
-test test_optional_record_return_field_alias_preserves_receiver_type [error] {
+test test_optional_record_return_field_alias_preserves_receiver_type {
   for present in [true, false] {
     let source = optional_postfix_observation(present)
     let target = source.target
@@ -19,7 +19,7 @@ test test_optional_record_return_field_alias_preserves_receiver_type [error] {
   }
 }
 
-test test_optional_method_skips_arguments_and_preserves_fallback [error] {
+test test_optional_method_skips_arguments_and_preserves_fallback {
   let absent: Str? = null
   (absent?.trim() ?? "default") == ("default")
   (absent?.replace("x", "y") ?? "default") == ("default")
@@ -27,7 +27,7 @@ test test_optional_method_skips_arguments_and_preserves_fallback [error] {
   (present?.trim() ?? "default") == ("label")
 }
 
-test test_optional_index_and_slice [error] {
+test test_optional_index_and_slice {
   let absent: List[Int]? = null
   (absent?[0] ?? -1) == (-1)
   (absent?[0..2] ?? []) == ([])
@@ -38,7 +38,7 @@ test test_optional_index_and_slice [error] {
   (text?[1..2] ?? "") == ("β")
 }
 
-test test_optional_postfix_evaluation_order [fs, error] { |ctx|
+test test_optional_postfix_evaluation_order { |ctx|
   let output = test.run_script(ctx, """
 proc absent() [io] -> Str? { print "receiver"; return null }
 proc present() [io] -> Str? { print "present"; return "x" }
@@ -73,7 +73,7 @@ list
 """)
 }
 
-test test_optional_result_layers_and_outer_propagation [error] {
+test test_optional_result_layers_and_outer_propagation {
   let present: Str? = "42"
   let absent: Str? = null
   ((present?.parse_int() ?? Ok(0))?) == (42)
@@ -87,7 +87,7 @@ test test_optional_result_layers_and_outer_propagation [error] {
   (nested? ?.trim() ?? "default") == ("label")
 }
 
-test test_optional_non_null_errors_and_explicit_hops [fs, error] { |ctx|
+test test_optional_non_null_errors_and_explicit_hops { |ctx|
   let empty = test.run_script(ctx, "let values: List[Int]? = []\nlet item = values?[0] ?? 0\nprint $item\n", [], {}, b"", "optional-empty.xsh")?
   (!empty.success)
   {
@@ -111,7 +111,7 @@ test test_optional_non_null_errors_and_explicit_hops [fs, error] { |ctx|
   }
 }
 
-test test_optional_postfix_requires_explicit_hops_error_effects_and_bool_values [error] { |ctx|
+test test_optional_postfix_requires_explicit_hops_error_effects_and_bool_values { |ctx|
   let ordinary_hop = test.run_script(ctx, r"""type Server = {host: Str?}
 type Config = {server: Server?}
 let config: Config? = {server: {host: "label"}}
@@ -133,7 +133,7 @@ print "after"
   statement.stdout == "after\n"
 }
 
-test test_result_postfix_propagation_skips_index_on_failure [fs, error] { |ctx|
+test test_result_postfix_propagation_skips_index_on_failure { |ctx|
   let output = test.run_script(ctx, """
 error InputError = Failed(message: Str) : InvalidData
 proc argument() [io] -> Int { print "index"; return 0 }
@@ -154,7 +154,7 @@ match read() {
 """)
 }
 
-test test_optional_fields_guard_each_hop_and_flatten_null_layers [error] {
+test test_optional_fields_guard_each_hop_and_flatten_null_layers {
   let absent: OptionalPostfixConfig? = null
   let missing_server: OptionalPostfixConfig? = {server: null}
   let missing_host: OptionalPostfixConfig? = {server: {host: null}}
@@ -168,7 +168,7 @@ test test_optional_fields_guard_each_hop_and_flatten_null_layers [error] {
   (selected ?? false) == (false)
 }
 
-test test_optional_postfix_null_branch_differential_witness [fs, error] { |ctx|
+test test_optional_postfix_null_branch_differential_witness { |ctx|
   let before = test.run_script(ctx, """
 proc fallback() [io] -> Str { print "fallback"; return "default" }
 proc argument() [io] -> Str { print "argument"; return "x" }
@@ -203,7 +203,7 @@ y
 """)
 }
 
-test test_optional_runtime_record_fields_preserve_result_layers [error] {
+test test_optional_runtime_record_fields_preserve_result_layers {
   let failure: Error? = OptionalPostfixError.Failed("42")
   ((failure?.message?.parse_int() ?? Ok(0))?) == (42)
   let absent: Error? = null
@@ -212,7 +212,7 @@ test test_optional_runtime_record_fields_preserve_result_layers [error] {
   ((handle?.command?.parse_int() ?? Ok(0))?) == (0)
 }
 
-test test_optional_method_retains_validated_local_receiver_type [error] {
+test test_optional_method_retains_validated_local_receiver_type {
   let rows = json.decode("""[{"sched":"  noop  "},{"sched":null}]""")?
   var labels = []
   for row in rows.require(List[Record])? {
