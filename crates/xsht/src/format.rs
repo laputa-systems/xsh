@@ -24,6 +24,9 @@ use xsh::frontend::syntax::node::{
 use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 use xsh::frontend::syntax::token::TokenTag;
 
+#[path = "format_equivalence.rs"]
+mod format_equivalence;
+
 pub const DEFAULT_LINE_WIDTH: usize = 120;
 const MULTILINE_LIST_ITEM_THRESHOLD: usize = 8;
 const MULTILINE_RECORD_FIELD_THRESHOLD: usize = 6;
@@ -185,6 +188,9 @@ struct Writer<'a> {
     line_width: usize,
     force_collection_expanded: bool,
     inline_only: bool,
+    /// Set before each block statement: the previous statement ends in an
+    /// expression that a leading operator on the next line would extend.
+    previous_stmt_may_continue: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -266,10 +272,21 @@ impl Formatter {
 
     pub fn format_source(&self, source_id: SourceId, source: &str) -> FormatOutput {
         let parsed = Parser::parse_source_arena_only(source_id, source);
-        self.format_parsed_source(source, &parsed)
+        let output = self.format_parsed_source_unverified(source, &parsed);
+        verify_formatted_output(source_id, source, &parsed, output)
     }
 
+    /// Formats `parsed`, whose root statements must come from `source`.
+    ///
+    /// The parse may also hold loaded modules; only its root statements are
+    /// formatted and compared.
     pub fn format_parsed_source(&self, source: &str, parsed: &ArenaParseOutput) -> FormatOutput {
+        let output = self.format_parsed_source_unverified(source, parsed);
+        let source_id = parsed.arena.source_text_source_id().unwrap_or(SourceId::new(0));
+        verify_formatted_output(source_id, source, parsed, output)
+    }
+
+    fn format_parsed_source_unverified(&self, source: &str, parsed: &ArenaParseOutput) -> FormatOutput {
         if !parsed.diagnostics.is_empty() {
             return FormatOutput {
                 formatted: String::new(),
@@ -293,7 +310,12 @@ impl Formatter {
                 diagnostics,
             };
         }
-        self.format_program_with_cst(source, program, &cst)
+        let output = self.format_program_with_cst(source, program, &cst);
+        if output.formatted == source {
+            return output;
+        }
+        let original = Parser::parse_source_arena_only(source_id, source);
+        verify_formatted_output(source_id, source, &original, output)
     }
 
     fn format_program_with_cst(
@@ -323,6 +345,7 @@ impl Formatter {
                 line_width: self.line_width,
                 force_collection_expanded: false,
                 inline_only: false,
+                previous_stmt_may_continue: false,
             }
             .format_program(program),
             diagnostics: Vec::new(),
@@ -352,6 +375,7 @@ impl<'a> Writer<'a> {
                     output.push('\n');
                 }
             }
+            self.previous_stmt_may_continue = previous.as_ref().is_some_and(stmt_may_continue);
             self.write_stmt(stmt_id, 0, &mut output);
             previous = Some(stmt.kind);
             previous_end = Some(stmt.span.end());
@@ -573,7 +597,7 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Match { value, arms } => self.write_match(*value, *arms, indent, output),
             ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
             ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
-            ArenaStmtKind::Expr(expr) => self.write_expr(*expr, 0, output),
+            ArenaStmtKind::Expr(expr) => self.write_statement_expr(*expr, output),
         }
         self.write_trailing_comment(stmt.span.end(), output);
     }
@@ -1068,7 +1092,7 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Continue => output.push_str("continue"),
             ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
             ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
-            ArenaStmtKind::Expr(expr) => self.write_expr(*expr, 0, output),
+            ArenaStmtKind::Expr(expr) => self.write_statement_expr(*expr, output),
             ArenaStmtKind::Assert { condition, message } => self.write_assert(*condition, *message, output),
             _ => self.write_stmt(stmt_id, indent, output),
         }
@@ -1302,6 +1326,7 @@ impl<'a> Writer<'a> {
             }
             let stmt_output_start = output.len();
             let grouped = preserve_value_shape && index == 0 && params.is_empty();
+            self.previous_stmt_may_continue = index > 0 && stmt_may_continue(&self.arena.stmt(stmts[index - 1]).kind);
             match stmt.kind {
                 ArenaStmtKind::Expr(expr) if grouped && matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(_)) => {
                     self.write_comments_before(stmt_span.start(), indent + 1, output);
@@ -1419,6 +1444,87 @@ impl<'a> Writer<'a> {
         match value {
             ArenaExprOrRun::Expr(expr) => self.write_expr_safe(*expr, output),
             ArenaExprOrRun::Run(run) => self.write_run(*run, output),
+        }
+    }
+
+    /// Writes the operand of a postfix `.`, `?`, `[`, or call. An operand
+    /// ending in `?` would merge with what follows into `?.`, `??`, or a
+    /// guarded index, so it is grouped.
+    fn write_postfix_operand(&mut self, expr: ExprId, precedence: u8, output: &mut String) {
+        let start = output.len();
+        self.write_field_base_expr(expr, precedence, output);
+        group_if_ends_with_try(output, start);
+    }
+
+    fn run_ends_with_typed_arg(&self, run: xsh::frontend::syntax::arena::RunFormId) -> bool {
+        let Some(segment) = self.arena.run_segments(self.arena.run_form(run).segments).last() else {
+            return false;
+        };
+        let last = match self.arena.redirections(segment.redirections).last() {
+            Some(redirection) => match &redirection.target {
+                ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
+            },
+            None => self.arena.command_args(segment.args).last().unwrap_or(&segment.target),
+        };
+        matches!(last.kind, ArenaCommandArgKind::Typed(_))
+    }
+
+    /// Whether `expr` is a command form, whose words extend to the end of the
+    /// line, or a `?` applied to one.
+    fn is_command_form(&self, expr: ExprId) -> bool {
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_) => true,
+            ArenaExprKind::Try(inner) => self.is_command_form(inner),
+            _ => false,
+        }
+    }
+
+    /// Writes an expression where the parser expects a statement or an arm
+    /// body. There a leading `{` opens a block, and at the start of a line a
+    /// leading operator continues the previous statement.
+    fn write_statement_expr(&mut self, expr: ExprId, output: &mut String) {
+        let may_continue = std::mem::take(&mut self.previous_stmt_may_continue);
+        let start = output.len();
+        self.write_expr(expr, 0, output);
+        let text = &output[start..];
+        // An arm body brace is always a block; a statement brace is a record
+        // when its first field reads as one (`Parser::brace_starts_record_value`).
+        let arm_body = output[..start].ends_with("=> ");
+        let opens_block = text.starts_with('{')
+            && !matches!(self.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_))
+            && (arm_body || !self.leading_brace_reads_as_record(expr));
+        let before = output[..start].trim_end_matches([' ', '\t']);
+        let continues_previous = may_continue && before.ends_with('\n') && starts_with_continuation_operator(text);
+        if opens_block || continues_previous {
+            output.insert(start, '(');
+            output.push(')');
+        }
+    }
+
+    /// Whether the leftmost operand of `expr`, written first, is a record or
+    /// map comprehension whose opening field the parser recognizes as a record
+    /// rather than a block statement.
+    fn leading_brace_reads_as_record(&self, expr: ExprId) -> bool {
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::Record(fields) => !matches!(
+                self.arena.record_fields(fields).first().map(|field| &field.kind),
+                Some(ArenaRecordFieldKind::Computed { .. })
+            ),
+            ArenaExprKind::MapComp { .. } => true,
+            ArenaExprKind::Field { base, .. }
+            | ArenaExprKind::NullSafeField { base, .. }
+            | ArenaExprKind::Index { base, .. }
+            | ArenaExprKind::Slice { base, .. } => self.leading_brace_reads_as_record(base),
+            ArenaExprKind::Call { callee: inner, .. }
+            | ArenaExprKind::Try(inner)
+            | ArenaExprKind::Require { value: inner, .. }
+            | ArenaExprKind::Binary { left: inner, .. }
+            | ArenaExprKind::PatternTest { value: inner, .. }
+            | ArenaExprKind::Pipeline { input: inner, .. }
+            | ArenaExprKind::StructuredPipeline { input: inner, .. }
+            | ArenaExprKind::ValuePipelineCall { input: inner, .. }
+            | ArenaExprKind::BuilderCall { call: inner, .. } => self.leading_brace_reads_as_record(inner),
+            _ => false,
         }
     }
 
@@ -1635,7 +1741,9 @@ impl<'a> Writer<'a> {
 
     fn write_expr(&mut self, expr_id: ExprId, parent_precedence: u8, output: &mut String) {
         let kind = self.arena.expr(expr_id).kind;
-        let precedence = expr_precedence(&kind);
+        // Command words run to the end of the line, so a command used as an
+        // operand must be grouped or it swallows the surrounding operator.
+        let precedence = if self.is_command_form(expr_id) { 0 } else { expr_precedence(&kind) };
         let parens = precedence < parent_precedence;
         if parens {
             output.push('(');
@@ -1776,7 +1884,7 @@ impl<'a> Writer<'a> {
                 self.write_expr(*right, right_precedence, output);
             }
             ArenaExprKind::Call { callee, args } => {
-                self.write_expr(*callee, precedence, output);
+                self.write_postfix_operand(*callee, precedence, output);
                 let callee_end = self.arena.expr(*callee).span.end();
                 let call_end = self.arena.expr(expr_id).span.end();
                 let original_multiline =
@@ -1787,29 +1895,32 @@ impl<'a> Writer<'a> {
                 if matches!(self.arena.expr(*base).kind, ArenaExprKind::Item) {
                     output.push('.');
                 } else {
-                    self.write_field_base_expr(*base, precedence, output);
+                    self.write_postfix_operand(*base, precedence, output);
                     output.push('.');
                 }
                 output.push_str(name.as_str().as_str());
             }
             ArenaExprKind::NullSafeField { base, name } => {
-                self.write_field_base_expr(*base, precedence, output);
+                self.write_postfix_operand(*base, precedence, output);
                 output.push_str("?.");
                 output.push_str(name.as_str().as_str());
             }
             ArenaExprKind::Index { base, index, guarded } => {
-                self.write_expr(*base, precedence, output);
+                self.write_postfix_operand(*base, precedence, output);
                 if *guarded { output.push('?'); }
                 output.push('[');
                 self.write_expr(*index, 0, output);
                 output.push(']');
             }
             ArenaExprKind::Slice { base, start, end, guarded } => {
-                self.write_expr(*base, precedence, output);
+                self.write_postfix_operand(*base, precedence, output);
                 if *guarded { output.push('?'); }
                 output.push('[');
                 if let Some(start) = start {
+                    // `?..` lexes as optional field access.
+                    let start_at = output.len();
                     self.write_expr(*start, 0, output);
+                    group_if_ends_with_try(output, start_at);
                 }
                 output.push_str("..");
                 if let Some(end) = end {
@@ -1843,12 +1954,13 @@ impl<'a> Writer<'a> {
                 output.push_str("spawn ");
                 match &form.target {
                     ArenaSpawnTarget::Run(run) => self.write_run(*run, output),
-                    ArenaSpawnTarget::Command(expr) => self.write_expr(*expr, 8, output),
+                    ArenaSpawnTarget::Command(expr) => self.write_postfix_operand(*expr, 8, output),
                 }
             }
             ArenaExprKind::Wait(form) => {
                 output.push_str("wait ");
-                self.write_expr(form.target, 8, output);
+                // A trailing `?` after the target applies to the wait itself.
+                self.write_postfix_operand(form.target, 8, output);
             }
             ArenaExprKind::BuilderCall { call, block } => {
                 self.write_expr(*call, precedence, output);
@@ -1857,15 +1969,21 @@ impl<'a> Writer<'a> {
                 self.write_builder_block(*block, indent, output);
             }
             ArenaExprKind::Try(inner) => {
-                self.write_expr(*inner, precedence, output);
+                if self.is_command_form(*inner) {
+                    self.write_expr(*inner, 0, output);
+                } else {
+                    self.write_postfix_operand(*inner, precedence, output);
+                }
                 let inner_kind = self.arena.expr(*inner).kind;
+                // A `?` touching a typed command argument applies to that argument.
                 if matches!(
                     inner_kind,
                     ArenaExprKind::Spawn(ArenaSpawnForm {
                         target: ArenaSpawnTarget::Run(_),
                         ..
                     })
-                ) {
+                ) || matches!(inner_kind, ArenaExprKind::Run(run) if self.run_ends_with_typed_arg(run))
+                {
                     output.push_str(" ?");
                 } else {
                     output.push('?');
@@ -2181,14 +2299,14 @@ impl<'a> Writer<'a> {
             let simple = statements.len() == 1 && !self.source.get(span.range()).is_some_and(|text| text.contains('#'));
             if simple && (self.inline_only || !self.expr_source_is_multiline(value)) {
                 match self.arena.stmt(statements[0]).kind {
-                    ArenaStmtKind::Expr(expr) => { output.push_str("{ "); self.write_expr(expr, 0, output); output.push_str(" }"); }
+                    ArenaStmtKind::Expr(expr) => { output.push_str("{ "); self.write_statement_expr(expr, output); output.push_str(" }"); }
                     ArenaStmtKind::TailBareIdent(name) => { output.push_str("{ "); output.push_str(name.as_str().as_str()); output.push_str(" }"); }
                     _ => self.write_block(block, indent, output),
                 }
             } else { self.write_block(block, indent, output); }
         } else {
             output.push_str("{ ");
-            self.write_expr(value, 0, output);
+            self.write_statement_expr(value, output);
             output.push_str(" }");
         }
     }
@@ -2234,7 +2352,7 @@ impl<'a> Writer<'a> {
                 self.write_expr(guard, 0, output);
             }
             output.push_str(" => ");
-            self.write_expr(arm.value, 0, output);
+            self.write_statement_expr(arm.value, output);
         }
         if !arms.is_empty() {
             output.push(' ');
@@ -2266,7 +2384,12 @@ impl<'a> Writer<'a> {
                 self.write_expr(guard, 0, output);
             }
             output.push_str(" => ");
+            let start = output.len();
             self.write_expr_safe(arm.value, output);
+            if output[start..].starts_with('{') && !matches!(self.arena.expr(arm.value).kind, ArenaExprKind::ValueBlock(_)) {
+                output.insert(start, '(');
+                output.push(')');
+            }
             output.push_str(",\n");
         }
         self.write_indent(indent, output);
@@ -2762,7 +2885,7 @@ impl<'a> Writer<'a> {
             return false;
         }
         let inline = self.render_inline(|writer, inline| {
-            writer.write_expr(base, 0, inline);
+            writer.write_postfix_operand(base, 8, inline);
             for segment in &segments {
                 inline.push('.');
                 inline.push_str(segment.name.as_str().as_str());
@@ -2773,7 +2896,7 @@ impl<'a> Writer<'a> {
             return false;
         }
 
-        self.write_expr(base, 0, output);
+        self.write_postfix_operand(base, 8, output);
         let indent = continuation_indent_for_expr(output);
         for (index, segment) in segments.iter().enumerate() {
             if index > 0 {
@@ -3185,6 +3308,7 @@ impl<'a> Writer<'a> {
             line_width: self.line_width,
             force_collection_expanded: false,
             inline_only: true,
+            previous_stmt_may_continue: false,
         };
         let mut output = String::new();
         f(&mut writer, &mut output);
@@ -3345,6 +3469,109 @@ impl<'a> Writer<'a> {
             _ => false,
         }
     }
+}
+
+/// Refuses formatter output that does not reparse to the input's syntax tree.
+///
+/// The formatter regenerates source from the AST, so a missing grouping or a
+/// token merge silently changes meaning; the reparse catches that class
+/// before any caller writes the file.
+fn verify_formatted_output(
+    source_id: SourceId,
+    source: &str,
+    original: &ArenaParseOutput,
+    output: FormatOutput,
+) -> FormatOutput {
+    if !output.diagnostics.is_empty() || !original.diagnostics.is_empty() || output.formatted == source {
+        return output;
+    }
+    let reparsed = Parser::parse_source_arena_only(source_id, &output.formatted);
+    let difference = if let Some(error) = reparsed.diagnostics.first() {
+        let location = error
+            .span
+            .or_else(|| error.labels.first().map(|label| label.span))
+            .map(|span| line_column(&output.formatted, span.start()))
+            .map_or(String::new(), |(line, column)| format!(" at output {line}:{column}"));
+        Some((0, format!("formatted output does not parse{location}: {}", error.message)))
+    } else {
+        let before = format_equivalence::canonical(&original.arena, source);
+        let after = format_equivalence::canonical(&reparsed.arena, &output.formatted);
+        let index = before
+            .text
+            .bytes()
+            .zip(after.text.bytes())
+            .position(|(left, right)| left != right)
+            .or((before.text.len() != after.text.len()).then(|| before.text.len().min(after.text.len())));
+        index.map(|index| {
+            let (line, column) = line_column(&output.formatted, after.source_offset_at(index).unwrap_or(0));
+            (
+                before.source_offset_at(index).unwrap_or(0),
+                format!("formatted output parses to a different syntax tree at output {line}:{column}"),
+            )
+        })
+    };
+    match difference {
+        None => output,
+        Some((offset, message)) => FormatOutput {
+            formatted: String::new(),
+            diagnostics: vec![
+                Diagnostic::error(format!("formatter refused to rewrite this file: {message}"))
+                    .with_code("format-equivalence")
+                    .with_span(Span::new(source_id, offset, offset))
+                    .with_note("this is a formatter bug; the file was left unchanged"),
+            ],
+        },
+    }
+}
+
+fn line_column(text: &str, offset: usize) -> (usize, usize) {
+    let before = &text[..offset.min(text.len())];
+    let line = before.matches('\n').count() + 1;
+    let column = before.len() - before.rfind('\n').map_or(0, |index| index + 1) + 1;
+    (line, column)
+}
+
+/// Whether a statement of this kind ends in an expression that a following
+/// line starting with an operator would continue.
+fn stmt_may_continue(kind: &ArenaStmtKind) -> bool {
+    matches!(
+        kind,
+        ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Var { .. }
+            | ArenaStmtKind::Const { .. }
+            | ArenaStmtKind::Assign { .. }
+            | ArenaStmtKind::Expr(_)
+            | ArenaStmtKind::Return(Some(_))
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Defer(_)
+            | ArenaStmtKind::Assert { .. }
+            | ArenaStmtKind::Break { value: Some(_) }
+            | ArenaStmtKind::GuardedStmt { .. }
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Export(_)
+    )
+}
+
+fn group_if_ends_with_try(output: &mut String, start: usize) {
+    if output.len() > start && output.ends_with('?') {
+        output.insert(start, '(');
+        output.push(')');
+    }
+}
+
+/// Whether a line starting with `text` continues the previous expression; see
+/// `Parser::continuation_binary_op` and the leading-`.` and `|>` rules.
+fn starts_with_continuation_operator(text: &str) -> bool {
+    if text.starts_with("..") {
+        return false;
+    }
+    if text.starts_with(['-', '+', '*', '/', '%', '<', '>', '.', '|']) || text.starts_with("==") || text.starts_with("!=") || text.starts_with("??") {
+        return true;
+    }
+    let word = text.split(|ch: char| !(ch.is_alphanumeric() || ch == '_')).next().unwrap_or("");
+    matches!(word, "or" | "and" | "in" | "not")
 }
 
 fn needs_top_level_blank(previous: &ArenaStmtKind, current: &ArenaStmtKind) -> bool {
@@ -3711,7 +3938,88 @@ fn write_bytes(value: &[u8], output: &mut String) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Formatter, SourceId};
+    use super::{FormatOutput, Formatter, Parser, SourceId, format_equivalence, verify_formatted_output};
+
+    /// Formats `source`, checks the exact text, and checks that the text
+    /// reparses to the same position-free tree and is a formatting fixpoint.
+    fn assert_round_trip(source: &str, expected: &str) {
+        let formatted = Formatter::new().format_source(SourceId::new(0), source);
+        assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+        assert_eq!(formatted.formatted, expected);
+        let before = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let after = Parser::parse_source_arena_only(SourceId::new(0), expected);
+        assert!(after.diagnostics.is_empty(), "{:?}", after.diagnostics);
+        assert_eq!(
+            format_equivalence::canonical(&before.arena, source).text,
+            format_equivalence::canonical(&after.arena, expected).text,
+        );
+        assert_eq!(Formatter::new().format_source(SourceId::new(0), expected).formatted, expected);
+    }
+
+    #[test]
+    fn try_of_try_keeps_grouping_instead_of_lexing_fallback() {
+        let source = "let a = (nested?)?\nlet b = (nested?)?.trim()\nlet c = (items?)[0]\nlet d = (items?)?[0]\n";
+        assert_round_trip(source, source);
+    }
+
+    #[test]
+    fn slice_start_ending_in_try_keeps_grouping_before_range() {
+        assert_round_trip(
+            "let c = xs[(start.require(Int)?)..(end.require(Int)?)]\n",
+            "let c = xs[(start.require(Int)?)..end.require(Int)?]\n",
+        );
+    }
+
+    #[test]
+    fn command_forms_stay_grouped_as_operands() {
+        assert_round_trip(
+            "assert (run.bytes cat < b\"\")? == b\"\"\nassert (wait child?).exited_with(1)\nlet n = (marker.read_text()?).parse_int()?\n",
+            "assert (run.bytes cat < b\"\" ?) == b\"\"\nassert (wait child?).exited_with(1)\nlet n = (marker.read_text()?).parse_int()?\n",
+        );
+    }
+
+    #[test]
+    fn statement_starting_with_operator_stays_grouped_after_expression_statement() {
+        let source = "proc sign(x: Bool, y: Bool) -> Int {\n  return 1 when x\n  (-1)\n}\n\nproc fallback(x: Bool) -> Int {\n  if x {\n    return 1\n  }\n\n  -1\n}\n";
+        assert_round_trip(source, source);
+    }
+
+    #[test]
+    fn record_arm_body_stays_grouped_but_record_statement_does_not() {
+        let source = "pure pick(name: Str, value: Record) -> Record {\n  let picked = match name { \"a\" => ({...value, a: 1}), _ => ({a: 2}) }\n  {...picked}\n}\n";
+        assert_round_trip(source, source);
+    }
+
+    #[test]
+    fn multiline_call_chain_keeps_grouped_receiver() {
+        assert_round_trip(
+            "let descriptor = ((line.split(\",\", maxsplit: 1)\n  .get(1) ?? \"\").split(\"<\")\n  .get(0) ?? \"\").trim()\n",
+            "let descriptor = ((line.split(\",\", maxsplit: 1)\n  .get(1) ?? \"\").split(\"<\")\n    .get(0) ?? \"\").trim()\n",
+        );
+    }
+
+    #[test]
+    fn equivalence_ignores_lowered_value_pipeline_sugar() {
+        assert_round_trip("let t = \" x \" |> trim()\n", "let t = \" x \".trim()\n");
+    }
+
+    #[test]
+    fn safety_net_refuses_output_with_a_different_tree() {
+        let source = "let x = a - (b - c)\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let regrouped = FormatOutput { formatted: "let x = a - b - c\n".to_string(), diagnostics: Vec::new() };
+        let refused = verify_formatted_output(SourceId::new(0), source, &parsed, regrouped);
+        assert!(refused.formatted.is_empty());
+        assert_eq!(refused.diagnostics.len(), 1);
+        assert_eq!(refused.diagnostics[0].code.as_deref(), Some("format-equivalence"));
+        assert!(refused.diagnostics[0].message.contains("output 1:9"), "{}", refused.diagnostics[0].message);
+        assert_eq!(refused.diagnostics[0].span.map(|span| span.start()), Some(8));
+
+        let unparsable = FormatOutput { formatted: "let x = (a - b\n".to_string(), diagnostics: Vec::new() };
+        let refused = verify_formatted_output(SourceId::new(0), source, &parsed, unparsable);
+        assert!(refused.formatted.is_empty());
+        assert!(refused.diagnostics[0].message.contains("does not parse"), "{}", refused.diagnostics[0].message);
+    }
 
     #[test]
     fn assert_statements_format_in_every_statement_position() {

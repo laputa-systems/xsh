@@ -230,6 +230,13 @@ path is part of the behavior.
 Formatter changes preserve these invariants:
 
 - formatted output has no parser diagnostics;
+- formatted output reparses to the input's syntax tree, ignoring positions.
+  `verify_formatted_output` compares `format_equivalence::canonical` walks and
+  returns a `format-equivalence` error instead of the output, so `fmt` and
+  `lint --fix` never write a regrouped program. Groupings the AST drops are
+  restored where the parser needs them: an operand ending in `?` before `.`,
+  `?`, `[`, or `..`; a command form used as an operand; a record arm body; and
+  a statement that starts with an operator after an expression statement;
 - checked output has no new checker diagnostics;
 - formatting is idempotent;
 - comments are neither duplicated nor silently dropped;
