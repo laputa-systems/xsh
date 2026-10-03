@@ -39,7 +39,7 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
   tools.mkdir()?
   let cargo_marker = fp"${root}/cargo-marker"
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
@@ -77,7 +77,7 @@ test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
   let tools = fp"${root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let cargo_marker = fp"${root}/cargo-argv"
   write_fake_tool(
     fp"${tools}/cargo",
@@ -115,7 +115,7 @@ test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
   let debug = fp"${target}/debug"
   debug.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let xsh_marker = fp"${root}/xsh-build-marker"
   let xsht = fp"${debug}/xsht"
 
@@ -155,7 +155,7 @@ test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
   let tools = fp"${root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let cargo_marker = fp"${root}/cargo-marker"
   let cleanup_marker = fp"${root}/cleanup-marker"
   write_fake_tool(fp"${tools}/git", xsh, "let configured = true")?
@@ -199,7 +199,7 @@ test test_docker_image_and_container_failures_are_staged { |ctx|
   let tools = fp"${root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let docker_marker = fp"${root}/docker-marker"
   write_fake_tool(
     fp"${tools}/docker",
@@ -238,7 +238,7 @@ test test_docker_image_build_failure_prevents_the_container_stage { |ctx|
   let tools = fp"${root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let docker_marker = fp"${root}/docker-marker"
   write_fake_tool(
     fp"${tools}/docker",
@@ -356,7 +356,7 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
   fp"${release_dir}/xsh".write("binary")?
   fs.chmod(fp"${release_dir}/xsh", 0o755)?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let codesign_marker = fp"${root}/codesign-marker"
   let cargo_marker = fp"${root}/cargo-argv"
   write_fake_tool(
@@ -405,7 +405,7 @@ test test_darwin_install_rejects_linux_target_before_building { |ctx|
   let tools = fp"${root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let cargo_marker = fp"${root}/cargo-marker"
   write_fake_tool(
     fp"${tools}/cargo",
@@ -453,7 +453,7 @@ test test_linux_install_requires_native_musl_target { |ctx|
   let tools = fp"${root}/tools"
   tools.mkdir()?
   let repository = fs.cwd()?
-  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh = ctx.xsh_bin
   let cargo_marker = fp"${root}/cargo-marker"
   write_fake_tool(
     fp"${tools}/cargo",

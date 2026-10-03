@@ -18,7 +18,7 @@ test test_watch_run_cancellation_reaps_child_descendants { |ctx|
   let root = test.temp_dir(ctx, name: "watch-cancel")?
   let ready = test.temp_path(ctx, name: "watch-child-ready")
   let leaked = test.temp_path(ctx, name: "watch-child-leaked")
-  let executable = fp"${fs.cwd()?}/target/debug/xsh"
+  let executable = ctx.xsh_bin
   let wrapper = spawn process.command_argv(
     executable,
     [
