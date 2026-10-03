@@ -2426,7 +2426,8 @@ fn local_http_response(request: &LocalHttpRequest) -> String {
 #[cfg(feature = "net")]
 struct LocalTlsStallServer {
     url: String,
-    handle: std::thread::JoinHandle<()>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    stop: LocalServerStop,
 }
 
 #[cfg(feature = "net")]
@@ -2434,8 +2435,13 @@ impl LocalTlsStallServer {
     fn spawn() -> Self {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TLS stall listener");
         let address = listener.local_addr().expect("TLS stall listener address");
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept TLS stall connection");
+            let Some(mut stream) = accept_local_connection_until_stopped(&listener, &server_stop)
+            else {
+                return;
+            };
             stream
                 .set_read_timeout(Some(Duration::from_secs(1)))
                 .expect("set TLS stall read timeout");
@@ -2445,12 +2451,23 @@ impl LocalTlsStallServer {
         });
         Self {
             url: format!("https://{address}"),
-            handle,
+            handle: Some(handle),
+            stop,
         }
     }
 
-    fn join(self) {
-        self.handle.join().expect("join TLS stall server");
+    fn join(mut self) {
+        self.stop.signal();
+        if let Some(handle) = self.handle.take() {
+            handle.join().expect("join TLS stall server");
+        }
+    }
+}
+
+#[cfg(feature = "net")]
+impl Drop for LocalTlsStallServer {
+    fn drop(&mut self) {
+        self.stop.signal();
     }
 }
 
@@ -2604,7 +2621,8 @@ impl LocalHttpsServer {
 #[cfg(feature = "net")]
 struct LocalHttpsHttp2Server {
     url: String,
-    handle: std::thread::JoinHandle<LocalHttpsSummary>,
+    handle: Option<std::thread::JoinHandle<LocalHttpsSummary>>,
+    stop: LocalServerStop,
 }
 
 #[cfg(feature = "net")]
@@ -2616,10 +2634,12 @@ impl LocalHttpsHttp2Server {
         let mut config = local_https_config();
         config.alpn_protocols = vec![b"h2".to_vec()];
         let config = Arc::new(config);
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
-            async_io::block_on(async move {
-                let (stream, _) = listener.accept().expect("accept HTTPS H2 connection");
-                let stream = async_io::Async::new(stream).expect("make HTTPS H2 stream async");
+            let listener = async_io::Async::new(listener).expect("make HTTPS H2 listener async");
+            let served = block_on_until_stopped(&server_stop, async move {
+                let (stream, _) = listener.accept().await.expect("accept HTTPS H2 connection");
                 let acceptor = futures_rustls::TlsAcceptor::from(config);
                 let stream = acceptor.accept(stream).await.expect("accept HTTPS H2 TLS");
                 let mut connection = h2::server::handshake(stream)
@@ -2660,22 +2680,39 @@ impl LocalHttpsHttp2Server {
                 }
             });
             LocalHttpsSummary {
-                handled: expected,
+                handled: if served.is_some() { expected } else { 0 },
                 alpn_protocols: vec![Some(b"h2".to_vec())],
             }
         });
-        Self { url, handle }
+        Self {
+            url,
+            handle: Some(handle),
+            stop,
+        }
     }
 
-    fn join(self) -> LocalHttpsSummary {
-        self.handle.join().expect("HTTPS H2 server")
+    fn join(mut self) -> LocalHttpsSummary {
+        self.stop.signal();
+        self.handle
+            .take()
+            .expect("HTTPS H2 server handle")
+            .join()
+            .expect("HTTPS H2 server")
+    }
+}
+
+#[cfg(feature = "net")]
+impl Drop for LocalHttpsHttp2Server {
+    fn drop(&mut self) {
+        self.stop.signal();
     }
 }
 
 #[cfg(feature = "net")]
 struct LocalHttpsHttp2CancellationServer {
     url: String,
-    handle: std::thread::JoinHandle<LocalHttpsSummary>,
+    handle: Option<std::thread::JoinHandle<LocalHttpsSummary>>,
+    stop: LocalServerStop,
 }
 
 #[cfg(feature = "net")]
@@ -2690,13 +2727,16 @@ impl LocalHttpsHttp2CancellationServer {
         let mut config = local_https_config();
         config.alpn_protocols = vec![b"h2".to_vec()];
         let config = Arc::new(config);
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
-            async_io::block_on(async move {
+            let listener =
+                async_io::Async::new(listener).expect("make HTTPS H2 cancellation listener async");
+            let served = block_on_until_stopped(&server_stop, async move {
                 let (stream, _) = listener
                     .accept()
+                    .await
                     .expect("accept HTTPS H2 cancellation connection");
-                let stream =
-                    async_io::Async::new(stream).expect("make HTTPS H2 cancellation stream async");
                 let acceptor = futures_rustls::TlsAcceptor::from(config);
                 let stream = acceptor
                     .accept(stream)
@@ -2807,16 +2847,116 @@ impl LocalHttpsHttp2CancellationServer {
                 }
             });
             LocalHttpsSummary {
-                handled: 4,
+                handled: if served.is_some() { 4 } else { 0 },
                 alpn_protocols: vec![Some(b"h2".to_vec())],
             }
         });
-        Self { url, handle }
+        Self {
+            url,
+            handle: Some(handle),
+            stop,
+        }
     }
 
-    fn join(self) -> LocalHttpsSummary {
-        self.handle.join().expect("HTTPS H2 cancellation server")
+    fn join(mut self) -> LocalHttpsSummary {
+        self.stop.signal();
+        self.handle
+            .take()
+            .expect("HTTPS H2 cancellation server handle")
+            .join()
+            .expect("HTTPS H2 cancellation server")
     }
+}
+
+#[cfg(feature = "net")]
+impl Drop for LocalHttpsHttp2CancellationServer {
+    fn drop(&mut self) {
+        self.stop.signal();
+    }
+}
+
+/// Tells a fixture server that its client has finished (`join`) or the test
+/// has ended (`Drop`). A server still waiting for a connection or request then
+/// gives up after `GRACE`, so a failed client cannot leave `join` blocked
+/// forever. The deadline starts at the signal rather than at spawn because
+/// `xsht` startup time varies widely under load.
+#[cfg(feature = "net")]
+#[derive(Clone, Default)]
+struct LocalServerStop(Arc<AtomicBool>);
+
+#[cfg(feature = "net")]
+impl LocalServerStop {
+    const GRACE: Duration = Duration::from_secs(5);
+
+    fn signal(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    fn signaled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(feature = "net")]
+fn accept_local_connection_until_stopped(
+    listener: &std::net::TcpListener,
+    stop: &LocalServerStop,
+) -> Option<std::net::TcpStream> {
+    listener
+        .set_nonblocking(true)
+        .expect("set local listener nonblocking");
+    let mut give_up_at = None;
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream
+                    .set_nonblocking(false)
+                    .expect("set local stream blocking");
+                return Some(stream);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if stop.signaled() {
+                    let give_up_at =
+                        *give_up_at.get_or_insert_with(|| Instant::now() + LocalServerStop::GRACE);
+                    if Instant::now() >= give_up_at {
+                        return None;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("accept local connection: {error}"),
+        }
+    }
+}
+
+/// Runs a fixture server future, returning `None` if it is still pending
+/// `LocalServerStop::GRACE` after `stop` is signaled.
+#[cfg(feature = "net")]
+fn block_on_until_stopped<T>(
+    stop: &LocalServerStop,
+    future: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    use std::future::Future;
+
+    async_io::block_on(async move {
+        let mut future = std::pin::pin!(future);
+        let mut give_up = std::pin::pin!(async {
+            while !stop.signaled() {
+                async_io::Timer::after(Duration::from_millis(10)).await;
+            }
+            async_io::Timer::after(LocalServerStop::GRACE).await;
+        });
+        std::future::poll_fn(|cx| {
+            if let std::task::Poll::Ready(value) = future.as_mut().poll(cx) {
+                return std::task::Poll::Ready(Some(value));
+            }
+            if give_up.as_mut().poll(cx).is_ready() {
+                return std::task::Poll::Ready(None);
+            }
+            std::task::Poll::Pending
+        })
+        .await
+    })
 }
 
 #[cfg(feature = "net")]
