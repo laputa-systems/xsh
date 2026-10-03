@@ -23,6 +23,21 @@ test test_hash_digests_checksums_and_digest_methods { |ctx|
   )?
 }
 
+# Named-argument order is not significant: the path binds by position or
+# `path:`, and the algorithm-named checksum binds wherever it is written.
+test test_hash_verify_file_argument_order { |ctx|
+  let data_path = test.temp_path(ctx, name: "hash-order.txt")
+  fs.write(data_path, "abc")?
+  let sha = hash.sha256(data_path)?.hex()
+  let md = hash.md5(data_path)?.hex()
+  hash.verify_file(data_path, sha256: sha)?
+  hash.verify_file(path: data_path, sha256: sha)?
+  hash.verify_file(sha256: sha, path: data_path)?
+  hash.verify_file(md5: md, path: data_path)?
+  hash.verify_file(sha256: sha, data_path)?
+  test.error_kind(hash.verify_file(sha256: "00", path: data_path), "checksum-format")?
+}
+
 # The message of a rejected file verification, or the empty string when the
 # file verified. `test.error_kind` compares kinds only, so message parity is
 # asserted through this.

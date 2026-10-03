@@ -126,3 +126,22 @@ print "done"
   assert output.success, output.stderr
   assert output.stdout == "1\ncleanup\ndone\n"
 }
+
+# Top-level code has no callable, loop, or producer to leave, so each
+# statement that would leave one is a checker error rather than a runtime one.
+test test_top_level_control_flow_is_rejected_during_checking { |ctx|
+  let cases = [
+    ["let x = 1\nif x == 1 {\n  return\n}\nprint \"after\"\n", "check.return-outside-callable"],
+    ["return when true\n", "check.return-outside-callable"],
+    ["let x = 1\nif x == 1 {\n  break\n}\n", "check.loop-control"],
+    ["let x = 1\nif x == 1 {\n  continue\n}\n", "check.loop-control"],
+    ["yield 1\n", "check.yield"],
+  ]
+  for case in cases {
+    let output = test.run_script(ctx, case[0])?
+    assert ! output.success, output.stderr
+    assert output.status == 2, output.stderr
+    assert case[1] in output.stderr, output.stderr
+    assert output.stdout == ""
+  }
+}

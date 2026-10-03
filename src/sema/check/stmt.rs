@@ -1771,6 +1771,11 @@ impl Checker {
         value: Option<ArenaExprOrRun>,
         span: Span,
     ) {
+        // Scripts select an exit status with a final top-level `Int` or
+        // `abort`; top-level code has no callable to return from.
+        if self.current_return.is_none() {
+            self.error(span, "`return` is valid only inside a callable body", "check.return-outside-callable");
+        }
         if self.in_defer_block {
             self.error(span, "`return` cannot leave a deferred cleanup block", "check.defer-control-flow");
         }

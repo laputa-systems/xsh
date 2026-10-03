@@ -1296,37 +1296,42 @@ impl Checker {
             );
             return;
         }
-        let path_ty = self.check_call_arg_arena(arena, source, &args[0].kind, Some(&Type::Path));
-        let path_expr_id = call_arg_expr_id_arena(&args[0].kind);
+        // Without one path and one other argument, report against the written
+        // order so the diagnostics below still name the misplaced argument.
+        let [path_index, checksum_index] =
+            crate::sema::arguments::bind_hash_verify_file_arguments(args).unwrap_or([0, 1]);
+        let (path_arg, checksum_arg) = (&args[path_index], &args[checksum_index]);
+        let path_ty = self.check_call_arg_arena(arena, source, &path_arg.kind, Some(&Type::Path));
+        let path_expr_id = call_arg_expr_id_arena(&path_arg.kind);
         let path_kind = arena.arena.expr(path_expr_id).kind;
         if !is_path_like_arena_expr(&path_kind, &path_ty) {
             self.expect_type(
                 &Type::Path,
                 &path_ty,
-                call_arg_span_arena(arena, &args[0].kind),
+                call_arg_span_arena(arena, &path_arg.kind),
             );
         }
-        let ArenaCallArgKind::Named { name, .. } = &args[1].kind else {
+        let ArenaCallArgKind::Named { name, .. } = &checksum_arg.kind else {
             self.error(
-                call_arg_span_arena(arena, &args[1].kind),
+                call_arg_span_arena(arena, &checksum_arg.kind),
                 "checksum argument must be named",
                 "check.named-arg",
             );
-            self.check_call_arg_arena(arena, source, &args[1].kind, Some(&Type::Str));
+            self.check_call_arg_arena(arena, source, &checksum_arg.kind, Some(&Type::Str));
             return;
         };
         if !matches!(name.as_str().as_str(), "md5" | "sha1" | "sha256" | "sha512") {
             self.error(
-                call_arg_span_arena(arena, &args[1].kind),
+                call_arg_span_arena(arena, &checksum_arg.kind),
                 "unsupported checksum algorithm",
                 "check.named-arg",
             );
         }
-        let actual = self.check_call_arg_arena(arena, source, &args[1].kind, Some(&Type::Str));
+        let actual = self.check_call_arg_arena(arena, source, &checksum_arg.kind, Some(&Type::Str));
         self.expect_type(
             &Type::Str,
             &actual,
-            call_arg_span_arena(arena, &args[1].kind),
+            call_arg_span_arena(arena, &checksum_arg.kind),
         );
     }
 
