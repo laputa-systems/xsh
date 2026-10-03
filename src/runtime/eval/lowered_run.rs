@@ -38,7 +38,6 @@ use crate::trace::{
 };
 use directories::{ProjectDirs, UserDirs};
 use rustc_hash::FxHashMap;
-use std::cell::Cell;
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
@@ -101,22 +100,6 @@ use super::{
 #[cfg(feature = "native-tests")]
 use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
-const INDEXED_EVAL_DEPTH_LIMIT: usize = 2048;
-const INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT: usize = 128;
-/// Native stack bytes the recursive call route may consume below the outermost
-/// recursive call before calls move to the heap-backed frames. A call count
-/// alone does not bound it: one recursive level costs over 100 KiB of native
-/// stack in an optimized build, where `eval_indexed_expr_inner` inlines most
-/// instruction arms into a single frame.
-const INDEXED_RECURSIVE_STACK_BUDGET: usize = 2 * 1024 * 1024;
-
-fn indexed_eval_depth_limit() -> usize {
-    if cfg!(feature = "native-tests") && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
-        INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT
-    } else {
-        INDEXED_EVAL_DEPTH_LIMIT
-    }
-}
 
 #[cfg(feature = "native-tests")]
 impl Evaluator {
@@ -228,117 +211,12 @@ impl Evaluator {
     }
 }
 
-thread_local! {
-    static INDEXED_EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
-    /// Native stack address of the outermost recursive call on this thread.
-    static INDEXED_EVAL_STACK_ANCHOR: Cell<usize> = const { Cell::new(0) };
-    static INDEXED_EXPLICIT_FRAMES: Cell<bool> = const { Cell::new(false) };
-    #[cfg(test)]
-    static FORCE_RECURSIVE_FAST_PATH: Cell<bool> = const { Cell::new(false) };
-}
-
-pub(super) fn indexed_explicit_frames_active() -> bool {
-    INDEXED_EXPLICIT_FRAMES.with(Cell::get)
-}
-
-pub(super) fn indexed_recursive_fast_path_allowed(return_kind: LoweredReturnKind) -> bool {
-    // Result propagation adds wrapper and unwind work around a call. Keep it
-    // on the heap-backed frame path even when shallow plain calls may recurse.
-    if matches!(return_kind, LoweredReturnKind::Result(_)) {
-        return false;
-    }
-    if cfg!(debug_assertions) && !recursive_fast_path_forced() {
-        return false;
-    }
-    !indexed_explicit_frames_active()
-        && INDEXED_EVAL_DEPTH.with(|depth| {
-            let depth = depth.get();
-            depth == 0
-                || (depth < (indexed_eval_depth_limit() / 16).max(1)
-                    && INDEXED_EVAL_STACK_ANCHOR.with(Cell::get).abs_diff(native_stack_address())
-                        < INDEXED_RECURSIVE_STACK_BUDGET)
-        })
-}
-
-/// An address in the caller's native stack frame.
-#[inline(never)]
-fn native_stack_address() -> usize {
-    let marker = 0u8;
-    std::hint::black_box(&marker) as *const u8 as usize
-}
-
-/// Whether a test has forced the shallow recursive call route on.
-///
-/// The route is selected for a release build's plain shallow calls; a debug
-/// build leaves every call on the heap-backed frame path. Forcing it lets a
-/// test run the same program through both routes and compare them, which is
-/// test configuration: it is absent from a product build, it selects between
-/// the two existing routes rather than adding a third, and the depth guard
-/// above still sends a deep call to the frames.
-#[cfg(test)]
-pub(in crate::runtime::eval) fn recursive_fast_path_forced() -> bool {
-    FORCE_RECURSIVE_FAST_PATH.with(Cell::get)
-}
-
-#[cfg(not(test))]
-fn recursive_fast_path_forced() -> bool {
-    false
-}
-
-/// Runs `work` with the recursive call route forced on for this thread.
+/// Runs `work`. Every indexed call runs on the heap-backed frames, so there is
+/// no second call route left to force; route-comparison tests in `indexed/full.rs`
+/// still wrap their calls in this.
 #[cfg(test)]
 pub(in crate::runtime::eval) fn with_forced_recursive_fast_path<R>(work: impl FnOnce() -> R) -> R {
-    FORCE_RECURSIVE_FAST_PATH.with(|forced| {
-        let previous = forced.replace(true);
-        let result = work();
-        forced.set(previous);
-        result
-    })
-}
-
-pub(super) fn with_indexed_explicit_frames<R>(f: impl FnOnce() -> R) -> R {
-    INDEXED_EXPLICIT_FRAMES.with(|active| {
-        let previous = active.replace(true);
-        let result = f();
-        active.set(previous);
-        result
-    })
-}
-
-struct EvalDepthReset<'a> {
-    depth: &'a Cell<usize>,
-    previous: usize,
-}
-
-impl Drop for EvalDepthReset<'_> {
-    fn drop(&mut self) {
-        self.depth.set(self.previous);
-    }
-}
-
-fn with_indexed_eval_depth<R>(
-    span: Span,
-    f: impl FnOnce() -> Result<R, RuntimeError>,
-) -> Result<R, RuntimeError> {
-    INDEXED_EVAL_DEPTH.with(|depth| {
-        let current = depth.get();
-        if current >= indexed_eval_depth_limit() {
-            return Err(RuntimeError::new(
-                "compact.stack-depth",
-                "indexed evaluation exceeded the stack-depth limit",
-            )
-            .with_span(span));
-        }
-        if current == 0 {
-            INDEXED_EVAL_STACK_ANCHOR.with(|anchor| anchor.set(native_stack_address()));
-        }
-        depth.set(current + 1);
-        let _reset = EvalDepthReset {
-            depth,
-            previous: current,
-        };
-        f()
-    })
+    work()
 }
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {

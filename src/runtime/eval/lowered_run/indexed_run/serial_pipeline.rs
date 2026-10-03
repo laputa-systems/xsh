@@ -277,7 +277,6 @@ impl IndexedSerialPipeline {
     ) -> Result<ControlFlow<LoweredValue, Option<LoweredValue>>, RuntimeError> {
         let span = self.span;
         let call_span = self.call_span;
-        let block_header = Evaluator::indexed_block_header(slots.len());
         while !self.stopped && self.emitted < self.limit {
             if self.pending.is_empty() {
                 let Some(item) = self.items.next(evaluator, span)? else {
@@ -301,7 +300,6 @@ impl IndexedSerialPipeline {
                     let flow = evaluator.eval_indexed_statement_block(
                         execution,
                         *body,
-                        &block_header,
                         slots,
                         call_span,
                     )?;
@@ -330,7 +328,6 @@ impl IndexedSerialPipeline {
                     let flow = evaluator.eval_indexed_statement_block(
                         execution,
                         *body,
-                        &block_header,
                         slots,
                         call_span,
                     )?;
@@ -380,7 +377,6 @@ impl IndexedSerialPipeline {
                     let flow = evaluator.eval_indexed_statement_block(
                         execution,
                         *body,
-                        &block_header,
                         slots,
                         call_span,
                     )?;
@@ -451,7 +447,6 @@ impl IndexedSerialPipeline {
                     let flow = evaluator.eval_indexed_statement_block(
                         execution,
                         *body,
-                        &block_header,
                         slots,
                         call_span,
                     )?;
