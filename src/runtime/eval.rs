@@ -366,6 +366,7 @@ fn compact_runtime_error_families(
     (error_families, error_variants, error_fields, error_facets)
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EvalFlow {
     Value(Value),
@@ -1781,10 +1782,10 @@ enum BuildPatternRow {
     Alternation { patterns: Vec<BuildPatternId> },
     List { elements: Vec<BuildPatternId>, rest: Option<BuildPatternId> },
     TagType { type_name: Name, variants: Vec<Name> },
-    RecordTest { fields: Box<Vec<(Name, BuildPatternId)>> },
+    RecordTest { fields: Vec<(Name, BuildPatternId)> },
     ResultTest { ok: bool, inner: BuildPatternId },
     TagTest { type_name: Name, name: Name, fields: Vec<BuildPatternId> },
-    ErrorTest { family: Name, variant: Name, fields: Box<Vec<(Name, BuildPatternId)>> },
+    ErrorTest { family: Name, variant: Name, fields: Vec<(Name, BuildPatternId)> },
     Wildcard,
     // `name => …`: always matches, binds the scrutinee to `slot`.
     Bind {
@@ -4560,7 +4561,7 @@ impl Evaluator {
             && signal.force
         {
             status = signal.status;
-            abort = Some(signal.clone());
+            abort = Some(*signal);
             traceback = None;
         }
         if traceback.is_none() && abort.is_none() {
@@ -5645,6 +5646,7 @@ impl CancellationPolicy for Evaluator {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Flow {
     Continue(Value),
@@ -5713,7 +5715,7 @@ fn default_signal_status(signal: &HookSignal) -> u8 {
 
 fn signal_hook_error(result: &Result<Flow, RuntimeError>) -> Option<TraceError> {
     match result {
-        Err(error) if error.abort.is_none() => Some(TraceError::from_runtime_error(&error)),
+        Err(error) if error.abort.is_none() => Some(TraceError::from_runtime_error(error)),
         Ok(Flow::Continue(Value::Result(ResultValue::Err(error)))) => Some(TraceError::from_value(error)),
         Ok(Flow::Propagate(propagation)) => Some(TraceError::from_value(&propagation.error)),
         Ok(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop) => {

@@ -655,7 +655,7 @@ test test_whole_script_run_error_diagnostics { |ctx|
 
   assert missing.status == 3
   assert "not-found" in missing.stderr
-  assert "127" not in missing.stderr
+  assert "exited with status" not in missing.stderr
 }
 
 test test_pipeline_failures_and_trace_are_visible { |ctx|

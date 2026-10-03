@@ -4289,19 +4289,16 @@ fn native_test_declaration_migration_preserves_context_effects_and_is_idempotent
 
 #[test]
 fn native_test_declaration_migration_declines_callers_and_ordinary_files() {
-    for source in [
-        "proc test_called() {}\nproc caller() { test_called() }\n",
-    ] {
-        let parsed = parse_lint_source(source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let linted = Linter::lint(&parsed.arena, source, LintOptions { native_test_file: true, function_return_types: checked.function_return_types.clone(), ..LintOptions::default() });
-        let migration = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.legacy-test-proc")).expect("manual migration diagnostic");
-        assert!(migration.fix_hints.is_empty());
-        let ordinary = Linter::lint(&parsed.arena, source, LintOptions { function_return_types: checked.function_return_types, ..LintOptions::default() });
-        assert!(!ordinary.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.legacy-test-proc")));
-    }
+    let source = "proc test_called() {}\nproc caller() { test_called() }\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let linted = Linter::lint(&parsed.arena, source, LintOptions { native_test_file: true, function_return_types: checked.function_return_types.clone(), ..LintOptions::default() });
+    let migration = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.legacy-test-proc")).expect("manual migration diagnostic");
+    assert!(migration.fix_hints.is_empty());
+    let ordinary = Linter::lint(&parsed.arena, source, LintOptions { function_return_types: checked.function_return_types, ..LintOptions::default() });
+    assert!(!ordinary.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.legacy-test-proc")));
 }
 
 #[test]

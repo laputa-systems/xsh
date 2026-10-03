@@ -27,7 +27,7 @@ use crate::runtime::value::{
     RunError, RuntimeError, StreamValue, Value, error_constructor, structured_error_constructor,
 };
 use crate::sema::types::{CallableType, ModuleExportType, Type};
-use crate::source::{SourceId, Span};
+use crate::source::Span;
 use crate::symbol::QualifiedName;
 use crate::syntax::arena::ArenaProgram;
 use crate::syntax::node::{
@@ -649,6 +649,7 @@ fn lowered_record_vec_append_or_replace_unsorted(
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum LoweredRetryAttemptValue {
     Success(LoweredValue),
     Failed {
@@ -1414,6 +1415,222 @@ fn module_load_failure(
         format!("module `{display_path}` {stage}: {}", causes.join("; ")),
     )
     .with_span(span)
+}
+
+/// Process-wide prepared form of a dynamically loaded module.
+///
+/// Parsing, checking, indexed encoding, and preparing the export harvest depend
+/// only on the module's source files and module roots, so evaluators that load
+/// the same unchanged files share one preparation. Each load still executes the
+/// harvest in a fresh child evaluator, so top-level initializers keep per-load
+/// effects. Names inside the cached programs are interned under the cached
+/// arenas' own symbol owners, which the cache keeps alive.
+struct PreparedDynamicModule {
+    module_roots: Arc<[PathBuf]>,
+    entry_bytes: Vec<u8>,
+    imported_files: Vec<(PathBuf, Vec<u8>)>,
+    arena: ArenaProgram,
+    declarations: crate::sema::check::CompactDeclOutput,
+    module_program: Arc<super::indexed::full::FullProgram>,
+    exported_functions: Vec<(Name, bool)>,
+    exported_let_names: Vec<Name>,
+    harvest: Option<PreparedModuleHarvest>,
+}
+
+struct PreparedModuleHarvest {
+    plan: super::CompactIndexedRunPlan,
+    shared: Arc<super::LoweredSharedState>,
+    _arena: ArenaProgram,
+}
+
+type PreparedDynamicModules = std::sync::Mutex<FxHashMap<String, Arc<PreparedDynamicModule>>>;
+
+fn prepared_dynamic_modules() -> &'static PreparedDynamicModules {
+    static MODULES: std::sync::OnceLock<PreparedDynamicModules> = std::sync::OnceLock::new();
+    MODULES.get_or_init(Default::default)
+}
+
+fn lookup_prepared_dynamic_module(
+    key: &str,
+    module_roots: &Arc<[PathBuf]>,
+    entry_bytes: &[u8],
+) -> Option<Arc<PreparedDynamicModule>> {
+    let prepared = prepared_dynamic_modules()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(key)
+        .cloned()?;
+    let unchanged = prepared.module_roots == *module_roots
+        && prepared.entry_bytes == entry_bytes
+        && prepared
+            .imported_files
+            .iter()
+            .all(|(path, bytes)| std::fs::read(path).is_ok_and(|current| current == *bytes));
+    unchanged.then_some(prepared)
+}
+
+fn store_prepared_dynamic_module(key: &str, prepared: &Arc<PreparedDynamicModule>) {
+    prepared_dynamic_modules()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(key.to_string(), Arc::clone(prepared));
+}
+
+fn prepare_dynamic_module(
+    key: &str,
+    display_path: &str,
+    bytes: Vec<u8>,
+    module_roots: &Arc<[PathBuf]>,
+    span: Span,
+) -> Result<PreparedDynamicModule, RuntimeError> {
+    use crate::loader::{
+        StdlibLinkage, entry_source_from_bytes, parse_load_entry_source_arena_only_with_linkage,
+    };
+
+    let entry_bytes = bytes.clone();
+    let entry_source = entry_source_from_bytes(display_path, bytes);
+    if !entry_source.diagnostics.is_empty() {
+        return Err(module_load_failure(
+            "failed to load",
+            display_path,
+            &entry_source.diagnostics,
+            &entry_source.sources,
+            span,
+        ));
+    }
+    // A dynamically loaded module never prepares standard-library source:
+    // the loading program prepared every applicable implementation before
+    // execution started, and this module links its standard calls to those
+    // already verified functions.
+    let (module_sources, mut parsed) = parse_load_entry_source_arena_only_with_linkage(
+        display_path,
+        entry_source,
+        module_roots.to_vec(),
+        StdlibLinkage::LinkToPrepared,
+    );
+    if !parsed.diagnostics.is_empty() {
+        return Err(module_load_failure(
+            "failed to parse",
+            display_path,
+            &parsed.diagnostics,
+            &module_sources,
+            span,
+        ));
+    }
+    let owner = parsed.arena.symbol_owner().clone();
+    owner.with_current(|| {
+        parsed.arena.root_nominal_namespace = Some(Name::intern(key));
+        validate_dynamic_module_top_level(&parsed.arena, display_path, span)?;
+        let module_source_id = module_sources
+            .files()
+            .first()
+            .map(crate::source::SourceFile::id)
+            .ok_or_else(|| {
+                RuntimeError::new("module-load", "loaded module has no source").with_span(span)
+            })?;
+        let module_text = module_sources
+            .get(module_source_id)
+            .map(|source| source.text().to_string())
+            .unwrap_or_default();
+
+        let doc_diagnostics =
+            crate::sema::check::Checker::check_public_module_docs(&parsed.arena, &module_text);
+        if let Some(diagnostic) = doc_diagnostics.first() {
+            return Err(RuntimeError::new(
+                "module-load",
+                format!(
+                    "loaded module has undocumented exports: {}",
+                    diagnostic.message
+                ),
+            )
+            .with_span(span));
+        }
+
+        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+        if !declarations.diagnostics.is_empty() {
+            return Err(module_load_failure(
+                "failed to check",
+                display_path,
+                &declarations.diagnostics,
+                &module_sources,
+                span,
+            ));
+        }
+        let module_program = Arc::new(
+            super::indexed::full::FullBuilder::build_compact_external_stdlib(
+                &parsed.arena,
+                &declarations,
+                &module_text,
+                Arc::new(module_sources.clone()),
+                module_source_id,
+            )
+            .map_err(|error| {
+                RuntimeError::new(
+                    "module-load",
+                    format!("loaded module could not encode `{}`", error.construct),
+                )
+                .with_span(span)
+            })?,
+        );
+        let exported_functions = Evaluator::module_namespace_export_functions(&parsed.arena);
+        let exported_let_names = Evaluator::module_namespace_export_let_names(&parsed.arena);
+
+        let harvest_text = Evaluator::module_harvest_source(&parsed.arena, &module_text);
+        let harvest_entry = crate::loader::entry_source_from_text(display_path, harvest_text);
+        let (harvest_sources, mut harvest_parsed) = crate::loader::parse_load_entry_source_arena_only(
+            display_path,
+            harvest_entry,
+            module_roots.to_vec(),
+        );
+        let harvest = if harvest_parsed.diagnostics.is_empty() {
+            let harvest_source_id = harvest_sources
+                .files()
+                .first()
+                .map(crate::source::SourceFile::id)
+                .unwrap_or(module_source_id);
+            harvest_parsed.arena.root_nominal_namespace = Some(
+                harvest_parsed.arena.symbol_owner().with_current(|| Name::intern(key)),
+            );
+            let mut child = Evaluator::new_with_sources(Vec::new(), harvest_sources);
+            let plan = child
+                .prepare_compact_indexed_only(&harvest_parsed.arena, harvest_source_id)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "module-load",
+                        "loaded module could not encode as indexed IR",
+                    )
+                    .with_span(span)
+                })?;
+            Some(PreparedModuleHarvest {
+                plan,
+                shared: child.lowered_shared_state(),
+                _arena: harvest_parsed.arena,
+            })
+        } else {
+            None
+        };
+
+        let imported_files = module_sources
+            .files()
+            .iter()
+            .skip(1)
+            .filter_map(|file| {
+                let path = PathBuf::from(file.name());
+                path.is_file().then(|| (path, file.text().as_bytes().to_vec()))
+            })
+            .collect();
+        Ok(PreparedDynamicModule {
+            module_roots: Arc::clone(module_roots),
+            entry_bytes,
+            imported_files,
+            arena: parsed.arena,
+            declarations,
+            module_program,
+            exported_functions,
+            exported_let_names,
+            harvest,
+        })
+    })
 }
 
 fn validate_dynamic_module_top_level(
@@ -3344,10 +3561,8 @@ fn checked_unsigned_value(value: &LoweredValue, check: &super::LoweredTypeCheck,
 
 fn checked_lowered_return_value(header: &FunctionHeader, value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
     let value = lowered_return_value(header.return_kind, value, span)?;
-    if let Some(check) = &header.return_check {
-        if !lowered_value_matches_static_type(&value, &check.ty) {
-            return Err(RuntimeError::new("type-error", format!("return violates UInt constraint in {}", check.name)).with_span(span));
-        }
+    if let Some(check) = &header.return_check && !lowered_value_matches_static_type(&value, &check.ty) {
+        return Err(RuntimeError::new("type-error", format!("return violates UInt constraint in {}", check.name)).with_span(span));
     }
     Ok(value)
 }
@@ -10163,7 +10378,7 @@ impl Evaluator {
                 error: end
                     .error
                     .as_ref()
-                    .map(|error| TraceError::from_run_error(error)),
+                    .map(TraceError::from_run_error),
             },
         );
     }
@@ -10209,7 +10424,7 @@ impl Evaluator {
                 error: end
                     .error
                     .as_ref()
-                    .map(|error| TraceError::from_run_error(error)),
+                    .map(TraceError::from_run_error),
             },
         );
     }
@@ -10287,13 +10502,8 @@ impl Evaluator {
         path: PathValue,
         span: Span,
     ) -> Result<RecordMap, RuntimeError> {
-        use crate::loader::{
-            StdlibLinkage, entry_source_from_bytes, module_key,
-            parse_load_entry_source_arena_only_with_linkage,
-        };
-
         let module_path = self.host_path(&path);
-        let key = module_key(&module_path);
+        let key = crate::loader::module_key(&module_path);
         if let Some(cached) = self.module_value_cache.get(&key) {
             return Ok(cached.clone());
         }
@@ -10307,96 +10517,38 @@ impl Evaluator {
             RuntimeError::new("module-load", format!("failed to read module: {error}"))
                 .with_span(span)
         })?;
-        let entry_source = entry_source_from_bytes(&display_path, bytes);
-        if !entry_source.diagnostics.is_empty() {
-            return Err(module_load_failure(
-                "failed to load",
-                &display_path,
-                &entry_source.diagnostics,
-                &entry_source.sources,
-                span,
-            ));
-        }
-        // A dynamically loaded module never prepares standard-library source:
-        // the loading program prepared every applicable implementation before
-        // execution started, and this module links its standard calls to those
-        // already verified functions.
-        let (module_sources, mut parsed) = parse_load_entry_source_arena_only_with_linkage(
-            &display_path,
-            entry_source,
-            self.module_roots.to_vec(),
-            StdlibLinkage::LinkToPrepared,
-        );
-        if !parsed.diagnostics.is_empty() {
-            return Err(module_load_failure(
-                "failed to parse",
-                &display_path,
-                &parsed.diagnostics,
-                &module_sources,
-                span,
-            ));
-        }
-        parsed.arena.root_nominal_namespace = Some(Name::intern(&key));
-        validate_dynamic_module_top_level(&parsed.arena, &display_path, span)?;
-        let module_source_id = module_sources
-            .files()
-            .first()
-            .map(crate::source::SourceFile::id)
-            .ok_or_else(|| {
-                RuntimeError::new("module-load", "loaded module has no source").with_span(span)
-            })?;
-        let module_text = module_sources
-            .get(module_source_id)
-            .map(|source| source.text().to_string())
-            .unwrap_or_default();
-
-        let doc_diagnostics =
-            crate::sema::check::Checker::check_public_module_docs(&parsed.arena, &module_text);
-        if let Some(diagnostic) = doc_diagnostics.first() {
-            return Err(RuntimeError::new(
-                "module-load",
-                format!(
-                    "loaded module has undocumented exports: {}",
-                    diagnostic.message
-                ),
-            )
-            .with_span(span));
-        }
-
-        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
-        if !declarations.diagnostics.is_empty() {
-            return Err(module_load_failure(
-                "failed to check",
-                &display_path,
-                &declarations.diagnostics,
-                &module_sources,
-                span,
-            ));
-        }
-        let module_program = Arc::new(
-            super::indexed::full::FullBuilder::build_compact_external_stdlib(
-                &parsed.arena,
-                &declarations,
-                &module_text,
-                Arc::new(module_sources.clone()),
-                module_source_id,
-            )
-            .map_err(|error| {
-                RuntimeError::new(
-                    "module-load",
-                    format!("loaded module could not encode `{}`", error.construct),
-                )
-                .with_span(span)
-            })?,
-        );
+        let prepared = match lookup_prepared_dynamic_module(&key, &self.module_roots, &bytes) {
+            Some(prepared) => prepared,
+            None => {
+                let prepared = Arc::new(prepare_dynamic_module(
+                    &key,
+                    &display_path,
+                    bytes,
+                    &self.module_roots,
+                    span,
+                )?);
+                store_prepared_dynamic_module(&key, &prepared);
+                prepared
+            }
+        };
+        let PreparedDynamicModule {
+            arena,
+            declarations,
+            module_program,
+            exported_functions,
+            exported_let_names,
+            harvest,
+            ..
+        } = &*prepared;
+        let exported_functions = exported_functions.clone();
+        let exported_let_names = exported_let_names.clone();
         let dynamic_namespace = Name::intern(format!("dynamic:{key}"));
-        let exported_functions = self.module_namespace_export_functions(&parsed.arena);
         for (name, pure) in &exported_functions {
             let qualified = QualifiedName::new(dynamic_namespace, *name);
             Arc::make_mut(&mut self.indexed_dynamic_functions).insert(
                 qualified,
                 DynamicFunction {
-                    program: Arc::clone(&module_program),
+                    program: Arc::clone(module_program),
                     function: LoweredFunctionKey::Name(*name),
                     kind: if *pure {
                         LoweredFunctionKind::Pure
@@ -10426,30 +10578,12 @@ impl Evaluator {
         // values. The stripped source keeps byte offsets, so `use` imports and
         // the module's own functions still resolve, and the `let` initializers
         // execute as ordinary top-level statements.
-        let harvest_text = Self::module_harvest_source(&parsed.arena, &module_text);
-        let harvest_entry = crate::loader::entry_source_from_text(&display_path, harvest_text);
-        let exported_let_names = self.module_namespace_export_let_names(&parsed.arena);
-        let (harvest_sources, mut harvest_parsed) = crate::loader::parse_load_entry_source_arena_only(
-            &display_path,
-            harvest_entry,
-            self.module_roots.to_vec(),
-        );
-        harvest_parsed.arena.root_nominal_namespace = Some(Name::intern(&key));
-        let child_exports = if harvest_parsed.diagnostics.is_empty() {
-            let harvest_source_id = harvest_sources
-                .files()
-                .first()
-                .map(crate::source::SourceFile::id)
-                .unwrap_or(module_source_id);
+        let child_exports = if let Some(harvest) = harvest {
             self.active_modules.push(key.clone());
-            let mut child = Evaluator::new_with_sources(Vec::new(), harvest_sources);
+            let mut child = Evaluator::new_lowered_worker(&harvest.shared);
             child.cwd = self.cwd.clone();
             child.env = self.env.clone();
-            let child_output = child.run_module_top_level(
-                &harvest_parsed.arena,
-                harvest_source_id,
-                &exported_let_names,
-            );
+            let child_output = child.run_prepared_module_top_level(&harvest.plan, &exported_let_names);
             self.active_modules.retain(|active| active != &key);
             let (record, bindings) = child_output.map_err(|error| error.with_span(span))?;
             // Make the module's top-level bindings resolvable so its functions
@@ -10486,11 +10620,11 @@ impl Evaluator {
         );
         for name in exported_let_names {
             if let Some(value) = child_exports.get_name(name) {
-                let alias = parsed.arena.statement_ids().find_map(|statement| {
-                    let crate::syntax::arena::ArenaStmtKind::Export(inner) = parsed.arena.arena.stmt(statement).kind else { return None; };
-                    let crate::syntax::arena::ArenaStmtKind::Let { target, ty: None, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression) } = parsed.arena.arena.stmt(inner).kind else { return None; };
-                    if !matches!(parsed.arena.arena.binding_target(target).kind, crate::syntax::arena::ArenaBindingTargetKind::Name(binding) if binding == name) { return None; }
-                    declarations.static_callable_aliases.get(&parsed.arena.arena.expr(expression).span)
+                let alias = arena.statement_ids().find_map(|statement| {
+                    let crate::syntax::arena::ArenaStmtKind::Export(inner) = arena.arena.stmt(statement).kind else { return None; };
+                    let crate::syntax::arena::ArenaStmtKind::Let { target, ty: None, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression) } = arena.arena.stmt(inner).kind else { return None; };
+                    if !matches!(arena.arena.binding_target(target).kind, crate::syntax::arena::ArenaBindingTargetKind::Name(binding) if binding == name) { return None; }
+                    declarations.static_callable_aliases.get(&arena.arena.expr(expression).span)
                 });
                 let value = if let Some(alias) = alias {
                     let original = match value { Value::Pure(function) | Value::Proc(function) => *function, _ => return Err(RuntimeError::new("module-load", "checked callable alias did not produce a callable").with_span(span)) };
@@ -10498,7 +10632,7 @@ impl Evaluator {
                         .or_else(|| original.as_qualified().map(LoweredFunctionKey::Qualified)).expect("callable identity is interned");
                     let qualified = QualifiedName::new(dynamic_namespace, name);
                     Arc::make_mut(&mut self.indexed_dynamic_functions).insert(qualified, DynamicFunction {
-                        program: Arc::clone(&module_program), function: target,
+                        program: Arc::clone(module_program), function: target,
                         kind: if alias.pure { LoweredFunctionKind::Pure } else { LoweredFunctionKind::Proc },
                     });
                     let function = crate::runtime::value::FunctionName::qualified(qualified);
@@ -10527,7 +10661,7 @@ impl Evaluator {
     }
 
     /// Enumerate the module file's top-level `export let` binding names.
-    fn module_namespace_export_let_names(&self, arena: &ArenaProgram) -> Vec<Name> {
+    fn module_namespace_export_let_names(arena: &ArenaProgram) -> Vec<Name> {
         let mut names = Vec::new();
         for stmt in arena.statement_ids() {
             let crate::syntax::arena::ArenaStmtKind::Export(inner) = arena.arena.stmt(stmt).kind
@@ -10547,7 +10681,7 @@ impl Evaluator {
 
     /// Enumerate the module file's top-level `export pure`/`export proc`
     /// declarations as `(name, is_pure)` pairs.
-    fn module_namespace_export_functions(&self, arena: &ArenaProgram) -> Vec<(Name, bool)> {
+    fn module_namespace_export_functions(arena: &ArenaProgram) -> Vec<(Name, bool)> {
         let mut functions = Vec::new();
         for stmt in arena.statement_ids() {
             let crate::syntax::arena::ArenaStmtKind::Export(inner) = arena.arena.stmt(stmt).kind
@@ -10600,20 +10734,11 @@ impl Evaluator {
     /// Run a module file as a compact top-level program (installing + executing
     /// its top-level statements) and return the record of its exported `let`
     /// values. Used by `module.load`.
-    fn run_module_top_level(
+    fn run_prepared_module_top_level(
         &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
+        plan: &super::CompactIndexedRunPlan,
         exported_let_names: &[Name],
     ) -> Result<(RecordMap, Vec<(Name, Value)>), RuntimeError> {
-        let plan = self
-            .prepare_compact_indexed_only(program, source_id)
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "module-load",
-                    "loaded module could not encode as indexed IR",
-                )
-            })?;
         let mut defers = Vec::new();
         for (index, statement) in plan.statements.iter().enumerate() {
             let span = statement.span;

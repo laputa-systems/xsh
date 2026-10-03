@@ -109,14 +109,12 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
     }
 
     fn validate_item(&self, value: &super::Value, span: Span) -> Result<(), RuntimeError> {
-        if let Some(check) = &self.item_check {
-            if !super::super::super::value_matches_static_type(value, &check.ty) {
-                let span = match &self.delegated {
-                    Some(DelegatedSource::Stream { span, .. }) => *span,
-                    _ => span,
-                };
-                return Err(RuntimeError::new("type-error", format!("yield violates UInt constraint in {}", check.name)).with_span(span));
-            }
+        if let Some(check) = &self.item_check && !super::super::super::value_matches_static_type(value, &check.ty) {
+            let span = match &self.delegated {
+                Some(DelegatedSource::Stream { span, .. }) => *span,
+                _ => span,
+            };
+            return Err(RuntimeError::new("type-error", format!("yield violates UInt constraint in {}", check.name)).with_span(span));
         }
         Ok(())
     }

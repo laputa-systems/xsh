@@ -230,14 +230,14 @@ impl TypeConstraints {
             }
             Type::Record(fields) => for field in fields.values_mut() { self.resolve_depth(field, depth + 1)?; },
             // Module contracts are shared; copy one only when it must be rewritten.
-            Type::Module(exports) => if module_has_inference(exports, depth)? {
+            Type::Module(exports) if module_has_inference(exports, depth)? => {
                 for export in Arc::make_mut(exports).values_mut() {
                     match export {
                         ModuleExportType::Value { ty, .. } => self.resolve_depth(ty, depth + 1)?,
                         ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => self.resolve_callable_depth(sig, depth + 1)?,
                     }
                 }
-            },
+            }
             _ => {}
         }
         Ok(())

@@ -1275,15 +1275,11 @@ impl Checker {
         };
         let value_ty = if value_ty == Type::Unknown { expected.cloned().unwrap_or(value_ty) } else { value_ty };
         self.push_scope();
-        if let [param] = params {
-            if param.name != "_" {
-                if matches!(&error_ty, Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. }) {
-                    if let Some(value) = Self::single_error_handler_value_arena(arena, block) {
-                        self.warn_flattened_error_translation_arena(arena, value, param.name);
-                    }
-                }
-                self.define(param.name, super::Binding::new(error_ty, false), arena.arena.span(param.span));
+        if let [param] = params && param.name != "_" {
+            if matches!(&error_ty, Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. }) && let Some(value) = Self::single_error_handler_value_arena(arena, block) {
+                self.warn_flattened_error_translation_arena(arena, value, param.name);
             }
+            self.define(param.name, super::Binding::new(error_ty, false), arena.arena.span(param.span));
         }
         // Every handler tail is a value; Unit-success handlers still require Unit.
         let context = (!matches!(value_ty, Type::Unit) && !value_ty.is_result_unit()).then_some(&value_ty);

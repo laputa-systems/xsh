@@ -1083,11 +1083,9 @@ impl ProcessStream {
         options.stdout = ManagedStdio::Piped;
         let mut child = spawn_managed(invocation, options)?;
         let stdout = child.child.stdout.take();
-        if let Some(stdout) = &stdout {
-            if let Err(error) = set_nonblocking(stdout.as_fd()) {
-                child.process_group().kill(); let _ = child.child.wait(); child.consumed = true;
-                return Err(error);
-            }
+        if let Some(stdout) = &stdout && let Err(error) = set_nonblocking(stdout.as_fd()) {
+            child.process_group().kill(); let _ = child.child.wait(); child.consumed = true;
+            return Err(error);
         }
         let foreground = ForegroundTerminal::take(child.process_group());
         Ok(Self { child, stdout, status: None, cancellation: None, captured: 0, _foreground: foreground })
@@ -1118,8 +1116,7 @@ impl ProcessStream {
                     _ => {},
                 }
             }
-            if self.status.is_some() && self.stdout.is_none() {
-                let status = self.status.as_ref().expect("completed stream child has status");
+            if let Some(status) = &self.status && self.stdout.is_none() {
                 if let Some(cancellation) = &self.cancellation { return Err(cancellation.error(Some(status.clone()))); }
                 if let Some(error) = completion_error(status, &[self.child.accepted_exit_codes], false) { return Err(error); }
                 return Ok(None);

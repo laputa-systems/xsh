@@ -847,9 +847,7 @@ impl Checker {
             self.apply_narrowings(&facts.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
             self.check_block_arena(arena, source, branch.block);
-            if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(branch.block).span)) {
-                if let Some(bindings) = self.block_exit_bindings.get(&branch.block) { reaching.push(bindings.clone()); }
-            }
+            if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(branch.block).span)) && let Some(bindings) = self.block_exit_bindings.get(&branch.block) { reaching.push(bindings.clone()); }
             previous_failure.extend(facts.when_false);
             self.scopes = failure_scopes;
             self.pop_scope();
@@ -858,9 +856,7 @@ impl Checker {
         self.apply_narrowings(&previous_failure);
         if let Some(block) = else_block {
             self.check_block_arena(arena, source, block);
-            if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(block).span)) {
-                if let Some(bindings) = self.block_exit_bindings.get(&block) { reaching.push(bindings.clone()); }
-            }
+            if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(block).span)) && let Some(bindings) = self.block_exit_bindings.get(&block) { reaching.push(bindings.clone()); }
         } else {
             reaching.push(self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect());
         }
@@ -1604,9 +1600,7 @@ impl Checker {
             }
             self.attach_callable_alias(name, alias, expr_or_run_span_arena(arena, initializer));
         }
-        if let crate::syntax::arena::ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
-            if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.boolean_proof = boolean_proof; }
-        }
+        if let crate::syntax::arena::ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind && let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.boolean_proof = boolean_proof; }
         self.set_binding_schema_arena(arena, target, schema);
     }
 

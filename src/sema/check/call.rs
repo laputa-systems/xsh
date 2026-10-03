@@ -716,7 +716,7 @@ impl Checker {
             "Err" => {
                 use crate::sema::arguments::{expand_named_arguments, bind_err_arguments};
                 let expected = match expected_context { Some(Type::Result(_, error)) => Some(error.as_ref()), _ => None };
-                let previous = std::mem::replace(&mut self.expected_schema, None);
+                let previous = self.expected_schema.take();
                 let types = args.iter().map(|arg| {
                     let outer = !matches!(arg.kind, ArenaCallArgKind::Named { name, .. } if name == "cause");
                     self.check_call_arg_arena(arena, source, &arg.kind, if outer { expected } else { None })
@@ -1221,11 +1221,11 @@ impl Checker {
             for (index, item) in arena.arena.list_elements(items).enumerate() {
                 if index == 0 && item.splice_span.is_none() { continue; }
                 let actual = self.check_expr_arena(arena, source, item.value, None);
-                let item_ty = if item.splice_span.is_some() {
+                let item_ty = if let Some(splice_span) = item.splice_span {
                     match actual {
                         Type::List(ty) => *ty,
                         _ => {
-                            self.error(arena.arena.span(item.splice_span.unwrap()), "list literal splice requires List", "check.list-splice-type");
+                            self.error(arena.arena.span(splice_span), "list literal splice requires List", "check.list-splice-type");
                             Type::Unknown
                         }
                     }

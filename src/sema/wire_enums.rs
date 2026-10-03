@@ -19,7 +19,7 @@ pub struct PreparedWireEnums {
 }
 
 pub fn nominal_enum_name(namespace: Option<Name>, name: Name) -> Name {
-    namespace.map_or(name, |namespace| Name::intern(&format!("{namespace}.{name}")))
+    namespace.map_or(name, |namespace| Name::intern(format!("{namespace}.{name}")))
 }
 
 pub fn declaring_enum_name(program: &ArenaProgram, id: crate::syntax::arena::TypeDefId) -> Name {

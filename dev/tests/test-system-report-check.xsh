@@ -3209,100 +3209,93 @@ test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state {
   test.error_kind(report_checks.read_cpuidle_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-test test_system_report_capture_rejects_simultaneous_live_comparison { |ctx|
-  let bundle = test.temp_path(ctx, name: "system-report-cpu-bundle")
-  let stderr = test.temp_path(ctx, name: "system-report-cpu-bundle.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-cpuidle 2> $stderr
+proc assert_bundle_operation_rejected(
+  ctx: TestContext,
+  xsh_bin: Path,
+  core_dir: Path,
+  arguments: List[Str],
+  message: Str,
+) [fs, process, error] {
+  let bundle = test.temp_path(ctx, name: "system-report-bundle")
+  let stderr = test.temp_path(ctx, name: "system-report-bundle.stderr")
+  let main = fp"${core_dir.parent()}/dev/main.xsh"
+  let operation = arguments[0]
+  let rest = arguments[1..]
+  let status = run.status $xsh_bin $main -- system-report-check $operation $bundle $rest 2> $stderr
   assert ! status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
+  assert message in stderr.read_text()?
   assert ! bundle.exists()?
-  let usb_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-usb-topology 2> $stderr
-  assert ! usb_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let usb_ids_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-usb-ids 2> $stderr
-  assert ! usb_ids_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let usb_power_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-usb-power 2> $stderr
-  assert ! usb_power_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let smbios_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-smbios-bundle $bundle --compare-smbios 2> $stderr
-  assert ! smbios_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let thermal_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-thermal-bundle $bundle --compare-thermal 2> $stderr
-  assert ! thermal_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let hwmon_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-hwmon-bundle $bundle --compare-hwmon 2> $stderr
-  assert ! hwmon_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let block_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-block-bundle $bundle --compare-storage 2> $stderr
-  assert ! block_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let cgroup_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cgroup2-bundle $bundle --compare-cgroup-v2 2> $stderr
-  assert ! cgroup_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let process_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-process-bundle $bundle --compare-processes 2> $stderr
-  assert ! process_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let supply_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-power-supply-bundle $bundle --compare-power-supplies 2> $stderr
-  assert ! supply_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let identity_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-os-release-bundle $bundle --compare-identity 2> $stderr
-  assert ! identity_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let uptime_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-uptime-bundle $bundle --compare-identity 2> $stderr
-  assert ! uptime_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let dmi_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-dmi-identity-bundle $bundle --compare-identity 2> $stderr
-  assert ! dmi_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let device_tree_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-device-tree-bundle $bundle --compare-identity 2> $stderr
-  assert ! device_tree_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let command_line_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-kernel-command-line-bundle $bundle --compare-command-line 2> $stderr
-  assert ! command_line_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let modules_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-kernel-modules-bundle $bundle --compare-modules 2> $stderr
-  assert ! modules_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let swaps_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-swaps-bundle $bundle --compare-swaps 2> $stderr
-  assert ! swaps_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let pressure_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-pressure-bundle $bundle --compare-pressure 2> $stderr
-  assert ! pressure_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let mountinfo_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-mountinfo-bundle $bundle --compare-mounts 2> $stderr
-  assert ! mountinfo_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let parameters_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-kernel-parameters-bundle $bundle --compare-parameters 2> $stderr
-  assert ! parameters_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  assert ! bundle.exists()?
-  let utility_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle --dmidecode-bin /nonexistent --compare-smbios 2> $stderr
-  assert ! utility_status.exited_with(0)
-  assert "bundle operations cannot be combined" in stderr.read_text()?
-  let missing_binary_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle 2> $stderr
-  assert ! missing_binary_status.exited_with(0)
-  assert "requires --dmidecode-bin" in stderr.read_text()?
-  assert ! bundle.exists()?
+}
+
+# Each rejected invocation prepares the whole dev entrypoint, so the cases are
+# split across tests to let the runner schedule them in parallel.
+test test_system_report_capture_rejects_simultaneous_live_comparison_cpu_and_usb { |ctx|
+  for arguments in [
+    "--capture-cpu-bundle --compare-cpuidle",
+    "--capture-cpu-bundle --compare-usb-topology",
+    "--capture-cpu-bundle --compare-usb-ids",
+    "--capture-cpu-bundle --compare-usb-power",
+  ] {
+    let message = "bundle operations cannot be combined"
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
+  }
+}
+
+test test_system_report_capture_rejects_simultaneous_live_comparison_devices { |ctx|
+  for arguments in [
+    "--capture-smbios-bundle --compare-smbios",
+    "--capture-thermal-bundle --compare-thermal",
+    "--capture-hwmon-bundle --compare-hwmon",
+    "--capture-block-bundle --compare-storage",
+  ] {
+    let message = "bundle operations cannot be combined"
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
+  }
+}
+
+test test_system_report_capture_rejects_simultaneous_live_comparison_resources { |ctx|
+  for arguments in [
+    "--capture-cgroup2-bundle --compare-cgroup-v2",
+    "--capture-process-bundle --compare-processes",
+    "--capture-power-supply-bundle --compare-power-supplies",
+    "--capture-os-release-bundle --compare-identity",
+  ] {
+    let message = "bundle operations cannot be combined"
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
+  }
+}
+
+test test_system_report_capture_rejects_simultaneous_live_comparison_identity { |ctx|
+  for arguments in [
+    "--capture-uptime-bundle --compare-identity",
+    "--capture-dmi-identity-bundle --compare-identity",
+    "--capture-device-tree-bundle --compare-identity",
+    "--capture-kernel-command-line-bundle --compare-command-line",
+  ] {
+    let message = "bundle operations cannot be combined"
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
+  }
+}
+
+test test_system_report_capture_rejects_simultaneous_live_comparison_kernel { |ctx|
+  for arguments in [
+    "--capture-kernel-modules-bundle --compare-modules",
+    "--capture-swaps-bundle --compare-swaps",
+    "--capture-pressure-bundle --compare-pressure",
+    "--capture-mountinfo-bundle --compare-mounts",
+    "--capture-kernel-parameters-bundle --compare-parameters",
+  ] {
+    let message = "bundle operations cannot be combined"
+    assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, arguments.split(" "), message)?
+  }
+}
+
+test test_system_report_capture_rejects_simultaneous_live_comparison_smbios_corroboration { |ctx|
+  let utility = ["--corroborate-smbios-bundle", "--dmidecode-bin", "/nonexistent", "--compare-smbios"]
+  let combined = "bundle operations cannot be combined"
+  assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, utility, combined)?
+  let missing = "requires --dmidecode-bin"
+  assert_bundle_operation_rejected(ctx, ctx.xsh_bin, ctx.core_dir, ["--corroborate-smbios-bundle"], missing)?
 }
 
 test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {

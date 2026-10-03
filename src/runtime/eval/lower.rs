@@ -7922,6 +7922,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         let (params, argument_slots) = (params?, argument_slots?);
         let mut values = Vec::new();
+        #[allow(clippy::needless_range_loop)]
         for slot in 0..=argument_slots.iter().copied().max()? {
             let mut entries = args.iter().zip(argument_slots).filter(|(_, bound)| **bound == slot).peekable();
             if entries.peek().is_none() {
@@ -11167,9 +11168,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let mut shared = saved.clone().unwrap_or_default();
                 let mut cleanup = Vec::new();
                 for name in names {
-                    if !shared.contains_key(&name) {
+                    if let std::collections::hash_map::Entry::Vacant(entry) = shared.entry(name) {
                         let slot = slots.declare(name);
-                        shared.insert(name, slot);
+                        entry.insert(slot);
                         cleanup.push((name, slot));
                     }
                 }
@@ -11190,7 +11191,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     if let Some((family, info)) = self.compact_pattern_error_family(family)
                         && info.variants.contains_key(&variant)
                     {
-                        return Some((push_build_row!(self, pattern, BuildPatternRow::ErrorTest { family, variant, fields: Box::new(Vec::new()) }), Vec::new()));
+                        return Some((push_build_row!(self, pattern, BuildPatternRow::ErrorTest { family, variant, fields: Vec::new() }), Vec::new()));
                     }
                 }
                 if self.compact_tag_variant_arity(*name) == Some(0) {
@@ -11239,7 +11240,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     cleanup.extend(bindings);
                     lowered.push((field.name, pattern));
                 }
-                Some((push_build_row!(self, pattern, BuildPatternRow::RecordTest { fields: Box::new(lowered) }), cleanup))
+                Some((push_build_row!(self, pattern, BuildPatternRow::RecordTest { fields: lowered }), cleanup))
             }
             ArenaPatternKind::Wildcard => Some((
                 push_build_row!(self, pattern, BuildPatternRow::Wildcard),
@@ -11314,7 +11315,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     cleanup.extend(bindings);
                     lowered.push((field.name, pattern));
                 }
-                Some((push_build_row!(self, pattern, BuildPatternRow::ErrorTest { family, variant: *variant, fields: Box::new(lowered) }), cleanup))
+                Some((push_build_row!(self, pattern, BuildPatternRow::ErrorTest { family, variant: *variant, fields: lowered }), cleanup))
             }
             ArenaPatternKind::Facet(facet) => Some((
                 push_build_row!(

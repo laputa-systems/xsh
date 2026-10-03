@@ -984,13 +984,11 @@ impl<'a> Linter<'a> {
                 let materialized_record = match initializer { ArenaExprOrRun::Expr(value) => self.proven_materialized_record(value), _ => false };
                 let immutable_byte_length = match initializer { ArenaExprOrRun::Expr(value) => self.proven_immutable_byte_length(value), _ => None };
                 self.define_binding_target(target, stmt.span, true);
-                if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind {
-                    if let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str())) {
-                        binding.comparison_stable = true;
-                        binding.absence_lookup = absence_lookup;
-                        binding.materialized_record = materialized_record;
-                        binding.immutable_byte_length = immutable_byte_length;
-                    }
+                if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind && let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str())) {
+                    binding.comparison_stable = true;
+                    binding.absence_lookup = absence_lookup;
+                    binding.materialized_record = materialized_record;
+                    binding.immutable_byte_length = immutable_byte_length;
                 }
             }
             ArenaStmtKind::Var {
@@ -1683,7 +1681,7 @@ impl<'a> Linter<'a> {
     fn lint_block_string_concatenation(&mut self, expr: ExprId) {
         fn collect(arena: &AstArena, expr: ExprId, output: &mut String, links: &mut usize) -> bool {
             match arena.expr(expr).kind {
-                ArenaExprKind::Str(text) => { output.push_str(&arena.string_literal(text)); true }
+                ArenaExprKind::Str(text) => { output.push_str(arena.string_literal(text)); true }
                 ArenaExprKind::Binary { op: BinaryOp::Add, left, right } => {
                     *links += 1;
                     collect(arena, left, output, links) && collect(arena, right, output, links)
@@ -2970,12 +2968,11 @@ impl<'a> Linter<'a> {
             ArenaPatternKind::Binding(_) | ArenaPatternKind::Wildcard
             | ArenaPatternKind::Alternation(_) | ArenaPatternKind::Tuple(_) => return false,
             ArenaPatternKind::List { elements, rest: Some(_) } if elements.is_empty() => return false,
-            ArenaPatternKind::Constructor { name, .. } if name != "Ok" && name != "Err" => {
-                if self.arena.type_defs.iter().any(|definition| match definition.body {
+            ArenaPatternKind::Constructor { name, .. } if name != "Ok" && name != "Err"
+                && self.arena.type_defs.iter().any(|definition| match definition.body {
                     ArenaTypeDefBody::TagUnion(variants) if variants.len() == 1 => self.arena.tag_variants(variants)[0].name == name,
                     _ => false,
-                }) { return false; }
-            }
+                }) => return false,
             _ => {}
         }
         !self.pattern_test_fix_is_nonbinding(pattern)
@@ -3051,10 +3048,8 @@ impl<'a> Linter<'a> {
             let branch = |value| self.source.get(self.arena.expr(value).span.range()).map(|text| {
                 if matches!(self.arena.expr(value).kind, ArenaExprKind::ValueBlock(_)) { text.to_string() } else { format!("{{ {text} }}") }
             });
-            if let (Some(subject), Some(pattern), Some(yes), Some(no)) = (subject, pattern, branch(selected.value), branch(complement.value)) {
-                if let Some(replacement) = self.pattern_conditional_replacement(span, &format!("if let {pattern} = {subject} {yes} else {no}"), true) {
-                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use a pattern conditional", replacement));
-                }
+            if let (Some(subject), Some(pattern), Some(yes), Some(no)) = (subject, pattern, branch(selected.value), branch(complement.value)) && let Some(replacement) = self.pattern_conditional_replacement(span, &format!("if let {pattern} = {subject} {yes} else {no}"), true) {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use a pattern conditional", replacement));
             }
         }
         self.diagnostics.push(diagnostic);
@@ -3330,7 +3325,8 @@ impl<'a> Linter<'a> {
             Some((root, path, binding))
         }
         fn target(entries: &[(Vec<Name>, Name)], depth: usize) -> Option<String> {
-            let mut fields: Vec<(Name, Vec<(Vec<Name>, Name)>)> = Vec::new();
+            type Entries = Vec<(Vec<Name>, Name)>;
+            let mut fields: Vec<(Name, Entries)> = Vec::new();
             for (path, binding) in entries {
                 let field = *path.get(depth)?;
                 if let Some((_, children)) = fields.iter_mut().find(|(name, _)| *name == field) {
@@ -3406,7 +3402,7 @@ impl<'a> Linter<'a> {
             let ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(value) } = assignment.kind else { continue; };
             if !matches!(self.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(found) if found == name)
                 || expr_references_name(self.arena, input, name) || expr_references_name(self.arena, value, name) { continue; }
-            if self.expr_types.get(&self.arena.expr(initial).span).is_none()
+            if !self.expr_types.contains_key(&self.arena.expr(initial).span)
                 || self.expr_types.get(&self.arena.expr(initial).span) != self.expr_types.get(&self.arena.expr(value).span) { continue; }
             let edit = Span::new(declaration.span.source_id, declaration.span.start(), statement.span.end());
             let mut diagnostic = Diagnostic::warning("a fresh placeholder can consume the scope value")
@@ -3599,9 +3595,7 @@ impl<'a> Linter<'a> {
         if octet == source || octet == index || octet == "_" { return; }
         if let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } = self.arena.expr(access).kind {
             if !matches!(self.arena.expr(right).kind, ArenaExprKind::Int(_) | ArenaExprKind::Unary { op: UnaryOp::Neg, .. }) { return; }
-            if let ArenaExprKind::Unary { expr: value, .. } = self.arena.expr(right).kind {
-                if !matches!(self.arena.expr(value).kind, ArenaExprKind::Int(_)) { return; }
-            }
+            if let ArenaExprKind::Unary { expr: value, .. } = self.arena.expr(right).kind && !matches!(self.arena.expr(value).kind, ArenaExprKind::Int(_)) { return; }
             access = left;
         }
         let ArenaExprKind::Call { callee, args } = self.arena.expr(access).kind else { return; };
@@ -3845,9 +3839,7 @@ impl<'a> Linter<'a> {
             return;
         };
         if expr_references_name(self.arena, push_expr, var_name) { return; }
-        if let Some(ty) = ty {
-            if !matches!(Type::from_arena(self.arena, ty), Type::List(_)) { return; }
-        }
+        if let Some(ty) = ty && !matches!(Type::from_arena(self.arena, ty), Type::List(_)) { return; }
         let push_span = self.arena.expr(push_expr).span;
         let Some(push_src) = self.source.get(push_span.range()) else { return; };
         let annotation = self.accumulator_annotation(ty);
@@ -5140,9 +5132,7 @@ impl<'a> Linter<'a> {
                 _ => return None,
             }
         }
-        let Some(offset) = offset else {
-            return None;
-        };
+        let offset = offset?;
         let constant_offset = match self.arena.expr(offset).kind {
             ArenaExprKind::Int(value) => self.arena.int_literal(value).value()
                 .filter(|value| *value >= 0),
@@ -5704,18 +5694,16 @@ impl<'a> Linter<'a> {
     fn lint_membership_replacement(&mut self, container: ExprId, item: ExprId, span: Span, negated: bool) {
         let mut diagnostic = Diagnostic::new(Severity::Warning, "use canonical membership syntax")
             .with_code("lint.prefer-in").with_label(Label::secondary(span, "use `in` or `not in`; bind operands in their original order if necessary"));
-        if self.membership_types_supported(container, item) {
-            if let (Some(container_text), Some(item_text)) = (self.expression_text(container), self.expression_text(item)) {
-                let operator = if negated { "not in" } else { "in" };
-                if migration_reorder_safe(self.arena, container, item) {
-                    let fix_span = self.expression_source_span(self.negated_call_spans.get(&span).copied().unwrap_or(span));
-                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(fix_span, "rewrite membership", format!("({item_text}) {operator} ({container_text})")));
-                } else {
-                    if let Some(statement) = self.whole_statement_call_spans.get(&span).copied() {
-                        let container_name = self.migration_temporary_name("container", span.start());
-                        let item_name = self.migration_temporary_name("item", span.start());
-                        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve operand order with local bindings", format!("{{ let {container_name} = ({container_text}); let {item_name} = ({item_text}); {item_name} {operator} {container_name} }}")));
-                    }
+        if self.membership_types_supported(container, item) && let (Some(container_text), Some(item_text)) = (self.expression_text(container), self.expression_text(item)) {
+            let operator = if negated { "not in" } else { "in" };
+            if migration_reorder_safe(self.arena, container, item) {
+                let fix_span = self.expression_source_span(self.negated_call_spans.get(&span).copied().unwrap_or(span));
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(fix_span, "rewrite membership", format!("({item_text}) {operator} ({container_text})")));
+            } else {
+                if let Some(statement) = self.whole_statement_call_spans.get(&span).copied() {
+                    let container_name = self.migration_temporary_name("container", span.start());
+                    let item_name = self.migration_temporary_name("item", span.start());
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve operand order with local bindings", format!("{{ let {container_name} = ({container_text}); let {item_name} = ({item_text}); {item_name} {operator} {container_name} }}")));
                 }
             }
         }
@@ -5780,35 +5768,33 @@ impl<'a> Linter<'a> {
             };
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(fix_span, "rewrite assertion", replacement));
         }
-        if diagnostic.fix_hints.is_empty() && supported {
-            if let Some(statement) = self.whole_statement_call_spans.get(&span).copied() {
-                let mut bindings = String::new();
-                let mut names = BTreeMap::new();
-                // Snapshot supplied expressions in source order. Signature slots
-                // still select the corresponding values for the predicate.
-                for (index, argument) in source_order.iter().enumerate() {
-                    let Some(text) = self.expression_text(*argument) else { return; };
-                    let name = self.migration_temporary_name(&format!("argument_{index}"), span.start());
-                    bindings.push_str(&format!("let {name} = ({text}); "));
-                    names.insert(*argument, name);
-                }
-                let first = &names[&first];
-                let second = second.map(|argument| names[&argument].as_str());
-                let predicate = match name {
-                    "ok" => first.to_string(),
-                    "eq" => format!("{first} == {}", second.unwrap()),
-                    "ne" => format!("{first} != {}", second.unwrap()),
-                    _ => format!("{} {} {first}", second.unwrap(), if name == "not_contains" { "not in" } else { "in" }),
-                };
-                let assertion = if let Some(message) = custom_message {
-                    let suffix = if statement == span { "" } else { "?" };
-                    format!("test.ok({predicate}, message: {}){suffix}", names[&message])
-                } else { assert_statement(&predicate, false) };
-                bindings.push_str(&assertion);
-                // Inline match arms accept one expression. A lexical block also
-                // keeps operand snapshots local to the original assertion.
-                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve argument order with local bindings", format!("{{ {bindings} }}")));
+        if diagnostic.fix_hints.is_empty() && supported && let Some(statement) = self.whole_statement_call_spans.get(&span).copied() {
+            let mut bindings = String::new();
+            let mut names = BTreeMap::new();
+            // Snapshot supplied expressions in source order. Signature slots
+            // still select the corresponding values for the predicate.
+            for (index, argument) in source_order.iter().enumerate() {
+                let Some(text) = self.expression_text(*argument) else { return; };
+                let name = self.migration_temporary_name(&format!("argument_{index}"), span.start());
+                bindings.push_str(&format!("let {name} = ({text}); "));
+                names.insert(*argument, name);
             }
+            let first = &names[&first];
+            let second = second.map(|argument| names[&argument].as_str());
+            let predicate = match name {
+                "ok" => first.to_string(),
+                "eq" => format!("{first} == {}", second.unwrap()),
+                "ne" => format!("{first} != {}", second.unwrap()),
+                _ => format!("{} {} {first}", second.unwrap(), if name == "not_contains" { "not in" } else { "in" }),
+            };
+            let assertion = if let Some(message) = custom_message {
+                let suffix = if statement == span { "" } else { "?" };
+                format!("test.ok({predicate}, message: {}){suffix}", names[&message])
+            } else { assert_statement(&predicate, false) };
+            bindings.push_str(&assertion);
+            // Inline match arms accept one expression. A lexical block also
+            // keeps operand snapshots local to the original assertion.
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.expression_source_span(statement), "preserve argument order with local bindings", format!("{{ {bindings} }}")));
         }
         self.diagnostics.push(diagnostic);
     }
@@ -7643,10 +7629,8 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_expr(&mut self, expr: ExprId) {
-        if let ArenaExprKind::Unary { op: UnaryOp::Not, expr: inner } = self.linter.arena.expr(expr).kind {
-            if matches!(self.linter.arena.expr(inner).kind, ArenaExprKind::Call { .. }) {
-                self.linter.negated_call_spans.insert(self.linter.arena.expr(inner).span, self.linter.arena.expr(expr).span);
-            }
+        if let ArenaExprKind::Unary { op: UnaryOp::Not, expr: inner } = self.linter.arena.expr(expr).kind && matches!(self.linter.arena.expr(inner).kind, ArenaExprKind::Call { .. }) {
+            self.linter.negated_call_spans.insert(self.linter.arena.expr(inner).span, self.linter.arena.expr(expr).span);
         }
 
         if !self.suppress_expr_autofixes { self.linter.lint_proven_nonnull_fallback(expr); }

@@ -355,7 +355,12 @@ wrapping contract without per-word chunk vectors.
 A dynamically loaded user module never reparses embedded source: it lowers its
 standard calls to `BuildExprRow::ExternalCall`, and the runtime resolves them
 through the evaluator's dynamic function table to the implementations the
-loading program already prepared.
+loading program already prepared. `PreparedDynamicModule` in
+`src/runtime/eval/lowered_run.rs` shares a loaded module's parse, check,
+indexed program, and prepared export harvest across evaluators in one process,
+keyed by module file and module roots and revalidated against the bytes of the
+module and its imported files. Every load still runs the harvest in a fresh
+child evaluator, so top-level initializers execute per load.
 
 **Platform-specific bindings.** `linux_uptime_entry` in
 `crates/xsh-registry/src/signature/modules.rs` selects the script binding for

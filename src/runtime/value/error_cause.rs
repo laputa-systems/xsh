@@ -78,9 +78,7 @@ impl Value {
 
     pub(crate) fn with_error_cause(mut self, cause: Value) -> Result<Self, RuntimeError> {
         for value in [&self, &cause] {
-            if let Self::Error(error) = value {
-                if error.abort.is_some() { return Err((**error).clone()); }
-            }
+            if let Self::Error(error) = value && error.abort.is_some() { return Err((**error).clone()); }
             if !matches!(value, Self::Error(_) | Self::RunError(_)) {
                 return Err(RuntimeError::new("type-error", "Err with cause requires Error values"));
             }

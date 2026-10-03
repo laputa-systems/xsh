@@ -195,9 +195,8 @@ fn concurrent_rename_and_symlink_switch_never_returns_outside_sentinel() -> io::
     let reader_done = Arc::clone(&done);
     let reader = thread::spawn(move || -> io::Result<()> {
         while !reader_done.load(Ordering::Acquire) {
-            match read(&reader_root, "switch/sentinel") {
-                Ok(contents) => assert_eq!(contents, "inside sentinel"),
-                Err(_) => {}
+            if let Ok(contents) = read(&reader_root, "switch/sentinel") {
+                assert_eq!(contents, "inside sentinel");
             }
         }
         Ok(())

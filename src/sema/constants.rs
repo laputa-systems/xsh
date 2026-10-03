@@ -308,11 +308,7 @@ impl RecordConstructors {
         let prepared_values = prepared.map_or(&empty, |prepared| &prepared.values);
         for statement in &statements {
             let kind = match arena.stmt(*statement).kind { ArenaStmtKind::Export(inner) => arena.stmt(inner).kind, kind => kind };
-            if let ArenaStmtKind::Const { target, initializer: ArenaExprOrRun::Expr(expr), .. } = kind {
-                if let ArenaBindingTargetKind::Name(name) = arena.binding_target(target).kind {
-                    if let Some(value) = prepared_values.get(&expr) { constants.insert(name, value.clone()); }
-                }
-            }
+            if let ArenaStmtKind::Const { target, initializer: ArenaExprOrRun::Expr(expr), .. } = kind && let ArenaBindingTargetKind::Name(name) = arena.binding_target(target).kind && let Some(value) = prepared_values.get(&expr) { constants.insert(name, value.clone()); }
         }
         for statement in statements {
             let kind = match arena.stmt(statement).kind {
@@ -771,7 +767,7 @@ mod instance_tests {
             let first = constraints.fresh(span);
             let second = constraints.fresh(span);
             assert_ne!(first, second);
-            assert!(index.instantiate_checked(&parsed.arena.arena, definition, &[first.clone()]).unwrap().contains_inference());
+            assert!(index.instantiate_checked(&parsed.arena.arena, definition, std::slice::from_ref(&first)).unwrap().contains_inference());
             assert!(index.instances.lock().unwrap().is_empty());
             constraints.constrain(&first, &Type::Int, span).unwrap();
             constraints.constrain(&second, &Type::Int, span).unwrap();
@@ -889,7 +885,7 @@ impl ConstantScopeIndex {
                     #[cfg(test)]
                     self.visits.set(self.visits.get() + 1);
                     prefixes[position].insert((span.end() - span.start(), block));
-                    position += position & position.wrapping_neg();
+                    position += position.isolate_lowest_one();
                 }
                 next_block += 1;
             }
@@ -1184,7 +1180,7 @@ impl PreparedConstants {
         for (query, &(index, span)) in blocks.iter().enumerate() {
             let parent = resolved_scopes[query].unwrap_or_else(|| sources.get(&span.source_id).copied().unwrap_or(main_scope));
             preparation.scopes[index].parent = Some(parent);
-            preparation.scopes[index].namespace = sources.get(&span.source_id).map(|scope| preparation.scopes[*scope].namespace).flatten();
+            preparation.scopes[index].namespace = sources.get(&span.source_id).and_then(|scope| preparation.scopes[*scope].namespace);
             for param in arena.block_params(arena.block(BlockId::from_index(index)).params) {
                 preparation.scopes[index].bindings.insert(param.name, None);
             }
@@ -1252,12 +1248,8 @@ impl PreparedConstants {
             let mut current = Some(preparation.statement_scopes[&id]);
             while let Some(scope) = current {
                 if let Some(binding) = preparation.scopes[scope].bindings.get(&name) {
-                    if let Some(declaration) = binding {
-                        if let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(*declaration).kind {
-                            if preparation.prepared.values.contains_key(&expr) {
-                                preparation.prepared.tail_bindings.insert(statement.span, expr);
-                            }
-                        }
+                    if let Some(declaration) = binding && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(*declaration).kind && preparation.prepared.values.contains_key(&expr) {
+                        preparation.prepared.tail_bindings.insert(statement.span, expr);
                     }
                     break;
                 }
@@ -1266,10 +1258,8 @@ impl PreparedConstants {
         }
         for scope in block_count..preparation.scopes.len() {
             for (name, binding) in &preparation.scopes[scope].bindings {
-                if let Some(declaration) = binding {
-                    if let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(*declaration).kind {
-                        preparation.prepared.global_bindings.insert((preparation.scopes[scope].namespace, *name), expr);
-                    }
+                if let Some(declaration) = binding && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(*declaration).kind {
+                    preparation.prepared.global_bindings.insert((preparation.scopes[scope].namespace, *name), expr);
                 }
             }
         }
@@ -1555,10 +1545,9 @@ impl ConstantPreparation<'_> {
                 let default_scope = owner.and_then(|owner| self.module_scopes.get(&owner).copied()).unwrap_or(self.program.arena.blocks.len());
                 if let ArenaTypeDefBody::RecordSchema(fields) = arena.type_def(definition).body {
                     for field in arena.schema_fields(fields) {
-                        if !values.contains_key(&field.name) {
-                            if let Some(default) = field.default {
-                                values.insert(field.name, self.expression(default, default_scope, field_types.get(&field.name), depth + 1)?);
-                            }
+                        if let Some(default) = field.default
+                            && let std::collections::btree_map::Entry::Vacant(entry) = values.entry(field.name) {
+                            entry.insert(self.expression(default, default_scope, field_types.get(&field.name), depth + 1)?);
                         }
                     }
                 }
@@ -1616,11 +1605,7 @@ impl ConstantPreparation<'_> {
             }
             _ => LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?,
         };
-        if matches!(expr.kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }) {
-            if let (Some(expected), Some(actual)) = (expected, self.prepared.types.get(&id)) {
-                if !actual.matches_expected(expected) { return Err((expr.span, "constant reference does not match its expected type".into())); }
-            }
-        }
+        if matches!(expr.kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }) && let (Some(expected), Some(actual)) = (expected, self.prepared.types.get(&id)) && !actual.matches_expected(expected) { return Err((expr.span, "constant reference does not match its expected type".into())); }
         let value = expected.map_or_else(|| value.clone(), |ty| value.clone().in_type(ty));
         if let Some(expected) = expected {
             if expected.contains_inference() {
@@ -1634,9 +1619,7 @@ impl ConstantPreparation<'_> {
             return Err((expr.span, "constant containers require concrete type context".into()));
         }
         if !constant_size_within_limit(&value) { return Err((expr.span, "constant data exceeds the preparation limit".into())); }
-        if let LiteralConstant::Path(path) = &value {
-            if path.as_bytes().contains(&0) { return Err((expr.span, "constant path contains a NUL byte".into())); }
-        }
+        if let LiteralConstant::Path(path) = &value && path.as_bytes().contains(&0) { return Err((expr.span, "constant path contains a NUL byte".into())); }
         Ok(value)
     }
 }
