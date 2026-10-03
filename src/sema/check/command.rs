@@ -259,7 +259,7 @@ impl Checker {
         if let Some(expr) = self.prepared_constants.tail_bindings.get(&span) {
             if let Some(ty) = self.prepared_constants.types.get(expr) {
                 let ty = ty.clone();
-                self.expr_types.insert(span, ty.clone());
+                self.record_expr_type(span, ty.clone());
                 return ty;
             }
         }

@@ -614,17 +614,13 @@ impl Checker {
         for (call_span, instance, _) in pending {
             match self.record_constructors.finish_constructor_inference(&arena.arena, &instance, &self.type_constraints) {
                 Ok(fact) => {
-                    self.expr_types.insert(call_span, fact.ty.clone());
+                    self.record_expr_type(call_span, fact.ty.clone());
                     self.record_constructor_instances.insert(call_span, fact);
                 }
                 Err(error) => self.error(call_span, &error.message, error.code),
             }
         }
-        for ty in self.expr_types.values_mut() {
-            if ty.contains_inference() {
-                *ty = self.type_constraints.resolve(ty).ok().filter(|resolved| !resolved.contains_inference()).unwrap_or(Type::Invalid);
-            }
-        }
+        self.publish_unresolved_expr_types();
         self.record_constructor_instances.get(&span).map_or(Type::Invalid, |fact| fact.ty.clone())
     }
 

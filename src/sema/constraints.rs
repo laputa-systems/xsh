@@ -1,6 +1,7 @@
 use super::types::{CallableType, ModuleExportType, Type};
 use crate::source::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_VARIABLE: AtomicU64 = AtomicU64::new(1);
@@ -189,12 +190,20 @@ impl TypeConstraints {
     /// Canonical partial substitution retains unresolved variable identities.
     /// Callers must separately reject unresolved material contracts.
     pub fn resolve(&self, ty: &Type) -> Result<Type, ConstraintResolutionError> {
+        let mut resolved = ty.clone();
+        self.resolve_in_place(&mut resolved)?;
+        Ok(resolved)
+    }
+
+    /// `resolve` without rebuilding the type: only inference identities are
+    /// rewritten. On error the type may be partially rewritten.
+    pub fn resolve_in_place(&self, ty: &mut Type) -> Result<(), ConstraintResolutionError> {
         self.resolve_depth(ty, 0)
     }
 
-    fn resolve_depth(&self, ty: &Type, depth: usize) -> Result<Type, ConstraintResolutionError> {
+    fn resolve_depth(&self, ty: &mut Type, depth: usize) -> Result<(), ConstraintResolutionError> {
         if depth > MAX_TYPE_DEPTH { return Err(ConstraintResolutionError::TypeDepth); }
-        Ok(match ty {
+        match ty {
             Type::Inference(id) => {
                 let mut id = *id;
                 let mut seen = FxHashSet::default();
@@ -204,38 +213,45 @@ impl TypeConstraints {
                     let variable = self.variables.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
                     match &variable.binding {
                         Some(Type::Inference(next)) => id = *next,
-                        Some(binding) => break self.resolve_depth(binding, depth + 1)?,
-                        None => break Type::Inference(id),
+                        Some(binding) => {
+                            let mut binding = binding.clone();
+                            self.resolve_depth(&mut binding, depth + 1)?;
+                            *ty = binding;
+                            break;
+                        }
+                        None => { *ty = Type::Inference(id); break; }
                     }
                 }
             }
-            Type::List(inner) => Type::List(Box::new(self.resolve_depth(inner, depth + 1)?)),
-            Type::Map(key, value) => Type::Map(Box::new(self.resolve_depth(key, depth + 1)?), Box::new(self.resolve_depth(value, depth + 1)?)),
-            Type::Stream(inner) => Type::Stream(Box::new(self.resolve_depth(inner, depth + 1)?)),
-            Type::Optional(inner) => Type::Optional(Box::new(self.resolve_depth(inner, depth + 1)?)),
-            Type::Result(ok, error) => Type::Result(Box::new(self.resolve_depth(ok, depth + 1)?), Box::new(self.resolve_depth(error, depth + 1)?)),
-            Type::Record(fields) => Type::Record(fields.iter().map(|(name, ty)| Ok((*name, self.resolve_depth(ty, depth + 1)?))).collect::<Result<_, ConstraintResolutionError>>()?),
-            Type::Module(exports) => Type::Module(exports.iter().map(|(name, export)| {
-                let export = match export {
-                    ModuleExportType::Value { ty, optional } => ModuleExportType::Value { ty: self.resolve_depth(ty, depth + 1)?, optional: *optional },
-                    ModuleExportType::Pure { sig, optional } => ModuleExportType::Pure { sig: self.resolve_callable_depth(sig, depth + 1)?, optional: *optional },
-                    ModuleExportType::Proc { sig, optional } => ModuleExportType::Proc { sig: self.resolve_callable_depth(sig, depth + 1)?, optional: *optional },
-                };
-                Ok((*name, export))
-            }).collect::<Result<_, ConstraintResolutionError>>()?),
-            ty => ty.clone(),
-        })
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => self.resolve_depth(inner, depth + 1)?,
+            Type::Map(first, second) | Type::Result(first, second) => {
+                self.resolve_depth(first, depth + 1)?;
+                self.resolve_depth(second, depth + 1)?;
+            }
+            Type::Record(fields) => for field in fields.values_mut() { self.resolve_depth(field, depth + 1)?; },
+            // Module contracts are shared; copy one only when it must be rewritten.
+            Type::Module(exports) => if module_has_inference(exports, depth)? {
+                for export in Arc::make_mut(exports).values_mut() {
+                    match export {
+                        ModuleExportType::Value { ty, .. } => self.resolve_depth(ty, depth + 1)?,
+                        ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => self.resolve_callable_depth(sig, depth + 1)?,
+                    }
+                }
+            },
+            _ => {}
+        }
+        Ok(())
     }
 
     pub fn resolve_callable(&self, signature: &CallableType) -> Result<CallableType, ConstraintResolutionError> {
-        self.resolve_callable_depth(signature, 0)
+        let mut signature = signature.clone();
+        self.resolve_callable_depth(&mut signature, 0)?;
+        Ok(signature)
     }
 
-    fn resolve_callable_depth(&self, signature: &CallableType, depth: usize) -> Result<CallableType, ConstraintResolutionError> {
-        let mut signature = signature.clone();
-        for parameter in &mut signature.params { parameter.ty = self.resolve_depth(&parameter.ty, depth + 1)?; }
-        signature.return_ty = Box::new(self.resolve_depth(&signature.return_ty, depth + 1)?);
-        Ok(signature)
+    fn resolve_callable_depth(&self, signature: &mut CallableType, depth: usize) -> Result<(), ConstraintResolutionError> {
+        for parameter in &mut signature.params { self.resolve_depth(&mut parameter.ty, depth + 1)?; }
+        self.resolve_depth(&mut signature.return_ty, depth + 1)
     }
 
     pub fn unresolved(&self, ty: &Type) -> Result<Vec<Span>, ConstraintResolutionError> {
@@ -331,6 +347,38 @@ fn has_anchor(ty: &Type, annotation: bool) -> bool {
         }
     }
     true
+}
+
+/// Whether `resolve_depth` would rewrite this type, reporting the depth limit
+/// exactly as resolution would when nothing needs rewriting.
+fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionError> {
+    if depth > MAX_TYPE_DEPTH { return Err(ConstraintResolutionError::TypeDepth); }
+    Ok(match ty {
+        Type::Inference(_) => true,
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => has_inference(inner, depth + 1)?,
+        Type::Map(first, second) | Type::Result(first, second) => has_inference(first, depth + 1)? || has_inference(second, depth + 1)?,
+        Type::Record(fields) => {
+            for field in fields.values() { if has_inference(field, depth + 1)? { return Ok(true); } }
+            false
+        }
+        Type::Module(exports) => module_has_inference(exports, depth)?,
+        _ => false,
+    })
+}
+
+fn module_has_inference(exports: &std::collections::BTreeMap<crate::symbol::Name, ModuleExportType>, depth: usize) -> Result<bool, ConstraintResolutionError> {
+    for export in exports.values() {
+        let found = match export {
+            ModuleExportType::Value { ty, .. } => has_inference(ty, depth + 1)?,
+            ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
+                let mut found = false;
+                for parameter in &sig.params { if has_inference(&parameter.ty, depth + 2)? { found = true; break; } }
+                found || has_inference(&sig.return_ty, depth + 2)?
+            }
+        };
+        if found { return Ok(true); }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]

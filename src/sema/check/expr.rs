@@ -99,9 +99,11 @@ impl Checker {
             self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
             return Type::Invalid;
         }
-        if let Some(binding) = self.lookup(name).cloned() {
-            if let Some(alias) = binding.callable_alias { self.record_callable_alias(span, &alias); }
-            return self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
+        if let Some(binding) = self.lookup(name) {
+            let alias = binding.callable_alias.clone();
+            let ty = self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
+            if let Some(alias) = alias { self.record_callable_alias(span, &alias); }
+            return ty;
         }
         if let Some(info) = self.tag_variants.get(&name).cloned()
             && info.field_count == 0
@@ -242,7 +244,7 @@ impl Checker {
         let expr = arena.arena.expr(id);
         if let Some(ty) = self.prepared_constants.types.get(&id) {
             let ty = ty.clone();
-            self.expr_types.insert(expr.span, ty.clone());
+            self.record_expr_type(expr.span, ty.clone());
             return ty;
         }
         let ty = match &expr.kind {
@@ -492,7 +494,7 @@ impl Checker {
                 self.check_builder_call_arena(arena, source, *call, *block, expr.span)
             }
         };
-        self.expr_types.insert(expr.span, ty.clone());
+        self.record_expr_type(expr.span, ty.clone());
         if ty == Type::Bool {
             let proof = self.infer_condition_proof_arena(arena, id);
             self.condition_proofs.insert(id, std::sync::Arc::new(proof));
@@ -1291,7 +1293,7 @@ impl Checker {
         }
         self.pop_scope();
         let result = if value_ty == Type::Unknown { actual.clone() } else { value_ty };
-        self.expr_types.insert(arena.arena.expr(expression).span, actual);
+        self.record_expr_type(arena.arena.expr(expression).span, actual);
         result
     }
 

@@ -626,7 +626,7 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
             },
         );
     }
-    Type::Module(exports)
+    Type::Module(exports.into())
 }
 
 #[allow(dead_code)]

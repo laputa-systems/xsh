@@ -3,6 +3,7 @@ use crate::syntax::arena::{ArenaTypeExprTag, AstArena, TypeExprId};
 use crate::syntax::node::Effect;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 use xsh_registry::types::BuiltinTypeName;
 pub use xsh_registry::types::BuiltinTypeParameter;
 
@@ -38,7 +39,9 @@ pub enum Type {
     /// A record value whose fields were deliberately erased.
     ErasedRecord,
     Record(BTreeMap<Name, Type>),
-    Module(BTreeMap<Name, ModuleExportType>),
+    /// Shared because namespace bindings carry whole module contracts through
+    /// every checker scope snapshot.
+    Module(Arc<BTreeMap<Name, ModuleExportType>>),
     DynamicModule,
     Result(Box<Type>, Box<Type>),
     Status,
@@ -224,13 +227,13 @@ impl Type {
             ))),
             ArenaTypeExprTag::Module => {
                 let inner = Self::from_arena(arena, TypeExprId::from_index(data.lhs as usize));
-                Self::Module(btree_map(vec![(
+                Self::Module(Arc::new(btree_map(vec![(
                     Name::intern("<schema>"),
                     ModuleExportType::Value {
                         ty: inner,
                         optional: false,
                     },
-                )]))
+                )])))
             }
             ArenaTypeExprTag::Result => Self::Result(
                 Box::new(Self::from_arena(
@@ -794,49 +797,49 @@ mod tests {
 
     #[test]
     fn empty_module_does_not_satisfy_concrete_contract() {
-        let expected = Type::Module(BTreeMap::from([(
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(
             Name::intern("run"),
             proc(Some(vec![Effect::Error])),
-        )]));
-        assert!(!Type::Module(BTreeMap::new()).matches_expected(&expected));
+        )])));
+        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::new())).matches_expected(&expected));
     }
 
     #[test]
     fn callable_effects_must_match_exactly() {
-        let expected = Type::Module(BTreeMap::from([(
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(
             Name::intern("run"),
             proc(Some(vec![Effect::Error])),
-        )]));
-        let actual = Type::Module(BTreeMap::from([(
+        )])));
+        let actual = Type::Module(std::sync::Arc::new(BTreeMap::from([(
             Name::intern("run"),
             proc(Some(vec![Effect::Error, Effect::Fs])),
-        )]));
+        )])));
         assert!(!actual.matches_expected(&expected));
     }
 
     #[test]
     fn module_contract_checks_member_kind_and_value_type() {
         let name = Name::intern("run");
-        let expected = Type::Module(BTreeMap::from([(name, value(Type::Str, false))]));
-        assert!(!Type::Module(BTreeMap::new()).matches_expected(&expected));
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Str, false))])));
+        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::new())).matches_expected(&expected));
         assert!(
-            !Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Int, false))])))
                 .matches_expected(&expected)
         );
-        assert!(!Type::Module(BTreeMap::from([(name, proc(None))])).matches_expected(&expected));
+        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, proc(None))]))).matches_expected(&expected));
 
-        let actual = Type::Module(BTreeMap::from([
+        let actual = Type::Module(std::sync::Arc::new(BTreeMap::from([
             (name, value(Type::Str, false)),
             (Name::intern("value"), value(Type::Bool, false)),
-        ]));
+        ])));
         assert!(actual.matches_expected(&expected));
     }
 
     #[test]
     fn module_contract_checks_callable_kind_and_signature_invariantly() {
         let name = Name::intern("run");
-        let expected = Type::Module(BTreeMap::from([(name, proc(Some(vec![Effect::Error])))]));
-        assert!(!Type::Module(BTreeMap::from([(name, pure())])).matches_expected(&expected));
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(name, proc(Some(vec![Effect::Error])))])));
+        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, pure())]))).matches_expected(&expected));
 
         let wrong_count = ModuleExportType::Proc {
             sig: CallableType {
@@ -846,7 +849,7 @@ mod tests {
             },
             optional: false,
         };
-        assert!(!Type::Module(BTreeMap::from([(name, wrong_count)])).matches_expected(&expected));
+        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_count)]))).matches_expected(&expected));
 
         let wrong_parameter = ModuleExportType::Proc {
             sig: CallableType {
@@ -862,7 +865,7 @@ mod tests {
             optional: false,
         };
         assert!(
-            !Type::Module(BTreeMap::from([(name, wrong_parameter)])).matches_expected(&expected)
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_parameter)]))).matches_expected(&expected)
         );
 
         let wrong_return = ModuleExportType::Proc {
@@ -878,20 +881,20 @@ mod tests {
             },
             optional: false,
         };
-        assert!(!Type::Module(BTreeMap::from([(name, wrong_return)])).matches_expected(&expected));
+        assert!(!Type::Module(std::sync::Arc::new(BTreeMap::from([(name, wrong_return)]))).matches_expected(&expected));
     }
 
     #[test]
     fn optional_module_export_must_match_when_present() {
         let name = Name::intern("description");
-        let expected = Type::Module(BTreeMap::from([(name, value(Type::Str, true))]));
-        assert!(Type::Module(BTreeMap::new()).matches_expected(&expected));
+        let expected = Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Str, true))])));
+        assert!(Type::Module(std::sync::Arc::new(BTreeMap::new())).matches_expected(&expected));
         assert!(
-            Type::Module(BTreeMap::from([(name, value(Type::Str, false))]))
+            Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Str, false))])))
                 .matches_expected(&expected)
         );
         assert!(
-            !Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
+            !Type::Module(std::sync::Arc::new(BTreeMap::from([(name, value(Type::Int, false))])))
                 .matches_expected(&expected)
         );
     }
