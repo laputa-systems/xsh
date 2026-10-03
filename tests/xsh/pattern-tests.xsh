@@ -457,3 +457,23 @@ test test_field_path_line_followed_by_not_in_or_is_is_an_expression {
   assert absent
   assert typed
 }
+
+pure sign_name(n: Int) -> Str {
+  match n {
+    -1 => "minus one"
+    0 => "zero"
+    _ => "other"
+  }
+}
+
+test test_negative_number_literal_patterns {
+  assert sign_name(-1) == "minus one"
+  assert sign_name(1) == "other"
+  let offset = -2.5
+  assert offset is -2.5
+  let label = match -3 {
+    -2 | -3 => "small"
+    _ => "other"
+  }
+  assert label == "small"
+}

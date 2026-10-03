@@ -284,6 +284,17 @@ impl<'a> Parser<'a> {
                     None,
                 ))
             }
+            // A negative number is a literal pattern: `-1 =>`.
+            TokenTag::Minus
+                if matches!(self.peek_tag(1), Some(TokenTag::Int | TokenTag::Float))
+                    && self.peek_start(1) == Some(self.current_end()) =>
+            {
+                self.bump();
+                let magnitude = self.parse_primary_arena_only(arena)?;
+                let span = self.span(span.start(), magnitude.span.end());
+                let expr = arena.push_unary_expr(crate::syntax::node::UnaryOp::Neg, magnitude.id, span);
+                Some((arena.push_pattern_literal(expr, span), span, None))
+            }
             TokenTag::Int
             | TokenTag::Float
             | TokenTag::Duration

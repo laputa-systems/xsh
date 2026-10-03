@@ -11183,6 +11183,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn lower_pattern_literal(&self, id: ExprId) -> Option<BuildPatternId> {
         match self.program.arena.expr(id).kind {
+            ArenaExprKind::Unary { op: UnaryOp::Neg, expr } => {
+                let value = match self.program.arena.expr(expr).kind {
+                    ArenaExprKind::Int(value) => LoweredValue::Int(self.program.arena.int_literal(value).value()?.checked_neg()?),
+                    ArenaExprKind::Float(value) => {
+                        LoweredValue::Float(crate::runtime::value::FloatValue::new(-self.program.arena.float_literal(value).value()?))
+                    }
+                    _ => return None,
+                };
+                Some(push_build_row!(self, pattern, BuildPatternRow::Literal(value)))
+            }
             ArenaExprKind::Float(value) => self.program.arena.float_literal(value).value()
                 .map(crate::runtime::value::FloatValue::new)
                 .map(|value| push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Float(value)))),

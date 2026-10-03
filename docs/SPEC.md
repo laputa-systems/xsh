@@ -2308,7 +2308,7 @@ wait_expr      = "wait" expr ;
 ```ebnf
 pattern        = alias_pattern ( "|" alias_pattern )* ;
 alias_pattern  = primary_pattern ( "as" IDENT )* ;
-primary_pattern = "_" | IDENT | literal | type_pattern | facet_pattern
+primary_pattern = "_" | IDENT | literal | "-" ( INT | FLOAT ) | type_pattern | facet_pattern
                | constructor_pattern | variant_pattern | record_pattern
                | list_pattern | "(" pattern ")" ;
 type_pattern   = ( "_" | IDENT ) "is" type_expr ;
