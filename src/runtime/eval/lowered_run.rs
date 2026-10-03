@@ -6054,12 +6054,12 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxInterfaces if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() {
+                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
                     lowered_result_err_value(RuntimeError::new(
                         "linux-unimplemented",
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                } else if !self.linux_dry_run() {
                     lowered_runtime_result(linux_module::interfaces(span), span)?
                 } else {
                     self.linux_dry_run_log("interfaces", &[], span)?;
@@ -6094,12 +6094,12 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxRoutes if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() {
+                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
                     lowered_result_err_value(RuntimeError::new(
                         "linux-unimplemented",
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                } else if !self.linux_dry_run() {
                     lowered_runtime_result(linux_module::routes(span), span)?
                 } else {
                     self.linux_dry_run_log("routes", &[], span)?;
@@ -6123,12 +6123,12 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxNetworkDump if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() {
+                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
                     lowered_result_err_value(RuntimeError::new(
                         "linux-unimplemented",
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                } else if !self.linux_dry_run() {
                     lowered_runtime_result(linux_module::network_dump(span), span)?
                 } else {
                     self.linux_dry_run_log("network_dump", &[], span)?;
@@ -8792,14 +8792,20 @@ impl Evaluator {
         values: NativeArgumentValues,
         span: Span,
     ) -> Result<Value, RuntimeError> {
-        if !self.linux_dry_run() && !self.linux_real() {
+        let real = self.linux_real() || self.linux_host_query(matches!(op,
+            RuntimeOp::LinuxRootDevice | RuntimeOp::LinuxMemInfo | RuntimeOp::LinuxModules
+                | RuntimeOp::LinuxDmesg | RuntimeOp::LinuxIsMountpoint | RuntimeOp::LinuxDiskUsage
+                | RuntimeOp::LinuxSysctlGet | RuntimeOp::LinuxFileAttrs | RuntimeOp::LinuxFileVersion
+                | RuntimeOp::LinuxLoopList | RuntimeOp::LinuxOpenFiles | RuntimeOp::LinuxBlockDevices
+                | RuntimeOp::LinuxBlkid | RuntimeOp::LinuxModinfo | RuntimeOp::LinuxPartitionTable));
+        if !self.linux_dry_run() && !real {
             return Ok(module_error(
                 "linux-unimplemented",
                 "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                 span,
             ));
         }
-        if self.linux_real() && !self.linux_dry_run() {
+        if real && !self.linux_dry_run() {
             return match op {
                 RuntimeOp::LinuxRootDevice => linux_module::root_device(span),
                 RuntimeOp::LinuxMemInfo => linux_module::meminfo(span),

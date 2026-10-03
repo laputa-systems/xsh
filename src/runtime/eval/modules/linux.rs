@@ -18,6 +18,13 @@ impl Evaluator {
             .and_then(|value| String::from_utf8(value).ok())
             .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
     }
+    /// Read-only host queries run for real by default on Linux; only the
+    /// state-changing boot primitives need `XSH_LINUX_REAL=1`, and
+    /// `XSH_LINUX_DRY_RUN=1` still substitutes fixed values for both.
+    pub(in crate::runtime::eval) fn linux_host_query(&self, read_only: bool) -> bool {
+        read_only && cfg!(target_os = "linux")
+    }
+
     pub(in crate::runtime::eval) fn linux_dry_run_log(
         &self,
         op: &str,
