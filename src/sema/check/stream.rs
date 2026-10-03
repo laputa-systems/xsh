@@ -88,7 +88,7 @@ impl Checker {
             }
         }
         match crate::sema::stage_arguments::stage_callable_argument(arena, stage, |expr| self.expr_types.get(&arena.arena.expr(expr).span).cloned()) {
-            Ok(Some((callee, arguments))) => {
+            Ok(Some((entry, callee))) => {
                 if !self.stage_callable_is_static(arena, callee) {
                     self.error(arena.arena.expr(callee).span, "stage callable must be a statically resolved named function or proc", "check.stream-callable");
                     return Type::Unknown;
@@ -106,8 +106,9 @@ impl Checker {
                 }
                 let mut temporary = arena.clone();
                 let mut normalized = stage.clone();
-                normalized.args = temporary.arena.append_call_arguments(&arguments);
+                normalized.args = temporary.arena.append_call_arguments(&crate::sema::stage_arguments::stage_configuration_arguments(arena, stage, entry));
                 normalized.block = Some(temporary.arena.append_stage_callable_block(callee, arena.arena.expr(callee).span).0);
+                self.argument_bindings.entry(arena.arena.span(stage.span)).or_default().callable_entry = Some(entry);
                 return self.check_stream_stage_arena(&temporary, source, &normalized, Type::Stream(Box::new(item_ty)));
             }
             Err((span, message)) => { self.error(span, &message, "check.stream-callable"); return Type::Unknown; }
@@ -546,6 +547,7 @@ impl Checker {
                 return vec![None; params.len()];
             }
         };
+        self.argument_bindings.entry(arena.arena.span(stage.span)).or_default().argument_slots = binding.argument_slots.clone();
         let mut values = vec![None; params.len()];
         for (argument, slot) in expanded.into_iter().zip(binding.argument_slots) {
             if argument.name.is_none() && !contract[slot].positional {

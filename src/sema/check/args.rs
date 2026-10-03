@@ -209,7 +209,9 @@ impl Checker {
                 name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest,
             }).collect::<Vec<_>>();
             let expanded = expand_named_arguments(arena, args, |_| None).expect("named spreads expanded before function binding");
-            match bind_static_arguments(&callable, &expanded) {
+            match bind_static_arguments(&callable, &expanded).inspect(|binding| {
+                self.argument_bindings.insert(span, super::CheckedArguments { callable_entry: None, argument_slots: binding.argument_slots.clone() });
+            }) {
                 Err(error) => {
                     self.error(error.span, &error.message, "check.named-arg");
                     for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }

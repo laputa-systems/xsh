@@ -1,6 +1,6 @@
 use crate::sema::types::{CallableParamType, Type};
 use crate::symbol::Name;
-use crate::syntax::arena::{ArenaCallArgKind, ArenaProgram, ArenaStreamStage, ExprId};
+use crate::syntax::arena::{ArenaCallArgInput, ArenaCallArgKind, ArenaProgram, ArenaStreamStage, ExprId};
 use crate::source::Span;
 use xsh_registry::stream_parameters::{
     StageParameterDefault, StageParameterType, stage_parameters,
@@ -43,14 +43,13 @@ pub(crate) fn stage_namespace_owner(program: &ArenaProgram, namespace: Name, own
     })
 }
 
-/// Bind the optional `block` descriptor using the ordinary argument protocol.
-/// Configuration entries retain their original syntax and source evaluation order.
+/// Bind the optional `block` descriptor using the ordinary argument protocol,
+/// returning its source entry and callee.
 pub(crate) fn stage_callable_argument(
     program: &ArenaProgram, stage: &ArenaStreamStage,
     mut checked_type: impl FnMut(ExprId) -> Option<Type>,
-) -> Result<Option<(ExprId, Vec<crate::syntax::arena::ArenaCallArgInput>)>, (Span, String)> {
+) -> Result<Option<(usize, ExprId)>, (Span, String)> {
     use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments, bind_static_arguments};
-    use crate::syntax::arena::ArenaCallArgInput;
     if !xsh_registry::stream_parameters::stage_accepts_callable(stage.kind.as_str()) { return Ok(None); }
     let args = program.arena.call_args(stage.args);
     let has_descriptor = args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::Positional(_))
@@ -67,12 +66,16 @@ pub(crate) fn stage_callable_argument(
         return Err((argument.span, "stage callable must retain a direct named function identity".into()));
     };
     if stage.block.is_some() { return Err((argument.span, "stage accepts either a block or a named callable".into())); }
-    let entry = argument.entry_index;
-    let remaining = args.iter().enumerate().filter(|(index, _)| *index != entry).map(|(_, arg)| match arg.kind {
+    Ok(Some((argument.entry_index, callee)))
+}
+
+/// Configuration entries besides the callable descriptor retain their original
+/// syntax and source evaluation order.
+pub(crate) fn stage_configuration_arguments(program: &ArenaProgram, stage: &ArenaStreamStage, callable_entry: usize) -> Vec<ArenaCallArgInput> {
+    program.arena.call_args(stage.args).iter().enumerate().filter(|(index, _)| *index != callable_entry).map(|(_, arg)| match arg.kind {
         ArenaCallArgKind::Positional(value) => ArenaCallArgInput::Positional(value),
         ArenaCallArgKind::Named { name, value, .. } => ArenaCallArgInput::Named { name, value, span: program.arena.expr(value).span },
         ArenaCallArgKind::NamedSpread { value, span } => ArenaCallArgInput::NamedSpread { value, span: program.arena.span(span) },
         ArenaCallArgKind::Splice { value, span } => ArenaCallArgInput::Splice { value, span: program.arena.span(span) },
-    }).collect();
-    Ok(Some((callee, remaining)))
+    }).collect()
 }
