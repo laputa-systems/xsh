@@ -217,8 +217,8 @@ The full native suite takes 20+ minutes and saturates the machine. Many
   system-report subprocesses from `test.run_script`) running as orphans, each
   pinning a core. Run test children in the runner's process group and terminate
   them when the runner exits or is interrupted.
-- Target: the full native suite under 5 minutes in debug, without dropping
-  coverage.
+- Target: the full native suite under 5 minutes on release binaries, without
+  dropping coverage.
 
 ### 6. Optional: monomorphic recursive private returns
 
@@ -255,8 +255,9 @@ This campaign runs in Claude Code.
   - searches and inventories.
 - **Parallel start:** items 1, 2, 3c and 4a have disjoint owners. Then 3a → 3b →
   4b → 4c → 4d run in sequence, because they share the checker and lowerer.
-- **Bound machine load.** Lanes never run the full native suite. They run
-  targeted files and `xsht test tests/xsh/stdlib --jobs 2`, one test process at
+- **Bound machine load.** Native suites run on release binaries
+  (`target/release/xsht`), never `dist`. Lanes never run the full native suite;
+  they run targeted files and `xsht test tests/xsh/stdlib --jobs 2`, one test process at
   a time. Only the integrator runs the full suite, and only one full suite runs
   on the machine at a time. Docker/Linux verification is deferred to final
   verification.

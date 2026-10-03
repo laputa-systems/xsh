@@ -66,16 +66,21 @@ before editing.
 ## Verification
 
 Choose the narrowest useful command first, then run the full relevant gate from
-`docs/TEST-MAP.md`. Use debug builds for ordinary development and verification.
+`docs/TEST-MAP.md`. Run native XSH test suites on release binaries: build them
+with `cargo build --release -p xsh --bin xsh -p xsht --bin xsht`, then run
+`target/release/xsht test ...`. They run several times faster than debug (the
+stdlib suite takes 6 s instead of 34 s), and `xsht` runs the sibling `xsh` from
+its own directory. `docs/TEST-MAP.md` commands that name `target/debug/xsht`
+work the same with `target/release/xsht`. Use debug builds for Rust
+`cargo test` gates and quick compile checks.
 Build the exact binary or package needed for the task instead of using bare
 `cargo build --release`: the `xsh`, `xshi`, and `xsht` packages own the
 user-facing binaries, while the root package also owns seven `xsh-test-*`
-helper binaries and the `xsh-frontend-stats` profiling tool. Prefer commands
-such as `cargo build -p xsh --bin xsh`, `cargo build -p xsht --bin xsht`, or a
-targeted package/test command.
-Use release builds only when working on profiling or benchmarking. Do not use
-the `dist` profile for agent work;
-it is reserved for CI release packaging.
+helper binaries and the `xsh-frontend-stats` profiling tool. Do not use the
+`dist` profile for agent work; it is reserved for CI release packaging.
+
+Bound machine load: run one full native suite at a time, and never leave test
+processes running after a lane finishes.
 
 All Linux support goes through the `Dockerfile.test` environment. Linux builds,
 tests, and verification run in the image that file defines (`xsh-test`), driven
