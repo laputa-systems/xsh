@@ -74,7 +74,7 @@ pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
 use self::infer_effects::{EffectGraph, EffectSummary};
 
 pub use self::compact::{
-    CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
+    CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
 };
 use self::expr::expr_ty_auto_propagates;
 use self::stmt::block_has_exit_point_arena;
@@ -127,6 +127,8 @@ pub struct CheckOutput {
     pub statically_resolved_call_spans: BTreeSet<Span>,
     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
     pub definitely_exiting_block_spans: BTreeSet<Span>,
+    /// `with` error handlers retain the common nominal error of their checked inputs.
+    pub handler_input_types: BTreeMap<Span, Type>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -381,6 +383,10 @@ pub struct Checker {
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
+    handler_input_types: BTreeMap<Span, Type>,
+    /// Lowering needs facts for embedded implementation bodies; other checks
+    /// only need the bodies whose inferred returns shape a signature.
+    check_embedded_bodies: bool,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
@@ -439,6 +445,12 @@ impl Checker {
         )
     }
 
+    /// Check a program whose bodies will be lowered, including embedded
+    /// implementation modules, so every lowered body has published facts.
+    pub(super) fn check_arena_for_lowering(program: &ArenaProgram, options: CheckOptions) -> CheckOutput {
+        Self::check_arena_impl(program, "", options, Arc::new(program.clone()), true)
+    }
+
     /// Check a mutable view of an arena-backed bundle while reusing an owned
     /// program for type references. Tooling can change the root statement
     /// range and module list between checks without cloning the full arena.
@@ -448,13 +460,25 @@ impl Checker {
         options: CheckOptions,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
+        Self::check_arena_impl(program, source, options, type_program, false)
+    }
+
+    fn check_arena_impl(
+        program: &ArenaProgram,
+        source: &str,
+        options: CheckOptions,
+        type_program: Arc<ArenaProgram>,
+        check_embedded_bodies: bool,
+    ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
             let mut probe = Self::new(options);
             probe.collecting_effects = true;
+            probe.check_embedded_bodies = check_embedded_bodies;
             probe.check_program_arena_with_type_program(program, source, type_program.clone());
             let mut checker = Self::new(options);
+            checker.check_embedded_bodies = check_embedded_bodies;
             checker.effect_summaries = probe.effect_graph.solve();
             checker.effect_graph = probe.effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
@@ -485,6 +509,7 @@ impl Checker {
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
+                handler_input_types: checker.handler_input_types,
             }
         })
     }
@@ -584,6 +609,7 @@ impl Checker {
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
+                handler_input_types: checker.handler_input_types,
             }
         })
     }
@@ -641,6 +667,8 @@ impl Checker {
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
             definitely_exiting_block_spans: BTreeSet::new(),
+            handler_input_types: BTreeMap::new(),
+            check_embedded_bodies: false,
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),

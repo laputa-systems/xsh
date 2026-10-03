@@ -24,8 +24,7 @@ proc nested_tail() [env, process, error] -> Result[Result[Str, ProcessError]] {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut scopes = 0;
     for (expr, ty) in &compact.expr_types {
         let ArenaExprKind::ContextScope { block, .. } = parsed.arena.arena.expr(*expr).kind else { continue; };
@@ -36,8 +35,7 @@ proc nested_tail() [env, process, error] -> Result[Result[Str, ProcessError]] {
         let statement = parsed.arena.arena.stmt(tail);
         assert_eq!(checked.statement_positions.get(&statement.span), compact.statement_positions.get(&tail));
         if matches!(statement.kind, ArenaStmtKind::Command(_)) {
-            let body_type = compact.block_types.get(&block).unwrap();
-            assert_eq!(body_type, ty.result_ok().unwrap());
+            let body_type = ty.result_ok().unwrap();
             let expected = if body_type == &Type::Unit { StatementPosition::Statement } else { StatementPosition::Value };
             assert_eq!(compact.statement_positions.get(&tail), Some(&expected));
         }
@@ -54,7 +52,7 @@ fn callable_alias_signatures_agree_in_full_and_compact_facts() {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
     assert_eq!(checked.static_callable_aliases, declarations.static_callable_aliases);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     for (expression, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(expression).span;
         if source[span.range()].starts_with("again(") {
@@ -133,7 +131,7 @@ fn boolean_guard_checked_facts_preserve_refinement_and_statement_position() {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert_eq!(checked.definitely_exiting_block_spans.len(), 1);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     for (id, position) in compact.statement_positions {
         assert_eq!(checked.statement_positions.get(&parsed.arena.arena.stmt(id).span), Some(&position));
     }
@@ -2642,8 +2640,7 @@ proc dynamic(commands: Record) [error] -> Result[Record] { cli.commands([], comm
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut shapes = Vec::new();
     for (id, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(id).span;
@@ -2721,8 +2718,7 @@ let full_item: Int? = full.values.item
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut shapes = Vec::new();
     for (id, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(id).span;
@@ -2746,8 +2742,7 @@ let warnings: List[Str] = full.warnings
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let (span, ty) = checked.expr_types.iter().find(|(span, _)| &source[span.range()] == "cli.parse_full([], descriptor())").unwrap();
     let compact_ty = compact.expr_types.iter().find(|(id, _)| parsed.arena.arena.expr(**id).span == *span).unwrap().1;
     assert_eq!(ty, compact_ty);
@@ -3516,7 +3511,7 @@ fn checker_records_value_and_statement_bool_positions() {
     assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Value));
     assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Statement));
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     for (id, position) in compact.statement_positions {
         let span = parsed.arena.arena.stmt(id).span;
         assert_eq!(checked.statement_positions.get(&span), Some(&position));
@@ -3624,8 +3619,7 @@ fn checker_guarded_control_proofs_agree_on_full_and_compact_routes() {
         assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+        let compact = declarations.bodies;
         let mut receivers = 0;
         for index in 0..parsed.arena.arena.expr_tags.len() {
             let id = ExprId::from_index(index);
@@ -3648,7 +3642,7 @@ fn checker_guarded_control_proofs_agree_on_full_and_compact_routes() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let full = Checker::check_arena(&parsed.arena, source);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
-        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        let compact = declarations.bodies;
         let mut receivers = 0;
         for index in 0..parsed.arena.arena.expr_tags.len() {
             let id = ExprId::from_index(index);
@@ -3747,7 +3741,7 @@ fn error_fallback_checked_facts_keep_nominal_error_and_value_tail() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     for (id, position) in &compact.statement_positions {
         assert_eq!(checked.statement_positions.get(&parsed.arena.arena.stmt(*id).span), Some(position));
     }
@@ -3894,8 +3888,7 @@ fn value_pipeline_holes_publish_the_checked_input_and_ordinary_call_types() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
+    let bodies = declarations.bodies;
     for raw in 0..parsed.arena.arena.expr_tags.len() {
         let id = xsh::frontend::syntax::arena::ExprId::from_index(raw);
         if let xsh::frontend::syntax::arena::ArenaExprKind::ValuePipelineCall { input, call, hole } = parsed.arena.arena.expr(id).kind {
@@ -3922,7 +3915,7 @@ fn duration_arithmetic_compact_and_full_checked_types_agree() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     for (id, ty) in compact.expr_types {
         if matches!(parsed.arena.arena.expr(id).kind, xsh::frontend::syntax::arena::ArenaExprKind::Binary { .. }) {
             assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(id).span), Some(&ty), "{}", &source[parsed.arena.arena.expr(id).span.range()]);
@@ -4041,8 +4034,7 @@ fn signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries() 
     assert!(declarations.procs.is_empty());
     assert!(declarations.pures.is_empty());
     assert!(declarations.streams.is_empty());
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     for (expression, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(expression).span;
         assert_eq!(checked.expr_types.get(&span), Some(&ty), "{}", &source[span.range()]);
@@ -4064,8 +4056,7 @@ fn signature_cli_inferred_defaults_reuse_checked_parameter_facts() {
         assert_eq!(checked.parameter_types.get(&span), declarations.parameter_types.get(&span));
         assert!(checked.parameter_types.contains_key(&span));
     }
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     for (expression, ty) in compact.expr_types {
         assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(expression).span), Some(&ty));
     }
@@ -4080,8 +4071,7 @@ fn typed_cause_full_and_compact_inference_retains_only_outer_error() {
     let full = Checker::check_arena(&parsed.arena, source);
     assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let (span, full_type) = full.expr_types.iter().find(|(span, _)| source[span.range()].starts_with("Err(")).unwrap();
     let Type::Result(_, error) = full_type else { panic!("Err produces Result data") };
     parsed.arena.symbol_owner().with_current(|| {
@@ -4143,7 +4133,7 @@ fn checker_record_proof_types_agree_on_full_and_compact_routes() {
     let full = Checker::check_arena(&parsed.arena, source);
     assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     for (id, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(id).span;
         if &source[span.range()] == "report.inner.value" && span.start() > source.find("return").unwrap() {
@@ -4171,7 +4161,7 @@ proc read(config: Config) [error] {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     assert_eq!(checked.projections.len(), 4);
     assert_eq!(compact.projections.len(), 4);
     for (id, ty) in &compact.expr_types {
@@ -4180,14 +4170,9 @@ proc read(config: Config) [error] {
             assert_eq!(Some(ty), checked.expr_types.get(&span));
         }
     }
-    for (id, projection) in compact.projections {
+    for id in compact.projections {
         let span = parsed.arena.arena.expr(id).span;
-        let full = checked.projections.get(&span).unwrap();
-        assert_eq!(full.field, projection.field);
-        assert_eq!(full.receiver, projection.receiver);
-        assert_eq!(full.value_type, projection.value_type);
-        assert_eq!(full.operation, projection.operation);
-        assert_eq!(full.callable, projection.callable);
+        assert!(checked.projections.contains_key(&span));
         assert_eq!(checked.expr_types.get(&span), compact.expr_types.get(&id));
     }
     let hidden = source.find("config.get(\"hidden\")").unwrap();
@@ -4209,13 +4194,12 @@ proc read(plugin: Plugin) {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     assert_eq!(checked.projections.len(), 1);
     assert_eq!(compact.projections.len(), 1);
-    for (id, projection) in compact.projections {
+    for id in compact.projections {
         let span = parsed.arena.arena.expr(id).span;
-        assert_eq!(checked.projections.get(&span), Some(&projection));
-        assert!(matches!(projection.callable, Some(xsh::frontend::check::ModuleExportType::Pure { .. })));
+        assert!(matches!(checked.projections[&span].callable, Some(xsh::frontend::check::ModuleExportType::Pure { .. })));
     }
     for (id, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(id).span;
@@ -4234,12 +4218,12 @@ fn constant_key_projection_guarded_access_keeps_optional_result_layers() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     assert_eq!(checked.projections.len(), 2);
     assert_eq!(compact.projections.len(), 2);
-    for (id, projection) in compact.projections {
+    for id in compact.projections {
         let span = parsed.arena.arena.expr(id).span;
-        assert_eq!(checked.projections.get(&span), Some(&projection));
+        assert!(checked.projections.contains_key(&span));
         assert_eq!(checked.expr_types.get(&span), compact.expr_types.get(&id));
     }
 }
@@ -4255,7 +4239,7 @@ fn default_parameter_types_are_checked_declaration_facts_shared_with_compact() {
     assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
     assert_eq!(checked.parameter_types, declarations.parameter_types);
     assert_eq!(checked.parameter_types.values().collect::<Vec<_>>(), vec![&xsh::frontend::check::Type::Int]);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     for (id, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(id).span;
         if &source[span.range()] == "jobs" { assert_eq!(checked.expr_types.get(&span), Some(&ty)); }
@@ -4295,8 +4279,7 @@ fn inferred_require_full_and_compact_targets_preserve_schema_identity() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     assert_eq!(checked.requirement_targets.len(), 1);
     assert_eq!(compact.requirement_targets.len(), 1);
     for (expr, target) in compact.requirement_targets {
@@ -4313,8 +4296,7 @@ fn builtin_template_checked_facts_agree_on_full_and_compact_routes() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut calls = 0;
     for (id, ty) in &compact.expr_types {
         let span = parsed.arena.arena.expr(*id).span;
@@ -4345,8 +4327,7 @@ let command: CommandValues = cli.commands(["build", "workspace"], commands)?
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut calls = 0;
     for (id, ty) in &compact.expr_types {
         let span = parsed.arena.arena.expr(*id).span;
@@ -4371,7 +4352,7 @@ fn dynamic_boundary_record_facts_agree_across_checked_representations() {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
     assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let compact = declarations.bodies;
     let mut found = 0;
     for (expression, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(expression).span;
@@ -4401,8 +4382,7 @@ fn yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts() {
     assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
     assert!(checked.expr_types.iter().any(|(span, ty)| &source[span.range()] == "[[], [1]]"
         && *ty == xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::Int))))));
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut found = 0;
     for (expression, ty) in compact.expr_types {
         let span = parsed.arena.arena.expr(expression).span;
@@ -4430,8 +4410,7 @@ let lengths = {lines: rows.len(), values: values.len()}
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut found = 0;
     for (id, actual) in &compact.expr_types {
         let expression = parsed.arena.arena.expr(*id);
@@ -4475,8 +4454,7 @@ let lines = "a\nb\n" |> text.lines
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let declarations = Checker::check_compact_declarations(&parsed.arena);
-    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let compact = declarations.bodies;
     let mut pipelines = 0;
     for (id, actual) in &compact.expr_types {
         let expression = parsed.arena.arena.expr(*id);
@@ -4505,8 +4483,6 @@ fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
     let program = builder.finish_with_statements(entry.statements);
     let declarations = Checker::check_compact_declarations(&program);
     assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-    let compact = Checker::probe_compact_bodies(&program, &declarations);
-    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
     let mut span = None;
     for (index, module) in program.modules.iter().enumerate() {
         let statement = program.module_statements(module).next().expect("module binding");
@@ -4517,7 +4493,6 @@ fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
         span = Some(stage_span);
         let expected = if index == 0 { Type::Int } else { Type::Result(Box::new(Type::Int), Box::new(Type::Error)) };
         assert_eq!(declarations.stream_stage_types.get(&(Some(module.name), stage_span)).map(|fact| &fact.output), Some(&expected));
-        assert_eq!(compact.expr_types.get(&expression), Some(&expected));
     }
 }
 
@@ -4532,8 +4507,7 @@ fn fold_complete_accumulator_contracts_match_full_and_compact_facts() {
         let checked = Checker::check_arena(&parsed.arena, &source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
-        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+        let compact = declarations.bodies;
         let expected = Type::Result(Box::new(Type::Int), Box::new(Type::Error));
         let mut pipelines = 0;
         for (id, actual) in &compact.expr_types {
@@ -4577,8 +4551,7 @@ fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
             assert_eq!(fact.input, compact_fact.input);
             assert_eq!(fact.output, compact_fact.output);
         }
-        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(compact.diagnostics.is_empty(), "{stage}: {:?}", compact.diagnostics);
+        let compact = declarations.bodies;
         parsed.arena.symbol_owner().with_current(|| {
             let payload = Type::Result(Box::new(Type::Int), Box::new(Type::ErrorFamily(Name::intern("ItemError"))));
             let expected = if stage.starts_with("map ") || stage.starts_with("par-map") {

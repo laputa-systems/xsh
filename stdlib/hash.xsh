@@ -84,12 +84,12 @@ pure verify_digest(digest: Digest, algorithm: Str, expected: Str) -> Result[Unit
 ## This entry is reached only through the specialized `hash.verify_file` call
 ## form: the algorithm arrives as a third argument rather than as a value, so
 ## the function is not a positional mirror of the public signature.
-export pure verify_file(path: Path, checksum: Str, algorithm: Str) -> Result[Unit] {
+export proc verify_file(file: Path, checksum: Str, algorithm: Str) [error] -> Result[Unit] {
   match algorithm {
-    "md5" => return verify_digest(hash.md5(path)?, algorithm, checksum)
-    "sha1" => return verify_digest(hash.sha1(path)?, algorithm, checksum)
-    "sha256" => return verify_digest(hash.sha256(path)?, algorithm, checksum)
-    "sha512" => return verify_digest(hash.sha512(path)?, algorithm, checksum)
+    "md5" => return verify_digest(hash.md5(file)?, algorithm, checksum)
+    "sha1" => return verify_digest(hash.sha1(file)?, algorithm, checksum)
+    "sha256" => return verify_digest(hash.sha256(file)?, algorithm, checksum)
+    "sha512" => return verify_digest(hash.sha512(file)?, algorithm, checksum)
     _ => return Err(
       format_error(f"unsupported checksum algorithm `${algorithm}`"),
     )

@@ -207,7 +207,8 @@ Ordering accepts two Durations and returns Bool. Mixed numeric dimensions,
 Float scaling, and remainder are rejected; no contextual numeric coercion is
 introduced. Compound assignments require the result to retain the binding type.
 
-Full checking, compact body facts, and lowering infer the same result type.
+Full checking infers the result type; compact signatures and lowering consume
+the checker's published facts.
 Runtime and bounded constant preparation use `checked_duration_binary` for the
 unsigned millisecond domain, signed scalar constraints, and checked interval
 counts. Integer specialization must inspect operand types: an Int result from

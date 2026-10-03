@@ -33,10 +33,10 @@ the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing
 policy in `AGENTS.md` for task-specific reading and verification.
 
 Boolean statement use is owned by `Checker` and recorded in
-`CheckOutput::assertion_spans`. `CompactDeclOutput` keeps them from the
-declaration pass's check, so body probing does not check the program again, and
-`CompactBodyProbeOutput` carries them into `lower_statement_expr`; `BuildExprRow::Assert` and `FullTag::ExprAssert`
-preserve them through indexed verification and both indexed evaluators.
+`CheckOutput::assertion_spans`. `CompactDeclOutput::bodies` (`CompactBodyFacts`)
+re-keys the declaration pass's full-checker facts by arena identity, so lowering
+never checks a body again; `BuildExprRow::Assert` and `FullTag::ExprAssert`
+preserve assertions through indexed verification and both indexed evaluators.
 Comparison operands remain available until assertion completion, so failure
 rendering can explain evaluated values without repeating evaluation or copying
 collection backing on the passing path. Core `AssertionError` uses the nominal
@@ -224,9 +224,8 @@ representation. There is no arena execution mode or compatibility interpreter.
 Brace literal entries reuse `ArenaRecordFieldKind` with explicit `Computed`
 key/value children. Computed entries and contextual `Map[T]` facts select
 `BuildExprRow::MapLiteral`; record spreads retain their separate interpretation.
-`CompactBodyProbe::check_compact_expr_expected` and `apply_compact_expected`
-preserve Map classification across bindings, returns, nested containers, and
-resolved call parameters. Both indexed routes evaluate each key before its
+Full checking preserves Map classification across bindings, returns, nested
+containers, and resolved call parameters. Both indexed routes evaluate each key before its
 value and populate one canonical Map, retaining source spans and alias values.
 
 List literals retain typed `ArenaListElementRange` entries with a child expression
@@ -742,8 +741,8 @@ should still leave the roadmap and examples in a state that describes what is
 actually implemented.
 
 Checked statement/value positions are explicit facts shared by lowering and tooling.
-`CheckOutput::statement_positions` retains source spans; compact facts retain
-`StmtId` and inferred `block_types`. `ArenaExprKind::ValueBlock` lowers to an
+`CheckOutput::statement_positions` retains source spans;
+`CompactBodyFacts::statement_positions` re-keys them by `StmtId`. `ArenaExprKind::ValueBlock` lowers to an
 ordinary indexed scope, with a distinct value flow consumed by that expression.
 The selected value is held before defers and host-resource cleanup, while lexical
 return, propagation, and loop transfers pass to their established owners.
@@ -889,8 +888,7 @@ Constant reads create no runtime initializer evaluations or parameter captures.
 Bare braces reuse `ArenaExprKind::ValueBlock`. The parser's
 `brace_starts_record_value` selects field-shaped literals from source tokens;
 expected types never choose the grammar. Full statement positions supply Unit
-consumption, and `CompactBodyProbeOutput::value_block_types` retains independent
-value inference while contextual statement positions select indexed tail rows.
+consumption and select indexed tail rows.
 `Writer::write_block_contents` groups an initial identifier to preserve the
 record/block distinction. `lint_lexical_block` requires checked statement
 position and reparses the retained body before offering a CST prefix deletion.

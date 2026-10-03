@@ -5,7 +5,7 @@
 
 # Runtime bridge used only to report a dynamic argument's original type.
 export pure type_name(value: Any) -> Str {
-  return [value][1]
+  return [""][1]
 }
 
 error JsonError = Lines(kind: Str, message: Str)
@@ -20,7 +20,7 @@ pure lines_error(message: Str) -> JsonError {
 ## empty list produces the empty string. The whole text is built before it is
 ## returned, so an item that cannot be encoded reports its own failure and no
 ## partial text is produced.
-export pure encode_lines(values: List[Any]) -> Result[Str] {
+export pure encode_lines(values: Any) -> Result[Str] {
   match values {
     items is List[Any] => return Ok([(json.encode(item)?) + "\n" for item in items].join(""))
     _ => return Err(lines_error(f"expected List, found ${type_name(values)}"))

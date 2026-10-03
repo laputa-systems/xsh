@@ -19,7 +19,7 @@ use crate::runtime::eval::{
     LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, RegexValue};
-use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
+use crate::sema::check::CompactDeclOutput;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, NameText, QualifiedName, Symbol};
@@ -1658,7 +1658,6 @@ impl FullBuilder {
     pub(in crate::runtime::eval) fn build_compact_external_stdlib(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
-        bodies: &CompactBodyProbeOutput,
         source: &str,
         sources: Arc<SourceMap>,
         source_id: SourceId,
@@ -1666,7 +1665,6 @@ impl FullBuilder {
         Self::build_compact_with_options(
             program,
             declarations,
-            bodies,
             source,
             sources,
             source_id,
@@ -1678,7 +1676,6 @@ impl FullBuilder {
     pub(in crate::runtime::eval) fn build_compact(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
-        bodies: &CompactBodyProbeOutput,
         source: &str,
         sources: Arc<SourceMap>,
         source_id: SourceId,
@@ -1686,7 +1683,6 @@ impl FullBuilder {
         Self::build_compact_with_options(
             program,
             declarations,
-            bodies,
             source,
             sources,
             source_id,
@@ -1698,7 +1694,6 @@ impl FullBuilder {
     pub(in crate::runtime::eval) fn build_compact_with_options(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
-        bodies: &CompactBodyProbeOutput,
         source: &str,
         sources: Arc<SourceMap>,
         source_id: SourceId,
@@ -1710,7 +1705,6 @@ impl FullBuilder {
             Self::build_compact_with_options_inner(
                 program,
                 declarations,
-                bodies,
                 source,
                 sources,
                 source_id,
@@ -1724,7 +1718,6 @@ impl FullBuilder {
     fn build_compact_with_options_inner(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
-        bodies: &CompactBodyProbeOutput,
         source: &str,
         sources: Arc<SourceMap>,
         source_id: SourceId,
@@ -1741,7 +1734,6 @@ impl FullBuilder {
         super::super::lower::lower_compact_function_units_into(
             program,
             declarations,
-            bodies,
             source,
             &sources,
             stdlib_linkage,
@@ -1795,7 +1787,6 @@ impl FullBuilder {
         let (driver, _) = super::super::lower::lower_compact_top_level_program_with_probe(
             program,
             declarations,
-            bodies,
             source,
             &sources,
             &functions,
@@ -8158,12 +8149,9 @@ run true
             "{:?}",
             declarations.diagnostics
         );
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
         FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
-            &bodies,
             source,
             Arc::new(sources),
             source_id,
@@ -8262,9 +8250,7 @@ run true
         assert!(checked.diagnostics.is_empty(), "full: {:?}", checked.diagnostics);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         assert!(declarations.diagnostics.is_empty(), "decl: {:?}", declarations.diagnostics);
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(bodies.diagnostics.is_empty(), "compact: {:?}", bodies.diagnostics);
-        assert!(bodies.expr_types.values().all(|ty| !ty.contains_inference()));
+        assert!(declarations.bodies.expr_types.values().all(|ty| !ty.contains_inference()));
         let _ = fixture("empty-map-fold.xsh", source);
     }
 
@@ -8281,9 +8267,8 @@ run true
             assert!(declarations.local_binding_types.values().all(|ty| !ty.contains_inference()));
             assert!(declarations.local_binding_types.values().any(|ty| *ty == Type::List(Box::new(Type::Path))));
         });
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(bodies.expr_types.values().all(|ty| !ty.contains_inference()));
-        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(&parsed.arena, &declarations, &bodies, source);
+        assert!(declarations.bodies.expr_types.values().all(|ty| !ty.contains_inference()));
+        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(&parsed.arena, &declarations, source);
         assert_eq!(constructed.blocker_events, 0, "{constructed:?}");
         let _ = fixture("local-inference.xsh", source);
     }
@@ -8679,11 +8664,9 @@ pure selected() -> Str {
                 let source_id = sources.add_file("indexed-execution.xsh", INDEXED_EXECUTION);
                 let parsed = Parser::parse_source_arena_only(source_id, INDEXED_EXECUTION);
                 let declarations = Checker::check_compact_declarations(&parsed.arena);
-                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
                 FullBuilder::build_compact(
                     &parsed.arena,
                     &declarations,
-                    &bodies,
                     INDEXED_EXECUTION,
                     Arc::new(sources),
                     source_id,
@@ -8742,13 +8725,10 @@ pure selected() -> Str {
                     "{:?}",
                     declarations.diagnostics
                 );
-                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-                assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
                 let shared_sources = Arc::new(sources.clone());
                 let program = FullBuilder::build_compact(
                     &parsed.arena,
                     &declarations,
-                    &bodies,
                     TOP_LEVEL_DRIVER_BOUNDARY,
                     shared_sources,
                     source_id,
@@ -8809,11 +8789,9 @@ pure selected() -> Str {
             sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
         let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
-            &bodies,
             TOP_LEVEL_DRIVER_BOUNDARY,
             Arc::new(sources),
             source_id,
@@ -8855,11 +8833,9 @@ pure selected() -> Str {
         let source_id = sources.add_file("top-level-propagate.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
-            &bodies,
             source,
             Arc::new(sources.clone()),
             source_id,
@@ -9136,9 +9112,8 @@ pure selected() -> Str {
         let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty());
         let declarations = Checker::check_compact_declarations(&parsed.arena);
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
         parsed.arena.symbol_owner().with_current(|| {
-            for (id, ty) in &bodies.expr_types {
+            for (id, ty) in &declarations.bodies.expr_types {
                 match parsed.arena.arena.expr(*id).kind {
                     crate::syntax::arena::ArenaExprKind::Ident(name) if name == "value" || name == "left" || name == "right" => assert_eq!(*ty, Type::Int),
                     crate::syntax::arena::ArenaExprKind::Ident(name) if name == "tail" => assert_eq!(*ty, Type::List(Box::new(Type::Int))),
@@ -9901,12 +9876,9 @@ proc configured() [] -> Int {
             "{:?}",
             declarations.diagnostics
         );
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
-            &bodies,
             &source,
             Arc::new(sources),
             source_id,

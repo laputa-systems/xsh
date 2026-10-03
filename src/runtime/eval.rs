@@ -19,7 +19,7 @@ use crate::runtime::value::{
     NetJobValue, FsRootValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue, RuntimeError,
     StreamValue, Value,
 };
-use crate::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput};
+use crate::sema::check::{Checker, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, NameText, QualifiedName};
@@ -311,11 +311,10 @@ pub struct CompactRuntimeDeclProbeOutput {
 pub fn probe_compact_lower_constructed_bodies(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
-    bodies: &CompactBodyProbeOutput,
     source: &str,
 ) -> CompactLowerConstructProbeOutput {
     program.symbol_owner().with_current(|| {
-        lower::probe_compact_lower_constructed_bodies(program, declarations, bodies, source)
+        lower::probe_compact_lower_constructed_bodies(program, declarations, source)
     })
 }
 
@@ -3744,7 +3743,7 @@ impl Evaluator {
     }
 
     /// Validate an embedded implementation module through the production
-    /// preparation gate: check declarations, probe bodies, lower, and verify
+    /// preparation gate: check declarations and bodies, lower, and verify
     /// the whole store.
     ///
     /// Used by the catalog test so an unused or target-specific embedded source
@@ -3753,7 +3752,6 @@ impl Evaluator {
     pub(crate) fn probe_embedded_module_lowering(
         program: &ArenaProgram,
         declarations: &crate::sema::check::CompactDeclOutput,
-        bodies: &crate::sema::check::CompactBodyProbeOutput,
         source: &str,
         sources: Arc<SourceMap>,
         source_id: SourceId,
@@ -3761,7 +3759,6 @@ impl Evaluator {
         crate::runtime::eval::FullBuilder::build_compact_with_options(
             program,
             declarations,
-            bodies,
             source,
             sources,
             source_id,
@@ -3841,13 +3838,6 @@ impl Evaluator {
                 module.label,
                 declarations.diagnostics
             );
-            let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-            assert!(
-                bodies.diagnostics.is_empty(),
-                "{}: {:?}",
-                module.label,
-                bodies.diagnostics
-            );
             let source_id = parsed
                 .arena
                 .arena
@@ -3861,7 +3851,6 @@ impl Evaluator {
             let program = FullBuilder::build_compact(
                 &parsed.arena,
                 &declarations,
-                &bodies,
                 &source,
                 Arc::clone(&sources),
                 source_id,
@@ -3910,16 +3899,11 @@ impl Evaluator {
         if !declarations.diagnostics.is_empty() {
             return Err(declarations.diagnostics.remove(0));
         }
-        let mut bodies = Checker::probe_compact_bodies(program, &declarations);
-        if !bodies.diagnostics.is_empty() {
-            return Err(bodies.diagnostics.remove(0));
-        }
         self.prepare_compact_indexed_only_or_diagnostic_with_parts(
             program,
             source_id,
             allow_checker_only,
             declarations,
-            bodies,
         )
     }
 
@@ -3929,7 +3913,6 @@ impl Evaluator {
         source_id: SourceId,
         allow_checker_only: bool,
         declarations: CompactDeclOutput,
-        bodies: CompactBodyProbeOutput,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
         self.install_compact_runtime_declarations(&declarations);
         let source_id = program.source_text_source_id().unwrap_or(source_id);
@@ -3943,7 +3926,6 @@ impl Evaluator {
         let indexed = FullBuilder::build_compact_with_options(
             program,
             &declarations,
-            &bodies,
             source,
             Arc::clone(&self.sources),
             source_id,
@@ -4136,7 +4118,6 @@ impl Evaluator {
         source_id: SourceId,
         sources: SourceMap,
         declarations: CompactDeclOutput,
-        bodies: CompactBodyProbeOutput,
         argv: Vec<String>,
         command_name: String,
     ) -> Vec<Diagnostic> {
@@ -4145,15 +4126,11 @@ impl Evaluator {
             if let Some(diagnostic) = declarations.diagnostics.first() {
                 return vec![diagnostic.clone()];
             }
-            if let Some(diagnostic) = bodies.diagnostics.first() {
-                return vec![diagnostic.clone()];
-            }
             match evaluator.prepare_compact_indexed_only_or_diagnostic_with_parts(
                 program,
                 source_id,
                 true,
                 declarations,
-                bodies,
             ) {
                 Ok(_) => Vec::new(),
                 Err(diagnostic) => vec![diagnostic],
