@@ -1203,3 +1203,20 @@ test test_filesystem_errors_name_their_paths {
     }
   }
 }
+
+test test_run_accepts_relative_command_paths { |ctx|
+  let tool = fp"${ctx.temp_root}/tool"
+  tool.write("#!/bin/sh\necho ran\n")?
+  tool.chmod(0o755)?
+  let output = test.run_script(
+    ctx,
+    r"""cd (ROOT) {
+  run ./tool
+  let out = run.text ./tool ?
+  print ${out.trim()}
+}
+""".replace("ROOT", f"p\"${ctx.temp_root.display()}\""),
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "ran\nran\n"
+}

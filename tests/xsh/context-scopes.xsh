@@ -576,3 +576,18 @@ env { XSH_REMOVED_SCOPE = "release" } {
   assert rejected.stdout == ""
   assert "parse.env-scope-migration" in rejected.stderr
 }
+
+test test_cd_scope_accepts_a_bare_path_before_its_block { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""cd / {
+  run pwd
+}
+let cd = 6
+let tmp = 3
+print ${cd / tmp}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "/\n2\n"
+}

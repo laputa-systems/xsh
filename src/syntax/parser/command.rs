@@ -102,7 +102,7 @@ impl<'a> Parser<'a> {
         self.peek_tag(1) == Some(TokenTag::Dot) && self.peek_start(1) == Some(self.current_end())
     }
 
-    fn command_line_has_block(&self) -> bool {
+    pub(super) fn command_line_has_block(&self) -> bool {
         let mut index = self.index + 1;
         while let Some(tag) = self.token_table.tag_at(index) {
             match tag {
@@ -203,7 +203,9 @@ impl<'a> Parser<'a> {
         let start = self.current_start();
         self.bump();
         let mut kind = RunKind::Plain;
-        if self.consume(TokenKindMatch::Dot).is_some() {
+        // `run.text` selects a run form only when the dot touches `run`;
+        // `run ./tool` runs a relative command path.
+        if self.current_start() == self.previous_end() && self.consume(TokenKindMatch::Dot).is_some() {
             let name = self.expect_member_name("expected run form after `run.`")?;
             if name == "builtin" {
                 let alias_span = self.span(start + 3, self.previous_end());

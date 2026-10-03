@@ -115,7 +115,11 @@ impl<'a> Parser<'a> {
                     self.parse_signal_hook_arena_only(start, arena)
                 } else if self.lookahead_is_assignment() {
                     self.parse_assignment_arena_only(start, arena)
-                } else if self.lookahead_is_dotted_command() {
+                } else if self.lookahead_is_dotted_command()
+                    // `cd /tmp { ... }`: a bare path before the block is the
+                    // scope's directory, not a division.
+                    || (self.current_name().is_some_and(|name| name == "cd") && self.command_line_has_block())
+                {
                     self.parse_command_statement_arena_only(start, arena)
                 } else if self.lookahead_is_expr_call_or_postfix()
                     || self.lookahead_is_expr_binary()
