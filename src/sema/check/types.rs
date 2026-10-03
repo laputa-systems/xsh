@@ -277,10 +277,10 @@ impl Checker {
                                     },
                                 )
                             })
-                            .collect();
-                        Type::Module(exports)
+                            .collect::<BTreeMap<_, _>>();
+                        Type::Module(exports.into())
                     }
-                    Type::Unknown | Type::Invalid => Type::Module(BTreeMap::new()),
+                    Type::Unknown | Type::Invalid => Type::Module(Default::default()),
                     other => {
                         self.error(
                             program.arena.type_expr_span(inner),
@@ -409,7 +409,7 @@ impl Checker {
                     };
                     exports.insert(entry.name, export_ty);
                 }
-                Type::Module(exports)
+                Type::Module(exports.into())
             }
             TypeDefBody::TagUnion(variants) => Type::Tag(variants.first().map_or(key, |variant| variant.type_name)),
         };

@@ -33,8 +33,9 @@ the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing
 policy in `AGENTS.md` for task-specific reading and verification.
 
 Boolean statement use is owned by `Checker` and recorded in
-`CheckOutput::assertion_spans`. `CompactBodyProbeOutput` carries those facts
-into `lower_statement_expr`; `BuildExprRow::Assert` and `FullTag::ExprAssert`
+`CheckOutput::assertion_spans`. `CompactDeclOutput` keeps them from the
+declaration pass's check, so body probing does not check the program again, and
+`CompactBodyProbeOutput` carries them into `lower_statement_expr`; `BuildExprRow::Assert` and `FullTag::ExprAssert`
 preserve them through indexed verification and both indexed evaluators.
 Comparison operands remain available until assertion completion, so failure
 rendering can explain evaluated values without repeating evaluation or copying

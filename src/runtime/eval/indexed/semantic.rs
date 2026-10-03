@@ -290,7 +290,7 @@ impl SemanticPools {
                     };
                     fields.insert(name, value);
                 }
-                Type::Module(fields)
+                Type::Module(fields.into())
             }
             TypeTag::Result => Type::Result(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
             TypeTag::Status => Type::Status,
@@ -1095,7 +1095,7 @@ mod tests {
             first_signature
         );
 
-        let module = Type::Module(BTreeMap::from([
+        let module = Type::Module(std::sync::Arc::new(BTreeMap::from([
             (
                 Name::intern("count"),
                 ModuleExportType::Value {
@@ -1110,7 +1110,7 @@ mod tests {
                     optional: false,
                 },
             ),
-        ]));
+        ])));
         let module_id = builder.intern_type(&mut pools, &module).unwrap();
         let record_shape = ShapeId::from_raw(pools.type_data[first.index()].lhs).unwrap();
         let module_shape = ShapeId::from_raw(pools.type_data[module_id.index()].lhs).unwrap();
@@ -1126,13 +1126,13 @@ mod tests {
         let erased_record = builder.intern_type(&mut pools, &Type::ErasedRecord).unwrap();
         let empty_record = builder.intern_type(&mut pools, &Type::Record(BTreeMap::new())).unwrap();
         let dynamic_module = builder.intern_type(&mut pools, &Type::DynamicModule).unwrap();
-        let empty_module = builder.intern_type(&mut pools, &Type::Module(BTreeMap::new())).unwrap();
+        let empty_module = builder.intern_type(&mut pools, &Type::Module(std::sync::Arc::new(BTreeMap::new()))).unwrap();
         assert_ne!(erased_record, empty_record);
         assert_ne!(dynamic_module, empty_module);
         assert_eq!(pools.to_type(erased_record).unwrap(), Type::ErasedRecord);
         assert_eq!(pools.to_type(empty_record).unwrap(), Type::Record(BTreeMap::new()));
         assert_eq!(pools.to_type(dynamic_module).unwrap(), Type::DynamicModule);
-        assert_eq!(pools.to_type(empty_module).unwrap(), Type::Module(BTreeMap::new()));
+        assert_eq!(pools.to_type(empty_module).unwrap(), Type::Module(std::sync::Arc::new(BTreeMap::new())));
         pools.verify().unwrap();
     }
 

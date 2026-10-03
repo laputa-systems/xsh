@@ -655,7 +655,7 @@ impl RecordConstructors {
                     ArenaModuleContractEntryKind::Pure { params, return_ty } => ModuleExportType::Pure { sig: self.instance_callable_type(arena, params, return_ty, namespace, &bindings, active, None)?, optional: entry.optional },
                 };
                 Ok((entry.name, export))
-            }).collect::<Result<BTreeMap<_, _>, SchemaTypeError>>().map(Type::Module),
+            }).collect::<Result<BTreeMap<_, _>, SchemaTypeError>>().map(|exports| Type::Module(exports.into())),
             _ => Err(SchemaTypeError::new("check.type-parameters", "type parameters are supported only on record schemas and aliases")),
         };
         active.pop();
@@ -733,7 +733,7 @@ impl RecordConstructors {
             ArenaTypeExprTag::Result => Type::Result(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?), Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Error), |error| self.resolve_instance_annotation(arena, error, namespace, bindings, active))?)),
             ArenaTypeExprTag::Module => match self.resolve_instance_annotation(arena, inner, namespace, bindings, active)? {
                 Type::Module(exports) => Type::Module(exports),
-                Type::Record(fields) => Type::Module(fields.into_iter().map(|(name, ty)| (name, ModuleExportType::Value { ty, optional: false })).collect()),
+                Type::Record(fields) => Type::Module(fields.into_iter().map(|(name, ty)| (name, ModuleExportType::Value { ty, optional: false })).collect::<BTreeMap<_, _>>().into()),
                 _ => Type::Invalid,
             },
         })

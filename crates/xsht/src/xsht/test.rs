@@ -407,6 +407,26 @@ fn test_id_matches(id: &str, options: &TestOptions) -> bool {
     }
 }
 
+/// Whether a filter can select an ID in `file`, decided before parsing it. IDs
+/// are `FILE::NAME`; a name has no `:` and appears verbatim in its source.
+fn test_file_may_match(file: &Path, file_name: &str, options: &TestOptions) -> bool {
+    let Some(filter) = &options.filter else {
+        return true;
+    };
+    if options.exact {
+        return filter
+            .strip_prefix(file_name)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"));
+    }
+    if file_name.contains(filter.as_str()) || file_name.contains(':') {
+        return true;
+    }
+    match filter.split_once(':') {
+        Some((before_separator, _)) => file_name.ends_with(before_separator),
+        None => fs::read_to_string(file).map_or(true, |text| text.contains(filter.as_str())),
+    }
+}
+
 fn test_file_matches(program: &ArenaProgram, file: &str, options: &TestOptions) -> bool {
     test_id_matches(file, options) || program.statement_ids().any(|id| {
         let kind = match program.arena.stmt(id).kind {
@@ -488,6 +508,9 @@ fn discover_native_tests(
     let mut cases = Vec::new();
     for file in files {
         let file_name = file.to_string_lossy().into_owned();
+        if !test_file_may_match(&file, &file_name, options) {
+            continue;
+        }
         let (sources, parsed) = match parse_script_with_module_roots(&file_name, module_roots) {
             Ok(parsed) => parsed,
             Err(err) => {

@@ -9,9 +9,27 @@ pub(super) struct LocalInference {
     solved_functions: BTreeSet<Span>,
     nonmaterial_expressions: BTreeSet<Span>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
+    /// Expression facts recorded with inference identities since the last
+    /// record-constructor publication; every other fact is already canonical.
+    unresolved_expr_types: Vec<Span>,
 }
 
 impl Checker {
+    pub(super) fn record_expr_type(&mut self, span: Span, ty: Type) {
+        if ty.contains_inference() { self.local_inference.unresolved_expr_types.push(span); }
+        self.expr_types.insert(span, ty);
+    }
+
+    /// Canonicalize the expression facts that still carry inference identities.
+    /// A fact that remains unsolved becomes a recovery fact.
+    pub(super) fn publish_unresolved_expr_types(&mut self) {
+        for span in std::mem::take(&mut self.local_inference.unresolved_expr_types) {
+            if let Some(ty) = self.expr_types.get_mut(&span) && ty.contains_inference() {
+                *ty = self.type_constraints.resolve(ty).ok().filter(|resolved| !resolved.contains_inference()).unwrap_or(Type::Invalid);
+            }
+        }
+    }
+
     /// Checked facts carry canonical types, never inference identities. A
     /// failed material contract becomes a recovery fact after its diagnostic.
     pub(super) fn resolve_checked_types(&mut self) {
@@ -80,11 +98,10 @@ impl Checker {
         }
         for scope in &mut self.scopes {
             for binding in scope.values_mut() {
-                binding.ty = constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
-                if binding.ty.contains_inference() { binding.ty = Type::Invalid; }
-                if let Some(ty) = &mut binding.unrefined_ty {
-                    *ty = constraints.resolve(ty).unwrap_or(Type::Invalid);
-                    if ty.contains_inference() { *ty = Type::Invalid; }
+                if constraints.resolve_in_place(&mut binding.ty).is_err() || binding.ty.contains_inference() { binding.ty = Type::Invalid; }
+                if let Some(ty) = &mut binding.unrefined_ty
+                    && (constraints.resolve_in_place(ty).is_err() || ty.contains_inference()) {
+                    *ty = Type::Invalid;
                 }
             }
         }
@@ -257,7 +274,7 @@ impl Checker {
                 return Type::Invalid;
             }
             if matches!(seed, LocalSeed::Map) {
-                self.expr_types.insert(super::expr::expr_or_run_span_arena(program, initializer), resolved.clone());
+                self.record_expr_type(super::expr::expr_or_run_span_arena(program, initializer), resolved.clone());
             }
             self.local_inference.checked_bindings.insert(span, resolved);
         }
@@ -268,10 +285,10 @@ impl Checker {
 enum LocalSeed { List, Nullable, Map }
 
 pub(super) fn finalize_type(constraints: &crate::sema::constraints::TypeConstraints, ty: &mut Type, span: Span, reported: &mut BTreeSet<Span>, diagnostics: &mut Vec<Diagnostic>) {
-    match constraints.resolve(ty) {
-        Ok(resolved) if !resolved.contains_inference() => *ty = resolved,
-        Ok(resolved) => {
-            let origins = constraints.unresolved(&resolved).unwrap_or_default();
+    match constraints.resolve_in_place(ty) {
+        Ok(()) if !ty.contains_inference() => {}
+        Ok(()) => {
+            let origins = constraints.unresolved(ty).unwrap_or_default();
             let new_origins = origins.into_iter().filter(|origin| reported.insert(*origin)).collect::<Vec<_>>();
             if !new_origins.is_empty() {
                 let mut diagnostic = Diagnostic::error("material type needs an annotation")

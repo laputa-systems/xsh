@@ -2878,7 +2878,7 @@ fn executable_type(ty: &Type) -> Type {
                     };
                     (*name, export)
                 })
-                .collect(),
+                .collect::<BTreeMap<_, _>>().into(),
         ),
         ty => ty.clone(),
     }

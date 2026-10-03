@@ -428,7 +428,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
                         },
                     )
                 })
-                .collect(),
+                .collect::<BTreeMap<_, _>>().into(),
         ),
         xsh_registry::types::Type::Result(ok, err) => {
             Type::Result(Box::new(convert_type(ok)), Box::new(convert_type(err)))

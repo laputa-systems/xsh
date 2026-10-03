@@ -30,6 +30,8 @@ pub struct CompactDeclOutput {
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub(crate) cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
     pub diagnostics: Vec<Diagnostic>,
+    /// The general checker's statement-use classification, reused by the body probe.
+    pub assertion_spans: std::collections::BTreeSet<crate::source::Span>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
     pub parameter_types: BTreeMap<crate::source::Span, Type>,
@@ -60,7 +62,7 @@ pub struct CompactDeclOutput {
 pub enum CompactTypeDefInfo {
     Alias(TypeExprId),
     Record(BTreeMap<Name, Type>),
-    Module(BTreeMap<Name, ModuleExportType>),
+    Module(std::sync::Arc<BTreeMap<Name, ModuleExportType>>),
     TagUnion,
 }
 
@@ -144,6 +146,7 @@ impl Checker {
                     parameter_types: checked.parameter_types.clone(),
                     local_binding_types: checked.local_binding_types.clone(),
                     function_return_types: checked.function_return_types.clone(),
+                    assertion_spans: checked.assertion_spans.clone(),
                     ..CompactDeclOutput::default()
                 },
             };
@@ -201,8 +204,9 @@ impl Checker {
             probe.seed_declarations();
             probe.check_compact_program();
             // The general checker owns statement-use classification, including
-            // contextual tails and narrowing; the execution probe carries its facts.
-            probe.output.assertion_spans = Checker::check_arena(program, "").assertion_spans;
+            // contextual tails and narrowing; the execution probe carries the facts
+            // the declaration pass already computed for this program.
+            probe.output.assertion_spans = declarations.assertion_spans.clone();
             probe.resolve_checked_types();
             probe.output
         })
@@ -361,7 +365,7 @@ impl CompactDeclCollector {
                         }
                     }
                 }
-                CompactTypeDefInfo::Module(exports)
+                CompactTypeDefInfo::Module(exports.into())
             }
             ArenaTypeDefBody::TagUnion(variants) => {
                 let variants = program.arena.tag_variants(variants);
@@ -692,11 +696,10 @@ impl CompactBodyProbe<'_> {
         }
         for scope in &mut self.scopes {
             for binding in scope.values_mut() {
-                binding.ty = self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
-                if binding.ty.contains_inference() { binding.ty = Type::Invalid; }
-                if let Some(ty) = &mut binding.unrefined_ty {
-                    *ty = self.type_constraints.resolve(ty).unwrap_or(Type::Invalid);
-                    if ty.contains_inference() { *ty = Type::Invalid; }
+                if self.type_constraints.resolve_in_place(&mut binding.ty).is_err() || binding.ty.contains_inference() { binding.ty = Type::Invalid; }
+                if let Some(ty) = &mut binding.unrefined_ty
+                    && (self.type_constraints.resolve_in_place(ty).is_err() || ty.contains_inference()) {
+                    *ty = Type::Invalid;
                 }
             }
         }
@@ -2814,13 +2817,13 @@ fn compact_probe_type_from_arena(
                 declarations,
                 depth,
             );
-            Type::Module(BTreeMap::from([(
+            Type::Module(std::sync::Arc::new(BTreeMap::from([(
                 Name::intern("<schema>"),
                 ModuleExportType::Value {
                     ty: inner,
                     optional: false,
                 },
-            )]))
+            )])))
         }
         ArenaTypeExprTag::Result => Type::Result(
             Box::new(compact_probe_type_from_arena(
