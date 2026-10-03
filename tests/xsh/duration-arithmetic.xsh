@@ -19,6 +19,22 @@ pure duration_millis_adapter(value: Int) -> Duration {
   time.millis(value)
 }
 
+pure duration_choice(long: Bool) -> Duration {
+  if long { 2s } else { 1s }
+}
+
+test test_result_annotations_do_not_constrain_duration_operands {
+  # The annotation types the result; an Int count still divides Durations
+  # and a Duration still scales by an Int branch.
+  let long = true
+  let count: Int = (if long { 2s } else { 1s }) / 1ms
+  let scaled: Duration = 250ms * (if long { 2 } else { 3 })
+  let factor_first: Duration = (if long { 2 } else { 3 }) * duration_choice(false)
+  assert count == 2000
+  assert scaled == 500ms
+  assert factor_first == 2s
+}
+
 test test_duration_arithmetic_units_quantization_and_order {
   assert 250ms + 1s == 1250ms
   assert 2s - 500ms == 1500ms

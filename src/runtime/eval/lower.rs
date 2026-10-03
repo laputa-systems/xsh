@@ -9794,9 +9794,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .map(|slot| push_build_row!(self, expr, BuildExprRow::Param(slot)))
             .or_else(|| {
                 if let Some(key) = self.compact_unqualified_function_key(name) {
-                    let pure = self
-                        .functions
-                        .is_none_or(|functions| functions.pure_contains(key));
+                    // Function bodies lower with every function as an in-flight
+                    // candidate, which `pure_contains` counts as pure; the
+                    // definition decides, so a proc alias called in a body
+                    // resolves as a proc instead of failing at runtime.
+                    let pure = self.function_index().definition(key).map_or_else(
+                        || self.functions.is_none_or(|functions| functions.pure_contains(key)),
+                        |function| function.pure,
+                    );
                     return Some(push_build_row!(
                         self,
                         expr,

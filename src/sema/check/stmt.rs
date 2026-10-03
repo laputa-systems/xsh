@@ -2142,6 +2142,19 @@ impl Checker {
         if !reachable || always_returns { Type::Unknown } else { result }
     }
 
+    /// A value branch whose block ends without a value (a trailing `let`, or
+    /// nothing) completes with Unit. The block checker reports a mismatch only
+    /// for a tail value, so such a branch used to satisfy any expected type
+    /// and the function then failed preparation.
+    fn check_unit_branch_completion(&mut self, arena: &ArenaProgram, block: BlockId, expected: Option<Type>, actual: &Type) {
+        if *actual == Type::Unit
+            && let Some(expected) = expected
+            && !tail_type_matches_expected(&expected, actual)
+        {
+            self.expect_type(&expected, actual, arena.arena.span(arena.arena.block(block).span));
+        }
+    }
+
     fn return_inference_block_returns(&self, arena: &ArenaProgram, block: BlockId) -> bool {
         arena.arena.stmt_ids(arena.arena.block(block).statements)
             .any(|id| self.return_inference_stmt_returns(arena, id))
@@ -2317,6 +2330,7 @@ impl Checker {
                     self.bind_pattern_condition_arena(arena, source, branch.condition);
                     let actual = self.check_tail_block_arena(arena, source, branch.block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
                     self.pop_scope();
+                    if !infer_branches { self.check_unit_branch_completion(arena, branch.block, expected.or(inferred.as_ref()).cloned(), &actual); }
                     if actual != Type::Unknown {
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, stmt.span))
@@ -2331,6 +2345,7 @@ impl Checker {
                     }
                     let actual = self.check_tail_block_arena(arena, source, block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
                     self.pop_scope();
+                    if !infer_branches { self.check_unit_branch_completion(arena, block, expected.or(inferred.as_ref()).cloned(), &actual); }
                     if actual != Type::Unknown {
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, stmt.span))
@@ -2388,6 +2403,7 @@ impl Checker {
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
             }
             let arm_ty = self.check_tail_block_arena(arena, source, arm.block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
+            if !infer_branches { self.check_unit_branch_completion(arena, arm.block, expected.or(inferred.as_ref()).cloned(), &arm_ty); }
             if arm_ty != Type::Unknown {
                 inferred = Some(if infer_branches {
                     inferred.map_or(arm_ty.clone(), |previous| self.unify_inferred_returns(previous, arm_ty, arena.arena.span(arm.span)))

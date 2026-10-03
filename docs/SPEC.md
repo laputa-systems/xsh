@@ -738,7 +738,7 @@ annotated unless their boundaries and description evaluation timing coincide;
 such a migration requires review rather than a general automatic rewrite.
 
 
-Standard modules are built-in namespaces and cannot be aliased; their members
+Standard modules are built-in namespaces, not values, and cannot be aliased; their members
 are functions that must be called (`check.module-member`). User modules are
 imported from sibling `.xsh` files relative to the importing source file, then
 from each directory in `XSH_MODULE_PATH` when the file-relative path does not

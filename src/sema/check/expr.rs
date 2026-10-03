@@ -117,7 +117,14 @@ impl Checker {
             return Type::Pure;
         }
         if api_spec().module(&name.as_str()).is_some() {
-            return Type::ErasedRecord;
+            // A namespace has no runtime value; typing it as an erased record
+            // let `let host = system` check and then fail preparation.
+            self.diagnostics.push(
+                Diagnostic::error(format!("standard module `{name}` is a namespace, not a value"))
+                    .with_code("check.module-member")
+                    .with_label(Label::primary(span, "call one of its functions instead")),
+            );
+            return Type::Unknown;
         }
         if name == "ARGV" && !self.streams.contains_key(&name) {
             let shadowed_args = self.scopes.iter().skip(1).any(|scope| scope.contains_key(&Name::intern("args")));
@@ -1446,11 +1453,17 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                let left_ty = self.check_expr_arena(arena, source, left, expected);
-                let right_expected = if matches!(&left_ty, Type::List(item) if **item == Type::Unknown) {
-                    expected
-                } else {
-                    Some(&left_ty)
+                // The result type is an operand type only for List
+                // concatenation; Duration arithmetic mixes Int and Duration, so
+                // an expectation for the result must not constrain an operand
+                // such as `(if c { 1s } else { 2s }) / 1ms`.
+                let left_expected = expected.filter(|ty| matches!(ty, Type::List(_)));
+                let left_ty = self.check_expr_arena(arena, source, left, left_expected);
+                let right_expected = match &left_ty {
+                    Type::List(item) if **item == Type::Unknown => expected,
+                    Type::Duration => None,
+                    Type::Int if op == BinaryOp::Mul => None,
+                    _ => Some(&left_ty),
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
                 if left_ty == Type::Any || right_ty == Type::Any { return Type::Any; }

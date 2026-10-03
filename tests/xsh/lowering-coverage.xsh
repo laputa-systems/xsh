@@ -148,6 +148,9 @@ test test_members_without_a_checked_type_are_checker_errors { |ctx|
     {source: "let maybe: Int? = 3\nlet value = maybe?.missing", code: "check.field-access"},
     {source: "let value = fs.cwd", code: "check.module-member"},
     {source: "let value = fs.no_such_function", code: "check.module-member"},
+    {source: "let value = system", code: "check.module-member"},
+    {source: "pure pick(flag: Bool) -> Int {\n  if flag {\n    1\n  } else {\n    let unused = 2\n  }\n}\nlet value = pick(false)", code: "check.type-mismatch"},
+    {source: "pure pick(flag: Bool) -> Int {\n  match flag {\n    true => { 1 }\n    false => {}\n  }\n}\nlet value = pick(false)", code: "check.type-mismatch"},
   ] {
     let output = test.run_script(ctx, case.source + "\nprint ran\n")?
     assert ! output.success, case.source
