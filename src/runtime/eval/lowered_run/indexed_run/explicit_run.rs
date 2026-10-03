@@ -548,7 +548,8 @@ impl Evaluator {
     ) -> Result<StmtFlow, RuntimeError> {
         let mut statements = self.frame_scratch.take_statements();
         decode_statement_block_into(execution, block, span, &mut statements)?;
-        self.eval_indexed_statements_with_frames(execution, statements, true, slots, span)
+        let work = FrameWork::Statements { statements, complete_call: true, scope_id: None };
+        self.eval_indexed_work_with_frames(execution, work, true, slots, span)
     }
 
     /// Runs one top-level statement in the script's scope.
@@ -561,7 +562,23 @@ impl Evaluator {
     ) -> Result<StmtFlow, RuntimeError> {
         let mut statements = self.frame_scratch.take_statements();
         statements.push(statement);
-        self.eval_indexed_statements_with_frames(execution, statements, false, slots, span)
+        let work = FrameWork::Statements { statements, complete_call: true, scope_id: None };
+        self.eval_indexed_work_with_frames(execution, work, false, slots, span)
+    }
+
+    /// Evaluates one expression for the recursive evaluator, in its scope.
+    pub(super) fn eval_indexed_expr_with_frames(
+        &mut self,
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let work = FrameWork::Expr { instruction, span, next: FrameContinuation::BlockValue };
+        Ok(match self.eval_indexed_work_with_frames(execution, work, false, slots, span)? {
+            StmtFlow::Value(value) => ControlFlow::Continue(value),
+            flow => self.preserve_lexical_expression_flow(flow),
+        })
     }
 
     /// Closes a frame or block scope. Frames open and close a scope for every
@@ -577,10 +594,10 @@ impl Evaluator {
     }
 
     /// Statements have one implementation, on the frames, whoever runs them.
-    fn eval_indexed_statements_with_frames(
+    fn eval_indexed_work_with_frames(
         &mut self,
         execution: &FullExecution<'_>,
-        statements: Vec<u32>,
+        first: FrameWork,
         owns_scope: bool,
         slots: &mut [LoweredValue],
         span: Span,
@@ -592,7 +609,7 @@ impl Evaluator {
         let scope_id = if owns_scope { self.enter_owned_host_scope() } else { outer_scope };
         let slot_scopes = self.frame_scratch.take_slot_scopes(0, outer_scope);
         let mut work = self.frame_scratch.take_work();
-        work.push(FrameWork::Statements { statements, complete_call: true, scope_id: None });
+        work.push(first);
         let mut frames = ExplicitFrames::new(self, &program);
         frames.calls.push(CallFrame {
             owner: FrameOwner::Block { owns_scope, outer_scope },
