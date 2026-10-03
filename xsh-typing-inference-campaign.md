@@ -1,7 +1,8 @@
 # XSH typing inference: plan
 
-Status: items 1–5 have landed; item 6 was closed as not worth doing. Remaining
-is final verification (see the end of this plan).
+Status: complete. Items 1–5 have landed, item 6 was closed as not worth
+doing, and final verification ran on 2026-10-03 (see "Final verification" at
+the end of this plan).
 Items with disjoint files may run as parallel lanes (see Orchestration).
 
 ## Where things stand
@@ -334,3 +335,29 @@ This campaign runs in Claude Code.
 - The campaign's baseline profiling measured about 703 MB of retained checked
   facts for the native system-report module. That is a checker memory issue
   independent of this plan.
+
+## Final verification (2026-10-03)
+
+- **macOS:** the full native suite on release passes, system-report suites
+  included: 1,848 passed, 0 failed, 37 skipped, in about 2 minutes. `xsh` lib
+  (292) and integration (771), `xsht` (lib, bin, api, integration) and `xshi`
+  all pass. Repository lint is clean.
+- **Sibling repositories:** `../packages` (153 passed, 0 failed) and
+  `../laputa` (39 passed) check clean and pass on the final compiler. Their
+  commits are local and not pushed.
+- **Linux (`cargo dev test linux`, pinned `xsh-test` image):** unit tests 312
+  passed; native 1,863 passed, 2 failed; integration 824 passed, 3 failed. Three
+  of those failures were test bugs, fixed in `ed6013e2` and verified on macOS but
+  not yet rerun in the container:
+  - two tests called `/usr/bin/true` and `/usr/bin/false`, which Alpine does
+    not have;
+  - one lint fixture was stale.
+
+Known gaps, left as they are:
+- `runtime::coverage::runnable_xsh_corpus_is_formatted_and_lints_without_warnings`
+  fails because 199 corpus files are not `xsht fmt`-clean (about 192 of them
+  before this campaign). Formatting is left to the maintainer.
+- `cargo clippy` reports two `needless_borrow` errors in `crates/xsh-root`.
+- `tests/xsh/run.xsh::test_whole_script_run_error_diagnostics` failed once
+  under heavy machine load and passed on rerun.
+
