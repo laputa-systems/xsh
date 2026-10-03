@@ -72,6 +72,12 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
         source: include_str!("../stdlib/process.xsh"),
     },
     StdlibModule {
+        identity: "template",
+        label: "<xsh-stdlib:template>",
+        bridges: &[],
+        source: include_str!("../stdlib/template.xsh"),
+    },
+    StdlibModule {
         identity: "tui",
         label: "<xsh-stdlib:tui>",
         bridges: &[],

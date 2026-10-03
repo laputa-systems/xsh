@@ -36,6 +36,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "module.fs.write" | "method.Path.write" => {
             include_str!("../../../docs/snippets/api/fs-write.xsh")
         }
+        "module.template" | "module.template.render" => {
+            include_str!("../../../docs/snippets/api/template-render.xsh")
+        }
         "module.fs.tempdir" => include_str!("../../../docs/snippets/api/fs-tempdir.xsh"),
         "module.path.absolute" => include_str!("../../../docs/snippets/api/path-absolute.xsh"),
         "module.process.command" => {

@@ -145,6 +145,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: test_module(),
             },
             ModuleEntry {
+                name: "template",
+                sig: template_module(),
+            },
+            ModuleEntry {
                 name: "time",
                 sig: time_module(),
             },
@@ -3450,6 +3454,20 @@ fn test_module() -> ModuleSig {
             ),
         ),
     ])
+}
+
+fn template_module() -> ModuleSig {
+    module_sig(vec![(
+        "render",
+        script_sig(
+            vec![param("source", Type::Str), param("data", Type::Any)],
+            result(Type::Str),
+            true,
+            RuntimeOp::TemplateRender,
+            "template",
+            "render",
+        ),
+    )])
 }
 
 fn time_module() -> ModuleSig {
