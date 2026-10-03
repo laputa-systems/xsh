@@ -277,9 +277,8 @@ fn lowered_module_call_args(
 }
 
 fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerifyFileArgs> {
-    let [path, checksum] = args else {
-        return None;
-    };
+    let [path, checksum] = crate::sema::arguments::bind_hash_verify_file_arguments(args)?;
+    let (path, checksum) = (&args[path], &args[checksum]);
     let path = match path.kind {
         ArenaCallArgKind::Positional(expr) => expr,
         ArenaCallArgKind::Named { name, value, .. } if name == "path" => value,

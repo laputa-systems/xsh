@@ -87,6 +87,24 @@ pub(crate) fn bind_err_arguments(args: &[ExpandedArgument]) -> Result<StaticArgu
     Ok(binding)
 }
 
+/// `hash.verify_file` names its checksum argument by algorithm, so that
+/// parameter has no fixed published name. The path binds by position or
+/// `path:`, the checksum is the other argument, and written order is
+/// irrelevant. Returns the `[path, checksum]` argument indices.
+pub(crate) fn bind_hash_verify_file_arguments(args: &[ArenaCallArg]) -> Option<[usize; 2]> {
+    let [first, second] = args else { return None };
+    let binds_path = |arg: &ArenaCallArg| match arg.kind {
+        ArenaCallArgKind::Positional(_) => true,
+        ArenaCallArgKind::Named { name, .. } => name == "path",
+        ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => false,
+    };
+    match (binds_path(first), binds_path(second)) {
+        (true, false) => Some([0, 1]),
+        (false, true) => Some([1, 0]),
+        _ => None,
+    }
+}
+
 /// Resolve names and positional occupancy before lowering. A record field is
 /// supplied even when its value is null; omission is solely a missing slot.
 pub fn bind_static_arguments(
