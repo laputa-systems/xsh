@@ -63,6 +63,7 @@ you need (`cargo build -p xsht --bin xsht`, not a bare workspace build).
 | parser, CST, formatter | `cargo test --test integration syntax::NAME` | `cargo test --test integration syntax::`; `tests/xsh/formatter.xsh` |
 | checker | `cargo test --test integration sema::NAME` | `cargo test --test integration sema::` |
 | lowering, verifier | `cargo test -p xsh --lib runtime::eval::indexed::full::tests::NAME` | `cargo test -p xsh --lib runtime::eval` |
+| lowering vs checker types | `cargo test -p xsh --lib corpus_lowering_agrees_with_checked_types` (lowers the corpus and embedded stdlib; debug builds report any disagreement with the checker) | `tests/xsh/lowering-coverage.xsh`; full native suite |
 | runtime | native module, then `cargo test --test integration runtime::NAME` | `cargo test --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |
 | frames, stack depth | `cargo test --test integration runtime::stack_depth` | runtime gate |
 | lint, tooling | `cargo test -p xsht --test integration lint::NAME` | `cargo test -p xsht --test integration` |
