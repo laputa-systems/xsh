@@ -13,9 +13,9 @@ test test_slice_existing_list_and_unicode_scalar_normalization {
   assert [1][..0] == []
   let empty: List[Int] = []
   assert empty[-1..99] == empty
-  let text = "a\u{e9}\u{1f980}e\u{301}z"
-  assert text[1..3] == "\u{e9}\u{1f980}"
-  assert text[-3..-1] == "e\u{301}"
+  let text = "aé🦀éz"
+  assert text[1..3] == "é🦀"
+  assert text[-3..-1] == "é"
   assert text[..] == text
   assert text[-99..99] == text
   assert text[3..1] == ""
@@ -152,7 +152,7 @@ let part = "é"[..bound]
   assert "check.dynamic-boundary" in text_error.stderr
   let start: Any = 1
   let end: Any = 3
-  assert [0, 1, 2, 3][start.require(Int)?..end.require(Int)?] == [1, 2]
+  assert [0, 1, 2, 3][(start.require(Int)?)..end.require(Int)?] == [1, 2]
   let invalid: Any = true
   test.error_kind(invalid.require(Int), "schema")?
   let receiver_error = test.run_script(

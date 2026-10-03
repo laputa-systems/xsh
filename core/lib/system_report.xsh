@@ -2700,15 +2700,15 @@ pure terminal_quote(value: Str) -> Result[Str] {
       replacement: "\\u{009f}",
     },
     {
-      source: "\u{ad}",
+      source: "­",
       replacement: "\\u{00ad}",
     },
     {
-      source: "\u{34f}",
+      source: "͏",
       replacement: "\\u{034f}",
     },
     {
-      source: "\u{61c}",
+      source: "؜",
       replacement: "\\u{061c}",
     },
     {
@@ -2780,27 +2780,27 @@ pure terminal_quote(value: Str) -> Result[Str] {
       replacement: "\\u{2069}",
     },
     {
-      source: "\u{206a}",
+      source: "⁪",
       replacement: "\\u{206a}",
     },
     {
-      source: "\u{206b}",
+      source: "⁫",
       replacement: "\\u{206b}",
     },
     {
-      source: "\u{206c}",
+      source: "⁬",
       replacement: "\\u{206c}",
     },
     {
-      source: "\u{206d}",
+      source: "⁭",
       replacement: "\\u{206d}",
     },
     {
-      source: "\u{206e}",
+      source: "⁮",
       replacement: "\\u{206e}",
     },
     {
-      source: "\u{206f}",
+      source: "⁯",
       replacement: "\\u{206f}",
     },
     {

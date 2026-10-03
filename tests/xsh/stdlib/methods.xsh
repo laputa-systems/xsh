@@ -204,7 +204,7 @@ beta"""
   assert "abc".translate("ac", "AC") == "AbC"
   assert "Hello.TXT".lower() == "hello.txt"
   assert "Hello.txt".upper() == "HELLO.TXT"
-  assert "caf\u{e9}".upper() == "CAF\u{c9}"
+  assert "café".upper() == "CAFÉ"
   assert "a-b-c".delete("-") == "abc"
   assert "boook".squeeze("o") == "bok"
   assert "abc".reverse() == "cba"
@@ -214,16 +214,16 @@ b
 """.count_lines() == 2
 
   assert "one two".count_words() == 2
-  assert "caf\u{e9}".count_chars() == 4
-  assert "caf\u{e9}".byte_len() == 5
-  assert "caf\u{e9}".byte_len() == 5
-  assert ("caf\u{e9}".byte_at(0) ?? -1) == 99
-  assert ("caf\u{e9}".byte_at(3) ?? -1) == 195
-  assert ("caf\u{e9}".byte_at(4) ?? -1) == 169
-  assert "caf\u{e9}".byte_at(9) == null
-  assert ("caf\u{e9}".byte_at(9) ?? 0) == 0
-  assert "caf\u{e9}".byte_slice(0, 3) == "caf"
-  assert "caf\u{e9}".byte_slice(3) == "\u{e9}"
+  assert "café".count_chars() == 4
+  assert "café".byte_len() == 5
+  assert "café".byte_len() == 5
+  assert ("café".byte_at(0) ?? -1) == 99
+  assert ("café".byte_at(3) ?? -1) == 195
+  assert ("café".byte_at(4) ?? -1) == 169
+  assert "café".byte_at(9) == null
+  assert ("café".byte_at(9) ?? 0) == 0
+  assert "café".byte_slice(0, 3) == "caf"
+  assert "café".byte_slice(3) == "é"
 
   assert """alpha
 beta""".find("\n") == 5

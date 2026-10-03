@@ -334,7 +334,7 @@ test test_cli_commands_rootless_and_fallback_routing {
   let taken = cli.commands(["plain", "one"], "", schema, {rest: "raw"})?
   assert taken.get("action")? == "plain"
   assert taken.get("command")? == "plain"
-  assert taken.get("raw")?.require(List[Str])?.join(",") == "plain,one"
+  assert (taken.get("raw")?.require(List[Str])?).join(",") == "plain,one"
 
   # A fallback takes a token that looks like a path only when it asks to be
   # `command_like`; a token that looks like a path is one that starts with `/`
@@ -444,7 +444,7 @@ test test_cli_command_options_split_values_and_defaults {
   # carries one field per option name beside the command fields.
   let parsed = cli.commands(["go", "r", "-v", "--tag=a", "--tag", "b", "--mode", "fast"], schema)?
   assert (parsed.get("verbose") ?? null) == true
-  assert parsed.get("tag")?.require(List[Str])?.join(",") == "a,b"
+  assert (parsed.get("tag")?.require(List[Str])?).join(",") == "a,b"
   assert (parsed.get("mode") ?? null) == "fast"
   assert (parsed.get("level") ?? null) == "info"
   assert parsed.keys().join(",") == "action,command,level,mode,root,tag,verbose"
@@ -452,7 +452,7 @@ test test_cli_command_options_split_values_and_defaults {
   # A value may be carried separately or inline, an option that may omit its
   # value falls back to its default when nothing supplies one, and an option
   # with a default starts there.
-  assert cli.commands(["go", "r", "--tag", "b"], schema)?.get("tag")?.require(List[Str])?.join(",") == "b"
+  assert (cli.commands(["go", "r", "--tag", "b"], schema)?.get("tag")?.require(List[Str])?).join(",") == "b"
   assert (cli.commands(["go", "r", "--level"], schema)?.get("level") ?? null) == "info"
   assert (cli.commands(["go", "r", "--level=deep"], schema)?.get("level") ?? null) == "deep"
   let defaults = cli.commands(["go", "r"], schema)?

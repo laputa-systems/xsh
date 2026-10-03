@@ -6667,8 +6667,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
   var issues = value.issues
   issues = issues.push(unsupported_issue(name, "section"))
   match name {
-    "usb" => {...value, usb: {status: empty_status(report.SectionUnsupported), devices: []}, issues: issues}
-    "storage" => {
+    "usb" => ({...value, usb: {status: empty_status(report.SectionUnsupported), devices: []}, issues: issues})
+    "storage" => ({
       ...value,
       storage: {
         status: empty_status(report.SectionUnsupported),
@@ -6676,8 +6676,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         mounts: [],
       },
       issues: issues,
-    }
-    "network" => {
+    })
+    "network" => ({
       ...value,
       network: {
         status: empty_status(report.SectionUnsupported),
@@ -6686,8 +6686,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         rules: [],
       },
       issues: issues,
-    }
-    "sensors" => {
+    })
+    "sensors" => ({
       ...value,
       sensors: {
         status: empty_status(report.SectionUnsupported),
@@ -6695,8 +6695,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         thermal_zones: [],
       },
       issues: issues,
-    }
-    "power" => {
+    })
+    "power" => ({
       ...value,
       power: {
         status: empty_status(report.SectionUnsupported),
@@ -6704,8 +6704,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         cap_zones: [],
       },
       issues: issues,
-    }
-    "firmware" => {
+    })
+    "firmware" => ({
       ...value,
       firmware: {
         status: empty_status(report.SectionUnsupported),
@@ -6714,8 +6714,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         limitation: empty_text(report.Unsupported),
       },
       issues: issues,
-    }
-    "kernel" => {
+    })
+    "kernel" => ({
       ...value,
       kernel: {
         status: empty_status(report.SectionUnsupported),
@@ -6725,23 +6725,23 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
         sysctls: [],
       },
       issues: issues,
-    }
-    "processes" => {
+    })
+    "processes" => ({
       ...value,
       processes: {
         status: empty_status(report.SectionUnsupported),
         processes: [],
       },
       issues: issues,
-    }
-    "devices" => {
+    })
+    "devices" => ({
       ...value,
       devices: {
         status: empty_status(report.SectionUnsupported),
         devices: [],
       },
       issues: issues,
-    }
+    })
     _ => value
   }
 }

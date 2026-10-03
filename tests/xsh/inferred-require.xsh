@@ -138,7 +138,7 @@ test test_require_preserves_each_result_layer {
   let inner: Result[Int] = raw.require()?
   assert inner? == 7
   let nested: Result[Result[Int]] = raw.require()
-  assert nested?? == 7
+  assert (nested?)? == 7
   let source: Result[Any] = Ok({name: "ready", jobs: 4})
   let manifest: Result[RequirementManifest] = source?.require()
   assert manifest?.name == "ready"

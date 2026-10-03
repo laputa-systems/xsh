@@ -181,7 +181,7 @@ test test_process_argv_words_rejects_shell_syntax {
   assert argv_words_message(process.argv_words("echo hi | wc")) == "shell syntax character `|` is not accepted"
   assert argv_words_message(process.argv_words("echo $HOME")) == "shell syntax character `$` is not accepted"
   assert argv_words_message(process.argv_words("echo `date`")) == "shell syntax character ``` is not accepted"
-  assert argv_words_message(process.argv_words("caf\u{e9}|th\u{e9}")) == "shell syntax character `|` is not accepted"
+  assert argv_words_message(process.argv_words("café|thé")) == "shell syntax character `|` is not accepted"
   assert argv_words_message(process.argv_words("unterminated 'quote")) == "unterminated single quote"
   assert argv_words_message(process.argv_words("unterminated \"quote")) == "unterminated double quote"
   assert argv_words_message(process.argv_words("trailing\\")) == "trailing escape"
@@ -190,10 +190,10 @@ test test_process_argv_words_rejects_shell_syntax {
 # Unicode text: multi-byte characters stay inside a word, and every character
 # the baseline treats as whitespace separates words.
 test test_process_argv_words_reads_unicode_text {
-  assert process.argv_words("h\u{e9}llo w\u{f6}rld")? == ["h\u{e9}llo", "w\u{f6}rld"]
-  assert process.argv_words("'h\u{e9}llo w\u{f6}rld'")? == ["h\u{e9}llo w\u{f6}rld"]
-  assert process.argv_words("\u{65e5}\u{672c} \u{8a9e}")? == ["\u{65e5}\u{672c}", "\u{8a9e}"]
-  assert process.argv_words("a\u{e9}\u{2014}b")? == ["a\u{e9}\u{2014}b"]
+  assert process.argv_words("héllo wörld")? == ["héllo", "wörld"]
+  assert process.argv_words("'héllo wörld'")? == ["héllo wörld"]
+  assert process.argv_words("日本 語")? == ["日本", "語"]
+  assert process.argv_words("aé—b")? == ["aé—b"]
 
   for space in [
     "\u{85}",
@@ -215,7 +215,7 @@ test test_process_argv_words_reads_unicode_text {
   assert only_space.len() == 0
 
   # A multi-byte word and a multi-byte whitespace run together.
-  assert process.argv_words("\u{3b1}\u{3000}\u{3b2} \u{3b3}")? == ["\u{3b1}", "\u{3b2}", "\u{3b3}"]
+  assert process.argv_words("α\u{3000}β γ")? == ["α", "β", "γ"]
 }
 
 test test_process_command_redirections { |ctx|
@@ -407,9 +407,9 @@ test test_bytes_stdin_redirection_is_exact_and_explicit {
   let payload = b"a\0\xff\n"
   let echoed = run.bytes cat < $payload ?
   assert echoed == payload
-  assert run.bytes cat < b""? == b""
+  assert (run.bytes cat < b"" ?) == b""
   let text = "text without a newline"
-  assert run.text cat < bytes.from_text(text)? == text
+  assert (run.text cat < bytes.from_text(text) ?) == text
 }
 
 test test_bytes_stdin_rejects_invalid_targets_and_sources { |ctx|
@@ -441,7 +441,7 @@ test test_bytes_stdin_path_strings_and_once_only_expression { |ctx|
   let input = fp"${root}/input"
   input.write("file content")?
   let file_name = input.display()
-  assert run.text cat < $file_name? == "file content"
+  assert (run.text cat < $file_name?) == "file content"
   let result = test.run_script(
     ctx,
     r"""proc payload() [io] -> Bytes {print preparing; return b"content"}

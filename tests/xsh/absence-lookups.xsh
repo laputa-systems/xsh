@@ -1,7 +1,7 @@
 test test_absence_lookup_find_preserves_zero_byte_offsets_and_empty_needles {
   assert "a:b".find("a") == 0
   assert "a:b".find(":") == 1
-  assert "\u{e9}:x".find(":") == 2
+  assert "é:x".find(":") == 2
   assert "a:b".find("missing") == null
   assert "a:b".find("", 3) == 3
   assert "a:b".find("", 4) == null
@@ -13,10 +13,10 @@ test test_absence_lookup_find_preserves_zero_byte_offsets_and_empty_needles {
 }
 
 test test_absence_lookup_byte_at_returns_null_outside_byte_domain {
-  assert "\u{e9}".byte_at(index: 0) == 195
-  assert "\u{e9}".byte_at(1) == 169
-  assert "\u{e9}".byte_at(2) == null
-  assert "\u{e9}".byte_at(-1) == null
+  assert "é".byte_at(index: 0) == 195
+  assert "é".byte_at(1) == 169
+  assert "é".byte_at(2) == null
+  assert "é".byte_at(-1) == null
   assert b"\0\xff".byte_at(0) == 0
   assert b"\0\xff".byte_at(1) == 255
   assert b"\0\xff".byte_at(2) == null
@@ -60,12 +60,12 @@ pure absence_lookup_integer_byte(text: Str, index: Int) -> Int {
 
 test test_absence_lookup_nullable_and_integer_fast_paths_agree {
   for index in [-1, 0, 1, 2, 9223372036854775807] {
-    assert absence_lookup_nullable_byte("\u{e9}", index) == "\u{e9}".byte_at(index)
-    assert absence_lookup_integer_byte("\u{e9}", index) == ("\u{e9}".byte_at(index) ?? -1)
+    assert absence_lookup_nullable_byte("é", index) == "é".byte_at(index)
+    assert absence_lookup_integer_byte("é", index) == ("é".byte_at(index) ?? -1)
   }
 
-  assert "\u{e9}:x".find(":", 1) == 2
-  assert "\u{e9}:x".find("\u{e9}", 1) == null
+  assert "é:x".find(":", 1) == 2
+  assert "é:x".find("é", 1) == null
 }
 
 test test_absence_lookup_lazy_fallback_and_authored_eager_snapshots { |ctx|
