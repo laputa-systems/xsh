@@ -1,6 +1,6 @@
 use crate::xsht::cli::{
     CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
-    load_config, text_bytes,
+    is_path_excluded, load_config, text_bytes,
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
@@ -122,6 +122,16 @@ fn discover_format_files(files: &[String], config: &XshConfig) -> Result<Vec<Str
     }
     discovered.sort_unstable();
     discovered.dedup();
+    // Like `exclude`, `[format] exclude` is matched from the discovery root;
+    // a file named on the command line is always formatted.
+    let explicit = files
+        .iter()
+        .map(PathBuf::from)
+        .filter(|path| !path.is_dir())
+        .collect::<FxHashSet<_>>();
+    discovered.retain(|path| {
+        explicit.contains(path) || !is_path_excluded(Path::new("."), path, &config.format.exclude)
+    });
     Ok(discovered
         .into_iter()
         .map(|path| path.to_string_lossy().into_owned())

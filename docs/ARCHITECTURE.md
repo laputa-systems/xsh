@@ -142,6 +142,21 @@ program, and called through ordinary `Call` instructions.
 Whether an entry is native or script-backed is decided by measurement;
 `bench/stdlib-port/README.md` records each disposition.
 
+### Generated documentation
+
+`dev/docs.xsh` renders each `docs/templates/REL` into `docs/REL` with the
+`template` module (`make docs`, `cargo dev docs`), so the tour and the
+references come from code instead of copies of it. Tour code blocks are the
+files in `docs/snippets/tour/` (`NN-name.xsh`, plus the `project/` example with
+its own `xsht-config.ini`); a snippet runs, sandboxed in an empty directory
+with only `PATH`, exactly when a template shows its `.output`, and a
+`# platform: linux` snippet never runs, so generation is host-independent.
+`docs/reference/stdlib.md`, `cli.md`, and `lints.md` are read from
+`xsht api --format jsonl`, the binaries' help, and `xsht lint --list`.
+`dev/docs.xsh::check` (the `check-docs` stage of `cargo dev check` and
+`make check`, and `make docs-check`) re-renders and fails on any difference,
+then runs `xsht check` on the snippets and `xsht test` in the project.
+
 ## Invariants
 
 1. **Verify before execute.** Only a `FullProgram` that passed

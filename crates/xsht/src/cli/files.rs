@@ -193,12 +193,16 @@ pub struct CheckConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FormatConfig {
     pub line_width: usize,
+    /// Glob patterns that discovery-driven `xsht fmt` leaves alone; files
+    /// named explicitly are still formatted.
+    pub exclude: Vec<String>,
 }
 
 impl Default for FormatConfig {
     fn default() -> Self {
         Self {
             line_width: DEFAULT_LINE_WIDTH,
+            exclude: Vec::new(),
         }
     }
 }
@@ -355,8 +359,12 @@ fn parse_format_ini(fields: &xsh::execution::value::RecordMap) -> Result<FormatC
     let xsh::execution::value::Value::Record(format) = value else {
         return Err(format!("{CONFIG_FILE_NAME} [format] must be a section"));
     };
+    let exclude = ini_string_list(format, "exclude").unwrap_or_default();
     let Some(raw_line_width) = ini_string(format, "line-width") else {
-        return Ok(FormatConfig::default());
+        return Ok(FormatConfig {
+            exclude,
+            ..FormatConfig::default()
+        });
     };
     let trimmed = raw_line_width.trim();
     let Ok(line_width) = trimmed.parse::<usize>() else {
@@ -369,7 +377,10 @@ fn parse_format_ini(fields: &xsh::execution::value::RecordMap) -> Result<FormatC
             "invalid {CONFIG_FILE_NAME} format.line-width: expected a positive integer"
         ));
     }
-    Ok(FormatConfig { line_width })
+    Ok(FormatConfig {
+        line_width,
+        exclude,
+    })
 }
 
 fn ini_string<'a>(fields: &'a xsh::execution::value::RecordMap, key: &str) -> Option<&'a str> {

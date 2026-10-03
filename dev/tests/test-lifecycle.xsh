@@ -289,6 +289,8 @@ test test_make_facade_only_delegates_to_the_development_entrypoint {
     "$(XSH_DEV) dev/main.xsh --",
     "cargo dev",
     "$(DEV) check lint",
+    "$(DEV) docs",
+    "$(DEV) docs check",
     "$(DEV) lint --fix",
     "$(DEV) test linux --ci",
     "$(DEV) coverage --backend docker",

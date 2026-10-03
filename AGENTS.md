@@ -26,8 +26,9 @@ before editing.
 - Preserve useful comments and do not add banner or separator comments.
 - Do not add dependencies unless there is a clear need and no local equivalent.
 - Update the closest tests, examples, and `docs/` markdown for the behavior you
-  changed. Never hand-edit generated documentation: regenerate it with
-  `make docs`; `make check` fails on stale generated docs.
+  changed. Never hand-edit generated documentation (`docs/user-tour.md`,
+  `docs/reference/`): edit `docs/templates/` and `docs/snippets/tour/`, then
+  run `make docs`; `make check` fails on stale generated docs.
 - Prefer an `xsht` native test first for XSH behavior: add or extend a
   `test NAME { ... }` declaration under `tests/**/*.xsh` or `showcase/tests/**/*.xsh` when the
   contract can be expressed through XSH, using `test.run_script`,

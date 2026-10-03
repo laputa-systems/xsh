@@ -1,5 +1,6 @@
 ##! Build and non-mutating repository checks for the development lifecycle.
 use context
+use docs as documentation
 use stage as stages
 use targets
 
@@ -63,8 +64,9 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
   )
 }
 
-## Compiles the release lint gate before measuring read-only lint on the configured repository corpus.
-export proc check_lint(ctx: context.Context) [process, error, io] -> Result[Unit] {
+## Compiles the release lint gate before measuring read-only lint on the configured repository corpus,
+## then checks generated docs with release binaries.
+export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
       "check-lint",
@@ -87,10 +89,21 @@ export proc check_lint(ctx: context.Context) [process, error, io] -> Result[Unit
       {},
     ),
   )?
+  documentation.build_release(ctx)?
+  check_docs(ctx, documentation.release_tools(ctx))?
+}
+
+## Fails on stale generated docs, failing tour snippets, or failing tour project tests.
+export proc check_docs(
+  ctx: context.Context,
+  tools: documentation.DocTools,
+) [fs, process, env, error, io] -> Result[Unit] {
+  print f"[check-docs target=${ctx.target.triple}] render docs/templates and compare"
+  documentation.check(ctx.root, tools)?
 }
 
 ## Runs the focused, source-non-mutating development check suite.
-export proc check(ctx: context.Context) [fs, process, error, io] -> Result[Unit] {
+export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
       "check-build",
@@ -192,6 +205,7 @@ export proc check(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
       {},
     ),
   )?
+  check_docs(ctx, documentation.debug_tools(ctx))?
   check_libxsh_imports(ctx)?
   stages.execute(
     stages.command(

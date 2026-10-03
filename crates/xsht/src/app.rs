@@ -43,7 +43,7 @@ pub fn main() -> ExitCode {
     clear_cancellation_request();
 
     match parse_tool(args) {
-        Ok(Command::Help(text)) => {
+        Ok(Command::Help(text) | Command::Text(text)) => {
             print!("{text}");
             ExitCode::SUCCESS
         }
@@ -81,6 +81,8 @@ pub fn main() -> ExitCode {
 
 enum Command {
     Help(String),
+    /// Static listing output, such as `xsht lint --list`.
+    Text(String),
     Check {
         paths: Vec<String>,
         annotation_selection: Option<AnnotationSelection>,
@@ -480,6 +482,8 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
     let mut fix = false;
     let mut runless = false;
     let mut only: Option<Vec<String>> = None;
+    let mut list = false;
+    let mut format: Option<String> = None;
 
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -489,7 +493,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
         };
         if let Some(selection) = selection {
             for code in selection.split(',') {
-                if !crate::xsht::lint::LINT_CODES.contains(&code) && !crate::xsht::lint::FIXABLE_CHECK_CODES.contains(&code) {
+                if !crate::xsht::lint::lint_code_known(code) {
                     return Err(format!("unknown lint rule '{code}' for `xsht lint --only`"));
                 }
                 only.get_or_insert_with(Vec::new).push(code.to_owned());
@@ -500,11 +504,34 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
             "--help" | "-h" => return Ok(Command::Help(command_help_text("lint"))),
             "--fix" => fix = true,
             "--runless" => runless = true,
+            "--list" => list = true,
+            "--format" => {
+                format = Some(
+                    args.next()
+                        .ok_or("`xsht lint --format` requires text or jsonl")?
+                        .clone(),
+                )
+            }
+            other if other.starts_with("--format=") => {
+                format = Some(other["--format=".len()..].to_owned())
+            }
             other if other.starts_with('-') => {
                 return Err(format!("unknown `xsht lint` option '{other}'"));
             }
             _ => files.push(arg.clone()),
         }
+    }
+
+    if list {
+        if fix || runless || only.is_some() || !files.is_empty() {
+            return Err("`xsht lint --list` accepts only --format".to_string());
+        }
+        return Ok(Command::Text(lint_code_list(
+            format.as_deref().unwrap_or("text"),
+        )?));
+    }
+    if format.is_some() {
+        return Err("`xsht lint --format` requires --list".to_string());
     }
 
     Ok(Command::Lint {
@@ -513,6 +540,37 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
         runless,
         only,
     })
+}
+
+/// `xsht lint --list`: one selectable code and its summary per line.
+fn lint_code_list(format: &str) -> Result<String, String> {
+    let catalog = crate::xsht::lint::lint_code_catalog();
+    let lines = match format {
+        "text" => {
+            let width = crate::xsht::lint::lint_code_catalog()
+                .map(|(code, _)| code.len())
+                .max()
+                .unwrap_or(0);
+            catalog
+                .map(|(code, summary)| format!("{code:width$}  {summary}\n"))
+                .collect()
+        }
+        "jsonl" => catalog
+            .map(|(code, summary)| {
+                format!(
+                    "{{\"code\":{},\"summary\":{}}}\n",
+                    miniserde::json::to_string(code),
+                    miniserde::json::to_string(summary)
+                )
+            })
+            .collect(),
+        other => {
+            return Err(format!(
+                "unsupported `xsht lint --format` '{other}'; use text or jsonl"
+            ));
+        }
+    };
+    Ok(lines)
 }
 
 fn parse_fmt(args: &[String]) -> Result<Command, String> {

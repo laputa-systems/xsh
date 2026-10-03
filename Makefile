@@ -13,13 +13,19 @@ export XSH_TEST_IMAGE
 export XSH_TEST_IMAGE_BUILD
 export XSH_OS_STRESS_REPEAT
 
-.PHONY: build check lint install install-darwin install-linux test test-xsh-native-only test-linux test-linux-priv test-linux-ci test-macos-ci cov cov-native cov-docker bench bench-fast bench-syscalls dist dist-native dist-Linux dist-Linux-docker dist-ci
+.PHONY: build check docs docs-check lint install install-darwin install-linux test test-xsh-native-only test-linux test-linux-priv test-linux-ci test-macos-ci cov cov-native cov-docker bench bench-fast bench-syscalls dist dist-native dist-Linux dist-Linux-docker dist-ci
 
 build:
 	$(DEV) build
 
 check:
 	$(DEV) check lint
+
+docs:
+	$(DEV) docs
+
+docs-check:
+	$(DEV) docs check
 
 lint:
 	$(DEV) lint --fix

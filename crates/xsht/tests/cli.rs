@@ -408,6 +408,91 @@ fn fmt_uses_nearest_xsht_config_line_width() {
 }
 
 #[test]
+fn lint_accepts_a_cli_main_entry_beside_other_entry_files() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("tool.xsh"),
+        "cli main(name: Str) {\n  print $name\n}\n",
+    )
+    .expect("write cli entry");
+    fs::write(root.path().join("other.xsh"), "print \"other\"\n").expect("write other entry");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "."])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn lint_list_jsonl_names_every_selectable_code_with_a_summary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--list", "--format", "jsonl"])
+        .output()
+        .expect("run xsht lint --list");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 listing");
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(lines.len() > 50, "{stdout}");
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.starts_with("{\"code\":\"") && line.contains("\",\"summary\":\""))
+    );
+    assert!(stdout.contains("{\"code\":\"lint.prefer-guard\",\"summary\":"));
+    assert!(stdout.contains("{\"code\":\"check.bool-statement\",\"summary\":"));
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--list", "--fix"])
+        .output()
+        .expect("run xsht lint --list --fix");
+    assert_eq!(rejected.status.code(), Some(2));
+}
+
+#[test]
+fn fmt_discovery_skips_format_excludes_but_formats_named_files() {
+    let root = TempDir::new().expect("create temp root");
+    let snippets = root.path().join("snippets");
+    fs::create_dir_all(&snippets).expect("create snippets dir");
+    fs::write(
+        root.path().join("xsht-config.ini"),
+        "[format]\nexclude = snippets/**\n",
+    )
+    .expect("write config");
+    let unformatted = "let  value = 1\n";
+    let snippet = snippets.join("one.xsh");
+    fs::write(&snippet, unformatted).expect("write snippet");
+    fs::write(root.path().join("main.xsh"), unformatted).expect("write main");
+
+    let discovered = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["fmt", "--check"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht fmt --check");
+    let stdout = String::from_utf8_lossy(&discovered.stdout);
+    assert_eq!(discovered.status.code(), Some(1), "stdout: {stdout}");
+    assert!(
+        stdout.contains("main.xsh: needs formatting"),
+        "stdout: {stdout}"
+    );
+    assert!(!stdout.contains("one.xsh"), "stdout: {stdout}");
+
+    let named = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["fmt", "--check", "snippets/one.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht fmt --check on a named file");
+    assert_eq!(named.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&named.stdout).contains("one.xsh: needs formatting"));
+}
+
+#[test]
 fn fmt_explicit_directory_formats_xsh_files() {
     let root = TempDir::new().expect("create temp root");
     let project = root.path().join("project");

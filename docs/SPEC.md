@@ -12,7 +12,8 @@ Related documents:
   shell `xshi`. Nothing in `xshi` changes how `.xsh` files parse, check, or run.
 - `docs/reference/stdlib.md` is the generated index of standard modules,
   methods, and records. `xsht api` answers the same questions with full
-  signatures and details.
+  signatures and details. `docs/reference/cli.md` and
+  `docs/reference/lints.md` are the generated command help and lint catalog.
 
 Diagnostic codes such as `check.bool-statement` are quoted where they help
 locate a rule; `xsht lint` and `xsht check` report the complete set.
@@ -1958,15 +1959,17 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 | `xsht ast SCRIPT` | print the parse tree |
 | `xsht grep PATTERN [FILE...]`, `xsht refactor PATTERN REPLACEMENT [FILE...]` | structural search and rewrite |
 
-`xsht help [COMMAND]` and `COMMAND --help` print generated usage. `xsh` is a
-plain runner and rejects tracing flags. Runtime stdout and stderr are never
+`xsht help [COMMAND]` and `COMMAND --help` print generated usage, collected in
+the generated `docs/reference/cli.md`. `xsh` is a plain runner and rejects
+tracing flags. Runtime stdout and stderr are never
 decorated; diagnostics go to stderr.
 
 Without paths, `check`, `lint`, `grep`, and `refactor` process every `.xsh`
 file under the current directory plus `include` entries from the nearest
 `xsht-config.ini`, filtered by its `exclude` patterns. Each file uses the
 nearest config among its ancestors (for `module_path`, `format.line-width`
-(default 120), lint options, and `check.annotate`).
+(default 120), lint options, and `check.annotate`). `xsht fmt` discovery also
+skips the discovery root's `[format] exclude` patterns.
 
 `xsht check` runs exactly the checks that execution runs before evaluating
 anything, plus a lowering check that also needs no execution. Dynamic
@@ -1980,7 +1983,9 @@ optionally local bindings), only when checking reports no diagnostics.
 behavior and comments; a rewritten file must parse and check with no new
 diagnostics. `--only RULE,...` limits reporting and fixing to the named codes,
 so `xsht lint --fix --only check.bool-statement` inserts `assert` where Bool
-statements appear. Each finding names its rule, and a fix is withheld (with an
+statements appear. `xsht lint --list [--format text|jsonl]` prints every
+selectable code with a one-line summary; the generated
+`docs/reference/lints.md` is that catalog. Each finding names its rule, and a fix is withheld (with an
 explanation) whenever equivalence cannot be proved.
 
 `xsht grep` patterns are XSH expressions where uppercase identifiers are
