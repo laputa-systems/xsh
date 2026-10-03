@@ -199,13 +199,18 @@ This replaces the implicit-Bool design.
 
 ### 5. Make the test suites fast enough to run routinely
 
+`tests/xsh/system-report.xsh` and `dev/tests/test-system-report-check.xsh` are
+excluded in `xsht-config.ini` for the rest of the campaign. They took about 95%
+of native test time (about 2,200 s of cumulative test time). The system-report
+code stays. At final verification, re-enable them, apply the item 4b `assert`
+migration to them, and run them once.
+
 The full native suite takes 20+ minutes and saturates the machine. Many
 `tests/xsh/system-report.xsh` cases take 50–70 s each in debug builds.
 
 - Rank the slowest tests from one full run's timings.
 - Remove repeated whole-module-graph checking and subprocess re-parsing where a
   shared prepared module or an in-process call would do.
-- Merge redundant system-report cases.
 - Cap default `xsht test` parallelism at a reasonable share of cores.
 - Profile `xsht` itself. A single test process often pins one core for a
   minute, and under load `xsht` took 45–110 s just to start. Measure where time
