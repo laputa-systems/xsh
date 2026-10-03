@@ -108,3 +108,5 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.unused-local` | Flag a local variable that is never read |
 | `lint.unused-type` | Flag a type declaration that is never referenced |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
+| `check.mixed-logical` | Group `and` mixed with `or`, or `??` mixed with either, around the tighter operand |
+| `check.redundant-parens` | Remove parentheses that do not change the parse |
