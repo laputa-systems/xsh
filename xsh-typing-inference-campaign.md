@@ -127,15 +127,84 @@ Lowering still computes representation-level types (37 `infer_*` uses in
 
 ## Syntax (queued, after the Path-display lane)
 
-- **f-strings interpolate with `{expr}`, not `${expr}`.** The `f` prefix
-  already says the string interpolates. This applies to `f"..."`, `f"""..."""`,
-  and `fp"..."`. Literal braces are written `{{` and `}}`, and `$` is an
-  ordinary character inside f-strings. Command words keep `${expr}`. About 3%
-  of current f-strings (153 of 4,751, mostly generated scripts) contain
-  literal braces that need escaping. The lane updates SPEC first, then the
-  lexer, formatter, lints, and fix hints that emit f-strings, then migrates
-  this repo, the docs snippets and templates, `../packages`, and `../laputa`
-  mechanically.
+### f-strings interpolate with `{expr}`
+
+The `f` prefix already says the string interpolates, so `f"..."`,
+`f"""..."""`, and `fp"..."` use `{expr}`. Command words keep `${expr}` and
+`$name`. Python's f-strings took years to fix (PEP 701 made the lexer
+tokenize the expression), and today's `${...}` scanner shares their flaws: it
+balances bytes, honors `#` comments, and guesses a format spec at the
+rightmost `:`. The design below closes each of those edges.
+
+1. **The parser decides where an interpolation ends.** The `{...}` content
+   is lexed and parsed by the ordinary expression parser, which runs until
+   the matching `}`. No byte scanner guesses. Nested strings, nested
+   f-strings with the same quote, record and map literals, blocks, named
+   arguments, and slices all work inside, because each is an ordinary
+   expression.
+2. **Escapes:** `{{` and `}}` in the text part. A lone `}` in text is an
+   error whose fix writes `}}`, and an unclosed `{` is an error. `\{` is not
+   an escape, so there is only one way to write a brace.
+3. **Leading brace:** `{{` in text is always an escape, so an expression that
+   begins with `{` needs a space: `f"{ {a: 1}.a }"`. The formatter keeps that
+   space (a `join_tokens` rule) and the equivalence check covers it. Inside an
+   expression, `}}` is just two closing braces.
+4. **Format spec:** keep the existing widths, `{expr:>N}`, `{expr:<N}`, and
+   `{expr:0N}` (116 uses, mostly tables), and document them in SPEC. The spec
+   starts at a `:` the expression parser stops at. XSH expressions never
+   contain a bare top-level `:`: named arguments, record and map entries are
+   bracketed, and slices use `..`. That makes the spec unambiguous by
+   construction, where today the rightmost-`:` guess decides it. Anything else
+   after `:` is an error. No Python mini-language, no `!r` or `!s`
+   conversions, and no `{x=}` debug form.
+5. **`$` is plain text inside f-strings,** but `${` and `$ident` where
+   `ident` names a binding in scope are errors with a fix (`{expr}`, or `\$`
+   for a literal dollar). A shell user's `f"${x}"` or `f"$HOME"` would
+   otherwise print `$` followed by the value, silently. `\$` stays a valid
+   escape everywhere. Literal prices like `f"costs $5"` are fine.
+6. **Restrictions inside `{...}`:** no comments, and no line breaks inside a
+   single-line `f"..."`; block `f"""..."""` may break lines inside braces.
+   An empty or whitespace-only `{}` is an error.
+7. **Forgotten prefix:** new `lint.missing-f-prefix` (warning with a fix that
+   adds `f`, or `fp` for `p"..."`). It fires when a plain `"..."` or
+   `p"..."` contains `{name}` or `{name.field}` and `name` is in scope. This
+   is Python's most common f-string bug.
+8. **Diagnostics** inside interpolations point at exact source columns in
+   both single-line and block strings, including after `{{` escapes and
+   layout removal.
+9. **Values:** display conversion is unchanged (§11.4 table). Path fragments
+   in `fp"..."` keep their bytes.
+10. **Migration:** mechanical and token-based, through the parser, never by
+    regex.
+    - Rewrite `${e}` to `{e}`, `$name` to `{name}`, and `\${` to `$`, and
+      double literal braces.
+    - Rewrite fix-hint emitters and lints that build f-strings.
+    - Rewrite the corpus, docs snippets and templates, and Rust-embedded XSH.
+    - Then `../packages` and `../laputa`.
+    - Strings that generate XSH scripts (most of the 153 with literal braces)
+      may move to plain `"""..."""` plus `+`, or `template.render`, when
+      that reads better than `{{ }}`.
+11. **Edge-case corpus,** in native tests plus a fuzz-generator update:
+    - nested same-quote f-strings;
+    - `{ {a: 1}.a }`;
+    - `{m["k"]}`;
+    - `{f(a: 1)}`;
+    - `{xs[1..2]}`;
+    - `{x:>4}` next to `{f(width: 4)}`;
+    - `{if c { "a" } else { "b" }}`;
+    - `{{`/`}}` at the start and end and adjacent to interpolations;
+    - a lone `}`;
+    - an unclosed `{`;
+    - empty `{}`;
+    - `${x}` and `$name` errors;
+    - `f"costs $5"`;
+    - `#` in text versus in an expression;
+    - block strings with braces on indented lines;
+    - multibyte text before an error column;
+    - fp strings joining Path bytes.
+
+    The formatter's round-trip and lint-invariance properties must hold on
+    all of them.
 
 ## Docs refresh (remaining)
 
