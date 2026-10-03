@@ -26,6 +26,7 @@ pub struct CompactDeclOutput {
     pub record_constructors: super::RecordConstructors,
     pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
+    pub checked_expr_types: FxHashMap<ExprId, Type>,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub(crate) cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
@@ -132,6 +133,10 @@ impl Checker {
                     requirement_targets: (0..program.arena.expr_tags.len()).filter_map(|index| {
                         let id = ExprId::from_index(index);
                         checked.requirement_targets.get(&program.arena.expr(id).span).cloned().map(|target| (id, target))
+                    }).collect(),
+                    checked_expr_types: (0..program.arena.expr_tags.len()).filter_map(|index| {
+                        let id = ExprId::from_index(index);
+                        checked.expr_types.get(&program.arena.expr(id).span).cloned().map(|ty| (id, ty))
                     }).collect(),
                     function_effect_facts: checked.function_effect_facts.clone(),
                     record_constructor_types: (0..program.arena.expr_tags.len()).filter_map(|index| {
