@@ -102,11 +102,11 @@ identity for lowering. Embedded standard-library modules are checked with the
 program, so their bodies have the same facts. Lowering reads checked types
 and `CompactBodyFacts::api_calls` (`CheckedApiCall`): the checker's selected
 registry overload for each method and module function call, its concrete
-parameter types, and each argument entry's parameter slot. Lowering never
-selects an overload or rebinds those arguments; it still chooses row
-representations and lowers untyped `Any` receivers through positional or named
-method tables. Runtime registration derives declaration metadata from those
-compact results.
+parameter types, and each argument entry's parameter slot. Other calls and
+structured stages publish `CompactBodyFacts::argument_bindings`
+(`CheckedArguments`). Lowering never selects an overload or binds arguments; a
+method call without a checked plan lowers only positional arguments. Runtime
+registration derives declaration metadata from those compact results.
 
 Checking must not depend on an alternate syntax representation. When a compact
 row gains behavior-bearing data, update every applicable checker, lowerer, and

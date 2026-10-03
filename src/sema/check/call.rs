@@ -726,7 +726,9 @@ impl Checker {
                     };
                     (value == expr).then(|| ty.clone())
                 })).expect("named spreads are expanded before constructor checking");
-                let binding = match bind_err_arguments(&expanded) {
+                let binding = match bind_err_arguments(&expanded).inspect(|binding| {
+                    self.argument_bindings.insert(span, super::CheckedArguments { callable_entry: None, argument_slots: binding.argument_slots.clone() });
+                }) {
                     Ok(binding) => binding,
                     Err(error) => { self.error(error.span, &error.message, "check.err-arguments"); return Type::Invalid; }
                 };

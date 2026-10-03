@@ -596,13 +596,15 @@ Focused semantic rules live beside it:
   results independently. JSON adapter items remain unchecked `Any` values.
   Stage configuration lives in ordinary `ArenaCallArg` lists and uses
   `sema::arguments::expand_named_arguments` and `bind_static_arguments`, with
-  fixed parameter contracts in `xsh_registry::stream_parameters`. Lowering
+  fixed parameter contracts in `xsh_registry::stream_parameters`; the checker
+  publishes the binding as `CheckedArguments` at the stage span. Lowering
   evaluates supplied entries in source order into checked temporary slots at
   the existing stage boundary; indexed stage opcodes retain their specialized
   configuration and worker machinery.
   Static unary callable descriptors use the same argument binder with a
-  `block` role. `stage_callable_argument` separates the descriptor from fixed
-  configuration; `append_stage_callable_block` creates a private temporary
+  `block` role. `stage_callable_argument` selects the descriptor entry, which
+  the checker publishes as `CheckedArguments::callable_entry`, and
+  `stage_configuration_arguments` retains the remaining configuration; `append_stage_callable_block` creates a private temporary
   ordinary call for checking and lowering. Compact `stage_callable_types`
   retain return types without erasing the descriptor into a function value.
   The existing verified call and stage rows execute per item, while checker
@@ -911,7 +913,10 @@ lowering; absent slots continue to select ordinary defaults. Expression calls
 and structured stages share these facts. For registered method and module
 function calls, `Checker::publish_api_call` records the selected overload's
 binding once as `CheckedApiCall`; lowering consumes it instead of selecting
-an overload. `lower_expanded_argument_values`
+an overload. Named user callable and `Err` calls publish `CheckedArguments`;
+a script implementation reuses its public overload's slots only when its
+parameters match by name.
+`lower_expanded_argument_values`
 creates source-ordered hygienic slots and projects each spread before the next
 entry. `wrap_argument_bindings` sequences the initialization around existing
 call and operation rows. Compiler-generated projection IDs are transient and

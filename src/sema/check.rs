@@ -101,6 +101,15 @@ pub struct CheckedApiCall {
     pub argument_slots: Vec<usize>,
 }
 
+/// A user callable call's or structured stage's source argument entries bound
+/// to parameter slots. A stage's `callable_entry` is its named callable
+/// descriptor; its slots describe the remaining configuration entries.
+#[derive(Clone, Debug, Default)]
+pub struct CheckedArguments {
+    pub callable_entry: Option<usize>,
+    pub argument_slots: Vec<usize>,
+}
+
 /// A stage retains its checked input context and output contract independently
 /// of the enclosing pipeline's final result.
 #[derive(Clone, Debug)]
@@ -137,6 +146,8 @@ pub struct CheckOutput {
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
     pub api_calls: BTreeMap<Span, CheckedApiCall>,
+    /// Keyed by call expression or stage span.
+    pub argument_bindings: BTreeMap<Span, CheckedArguments>,
     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     /// `with` error handlers retain the common nominal error of their checked inputs.
@@ -395,6 +406,7 @@ pub struct Checker {
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
     api_calls: BTreeMap<Span, CheckedApiCall>,
+    argument_bindings: BTreeMap<Span, CheckedArguments>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
     /// Lowering needs facts for embedded implementation bodies; other checks
@@ -522,6 +534,7 @@ impl Checker {
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
                 api_calls: checker.api_calls,
+                argument_bindings: checker.argument_bindings,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
             }
@@ -623,6 +636,7 @@ impl Checker {
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
                 api_calls: checker.api_calls,
+                argument_bindings: checker.argument_bindings,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
             }
@@ -682,6 +696,7 @@ impl Checker {
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
             api_calls: BTreeMap::new(),
+            argument_bindings: BTreeMap::new(),
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),
             check_embedded_bodies: false,

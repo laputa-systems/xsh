@@ -3,7 +3,7 @@
 use super::decl::is_builtin_or_standard_record_type_name;
 use super::{
     BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo,
-    FxHashMap, FxHashSet, Label, Name, TagVariantInfo, Type, api_spec,
+    FxHashMap, FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
 };
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
 use crate::symbol::QualifiedName;
@@ -83,6 +83,8 @@ pub struct CompactBodyFacts {
     /// Registered method and module function calls keyed by call expression;
     /// a stage callable's plan is keyed by its callee.
     pub api_calls: FxHashMap<ExprId, super::CheckedApiCall>,
+    /// User callable calls and structured stages keyed by their source span.
+    pub argument_bindings: BTreeMap<Span, super::CheckedArguments>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     /// `with` handler slots retain the common nominal error of their checked inputs.
     pub handler_input_types: FxHashMap<BlockId, Type>,
@@ -91,7 +93,7 @@ pub struct CompactBodyFacts {
 impl CompactBodyFacts {
     fn collect(program: &ArenaProgram, checked: &super::CheckOutput) -> (Self, FxHashMap<ExprId, Type>) {
         let arena = &program.arena;
-        let mut facts = Self::default();
+        let mut facts = Self { argument_bindings: checked.argument_bindings.clone(), ..Self::default() };
         let mut record_constructor_types = FxHashMap::default();
         facts.expr_types.reserve(checked.expr_types.len());
         for index in 0..arena.expr_tags.len() {

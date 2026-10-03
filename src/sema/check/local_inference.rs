@@ -191,6 +191,7 @@ impl Checker {
         let standard_call_spans = std::mem::take(&mut self.standard_call_spans);
         let statically_resolved_call_spans = std::mem::take(&mut self.statically_resolved_call_spans);
         let api_calls = std::mem::take(&mut self.api_calls);
+        let argument_bindings = std::mem::take(&mut self.argument_bindings);
         let definitely_exiting_block_spans = std::mem::take(&mut self.definitely_exiting_block_spans);
         let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
         let probe = self.clone();
@@ -216,6 +217,7 @@ impl Checker {
         self.standard_call_spans = standard_call_spans;
         self.statically_resolved_call_spans = statically_resolved_call_spans;
         self.api_calls = api_calls;
+        self.argument_bindings = argument_bindings;
         self.definitely_exiting_block_spans = definitely_exiting_block_spans;
         self.local_inference.checked_bindings = checked_bindings;
         probe
