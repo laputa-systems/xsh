@@ -1842,6 +1842,7 @@ impl Checker {
         if self.in_defer_block {
             self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
         }
+        self.reject_yield_in_retry(span);
         let expected = self.current_yield.clone();
         if expected.is_none() {
             self.error(span, "`yield` is valid only in stream producers", "check.yield");
@@ -1874,6 +1875,14 @@ impl Checker {
         }
     }
 
+    /// A retry attempt runs outside its producer's frame, so a `yield` there
+    /// used to check and then fail at runtime.
+    fn reject_yield_in_retry(&mut self, span: Span) {
+        if self.retry_block_depth > 0 {
+            self.error(span, "`yield` is not allowed inside a retry attempt", "check.yield");
+        }
+    }
+
     fn check_yield_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1884,6 +1893,7 @@ impl Checker {
         if self.in_defer_block {
             self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
         }
+        self.reject_yield_in_retry(span);
         let expected = match self.current_yield.clone() {
             Some(ty) => ty,
             None => {

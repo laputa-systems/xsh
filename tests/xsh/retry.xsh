@@ -96,6 +96,40 @@ print f"\${value} \${attempts} \${cleaned}"
   assert output.stderr == ""
 }
 
+test test_yield_inside_retry_attempt_is_a_checker_error { |ctx|
+  # An attempt runs outside its producer's frame: a `yield` there used to
+  # check and then fail at runtime. A `try` block keeps yielding.
+  let rejected = test.run_script(
+    ctx,
+    """stream items() [] -> Stream[Int] {
+  let attempt: Result[Int] = retry [] {
+    yield 1
+    2
+  }
+  yield attempt ?? 0
+}
+for item in items() { print $item }
+""",
+  )?
+  assert ! rejected.success
+  assert "check.yield" in rejected.stderr, rejected.stderr
+  assert rejected.stdout == ""
+  let captured = test.run_script(
+    ctx,
+    """stream items() [] -> Stream[Int] {
+  let attempt = try {
+    yield 1
+    2
+  }
+  yield attempt ?? 0
+}
+for item in items() { print $item }
+""",
+  )?
+  assert captured.success, captured.stderr
+  assert captured.stdout == "1\n2\n"
+}
+
 test test_return_inside_retry_returns_from_enclosing_proc { |ctx|
   let output = test.run_script(
     ctx,

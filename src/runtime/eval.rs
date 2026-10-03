@@ -488,9 +488,10 @@ struct BuildScratch {
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
     prepared_constants: FxHashMap<crate::syntax::arena::ExprId, LoweredValue>,
     expressions: Vec<BuildExprRow>,
-    /// Checked Duration operands prohibit integer-only specialization even when
-    /// the operation's result is an Int interval count.
-    duration_binary_expressions: FxHashSet<usize>,
+    /// Binary expressions with a checked operand other than Int (a Duration,
+    /// even when the result is an Int interval count, or Str concatenation)
+    /// prohibit integer-only specialization.
+    non_int_binary_expressions: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
     patterns: Vec<BuildPatternRow>,
     ints: Vec<BuildIntRow>,

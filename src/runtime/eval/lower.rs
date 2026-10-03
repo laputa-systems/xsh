@@ -6671,9 +6671,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let uint_key = matches!(op, BinaryOp::In | BinaryOp::NotIn) && matches!(self.checked_expr_type(right), Some(Type::Map(key, _)) if *key == Type::UInt);
                 let lowered_left = self.lower_expr(left, slots, current_function, item_slot)?;
                 let lowered_left = if uint_key { self.require_uint_key(lowered_left, self.program.arena.expr(left).span) } else { lowered_left };
-                let duration_operands = self.bodies.expr_types.get(&left) == Some(&Type::Duration)
-                    || self.bodies.expr_types.get(&right) == Some(&Type::Duration)
-                    || self.checked_expr_type(left) == Some(Type::Duration)
+                // Only the operands' checked types tell `s + s < s + s` on Str
+                // from Int arithmetic; the int fast path compared Str slots as
+                // Ints at runtime.
+                let non_int = |operand: ExprId| {
+                    self.bodies.expr_types.get(&operand).or(self.checked_expr_type(operand).as_ref())
+                        .is_some_and(|ty| !matches!(ty, Type::Int | Type::UInt))
+                };
+                let non_int_operands = non_int(left) || non_int(right) || self.checked_expr_type(left) == Some(Type::Duration)
                     || self.checked_expr_type(right) == Some(Type::Duration);
                 let value = push_build_row!(self, expr, BuildExprRow::Binary {
                     op,
@@ -6681,7 +6686,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     right: self.lower_expr(right, slots, current_function, item_slot)?,
                     span,
                 });
-                if duration_operands { self.scratch.borrow_mut().duration_binary_expressions.insert(value.index()); }
+                if non_int_operands { self.scratch.borrow_mut().non_int_binary_expressions.insert(value.index()); }
                 let ty = if op == BinaryOp::Add { self.checked_expr_type(id) } else { None };
                 Some(match ty { Some(ty) => self.checked_unsigned_value(value, &ty, span), None => value })
             }
@@ -12428,7 +12433,7 @@ fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
 
 impl CompactLowerConstructProbe<'_, '_> {
     fn lower_int_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildIntId> {
-        if self.scratch.borrow().duration_binary_expressions.contains(&expr.index()) { return None; }
+        if self.scratch.borrow().non_int_binary_expressions.contains(&expr.index()) { return None; }
         let row = {
             let scratch = self.scratch.borrow();
             scratch.expressions[expr.index()].clone()

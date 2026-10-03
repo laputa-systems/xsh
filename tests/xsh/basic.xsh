@@ -70,6 +70,17 @@ test test_float_negation_keeps_float_and_signed_zero {
   assert f"${-zero} ${-negated_floats([1.25])[0]}" == "-0 1.25"
 }
 
+pure concatenations_ordered(left: Str, right: Str) -> Bool {
+  left + left < right + right
+}
+
+test test_str_concatenation_comparison_in_a_body_compares_text {
+  # The Int comparison fast path matched `a + b < c + d` by shape and
+  # compared Str slots as Ints at runtime.
+  assert concatenations_ordered("a", "b")
+  assert ! concatenations_ordered("b", "a")
+}
+
 test test_unexpected_multibyte_character_is_reported_once { |ctx|
   # The lexer used to step one byte at a time, reporting each byte of `é`
   # with a span that split the character.

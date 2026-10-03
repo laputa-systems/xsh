@@ -1040,7 +1040,9 @@ impl Checker {
 
         self.push_scope();
         self.begin_error_boundary();
+        self.retry_block_depth += 1;
         let body_ty = self.check_tail_block_arena(arena, source, block, None);
+        self.retry_block_depth -= 1;
         let error_ty = self.end_error_boundary(None);
         self.pop_scope();
 

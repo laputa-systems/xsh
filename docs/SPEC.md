@@ -1524,7 +1524,7 @@ attempt into a failed attempt instead of propagating from the enclosing proc.
 This attempt-local `?` does not itself require the enclosing proc's `error`
 effect. A `return` statement inside a retry block keeps its ordinary meaning and
 returns from the enclosing proc. `break` and `continue` keep their ordinary loop
-targets.
+targets. A stream producer cannot `yield` from an attempt (`check.yield`).
 
 Each attempt has an ordinary block scope. `defer` actions registered during an
 attempt run before the next attempt begins and before a successful retry
