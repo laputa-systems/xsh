@@ -356,9 +356,7 @@ pure lang_for_shebang(text: Bytes) -> Language {
   for line in text.lines() {
     let first = (line.utf8() ?? "").lower()
 
-    if ! first.starts_with("#!") {
-      return LangUnknown
-    }
+    return LangUnknown unless first.starts_with("#!")
 
     return LangPython when "python" in first
 
@@ -456,9 +454,7 @@ pure count_hash_unindented(text: Bytes) -> Scan {
 }
 
 pure count_hash_language(text: Bytes) -> Scan {
-  if b"#" not in text {
-    return count_code_text(text)
-  }
+  return count_code_text(text) when b"#" not in text
 
   if ! text.starts_with(b" ") and ! text.starts_with(b"\t") and ! (b"\n " in text) and ! (b"\n\t" in text) {
     return count_hash_unindented(text)

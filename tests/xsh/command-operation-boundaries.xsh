@@ -43,8 +43,10 @@ erased
 
 test test_display_and_wait_reject_invalid_boundaries_before_execution { |ctx|
   for source in [
-    r"print ${[7]}" + "\n",
-    r"eprint prefix${[7]}suffix" + "\n",
+    r"""print ${[7]}
+""",
+    r"""eprint prefix${[7]}suffix
+""",
     """let result = wait 7
 """,
     """proc denied(handle: ProcessHandle) [] { wait handle }

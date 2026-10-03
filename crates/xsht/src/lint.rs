@@ -1697,6 +1697,9 @@ impl<'a> Linter<'a> {
         if !collect(self.arena, expr, &mut value, &mut links) || links == 0
             || !value.contains('\n') || value.contains('\r')
         { return; }
+        // Trailing spaces or tabs on a line would become invisible trailing
+        // whitespace in a block string, which editors and formatters strip.
+        if value.split('\n').any(|line| line.ends_with([' ', '\t'])) { return; }
         // Report the outermost literal chain once; its operands are part of the same rewrite.
         if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")
             && diagnostic.labels.iter().any(|label| label.span.source_id == span.source_id && label.span.start() <= span.start() && span.end() <= label.span.end()))

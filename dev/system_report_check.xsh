@@ -16854,9 +16854,7 @@ export pure parse_reference_os_release(source: Str) -> Result[OsReleaseReference
     }
   }
 
-  if id == null or id == "" {
-    return Err(check_failure("os-release reference has no ID"))
-  }
+  return Err(check_failure("os-release reference has no ID")) when id == null or id == ""
 
   {id: id, version_id: version_id}
 }
