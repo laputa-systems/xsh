@@ -57,3 +57,35 @@ print $word
   let invalid = test.run_script(ctx, "use choice as c\nlet value = c.Choice.Chosen(7)\n", [], {XSH_MODULE_PATH: root.display()})?
   assert ! invalid.success, invalid.stderr
 }
+
+test test_enum_multiline_payload_equality_and_exhaustive_matches [error] { |ctx|
+  let declaration = r"""enum Mode {
+  Fast,
+  Thorough,
+  Custom(Int),
+}
+"""
+  let executed = test.run_script(ctx, declaration + r"""pure describe(mode: Mode) -> Str {
+  match mode {
+    Fast => "fast"
+    Thorough => "thorough"
+    Custom(level) => f"custom:$level"
+  }
+}
+print ${describe(Fast)} ${describe(Custom(3))} ${Custom(3) == Custom(3)} ${Custom(3) == Custom(4)}
+""")?
+  assert executed.success, executed.stderr
+  executed.stdout == "fast custom:3 true false\n"
+  let incomplete = test.run_script(ctx, declaration + r"""pure describe(mode: Mode) -> Str {
+  match mode {
+    Fast => "fast"
+    Custom(level) => f"custom:$level"
+  }
+}
+""")?
+  assert ! incomplete.success, incomplete.stderr
+  "check.match-value-exhaustive" in incomplete.stderr
+  "Thorough" in incomplete.stderr
+  let qualified = test.run_script(ctx, declaration + "let value = Mode.Fast\n")?
+  assert ! qualified.success, qualified.stderr
+}

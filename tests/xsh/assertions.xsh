@@ -39,6 +39,9 @@ test test_membership_checks_map_keys_and_record_fields [error] {
   let fields = {present: null}
   ("present" in fields)
   ("absent" not in fields)
+  let words: Map[Str] = {key: "value"}
+  "value" not in words
+  "value" not in {key: "value"}
 }
 
 test test_assertion_single_evaluation_short_circuit_and_value_predicates [error] { |ctx|
@@ -126,10 +129,13 @@ order == "nc"
 "" in ""
 b"bc" in b"abcd".slice(1, length: 2)
 b"" in b""
+b"" in b"abc"
+"" in "abc"
 2 in [1, 2, 3]
 4 not in [1, 2, 3]
 p"foo" in p"foobar"
 "bar" in p"foobar"
+p"/usr/lib" in p"/usr/lib64/tool"
 "é" not in "cafe"
 print "done"
 """)?
@@ -202,6 +208,11 @@ test test_assertion_diagnostics_include_values_and_only_evaluated_operands [erro
   equality.status == 3
   assert "left: [1, 2]" in equality.stderr, equality.stderr
   assert "right: [1, 3]" in equality.stderr, equality.stderr
+  let ordering = test.run_script(ctx, "let small = 2\nsmall > 5\n")?
+  ordering.status == 3
+  assert "left: 2" in ordering.stderr, ordering.stderr
+  assert "right: 5" in ordering.stderr, ordering.stderr
+  assert ":2:1" in ordering.stderr, ordering.stderr
   let membership = test.run_script(ctx, "\"missing\" in {present: null}\n")?
   membership.status == 3
   assert "missing" in membership.stderr, membership.stderr
@@ -282,4 +293,75 @@ print "done"
 """)?
   assert output.success, output.stderr
   output.stdout == "done\n"
+}
+
+pure assertion_negated(flag: Bool) -> Bool { !flag }
+
+test test_boolean_value_contexts_do_not_assert [error] { |ctx|
+  let output = test.run_script(ctx, """stream flags() [] -> Stream[Bool] {
+  yield false
+  yield 1 > 2
+}
+let yielded = flags() |> collect()
+print $yielded.len()
+""")?
+  assert output.success, output.stderr
+  output.stdout == "2\n"
+  assertion_negated(false)
+  var flag = true
+  flag = 2 < 1
+  !flag
+  let picked = if flag { true } else { false }
+  !picked
+  var reached = false
+  if 3 < 2 { reached = true }
+  !reached
+}
+
+test test_status_and_optional_statements_have_no_truthiness [process, error] { |ctx|
+  let output = test.run_script(ctx, """let failed = run.status false
+(failed)
+let absent: Bool? = false
+(absent)
+print "done"
+""")?
+  assert output.success, output.stderr
+  output.stdout == "done\n"
+  let integer = test.run_script(ctx, "proc check() { let code = 7; (code) }\ncheck()?\n")?
+  assert integer.status == 2, integer.stderr
+  "check.type-mismatch" in integer.stderr
+}
+
+test test_removed_membership_apis_and_unsupported_domains_are_rejected [error] { |ctx|
+  for statement in [
+    "let text = \"abc\"\nlet _ = text.contains(\"a\")",
+    "let data = b\"abc\"\nlet _ = data.contains(b\"a\")",
+    "let items = [1, 2]\nlet _ = items.contains(1)",
+    "let counts: Map[Int] = {one: 1}\nlet _ = counts.has(\"one\")",
+    "let fields = {one: 1}\nlet _ = fields.has(\"one\")",
+    "test.contains(\"abc\", \"a\")?",
+    "test.not_contains(\"abc\", \"z\")?",
+  ] {
+    let removed = test.run_script(ctx, statement + "\n")?
+    assert removed.status == 2, removed.stderr
+    assert "check.removed-membership" in removed.stderr, removed.stderr
+  }
+  for case in [
+    {expression: "97 in b\"abc\"", code: "check.type-mismatch"},
+    {expression: "\"a\" in b\"abc\"", code: "check.type-mismatch"},
+    {expression: "\"a\" in rx\"a\"", code: "check.membership-type"},
+    {expression: "1 in range(3)", code: "check.membership-type"},
+  ] {
+    let unsupported = test.run_script(ctx, "let _ = " + case.expression + "\n")?
+    assert unsupported.status == 2, unsupported.stderr
+    assert case.code in unsupported.stderr, unsupported.stderr
+  }
+}
+
+test test_imported_module_boolean_statement_is_rejected [fs, error] { |ctx|
+  fp"${ctx.temp_root}/statement_module.xsh".write("##! Runs a statement.\n## A public field.\nexport let present = 1\ntrue\n")?
+  let output = test.run_script(ctx, "use statement_module\nprint \"unreachable\"\n")?
+  assert output.status == 2, output.stderr
+  output.stdout == ""
+  "check.module-top-level" in output.stderr
 }

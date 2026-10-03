@@ -58,6 +58,7 @@ test test_record_constructors_reject_invalid_calls_and_defaults [error] { |ctx|
     "type Config = {name: Str = env.get(\"HOME\")}\n",
     "var name = \"demo\"\ntype Config = {name: Str = name}\n",
     "type Config = {first: Int = 1, second: Int = first}\n",
+    "type Config = {value: Int = (Ok(1))?}\n",
   ] {
     let rejected = test.run_script(ctx, source)?
     {

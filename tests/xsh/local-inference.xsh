@@ -329,3 +329,40 @@ print ${empty_stats().blobs.len()}
     assert output.success, output.stderr
     output.stdout == "0\n"
 }
+
+test unannotated_empty_local_is_one_monomorphic_hole_across_aliases [error] { |ctx|
+    let accepted = test.run_script(ctx, r"""proc gather() -> List[Path] {
+  var entries = []
+  let alias = entries
+  for destination in [p"one"] { entries += [destination] }
+  let paths: List[Path] = alias
+  entries
+}
+print ${gather()[0].display()}
+""")?
+    assert accepted.success, accepted.stderr
+    accepted.stdout == "one\n"
+    let rejected = test.run_script(ctx, r"""proc paths(values: List[Path]) -> Unit {}
+proc integers(values: List[Int]) -> Unit {}
+proc inspect() -> Unit {
+  let entries = []
+  let alias = entries
+  paths(entries)
+  integers(alias)
+}
+""")?
+    !rejected.success
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+}
+
+test solved_locals_keep_exact_types_without_widening_or_dropping_null [error] { |ctx|
+    for body in [
+        "var values = []\n  values += [1]\n  values += [1.5]\n",
+        "var entries = []\n  entries += [p\"one\"]\n  let wrong: List[Str] = entries\n",
+        "var selected = null\n  selected = p\"chosen\"\n  let wrong: Path = selected\n",
+    ] {
+        let output = test.run_script(ctx, "proc inspect() -> Unit {\n  " + body + "}\n")?
+        !output.success
+        assert "check.type-mismatch" in output.stderr, output.stderr
+    }
+}

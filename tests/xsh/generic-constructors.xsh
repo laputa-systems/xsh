@@ -227,3 +227,32 @@ print ${fifth[0].name}
   assert !rejected.success, rejected.stderr
   "check.constructor-inference" in rejected.stderr
 }
+
+test test_generic_constructor_infers_exact_instances_without_later_use_evidence [error] { |ctx|
+  let declaration = r"""enum ObservationState { Observed, Absent }
+type Observation[T] = {state: ObservationState, value: T?}
+"""
+  let accepted = test.run_script(ctx, declaration + r"""let measured = Observation(state: Observed, value: 12)
+let exact: Observation[Int] = measured
+let value: Int? = measured.value
+print ${(value ?? 0) + (exact.value ?? 0)} ${measured.state == Observed}
+""")?
+  assert accepted.success, accepted.stderr
+  accepted.stdout == "24 true\n"
+  for source in [
+    "let measured = Observation(state: Observed, value: 12)\nlet wrong: Observation[Str] = measured\n",
+    "let measured = Observation(state: Observed, value: 12)\nlet wrong: Str? = measured.value\n",
+  ] {
+    let rejected = test.run_script(ctx, declaration + source)?
+    assert !rejected.success, source
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+  for source in [
+    "let absent = Observation(state: Absent, value: null)\n",
+    "let absent = Observation(state: Absent, value: null)\nlet later: Int = absent.value ?? 0\n",
+  ] {
+    let rejected = test.run_script(ctx, declaration + source)?
+    assert !rejected.success, source
+    assert "check.constructor-inference" in rejected.stderr, rejected.stderr
+  }
+}

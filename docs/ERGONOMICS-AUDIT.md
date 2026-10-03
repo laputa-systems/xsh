@@ -1,8 +1,8 @@
 # Ergonomics completeness and autofix audit
 
 The audit covers every numbered proposal in `ergonomics-0.md` through
-`ergonomics-7.md`, plus maintained XSH sources in this repository, `../packages`,
-and `../laputa`. The detailed matrices distinguish a supported exact example,
+`ergonomics-7.md` (removed after implementation; read them at `d6f09bc5`), plus
+maintained XSH sources in this repository, `../packages`, and `../laputa`. The detailed matrices distinguish a supported exact example,
 a narrower supported family, an intentional manual policy change, and a missing
 safe migration:
 

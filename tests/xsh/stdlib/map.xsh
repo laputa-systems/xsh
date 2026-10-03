@@ -309,3 +309,17 @@ test test_map_literal_record_defaults_retain_map_identity_and_aliases [error] {
   (changed.counts.get("fixed")?) == (9)
   (changed.counts.keys()) == (["fixed", "other"])
 }
+
+test test_map_iteration_binding_is_entry_record_and_result_sources_need_error [error] { |ctx|
+  let counts: Map[Int] = {beta: 2, alpha: 1}
+  ([entry for entry in counts]) == ([{key: "alpha", value: 1}, {key: "beta", value: 2}])
+  ([entry.value for entry in counts]) == (counts.values())
+  for source in [
+    "proc forbidden(values: Result[Map[Int]]) [] { for entry in values { let _ = entry } }\n",
+    "proc forbidden(values: Result[Map[Int]]) [] { let _ = [entry.key for entry in values] }\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert ! output.success, source
+    "check.effect-violation" in output.stderr
+  }
+}

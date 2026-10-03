@@ -269,3 +269,40 @@ proc projected() -> List[Int] {
   ("check.effect-violation" in rejected.stderr) == true
   ("time" in rejected.stderr) == true
 }
+
+test test_private_proc_effects_infer_module_call_and_propagation_requirements [error] { |ctx|
+  let declaration = r"""type Manifest = {name: Str}
+proc read_manifest(file: Path) -> Result[Manifest] {
+  json.read(file)?.require(Manifest)?
+}
+"""
+  let accepted = test.run_xsh(ctx, declaration + "proc caller(file: Path) [fs, error] -> Result[Manifest] { read_manifest(file) }\n")?
+  accepted.status == 0
+  for {declared, missing} in [{declared: "error", missing: "fs"}, {declared: "fs", missing: "error"}] {
+    let caller = "proc caller(file: Path) [" + declared + "] -> Result[Manifest] { read_manifest(file) }\n"
+    let rejected = test.run_xsh(ctx, declaration + caller)?
+    rejected.status != 0
+    ("check.effect-violation" in rejected.stderr) == true
+    (f"effect `${missing}` required by `read_manifest`" in rejected.stderr) == true
+  }
+}
+
+test test_private_proc_effects_leave_missing_public_and_stream_clauses_unrestricted [error] { |ctx|
+  for source in [
+    "export proc published() -> Int { 42 }\nproc caller() [] -> Int { published() }\n",
+    "stream values() -> Stream[Int] { yield 42 }\nproc caller() [] -> Stream[Int] { values() }\n",
+  ] {
+    let rejected = test.run_xsh(ctx, source)?
+    rejected.status != 0
+    ("check.effect-violation" in rejected.stderr) == true
+    ("unknown or unrestricted effect contract" in rejected.stderr) == true
+  }
+  let accepted = test.run_xsh(ctx, """
+export proc published() [] -> Int { helper() }
+proc helper() -> Int { 42 }
+proc caller() [] -> Int { published() }
+print \${caller()}
+""")?
+  accepted.status == 0
+  accepted.stdout == "42\n"
+}

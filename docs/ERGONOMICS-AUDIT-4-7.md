@@ -1,7 +1,8 @@
 # Ergonomics migration audit: proposals 4–7
 
 This audit records the source-migration coverage observed on 2026-09-29 and rechecked on 2026-09-30 for
-`ergonomics-4.md` through `ergonomics-7.md`. Language support and automatic
+`ergonomics-4.md` through `ergonomics-7.md` (removed after implementation; read
+them at `d6f09bc5`). Language support and automatic
 migration are separate conclusions: a feature can execute correctly while its
 illustrative before/after transformation remains manual or unsupported.
 

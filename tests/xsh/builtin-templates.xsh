@@ -164,3 +164,27 @@ test test_builtin_templates_do_not_certify_dynamic_receiver_domains [fs, process
     assert "check.dynamic-boundary" in output.stderr, output.stderr
   }
 }
+
+test test_builtin_templates_carry_typed_map_key_and_value_parameters [error] { |ctx|
+  let declaration = "let table: Map[Int, Str] = {[1]: \"one\"}\n"
+  let accepted = test.run_script(ctx, declaration + r"""let keys: List[Int] = table.keys()
+let values: List[Str] = table.values()
+let found: Result[Str] = table.get(1)
+let updated: Map[Int, Str] = table.set(2, "two")
+let removed: Map[Int, Str] = updated.remove(1)
+print ${keys[0]} ${values[0]} ${found?} ${updated.len()} ${removed.keys()[0]}
+""")?
+  assert accepted.success, accepted.stderr
+  accepted.stdout == "1 one one 2 2\n"
+  for source in [
+    "let wrong: List[Str] = table.keys()\n",
+    "let wrong: List[Int] = table.values()\n",
+    "for {key, value} in table { let wrong: Str = key }\n",
+    "let _ = table.remove(\"one\")\n",
+    "let _ = \"one\" in table\n",
+  ] {
+    let rejected = test.run_script(ctx, declaration + source)?
+    assert !rejected.success, source
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+}

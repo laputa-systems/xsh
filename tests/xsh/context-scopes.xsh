@@ -372,3 +372,10 @@ escaped?
   let failure_details = output.stderr
   assert cause_retained, failure_details
 }
+
+test test_env_assignment_double_block_form_is_removed_before_execution [error] { |ctx|
+  let rejected = test.run_script(ctx, "print unreachable\nenv { XSH_REMOVED_SCOPE = \"release\" } {\n  print body\n}\n")?
+  ! rejected.success
+  rejected.stdout == ""
+  "parse.env-scope-migration" in rejected.stderr
+}

@@ -351,3 +351,12 @@ beta """.trim()
     line == f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
   } ?
 }
+
+test test_env_path_membership_matches_exact_entries [env, error] {
+  env PATH="/opt/xsh-membership/bin:/opt/xsh-other" {
+    p"/opt/xsh-membership/bin" in env.PATH
+    p"/opt/xsh-other" in env.PATH
+    p"/opt/xsh-membership" not in env.PATH
+    p"/opt/xsh-membership/bin/tool" not in env.PATH
+  }
+}

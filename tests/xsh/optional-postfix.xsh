@@ -111,6 +111,28 @@ test test_optional_non_null_errors_and_explicit_hops [fs, error] { |ctx|
   }
 }
 
+test test_optional_postfix_requires_explicit_hops_error_effects_and_bool_values [error] { |ctx|
+  let ordinary_hop = test.run_script(ctx, r"""type Server = {host: Str?}
+type Config = {server: Server?}
+let config: Config? = {server: {host: "label"}}
+print (config?.server.host ?? "default")
+""")?
+  assert ! ordinary_hop.success, ordinary_hop.stderr
+  "check.field-access" in ordinary_hop.stderr
+  let restricted = test.run_script(ctx, r"""proc first(values: Result[List[Int]]) [] -> Int {
+  return values?[0]
+}
+""")?
+  assert ! restricted.success, restricted.stderr
+  "check.effect-violation" in restricted.stderr
+  let statement = test.run_script(ctx, r"""let name: Str? = "abc"
+name?.starts_with("x")
+print "after"
+""")?
+  assert statement.success, statement.stderr
+  statement.stdout == "after\n"
+}
+
 test test_result_postfix_propagation_skips_index_on_failure [fs, error] { |ctx|
   let output = test.run_script(ctx, """
 error InputError = Failed(message: Str) : InvalidData

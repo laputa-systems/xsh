@@ -88,3 +88,20 @@ test test_boolean_guard_rejects_fallthrough_and_parameters [error] { |ctx|
     code in output.stderr
   }
 }
+
+pure boolean_guard_validate_jobs(jobs: Int) -> Result[Unit] {
+  guard jobs > 0 else {
+    return error.fail("jobs must be positive")
+  }
+}
+
+test test_boolean_guard_failure_branch_owns_the_error [error] {
+  boolean_guard_validate_jobs(4)?
+  match boolean_guard_validate_jobs(0) {
+    Ok(_) => test.fail("non-positive jobs must fail")?
+    Err(failure) => {
+      !(failure is AssertionError)
+      failure.message == "jobs must be positive"
+    }
+  }
+}

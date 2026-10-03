@@ -30,3 +30,15 @@ test test_regex_literal_defaults_and_dynamic_compile_errors [error] {
   dynamic.matches("42")
   test.error_kind(regex.compile("("), "regex-compile")?
 }
+
+test test_regex_literal_errors_fail_preparation_before_execution [error] { |ctx|
+  for source in [
+    "print \"must not execute\"\npure unused() -> Regex { rx\"(\" }\n",
+    "print \"must not execute\"\nif false { let _ = rx\"\"\"[\"\"\" }\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert ! output.success, source
+    output.stdout == ""
+    "check.regex-literal" in output.stderr
+  }
+}

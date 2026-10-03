@@ -111,3 +111,22 @@ print f"${published.name},${published.build.jobs},${published.build.flags.debug}
   }
   (output.stdout) == ("first\nfailure\nclosed\ncaught=7\noriginal,2,false\n")
 }
+
+test test_record_update_rejects_bases_targets_and_replacements [error] { |ctx|
+  let prefix = "let config = {build: {jobs: 2, flags: {debug: false}}, name: \"demo\"}\n"
+  for {source, code} in [
+    {source: "let updated = {build.jobs: 8}\n", code: "check.record-update-base"},
+    {source: "let extra = {name: \"other\"}\nlet updated = {...config, ...extra, build.jobs: 8}\n", code: "check.record-update-base"},
+    {source: "let dynamic: Any = config\nlet updated = {...dynamic, build.jobs: 8}\n", code: "check.record-update-shape"},
+    {source: "let updated = {...config, build.workers: 8}\n", code: "check.record-update-field"},
+    {source: "let updated = {...config, name.size: 8}\n", code: "check.record-update-field"},
+    {source: "let updated = {...config, extra: 1, build.jobs: 8}\n", code: "check.record-update-field"},
+    {source: "let updated = {...config, build: {jobs: 1, flags: {debug: true}}, build.jobs: 8}\n", code: "check.record-update-overlap"},
+    {source: "let updated = {...config, build.jobs: 1, build.jobs: 2}\n", code: "check.record-update-overlap"},
+    {source: "let updated = {...config, build.jobs: \"many\"}\n", code: "check.type-mismatch"},
+  ] {
+    let output = test.run_script(ctx, prefix + source)?
+    assert ! output.success, source
+    code in output.stderr
+  }
+}

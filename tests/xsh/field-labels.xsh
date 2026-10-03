@@ -34,6 +34,23 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes [error] {
   bare.type == "file"
 }
 
+type WireMeta = {type: Str, in: Int}
+type WireRow = {name: Str, meta: WireMeta}
+
+test test_keyword_field_labels_in_update_paths_and_constant_map_keys [error] { |ctx|
+  let row = WireRow(name: "entry", meta: WireMeta(type: "file", in: 1))
+  let updated = {...row, meta.type: "directory", meta.in: 2}
+  updated.meta.type == "directory"
+  updated.meta.in == 2
+  row.meta.type == "file"
+  let bare: Map[Int] = {type: 1, match: 2}
+  bare.get("type")? == 1
+  bare.keys() == ["match", "type"]
+  let duplicate = test.run_script(ctx, "let row = {type: 1, \"type\": 2}\n")?
+  assert ! duplicate.success, duplicate.stderr
+  "check.duplicate-record-field" in duplicate.stderr
+}
+
 test test_keyword_field_labels_across_keyword_spellings [error] { |ctx|
   for label in ["and", "assert", "break", "const", "continue", "defer", "else", "enum", "export", "false", "for", "guard", "if", "in", "let", "loop", "match", "not", "null", "or", "proc", "pure", "retry", "return", "run", "spawn", "stream", "test", "true", "try", "type", "unless", "use", "var", "wait", "when", "with", "yield"] {
     let source = "type Wire = {" + label + ": Int}\nlet row = Wire(" + label + ": 1)\nlet {" + label + ": selected, ..} = row\nprint $selected\nprint $row." + label + "\n"

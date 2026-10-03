@@ -49,6 +49,18 @@ test test_nested_record_guard_target [error] {
   (target_name) == ("native")
 }
 
+test test_nested_record_binding_rejects_duplicate_and_unknown_fields [error] { |ctx|
+  let prelude = "type Build = {jobs: Int, target: Str}\ntype Config = {root: Str, build: Build}\nlet config = Config(root: \"src\", build: {jobs: 3, target: \"native\"})\n"
+  for fixture in [
+    {binding: "let {root: name, build: {target: name, ..}, ..} = config\n", diagnostic: "check.duplicate-name"},
+    {binding: "let {build: {missing, ..}, ..} = config\n", diagnostic: "check.destructure-field"},
+  ] {
+    let output = test.run_script(ctx, prelude + fixture.binding)?
+    assert ! output.success, output.stderr
+    fixture.diagnostic in output.stderr
+  }
+}
+
 test test_nested_record_iteration_restores_shadowed_outer_bindings [error] { |ctx|
   let output = test.run_script(ctx, r"""type RecordBuild = {jobs: Int, target: Str}
 type RecordConfig = {root: Str, build: RecordBuild}

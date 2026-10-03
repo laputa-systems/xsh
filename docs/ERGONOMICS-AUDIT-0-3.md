@@ -1,7 +1,8 @@
 # Ergonomics audit: proposals 0–3
 
 This audit records the checked implementation and migration coverage for
-`ergonomics-0.md` through `ergonomics-3.md`, inspected on 2026-09-29 and rechecked
+`ergonomics-0.md` through `ergonomics-3.md` (removed after implementation; read
+them at `d6f09bc5`), inspected on 2026-09-29 and rechecked
 for literal migration coverage on 2026-09-30. It is an
 implementation audit, not a language specification. The contracts remain in
 `SPEC.md`, `SPEC-TYPING.md`, and `STREAMS.md`; `TEST-MAP.md` owns verification

@@ -173,6 +173,28 @@ test test_value_branch_rejections_have_cli_witnesses [error] { |ctx|
   ("check.match-value-exhaustive" in guarded.stderr)
 }
 
+test test_value_tails_reject_missing_else_and_incomplete_match [error] { |ctx|
+  for fixture in [
+    {source: "let bad = if true { 1 }\n", diagnostic: "parse.if-expression-else"},
+    {source: "pure pick(flag: Bool) -> Int {\n  if flag {\n    1\n  }\n}\n", diagnostic: "check.if-value-else"},
+    {source: "pure pick(code: Int) -> Str {\n  match code {\n    0 => \"ok\"\n  }\n}\n", diagnostic: "check.match-value-exhaustive"},
+    {source: "pure pick(flag: Bool) -> Int {\n  if flag {\n    1\n  } else {\n    \"wrong\"\n  }\n}\n", diagnostic: "check.type-mismatch"},
+  ] {
+    let output = test.run_script(ctx, fixture.source)?
+    assert ! output.success, output.stderr
+    fixture.diagnostic in output.stderr
+  }
+}
+
+test test_value_top_level_control_flow_keeps_statement_semantics [error] { |ctx|
+  let branch = test.run_script(ctx, "if true {\n  3\n} else {\n  4\n}\n")?
+  assert branch.success, branch.stderr
+  let matched = test.run_script(ctx, "match 1 {\n  1 => 5\n  _ => 6\n}\n")?
+  assert matched.success, matched.stderr
+  let final = test.run_script(ctx, "3\n")?
+  final.status == 3
+}
+
 test test_value_blocks_evaluate_before_scope_cleanup [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 proc choose() [error] -> Int {

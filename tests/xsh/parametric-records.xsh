@@ -179,3 +179,36 @@ let wrong = FirstBox(value: Second)
   }
   ("check.type-mismatch" in rejected.stderr)
 }
+
+test test_parametric_record_instances_keep_exact_field_types [error] { |ctx|
+  let declaration = r"""type Observation[T] = {state: Str, value: T? = null, samples: List[T] = []}
+type CountObservation = Observation[Int]
+let count = CountObservation(state: "observed", value: 7, samples: [7])
+"""
+  let accepted = test.run_script(ctx, declaration + r"""let sample: Int = count.samples[0]
+let maybe: Int? = count.value
+let generic: Observation[Int] = count
+print ${sample + (maybe ?? 0) + generic.samples.len()}
+""")?
+  assert accepted.success, accepted.stderr
+  accepted.stdout == "15\n"
+  for line in [
+    "let wrong: Str = count.samples[0]\n",
+    "let wrong: Int = count.value\n",
+    "let wrong: Observation[Str] = count\n",
+  ] {
+    let rejected = test.run_script(ctx, declaration + line)?
+    assert !rejected.success, line
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+}
+
+test test_parametric_records_do_not_add_generic_functions_or_error_families [error] { |ctx|
+  for source in [
+    "pure first[T](value: T) -> T { value }\n",
+    "error Failure[T] = Bad(value: T)\n",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    assert !rejected.success, source
+  }
+}

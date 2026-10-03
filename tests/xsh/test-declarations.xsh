@@ -47,3 +47,26 @@ test main_does_not_execute [error] { |ctx|
 }
 
 test discard_context_is_allowed { |_| }
+
+test declaration_names_reject_duplicates_and_callable_collisions [error] { |ctx|
+  for source in ["test same {}\ntest same {}\n", "pure same() -> Int { 1 }\ntest same {}\n"] {
+    let result = test.run_xsh(ctx, source)?
+    result.status != 0
+    "check.duplicate-name" in result.stderr
+  }
+}
+
+test imported_declarations_do_not_execute [fs, error] { |ctx|
+  let root = test.temp_dir(ctx, name: "imported-test-declaration")?
+  fp"${root}/helper.xsh".write_atomic(r"""##! Helper with a declared test.
+## The shared value.
+export pure value() -> Int { 7 }
+test helper_test {
+  print "TEST EXECUTED"
+  false
+}
+""")?
+  let result = test.run_xsh(ctx, "use helper\nprint \${helper.value()}\n", env: {XSH_MODULE_PATH: root.display()})?
+  result.status == 0
+  result.stdout == "7\n"
+}

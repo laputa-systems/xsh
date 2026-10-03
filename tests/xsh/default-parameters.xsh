@@ -290,3 +290,25 @@ print ${callback.call(7).require(Int)?}
   assert output.success, output.stderr
   output.stdout == "7\n"
 }
+
+test test_default_parameters_inferred_types_constrain_arguments_spreads_and_bodies [error] { |ctx|
+  let declaration = r"""const defaults = {jobs: 4, timeout: 30s}
+proc build(jobs = defaults.jobs, timeout = defaults.timeout) -> Str { f"$jobs $timeout" }
+"""
+  let accepted = test.run_script(ctx, declaration + r"""pure optional(jobs: Int? = defaults.jobs) -> Int { jobs ?? 0 }
+let options = {jobs: 8, timeout: 5s}
+print ${build()} ${build(...options)} ${build(timeout: 1s)} ${optional()} ${optional(null)}
+""")?
+  assert accepted.success, accepted.stderr
+  accepted.stdout == "4 30s 8 5s 4 1s 4 0\n"
+  for source in [
+    "let _ = build(\"many\")\n",
+    "let _ = build(null)\n",
+    "let bad = {jobs: \"8\"}\nlet _ = build(...bad)\n",
+    "pure render(timeout = defaults.timeout) -> Str { timeout }\n",
+  ] {
+    let rejected = test.run_script(ctx, declaration + source)?
+    assert !rejected.success, source
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+}

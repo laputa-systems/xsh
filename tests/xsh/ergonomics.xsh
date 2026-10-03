@@ -156,3 +156,14 @@ check_branch()?
   assert ! output.success, output.stderr
   "assert" in output.stderr
 }
+
+test test_ergonomics_list_concatenation_does_not_merge_maps [error] { |ctx|
+  for source in [
+    "let table: Map[Int] = {x: 1}\nlet merged = table + table\n",
+    "var table: Map[Int] = {x: 1}\ntable += {y: 2}\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert ! output.success, source
+    "check.type-mismatch" in output.stderr
+  }
+}

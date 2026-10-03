@@ -37,6 +37,7 @@ test test_value_pipeline_holes_reject_other_placeholder_contexts [fs, error] { |
     "pure join(left: Int, right: Int) -> Int { left + right }\nlet value = 1 |> join(_ + 1, 2)\n",
     "pure number(value: Int) -> Int { value }\nlet value = 1 |> number(number(_))\n",
     "pure number(value: Int) -> Int { value }\nlet value = 1 |> number(...{value: _})\n",
+    "pure number(value: Int) -> Int { value }\nlet value = 1 |> number(if true { _ } else { 0 })\n",
     "let value = [1] |> collect(_)\n",
     "pure number(value: Int) -> Int { value }\nlet value = \"1\".parse_int() |> number(_)\n",
   ] {

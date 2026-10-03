@@ -119,3 +119,16 @@ test test_slice_dynamic_bounds_require_validation_and_receivers_keep_runtime_err
   (receiver_error.success) == (false)
   ("cannot slice Int" in receiver_error.stderr)
 }
+
+test test_slice_rejects_colon_inclusive_stride_and_range_values [error] { |ctx|
+  for source in [
+    "let part = [1, 2, 3][0:2]\n",
+    "let part = [1, 2, 3][0..=2]\n",
+    "let part = [1, 2, 3][0..3..1]\n",
+    "let range = 0..2\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert ! output.success, output.stderr
+    "parse." in output.stderr
+  }
+}

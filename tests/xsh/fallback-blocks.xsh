@@ -28,6 +28,21 @@ test test_error_fallback_is_lazy_and_binds_exact_error [error] {
   message == "nominal"
 }
 
+test test_error_fallback_evaluates_result_once_before_handler [error] { |ctx|
+  let output = test.run_script(ctx, r"""error LoadError = Missing(message: Str)
+proc load(found: Bool) [io] -> Result[Str, LoadError] {
+  print f"load ${found}"
+  return Ok("loaded") when found
+  return Err(LoadError.Missing(message: "missing"))
+}
+let loaded = load(true) ?? { |_| print "unexpected"; "fallback" }
+let recovered = load(false) ?? { |failure| print f"handler ${failure.message}"; "fallback" }
+print $loaded $recovered
+""")?
+  assert output.success, output.stderr
+  output.stdout == "load true\nload false\nhandler missing\nloaded fallback\n"
+}
+
 test test_error_fallback_boolean_tail_is_a_value [error] {
   let outcome: Result[Bool, FallbackError] = Err(FallbackError.invalid(message: "invalid"))
   let recovered = outcome ?? { |_|

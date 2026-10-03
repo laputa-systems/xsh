@@ -45,6 +45,7 @@ test test_pattern_predicates_reject_bindings_and_alternation [error] { |ctx|
     {source: "let outcome: Result[Int] = Ok(1)\nlet matches = outcome is Ok(payload)\n", diagnostic: "check.pattern-test-binding"},
     {source: "let value = {answer: 42}\nlet matches = value is {answer}\n", diagnostic: "check.pattern-test-binding"},
     {source: "let value = 1\nlet matches = value is 1 | 2\n", diagnostic: "parse.pattern-test-alternation"},
+    {source: "let value: Any = 1\nlet matches = value is not Int\n", diagnostic: "parse.expected-pattern"},
     {source: "let value = 1\nlet matches = value is unknown_name\n", diagnostic: "check.unknown-type"},
     {source: "let value = 1\nlet matches = value is Int\n", diagnostic: "check.pattern-type"},
     {source: "let value = Ok(1)\nlet matches = value is Ok\n", diagnostic: "check.pattern-arity"},
@@ -94,6 +95,19 @@ print ${selected}
     assert assertion_condition, assertion_message
   }
   (output.stdout) == ("subject\ntrue\n")
+}
+
+test test_pattern_predicate_statements_assert_and_values_do_not_propagate [error] { |ctx|
+  let output = test.run_script(ctx, r"""let outcome = Err("failed")
+let tested = outcome is Ok(_)
+print ${tested}
+outcome is Err(_)
+outcome is Ok(_)
+print "unreachable"
+""")?
+  assert ! output.success, output.stderr
+  output.stdout == "false\n"
+  "AssertionError.Failed" in output.stderr
 }
 
 test test_pattern_predicate_lint_fixes_converge_and_formatter_retains_syntax [fs, process, error] { |ctx|

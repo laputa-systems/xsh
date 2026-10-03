@@ -116,3 +116,28 @@ test cli_constants_forced_non_bool_flags_keep_dynamic_values [fs, error] {
   (valued.switch.require(Int)?) == (3)
   (valued.many[0].require(Str)?) == ("text")
 }
+
+test cli_constants_and_inline_descriptors_establish_the_same_field_types [error] { |ctx|
+  let descriptor = r"""{
+  jobs: {kind: "Int", form: "-j --jobs N", default: 4, positive: true},
+  root: {kind: "Path", form: "ROOT"},
+}
+"""
+  let accepted = test.run_script(ctx, "const option_schema = " + descriptor + "let inline = cli.parse([\"work\"], " + descriptor + ")?\n" + r"""let options = cli.parse(["work", "-j", "3"], option_schema)?
+let jobs: Int = options.jobs
+let root: Path = options.root
+let inline_jobs: Int = inline.jobs
+let inline_root: Path = inline.root
+print $jobs ${root.display()} $inline_jobs ${inline_root.display()}
+""")?
+  assert accepted.success, accepted.stderr
+  accepted.stdout == "3 work 4 work\n"
+  for field in ["jobs", "root"] {
+    let rejected = test.run_script(ctx, "const option_schema = " + descriptor + "let options = cli.parse([\"work\"], option_schema)?\nlet wrong: Str = options." + field + "\n")?
+    assert !rejected.success, field
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+  let runtime = test.run_script(ctx, "let option_schema = " + descriptor + "let options = cli.parse([\"work\"], option_schema)?\nlet jobs: Int = options.jobs\n")?
+  assert !runtime.success, runtime.stdout
+  assert "check.dynamic-boundary" in runtime.stderr, runtime.stderr
+}

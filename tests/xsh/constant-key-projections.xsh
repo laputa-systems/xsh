@@ -113,3 +113,24 @@ export pure get(value: Str) -> Str { f"user:$value" }
   let getter = loaded["get"]
   getter.call("workers") == "user:workers"
 }
+
+test test_constant_key_projection_requires_constant_keys_for_field_types [error] { |ctx|
+  let declaration = "type Config = {workers: Int}\nlet config: Config = {workers: 4}\n"
+  let accepted = test.run_script(ctx, declaration + r"""const field = "workers"
+let fetched: Int = config.get(field)?
+let indexed: Int = config[field]
+let literal: Result[Int] = config.get("workers")
+print ${fetched + indexed + literal?}
+""")?
+  assert accepted.success, accepted.stderr
+  accepted.stdout == "12\n"
+  for source in [
+    "var field = \"workers\"\nlet value: Int = config.get(field)?\n",
+    "let field = \"workers\"\nlet value: Int = config.get(field)?\n",
+    "type Visible = {workers: Int}\nlet wide = {workers: 4, hidden: true}\nlet visible: Visible = wide\nlet hidden: Bool = visible.get(\"hidden\")?\n",
+  ] {
+    let output = test.run_script(ctx, declaration + source)?
+    assert !output.success, source
+    assert "check.dynamic-boundary" in output.stderr, output.stderr
+  }
+}
