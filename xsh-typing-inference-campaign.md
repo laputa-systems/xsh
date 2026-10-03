@@ -1,7 +1,8 @@
 # XSH typing inference: plan
 
-Status: decisions settled on 2026-10-02. Execute the work items in order
-(1 → 6). Items with disjoint files may run as parallel lanes (see Orchestration).
+Status: decisions settled on 2026-10-02. Items 1, 2, 3c (first slice) and 4a
+have landed. Item 5 (test speed) runs next, then the remaining items in order.
+Items with disjoint files may run as parallel lanes (see Orchestration).
 
 ## Where things stand
 
