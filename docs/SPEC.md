@@ -1921,6 +1921,12 @@ Contracts worth knowing without consulting the reference:
 - `time` has no civil-time formatter; run `date` for locale-aware output.
 - Regex syntax is the common Rust regex surface without Unicode property
   classes. Match offsets are byte offsets.
+- `linux` entries act on the host as soon as they are called, including
+  destructive ones (`halt`, `reboot`, `mount`, `insmod`, link and address
+  changes, `write_partition_table`). There is no environment gate or dry-run
+  switch; the `process` effect is what makes these calls explicit. On other
+  platforms every entry fails with `linux-unsupported`. Native tests use
+  `test.linux_fake` (§17) instead of the host.
 
 ### 15.1 `template`
 
@@ -2081,6 +2087,16 @@ output), and mocks for `dns.*` and `net.*` operations matched by partial
 argument records. When an operation has mocks and none matches, the call
 fails with an unmatched-mock error; operations without mocks use the real
 host.
+
+`test.linux_fake(ctx, settings)` replaces the `linux` module with a fixed
+double for the rest of the test and for scripts the test runs through
+`test.run_script` and `test.run_xsh` (not `test.run_xsht_trace`). The fake
+never touches the host: every entry returns fixed data, and each call appends a
+JSON line naming its operation and arguments to the `log` setting. The other
+settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
+`hwclock_epoch_ms`) choose the values some queries report; unknown settings
+fail with `test-linux-fake`. Only the test harness can install the fake: no
+environment variable or `xsh` option enables it.
 
 ## 18. Not In XSH
 

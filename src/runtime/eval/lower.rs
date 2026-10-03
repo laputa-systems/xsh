@@ -634,6 +634,7 @@ fn lowered_native_test_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TestTempFile
             | RuntimeOp::TestMock
             | RuntimeOp::TestCalls
+            | RuntimeOp::TestLinuxFake
             | RuntimeOp::TestRunScript
             | RuntimeOp::TestRunXsh
             | RuntimeOp::TestRunXshtTrace

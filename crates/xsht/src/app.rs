@@ -72,6 +72,13 @@ pub fn main() -> ExitCode {
             files,
             dry_run,
         }) => finish_command(|| refactor_scripts(&pattern, &replacement, &files, dry_run)),
+        Ok(Command::LinuxFakeRun { options, fake }) => {
+            let output = xsh::execution::script::run_script_with_linux_fake(options, fake);
+            use std::io::Write;
+            let _ = std::io::stdout().lock().write_all(&output.stdout);
+            let _ = std::io::stderr().lock().write_all(&output.stderr);
+            ExitCode::from(output.status)
+        }
         Err(message) => {
             eprintln!("xsht: {message}");
             ExitCode::from(2)
@@ -118,6 +125,13 @@ enum Command {
         files: Vec<String>,
         dry_run: bool,
     },
+    /// Harness-internal: runs a script under a `linux` test fake for
+    /// `test.run_script`/`test.run_xsh` after the test called
+    /// `test.linux_fake`. Not listed in help.
+    LinuxFakeRun {
+        options: xsh::execution::script::RunOptions,
+        fake: xsh::execution::evaluator::LinuxFake,
+    },
 }
 
 fn parse_tool(args: Vec<String>) -> Result<Command, String> {
@@ -137,9 +151,41 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "test" => parse_test(&args[1..]),
         "grep" => parse_grep(&args[1..]),
         "refactor" => parse_refactor(&args[1..]),
+        LINUX_FAKE_RUN => parse_linux_fake_run(&args[1..]),
         "run" => Err("xsht has no `run`; use xsh SCRIPT instead".to_string()),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+pub(crate) const LINUX_FAKE_RUN: &str = "__linux-fake-run";
+
+/// `__linux-fake-run [--fake KEY=VALUE]... SCRIPT -- [ARGS...]`
+fn parse_linux_fake_run(args: &[String]) -> Result<Command, String> {
+    let mut fake = xsh::execution::evaluator::LinuxFake::default();
+    let mut rest = args;
+    while let [flag, setting, tail @ ..] = rest
+        && flag == "--fake"
+    {
+        let (key, value) = setting
+            .split_once('=')
+            .ok_or_else(|| format!("linux fake setting '{setting}' is not KEY=VALUE"))?;
+        fake.set(key, value)?;
+        rest = tail;
+    }
+    let [script, separator, script_args @ ..] = rest else {
+        return Err(format!("usage: xsht {LINUX_FAKE_RUN} [--fake KEY=VALUE]... SCRIPT -- [ARGS...]"));
+    };
+    if separator != "--" {
+        return Err(format!("usage: xsht {LINUX_FAKE_RUN} [--fake KEY=VALUE]... SCRIPT -- [ARGS...]"));
+    }
+    Ok(Command::LinuxFakeRun {
+        options: xsh::execution::script::RunOptions {
+            script: script.clone(),
+            args: script_args.to_vec(),
+            coverage_trace_dir: None,
+        },
+        fake,
+    })
 }
 
 #[allow(clippy::single_call_fn)]

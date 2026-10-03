@@ -16,7 +16,7 @@ pub mod evaluator {
 
     #[cfg(feature = "native-tests")]
     pub use crate::runtime::eval::{
-        NativeTestHost, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram,
+        LinuxFake, NativeTestHost, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram,
         TestEvalOutput,
     };
 }
@@ -53,7 +53,9 @@ pub mod script {
     pub use crate::runner::{run_script, run_script_with_shared_stdio, run_startup, script_command_name};
 
     #[cfg(feature = "native-tests")]
-    pub use crate::runner::{PreparedBenchmarkScript, prepare_benchmark_script};
+    pub use crate::runner::{
+        PreparedBenchmarkScript, prepare_benchmark_script, run_script_with_linux_fake,
+    };
 }
 
 pub mod value {

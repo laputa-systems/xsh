@@ -3404,6 +3404,18 @@ fn test_module() -> ModuleSig {
             ),
         ),
         (
+            "linux_fake",
+            sig(
+                vec![
+                    param("ctx", test_context_type()),
+                    default_param("settings", record()),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::TestLinuxFake,
+            ),
+        ),
+        (
             "run_script",
             sig(
                 vec![

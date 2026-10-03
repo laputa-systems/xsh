@@ -1,45 +1,94 @@
 use super::Evaluator;
 use crate::runtime::value::RuntimeError;
 use crate::source::Span;
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
+#[cfg(feature = "native-tests")]
+use std::collections::BTreeMap;
+
+/// The native-test double for the `linux` module. While installed, every
+/// `linux.*` entry returns fixed values instead of touching the host and
+/// appends one JSON line per call to `log`. Only the test harness installs it
+/// (`test.linux_fake` and the scripts that test runs); no environment variable
+/// or production flag reaches it.
+#[cfg(feature = "native-tests")]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LinuxFake {
+    values: BTreeMap<&'static str, String>,
+}
+
+#[cfg(feature = "native-tests")]
+impl LinuxFake {
+    /// Settings a fake accepts: the call log path and the fixed values some
+    /// queries report.
+    pub const KEYS: [&'static str; 6] = [
+        "log",
+        "root_device",
+        "sysctl_value",
+        "file_attrs_flags",
+        "file_version",
+        "hwclock_epoch_ms",
+    ];
+
+    pub fn set(&mut self, key: &str, value: impl Into<String>) -> Result<(), String> {
+        let Some(key) = Self::KEYS.into_iter().find(|known| *known == key) else {
+            return Err(format!(
+                "unknown linux fake setting `{key}`; expected one of {}",
+                Self::KEYS.join(", ")
+            ));
+        };
+        self.values.insert(key, value.into());
+        Ok(())
+    }
+
+    pub fn settings(&self) -> impl Iterator<Item = (&'static str, &str)> {
+        self.values.iter().map(|(key, value)| (*key, value.as_str()))
+    }
+}
 
 impl Evaluator {
-    pub(in crate::runtime::eval) fn linux_dry_run(&self) -> bool {
-        self.env
-            .get_owned(b"XSH_LINUX_DRY_RUN".as_slice())
-            .and_then(|value| String::from_utf8(value).ok())
-            .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+    #[cfg(feature = "native-tests")]
+    pub fn with_linux_fake(mut self, fake: LinuxFake) -> Self {
+        self.linux_fake = Some(std::sync::Arc::new(fake));
+        self
     }
 
-    pub(in crate::runtime::eval) fn linux_real(&self) -> bool {
-        self.env
-            .get_owned(b"XSH_LINUX_REAL".as_slice())
-            .and_then(|value| String::from_utf8(value).ok())
-            .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-    }
-    /// Read-only host queries run for real by default on Linux; only the
-    /// state-changing boot primitives need `XSH_LINUX_REAL=1`, and
-    /// `XSH_LINUX_DRY_RUN=1` still substitutes fixed values for both.
-    pub(in crate::runtime::eval) fn linux_host_query(&self, read_only: bool) -> bool {
-        read_only && cfg!(target_os = "linux")
+    /// One fake setting, or `None` when no fake is installed. Builds without
+    /// `native-tests` have no fake at all.
+    fn linux_fake_setting(&self, key: &str) -> Option<&str> {
+        #[cfg(feature = "native-tests")]
+        return self.linux_fake.as_deref()?.values.get(key).map(String::as_str);
+        #[cfg(not(feature = "native-tests"))]
+        {
+            let _ = key;
+            None
+        }
     }
 
-    pub(in crate::runtime::eval) fn linux_dry_run_log(
+    pub(in crate::runtime::eval) fn linux_fake_active(&self) -> bool {
+        #[cfg(feature = "native-tests")]
+        return self.linux_fake.is_some();
+        #[cfg(not(feature = "native-tests"))]
+        false
+    }
+
+    pub(in crate::runtime::eval) fn linux_fake_value(&self, key: &str, default: &str) -> String {
+        self.linux_fake_setting(key).unwrap_or(default).to_string()
+    }
+
+    pub(in crate::runtime::eval) fn linux_fake_log(
         &self,
         op: &str,
         fields: &[(&str, String)],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let Some(path) = self.env.get_owned(b"XSH_LINUX_DRY_RUN_LOG".as_slice()) else {
+        let Some(path) = self.linux_fake_setting("log") else {
             return Ok(());
         };
-        let path = std::path::PathBuf::from(OsString::from_vec(path));
+        let path = std::path::PathBuf::from(path);
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
             std::fs::create_dir_all(parent).map_err(|error| {
-                RuntimeError::new("linux-dry-run-log", error.to_string()).with_span(span)
+                RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
             })?;
         }
         let mut json_fields = Vec::with_capacity(fields.len() + 1);
@@ -59,10 +108,10 @@ impl Evaluator {
             .append(true)
             .open(path)
             .map_err(|error| {
-                RuntimeError::new("linux-dry-run-log", error.to_string()).with_span(span)
+                RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
             })?;
         writeln!(file, "{line}").map_err(|error| {
-            RuntimeError::new("linux-dry-run-log", error.to_string()).with_span(span)
+            RuntimeError::new("linux-fake-log", error.to_string()).with_span(span)
         })
     }
 }

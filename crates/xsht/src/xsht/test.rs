@@ -813,14 +813,37 @@ fn native_test_host(
             .with_span(request.span)
     })?;
 
-    let mut command = match request.kind {
-        NativeTestRunKind::Xsh => {
+    let mut command = match (request.kind, &request.linux_fake) {
+        (NativeTestRunKind::Xsh, Some(fake)) => {
+            if !request.tool_args.iter().all(|arg| arg == "--") {
+                return Err(RuntimeError::new(
+                    native_test_error_kind(request.kind),
+                    "xsh options are not supported while a linux fake is installed",
+                )
+                .with_span(request.span));
+            }
+            let mut command = Command::new(test_binary("xsht"));
+            command.arg(crate::xsht::app::LINUX_FAKE_RUN);
+            for (key, value) in fake.settings() {
+                command.arg("--fake").arg(format!("{key}={value}"));
+            }
+            command.arg(&script_path);
+            command
+        }
+        (NativeTestRunKind::XshtTrace, Some(_)) => {
+            return Err(RuntimeError::new(
+                native_test_error_kind(request.kind),
+                "the linux fake does not cover `xsht trace` runs",
+            )
+            .with_span(request.span));
+        }
+        (NativeTestRunKind::Xsh, None) => {
             let mut command = Command::new(test_binary("xsh"));
             command.args(&request.tool_args);
             command.arg(&script_path);
             command
         }
-        NativeTestRunKind::XshtTrace => {
+        (NativeTestRunKind::XshtTrace, None) => {
             let mut command = Command::new(test_binary("xsht"));
             command.arg("trace");
             command.args(
@@ -835,7 +858,10 @@ fn native_test_host(
     };
     // Fixture arguments are already script data. Protect a leading `--`
     // from the host CLI's optional compatibility separator.
-    if request.kind != NativeTestRunKind::Xsh || request.tool_args.last().is_none_or(|arg| arg != "--") {
+    if request.linux_fake.is_some()
+        || request.kind != NativeTestRunKind::Xsh
+        || request.tool_args.last().is_none_or(|arg| arg != "--")
+    {
         command.arg("--");
     }
     command.args(&request.script_args);

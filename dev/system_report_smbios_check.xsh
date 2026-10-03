@@ -1311,7 +1311,7 @@ export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, e
       xsh_bin,
       [xsh_bin, script, "--", "--section", "firmware", "--sensitive", "--json"],
       cwd: /,
-      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"${scratch_path}/candidate",
     ),
   )?

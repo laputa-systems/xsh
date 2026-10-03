@@ -195,6 +195,7 @@ impl Evaluator {
             script_args: script_args.to_vec(),
             env: env.clone(),
             stdin: stdin.to_vec(),
+            linux_fake: self.linux_fake.as_deref().cloned(),
             span,
         })?;
         match lowered_runtime_value(value, span)? {
@@ -6054,15 +6055,10 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxInterfaces if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::interfaces(span), span)?
                 } else {
-                    self.linux_dry_run_log("interfaces", &[], span)?;
+                    self.linux_fake_log("interfaces", &[], span)?;
                     lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
                         Arc::new(BTreeMap::from([
                             (Arc::from("name"), LoweredValue::Str("eth0".into())),
@@ -6094,15 +6090,10 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxRoutes if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::routes(span), span)?
                 } else {
-                    self.linux_dry_run_log("routes", &[], span)?;
+                    self.linux_fake_log("routes", &[], span)?;
                     lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
                         Arc::new(BTreeMap::from([
                             (Arc::from("family"), LoweredValue::Str("inet".into())),
@@ -6123,15 +6114,10 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxNetworkDump if values.is_empty() => {
-                if !self.linux_dry_run() && !self.linux_real() && !self.linux_host_query(true) {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::network_dump(span), span)?
                 } else {
-                    self.linux_dry_run_log("network_dump", &[], span)?;
+                    self.linux_fake_log("network_dump", &[], span)?;
                     let link = LoweredValue::Record(Arc::new(BTreeMap::from([
                         (Arc::from("ifindex"), LoweredValue::Int(2)),
                         (Arc::from("name"), LoweredValue::Str("eth0".into())),
@@ -6228,29 +6214,19 @@ impl Evaluator {
             }
             RuntimeOp::LinuxLinkUp if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.link_up", span)?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::link_up(&interface, span), span)?
                 } else {
-                    self.linux_dry_run_log("link_up", &[("interface", interface)], span)?;
+                    self.linux_fake_log("link_up", &[("interface", interface)], span)?;
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
             RuntimeOp::LinuxLinkDown if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.link_down", span)?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::link_down(&interface, span), span)?
                 } else {
-                    self.linux_dry_run_log("link_down", &[("iface", interface)], span)?;
+                    self.linux_fake_log("link_down", &[("iface", interface)], span)?;
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
@@ -6273,18 +6249,13 @@ impl Evaluator {
                     "linux.set_ipv4_address",
                     span,
                 )?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(
                         linux_module::set_ipv4_address(&interface, &address, &netmask, span),
                         span,
                     )?
                 } else {
-                    self.linux_dry_run_log(
+                    self.linux_fake_log(
                         "set_ipv4_address",
                         &[
                             ("interface", interface),
@@ -6299,18 +6270,13 @@ impl Evaluator {
             RuntimeOp::LinuxFlushIpv4Addresses if values.len() == 1 => {
                 let interface =
                     lowered_str_arg_owned(values.pop(), "", "linux.flush_ipv4_addresses", span)?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(
                         linux_module::flush_ipv4_addresses(&interface, span),
                         span,
                     )?
                 } else {
-                    self.linux_dry_run_log("flush_ipv4_addresses", &[("iface", interface)], span)?;
+                    self.linux_fake_log("flush_ipv4_addresses", &[("iface", interface)], span)?;
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
@@ -6327,18 +6293,13 @@ impl Evaluator {
                     "linux.add_default_ipv4_route",
                     span,
                 )?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(
                         linux_module::add_default_ipv4_route(&gateway, &interface, span),
                         span,
                     )?
                 } else {
-                    self.linux_dry_run_log(
+                    self.linux_fake_log(
                         "add_default_ipv4_route",
                         &[("gateway", gateway), ("interface", interface)],
                         span,
@@ -6359,18 +6320,13 @@ impl Evaluator {
                     "linux.del_default_ipv4_route",
                     span,
                 )?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(
                         linux_module::del_default_ipv4_route(&gateway, &interface, span),
                         span,
                     )?
                 } else {
-                    self.linux_dry_run_log(
+                    self.linux_fake_log(
                         "del_default_ipv4_route",
                         &[("gateway", gateway), ("interface", interface)],
                         span,
@@ -6380,30 +6336,20 @@ impl Evaluator {
             }
             RuntimeOp::LinuxDhcpSocket if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.dhcp_socket", span)?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::dhcp_socket(&interface, span), span)?
                 } else {
-                    self.linux_dry_run_log("dhcp_socket", &[("interface", interface)], span)?;
+                    self.linux_fake_log("dhcp_socket", &[("interface", interface)], span)?;
                     lowered_result_ok(LoweredValue::Int(-1))
                 }
             }
             RuntimeOp::LinuxDhcpSend if values.len() == 2 => {
                 let fd = lowered_int_arg(values.first().cloned(), "linux.dhcp_send", span)?;
                 let payload = lowered_bytes_arg(&values[1], "linux.dhcp_send", span)?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::dhcp_send(fd, payload, span), span)?
                 } else {
-                    self.linux_dry_run_log(
+                    self.linux_fake_log(
                         "dhcp_send",
                         &[("bytes", payload.len().to_string())],
                         span,
@@ -6414,15 +6360,10 @@ impl Evaluator {
             RuntimeOp::LinuxDhcpRecv if values.len() == 2 => {
                 let fd = lowered_int_arg(values.first().cloned(), "linux.dhcp_recv", span)?;
                 let timeout = lowered_int_arg(values.get(1).cloned(), "linux.dhcp_recv", span)?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::dhcp_recv(fd, timeout, span), span)?
                 } else {
-                    self.linux_dry_run_log(
+                    self.linux_fake_log(
                         "dhcp_recv",
                         &[("timeout_ms", timeout.to_string())],
                         span,
@@ -6432,15 +6373,10 @@ impl Evaluator {
             }
             RuntimeOp::LinuxDhcpClose if values.len() == 1 => {
                 let fd = lowered_int_arg(values.pop(), "linux.dhcp_close", span)?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::dhcp_close(fd, span), span)?
                 } else {
-                    self.linux_dry_run_log("dhcp_close", &[("fd", fd.to_string())], span)?;
+                    self.linux_fake_log("dhcp_close", &[("fd", fd.to_string())], span)?;
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
@@ -6463,18 +6399,13 @@ impl Evaluator {
                     "linux.dhcp_send_release",
                     span,
                 )?;
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     lowered_runtime_result(
                         linux_module::dhcp_send_release(&interface, &address, &server_id, span),
                         span,
                     )?
                 } else {
-                    self.linux_dry_run_log(
+                    self.linux_fake_log(
                         "dhcp_send_release",
                         &[
                             ("interface", interface),
@@ -7538,6 +7469,43 @@ impl Evaluator {
                 }
             }
             #[cfg(feature = "native-tests")]
+            RuntimeOp::TestLinuxFake if values.len() == 1 || values.len() == 2 => {
+                let _ctx = lowered_record_arg(values.first().cloned(), "test.linux_fake", span)?;
+                let settings = match values.get(1).cloned() {
+                    Some(value) => lowered_record_arg(Some(value), "test.linux_fake", span)?,
+                    None => RecordMap::new(),
+                };
+                let mut fake = super::LinuxFake::default();
+                let mut failure = None;
+                for (key, value) in settings.iter() {
+                    let text = match value {
+                        Value::Str(text) => text.to_string(),
+                        Value::Int(number) => number.to_string(),
+                        Value::Path(path) => path.display(),
+                        other => {
+                            failure = Some(format!(
+                                "linux fake setting `{key}` must be Str, Int, or Path, found {}",
+                                other.type_name()
+                            ));
+                            break;
+                        }
+                    };
+                    if let Err(message) = fake.set(key, text) {
+                        failure = Some(message);
+                        break;
+                    }
+                }
+                match failure {
+                    Some(message) => lowered_result_err_value(
+                        RuntimeError::new("test-linux-fake", message).with_span(span),
+                    ),
+                    None => {
+                        self.linux_fake = Some(Arc::new(fake));
+                        lowered_result_ok(LoweredValue::Unit)
+                    }
+                }
+            }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestCalls if values.len() == 1 || values.len() == 2 => {
                 let _ctx = lowered_record_arg(values.first().cloned(), "test.calls", span)?;
                 let op = lowered_str_arg_owned(values.get(1).cloned(), "", "test.calls", span)?;
@@ -7813,12 +7781,7 @@ impl Evaluator {
                 })?
             }
             RuntimeOp::LinuxWriteDevice if values.len() == 2 => {
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     let device = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
                     let source = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
                     let host_device = self.host_path(&device);
@@ -7830,7 +7793,7 @@ impl Evaluator {
                 } else {
                     let device = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
                     let source = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
-                    self.linux_dry_run_log(
+                    self.linux_fake_log(
                         "write_device",
                         &[("device", device.display()), ("source", source.display())],
                         span,
@@ -7839,12 +7802,7 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LinuxReadDevice if values.len() == 3 => {
-                if !self.linux_dry_run() && !self.linux_real() {
-                    lowered_result_err_value(RuntimeError::new(
-                        "linux-unimplemented",
-                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                    ).with_span(span))
-                } else if self.linux_real() && !self.linux_dry_run() {
+                if !self.linux_fake_active() {
                     let device = lowered_path_arg(values.remove(0), "linux.read_device", span)?;
                     let dest = lowered_path_arg(values.remove(0), "linux.read_device", span)?;
                     let host_device = self.host_path(&device);
@@ -7862,7 +7820,7 @@ impl Evaluator {
                         return Ok(ControlFlow::Continue(lowered_runtime_value(
                             module_error(
                                 "linux-read-device",
-                                "bytes must be between 0 and 1048576 in dry-run mode",
+                                "bytes must be between 0 and 1048576 under the linux fake",
                                 span,
                             ),
                             span,
@@ -7871,7 +7829,7 @@ impl Evaluator {
                     let host_dest = self.host_path(&dest);
                     match std::fs::write(host_dest, vec![0_u8; bytes as usize]) {
                         Ok(()) => {
-                            self.linux_dry_run_log(
+                            self.linux_fake_log(
                                 "read_device",
                                 &[
                                     ("device", device.display()),
@@ -8743,17 +8701,11 @@ impl Evaluator {
         })
     }
 
-    fn linux_dry_run_env(&self, name: &str, default: &str) -> String {
-        self.env
-            .get_owned(name.as_bytes())
-            .and_then(|value| String::from_utf8(value).ok())
-            .unwrap_or_else(|| default.to_string())
-    }
 
     fn linux_dry_run_file_attrs_flags(&self, span: Span) -> Result<i64, RuntimeError> {
-        let value = self.linux_dry_run_env("XSH_LINUX_FILE_ATTRS_FLAGS", "48");
+        let value = self.linux_fake_value("file_attrs_flags", "48");
         let flags = value.parse::<i64>().map_err(|_| {
-            RuntimeError::new("linux-file-attrs", "invalid XSH_LINUX_FILE_ATTRS_FLAGS")
+            RuntimeError::new("linux-file-attrs", "invalid linux fake file_attrs_flags")
                 .with_span(span)
         })?;
         validate_linux_file_attrs_flags(flags, span)?;
@@ -8761,9 +8713,9 @@ impl Evaluator {
     }
 
     fn linux_dry_run_file_version(&self, span: Span) -> Result<i64, RuntimeError> {
-        let value = self.linux_dry_run_env("XSH_LINUX_FILE_VERSION", "0");
+        let value = self.linux_fake_value("file_version", "0");
         let version = value.parse::<i64>().map_err(|_| {
-            RuntimeError::new("linux-file-version", "invalid XSH_LINUX_FILE_VERSION")
+            RuntimeError::new("linux-file-version", "invalid linux fake file_version")
                 .with_span(span)
         })?;
         validate_linux_file_version(version, span)?;
@@ -8792,20 +8744,7 @@ impl Evaluator {
         values: NativeArgumentValues,
         span: Span,
     ) -> Result<Value, RuntimeError> {
-        let real = self.linux_real() || self.linux_host_query(matches!(op,
-            RuntimeOp::LinuxRootDevice | RuntimeOp::LinuxMemInfo | RuntimeOp::LinuxModules
-                | RuntimeOp::LinuxDmesg | RuntimeOp::LinuxIsMountpoint | RuntimeOp::LinuxDiskUsage
-                | RuntimeOp::LinuxSysctlGet | RuntimeOp::LinuxFileAttrs | RuntimeOp::LinuxFileVersion
-                | RuntimeOp::LinuxLoopList | RuntimeOp::LinuxOpenFiles | RuntimeOp::LinuxBlockDevices
-                | RuntimeOp::LinuxBlkid | RuntimeOp::LinuxModinfo | RuntimeOp::LinuxPartitionTable));
-        if !self.linux_dry_run() && !real {
-            return Ok(module_error(
-                "linux-unimplemented",
-                "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
-                span,
-            ));
-        }
-        if real && !self.linux_dry_run() {
+        if !self.linux_fake_active() {
             return match op {
                 RuntimeOp::LinuxRootDevice => linux_module::root_device(span),
                 RuntimeOp::LinuxMemInfo => linux_module::meminfo(span),
@@ -9177,7 +9116,7 @@ impl Evaluator {
         }
         match op {
             RuntimeOp::LinuxUeventStream => {
-                self.linux_dry_run_log("uevent_stream", &[], span)?;
+                self.linux_fake_log("uevent_stream", &[], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_live(
                     "linux.uevent_stream.dry_run",
                     DryRunUeventStream::default(),
@@ -9195,7 +9134,7 @@ impl Evaluator {
                     lowered_str_arg_owned(values.get(2).cloned(), "", "linux.mount", span)?;
                 let options =
                     lowered_optional_str_list(values.get(3).cloned(), "linux.mount", span)?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "mount",
                     &[
                         ("source", source),
@@ -9208,30 +9147,30 @@ impl Evaluator {
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxMountAll => {
-                self.linux_dry_run_log("mount_all", &[], span)?;
+                self.linux_fake_log("mount_all", &[], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxUmountAll => {
                 let types =
                     lowered_optional_str_list(values.first().cloned(), "linux.umount_all", span)?;
-                self.linux_dry_run_log("umount_all", &[("types", types.join(","))], span)?;
+                self.linux_fake_log("umount_all", &[("types", types.join(","))], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxSwaponAll => {
-                self.linux_dry_run_log("swapon_all", &[], span)?;
+                self.linux_fake_log("swapon_all", &[], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxSwapoffAll => {
-                self.linux_dry_run_log("swapoff_all", &[], span)?;
+                self.linux_fake_log("swapoff_all", &[], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxRootDevice => {
-                let root = self.linux_dry_run_env("XSH_LINUX_ROOT_DEVICE", "rootfs");
-                self.linux_dry_run_log("root_device", &[("device", root.clone())], span)?;
+                let root = self.linux_fake_value("root_device", "rootfs");
+                self.linux_fake_log("root_device", &[("device", root.clone())], span)?;
                 Ok(Value::ok(Value::Str(root.into())))
             }
             RuntimeOp::LinuxMemInfo => {
-                self.linux_dry_run_log("meminfo", &[], span)?;
+                self.linux_fake_log("meminfo", &[], span)?;
                 Ok(Value::ok(Value::Record(RecordMap::from([
                     (Arc::from("total"), Value::Int(1024 * 1024 * 1024)),
                     (Arc::from("free"), Value::Int(256 * 1024 * 1024)),
@@ -9243,7 +9182,7 @@ impl Evaluator {
                 ]))))
             }
             RuntimeOp::LinuxModules => {
-                self.linux_dry_run_log("modules", &[], span)?;
+                self.linux_fake_log("modules", &[], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "linux.modules",
                     vec![Value::Record(RecordMap::from([
@@ -9257,7 +9196,7 @@ impl Evaluator {
                 ))))
             }
             RuntimeOp::LinuxDmesg => {
-                self.linux_dry_run_log("dmesg", &[], span)?;
+                self.linux_fake_log("dmesg", &[], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "linux.dmesg",
                     vec![Value::Str("xsh dry-run kernel message".into())],
@@ -9269,7 +9208,7 @@ impl Evaluator {
                     "linux.is_mountpoint",
                     span,
                 )?;
-                self.linux_dry_run_log("is_mountpoint", &[("path", path.display())], span)?;
+                self.linux_fake_log("is_mountpoint", &[("path", path.display())], span)?;
                 Ok(Value::ok(Value::Bool(
                     path.display() == "/" || path.display() == "/proc",
                 )))
@@ -9282,7 +9221,7 @@ impl Evaluator {
                     None => None,
                 };
                 let mount = path.unwrap_or_else(|| "/".to_string());
-                self.linux_dry_run_log("disk_usage", &[("path", mount.clone())], span)?;
+                self.linux_fake_log("disk_usage", &[("path", mount.clone())], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "linux.disk_usage",
                     vec![Value::Record(RecordMap::from([
@@ -9296,7 +9235,7 @@ impl Evaluator {
                 ))))
             }
             RuntimeOp::LinuxBlockDevices => {
-                self.linux_dry_run_log("block_devices", &[], span)?;
+                self.linux_fake_log("block_devices", &[], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "linux.block_devices",
                     vec![
@@ -9342,9 +9281,9 @@ impl Evaluator {
                 if let Err(error) = validate_linux_sysctl_key(&key, span) {
                     return Ok(Value::err(Value::Error(Box::new(error))));
                 }
-                self.linux_dry_run_log("sysctl_get", &[("key", key)], span)?;
+                self.linux_fake_log("sysctl_get", &[("key", key)], span)?;
                 Ok(Value::ok(Value::Str(
-                    self.linux_dry_run_env("XSH_LINUX_SYSCTL_VALUE", "1").into(),
+                    self.linux_fake_value("sysctl_value", "1").into(),
                 )))
             }
             RuntimeOp::LinuxSysctlSet => {
@@ -9355,7 +9294,7 @@ impl Evaluator {
                 if let Err(error) = validate_linux_sysctl_key(&key, span) {
                     return Ok(Value::err(Value::Error(Box::new(error))));
                 }
-                self.linux_dry_run_log("sysctl_set", &[("key", key), ("value", value)], span)?;
+                self.linux_fake_log("sysctl_set", &[("key", key), ("value", value)], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxFileAttrs => {
@@ -9368,7 +9307,7 @@ impl Evaluator {
                     Ok(flags) => flags,
                     Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
                 };
-                self.linux_dry_run_log("file_attrs", &[("path", path.display())], span)?;
+                self.linux_fake_log("file_attrs", &[("path", path.display())], span)?;
                 Ok(Value::ok(linux_file_attrs_record(flags)))
             }
             RuntimeOp::LinuxSetFileAttrs => {
@@ -9381,7 +9320,7 @@ impl Evaluator {
                 if let Err(error) = validate_linux_file_attrs_flags(flags, span) {
                     return Ok(Value::err(Value::Error(Box::new(error))));
                 }
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "set_file_attrs",
                     &[("path", path.display()), ("flags", flags.to_string())],
                     span,
@@ -9395,7 +9334,7 @@ impl Evaluator {
                     span,
                 )?;
                 let version = self.linux_dry_run_file_version(span)?;
-                self.linux_dry_run_log("file_version", &[("path", path.display())], span)?;
+                self.linux_fake_log("file_version", &[("path", path.display())], span)?;
                 Ok(Value::ok(Value::Int(version)))
             }
             RuntimeOp::LinuxSetFileVersion => {
@@ -9409,7 +9348,7 @@ impl Evaluator {
                 if let Err(error) = validate_linux_file_version(version, span) {
                     return Ok(Value::err(Value::Error(Box::new(error))));
                 }
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "set_file_version",
                     &[("path", path.display()), ("version", version.to_string())],
                     span,
@@ -9430,7 +9369,7 @@ impl Evaluator {
                     .map(PathValue::display)
                     .collect::<Vec<_>>()
                     .join(",");
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "sysctl_load_dirs",
                     &[("dirs", dir_text), ("fallback", fallback)],
                     span,
@@ -9445,7 +9384,7 @@ impl Evaluator {
                 }
                 let except_pid1 =
                     lowered_bool_arg_or(values.get(1).cloned(), false, "linux.kill_all", span)?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "kill_all",
                     &[("signal", signal), ("except_pid1", except_pid1.to_string())],
                     span,
@@ -9458,7 +9397,7 @@ impl Evaluator {
                     "linux.chroot",
                     span,
                 )?;
-                self.linux_dry_run_log("chroot", &[("path", path.display())], span)?;
+                self.linux_fake_log("chroot", &[("path", path.display())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxMknod => {
@@ -9473,7 +9412,7 @@ impl Evaluator {
                 if let Err(error) = validate_mknod_args(&kind, major, minor, span) {
                     return Ok(Value::err(Value::Error(Box::new(error))));
                 }
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "mknod",
                     &[
                         ("path", path.display()),
@@ -9493,7 +9432,7 @@ impl Evaluator {
                 )?;
                 let params =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "linux.insmod", span)?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "insmod",
                     &[("path", path.display()), ("params", params)],
                     span,
@@ -9504,7 +9443,7 @@ impl Evaluator {
                 let name = lowered_str_arg_owned(values.first().cloned(), "", "linux.rmmod", span)?;
                 let force =
                     lowered_bool_arg_or(values.get(1).cloned(), false, "linux.rmmod", span)?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "rmmod",
                     &[("name", name), ("force", force.to_string())],
                     span,
@@ -9522,7 +9461,7 @@ impl Evaluator {
                     "linux.pivot_root",
                     span,
                 )?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "pivot_root",
                     &[
                         ("new_root", new_root.display()),
@@ -9543,7 +9482,7 @@ impl Evaluator {
                     "linux.switch_root",
                     span,
                 )?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "switch_root",
                     &[("new_root", new_root.display()), ("init", init.display())],
                     span,
@@ -9551,22 +9490,22 @@ impl Evaluator {
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxHwclock => {
-                self.linux_dry_run_log("hwclock", &[], span)?;
+                self.linux_fake_log("hwclock", &[], span)?;
                 let epoch_ms = self
-                    .linux_dry_run_env("XSH_LINUX_HWCLOCK_EPOCH_MS", "0")
+                    .linux_fake_value("hwclock_epoch_ms", "0")
                     .parse::<i64>()
                     .unwrap_or(0);
                 Ok(Value::ok(Value::Int(epoch_ms)))
             }
             RuntimeOp::LinuxSetHwclock => {
                 let epoch_ms = lowered_int_arg(values.first().cloned(), "linux.set_hwclock", span)?;
-                self.linux_dry_run_log("set_hwclock", &[("epoch_ms", epoch_ms.to_string())], span)?;
+                self.linux_fake_log("set_hwclock", &[("epoch_ms", epoch_ms.to_string())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxSetSystemClock => {
                 let epoch_ms =
                     lowered_int_arg(values.first().cloned(), "linux.set_system_clock", span)?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "set_system_clock",
                     &[("epoch_ms", epoch_ms.to_string())],
                     span,
@@ -9574,7 +9513,7 @@ impl Evaluator {
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxRfkillList => {
-                self.linux_dry_run_log("rfkill_list", &[], span)?;
+                self.linux_fake_log("rfkill_list", &[], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "linux.rfkill_list",
                     vec![Value::Record(RecordMap::from([
@@ -9596,7 +9535,7 @@ impl Evaluator {
                 } else {
                     "rfkill_unblock"
                 };
-                self.linux_dry_run_log(op_name, &[("id", id.to_string())], span)?;
+                self.linux_fake_log(op_name, &[("id", id.to_string())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxLoopAttach => {
@@ -9609,7 +9548,7 @@ impl Evaluator {
                     Some(value) => lowered_path_arg(value, "linux.loop_attach", span)?.display(),
                     None => "/dev/loop0".to_string(),
                 };
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "loop_attach",
                     &[("file", file.display()), ("device", device.clone())],
                     span,
@@ -9625,11 +9564,11 @@ impl Evaluator {
                     "linux.loop_detach",
                     span,
                 )?;
-                self.linux_dry_run_log("loop_detach", &[("device", device.display())], span)?;
+                self.linux_fake_log("loop_detach", &[("device", device.display())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxLoopList => {
-                self.linux_dry_run_log("loop_list", &[], span)?;
+                self.linux_fake_log("loop_list", &[], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "linux.loop_list",
                     vec![Value::Record(RecordMap::from([
@@ -9652,7 +9591,7 @@ impl Evaluator {
                     "linux.mkswap",
                     span,
                 )?;
-                self.linux_dry_run_log("mkswap", &[("device", device.display())], span)?;
+                self.linux_fake_log("mkswap", &[("device", device.display())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxSwapon => {
@@ -9663,7 +9602,7 @@ impl Evaluator {
                 )?;
                 let priority =
                     lowered_int_arg_or(values.get(1).cloned(), -1, "linux.swapon", span)?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "swapon",
                     &[
                         ("device", device.display()),
@@ -9679,7 +9618,7 @@ impl Evaluator {
                     "linux.swapoff",
                     span,
                 )?;
-                self.linux_dry_run_log("swapoff", &[("device", device.display())], span)?;
+                self.linux_fake_log("swapoff", &[("device", device.display())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxBlkid => {
@@ -9688,7 +9627,7 @@ impl Evaluator {
                     "linux.blkid",
                     span,
                 )?;
-                self.linux_dry_run_log("blkid", &[("device", device.display())], span)?;
+                self.linux_fake_log("blkid", &[("device", device.display())], span)?;
                 Ok(Value::ok(Value::Record(RecordMap::from([
                     (Arc::from("type"), Value::Str("ext4".into())),
                     (
@@ -9706,7 +9645,7 @@ impl Evaluator {
             RuntimeOp::LinuxModinfo => {
                 let name =
                     lowered_str_arg_owned(values.first().cloned(), "", "linux.modinfo", span)?;
-                self.linux_dry_run_log("modinfo", &[("name", name.clone())], span)?;
+                self.linux_fake_log("modinfo", &[("name", name.clone())], span)?;
                 Ok(Value::ok(Value::Record(RecordMap::from([
                     (Arc::from("name"), Value::Str(name.into())),
                     (
@@ -9736,13 +9675,13 @@ impl Evaluator {
                     lowered_str_arg_owned(values.first().cloned(), "", "linux.modprobe", span)?;
                 let params =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "linux.modprobe", span)?;
-                self.linux_dry_run_log("modprobe", &[("name", name), ("params", params)], span)?;
+                self.linux_fake_log("modprobe", &[("name", name), ("params", params)], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxDepmod => {
                 let version =
                     lowered_str_arg_owned(values.first().cloned(), "", "linux.depmod", span)?;
-                self.linux_dry_run_log("depmod", &[("version", version)], span)?;
+                self.linux_fake_log("depmod", &[("version", version)], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxOpenFiles => {
@@ -9751,7 +9690,7 @@ impl Evaluator {
                     None => None,
                 };
                 let pid_value = pid.unwrap_or(123);
-                self.linux_dry_run_log("open_files", &[("pid", pid_value.to_string())], span)?;
+                self.linux_fake_log("open_files", &[("pid", pid_value.to_string())], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "linux.open_files",
                     vec![Value::Record(RecordMap::from([
@@ -9776,7 +9715,7 @@ impl Evaluator {
                     "linux.partition_table",
                     span,
                 )?;
-                self.linux_dry_run_log("partition_table", &[("device", device.display())], span)?;
+                self.linux_fake_log("partition_table", &[("device", device.display())], span)?;
                 Ok(Value::ok(linux_dry_run_partition_table()))
             }
             RuntimeOp::LinuxWritePartitionTable => {
@@ -9790,7 +9729,7 @@ impl Evaluator {
                     "linux.write_partition_table",
                     span,
                 )?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "write_partition_table",
                     &[("device", device.display())],
                     span,
@@ -9806,7 +9745,7 @@ impl Evaluator {
                 let fstype = lowered_str_arg_owned(values.get(1).cloned(), "", "linux.fsck", span)?;
                 let repair =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "linux.fsck", span)?;
-                self.linux_dry_run_log(
+                self.linux_fake_log(
                     "fsck",
                     &[
                         ("device", device.display()),
@@ -9821,15 +9760,15 @@ impl Evaluator {
                 ]))))
             }
             RuntimeOp::LinuxHalt => {
-                self.linux_dry_run_log("halt", &[], span)?;
+                self.linux_fake_log("halt", &[], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxPoweroff => {
-                self.linux_dry_run_log("poweroff", &[], span)?;
+                self.linux_fake_log("poweroff", &[], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxReboot => {
-                self.linux_dry_run_log("reboot", &[], span)?;
+                self.linux_fake_log("reboot", &[], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             _ => unreachable!("linux dry-run operation expected"),
