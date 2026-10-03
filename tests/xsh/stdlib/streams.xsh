@@ -174,7 +174,7 @@ test test_fold_initial_branch_expression_types_the_accumulator {
   let prefix = true
   let joined = ["a", "b"] |> fold(if prefix { "<" } else { "" }) { |acc, item| acc + item }
   let counted = [1, 2, 3] |> fold(match joined { "<ab" => 10, _ => 0 }) { |acc, item| acc + item }
-  let suffixed: Str = joined + ">"
+  let suffixed = joined + ">"
   assert suffixed == "<ab>"
   assert counted == 16
 }
