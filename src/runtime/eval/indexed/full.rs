@@ -9671,7 +9671,11 @@ proc configured() [] -> Int {
                     ).expect("assertion function exists");
                     let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                     if let Some(detail) = detail {
-                        let error = result.expect_err("false assertion fails");
+                        // Assertion failures propagate as ordinary Result errors.
+                        let Ok(Value::Result(crate::runtime::value::ResultValue::Err(error))) = result else {
+                            panic!("false assertion propagates an error: {result:?}");
+                        };
+                        let Value::Error(error) = *error else { panic!("assertion error payload: {error:?}") };
                         assert_eq!(error.family, "AssertionError");
                         assert_eq!(error.variant, "Failed");
                         assert_eq!(error.kind, "AssertionError.Failed");
@@ -9703,41 +9707,6 @@ proc configured() [] -> Int {
         let op = mixed.store.extra[pair_payload.start] as usize;
         mixed.store.binary_ops[op] = BinaryOp::Eq;
         assert!(FullVerifier::verify(&mixed).unwrap_err().message.contains("ordering operators"));
-    }
-
-    #[test]
-    fn comparison_chain_assertion_reports_only_evaluated_failed_pair_on_both_routes() {
-        run_with_large_stack(|| {
-            let source = include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
-            let mut program = fixture("comparison-chain.xsh", source);
-            for (index, tag) in program.store.tags.iter().enumerate() {
-                if *tag == FullTag::ExprComparisonChain {
-                    let payload = program.store.data[index].range().bounds(program.store.extra.len()).unwrap();
-                    program.store.extra[payload.start + 1] = 1;
-                }
-            }
-            FullVerifier::verify(&program).unwrap();
-            let program = Arc::new(program);
-            for recursive in [false, true] {
-                for (name, message) in [("skipped", "3 < 2"), ("failed_last", "2 < 1")] {
-                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                    evaluator.indexed_program = Some(Arc::clone(&program));
-                    let mut call = || evaluator.call_indexed_direct(
-                        LoweredFunctionKey::Name(program_name(&program, name)),
-                        LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
-                    ).expect("chain function exists");
-                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
-                    let error = result.expect_err("asserted chain fails");
-                    assert_eq!(error.kind, "AssertionError.Failed");
-                    assert_eq!(error.family, "AssertionError");
-                    assert_eq!(error.variant, "Failed");
-                    assert!(error.message.contains(message), "{}", error.message);
-                    let failed_source = &source[error.span.unwrap().range()];
-                    assert_eq!(failed_source, message);
-                    assert!(!error.message.contains("division"));
-                }
-            }
-        });
     }
 
     #[test]

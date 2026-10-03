@@ -13,7 +13,7 @@ use super::{
     LoweredTypeCheck, LoweredValue, Name, RuntimeError, Span, StmtFlow, StreamValue,
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
-    comparison_chain_assertion_failure, indexed_callable_identity, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
+    indexed_callable_identity, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
     append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_splice_arg_items, lowered_result_ok, lowered_result_err_value,
@@ -102,19 +102,14 @@ enum FrameContinuation {
     ErrorContextEntry { body: u32, span: Span, next: Box<FrameContinuation> },
     ContextScopeEntry { kind: crate::syntax::arena::ContextScopeKind, body: u32, span: Span, next: Box<FrameContinuation> },
     Discard(Span),
-    Assert { span: Span, next: Box<FrameContinuation> },
-    AssertLeft { op: BinaryOp, right: u32, span: Span, next: Box<FrameContinuation> },
-    AssertRight { op: BinaryOp, left: LoweredValue, span: Span, next: Box<FrameContinuation> },
     ComparisonLeft {
         pairs: Vec<(BinaryOp, u32, Span)>,
-        assertion: bool,
         next: Box<FrameContinuation>,
     },
     ComparisonRight {
         left: LoweredValue,
         pairs: Vec<(BinaryOp, u32, Span)>,
         position: usize,
-        assertion: bool,
         next: Box<FrameContinuation>,
     },
     Field { name: String, span: Span, next: Box<FrameContinuation> },
@@ -318,9 +313,6 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
             | FrameContinuation::ModuleArguments { next, .. }
             | FrameContinuation::ComparisonLeft { next, .. }
             | FrameContinuation::ComparisonRight { next, .. }
-            | FrameContinuation::Assert { next, .. }
-            | FrameContinuation::AssertLeft { next, .. }
-            | FrameContinuation::AssertRight { next, .. }
             | FrameContinuation::BinaryLeft { next, .. }
             | FrameContinuation::BinaryRight { next, .. }
             | FrameContinuation::BoolBinaryRight { next, .. }
@@ -1748,26 +1740,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 );
             }
-            FullTag::ExprAssert => {
-                let value = indexed_raw(&mut payload, span)?;
-                let assertion_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
-                let (tag, mut predicate) = indexed_value(self.calls[index].execution.instruction_id(value), assertion_span)?;
-                let mut comparison = None;
-                if tag == FullTag::ExprBinary {
-                    let op = indexed_decode::<BinaryOp>(&mut predicate, &self.calls[index].execution, assertion_span)?;
-                    let left = indexed_raw(&mut predicate, assertion_span)?;
-                    let right = indexed_raw(&mut predicate, assertion_span)?;
-                    let _ = indexed_decode::<Span>(&mut predicate, &self.calls[index].execution, assertion_span)?;
-                    indexed_finish(predicate, assertion_span)?;
-                    if super::assertion_comparison_op(op) { comparison = Some((op, left, right)); }
-                }
-                if let Some((op, left, right)) = comparison {
-                    self.push_expr(index, left, assertion_span, FrameContinuation::AssertLeft { op, right, span: assertion_span, next: Box::new(next) });
-                } else {
-                    self.push_expr(index, value, assertion_span, FrameContinuation::Assert { span: assertion_span, next: Box::new(next) });
-                }
-            }
             FullTag::ExprValueBlock => {
                 let body = indexed_raw(&mut payload, span)?;
                 let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
@@ -1801,7 +1773,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let (_, mut values) = self.calls[index].execution.block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, span))?;
                 let len = indexed_raw(&mut values, span)? as usize;
-                let assertion = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_decode::<bool>(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 let mut pairs = Vec::with_capacity(len);
                 let mut first = None;
@@ -1819,7 +1791,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 indexed_finish(values, span)?;
                 let first = first.ok_or_else(|| RuntimeError::new("indexed-ir", "comparison chain is empty").with_span(span))?;
-                self.push_expr(index, first, span, FrameContinuation::ComparisonLeft { pairs, assertion, next: Box::new(next) });
+                self.push_expr(index, first, span, FrameContinuation::ComparisonLeft { pairs, next: Box::new(next) });
             }
             FullTag::ExprBinary => {
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
@@ -2197,28 +2169,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
         }
         match next {
-            FrameContinuation::Assert { span, next } => match value {
-                FrameValue::Value(value) => {
-                    let passed = frame_condition_bool(value, span)?;
-                    let outcome = self.evaluator.indexed_assertion_outcome(passed, None, span)?;
-                    let value = match outcome { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) };
-                    self.push_value(index, value, *next);
-                }
-                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
-            },
-            FrameContinuation::AssertLeft { op, right, span, next } => match value {
-                FrameValue::Value(left) => self.push_expr(index, right, span, FrameContinuation::AssertRight { op, left, span, next }),
-                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
-            },
-            FrameContinuation::AssertRight { op, left, span, next } => match value {
-                FrameValue::Value(right) => {
-                    let passed = crate::runtime::eval::lowered_ops::lowered_assertion_comparison(op, &left, &right, span)?;
-                    let outcome = self.evaluator.indexed_assertion_outcome(passed, Some((&left, &right)), span)?;
-                    let value = match outcome { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) };
-                    self.push_value(index, value, *next);
-                }
-                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
-            },
             FrameContinuation::Field { name, span, next } => match value {
                 FrameValue::Value(base) => {
                     let value = self.evaluator.indexed_field_value(base, &name, span)?;
@@ -2377,24 +2327,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::ComparisonLeft { pairs, assertion, next } => match value {
+            FrameContinuation::ComparisonLeft { pairs, next } => match value {
                 FrameValue::Value(left) => {
                     let (_, right, span) = pairs[0];
-                    self.push_expr(index, right, span, FrameContinuation::ComparisonRight { left, pairs, position: 0, assertion, next });
+                    self.push_expr(index, right, span, FrameContinuation::ComparisonRight { left, pairs, position: 0, next });
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
-            FrameContinuation::ComparisonRight { left, pairs, position, assertion, next } => match value {
+            FrameContinuation::ComparisonRight { left, pairs, position, next } => match value {
                 FrameValue::Value(right) => {
                     let (op, _, span) = pairs[position];
                     let result = lowered_binary_value(op, left.clone(), right.clone(), span)?;
-                    if result == LoweredValue::Bool(false) && assertion { return Err(comparison_chain_assertion_failure(op, &left, &right, span)?); }
                     if result == LoweredValue::Bool(false) || position + 1 == pairs.len() {
                         self.push_value(index, FrameValue::Value(result), *next);
                     } else {
                         let position = position + 1;
                         let (_, operand, span) = pairs[position];
-                        self.push_expr(index, operand, span, FrameContinuation::ComparisonRight { left: right, pairs, position, assertion, next });
+                        self.push_expr(index, operand, span, FrameContinuation::ComparisonRight { left: right, pairs, position, next });
                     }
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
