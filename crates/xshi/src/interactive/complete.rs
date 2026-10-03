@@ -457,6 +457,8 @@ struct DirCache {
 }
 
 impl DirCache {
+    // Field widths differ across platforms, so the casts are not always no-ops.
+    #[allow(clippy::unnecessary_cast)]
     fn find(&self, st: &libc::stat) -> Option<&DirSnapshot> {
         self.snapshots.iter().find(|snap| {
             snap.dev == st.st_dev as u64

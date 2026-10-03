@@ -336,7 +336,7 @@ mod assertion_detail_tests {
     #[test]
     fn assertion_record_vec_details_bound_field_names() {
         SymbolOwner::new().with_current(|| {
-            let field = Name::intern(&"large_field".repeat(1000));
+            let field = Name::intern("large_field".repeat(1000));
             let value = LoweredValue::RecordVec(Arc::new(vec![(field, LoweredValue::Null)]));
             let detail = lowered_assertion_value_detail(&value);
             assert!(detail.len() < 512, "field names must not dominate failure details");
@@ -2080,11 +2080,11 @@ pub(super) fn lowered_record_update_batch(
 
 /// Selects an existing record field while retaining value semantics.
 /// Shared storage is copied only when another value still owns it.
-pub(super) fn lowered_record_field_mut<'a>(
-    value: &'a mut LoweredValue,
+pub(super) fn lowered_record_field_mut(
+    value: &mut LoweredValue,
     field: Name,
     span: Span,
-) -> Result<&'a mut LoweredValue, RuntimeError> {
+) -> Result<&mut LoweredValue, RuntimeError> {
     if matches!(value, LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)) {
         let stats = std::mem::replace(value, LoweredValue::Unit);
         *value = LoweredValue::RecordVec(Arc::new(match stats {
@@ -2362,8 +2362,8 @@ fn lowered_map_method_ref(
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
         "get" if args.len() == 1 => {
             let key = lowered_map_key_ref(&args[0], span)?;
-            require_lowered_map_key_domain(&map, key, span)?;
-            let result = match key.get(&map) {
+            require_lowered_map_key_domain(map, key, span)?;
+            let result = match key.get(map) {
                 Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
                 None => lowered_result_err("map-missing", format!("map has no key {key:?}")),
             };

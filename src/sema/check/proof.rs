@@ -128,18 +128,16 @@ pub(super) fn restore_projection(ty: &mut Type, original: &Type, path: &[Name]) 
 pub(super) fn intersection_type(original: &Type, continuations: &[Type]) -> Type {
     let Some(first) = continuations.first() else { return original.clone(); };
     if continuations.iter().all(|ty| ty == first) { return first.clone(); }
-    if let Type::Record(original_fields) = original {
-        if continuations.iter().all(|ty| matches!(ty, Type::Record(_))) {
-            let mut fields = original_fields.clone();
-            for (name, ty) in &mut fields {
-                let children = continuations.iter().map(|continuation| {
-                    let Type::Record(fields) = continuation else { unreachable!() };
-                    fields.get(name).cloned().unwrap_or_else(|| ty.clone())
-                }).collect::<Vec<_>>();
-                *ty = intersection_type(ty, &children);
-            }
-            return Type::Record(fields);
+    if let Type::Record(original_fields) = original && continuations.iter().all(|ty| matches!(ty, Type::Record(_))) {
+        let mut fields = original_fields.clone();
+        for (name, ty) in &mut fields {
+            let children = continuations.iter().map(|continuation| {
+                let Type::Record(fields) = continuation else { unreachable!() };
+                fields.get(name).cloned().unwrap_or_else(|| ty.clone())
+            }).collect::<Vec<_>>();
+            *ty = intersection_type(ty, &children);
         }
+        return Type::Record(fields);
     }
     original.clone()
 }

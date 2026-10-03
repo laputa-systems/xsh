@@ -256,12 +256,10 @@ impl Checker {
         }
 
 
-        if let Some(expr) = self.prepared_constants.tail_bindings.get(&span) {
-            if let Some(ty) = self.prepared_constants.types.get(expr) {
-                let ty = ty.clone();
-                self.record_expr_type(span, ty.clone());
-                return ty;
-            }
+        if let Some(expr) = self.prepared_constants.tail_bindings.get(&span) && let Some(ty) = self.prepared_constants.types.get(expr) {
+            let ty = ty.clone();
+            self.record_expr_type(span, ty.clone());
+            return ty;
         }
         if self.procs.contains_key(&name) {
             if self.in_pure {

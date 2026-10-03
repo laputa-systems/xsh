@@ -4293,9 +4293,9 @@ impl AstArena {
     }
 
     pub fn list_elements(&self, range: ArenaListElementRange) -> impl Iterator<Item = ArenaListElement> + '_ {
-        self.extra_range(range.0).chunks_exact(2).map(|words| ArenaListElement {
-            value: ExprId::new(words[0] as usize),
-            splice_span: (words[1] != 0).then(|| SpanId::new(words[1] as usize - 1)),
+        self.extra_range(range.0).as_chunks::<2>().0.iter().map(|&[value, splice]| ArenaListElement {
+            value: ExprId::new(value as usize),
+            splice_span: (splice != 0).then(|| SpanId::new(splice as usize - 1)),
         })
     }
 

@@ -78,11 +78,8 @@ impl PreparedSchema {
                 }
             }
             Self::WireEnum(mapping) => {
-                if let LoweredValue::Tag(tag) = &value {
-                    if tag.type_name == mapping.type_name && tag.fields.is_empty()
-                        && mapping.variants.contains_key(&Name::intern(tag.name.as_ref())) {
-                        return Ok(value);
-                    }
+                if let LoweredValue::Tag(tag) = &value && tag.type_name == mapping.type_name && tag.fields.is_empty() && mapping.variants.contains_key(&Name::intern(tag.name.as_ref())) {
+                    return Ok(value);
                 }
                 if let Some(text) = super::lowered_ops::lowered_str_value(&value) {
                     if let Some((variant, _)) = mapping.variants.iter().find(|(_, wire)| wire.as_ref() == text) {

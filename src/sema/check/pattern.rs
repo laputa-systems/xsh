@@ -3,10 +3,7 @@ use super::{Binding, Checker, FxHashSet, Name, Span, Type, TypeDefBody, result_t
 use crate::syntax::arena::{ArenaPatternKind, ArenaProgram, PatternId};
 
 fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
-    match ty {
-        Type::Any | Type::ErasedRecord | Type::Unknown | Type::Invalid => true,
-        _ => false,
-    }
+    matches!(ty, Type::Any | Type::ErasedRecord | Type::Unknown | Type::Invalid)
 }
 
 /// Arena-native mirror of `check_pattern` and its callees. Fully self-contained:

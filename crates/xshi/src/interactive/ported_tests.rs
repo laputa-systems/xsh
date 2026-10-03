@@ -4,7 +4,7 @@
 //! modules compose correctly (line editing sequences, history search,
 //! completion, config parsing, etc.).
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::io::Write;
 
 use super::alias::AliasMap;
@@ -686,7 +686,7 @@ fn complete_path_finds_files() {
     let path = format!("{}/foo", dir.display());
     let comp = complete::complete_path(&path, false);
     assert_eq!(comp.len(), 2);
-    let names: HashSet<_> = (0..comp.len()).map(|i| comp.name(i)).collect();
+    let names: FxHashSet<_> = (0..comp.len()).map(|i| comp.name(i)).collect();
     assert!(names.contains("foo.rs"));
     assert!(names.contains("foo.txt"));
 }
@@ -708,7 +708,7 @@ fn complete_path_hidden_files() {
     // Without dot prefix, hidden files should be excluded
     let path = format!("{}/", dir.display());
     let comp = complete::complete_path(&path, false);
-    let names: HashSet<_> = (0..comp.len()).map(|i| comp.name(i)).collect();
+    let names: FxHashSet<_> = (0..comp.len()).map(|i| comp.name(i)).collect();
     assert!(names.contains("visible"));
     assert!(!names.contains(".hidden"));
 
@@ -1072,7 +1072,7 @@ fn alias_iter() {
     let mut aliases = AliasMap::default();
     aliases.set("a".into(), vec!["alpha".into()]);
     aliases.set("b".into(), vec!["beta".into()]);
-    let collected: HashSet<_> = aliases.iter().map(|(k, _)| k.to_string()).collect();
+    let collected: FxHashSet<_> = aliases.iter().map(|(k, _)| k.to_string()).collect();
     assert!(collected.contains("a"));
     assert!(collected.contains("b"));
 }
@@ -1775,7 +1775,7 @@ fn complete_path_symlink() {
 
     let path = format!("{}/", dir.display());
     let comp = complete::complete_path(&path, false);
-    let names: HashSet<_> = (0..comp.len()).map(|i| comp.name(i)).collect();
+    let names: FxHashSet<_> = (0..comp.len()).map(|i| comp.name(i)).collect();
     assert!(names.contains("target.txt"));
     assert!(names.contains("link.txt"));
     // link should be marked as a link

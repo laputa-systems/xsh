@@ -39,9 +39,7 @@ impl Checker {
                 ArenaExprKind::Try(inner) => self.projections.get(&program.arena.expr(inner).span),
                 _ => self.projections.get(&span),
             };
-            if let Some(projection) = projected {
-                if let Some(target) = self.resolve_module_callable_alias(program, projection.receiver, projection.field, projection.callable.as_ref()?) { return Some(target); }
-            }
+            if let Some(projection) = projected && let Some(target) = self.resolve_module_callable_alias(program, projection.receiver, projection.field, projection.callable.as_ref()?) { return Some(target); }
             if let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind
                 && let Some(Type::Module(exports)) = self.expr_types.get(&program.arena.expr(base).span)
                 && let Some(export) = exports.get(&name)

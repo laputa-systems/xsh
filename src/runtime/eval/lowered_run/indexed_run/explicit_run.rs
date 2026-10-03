@@ -3400,11 +3400,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn cleanup_comp_streams(&mut self, streams: CompStreams) -> Result<(), RuntimeError> {
         let mut first_error = None;
         for stream in streams.lock().expect("comprehension stream state poisoned").iter_mut().rev() {
-            if let Some((mut stream, span)) = stream.take() {
-                if let Err(error) = self.evaluator.stream_cancel(&mut stream, span) {
-                    if first_error.is_none() { first_error = Some(error); }
-                }
-            }
+            if let Some((mut stream, span)) = stream.take() && let Err(error) = self.evaluator.stream_cancel(&mut stream, span) && first_error.is_none() { first_error = Some(error); }
         }
         first_error.map_or(Ok(()), Err)
     }
@@ -4277,9 +4273,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     if let Some(error) = first_error.take() {
                         first_error = Some(contextualize_runtime_error(error, context));
                     }
-                    if let Some(error) = &self.pending_error {
-                        if let Some(traceback) = &mut self.evaluator.pending_traceback { traceback.error = crate::trace::TraceError::from_runtime_error(error); }
-                    }
+                    if let Some(error) = &self.pending_error && let Some(traceback) = &mut self.evaluator.pending_traceback { traceback.error = crate::trace::TraceError::from_runtime_error(error); }
                     Ok(())
                 }
                 FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), .. } => {

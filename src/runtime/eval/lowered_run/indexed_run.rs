@@ -168,11 +168,9 @@ fn assertion_failure_message(
     if let Some((left, right)) = operands {
         use crate::runtime::eval::lowered_ops::lowered_assertion_value_detail;
         message.push_str(&format!("\nleft: {}\nright: {}", lowered_assertion_value_detail(left), lowered_assertion_value_detail(right)));
-        if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
-            if left != right && left.len() <= 4096 && right.len() <= 4096 && (left.contains('\n') || right.contains('\n')) {
-                message.push_str("\ndiff:\n");
-                message.push_str(&diffy::create_patch(left, right).to_string());
-            }
+        if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) && left != right && left.len() <= 4096 && right.len() <= 4096 && (left.contains('\n') || right.contains('\n')) {
+            message.push_str("\ndiff:\n");
+            message.push_str(&diffy::create_patch(left, right).to_string());
         }
     }
     message
@@ -1754,9 +1752,7 @@ impl Evaluator {
                 if !lowered_value_matches_static_type(value, &ty) {
                     false
                 } else {
-                    if let Some(slot) = slot {
-                        if bind { slots[slot] = value.clone(); }
-                    }
+                    if let Some(slot) = slot && bind { slots[slot] = value.clone(); }
                     true
                 }
             }
@@ -1770,9 +1766,7 @@ impl Evaluator {
                     if unit_only && !matches!(inner.as_ref(), LoweredValue::Unit) {
                         false
                     } else {
-                        if let Some(slot) = slot {
-                            if bind { slots[slot] = inner.as_ref().clone(); }
-                        }
+                        if let Some(slot) = slot && bind { slots[slot] = inner.as_ref().clone(); }
                         true
                     }
                 } else {
@@ -1861,9 +1855,7 @@ impl Evaluator {
                     false
                 } else {
                     for (slot, field) in field_slots.iter().zip(&value.fields) {
-                        if let Some(slot) = slot {
-                            if bind { slots[*slot] = field.clone(); }
-                        }
+                        if let Some(slot) = slot && bind { slots[*slot] = field.clone(); }
                     }
                     true
                 }
@@ -2676,7 +2668,7 @@ impl Evaluator {
             AssertionFailure::Reached(reached) => (None, Some(reached.as_str())),
             AssertionFailure::False => (None, None),
         };
-        let message = assertion_failure_message(self.sources.span_text(span).as_deref(), operands, reached, context);
+        let message = assertion_failure_message(self.sources.span_text(span), operands, reached, context);
         let error = crate::runtime::eval::modules::assertion_error(message, Some(span));
         self.lowered_question_propagation_value(lowered_result_err_value(error), span)
     }
@@ -4544,10 +4536,8 @@ impl Evaluator {
                                                 _ => return Err(RuntimeError::new("type-error", "reduction modes must be Bool").with_span(span)),
                                             }
                                         }
-                                        if let Some(jobs) = fields.get("jobs") {
-                                            if !matches!(jobs, LoweredValue::Int(value) if *value > 0) {
-                                                return Err(RuntimeError::new("stream-jobs", "stream worker count must be a positive Int").with_span(span));
-                                            }
+                                        if let Some(jobs) = fields.get("jobs") && !matches!(jobs, LoweredValue::Int(value) if *value > 0) {
+                                            return Err(RuntimeError::new("stream-jobs", "stream worker count must be a positive Int").with_span(span));
                                         }
                                         selected.ok_or_else(|| RuntimeError::new("stream-reduce-mode", "reduce-by requires exactly one enabled reduction mode").with_span(span))?
                                     } else {
@@ -8491,6 +8481,19 @@ pub(super) fn lowered_shares_backing(left: &LoweredValue, right: &LoweredValue) 
     }
 }
 
+// Defaults retain their private omission marker until the actual callee binds
+// its slots. Callable aliases therefore keep lowered values across dispatch.
+fn indexed_callable_identity(callee: &LoweredValue, span: Span) -> Result<(LoweredFunctionKey, LoweredFunctionKind), RuntimeError> {
+    let (function, kind) = match callee {
+        LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
+        LoweredValue::Proc(function) => (function, LoweredFunctionKind::Proc),
+        other => return Err(RuntimeError::new("type-error", format!("dynamic call expected Pure or Proc, found {}", other.type_name())).with_span(span)),
+    };
+    let key = function.as_name().map(LoweredFunctionKey::Name)
+        .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified)).expect("callable identity is interned");
+    Ok((key, kind))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8798,17 +8801,4 @@ pure pipeline(values: List[Int]) -> List[Int] {
         };
         (output.status, output.stdout, output.stderr)
     }
-}
-
-// Defaults retain their private omission marker until the actual callee binds
-// its slots. Callable aliases therefore keep lowered values across dispatch.
-fn indexed_callable_identity(callee: &LoweredValue, span: Span) -> Result<(LoweredFunctionKey, LoweredFunctionKind), RuntimeError> {
-    let (function, kind) = match callee {
-        LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
-        LoweredValue::Proc(function) => (function, LoweredFunctionKind::Proc),
-        other => return Err(RuntimeError::new("type-error", format!("dynamic call expected Pure or Proc, found {}", other.type_name())).with_span(span)),
-    };
-    let key = function.as_name().map(LoweredFunctionKey::Name)
-        .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified)).expect("callable identity is interned");
-    Ok((key, kind))
 }

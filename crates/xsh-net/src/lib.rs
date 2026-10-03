@@ -1852,17 +1852,17 @@ fn default_tls_client_config(
     builder: rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>,
 ) -> NetResult<ClientConfig> {
     #[cfg(target_os = "macos")]
-    {
-        return builder
-            .with_platform_verifier()
-            .map_err(|error| NetError::new("net-tls", error.to_string()))
-            .map(|builder| builder.with_no_client_auth());
-    }
+    let config = builder
+        .with_platform_verifier()
+        .map_err(|error| NetError::new("net-tls", error.to_string()))?
+        .with_no_client_auth();
 
     #[cfg(not(target_os = "macos"))]
-    Ok(builder
+    let config = builder
         .with_root_certificates(system_root_certificates()?)
-        .with_no_client_auth())
+        .with_no_client_auth();
+
+    Ok(config)
 }
 
 #[derive(Clone, Debug)]

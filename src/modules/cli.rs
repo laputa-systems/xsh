@@ -356,14 +356,14 @@ fn parse_cli_with_policy(
 ) -> Result<Value, RuntimeError> {
     let dynamic;
     let specs = if let Some(plan) = prepared { &plan.specs } else { dynamic = parse_schema_with_policy(schema, span, policy)?; &dynamic };
-    if argv_requests_help(&argv, &specs, policy) {
+    if argv_requests_help(&argv, specs, policy) {
         return Err(cli_help_error(
-            usage_text_with_policy(&specs, command, policy),
+            usage_text_with_policy(specs, command, policy),
             span,
         ));
     }
-    let parsed = parse_values(&argv, &specs, &RecordMap::new(), span, policy)
-        .map_err(|error| cli_usage_error(error, usage_text_with_policy(&specs, command, policy)))?;
+    let parsed = parse_values(&argv, specs, &RecordMap::new(), span, policy)
+        .map_err(|error| cli_usage_error(error, usage_text_with_policy(specs, command, policy)))?;
     Ok(Value::ok(Value::Record(parsed.values)))
 }
 
@@ -377,11 +377,11 @@ pub(crate) fn parse_cli_full(
 ) -> Result<Value, RuntimeError> {
     let dynamic;
     let specs = if let Some(plan) = prepared { &plan.specs } else { dynamic = parse_schema(schema, span)?; &dynamic };
-    if argv_requests_help(&argv, &specs, ParsePolicy::Strict) {
-        return Err(cli_help_error(usage_text(&specs, command), span));
+    if argv_requests_help(&argv, specs, ParsePolicy::Strict) {
+        return Err(cli_help_error(usage_text(specs, command), span));
     }
-    let parsed = parse_values(&argv, &specs, &env, span, ParsePolicy::Strict)
-        .map_err(|error| cli_usage_error(error, usage_text(&specs, command)))?;
+    let parsed = parse_values(&argv, specs, &env, span, ParsePolicy::Strict)
+        .map_err(|error| cli_usage_error(error, usage_text(specs, command)))?;
     let fields = xsh_registry::types::cli_full_fields(
         Value::Record(parsed.values), Value::Record(parsed.sources),
         Value::List(parsed.warnings.into_iter().map(|warning| Value::Str(warning.into())).collect()),

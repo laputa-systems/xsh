@@ -588,7 +588,7 @@ fn lint_workspace_with_parallelism(
                         break;
                     };
                     let root_results = lint_workspace_root(
-                        &workspace,
+                        workspace,
                         root,
                         fix,
                         &mut bundle,

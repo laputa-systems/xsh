@@ -1359,7 +1359,6 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
     let mut stderr = Vec::new();
     let mut statuses = Vec::new();
     let mut carry: Option<Vec<u8>> = None;
-    let final_stdout: Vec<u8>;
 
     for (index, command) in commands.iter().enumerate().take(last_builtin + 1) {
         let merge_stderr = pipes
@@ -1406,8 +1405,8 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
         }
     }
 
-    if last_builtin + 1 == commands.len() {
-        final_stdout = carry.take().unwrap_or_default();
+    let final_stdout = if last_builtin + 1 == commands.len() {
+        carry.take().unwrap_or_default()
     } else {
         let mut suffix: Vec<SimpleCommand> = commands[last_builtin + 1..].to_vec();
         let feed = match StdinFeed::new(carry.take().unwrap_or_default()) {
@@ -1437,8 +1436,8 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
         drop(feed);
         statuses.push(output.status);
         stderr.extend_from_slice(&output.stderr);
-        final_stdout = output.stdout;
-    }
+        output.stdout
+    };
 
     // Like a pipeline of programs, the last stage decides.
     let status = statuses.last().copied().unwrap_or(0);

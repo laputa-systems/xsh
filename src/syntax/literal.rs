@@ -636,7 +636,7 @@ mod block_string_migration_tests {
     use super::*;
 
     fn decode_hex(text: &str) -> Vec<u8> {
-        text.as_bytes().chunks_exact(2).map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()).collect()
+        text.as_bytes().as_chunks::<2>().0.iter().map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()).collect()
     }
 
     // This disk-backed inventory pins old text bytes and interpolation pieces

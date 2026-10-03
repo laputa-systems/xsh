@@ -1906,7 +1906,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
                     option_json_value(
                         terminal_error_kind
                             .as_ref()
-                            .map(|kind| raw_json_string(kind)),
+                            .map(raw_json_string),
                     ),
                 ),
                 (

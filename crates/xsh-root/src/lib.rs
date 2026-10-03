@@ -40,7 +40,7 @@ impl Root {
 
     /// Opens an existing file beneath this root for reading.
     pub fn open_file(&self, path: impl AsRef<Path>) -> io::Result<File> {
-        self.open_with(path, &OpenOptions::new().read(true))
+        self.open_with(path, OpenOptions::new().read(true))
     }
 
     /// Opens an existing directory beneath this root for reading its entries.
@@ -74,7 +74,7 @@ impl Root {
     pub fn create(&self, path: impl AsRef<Path>) -> io::Result<File> {
         self.open_with(
             path,
-            &OpenOptions::new().write(true).create(true).truncate(true),
+            OpenOptions::new().write(true).create(true).truncate(true),
         )
     }
 

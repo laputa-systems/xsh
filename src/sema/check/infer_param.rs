@@ -27,14 +27,13 @@ impl Checker {
                                 let ty = probe.type_from_arena(program, param.ty);
                                 self.parameter_types.insert(span, ty.clone());
                                 probe.parameter_types.insert(span, ty);
-                            } else if !self.parameter_types.contains_key(&span) {
-                                if let Some(default) = param.default {
-                                    let actual = probe.check_expr_arena(program, source, default, None);
-                                    let actual = probe.type_constraints.resolve(&actual).unwrap_or(Type::Invalid);
-                                    if parameter_type_is_concrete(&actual) {
-                                        self.parameter_types.insert(span, actual.clone());
-                                        probe.parameter_types.insert(span, actual);
-                                    }
+                            } else if let Some(default) = param.default
+                                && let std::collections::btree_map::Entry::Vacant(entry) = self.parameter_types.entry(span) {
+                                let actual = probe.check_expr_arena(program, source, default, None);
+                                let actual = probe.type_constraints.resolve(&actual).unwrap_or(Type::Invalid);
+                                if parameter_type_is_concrete(&actual) {
+                                    entry.insert(actual.clone());
+                                    probe.parameter_types.insert(span, actual);
                                 }
                             }
                         }

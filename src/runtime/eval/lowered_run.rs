@@ -649,6 +649,7 @@ fn lowered_record_vec_append_or_replace_unsorted(
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum LoweredRetryAttemptValue {
     Success(LoweredValue),
     Failed {
@@ -3344,10 +3345,8 @@ fn checked_unsigned_value(value: &LoweredValue, check: &super::LoweredTypeCheck,
 
 fn checked_lowered_return_value(header: &FunctionHeader, value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
     let value = lowered_return_value(header.return_kind, value, span)?;
-    if let Some(check) = &header.return_check {
-        if !lowered_value_matches_static_type(&value, &check.ty) {
-            return Err(RuntimeError::new("type-error", format!("return violates UInt constraint in {}", check.name)).with_span(span));
-        }
+    if let Some(check) = &header.return_check && !lowered_value_matches_static_type(&value, &check.ty) {
+        return Err(RuntimeError::new("type-error", format!("return violates UInt constraint in {}", check.name)).with_span(span));
     }
     Ok(value)
 }
@@ -10163,7 +10162,7 @@ impl Evaluator {
                 error: end
                     .error
                     .as_ref()
-                    .map(|error| TraceError::from_run_error(error)),
+                    .map(TraceError::from_run_error),
             },
         );
     }
@@ -10209,7 +10208,7 @@ impl Evaluator {
                 error: end
                     .error
                     .as_ref()
-                    .map(|error| TraceError::from_run_error(error)),
+                    .map(TraceError::from_run_error),
             },
         );
     }

@@ -6603,10 +6603,10 @@ impl FullCodec for BuildPatternRow {
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         let pattern = match tag {
             FullPatternTag::TagType => Self::TagType { type_name: Name::decode(decoder, &mut payload)?, variants: Vec::decode(decoder, &mut payload)? },
-            FullPatternTag::RecordTest => Self::RecordTest { fields: Box::decode(decoder, &mut payload)? },
+            FullPatternTag::RecordTest => Self::RecordTest { fields: Vec::decode(decoder, &mut payload)? },
             FullPatternTag::ResultTest => Self::ResultTest { ok: bool::decode(decoder, &mut payload)?, inner: BuildPatternId::decode(decoder, &mut payload)? },
             FullPatternTag::TagTest => Self::TagTest { type_name: Name::decode(decoder, &mut payload)?, name: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
-            FullPatternTag::ErrorTest => Self::ErrorTest { family: Name::decode(decoder, &mut payload)?, variant: Name::decode(decoder, &mut payload)?, fields: Box::decode(decoder, &mut payload)? },
+            FullPatternTag::ErrorTest => Self::ErrorTest { family: Name::decode(decoder, &mut payload)?, variant: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
             FullPatternTag::List => Self::List {
                 elements: Vec::decode(decoder, &mut payload)?,
                 rest: Option::decode(decoder, &mut payload)?,
@@ -9074,7 +9074,7 @@ pure selected() -> Str {
             assert!(Evaluator::indexed_pattern_matches(&execution, pattern, &matched, &mut slots, span).unwrap());
             assert!(slots.iter().any(|slot| *slot == LoweredValue::Int(7)));
             assert!(slots.iter().any(|slot| *slot == LoweredValue::List(vec![LoweredValue::Int(8)])));
-            assert!(slots.iter().any(|slot| *slot == matched));
+            assert!(slots.contains(&matched));
         });
     }
 
@@ -10044,7 +10044,7 @@ proc scoped() [io, error] -> Int {
             evaluator.indexed_program = Some(Arc::clone(&program));
             let argument = Value::Path(PathValue::new(b"raw\xfe name".to_vec()).unwrap());
             let result = evaluator.call_indexed_direct(
-                LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Proc, &[argument.clone()],
+                LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Proc, std::slice::from_ref(&argument),
                 Span::new(program.store.source_id, 0, 0),
             ).expect("scope function exists");
             assert!(result.is_ok(), "{result:?}");
