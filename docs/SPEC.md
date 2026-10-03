@@ -1339,7 +1339,8 @@ parameter may be passed as a flag, mapping kebab case to snake case
 calls. User procs are never called in command style. Core command names
 (`print`, `eprint`, `cd`, `env`) cannot be redefined.
 
-A statement that begins with an identifier followed by `|>` is a pipeline
+A statement that begins with an identifier or `.name` chain followed by `|>`
+or a binary operator (including `and`, `or`, `in`, `not in`, and `is`) is an
 expression, not a command.
 
 ### 10.2 Command arguments

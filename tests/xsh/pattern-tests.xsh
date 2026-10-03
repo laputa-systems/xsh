@@ -444,3 +444,16 @@ test test_capitalized_unknown_pattern_names_are_rejected { |ctx|
   assert "check.pattern-capitalized-binding" in rejected.stderr
   assert "is NotFound" in rejected.stderr
 }
+
+test test_field_path_line_followed_by_not_in_or_is_is_an_expression {
+  let r = {a: {b: 1}}
+  let xs = [2, 3]
+  let absent = {
+    r.a.b not in xs
+  }
+  let typed = {
+    r.a.b is 1
+  }
+  assert absent
+  assert typed
+}

@@ -88,12 +88,9 @@ pub enum FollowToken {
     Close,
     /// `{` opening a block.
     Brace,
-    /// `and`, `or`, or `in`.
+    /// `and`, `or`, `in`, `not`, or `is`.
     WordOperator,
-    /// `is` or `not`, which continue an expression but read as a command
-    /// argument after a dotted name.
-    Continuation,
-    /// Any other keyword or name, such as `is`, `not`, `for`, or `when`.
+    /// Any other keyword or name, such as `for` or `when`.
     Word,
     /// A symbolic binary operator.
     Operator,
@@ -152,8 +149,8 @@ impl Follow {
             TokenTag::Keyword if matches!(Keyword::from_ident(spelling), Some(Keyword::And | Keyword::Or | Keyword::In)) => {
                 FollowToken::WordOperator
             }
-            TokenTag::Ident if spelling == "is" => FollowToken::Continuation,
-            TokenTag::Keyword if spelling == "not" => FollowToken::Continuation,
+            TokenTag::Ident if spelling == "is" => FollowToken::WordOperator,
+            TokenTag::Keyword if spelling == "not" => FollowToken::WordOperator,
             TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword => FollowToken::Word,
             TokenTag::PipeGt => FollowToken::PipeGt,
             TokenTag::Pipe => FollowToken::Pipe,
@@ -470,7 +467,7 @@ pub fn needs_parens(arena: &AstArena, expr: ExprId, context: Context) -> bool {
         // A type pattern takes in an adjacent `.`, `[`, `(`, or `?`.
         ArenaExprKind::PatternTest { .. } => follow.is_suffix(),
         ArenaExprKind::Item => {
-            matches!(follow.token, FollowToken::Word | FollowToken::WordOperator | FollowToken::Continuation)
+            matches!(follow.token, FollowToken::Word | FollowToken::WordOperator)
                 || (follow.adjacent && follow.token == FollowToken::DotDot)
         }
         // Before a block `{`, a last stage that takes a block, or a builder
@@ -481,7 +478,7 @@ pub fn needs_parens(arena: &AstArena, expr: ExprId, context: Context) -> bool {
         ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } | ArenaExprKind::ValuePipelineCall { .. } => match last_stage(arena, &kind) {
             LastStage::Awaiting => !matches!(follow.token, FollowToken::End | FollowToken::PipeGt | FollowToken::RParen | FollowToken::Close),
             LastStage::Expression => {
-                follow.is_suffix() || matches!(follow.token, FollowToken::Operator | FollowToken::WordOperator | FollowToken::Continuation)
+                follow.is_suffix() || matches!(follow.token, FollowToken::Operator | FollowToken::WordOperator)
             }
             // A stage written as a bare name would extend it with `.name` or call it.
             LastStage::Complete { bare_name } => {
@@ -537,7 +534,7 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         // A name alone is a command; a `.name` chain followed by a word is a
         // dotted command (`Parser::lookahead_is_dotted_command`).
         ArenaExprKind::Ident(_) if statement => match context.slot {
-            Slot::Postfix { dotted: true } => matches!(context.chain_follow.token, FollowToken::Word | FollowToken::Continuation | FollowToken::Brace),
+            Slot::Postfix { dotted: true } => matches!(context.chain_follow.token, FollowToken::Word | FollowToken::Brace),
             _ => context.follow.token == FollowToken::End,
         },
         _ => false,
@@ -552,10 +549,10 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
     let open = Context::open;
     match arena.expr(parent).kind {
         ArenaExprKind::Binary { op, left: operand, .. } if operand == child => {
-            left(Slot::Left(op), Follow::spaced(if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::In) { FollowToken::WordOperator } else if op == BinaryOp::NotIn { FollowToken::Continuation } else { FollowToken::Operator }))
+            left(Slot::Left(op), Follow::spaced(if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::In | BinaryOp::NotIn) { FollowToken::WordOperator } else { FollowToken::Operator }))
         }
         ArenaExprKind::Binary { op, .. } => inherit(Slot::Right(op), binary_right_operand_precedence(op)),
-        ArenaExprKind::PatternTest { .. } => left(Slot::PatternTestValue, Follow::spaced(FollowToken::Continuation)),
+        ArenaExprKind::PatternTest { .. } => left(Slot::PatternTestValue, Follow::spaced(FollowToken::WordOperator)),
         ArenaExprKind::Unary { .. } => inherit(Slot::Prefix, PREFIX_OPERAND),
         ArenaExprKind::Spawn(_) => inherit(Slot::CommandTarget { spawn: true, receiver: false }, PREFIX_OPERAND),
         ArenaExprKind::Wait(_) => inherit(Slot::CommandTarget { spawn: false, receiver: false }, PREFIX_OPERAND),
