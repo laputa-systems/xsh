@@ -477,3 +477,28 @@ test test_negative_number_literal_patterns {
   }
   assert label == "small"
 }
+
+pure arm_capture_then_let(r: Int) -> Int {
+  let a = match r {
+    e => e + 1
+  }
+  let e = 7
+  let b = match e {
+    7 => 10
+    _ => 20
+  }
+  a + b + e
+}
+
+pure arm_capture_shadows_outer(r: Int) -> Int {
+  let e = 100
+  let a = match r {
+    e => e + 1
+  }
+  a + e
+}
+
+test test_match_arm_captures_end_with_their_arm {
+  assert arm_capture_then_let(1) == 19
+  assert arm_capture_shadows_outer(1) == 102
+}

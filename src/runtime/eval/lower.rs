@@ -40,6 +40,8 @@ use super::{
 #[derive(Clone, Default)]
 pub(super) struct SlotScope {
     pattern_slots: Option<FxHashMap<Name, usize>>,
+    // Slots declared for pattern captures; slots are never reused.
+    pattern_capture_slots: FxHashSet<usize>,
     indices: FxHashMap<Name, usize>,
     // Guarded receivers and explicit pipeline inputs bind once before their
     // selected operation; exact expression IDs reuse that retained value.
@@ -891,6 +893,7 @@ impl SlotScope {
         Self {
             indices,
             pattern_slots: None,
+            pattern_capture_slots: FxHashSet::default(),
             postfix_receivers: FxHashMap::default(),
             guarded_postfixes: FxHashSet::default(),
             bound_call_entries: FxHashSet::default(),
@@ -920,14 +923,22 @@ impl SlotScope {
     }
 
     fn can_bind_pattern(&self, name: Name) -> bool {
-        // Retired sibling-arm captures may be reused. A condition's new
-        // lexical scope may also shadow an outer name, but not its own capture.
+        // Retired sibling-arm captures may be reused. A capture may shadow an
+        // outer name or a declaration of this scope, which resolves again when
+        // the capture retires, but not another live capture.
         self.pattern_slots.as_ref().is_some_and(|slots| slots.contains_key(&name))
             || !self.is_bound_non_capture(name) || !self.is_declared_here(name)
+            || self.resolve(name).is_some_and(|slot| !self.pattern_capture_slots.contains(&slot))
     }
 
     fn declare_pattern_binding(&mut self, name: Name) -> usize {
-        self.pattern_slots.as_ref().and_then(|slots| slots.get(&name)).copied().unwrap_or_else(|| self.declare(name))
+        self.pattern_slots.as_ref().and_then(|slots| slots.get(&name)).copied().unwrap_or_else(|| self.declare_pattern_capture(name))
+    }
+
+    fn declare_pattern_capture(&mut self, name: Name) -> usize {
+        let slot = self.declare(name);
+        self.pattern_capture_slots.insert(slot);
+        slot
     }
 
     /// Whether the innermost scope already declared `name`.
@@ -978,8 +989,31 @@ impl SlotScope {
     }
 
     /// Drop `name` from resolution while keeping its slot reserved by `high_water`.
-    pub(super) fn retire(&mut self, name: Name, _slot: usize, _tag: &str) {
-        self.indices.remove(&name);
+    ///
+    /// A retired pattern capture also leaves the scope's declarations, so a
+    /// later `let` of the same name is not mistaken for a redeclaration, and
+    /// any binding it shadowed resolves again.
+    pub(super) fn retire(&mut self, name: Name, slot: usize, _tag: &str) {
+        let position = self.declared.iter().rposition(|(declared, ..)| *declared == name);
+        match position {
+            Some(position) if position >= self.level_start && self.indices.get(&name) == Some(&slot) => {
+                let (_, previous, previous_ty, previous_capture) = self.declared.remove(position);
+                match previous {
+                    Some(previous) => self.indices.insert(name, previous),
+                    None => self.indices.remove(&name),
+                };
+                match previous_ty {
+                    Some(ty) => self.types.insert(name, ty),
+                    None => self.types.remove(&name),
+                };
+                if previous_capture {
+                    self.captures.insert(name);
+                }
+            }
+            _ => {
+                self.indices.remove(&name);
+            }
+        }
     }
 
     /// Snapshot bindings on entering a nested block scope.
@@ -10869,7 +10903,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let mut cleanup = Vec::new();
                 for name in names {
                     if let std::collections::hash_map::Entry::Vacant(entry) = shared.entry(name) {
-                        let slot = slots.declare(name);
+                        let slot = slots.declare_pattern_capture(name);
                         entry.insert(slot);
                         cleanup.push((name, slot));
                     }
