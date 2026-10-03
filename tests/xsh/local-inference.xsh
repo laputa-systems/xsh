@@ -241,7 +241,7 @@ proc implicit(words: List[Str]) [error] -> Result[List[Str]] {
 for words in [[], ["one", "two", "one"]] {
   let expected = explicit(words)?
   let actual = implicit(words)?
-  actual == expected
+  assert actual == expected
   print ${actual.len()}
 }
 """)?

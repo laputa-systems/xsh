@@ -2,7 +2,7 @@ use super::common::*;
 
 // The CLI exit and absence of subsequent output need an independent host judge.
 #[test]
-fn bare_boolean_assertion_is_an_unsuccessful_cli_exit() {
+fn assertion_failure_is_an_unsuccessful_cli_exit() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg("tests/fixtures/runtime/assertion-failure.xsh")
         .current_dir(env!("CARGO_MANIFEST_DIR"))

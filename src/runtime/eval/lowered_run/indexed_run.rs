@@ -3279,16 +3279,6 @@ impl Evaluator {
                 lowered_freeze_large_slot_list(&mut slots[slot]);
                 ControlFlow::Continue(slots[slot].clone())
             }
-            FullTag::ExprAssert => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                return Ok(match self.eval_indexed_assertion(execution, value, slots, span)? {
-                    ControlFlow::Continue(None) => ControlFlow::Continue(LoweredValue::Unit),
-                    ControlFlow::Continue(Some(failure)) => ControlFlow::Break(self.indexed_assertion_failed(failure, None, span)?),
-                    ControlFlow::Break(value) => ControlFlow::Break(value),
-                });
-            }
             FullTag::ExprComparisonChain => {
                 let (_, mut pairs) = execution.block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;

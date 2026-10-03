@@ -82,7 +82,7 @@ test test_duration_arithmetic_constant_default_and_adapter_boundaries {
 }
 
 test test_duration_arithmetic_comparison_reports_reached_values { |ctx|
-  let failed = test.run_script(ctx, "1ms < 2s < 1s\n")?
+  let failed = test.run_script(ctx, "assert 1ms < 2s < 1s\n")?
   assert !failed.success, failed.stderr
   assert "AssertionError.Failed" in failed.stderr
   assert "2s < 1s" in failed.stderr

@@ -687,46 +687,35 @@ fn lint_only_restricts_diagnostics_and_fixes_to_named_codes() {
 }
 
 #[test]
-fn lint_explicit_assert_fix_preserves_layout_failure_detail_and_evaluation_order() {
+fn lint_fix_applies_the_bool_statement_assert_fix() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
-    let source = "proc note(value: Int) -> Int {\n    print \"eval ${value}\"\n    value\n}\nlet xs = [1, 2]\nxs ==   [1, 2] # spacing and comment stay\nproc check(n: Int) {\n    match n {\n        1 => note(0) < note(n),\n        _ => {},\n    }\n    note(0) < note(n) < note(3)\n}\ncheck(1)?\ncheck(5)?\n";
+    let source = "let xs = [1, 2]\nxs == [1, 2] # comment stays\nproc note(value: Int) -> Int {\n    print \"eval ${value}\"\n    value\n}\nproc check(n: Int) {\n    match n {\n        1 => note(0) < note(n),\n        _ => {},\n    }\n    note(0) < note(n) < note(3)\n}\ncheck(1)?\ncheck(5)?\n";
     fs::write(&script, source).expect("write script");
     let xsht = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(args).current_dir(root.path()).output().expect("run xsht");
-    let failure_detail = |output: &std::process::Output| {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = stderr.lines().skip_while(|line| !line.starts_with("error: AssertionError.Failed"))
-            .take_while(|line| !line.starts_with("at ")).collect::<Vec<_>>().join("\n");
-        (output.status.code(), String::from_utf8_lossy(&output.stdout).into_owned(), detail)
-    };
-    let before = failure_detail(&xsht(&["trace", "main.xsh"]));
-    assert_eq!(before.0, Some(3));
-    assert!(before.2.contains("5 < 3"), "{before:?}");
 
-    assert!(!String::from_utf8_lossy(&xsht(&["lint", "main.xsh"]).stderr).contains("lint.explicit-assert"),
-        "the rule is selected explicitly until the tree migrates");
-    let listed = xsht(&["lint", "--only", "lint.explicit-assert", "main.xsh"]);
-    assert_eq!(listed.status.code(), Some(1));
-    assert_eq!(String::from_utf8_lossy(&listed.stderr).matches("warn[lint.explicit-assert]").count(), 3);
+    let listed = xsht(&["lint", "main.xsh"]);
+    assert_eq!(listed.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&listed.stderr);
+    assert_eq!(stderr.matches("err[check.bool-statement]").count(), 3, "{stderr}");
+    assert!(stderr.contains("help: insert `assert` in a braced match arm -> { assert note(0) < note(n) }"), "{stderr}");
 
-    let fixed = xsht(&["lint", "--only", "lint.explicit-assert", "--fix", "main.xsh"]);
+    let fixed = xsht(&["lint", "--fix", "main.xsh"]);
     assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
     let migrated = fs::read_to_string(&script).expect("read fixed script");
-    assert_eq!(migrated, source
-        .replace("xs ==   [1, 2]", "assert xs ==   [1, 2]")
-        .replace("1 => note(0) < note(n),", "1 => { assert note(0) < note(n) },")
-        .replace("    note(0) < note(n) < note(3)", "    assert note(0) < note(n) < note(3)"));
-    assert_eq!(xsht(&["lint", "--only", "lint.explicit-assert", "--fix", "main.xsh"]).status.code(), Some(0));
+    for statement in ["assert xs == [1, 2] # comment stays", "1 => assert note(0) < note(n)", "  assert note(0) < note(n) < note(3)"] {
+        assert!(migrated.contains(statement), "missing {statement:?}: {migrated}");
+    }
+    assert_eq!(xsht(&["lint", "--fix", "main.xsh"]).status.code(), Some(0));
     assert_eq!(fs::read_to_string(&script).expect("reread fixed script"), migrated, "a second fix makes no change");
 
-    let after = failure_detail(&xsht(&["trace", "main.xsh"]));
-    assert_eq!(after.0, before.0);
-    assert_eq!(after.1, before.1, "operands evaluate in the same order");
-    for line in before.2.lines().skip(1) {
-        assert!(after.2.contains(line), "missing failure detail {line:?}: {after:?}");
-    }
-    assert!(after.2.contains("5 < 3"), "{after:?}");
+    let traced = xsht(&["trace", "main.xsh"]);
+    assert_eq!(traced.status.code(), Some(3));
+    assert_eq!(String::from_utf8_lossy(&traced.stdout).lines().take(8).collect::<Vec<_>>(),
+        ["eval 0", "eval 1", "eval 0", "eval 1", "eval 3", "eval 0", "eval 5", "eval 3"], "operands evaluate once, in order");
+    let stderr = String::from_utf8_lossy(&traced.stderr);
+    assert!(stderr.contains("assertion failed: note(0) < note(n) < note(3)\nordering comparison failed: 5 < 3"), "{stderr}");
 }
 
 #[test]
@@ -1877,7 +1866,7 @@ fn membership_migration_after_removal_fixes_shared_import_once_and_is_idempotent
     let helper = root.path().join("helper.xsh");
     fs::write(&helper, "##! Membership fixture.\n## Tests membership.\nexport pure present(text: Str) -> Bool { return text.contains(\"needle\") }\n").unwrap();
     for entry in ["first.xsh", "second.xsh"] {
-        fs::write(root.path().join(entry), "use helper\nhelper.present(\"needle\")\n").unwrap();
+        fs::write(root.path().join(entry), "use helper\nassert helper.present(\"needle\")\n").unwrap();
     }
     let removed = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "first.xsh"]).current_dir(root.path()).output().unwrap();
     assert_eq!(removed.status.code(), Some(2));
@@ -2014,7 +2003,7 @@ test spawns_descendants {{ |ctx|
   let output = test.run_script(ctx, \"\"\"
 run sh -c \"sleep 300; : {marker}-grandchild\"
 \"\"\", [\"{marker}-child\"])?
-  output.success
+  assert output.success
 }}
 ")).expect("write descendant fixture");
         let mut runner = Command::new(env!("CARGO_BIN_EXE_xsht"))
@@ -2056,8 +2045,8 @@ fn native_test_declaration_discovery_preserves_names_and_runs_each_once() {
 pure helper() -> Int { 2 }
 proc ordinary_helper() { print helper() }
 proc test_named_helper(value: Int) -> Int { value }
-test test_old_name { test_named_helper(helper()) == 2 }
-test no_prefix { |ctx| \"no_prefix\" in ctx.name }
+test test_old_name { assert test_named_helper(helper()) == 2 }
+test no_prefix { |ctx| assert \"no_prefix\" in ctx.name }
 test discarded { |_| }
 ").expect("write native declaration fixture");
     let list = Command::new(env!("CARGO_BIN_EXE_xsht"))
@@ -2094,9 +2083,9 @@ fn native_test_declaration_legacy_proc_has_actionable_failure() {
 fn native_test_declaration_import_registers_without_execution_or_discovery() {
     let root = TempDir::new().expect("temporary imported declaration fixture");
     fs::create_dir(root.path().join("tests")).expect("create test root");
-    fs::write(root.path().join("tests/helper.xsh"), "##! Import registration fixture.\n## Returns the fixture value.\nexport pure value() -> Int { 7 }\ntest imported { false }\n")
+    fs::write(root.path().join("tests/helper.xsh"), "##! Import registration fixture.\n## Returns the fixture value.\nexport pure value() -> Int { 7 }\ntest imported { assert false }\n")
         .expect("write imported module");
-    fs::write(root.path().join("tests/entry.xsh"), "use helper\ntest entry { helper.value() == 7 }\n")
+    fs::write(root.path().join("tests/entry.xsh"), "use helper\ntest entry { assert helper.value() == 7 }\n")
         .expect("write entry fixture");
     let run = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--jobs", "1", "tests/entry.xsh"]).current_dir(root.path()).output().expect("run imported fixture");

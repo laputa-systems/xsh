@@ -71,7 +71,7 @@ print f"\${value} \${cleaned} \${rounds}"
 test test_try_assertions_capture_but_trace_has_no_retry_events { |ctx|
   let output = test.run_xsht_trace(ctx, """
 let result = try {
-  false
+  assert false
   7
 }
 print (result is Err(_))
@@ -107,9 +107,9 @@ test test_try_unit_context_asserts_and_auto_propagates { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc unit_fail() [] -> Result[Unit, LocalError] { Err(LocalError.Failed(message: "unit")) }
-let assertion: Result[Unit] = try { false }
+let assertion: Result[Unit] = try { assert false }
 let failure: Result[Unit, LocalError] = try { unit_fail() }
-let success: Result[Unit] = try { true }
+let success: Result[Unit] = try { assert true }
 print (assertion is Err(_))
 print (failure is Err(LocalError.Failed))
 print (success is Ok(_))
@@ -190,7 +190,7 @@ print \$count
 
 test test_try_function_unit_tail_consumes_assertion { |ctx|
   let output = test.run_script(ctx, """
-proc capture() [] -> Result[Unit] { try { false } }
+proc capture() [] -> Result[Unit] { try { assert false } }
 print (capture() is Err(_))
 """)?
   {
@@ -260,7 +260,7 @@ stream rows() -> Stream[Int] {
   value?
 }
 let values = rows() |> collect()
-values == [1, 2]
+assert values == [1, 2]
 print "yielded"
 """)?
   {
@@ -300,9 +300,9 @@ stream rows() -> Stream[Int] {
   yield 3
 }
 let values = rows() |> collect()
-values == [1, 3]
+assert values == [1, 3]
 let first = rows() |> take(1) |> collect()
-first == [1]
+assert first == [1]
 print "finished"
 """)?
   {
@@ -340,8 +340,8 @@ match escape() {
 test test_try_explicit_return_uses_result_annotation { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
-proc assertion() [] -> Result[Unit] { return try { false } }
-proc success() [] -> Result[Unit] { return try { true } }
+proc assertion() [] -> Result[Unit] { return try { assert false } }
+proc success() [] -> Result[Unit] { return try { assert true } }
 proc predicate() [] -> Result[Bool] { return try { false } }
 proc nested() [] -> Result[Result[Unit]] { return try { Ok() } }
 proc failure() [] -> Result[Int, LocalError] {

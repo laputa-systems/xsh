@@ -192,9 +192,8 @@ are `NetRuntimeOwner`, `NetOperation`, `request_many_with_runtime`,
 `hyper-rustls` are intentionally absent from this boundary.
 
 Core assertions retain `ArenaStmtKind::Assert` condition/message expressions.
-`BuildStmtRow::Assert` carries an optional message so bare Bool statements and
-explicit contextual assertions share `FullTag::StmtAssert`, codec verification,
-propagation, and cleanup. `eval_indexed_assertion` uses a work stack for logical
+`BuildStmtRow::Assert` carries an optional message; every assertion lowers to
+`FullTag::StmtAssert`, sharing codec verification, propagation, and cleanup. `eval_indexed_assertion` uses a work stack for logical
 conditions and retains reached comparison values once; its diagnostic renderer
 bounds scalar text and reports container types without materializing them. The
 message remains an indexed expression and executes only on a false condition.

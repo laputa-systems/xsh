@@ -27,7 +27,7 @@ test test_pattern_aliases_capture_whole_nodes_and_preserve_types { |ctx|
     }
     _ => "other"
   }
-  (selected) == ("item:item:item:3")
+  assert (selected) == ("item:item:item:3")
 }
 witness()
 """)?
@@ -41,17 +41,17 @@ test test_pattern_alternatives_publish_only_first_complete_match { |ctx|
 proc witness() [error] {
   let result = match [[99], [7, 8]] {
     ([[value, ..tail], [99]] | [[99], [value, ..tail]]) as original => {
-      (original) == ([[99], [7, 8]])
+      assert (original) == ([[99], [7, 8]])
       value + tail.len()
     }
     _ => 0
   }
-  (result) == (8)
+  assert (result) == (8)
   let first = match [7, 9] {
     [value, _] | [_, value] => value
     _ => 0
   }
-  (first) == (7)
+  assert (first) == (7)
 }
 witness()
 """)?
@@ -150,12 +150,12 @@ proc witness() [error] {
   let selected = match dynamic {
     (value is AliasText | value is AliasOtherText) as original => {
       let typed: Any = original
-      (typed is Str) == (true)
+      assert (typed is Str) == (true)
       value.upper()
     }
     _ => "other"
   }
-  (selected) == ("ITEM")
+  assert (selected) == ("ITEM")
 }
 witness()
 """)?
@@ -196,15 +196,15 @@ pure alias_inferred_tail(values: List[Int]) {
   }
 }
 proc witness() [error] {
-  (alias_failure_message(AliasFailure.Missing("absent"))) == ("absentabsent")
-  (alias_failure_message(AliasFailure.Denied("denied"))) == ("denieddenied")
+  assert (alias_failure_message(AliasFailure.Missing("absent"))) == ("absentabsent")
+  assert (alias_failure_message(AliasFailure.Denied("denied"))) == ("denieddenied")
   let failure: AliasFailure = AliasFailure.Missing("one")
   if let (AliasFailure.Missing {message} | AliasFailure.Denied {message}) as original = failure {
-    (original is NotFound) == (true)
-    (message) == ("one")
+    assert (original is NotFound) == (true)
+    assert (message) == ("one")
   }
   let inferred: Int = alias_inferred_tail([4, 8])
-  (inferred) == (7)
+  assert (inferred) == (7)
 }
 witness()
 """)?

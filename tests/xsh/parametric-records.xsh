@@ -8,19 +8,19 @@ proc witness() [error] -> Result[Unit] {
   let name = ParametricName(state: "observed", value: "demo", samples: ["demo"])
   let {value: count_value, samples: count_samples, ..} = count
   let {value: name_value, ..} = name
-  ((count_value ?? 0) + count_samples[0]) == (10)
-  (name_value ?? "missing") == ("demo")
+  assert ((count_value ?? 0) + count_samples[0]) == (10)
+  assert (name_value ?? "missing") == ("demo")
   let missing = ParametricCount(state: "absent")
-  (missing.value) == (null)
-  (missing.samples.len()) == (0)
-  (missing.options.len()) == (0)
+  assert (missing.value) == (null)
+  assert (missing.samples.len()) == (0)
+  assert (missing.options.len()) == (0)
   var changed = ParametricCount(state: "observed")
   let snapshot = changed
   changed.samples += [9]
-  (changed.samples[0]) == (9)
-  (snapshot.samples.len()) == (0)
+  assert (changed.samples[0]) == (9)
+  assert (snapshot.samples.len()) == (0)
   let literal: ParametricObservation[Int] = {state: "observed", value: 4, samples: [4], options: {}}
-  (literal.samples[0]) == (4)
+  assert (literal.samples[0]) == (4)
 }
 witness()
 """)?

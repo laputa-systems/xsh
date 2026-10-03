@@ -61,11 +61,11 @@ proc witness() [error] {
   let named = match 1 { _ => {field: 10} }
   let quoted = match 1 { _ => {"run": 11} }
   let keyword = match 1 { _ => {run: 12} }
-  (empty) == ({})
-  (shorthand.field) == (9)
-  (named.field) == (10)
-  (quoted["run"]) == (11)
-  (keyword.run) == (12)
+  assert (empty) == ({})
+  assert (shorthand.field) == (9)
+  assert (named.field) == (10)
+  assert (quoted["run"]) == (11)
+  assert (keyword.run) == (12)
 }
 witness()
 """)?
@@ -119,24 +119,25 @@ test test_bool_value_callbacks_and_retry {
   assert (wrapped) == (false)
 }
 
-test test_bool_statement_assertions { |ctx|
-  let failed = test.run_script(ctx, """proc assertion() {
-  if true {
-    false
-  }
-}
-assertion()
-""")?
-  assert (failed.success) == (false)
-  assert ("AssertionError" in failed.stderr)
-  let passed = test.run_script(ctx, """proc assertion() {
+test test_bool_statement_branch_tails_are_rejected { |ctx|
+  let rejected = test.run_script(ctx, """proc assertion() {
   if true {
     true
   }
 }
 assertion()
 """)?
-  assert (passed.success) == (true)
+  assert rejected.status == 2
+  assert "check.bool-statement" in rejected.stderr, rejected.stderr
+  let failed = test.run_script(ctx, """proc assertion() {
+  if true {
+    assert false
+  }
+}
+assertion()
+""")?
+  assert (failed.success) == (false)
+  assert ("AssertionError" in failed.stderr)
 }
 
 pure value_result_bool(choose: Bool) -> Result[Bool] {

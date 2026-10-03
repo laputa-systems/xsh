@@ -26,11 +26,11 @@ print ${boolean()} ${early()} ${optional(false) ?? 0} ${result()?}
 }
 
 test unit_consuming_assertions { |ctx|
-  let output = test.run_script(ctx, r"""proc check() [error] -> Unit { false }
-proc wrapped() [error] -> Result[Unit] { false }
+  let output = test.run_script(ctx, r"""proc check() [error] -> Unit { assert false }
+proc wrapped() [error] -> Result[Unit] { assert false }
 let direct: Result[Unit] = try { check() }
 let result: Result[Unit] = try { wrapped() }
-let tail: Result[Unit] = try { false }
+let tail: Result[Unit] = try { assert false }
 print ${direct is Err(_)} ${result is Err(_)} ${tail is Err(_)}
 """)?
   assert output.success, output.stderr
@@ -38,8 +38,21 @@ print ${direct is Err(_)} ${result is Err(_)} ${tail is Err(_)}
   assert output.stdout == "true true true\n"
 }
 
+test unit_consuming_bool_statements_are_rejected { |ctx|
+  for source in [
+    "proc check() [error] -> Unit { false }\n",
+    "proc wrapped() [error] -> Result[Unit] { false }\n",
+    "let tail: Result[Unit] = try { false }\n",
+    "pure check(value: Int) -> Result[Int] { value > 0; value }\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert output.status == 2, source
+    assert "check.bool-statement" in output.stderr, output.stderr
+  }
+}
+
 test non_tail_concrete_bool { |ctx|
-  let output = test.run_script(ctx, r"""pure check(value: Int) -> Result[Int] { value > 0; value }
+  let output = test.run_script(ctx, r"""pure check(value: Int) -> Result[Int] { assert value > 0; value }
 print ${check(-1) is Err(_)} ${check(3)?}
 """)?
   assert output.success, output.stderr

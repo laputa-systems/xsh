@@ -185,7 +185,6 @@ impl Checker {
         let statement_positions = std::mem::take(&mut self.statement_positions);
         let pattern_test_types = std::mem::take(&mut self.pattern_test_types);
         let terminating_call_spans = std::mem::take(&mut self.terminating_call_spans);
-        let assertion_spans = std::mem::take(&mut self.assertion_spans);
         let assertion_effect_spans = std::mem::take(&mut self.assertion_effect_spans);
         let statement_expression_spans = std::mem::take(&mut self.statement_expression_spans);
         let membership_migration_spans = std::mem::take(&mut self.membership_migration_spans);
@@ -210,7 +209,6 @@ impl Checker {
         self.statement_positions = statement_positions;
         self.pattern_test_types = pattern_test_types;
         self.terminating_call_spans = terminating_call_spans;
-        self.assertion_spans = assertion_spans;
         self.assertion_effect_spans = assertion_effect_spans;
         self.statement_expression_spans = statement_expression_spans;
         self.membership_migration_spans = membership_migration_spans;

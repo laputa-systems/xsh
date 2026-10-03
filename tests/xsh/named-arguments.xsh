@@ -96,7 +96,7 @@ test test_named_argument_puns_apply_to_module_and_method_calls { |ctx|
   assert (candidate.read_bytes()?) == (contents)
   let method_call = test.run_script(ctx, r"""let offset = 1
 let length = 3
-b"abcde".slice(offset:, length:) == b"bcd"
+assert b"abcde".slice(offset:, length:) == b"bcd"
 """)?
   let {success: method_success, stderr: method_message, ..} = method_call
   assert method_success, method_message

@@ -102,8 +102,8 @@ fn local_capture_helper_migration_keeps_unrelated_comments_and_byte_offsets() {
 fn local_capture_helpers_leave_native_tests_and_statement_boundaries_unchanged() {
     for source in [
         "proc outer() -> Result[Int] { let value = retry [] { return Ok(7) }?; value }\nlet nested = retry [] { Ok(7) }\n",
-        "pure empty() -> Unit {}\nproc consume() [error] -> Result[Unit] { false }\nlet outcome: Unit = consume() ?? empty()\n",
-        "test helper [error] { false }\n",
+        "pure empty() -> Unit {}\nproc consume() [error] -> Result[Unit] { assert false }\nlet outcome: Unit = consume() ?? empty()\n",
+        "test helper [error] { assert false }\n",
     ] {
         assert!(migration(source).is_empty());
     }

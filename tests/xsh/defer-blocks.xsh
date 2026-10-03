@@ -8,7 +8,7 @@ proc exercise() [error] {
   defer {
     let local = "block"
     print f"${local}:${value}:${snapshot}"
-    true
+    assert true
   }
   value = "cleanup"
   if true {
@@ -86,7 +86,7 @@ exercise()?
   assert "cleanup error [" in output.stderr
 }
 
-test test_defer_blocks_run_bare_assertions_and_implicit_result_unit { |ctx|
+test test_defer_blocks_run_assertions_and_implicit_result_unit { |ctx|
   let output = test.run_script(ctx, r"""
 proc failure() [error] {
   let _ = "result cleanup failure".parse_int()?
@@ -97,7 +97,7 @@ proc exercise() [error] {
   defer {
     print "assertion"
     let failed = false
-    failed
+    assert failed
   }
 }
 exercise()?

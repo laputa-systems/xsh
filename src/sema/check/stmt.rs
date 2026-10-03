@@ -3,7 +3,7 @@
 use super::TagVariantInfo;
 use super::expr::expr_or_run_span_arena;
 use super::{
-    AnnotationFact, AnnotationFactKind, BinaryOp, Checker, FxHashSet, Name, Span, Type, UnaryOp,
+    AnnotationFact, AnnotationFactKind, BinaryOp, Checker, Diagnostic, FixHint, FxHashSet, Label, Name, Span, Type, UnaryOp,
     command_stmt_asserts_success_arena, command_ty_auto_propagates,
     expr_ty_auto_propagates, normalize_hook_signal, signal_rejection_message,
 };
@@ -375,21 +375,18 @@ impl Checker {
         self.error(span, message, "check.loop-control");
     }
 
-    /// Statement use is decided from the checked type and its consumer, never
-    /// from a runtime value or whether a local binding is subsequently read.
-    pub(super) fn check_assertion_statement(&mut self, ty: &Type, span: Span) -> bool {
+    /// Assertion is explicit, so a Bool in statement position is rejected
+    /// rather than asserted or silently discarded. Statement use is decided
+    /// from the checked type and its consumer, never from a runtime value.
+    pub(super) fn reject_bool_statement(&mut self, source: &str, ty: &Type, statement: Span) -> bool {
         if *ty != Type::Bool {
             return false;
         }
-        self.assertion_spans.insert(span);
-        if self.retry_attempt_depth == 0 { self.assertion_effect_spans.insert(span); }
-        self.check_propagation(
-            &Type::Result(
-                Box::new(Type::Unit),
-                Box::new(Type::ErrorFamily(Name::intern("AssertionError"))),
-            ),
-            span,
-        );
+        let mut diagnostic = Diagnostic::error("Bool expression statement is not an assertion")
+            .with_code("check.bool-statement")
+            .with_label(Label::primary(statement, "use `assert <expr>` to assert it, or `let _ = <expr>` to discard it"));
+        if let Some(fix) = bool_statement_assert_fix(source, statement) { diagnostic = diagnostic.with_fix_hint(fix); }
+        self.diagnostics.push(diagnostic);
         true
     }
 
@@ -519,7 +516,8 @@ impl Checker {
                 self.check_loop_control(stmt.span, false);
             }
             ArenaStmtKind::Assert { condition, message } => {
-                self.check_assertion_statement(&Type::Bool, stmt.span);
+                if self.retry_attempt_depth == 0 { self.assertion_effect_spans.insert(stmt.span); }
+                self.check_propagation(&Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily(Name::intern("AssertionError")))), stmt.span);
                 let condition_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(condition), Some(&Type::Bool), None);
                 if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
                     self.error(arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
@@ -550,10 +548,9 @@ impl Checker {
                     self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), None, None)
                 };
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
-                if !self.check_assertion_statement(&ty, arena.arena.expr(expr_id).span) {
+                if !self.reject_bool_statement(source, &ty, stmt.span) {
                     self.record_statement_error(&ty, stmt.span);
                 }
-                if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
                 if !expr_ty_auto_propagates(&ty) {
                     let expr_span = arena.arena.expr(expr_id).span;
                     self.reject_ignored_result(&ty, expr_span);
@@ -649,11 +646,7 @@ impl Checker {
                 if !command_ty_auto_propagates(&ty) {
                     self.reject_ignored_result(&ty, stmt.span);
                 }
-                if ty == Type::Bool {
-                    let facts = self.lookup(name).and_then(|binding| binding.boolean_proof.clone());
-                    if let Some(facts) = facts { self.apply_narrowings(&facts.when_true); }
-                }
-                self.check_assertion_statement(&ty, stmt.span);
+                self.reject_bool_statement(source, &ty, stmt.span);
             }
         }
     }
@@ -2171,15 +2164,14 @@ impl Checker {
                 self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), None, None)
             };
             self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
-            let assertion = self.check_assertion_statement(&ty, arena.arena.expr(expr_id).span);
-            if !assertion { self.record_statement_error(&ty, stmt.span); }
-            if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
-            if assertion || expr_ty_auto_propagates(&ty) {
+            if self.reject_bool_statement(source, &ty, stmt.span) { return; }
+            self.record_statement_error(&ty, stmt.span);
+            if expr_ty_auto_propagates(&ty) {
                 return;
             }
             let expr_span = arena.arena.expr(expr_id).span;
             self.reject_ignored_result(&ty, expr_span);
-            if !ty.matches_expected(&Type::Unit) && ty != Type::Bool {
+            if !ty.matches_expected(&Type::Unit) {
                 let message = format!(
                     "expression statement must be last to produce a value: expression has type `{ty}`; use `let _ = ...` to discard it"
                 );
@@ -2204,7 +2196,7 @@ impl Checker {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 // A statement's Unit result is produced by consuming its value;
-                // it must not constrain a Bool-producing call before assertion
+                // it must not constrain a Bool-producing call before Bool statement
                 // classification. Blocks and inferred schemas still need their
                 // declared success context while checking their contents.
                 let context = statement_tail_needs_value_context_arena(arena, expr_id)
@@ -2223,16 +2215,11 @@ impl Checker {
                     self.reject_ignored_result(&actual, arena.arena.expr(expr_id).span);
                 }
                 self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
-                if !self.check_assertion_statement(&actual, arena.arena.expr(expr_id).span) {
+                if !self.reject_bool_statement(source, &actual, stmt.span) {
                     self.record_statement_error(&actual, stmt.span);
-                }
-                if actual == Type::Bool {
-                    let facts = self.infer_condition_narrowings_arena(arena, expr_id);
-                    self.apply_narrowings(&facts.when_true);
-                } else if !actual.is_result()
-                    && !self.is_inert_expression_discard(arena.arena.expr(expr_id).span)
-                {
-                    self.expect_type(&Type::Unit, &actual, arena.arena.expr(expr_id).span);
+                    if !actual.is_result() && !self.is_inert_expression_discard(arena.arena.expr(expr_id).span) {
+                        self.expect_type(&Type::Unit, &actual, arena.arena.expr(expr_id).span);
+                    }
                 }
                 self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
                 return Type::Unit;
@@ -2266,7 +2253,7 @@ impl Checker {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
                 if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
-                    && self.check_assertion_statement(&ty, stmt.span)
+                    && self.reject_bool_statement(source, &ty, stmt.span)
                 { Type::Unit } else { ty }
             }
             ArenaStmtKind::Command(command_id) => {
@@ -2507,6 +2494,23 @@ fn tail_expr_context_arena(
     let expected = expected?;
     let explicit_result = tail_expr_uses_result_context_arena(arena, expr_id);
     Some(if explicit_result { expected.clone() } else { expected.result_ok().unwrap_or(expected).clone() })
+}
+
+/// `assert ` is inserted before the statement. An unbraced match arm ends at a
+/// comma, which `assert` would read as its message separator, so such an arm
+/// becomes a braced block.
+fn bool_statement_assert_fix(source: &str, statement: Span) -> Option<FixHint> {
+    let text = source.get(statement.range())?.trim_end();
+    let Some(content) = text.strip_suffix(',') else {
+        return Some(FixHint::replacement(Span::at(statement.source_id, statement.start()), "insert `assert`", "assert "));
+    };
+    let content = content.trim_end();
+    if content.contains('#') { return None; }
+    Some(FixHint::replacement(
+        Span::new(statement.source_id, statement.start(), statement.start() + content.len()),
+        "insert `assert` in a braced match arm",
+        format!("{{ assert {content} }}"),
+    ))
 }
 
 fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {

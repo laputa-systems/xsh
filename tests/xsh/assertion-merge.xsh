@@ -3,9 +3,9 @@ test test_assertion_forms_share_nominal_capture_inference { |ctx|
 pure captured() -> Result[Unit, AssertionError] {
   try { assert false, "private capture" }
 }
-let bare = try { false; let _ = 0 }
+let bare = try { assert false; let _ = 0 }
 let explicit = try { assert false, "explicit context" }
-let chain = try { 3 < 2 < 1; let _ = 0 }
+let chain = try { assert 3 < 2 < 1; let _ = 0 }
 for result in [bare, explicit, chain, captured()] {
   match result {
     Err(failure) => {
@@ -68,21 +68,21 @@ let flags: Map[Bool, Int] = {[true]: 1}
 let delays: Map[Duration, Int] = {[3ms]: 1}
 let paths: Map[Path, Int] = {[p"src"]: 1}
 let unsigned: Map[UInt, Str] = {[1]: "one"}
-1 in integers
+assert 1 in integers
 assert true in flags, "Bool key"
-3ms in delays
+assert 3ms in delays
 assert p"src" in paths, "Path key"
-1 in unsigned
+assert 1 in unsigned
 let fields = {present: null}
 let erased: Record = fields
-"present" in fields
-"present" in erased
-"absent" not in erased
+assert "present" in fields
+assert "present" in erased
+assert "absent" not in erased
 print "checked"
 """)?
   assert output.success, output.stderr
   assert output.stdout == "checked\n"
-  for statement in ["\"bad\" in values", "assert \"bad\" in values, \"key\"", "values.has(\"bad\")"] {
+  for statement in ["let _ = \"bad\" in values", "assert \"bad\" in values, \"key\"", "values.has(\"bad\")"] {
     let invalid = test.run_script(ctx, "let values: Map[Int, Str] = {[1]: \"one\"}\n" + statement + "\n")?
     assert invalid.status == 2, invalid.stderr
     assert "check.type-mismatch" in invalid.stderr
@@ -97,7 +97,7 @@ print "checked"
 test test_membership_assertions_accept_checked_module_exports { |ctx|
   fp"${ctx.temp_root}/membership_merge.xsh".write("##! Provides a checked export.\n## A public field.\nexport let present = 1\n")?
   let output = test.run_script(ctx, r"""use membership_merge
-"present" in membership_merge.keys()
+assert "present" in membership_merge.keys()
 assert "absent" not in membership_merge.keys(), "module export absence"
 print "checked"
 """)?

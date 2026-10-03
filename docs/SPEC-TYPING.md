@@ -412,7 +412,7 @@ writes preserve facts. Calls that may change captures invalidate mutable facts
 without treating an effect clause as an alias guarantee. Immutable record copies
 retain independent snapshot identities, including in deferred bodies.
 
-Successful guards, ordinary statement assertions, and branches preserve proofs
+Successful guards, `assert` statements, and branches preserve proofs
 on their continuations; joins intersect reaching facts. Recovery from a failed
 assertion does not establish its success facts. Callable and deferred mutable
 captures require checks at execution scope. The checker does not infer arbitrary
@@ -491,12 +491,15 @@ The checker records `StatementPosition` for each checked statement in
 by `StmtId`. Initializers and call/return payloads consume values. Function tails
 consume their declared non-Unit value, and callback/retry tails infer their result
 before classifying booleans. Unit and Result[Unit] tails retain statement behavior.
-A Bool in statement position asserts; a Bool in value position retains false.
+A Bool in value position retains false. A Bool in statement position, including
+a Bool tail of a Unit or Result[Unit] function, proc, test, callback, or
+top-level script body, is `check.bool-statement`; its fix inserts `assert`, and
+`let _ = <expr>` discards the value instead. Every callable value tail is data.
 `assert condition` with an optional `, message` always consumes Unit and requires
 a concrete Bool condition and Str message, rejecting Any, Status, Optional, and
 Result wrappers. Both expressions are checked with ordinary effects and
 propagation, including a message skipped at runtime. The assertion establishes no continuation refinement. Local try/retry error
-inference includes the nominal AssertionError failure, as for a bare Bool statement.
+inference includes the nominal AssertionError failure of `assert`.
 
 Value branches may contain lexical statements followed by a compatible tail.
 Every reachable value branch must agree; `if` requires `else`, and `match` must
@@ -512,7 +515,7 @@ lexical control transfer.
 collects propagation errors at that boundary, separately from lexical returns.
 An inferred Result tail remains nested data; only propagation contributes its
 error family to the captured Result. A Unit success annotation consumes the
-tail as a statement, preserving Bool assertions and Result[Unit] propagation.
+tail as a statement, rejecting a Bool tail and preserving Result[Unit] propagation.
 Underconstrained error-only blocks require a success annotation.
 
 ## Native test declarations

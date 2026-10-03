@@ -16,29 +16,29 @@ test test_scope_command_capture_tails_keep_values_and_restore_context { |ctx|
   let output = test.run_script(ctx, r"""
 let original = fs.cwd()?
 let revision: Str = cd (p".") { run.text sh -c "printf revision" ? }?
-revision == "revision"
+assert revision == "revision"
 let inferred = cd (p".") { run.text sh -c "printf inferred" ? }?
-inferred == "inferred"
+assert inferred == "inferred"
 let payload: Bytes = env ({XSH_CAPTURE_TAIL: "bytes"}) { run.bytes sh -c "printf bytes" ? }?
-payload == b"bytes"
-fs.cwd()? == original
+assert payload == b"bytes"
+assert fs.cwd()? == original
 let nested: Result[Str, ProcessError] = cd (p".") { run.text sh -c "printf nested" }?
-nested? == "nested"
+assert nested? == "nested"
 let capture = env ({XSH_CAPTURE_TAIL: "record"}) {
   run.capture --text sh -c "printf out; printf err >&2" ?
 }?
-capture.stdout == "out"
-capture.stderr == "err"
+assert capture.stdout == "out"
+assert capture.stderr == "err"
 let plain: Unit = cd (p".") { run sh -c "exit 0" }?
 let best_effort: Unit = cd (p".") { run.status sh -c "exit 7" }?
 let discarded: Unit = cd (p".") { run.text sh -c "printf discarded" ? }?
 let observed: Any = discarded
-observed is Unit
+assert observed is Unit
 let _ = plain
 let _ = best_effort
 let failed = try { cd (p".") { run.text sh -c "exit 7" ? }? }
-failed is Err(_)
-fs.cwd()? == original
+assert failed is Err(_)
+assert fs.cwd()? == original
 print "done"
 """)?
   assert output.success, output.stderr

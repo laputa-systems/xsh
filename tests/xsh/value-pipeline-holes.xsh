@@ -6,7 +6,7 @@ test test_value_pipeline_holes_choose_positional_and_named_arguments { |ctx|
   assert ("middle" |> pipeline_join("[", value: _, suffix: "]")) == ("[middle]")
   assert ("middle" |> pipeline_join("[", value: _, ...{suffix: "]"})) == ("[middle]")
   assert (2 |> pipeline_number((_))) == (3)
-  let cast = test.run_script(ctx, r"""("x" |> Path(_)) == p"x"
+  let cast = test.run_script(ctx, r"""assert ("x" |> Path(_)) == p"x"
 """)?
   let {success: cast_success, stderr: cast_message, ..} = cast
   assert cast_success, cast_message

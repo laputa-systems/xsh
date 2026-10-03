@@ -691,8 +691,8 @@ abort skips cleanup.
 A deferred block resolves captures in its registration scope and reads their
 values at cleanup time. Use an immutable `let` snapshot to retain an earlier
 value. Its locals remain local to the cleanup action. All statements, including
-the final statement, use Unit-compatible statement position: Bool values assert
-and Result[Unit] failures propagate. A failing action stops its remaining
+the final statement, use Unit-compatible statement position: Bool statements are
+rejected and Result[Unit] failures propagate. A failing action stops its remaining
 statements; other registered actions still run. The original failure remains
 primary; otherwise the first cleanup failure becomes primary. Subsequent
 cleanup failures are reported with their source locations.
@@ -1397,7 +1397,7 @@ and `not in`) shares ordering precedence. `and` binds below equality, while
 ordering with equality, membership, or pattern tests are rejected; use
 parentheses to state which Boolean value is being tested.
 
-A failed bare ordering-chain assertion reports the failed adjacent pair and
+A failed ordering-chain `assert` reports the failed adjacent pair and
 its evaluated values. Diagnostics never evaluate the skipped operands.
 
 
@@ -1433,8 +1433,8 @@ a runtime addition that could overflow or confuses a count with an end bound.
 Normal completion wraps the outgoing value in `Ok`; a Result tail is data,
 so `try { operation() }` retains a nested Result, while `try { operation()? }`
 propagates one layer into the local boundary. Empty bodies produce `Ok(Unit)`.
-An inferred Bool tail remains a value, including false; non-tail Bool statements
-and tails checked against Unit remain assertions. Non-tail Result[Unit]
+An inferred Bool tail remains a value, including false; a non-tail Bool
+statement or a Bool tail checked against Unit is rejected. Non-tail Result[Unit]
 statements retain their ordinary automatic propagation.
 The declared Result return type supplies this context for both a function tail
 and an explicit `return try { ... }`.
@@ -1752,7 +1752,7 @@ specific effects when a proc does not need stdin/stdout.
 **Inference.** The checker records resolved calls and direct requirements, then
 computes a least fixed point over the finite effect domain. Recursive forwarding
 and declaration order produce the same effective summary. Method operations,
-executed stage bodies, host forms, and implicit statement assertions and Result
+executed stage bodies, host forms, `assert` statements, and implicit Result
 propagation contribute effects; merely referencing a function does not. Local
 `try`/`retry` capture removes outward `error` only, retaining host requirements.
 
@@ -1769,9 +1769,9 @@ Statement and value positions are checked language contexts. Initializers,
 arguments, explicit return payloads, and tails whose enclosing function, task,
 callback, or retry attempt consumes a value use value position. Lowering and
 tooling preserve this distinction independently of whether an optimizer uses
-the result. Non-tail bare boolean statements assert; boolean value tails
-preserve false as a value. Unit and Result[Unit] bodies retain boolean
-assertions, including inside their statement-position branches. Top-level
+the result. Every callable value tail is data: a Bool tail preserves false as a
+value. A Bool in statement position, including a Bool tail of a Unit or
+Result[Unit] body and its statement-position branches, is rejected. Top-level
 control flow retains statement and integer-exit behavior.
 
 Value-position `if` requires an `else`; value-position `match` requires
@@ -1783,7 +1783,7 @@ widening. Expression match arms preserve `{}`, shorthand/explicit record fields,
 record keys, and spreads as record literals. Braces containing ordinary statements
 form value blocks; braces in an expression `if` delimit its branch block.
 Bare lexical blocks use this same value-block representation. In statement or
-Unit-consuming positions they consume Unit and retain boolean assertions and
+Unit-consuming positions they consume Unit, reject Bool statements, and retain
 Result[Unit] propagation; explicit value positions and genuine value tails
 consume the final value. Braces are classified by their first entry's syntax,
 independently of expected type: empty braces, identifier shorthand, labeled or
@@ -1833,51 +1833,52 @@ the needed context. `lint.redundant-ok-tail` flags final `return Ok(value)` in
 `Result[T]` functions and autofixes to the plain tail value when checked types
 show the value already has type `T`.
 
-Boolean expression statements assert: a checked `Bool` is evaluated once,
-`true` completes with `Unit`, and `false` propagates
-`AssertionError.Failed(message: Str)`. The same rule applies to script top-level
-statements, ordinary statement blocks, non-tail function statements, and tails
-whose expected result is `Unit` or `Result[Unit]`. Assertions use ordinary
-Result propagation, error-family compatibility, retry attempts, and defer
-unwinding; restricted procs require `error` outside retry attempts. They remain
-enabled in every build profile and require no test context.
+Boolean expression statements are errors (`check.bool-statement`): a checked
+`Bool` in statement position neither asserts nor is silently discarded. The
+rule applies to script top-level statements, ordinary statement blocks,
+non-tail function statements, test bodies, and tails whose expected result is
+`Unit` or `Result[Unit]`, including callback tails. The diagnostic suggests
+`assert <expr>` to assert the value or `let _ = <expr>` to discard it, and
+carries a fix that inserts `assert`. `assert` is the only assertion form.
+Process `Status` statement semantics are unaffected.
 
-Boolean values do not assert: initializers, assignments, arguments, explicit
+Boolean values are data: initializers, assignments, arguments, explicit
 `return`, `yield`, conditions, guards, expression branches, predicates, and
 value-producing tails retain their values. `Bool`, `Result[Bool]`, `Any`, and
 `Result[Any]` tails can return `false`; an incompatible tail remains a type
 error. Inferred retry and callback results are inferred before statement use
-is classified. `let _ = predicate()` explicitly discards a boolean. There is
-no semicolon/newline distinction, truthiness, dynamic `Any` assertion, or
-implicit unwrapping of `Result[Bool]`.
+is classified. There is no semicolon/newline distinction, truthiness, dynamic
+`Any` assertion, or implicit unwrapping of `Result[Bool]`.
 
 `assert condition` and `assert condition, message` are Unit statements requiring
 a concrete `Bool` condition and, when present, a concrete `Str` message. For
 example, `assert actual == expected, f"package $name"` adds context to the
-failed comparison. The condition runs once. A failure reports the same detail
-as a bare Bool statement: the condition text and location, `left:`/`right:`
-operands of a failed top-level comparison, and the reached pair of an ordering
-chain. `and`/`or` conditions also report the failed operands and identify
-skipped operands without evaluating them. The message runs once only after a
-false condition and follows the condition text. Reporting bounds operand
-rendering; chain pairs and `and`/`or` operands report containers by type.
+failed comparison. The condition runs once; `true` completes with `Unit`, and
+`false` propagates `AssertionError.Failed(message: Str)`. A failure reports the
+condition text and location, `left:`/`right:` operands of a failed top-level
+comparison, and the reached pair of an ordering chain. `and`/`or` conditions
+also report the failed operands and identify skipped operands without
+evaluating them. The message runs once only after a false condition and follows
+the condition text. Reporting bounds operand rendering; chain pairs and
+`and`/`or` operands report containers by type.
 
 Message expressions retain ordinary type, effect, and propagation checks even
 when the condition is true. A message failure propagates as its own failure;
-otherwise the assertion propagates the same nominal
-`AssertionError.Failed(message: Str)` as a bare Bool statement. A local
-capture may admit that error family or the general `Error` type.
-Assertions use ordinary propagation,
-retry capture, and lexical cleanup, including in builds without native-test
-support. They are statements, and do not produce a Result value for a consumer.
-`lint.core-assert` fixes checked statement `test.ok`/`test.eq`/`test.ne` calls
-with inert literal messages and compatible concrete operand types. Eager
-nonliteral messages receive guidance to retain their evaluation point; consumed
+otherwise the assertion propagates the nominal
+`AssertionError.Failed(message: Str)`. A local capture may admit that error
+family or the general `Error` type. Assertions use ordinary propagation,
+error-family compatibility, retry capture, and lexical cleanup; restricted
+procs require `error` outside retry attempts. They remain enabled in every
+build profile, including builds without native-test support, and require no
+test context. They are statements, and do not produce a Result value for a
+consumer. `lint.core-assert` fixes checked statement
+`test.ok`/`test.eq`/`test.ne` calls without a message or with an inert literal
+message, and with compatible concrete operand types. Eager nonliteral messages
+receive guidance to retain their evaluation point; consumed
 Results and dynamic equality remain explicit calls.
 
 Non-tail expression statements inside value-producing function bodies must have
-type `Unit`, `Result[Unit]`, or `Bool`; Bool statements assert and
-`Result[Unit]` statements propagate failure by
+type `Unit` or `Result[Unit]`; `Result[Unit]` statements propagate failure by
 default. Otherwise bind the value, return it explicitly, or make it the final
 statement. A final exhaustive `if` or `match` produces the enclosing value
 when that context consumes one. `while` and `for` retain statement semantics.
@@ -1974,7 +1975,7 @@ Parent replacement and overlapping writes invalidate them; proved disjoint sibli
 writes preserve them. Unknown or procedure calls invalidate mutable capture facts
 regardless of their effect summary. Immutable record copies remain snapshots.
 
-Branches, guards, and successful statement assertions preserve only facts true
+Branches, guards, and successful `assert` statements preserve only facts true
 on every reaching continuation. Caught assertion failure supplies no success proof
 after recovery. Deferred or callable mutable captures require fresh checks inside
 the body. Shape predicates keep their existing field/type information and never
@@ -2099,8 +2100,8 @@ variant tests preserve nominal identity. Tests on stable immutable bindings
 narrow the selected true branch; payload variables are never introduced.
 Testing a Result preserves the wrapper and does not propagate an Err.
 `is` shares equality precedence, above `and` and `or` and below arithmetic and
-ordering. A bound, returned, or filtered test is a value; a bare test uses the
-Bool statement assertion contract.
+ordering. A bound, returned, or filtered test is a value; a bare test statement
+is rejected like any Bool statement.
 
 `lint.boolean-pattern-test` identifies trivial boolean matches with a proven
 complement. Its safe fix preserves one subject evaluation, rejects binding
@@ -2400,8 +2401,8 @@ UTF-8.
 runs and returns `Result[Unit, Error]`. Parenthesized `cd (path) { ... }` and
 `env (overlay) { ... }` in a value position consume the ordinary body tail and
 return `Result[T, Error]`. A Result-valued tail remains nested; a false predicate
-tail is data in a value body. Statement scopes retain command and assertion
-classification, including plain statement-position runs.
+tail is data in a value body. Statement scopes retain command classification,
+including plain statement-position runs, and reject Bool statements.
 Captured command tails retain their ordinary value contract: `run.text ... ?`
 produces `Str`, `run.bytes ... ?` produces `Bytes`, and `run.capture ... ?`
 produces its capture record. Omitting the command's `?` retains the nested
@@ -4700,7 +4701,7 @@ rewrite code automatically.
 It removes provably needless local binding annotations and rewrites simple
 removed membership calls to `in` / `not in` under `lint.prefer-in`, and
 statement-use assertion helpers to `assert` statements under
-`lint.prefer-bare-assertion` and `lint.explicit-assert`. Checked standard-call
+`lint.core-assert`. Checked standard-call
 identity and supported operand types are required. Direct membership fixes require inert operands or
 a state-independent literal: purity alone does not prove reorder safety.
 Custom messages and consumed Results retain an explicit `test.ok(...)` call.

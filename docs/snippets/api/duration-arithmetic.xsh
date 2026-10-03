@@ -4,7 +4,7 @@ const quantized = 5ms / 2
 pure backoff(attempt: Int) -> Duration { 250ms * attempt }
 
 let pause = backoff(3)
-pause <= budget
+assert pause <= budget
 let intervals = budget / 250ms
-intervals == 6
-quantized == 2ms
+assert intervals == 6
+assert quantized == 2ms

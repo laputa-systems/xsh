@@ -2136,7 +2136,7 @@ fn assertion_helper_fix_retains_contextual_collection_domains() {
         "test unsigned [error] { let values: Map[UInt, Str] = {[3]: \"three\", [20]: \"twenty\"}; test.eq(values.keys(), [3, 20])? }\n",
     ] {
         let diagnostics = context_safety_lints(source);
-        let diagnostics = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-bare-assertion")).collect::<Vec<_>>();
+        let diagnostics = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert")).collect::<Vec<_>>();
         assert_eq!(diagnostics.len(), 1, "{source}");
         for hint in &diagnostics[0].fix_hints {
             let mut fixed = source.to_string();
@@ -2159,7 +2159,7 @@ fn membership_lints(source: &str) -> Vec<Diagnostic> {
         membership_migration_spans: checked.membership_migration_spans,
         standard_call_spans: checked.standard_call_spans,
         ..LintOptions::default()
-    }).diagnostics.into_iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.prefer-bare-assertion"))).collect()
+    }).diagnostics.into_iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.core-assert"))).collect()
 }
 
 fn membership_fixed(source: &str) -> String {
@@ -2265,8 +2265,8 @@ fn linter_migrates_package_nested_assertions_and_multiline_match_membership() {
     )?
   }
   match result {
-    Ok(_) => true
-    Err(problem) => problem.message.contains(f"repeats ${expected}")
+    Ok(_) => assert true
+    Err(problem) => assert problem.message.contains("repeats")
   }
 }
 "#);
@@ -2372,7 +2372,7 @@ fn linter_leaves_dynamic_and_comment_bearing_migrations_actionable() {
 #[test]
 fn linter_migrates_set_negation_and_stream_item_membership() {
     let fixed = membership_fixed(r#"proc main(mapping: Map[Int], keys: List[Str]) {
-  ! set.has(set.empty(), "missing")
+  assert ! set.has(set.empty(), "missing")
   let present = keys |> where mapping.has(.)
   let absent = keys |> where ! mapping.has(.) and ! mapping.has("other")
   let _ = present
@@ -2391,7 +2391,7 @@ proc main() {
   let custom = {contains: contains, has: contains}
   let _ = custom.contains
   let _ = custom.has
-  contains("value")
+  assert contains("value")
 }
 "#;
     let diagnostics = membership_lints(source);
@@ -5202,34 +5202,24 @@ fn local_inference_annotation_fix_requires_identical_material_contract_and_prese
     }
 }
 
-fn explicit_assert_lints(source: &str, only: Option<&str>) -> Vec<Diagnostic> {
+fn bool_statement_fixed(source: &str) -> String {
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
-    Linter::lint(&parsed.arena, source, LintOptions {
-        expr_types: checked.expr_types,
-        statement_positions: checked.statement_positions,
-        statement_expression_spans: checked.statement_expression_spans,
-        assertion_effect_spans: checked.assertion_effect_spans,
-        assertion_spans: checked.assertion_spans,
-        standard_call_spans: checked.standard_call_spans,
-        only: only.map(|code| vec![code.to_owned()]),
-        ..LintOptions::default()
-    }).diagnostics
-}
-
-fn explicit_assert_fixed(source: &str) -> String {
-    let diagnostics = explicit_assert_lints(source, Some("lint.explicit-assert"));
+    assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code.as_deref() == Some("check.bool-statement")), "{source}: {:?}", checked.diagnostics);
+    let mut hints = checked.diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
+    hints.sort_by_key(|hint| hint.span.unwrap().start());
+    assert_eq!(hints.len(), checked.diagnostics.len(), "every Bool statement carries one fix: {:?}", checked.diagnostics);
+    assert!(hints.windows(2).all(|pair| pair[0].span != pair[1].span), "each statement is reported once: {hints:?}");
     let mut fixed = source.to_owned();
-    for hint in diagnostics.iter().rev().flat_map(|diagnostic| &diagnostic.fix_hints) {
+    for hint in hints.iter().rev() {
         fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
     }
     fixed
 }
 
 #[test]
-fn explicit_assert_prefixes_every_checked_assertion_statement() {
+fn bool_statement_fix_prefixes_every_checked_bool_statement() {
     let source = r#"let flag = true
 let xs = [1, 2]
 # a comment before
@@ -5257,9 +5247,7 @@ check(1)?
 flag
 assert flag
 "#;
-    assert!(explicit_assert_lints(source, None).iter().all(|diagnostic| diagnostic.code.as_deref() != Some("lint.explicit-assert")),
-        "the rule waits for the tree migration before it is enabled by default");
-    let fixed = explicit_assert_fixed(source);
+    let fixed = bool_statement_fixed(source);
     assert_eq!(fixed, r#"let flag = true
 let xs = [1, 2]
 # a comment before
@@ -5287,24 +5275,32 @@ check(1)?
 assert flag
 assert flag
 "#);
-    assert_parse_check_standalone("explicit assert", &fixed);
-    assert!(explicit_assert_lints(&fixed, Some("lint.explicit-assert")).is_empty(), "explicit assert fix should converge: {fixed}");
+    assert_parse_check_standalone("bool statement fix", &fixed);
 }
 
 #[test]
-fn explicit_assert_covers_tail_and_test_declaration_assertions() {
+fn bool_statement_fix_covers_unit_tails_and_test_declarations() {
     let source = "proc ready(flag: Bool) {\n    flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    n == 1\n}\ntest arithmetic {\n    1 + 1 == 2\n}\nready(true)?\ndone(1)?\n";
-    let fixed = explicit_assert_fixed(source);
+    let fixed = bool_statement_fixed(source);
     assert_eq!(fixed, "proc ready(flag: Bool) {\n    assert flag\n}\nproc done(n: Int) [error] -> Result[Unit] {\n    assert n == 1\n}\ntest arithmetic {\n    assert 1 + 1 == 2\n}\nready(true)?\ndone(1)?\n");
-    assert_parse_check_standalone("explicit tail assert", &fixed);
-    assert!(explicit_assert_lints(&fixed, Some("lint.explicit-assert")).is_empty());
+    assert_parse_check_standalone("bool tail fix", &fixed);
 }
 
 #[test]
-fn assertion_helper_migration_targets_explicit_assert() {
+fn assertion_helper_migration_targets_assert() {
     let source = "proc compare(actual: Int) {\n    test.eq(actual, 3)?\n    match actual {\n        3 => test.ok(actual > 2)?,\n        _ => {},\n    }\n}\n";
-    let diagnostics = explicit_assert_lints(source, None);
-    let hints = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-bare-assertion"))
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        statement_positions: checked.statement_positions,
+        statement_expression_spans: checked.statement_expression_spans,
+        assertion_effect_spans: checked.assertion_effect_spans,
+        standard_call_spans: checked.standard_call_spans,
+        ..LintOptions::default()
+    }).diagnostics;
+    let hints = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert"))
         .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     assert_eq!(hints.iter().filter_map(|hint| hint.replacement.as_deref()).collect::<Vec<_>>(),
         ["assert (actual) == (3)", "{ assert (actual > 2) }"], "{diagnostics:?}");
@@ -5313,5 +5309,4 @@ fn assertion_helper_migration_targets_explicit_assert() {
         fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
     }
     assert_parse_check_standalone("assertion helper migration", &fixed);
-    assert!(explicit_assert_lints(&fixed, Some("lint.explicit-assert")).is_empty(), "{fixed}");
 }

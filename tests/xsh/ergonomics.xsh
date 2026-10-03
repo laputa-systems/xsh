@@ -140,7 +140,7 @@ test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
   assert "2" in output.stderr
 }
 
-test test_ergonomics_statement_branch_false_still_asserts { |ctx|
+test test_ergonomics_statement_branch_bool_is_rejected { |ctx|
   let output = test.run_script(
     ctx,
     """proc check_branch() [] {
@@ -153,8 +153,8 @@ test test_ergonomics_statement_branch_false_still_asserts { |ctx|
 check_branch()?
 """,
   )?
-  assert ! output.success, output.stderr
-  assert "assert" in output.stderr
+  assert output.status == 2, output.stderr
+  assert "check.bool-statement" in output.stderr, output.stderr
 }
 
 test test_ergonomics_list_concatenation_does_not_merge_maps { |ctx|
