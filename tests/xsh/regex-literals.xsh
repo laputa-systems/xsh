@@ -23,8 +23,8 @@ pure default_regex(pattern = rx"^é+$") -> Regex {
 }
 
 test test_regex_literal_defaults_and_dynamic_compile_errors {
-  assert default_regex().matches("\u{e9}\u{e9}")
-  assert default_regex().find("\u{e9}\u{e9}")[0].end == 4
+  assert default_regex().matches("éé")
+  assert default_regex().find("éé")[0].end == 4
   let dynamic_pattern = "[0-9]+"
   let dynamic = regex.compile(dynamic_pattern)?
   assert dynamic.matches("42")

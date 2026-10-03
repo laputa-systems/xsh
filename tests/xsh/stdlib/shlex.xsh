@@ -17,7 +17,7 @@ b""") == """'a
 b'"""
   assert shlex.quote("'") == "''\\'''"
   assert shlex.quote("a'b'c") == "'a'\\''b'\\''c'"
-  assert shlex.quote("h\u{e9}llo") == "'h\u{e9}llo'"
+  assert shlex.quote("héllo") == "'héllo'"
   assert shlex.quote("\t") == "'\t'"
   assert shlex.quote("*") == "'*'"
   assert shlex.quote("!") == "'!'"

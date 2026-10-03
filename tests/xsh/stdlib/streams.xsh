@@ -2505,7 +2505,7 @@ let rows = [{name: "very-long-command-name-that-keeps-going", size: 123}]
     let {success: assertion_condition, stderr: assertion_message, ..} = output
     assert assertion_condition, assertion_message
   }
-  assert "\u{2026}" not in output.stdout
+  assert "…" not in output.stdout
   assert "very-long-command-name-that-k" in output.stdout
   assert "eeps-going" in output.stdout
 
@@ -2532,8 +2532,8 @@ let rows = [{name: "b", size: 2}, {name: "a", size: 1}]
     let {success: assertion_condition, stderr: assertion_message, ..} = table_trace
     assert assertion_condition, assertion_message
   }
-  assert "\u{2502} a" in table_trace.stdout
-  assert "\u{2502} b" in table_trace.stdout
+  assert "│ a" in table_trace.stdout
+  assert "│ b" in table_trace.stdout
   assert "kind=stream.stage.enter" in table_trace.stderr
   assert "kind=stream.stage.exit" in table_trace.stderr
   assert "name=\"sort-by\"" in table_trace.stderr

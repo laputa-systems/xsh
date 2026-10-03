@@ -39,7 +39,7 @@ test test_accept_command_and_owned_wait_preserve_policy {
   }
   assert process.run(command)?.exited_with(1)
   let child = spawn command?
-  assert wait child?.exited_with(1)
+  assert (wait child?).exited_with(1)
   let argv_command = process.command_argv("sh", ["sh", "-c", "exit 2"], accept: [0, 1])
   test.error_kind(process.run(argv_command), "unexpected-exit")?
   let rejected = spawn argv_command?
@@ -179,7 +179,7 @@ test test_accept_owned_child_keeps_a_validated_snapshot {
   var codes = [0, 1]
   let child = spawn run --accept=codes sh -c "exit 1" ?
   codes[1] = 2
-  assert wait child?.exited_with(1)
+  assert (wait child?).exited_with(1)
 }
 
 test test_accept_wait_any_and_ready_apply_the_owned_policy {

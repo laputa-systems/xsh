@@ -68,8 +68,8 @@ test test_json_decode_type_patterns_and_public_boundaries {
   assert decoded.line == """a
 b"""
 
-  assert decoded.snow == "\u{2603}"
-  assert decoded.music == "\u{1d11e}"
+  assert decoded.snow == "☃"
+  assert decoded.music == "𝄞"
   assert json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
   test.error_kind(json.decode("9223372036854775808"), "json")?
   assert json_label(json.decode("1")?)? == "int 1.0"

@@ -32,7 +32,7 @@ test test_pstree_renders_tree_with_pid_labels { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
   assert f"[${parent_pid}]" in output
   assert f"sleep [${child.pid}]" in output
-  assert "\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output
+  assert "├─" in output or "└─" in output or "|-" in output or "`-" in output
   assert ! ("->" in output)
 }
 

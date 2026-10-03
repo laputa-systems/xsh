@@ -1497,8 +1497,8 @@ proc main(...argv: List[Str]) [fs, error] {
       }
     }
 
-    let heavy = rule("\u{2501}", 81)
-    let light = rule("\u{2500}", 81)
+    let heavy = rule("━", 81)
+    let light = rule("─", 81)
     print $heavy
     print fmt_row("Language", "Files", "Lines", "Code", "Comments", "Blanks")
     print $heavy

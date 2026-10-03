@@ -99,7 +99,7 @@ comment */
   # tokei-format table: heavy rules, capitalized header, embedded ("|-") child rows,
   # per-language "(Total)" subtotals, and the grand "Total".
   assert "Language" in table
-  assert "\u{2501}" in table
+  assert "━" in table
   assert "|- JavaScript" in table
   assert ! ("|- TSX" in table)
   assert "(Total)" in table

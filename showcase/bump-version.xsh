@@ -93,7 +93,7 @@ proc main(...argv: List[Str]) [fs, error] {
   print f"  ${old_version} → ${new_version}  (${opts.component} bump)"
 
   if opts.dry_run {
-    print "dry run \u{2014} not writing"
+    print "dry run — not writing"
     return
   }
 

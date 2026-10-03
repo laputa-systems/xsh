@@ -1,10 +1,10 @@
 test str_iteration_keeps_unicode_scalars_and_nul {
   var characters = []
-  for character in "A\u{e9}e\u{301}\u{1f642}\0" {
+  for character in "Aéé🙂\0" {
     characters += [character]
   }
 
-  assert characters == ["A", "\u{e9}", "e", "\u{301}", "\u{1f642}", "\0"]
+  assert characters == ["A", "é", "e", "́", "🙂", "\0"]
   assert [character for character in ""] == []
 }
 
@@ -19,7 +19,7 @@ test bytes_iteration_keeps_all_octets_without_decoding {
 }
 
 test scalar_iteration_retains_sources_across_reassignment {
-  var text = "\u{e9}ab"
+  var text = "éab"
   var characters = []
   for character in text {
     text = "replacement"
@@ -33,21 +33,21 @@ test scalar_iteration_retains_sources_across_reassignment {
     octets += [octet]
   }
 
-  assert characters == ["\u{e9}", "a", "b"]
+  assert characters == ["é", "a", "b"]
   assert octets == [0, 255]
 }
 
 test scalar_comprehensions_keep_types_nested_order_and_guards {
   let pairs = [
     f"${character}:${octet}"
-    for character in "\u{e9}x"
+    for character in "éx"
     for octet in b"\x01\x02"
     if octet == 2
   ]
-  assert pairs == ["\u{e9}:2", "x:2"]
-  let entries = {character: character.byte_len() for character in "a\u{e9}"}
+  assert pairs == ["é:2", "x:2"]
+  let entries = {character: character.byte_len() for character in "aé"}
   assert entries.get("a")? == 1
-  assert entries.get("\u{e9}")? == 2
+  assert entries.get("é")? == 2
 }
 
 error ScalarSourceFailure = Missing(source: Str) : NotFound
@@ -137,8 +137,8 @@ test scalar_iteration_bindings_remain_immutable_and_protocols_stay_bounded { |ct
 }
 
 test scalar_iteration_preserves_source_view_bounds {
-  let text = "a\u{e9}\u{1f642}z".byte_slice(1, 6)
-  assert [character for character in text] == ["\u{e9}", "\u{1f642}"]
+  let text = "aé🙂z".byte_slice(1, 6)
+  assert [character for character in text] == ["é", "🙂"]
   let payload = b"\x01\0\xff\x02"[1..3]
   assert [octet for octet in payload] == [0, 255]
 }

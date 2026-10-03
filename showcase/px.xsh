@@ -384,9 +384,9 @@ pure thread_label(name: Str, count: Int) -> Str {
 
 pure connector(last: Bool) -> Str {
   if last {
-    "\u{2514} "
+    "└ "
   } else {
-    "\u{251c} "
+    "├ "
   }
 }
 

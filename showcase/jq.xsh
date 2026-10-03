@@ -1590,7 +1590,7 @@ pure bool_cmp(x: Bool, b: Json) -> Int {
 
     return 1 when x
 
-    -1
+    (-1)
   } else {
     0
   }

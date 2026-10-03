@@ -112,9 +112,9 @@ pure connector(last: Bool, ascii: Bool) -> Str {
   return if last { "`-" } else { "|-" } when ascii
 
   if last {
-    "\u{2514}\u{2500}"
+    "└─"
   } else {
-    "\u{251c}\u{2500}"
+    "├─"
   }
 }
 
@@ -122,7 +122,7 @@ pure vertical(ascii: Bool) -> Str {
   if ascii {
     "| "
   } else {
-    "\u{2502} "
+    "│ "
   }
 }
 

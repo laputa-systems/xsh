@@ -23,8 +23,8 @@ run.builtin printf "old\\n" ?
 }
 
 test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts { |ctx|
-  assert "\u{e9}\u{1f343}".byte_len() == 6
-  assert "\u{e9}\u{1f343}".count_chars() == 2
+  assert "é🍃".byte_len() == 6
+  assert "é🍃".count_chars() == 2
   let root = test.temp_dir(ctx, name: "canonical-children")?
   fs.mkdir(fp"${root}/nested")?
   fs.write(fp"${root}/z.txt", "z")?
@@ -58,11 +58,11 @@ print \$capture.stdout
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
-  assert "# caf\u{e9} ARGV fs.ls run.builtin count_bytes" in fixed
+  assert "# café ARGV fs.ls run.builtin count_bytes" in fixed
   assert "# keep bytes" in fixed
   assert "external ARGV run.builtin fs.ls count_bytes" in fixed
   assert "let input = args" in fixed
-  assert "\"\u{e9}\u{1f343}\".byte_len()" in fixed
+  assert "\"é🍃\".byte_len()" in fixed
   assert "fs.children(" in fixed
   assert "run.capture --text printf" in fixed
   let output = test.run_script(ctx, fixed)?

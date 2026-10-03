@@ -20772,9 +20772,9 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     for name in ["write", "writev"] {
       if traced_syscall(line, name) {
-        let descriptor = (line.split(f"${name}(", maxsplit: 1)
-          .get(1) ?? "".split(",")
-            .get(0) ?? "".split("<")
+        let descriptor = (((line.split(f"${name}(", maxsplit: 1)
+          .get(1) ?? "").split(",")
+            .get(0) ?? "").split("<")
               .get(0) ?? "").trim()
         if descriptor != "1" and descriptor != "2" {
           violations += ["write to non-output descriptor"]

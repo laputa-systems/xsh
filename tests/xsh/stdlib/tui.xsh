@@ -101,10 +101,10 @@ test test_tui_pad_ignores_escape_sequences {
 # Width counts Unicode scalar values, not display cells and not graphemes: a
 # combining mark and an astral emoji each count as one.
 test test_tui_pad_counts_unicode_scalars {
-  assert tui.left_pad("h\u{e9}llo", 6) == " h\u{e9}llo"
-  assert tui.right_pad("h\u{e9}llo", 6) == "h\u{e9}llo "
-  assert tui.left_pad("\u{65e5}\u{672c}", 3) == " \u{65e5}\u{672c}"
-  assert tui.right_pad("\u{1f600}", 3) == "\u{1f600}  "
+  assert tui.left_pad("héllo", 6) == " héllo"
+  assert tui.right_pad("héllo", 6) == "héllo "
+  assert tui.left_pad("日本", 3) == " 日本"
+  assert tui.right_pad("😀", 3) == "😀  "
 }
 
 # CR and LF are zero-width, so text carrying line breaks pads on visible
@@ -163,6 +163,6 @@ test test_tui_read_secret_piped_lines { |ctx|
 
   let input = test.temp_file(ctx, name: "secret.in", contents: b"alpha\nbeta\n")?
 
-  assert run.text "xsh" $script < ${input}? == """One: Two: alpha:beta
+  assert (run.text "xsh" $script < ${input}?) == """One: Two: alpha:beta
 """
 }

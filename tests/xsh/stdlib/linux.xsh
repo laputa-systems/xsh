@@ -555,5 +555,5 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
   } ?
 
   stop.write("")?
-  assert wait child?.exited_with(0)
+  assert (wait child)?.exited_with(0)
 }

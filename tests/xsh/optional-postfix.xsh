@@ -36,8 +36,8 @@ test test_optional_index_and_slice {
   let present: List[Int]? = [1, 2, 3]
   assert (present?[1] ?? -1) == 2
   assert (present?[1..] ?? []) == [2, 3]
-  let text: Str? = "\u{3b1}\u{3b2}\u{3b3}"
-  assert (text?[1..2] ?? "") == "\u{3b2}"
+  let text: Str? = "αβγ"
+  assert (text?[1..2] ?? "") == "β"
 }
 
 test test_optional_postfix_evaluation_order { |ctx|
@@ -93,7 +93,7 @@ test test_optional_result_layers_and_outer_propagation {
   assert wrapped?[1] == 4
   assert wrapped?[1..] == [4, 5]
   let nested: Result[Str?] = Ok(" label ")
-  assert (nested??.trim() ?? "default") == "label"
+  assert ((nested?)?.trim() ?? "default") == "label"
 }
 
 test test_optional_non_null_errors_and_explicit_hops { |ctx|

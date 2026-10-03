@@ -672,7 +672,7 @@ test test_system_report_os_release_value_parser_rejects_malformed_assignments {
     assert collectors.valid_os_release_id(valid_id)
   }
 
-  for invalid_id in ["", "Ubuntu", "with space", "has/slash", "with:colon", "\u{e9}"] {
+  for invalid_id in ["", "Ubuntu", "with space", "has/slash", "with:colon", "é"] {
     assert ! collectors.valid_os_release_id(invalid_id)
   }
 
@@ -7549,10 +7549,7 @@ test test_system_report_source_text_preserves_exact_whitespace_when_requested {
   let normalized = collectors.read_source_text(root, p"cmdline")
   let exact = collectors.read_source_text(root, p"cmdline", 65536, true)
   assert normalized.observation.value == "root=private  quiet"
-  assert exact.observation.value == """
-      root=private  quiet  
-    
-    """
+  assert exact.observation.value == "  root=private  quiet  " + "\n"
 }
 
 test test_system_report_kernel_parameter_allowlist_keeps_values_and_absence {

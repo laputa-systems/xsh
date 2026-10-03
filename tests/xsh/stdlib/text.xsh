@@ -3,7 +3,7 @@ test test_text_fields_replacement_and_counts {
   let fields = row.trim().fields(delimiter: "::")
   let joined = fields.join(separator: "/")
   let replaced = joined.replace("beta", "B")
-  let scalars = "h\u{e9}".split("")
+  let scalars = "hé".split("")
   let wrapped = "alpha beta gamma".wrap(10)
   let slug = "alpha beta_gamma".translate(" _", "--")
   let deleted = "a-b_c".delete("-_")
@@ -18,9 +18,9 @@ test test_text_fields_replacement_and_counts {
 two
 """.count_lines() == 2
   assert "one two".count_words() == 2
-  assert "h\u{e9}".count_chars() == 2
-  assert "h\u{e9}".byte_len() == 3
-  assert scalars[1] == "\u{e9}"
+  assert "hé".count_chars() == 2
+  assert "hé".byte_len() == 3
+  assert scalars[1] == "é"
   assert "a,b,c".split(",", maxsplit: 1) == ["a", "b,c"]
   assert "a,b,c".split(",", 1) == ["a", "b,c"]
   assert "a,b,c".split(",", maxsplit: 0) == ["a,b,c"]
@@ -73,16 +73,16 @@ b""".wrap(5) == ["a", "b"]
 
   # Columns count Unicode scalar values rather than bytes, so a multi-byte
   # scalar is never cut in half.
-  assert "h\u{e9}llo w\u{f6}rld".wrap(4) == ["h\u{e9}ll", "o", "w\u{f6}rl", "d"]
-  assert "\u{65e5}\u{672c}\u{8a9e} test".wrap(2) == ["\u{65e5}\u{672c}", "\u{8a9e}", "te", "st"]
-  assert "\u{1f600}\u{1f600}\u{1f600}".wrap(2) == ["\u{1f600}\u{1f600}", "\u{1f600}"]
-  assert "\u{1f600}\u{1f600}".wrap(2) == ["\u{1f600}\u{1f600}"]
+  assert "héllo wörld".wrap(4) == ["héll", "o", "wörl", "d"]
+  assert "日本語 test".wrap(2) == ["日本", "語", "te", "st"]
+  assert "😀😀😀".wrap(2) == ["😀😀", "😀"]
+  assert "😀😀".wrap(2) == ["😀😀"]
 }
 
 test test_text_wrap_short_unicode_lines_keep_normalization_and_trailing_line {
-  assert ("  caf\u{e9}  \u{65e5}\u{672c} \u{1f600}  " + """
+  assert ("  café  日本 😀  " + """
 short
-""").wrap(72) == ["caf\u{e9} \u{65e5}\u{672c} \u{1f600}", "short", ""]
+""").wrap(72) == ["café 日本 😀", "short", ""]
 }
 
 # Field selection is either the whitespace policy or one literal delimiter.
@@ -110,7 +110,7 @@ test test_text_fields_selects_runs_or_literal_delimiters {
   # An empty delimiter is the whitespace policy again, and a multi-byte
   # delimiter is matched as a whole.
   assert "a b".fields(delimiter: "") == ["a", "b"]
-  assert "a\u{e9}b".fields(delimiter: "\u{e9}") == ["a", "b"]
+  assert "aéb".fields(delimiter: "é") == ["a", "b"]
   assert """a\r
 b""".fields(delimiter: """\r
 """) == ["a", "b"]
