@@ -285,6 +285,9 @@ impl Checker {
                         );
                         Name::intern("children")
                     } else { name };
+                    if module == "process" && name == "command" {
+                        self.error(span, "`process.command` requires a builder block with one `run` entry", "check.builder-call");
+                    }
                     if let Some(required) = api_spec().module_required_effect(&module.as_str(), &canonical_name.as_str()) {
                         self.require_effect(required, span, &format!("`{module}.{name}`"));
                     }
@@ -1180,6 +1183,11 @@ impl Checker {
             self.check_static_positive_call_int_arena(arena, expr_id, "cpu_max must be positive");
         }
         if let Some(arg) = slots[14] { self.check_static_accepted_exit_codes(arena, call_arg_expr_id_arena(arg)); }
+        // The overloads differ only in parameter types, so either binds the
+        // entries lowering consumes by parameter name.
+        if let Some(sig) = api_spec().module("process").and_then(|module| module.function_overloads("command_argv")).and_then(|overloads| overloads.first()) {
+            self.publish_api_call(arena, args, span, None, sig, sig);
+        }
         Type::Command
     }
 

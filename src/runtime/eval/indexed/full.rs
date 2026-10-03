@@ -5512,7 +5512,7 @@ impl FullCodec for LoweredValue {
             }
             FullValueTag::List => Vec::<LoweredValue>::verify(decoder, &mut payload)?,
             FullValueTag::Map => {
-                BTreeMap::<String, LoweredValue>::verify(decoder, &mut payload)?;
+                BTreeMap::<crate::map_key::MapKey, LoweredValue>::verify(decoder, &mut payload)?;
             }
             FullValueTag::Tag => {
                 Name::verify(decoder, &mut payload)?;
