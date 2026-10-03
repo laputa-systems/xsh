@@ -4,8 +4,6 @@ pub use crate::map_key::{MapKey, MapKeyRef};
 mod error_cause;
 mod resource_values;
 pub use error_cause::ErrorCause;
-pub use crate::runtime::eval::RuntimeCallableValue;
-pub use crate::runtime::eval::RuntimeNativeCallableValue;
 
 use crate::runtime::process::{AcceptedExitCodes, ProcessStatus};
 use crate::source::Span;
@@ -65,15 +63,6 @@ impl RecordShape {
             .texts
             .iter()
             .position(|field| field.as_str() == key)
-    }
-
-    pub(crate) fn field_names(&self) -> &[Name] { &self.data.names }
-
-    pub(crate) fn field_text(&self, slot: u32) -> Option<&str> { self.data.texts.get(slot as usize).map(|name| name.as_str()) }
-
-    pub(crate) fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<RecordShapeData>() + 2 * std::mem::size_of::<usize>()
-            + self.data.names.len() * std::mem::size_of::<Name>() + self.data.texts.len() * std::mem::size_of::<NameText>()
     }
 }
 
@@ -216,18 +205,11 @@ pub enum FsEntryKind {
     Other,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FsEntryValue {
     path: Arc<PathBuf>,
     kind: FsEntryKind,
-    prepared_shape: Option<RecordShape>,
 }
-
-impl PartialEq for FsEntryValue {
-    fn eq(&self, other: &Self) -> bool { self.path == other.path && self.kind == other.kind }
-}
-
-impl Eq for FsEntryValue {}
 
 impl FsEntryValue {
     pub fn new(path: PathBuf, file_type: std::fs::FileType) -> Self {
@@ -243,16 +225,7 @@ impl FsEntryValue {
         Self {
             path: Arc::new(path),
             kind,
-            prepared_shape: None,
         }
-    }
-
-    pub(crate) fn with_prepared_shape(mut self, shape: RecordShape) -> Self { self.prepared_shape = Some(shape); self }
-
-    /// A native producer's canonical slot selects one lazy field. Metadata
-    /// remains unavailable until the caller reaches a field requiring it.
-    pub(crate) fn prepared_field_value(&self, slot: u32) -> Option<Result<Value, RuntimeError>> {
-        self.field_value(self.prepared_shape.as_ref()?.field_text(slot)?)
     }
 
     /// Presence does not fetch metadata or construct the field's value.
@@ -913,8 +886,6 @@ pub enum Value {
     RunError(Box<RunError>),
     Pure(FunctionName),
     Proc(FunctionName),
-    Callable(RuntimeCallableValue),
-    NativeCallable(RuntimeNativeCallableValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
@@ -969,8 +940,6 @@ impl Value {
             Self::RunError(_) => "RunError",
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
-            Self::Callable(value) => value.type_name(),
-            Self::NativeCallable(value) => value.type_name(),
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::NetJob(_) => "NetJob",

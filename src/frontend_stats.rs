@@ -7,7 +7,7 @@
 
 use crate::loader::parse_load_check_text;
 use crate::mem_track::{self, AllocTraffic};
-use crate::runtime::eval::Evaluator;
+use crate::runtime::eval::{Evaluator, probe_compact_lower_constructed_bodies};
 use crate::sema::check::{
     CheckOptions, CheckOutput, Checker, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
 };
@@ -237,8 +237,7 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
                     bytes += size_of::<BTreeMap<crate::symbol::Name, Type>>()
                         + variant.fields.len() * size_of::<(crate::symbol::Name, Type)>()
                         + variant.fields.values().map(type_owned_bytes).sum::<usize>()
-                        + variant.facets.capacity() * size_of::<crate::symbol::Name>()
-                        + variant.field_order.capacity() * size_of::<crate::symbol::Name>();
+                        + variant.facets.capacity() * size_of::<crate::symbol::Name>();
                 }
             }
         }};
@@ -330,10 +329,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let ast_retained_bytes = ast.retained_bytes;
     let (checked_type_count, checked_retained_bytes) =
         measure_check_output(checked.checked.as_ref());
-    let declarations = checked.checked.as_ref().map_or_else(
-        crate::sema::check::CompactDeclOutput::default,
-        |output| Checker::compact_declarations_from_checked(&checked.parsed.arena, output),
-    );
+    let declarations = Checker::check_compact_declarations(&checked.parsed.arena);
     let bodies = Checker::probe_compact_bodies(&checked.parsed.arena, &declarations);
     let (declaration_type_count, declaration_retained_bytes) =
         measure_compact_declarations(&declarations);
@@ -351,20 +347,26 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
 
     let lower_live_before = mem_track::snapshot().live_bytes;
     mem_track::begin_stage();
+    let construct_probe = probe_compact_lower_constructed_bodies(
+        &checked.parsed.arena,
+        &declarations,
+        &bodies,
+        source,
+    );
     let mut evaluator = Evaluator::new_with_sources(Vec::new(), checked.sources.clone());
-    let lower_diagnostics = checked.checked.as_ref().map_or(1, |output| {
-        usize::from(evaluator.prepare_compact_indexed_only_from_checked(
-            &checked.parsed.arena, checked.entry_source_id, output,
-        ).is_err())
-    });
+    let lower_diagnostics = usize::from(
+        evaluator
+            .prepare_compact_indexed_only(&checked.parsed.arena, checked.entry_source_id)
+            .is_none(),
+    );
     let lowered = evaluator.frontend_lowered_stats();
     let lower_traffic = mem_track::end_stage();
-    let lowered_function_count = lowered.function_count;
-    let lowered_constructed_functions = lowered.constructed_functions;
-    let lowered_statement_count = lowered.statement_count;
-    let lowered_expression_count = lowered.expression_count;
-    let lowered_pattern_count = lowered.pattern_count;
-    let lowered_blocker_events = lowered.blocker_events;
+    let lowered_function_count = construct_probe.functions;
+    let lowered_constructed_functions = construct_probe.constructed_functions;
+    let lowered_statement_count = construct_probe.statements;
+    let lowered_expression_count = construct_probe.expressions;
+    let lowered_pattern_count = construct_probe.patterns;
+    let lowered_blocker_events = construct_probe.blocker_events;
     let tracked_lowered_retained = lower_traffic.live_bytes.saturating_sub(lower_live_before);
     let lowered_retained_estimated = !lower_traffic.tracking_active;
     let lowered_retained_bytes = if lower_traffic.tracking_active {
@@ -390,6 +392,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     mem_track::begin_stage();
     let (dynamic_symbol_count, dynamic_symbol_bytes) =
         checked.parsed.arena.symbol_owner().dynamic_stats();
+    drop(construct_probe);
     drop(bodies);
     drop(declarations);
     drop(cst);
@@ -853,89 +856,6 @@ mod tests {
     const SOURCE: &str = "pure twice(value: Int) -> Int { return value * 2 }\nprint ${twice(3)}\n";
     const INDEXED_EXECUTION: &str =
         include_str!("../tests/fixtures/frontend-indexed/indexed-execution.xsh");
-
-    const SOURCE_COUNTS: &str = "pure choose(value: Int) -> Int {\n  let selected = match value {\n    0 => 1,\n    _ => value,\n  }\n  return selected\n}\nprint ${choose(0)}\n";
-    const NATIVE_ALIAS_COUNTS: &str = "pure ready(value: Int) -> Int { value + 1 }\nlet encode = json.encode\nlet encoded = encode(1)\n";
-
-    #[test]
-    fn installed_lowering_stats_preserve_original_source_counts() {
-        let checked = crate::loader::parse_load_check_text(
-            "stats-counts.xsh", SOURCE_COUNTS.to_string(), Vec::new(),
-            crate::sema::check::CheckOptions::default(),
-        );
-        let output = checked.checked.as_ref().expect("the source is checked");
-        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(
-            Vec::new(), checked.sources.clone(),
-        );
-        evaluator.prepare_compact_indexed_only_from_checked(
-            &checked.parsed.arena, checked.entry_source_id, output,
-        ).expect("the checked source prepares");
-        drop(checked);
-        let counts = evaluator.frontend_lowered_stats();
-        assert_eq!(
-            (counts.function_count, counts.constructed_functions,
-                counts.statement_count, counts.expression_count, counts.pattern_count,
-                counts.blocker_events),
-            (1, 1, 2, 7, 2, 0),
-        );
-    }
-
-    #[test]
-    fn native_alias_preparation_retains_attempted_source_counts() {
-        let checked = crate::loader::parse_load_check_text(
-            "stats-native-alias.xsh", NATIVE_ALIAS_COUNTS.to_string(), Vec::new(),
-            crate::sema::check::CheckOptions::default(),
-        );
-        let output = checked.checked.as_ref().expect("the source is checked");
-        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(
-            Vec::new(), checked.sources.clone(),
-        );
-        evaluator.prepare_compact_indexed_only_from_checked(
-            &checked.parsed.arena, checked.entry_source_id, output,
-        ).expect("the original native alias authority prepares");
-        drop(checked);
-        let counts = evaluator.frontend_lowered_stats();
-        assert_eq!((counts.function_count, counts.constructed_functions), (1, 1));
-        assert!(counts.expression_count > 0);
-        assert_eq!(counts.blocker_events, 0);
-    }
-
-    #[test]
-    fn failed_preparation_retains_attempted_source_counts() {
-        let mut checked = crate::loader::parse_load_check_text(
-            "stats-blocker.xsh", NATIVE_ALIAS_COUNTS.to_string(), Vec::new(),
-            crate::sema::check::CheckOptions::default(),
-        );
-        let output = checked.checked.as_mut().expect("the source is checked");
-        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        // The source remains valid, but its original native reference authority
-        // is absent. Reject that missing proof after retaining attempted work.
-        let solved = std::sync::Arc::get_mut(&mut output.solved).expect("the checked source has one solved owner");
-        assert_eq!(solved.registry_references.len(), 1);
-        solved.registry_references.clear();
-        let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(
-            Vec::new(), checked.sources.clone(),
-        );
-        let error = evaluator.prepare_compact_indexed_only_from_checked(
-            &checked.parsed.arena, checked.entry_source_id, output,
-        ).err().expect("a native callable cannot prepare without its original reference authority");
-        assert_eq!(error.code.as_deref(), Some("compact.indexed-build"));
-        drop(checked);
-        let counts = evaluator.frontend_lowered_stats();
-        assert_eq!(counts.function_count, 1);
-        assert!(counts.expression_count > 0);
-        assert_eq!(counts.blocker_events, 1);
-    }
-
-    #[test]
-    fn auto_main_does_not_double_count_constructed_functions() {
-        let stats = measure_source("stats-main.xsh", "proc main() -> Unit {}\n");
-        assert_eq!(stats.diagnostics, 0);
-        assert_eq!(stats.lowered_function_count, 1);
-        assert_eq!(stats.lowered_constructed_functions, 1);
-    }
 
     #[test]
     fn source_measurements_are_deterministic_without_allocator_tracking() {

@@ -1,4 +1,4 @@
-use super::lint_try_capture_helpers_with_checked;
+use super::lint_try_capture_helpers;
 use xsh::diagnostic::Diagnostic;
 use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
@@ -8,8 +8,8 @@ fn migration(source: &str) -> Vec<Diagnostic> {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
-    parsed.arena.symbol_owner().with_current(|| lint_try_capture_helpers_with_checked(&parsed.arena, source, || &checked))
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    parsed.arena.symbol_owner().with_current(|| lint_try_capture_helpers(&parsed.arena, source))
 }
 
 fn apply(diagnostics: &[Diagnostic], source: &str) -> String {

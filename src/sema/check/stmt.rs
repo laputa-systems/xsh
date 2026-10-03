@@ -243,8 +243,6 @@ impl Checker {
                     },
                     span,
                 );
-                let identity = super::BindingIdentity { source: span.source_id, namespace: self.current_namespace, target };
-                if let Some(binding) = self.current_scope_mut().get_mut(name) { binding.original_binding = Some(identity); }
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 let record_fields = match ty {
@@ -284,9 +282,6 @@ impl Checker {
                         );
                     }
                     self.define_binding_target_arena(arena, field.target, &field_ty, mutable, field_span);
-                    if matches!(arena.arena.binding_target(field.target).kind, ArenaBindingTargetKind::Name(name) if name != "_") {
-                        self.record_graph_binding(field.target, &field_ty, mutable, field_span);
-                    }
                 }
             }
         }
@@ -294,56 +289,53 @@ impl Checker {
 
     pub(super) fn check_compound_assignment_op(
         &mut self,
-        arena: &ArenaProgram,
-        statement: StmtId,
         op: AssignOp,
         left: &Type,
         right: &Type,
         op_span: Span,
         rhs_span: Span,
     ) -> Type {
-        use crate::sema::inference::{EffectSet, EffectSummary, InferenceError, OperationCall};
-
-        let identity = super::StatementIdentity { source: arena.arena.stmt(statement).span.source_id, namespace: self.current_namespace, statement };
-        if !self.graph_generation || self.generic.borrow().facts.statement_operations.contains_key(&identity) {
-            return self.generic.borrow().facts.statement_operations.get(&identity)
-                .map(|operation| self.graph_view(operation.result)).unwrap_or(Type::Invalid);
+        if left == &Type::Duration {
+            let valid = matches!((op, right), (AssignOp::Add | AssignOp::Sub, Type::Duration)
+                | (AssignOp::Mul | AssignOp::Div, Type::Int));
+            if !valid { self.error(rhs_span, "invalid Duration compound assignment dimensions", "check.operator-type"); }
+            return Type::Duration;
         }
-        let outcome = (|| {
-            let arguments = vec![self.graph_type(left, op_span)?, self.graph_type(right, rhs_span)?];
-            let level = if self.current_generic.is_some() { 1 } else { 0 };
-            let mut state = self.generic.borrow_mut();
-            let family = {
-                let super::generic::GenericState { facts, language_operations, .. } = &mut *state;
-                language_operations.compound_family(&mut facts.graph, op, op_span)?
-            };
-            let graph = &mut state.facts.graph;
-            let result = graph.fresh(level, op_span)?;
-            let effects = EffectSummary::Closed(EffectSet::EMPTY);
-            let reason = graph.reason(rhs_span, None)?;
-            let requirement = graph.require_operation(family, OperationCall { binding: crate::sema::inference::OperationBinding::Slots, effect_mode: crate::sema::inference::OperationEffectMode::AvailableBudget, mono_authority: None, declared_error_bound: None, receiver: None, arguments: arguments.iter().copied().map(Some).collect(), result, effects, effect_bindings: Vec::new(), output_effect_bindings: Vec::new() }, reason)?;
-            graph.solve()?;
-            graph.assignable(arguments[0], result, reason)?;
-            graph.solve()?;
-            if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).ok_or(InferenceError::InvalidScheme)?.requirements.push(requirement); }
-            state.facts.statement_operations.insert(identity, super::SolvedOperation {
-                requirement, result, effects, receiver: None, actual_arguments: arguments,
-                argument_coercions: Vec::new(), binding: super::CallBinding { supplied_slots: vec![0, 1], default_slots: Vec::new(), rest_slot: None, dynamic: None }, caller: self.current_generic,
-            });
-            state.facts.statements.insert(identity, super::StatementPosition::Statement);
-            if let Some(owner) = self.current_generic { state.facts.statement_owners.insert(identity, owner); }
-            drop(state);
-            Ok(self.graph_view(result))
-        })();
-        match outcome {
-            Ok(result) => result,
-            Err(error) => {
-                if left == &Type::Duration && matches!(error, InferenceError::UnsupportedOperation(_) | InferenceError::TypeMismatch { .. }) {
-                    self.error(rhs_span, "invalid Duration compound assignment dimensions", "check.operator-type");
-                } else { self.graph_error(rhs_span, error); }
-                Type::Invalid
+        if op == AssignOp::Add && matches!(left, Type::List(_)) {
+            self.expect_type(left, right, rhs_span);
+            return left.clone();
+        }
+        if op == AssignOp::Div
+            && matches!(left, Type::Path | Type::Unknown)
+            && matches!(right, Type::Str | Type::Path | Type::Unknown)
+        {
+            return Type::Path;
+        }
+        if matches!(left, Type::Float) && op != AssignOp::Rem {
+            if !matches!(right, Type::Float | Type::Unknown) {
+                self.error(
+                    rhs_span,
+                    "compound assignment requires Float operands",
+                    "check.operator-type",
+                );
             }
+            return Type::Float;
         }
+        if !matches!(left, Type::Int | Type::UInt | Type::Unknown) {
+            self.error(
+                op_span,
+                "compound assignment requires Int or Float operands",
+                "check.operator-type",
+            );
+        }
+        if !matches!(right, Type::Int | Type::UInt | Type::Unknown) {
+            self.error(
+                rhs_span,
+                "compound assignment requires Int operands",
+                "check.operator-type",
+            );
+        }
+        Type::Int
     }
 
     pub(super) fn apply_narrowings(&mut self, narrowings: &[Narrowing]) {
@@ -357,8 +349,6 @@ impl Checker {
                 narrowed.unrefined_ty = Some(narrowed.ty.clone());
             }
             if !super::proof::replace_projection(&mut narrowed.ty, &narrowing.path, narrowing.ty.clone()) { continue; }
-            narrowed.refinements.retain(|fact| !super::proof::paths_overlap(&fact.path, &narrowing.path));
-            if narrowing.source.as_ref().is_some_and(|source| source.guard.is_some()) { narrowed.refinements.push(narrowing.clone()); }
             self.current_scope_mut().insert(narrowing.name, narrowed);
         }
     }
@@ -371,7 +361,7 @@ impl Checker {
             self.error(span, "loop control cannot leave a deferred cleanup block", "check.defer-control-flow");
             return;
         }
-        let message = if self.stream_items.is_empty() {
+        let message = if self.stream_item_types.is_empty() {
             if is_break {
                 "`break` is valid only inside while or for loops"
             } else {
@@ -404,16 +394,8 @@ impl Checker {
     }
 
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
-        let previous = self.current_statement.replace(id);
-        self.check_stmt_arena_inner(arena, source, id);
-        self.record_statement_producer_flow(arena, id);
-        self.current_statement = previous;
-    }
-
-    fn check_stmt_arena_inner(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
-        let position = self.statement_positions.get(&stmt.span).copied().unwrap_or(super::StatementPosition::Statement);
-        self.record_statement_position(arena, id, position);
+        self.statement_positions.entry(stmt.span).or_insert(super::StatementPosition::Statement);
         match stmt.kind {
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
                 let narrowings = self.check_condition_arena(arena, source, condition, "check.guard-condition");
@@ -426,9 +408,7 @@ impl Checker {
                     self.error(arena.arena.span(arena.arena.block(else_block).span), "guard failure branch must leave the enclosing continuation on every reachable path", "check.guard-fallthrough");
                 }
                 self.scopes = success_scopes;
-                if self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(else_block).span)) {
-                    self.apply_exiting_guard_refinements(arena, id, condition, &narrowings.when_true);
-                } else { self.apply_narrowings(&narrowings.when_true); }
+                self.apply_narrowings(&narrowings.when_true);
             }
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = arena.arena.use_stmt(use_id);
@@ -461,10 +441,10 @@ impl Checker {
             }
             ArenaStmtKind::TypeDef(def_id) => {
                 let def = arena.arena.type_def(def_id);
-                self.check_type_def_arena(arena, source, def_id, def, stmt.span);
+                self.check_type_def_arena(arena, source, def, stmt.span);
             }
             ArenaStmtKind::ErrorDef(def_id) => {
-                self.check_error_def_arena(arena, source, def_id, stmt.span);
+                self.check_error_def_arena(arena, source, def_id);
             }
             ArenaStmtKind::ProcDef(def_id) | ArenaStmtKind::CliMain(def_id) => {
                 let def = arena.arena.function_def(def_id).clone();
@@ -501,19 +481,13 @@ impl Checker {
                 self.check_binding_arena(arena, source, target, ty, initializer, true, stmt.span);
             }
             ArenaStmtKind::Assign { target, op, value } => {
-                self.check_assignment_arena(arena, source, id, target, op, value, stmt.span);
+                self.check_assignment_arena(arena, source, target, op, value, stmt.span);
             }
             ArenaStmtKind::Return(value) => {
                 self.check_return_arena(arena, source, value, stmt.span);
-                self.record_statement_producer_flow(arena, id);
-                if self.graph_generation && self.inference_reachable && let Some(owner) = self.current_generic {
-                    let identity = super::StatementIdentity { source: stmt.span.source_id, namespace: self.current_namespace, statement: id };
-                    let mut state = self.generic.borrow_mut();
-                    if let Some(flow) = state.facts.statement_producer_flows.get(&identity).copied() { state.pending.get_mut(&owner).unwrap().completion_producer_flows.push(flow); }
-                }
             }
             ArenaStmtKind::YieldDelegate(value) => {
-                self.check_yield_delegation_arena(arena, source, id, value, stmt.span);
+                self.check_yield_delegation_arena(arena, source, value, stmt.span);
             }
             ArenaStmtKind::Yield(value) => {
                 self.check_yield_arena(arena, source, value, stmt.span);
@@ -530,18 +504,8 @@ impl Checker {
                     );
                 }
                 self.check_loop_control(stmt.span, true);
-                let targeted = self.loop_value_boundaries.last().is_some_and(|boundary| boundary.depth == self.loop_depth
-                    && boundary.declaration == self.current_generic && boundary.deferred == self.in_defer_block
-                    && boundary.stream_depth == self.stream_items.len());
-                let expected = targeted.then(|| self.loop_value_boundaries.last().unwrap().expected.clone()).flatten();
-                let ty = if let Some(expr_id) = value {
-                    self.check_expr_arena(arena, source, expr_id, expected.as_ref())
-                } else { Type::Unit };
-                if targeted && self.inference_reachable {
-                    let producer = value.and_then(|expression| self.generic.borrow().facts.expression_producer_flows.get(&self.expression_identity(arena, expression)).copied());
-                    let boundary = self.loop_value_boundaries.last_mut().unwrap();
-                    boundary.contributions.push((ty, stmt.span));
-                    boundary.producers.extend(producer);
+                if let Some(expr_id) = value {
+                    self.check_expr_arena(arena, source, expr_id, None);
                 }
             }
             ArenaStmtKind::Continue => {
@@ -605,7 +569,7 @@ impl Checker {
                 iter,
                 block,
             } => {
-                self.check_for_arena(arena, source, id, target, iter, block, stmt.span);
+                self.check_for_arena(arena, source, target, iter, block, stmt.span);
             }
             ArenaStmtKind::Loop { block } => {
                 self.loop_depth += 1;
@@ -676,11 +640,10 @@ impl Checker {
                 self.check_match_arena(arena, source, value, arms);
             }
             ArenaStmtKind::Command(command_id) => {
-                self.check_command_stmt_arena(arena, source, id, command_id);
+                self.check_command_stmt_arena(arena, source, command_id);
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
-                self.record_graph_tag_tail_constructor(arena, id, name, &ty);
                 if !command_ty_auto_propagates(&ty) {
                     self.reject_ignored_result(&ty, stmt.span);
                 }
@@ -697,8 +660,6 @@ impl Checker {
         if let ArenaExprKind::PatternCondition { value, arms } = arena.arena.expr(condition).kind {
             let ty = self.expr_types.get(&arena.arena.expr(value).span).cloned().unwrap_or(Type::Unknown);
             self.check_pattern_arena(arena, source, arena.arena.match_expr_arms(arms)[0].pattern, &ty);
-            self.record_checked_pattern_value_scope(arena, arena.arena.match_expr_arms(arms)[0].pattern, value);
-            self.record_pattern_producer_flow(arena, arena.arena.match_expr_arms(arms)[0].pattern, value);
         }
     }
 
@@ -827,9 +788,7 @@ impl Checker {
         else {
             return ConditionNarrowings::default();
         };
-        let mut narrowing = self.lookup(name).unwrap().proof.fact(name, path, inner);
-        let subject = if matches!(arena.arena.expr(right).kind, ArenaExprKind::Null) { left } else { right };
-        narrowing.source = self.null_predicate_source(arena, condition, subject, name).map(std::sync::Arc::new);
+        let narrowing = self.lookup(name).unwrap().proof.fact(name, path, inner);
         if matches!(
             arena.arena.expr(condition).kind,
             ArenaExprKind::Binary {
@@ -885,16 +844,14 @@ impl Checker {
         let original = self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>();
         let mut reaching = Vec::new();
         let mut previous_failure = Vec::new();
-        for (ordinal, branch) in branch_list.iter().enumerate() {
+        for branch in branch_list {
             self.push_scope();
             self.apply_narrowings(&previous_failure);
             let facts = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
             let failure_scopes = self.scopes.clone();
-            let presence_saved = self.push_checked_field_presence_branch(arena, branch.condition, ordinal as u32);
             self.apply_narrowings(&facts.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
             self.check_block_arena(arena, source, branch.block);
-            self.restore_checked_field_presence_branches(presence_saved);
             if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(branch.block).span)) {
                 if let Some(bindings) = self.block_exit_bindings.get(&branch.block) { reaching.push(bindings.clone()); }
             }
@@ -965,26 +922,25 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        statement: StmtId,
         target: BindingTargetId,
         iter: ExprId,
         block: BlockId,
         span: Span,
     ) {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
-        let (item_ty, operation, flow) = match iter_ty {
-            Type::Any => (Type::Any, None, None),
-            Type::Unknown => (Type::Unknown, None, None),
-            Type::Invalid => (Type::Invalid, None, None),
-            _ => self.check_graph_iteration_operation(arena, statement, iter, &iter_ty),
-        };
-        if matches!(operation, Some(crate::sema::operation_graph::PreparedLanguageOperation::Iteration { domain: crate::sema::operation_graph::IterableDomain::Map | crate::sema::operation_graph::IterableDomain::Str | crate::sema::operation_graph::IterableDomain::Bytes, outer_result: true })) {
+        if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes)) {
             self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
         }
-        let item_ty = self.iteration_binding_type(arena, target, &item_ty, span);
+        let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| match iter_ty {
+            Type::Any => Type::Any,
+            Type::Unknown => Type::Unknown,
+            _ => {
+                self.error(arena.arena.expr(iter).span, "`for` iterates over List, Stream, Map, Str, or Bytes values", "check.for-iterator");
+                Type::Unknown
+            }
+        });
         self.push_scope();
         self.define_binding_target_arena(arena, target, &item_ty, false, span);
-        self.record_iteration_binding_flow(arena, target, &item_ty, flow, span);
         self.loop_depth += 1;
         self.check_block_arena(arena, source, block);
         self.loop_depth -= 1;
@@ -1003,8 +959,6 @@ impl Checker {
         for arm in arm_list {
             self.push_scope();
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
-            self.record_checked_pattern_value_scope(arena, arm.pattern, value);
-            self.record_pattern_producer_flow(arena, arm.pattern, value);
             if let Some(value) = Self::single_error_handler_value_arena(arena, arm.block) {
                 self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);
             }
@@ -1041,7 +995,7 @@ impl Checker {
     ) {
         self.push_scope();
         let mut error_ty = None;
-        for (ordinal, binding) in arena.arena.with_bindings(bindings).iter().enumerate() {
+        for binding in arena.arena.with_bindings(bindings) {
             let previous_errors = self.with_initializer_errors.replace(Vec::new());
             let ty = self.check_expr_arena(arena, source, binding.initializer, None);
             let mut errors = self.with_initializer_errors.take().unwrap_or_default();
@@ -1056,24 +1010,6 @@ impl Checker {
             }
             let value_ty = match ty { Type::Result(ok, _) => *ok, other => other };
             let binding_span = arena.arena.span(binding.span);
-            if self.graph_generation && !matches!(value_ty, Type::Unknown | Type::Invalid) {
-                let original = self.current_statement.map(|statement| super::WithBindingIdentity {
-                    statement: super::StatementIdentity { source: binding_span.source_id, namespace: self.current_namespace, statement },
-                    ordinal: ordinal as u32,
-                });
-                let initializer = super::ExpressionIdentity { source: binding_span.source_id, namespace: self.current_namespace, expression: binding.initializer };
-                match self.graph_type(&value_ty, binding_span) {
-                    Ok(binding_type) => {
-                        let initializer_type = self.generic.borrow().facts.expressions.get(&initializer).copied();
-                        if let Some((identity, initializer_type)) = original.zip(initializer_type) {
-                            self.generic.borrow_mut().facts.with_bindings.insert(identity, super::SolvedWithBinding {
-                                initializer, initializer_type, binding_type, owner: self.current_generic,
-                            });
-                        }
-                    }
-                    Err(error) => self.graph_error(binding_span, error),
-                }
-            }
             if self.current_scope().contains_key(&binding.name) {
                 self.error(binding_span, "duplicate name in scope", "check.duplicate-name");
             }
@@ -1116,28 +1052,8 @@ impl Checker {
             self.expect_type(&ann, &ok_ty, span);
             ann
         } else { ok_ty };
-        if self.graph_generation && let ArenaExprOrRun::Expr(initializer) = initializer
-            && let Some(param) = arena.arena.block_params(arena.arena.block(else_block).params).first()
-            && param.name.as_str() != "_" {
-            let original = self.current_statement.map(|statement| super::GuardErrorBindingIdentity {
-                statement: super::StatementIdentity { source: span.source_id, namespace: self.current_namespace, statement },
-            });
-            let initializer = super::ExpressionIdentity { source: span.source_id, namespace: self.current_namespace, expression: initializer };
-            match self.graph_type(&error_ty, arena.arena.span(param.span)) {
-                Ok(binding_type) => {
-                    let initializer_type = self.generic.borrow().facts.expressions.get(&initializer).copied();
-                    if let Some((identity, initializer_type)) = original.zip(initializer_type) {
-                        self.generic.borrow_mut().facts.guard_error_bindings.insert(identity, super::SolvedGuardErrorBinding {
-                            initializer, initializer_type, binding_type, owner: self.current_generic, block: else_block, name: param.name,
-                        });
-                    }
-                }
-                Err(error) => self.graph_error(span, error),
-            }
-        }
         self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
         self.define_binding_target_arena(arena, target, &bind_ty, false, span);
-        self.record_graph_binding(target, &bind_ty, false, span);
     }
 
     fn check_error_handler_block_arena(
@@ -1191,7 +1107,6 @@ impl Checker {
         self.block_depth += 1;
         let stmt_ids: Vec<StmtId> = arena.arena.stmt_ids(block.statements).collect();
         let block_span = arena.arena.span(block.span);
-        let previous_reachable = self.inference_reachable;
         if let Some((&tail, non_tail)) = stmt_ids.split_last() {
             let tail_producing = matches!(
                 arena.arena.stmt(tail).kind,
@@ -1207,21 +1122,16 @@ impl Checker {
             let checked_stmts: &[StmtId] = if tail_producing { non_tail } else { &stmt_ids };
             for &stmt_id in checked_stmts {
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
-                if self.return_inference_stmt_returns(arena, stmt_id) { self.inference_reachable = false; }
             }
             if tail_producing {
-                let completion_expected = self.inference_reachable.then_some(expected);
-                let actual = self.check_tail_stmt_arena(arena, source, tail, completion_expected);
-                if self.inference_reachable && self.current_generic.is_some_and(|owner| arena.arena.function_def(owner.declaration).body == block_id) {
-                    self.record_graph_completion(&actual);
-                }
-                if self.inference_reachable && !tail_type_matches_expected(expected, &actual) {
+                let actual = self.check_tail_stmt_arena(arena, source, tail, Some(expected));
+                if !tail_type_matches_expected(expected, &actual) {
                     let tail_span = arena.arena.stmt(tail).span;
                     self.expect_type(expected, &actual, tail_span);
                 }
             } else if expected != &Type::Unit
                 && !expected.is_result_unit()
-                && !self.return_inference_block_returns(arena, block_id)
+                && !block_always_returns_arena(arena, block_id)
             {
                 self.error(
                     block_span,
@@ -1236,7 +1146,6 @@ impl Checker {
                 "check.missing-return",
             );
         }
-        self.inference_reachable = previous_reachable;
         self.block_depth -= 1;
         self.pop_scope();
     }
@@ -1264,22 +1173,6 @@ impl Checker {
         pure: bool,
     ) {
         let body_span = arena.arena.span(arena.arena.block(def.body).span);
-        let graph_declaration = self.graph_declaration(def.body);
-        let fixed_definition;
-        let def = if graph_declaration.is_some_and(|identity| self.generic.borrow().pending[&identity].fixed_return) {
-            fixed_definition = ArenaFunctionDef { return_ty_defaulted: false, ..def.clone() };
-            &fixed_definition
-        } else { def };
-        let graph_diagnostics_start = self.diagnostics.len();
-        if let Some(identity) = graph_declaration {
-            if !self.graph_generation || self.generic.borrow().completed.contains(&identity)
-                || self.generic.borrow().generated.contains(&identity)
-                || self.generic.borrow().checking.contains(&identity)
-                || self.generic.borrow().rejected.contains(&identity) { return; }
-            self.generic.borrow_mut().checking.insert(identity);
-            #[cfg(test)]
-            Self::record_declaration_check(identity);
-        }
         if def.test_declaration {
             if self.current_exported {
                 self.error(body_span, "test declarations cannot be exported", "check.test-export");
@@ -1292,20 +1185,12 @@ impl Checker {
             && self.function_return_types.contains_key(&body_span) {
             return;
         }
-        let previous_callback_effects = self.stage_callback_effects.take();
         let saved_capture_scopes = self.scopes.clone();
-        let previous_generic = self.current_generic;
-        self.current_generic = graph_declaration;
-        let previous_reachable = std::mem::replace(&mut self.inference_reachable, true);
-        let previous_inferred_returns = if graph_declaration.is_some() {
-            Some(std::mem::replace(&mut self.inferred_returns, (def.return_ty_defaulted && !def.test_declaration).then(Vec::new)))
-        } else { None };
-        let previous_propagations = if graph_declaration.is_some() { Some(std::mem::take(&mut self.inferred_propagations)) } else { None };
+        self.collect_function_local_constraints(arena, source, def, pure);
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
         let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
-        let previous_boundary_producers = std::mem::take(&mut self.error_boundary_producer_flows);
         let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
         let previous_return = self.current_return.clone();
         let previous_return_schema = self.return_schema.clone();
@@ -1314,18 +1199,14 @@ impl Checker {
         let previous_effects = self.current_effects.clone();
         let previous_effect_owner = self.effect_owner;
         self.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
-        let inferring = def.return_ty_defaulted && !def.test_declaration && self.inferred_returns.is_some() && (pure || graph_declaration.is_some());
-        let return_ty = if let Some(identity) = graph_declaration {
-            self.graph_view(self.generic.borrow().pending[&identity].result)
-        } else if inferring { Type::Unknown } else { self.type_from_arena(arena, def.return_ty) };
+        let inferring = pure && def.return_ty_defaulted && self.inferred_returns.is_some();
+        let return_ty = if inferring { Type::Unknown } else { self.type_from_arena(arena, def.return_ty) };
         if !inferring { self.function_return_types.insert(body_span, return_ty.clone()); }
         self.return_schema = (!inferring).then(|| self.record_constructors.annotation_expectation(&arena.arena, def.return_ty, self.current_namespace).ok()).flatten();
         self.expected_schema = self.return_schema.clone();
         self.current_return = Some(return_ty.clone());
         self.in_pure = pure;
         self.current_effects = if pure {
-            None
-        } else if graph_declaration.is_some() && def.effects.is_none() {
             None
         } else {
             self.effective_function_effects(arena, def)
@@ -1351,12 +1232,7 @@ impl Checker {
                     "check.rest-position",
                 );
             }
-            let param_ty = if let Some(identity) = graph_declaration {
-                let ty = self.generic.borrow().pending[&identity].params[index];
-                let ty = self.graph_view(ty);
-                self.parameter_types.insert(param_span, ty.clone());
-                ty
-            } else { self.infer_checked_parameter(arena, source, param) };
+            let param_ty = self.infer_checked_parameter(arena, source, param);
             if param.rest && !matches!(param_ty, Type::List(_)) {
                 self.error(
                     arena.arena.type_expr_span(param.ty),
@@ -1377,15 +1253,13 @@ impl Checker {
                 let actual = self.check_expr_arena(arena, source, default, Some(&param_ty));
                 let default_span = arena.arena.expr(default).span;
                 self.expect_type(&param_ty, &actual, default_span);
-                self.record_parameter_default_producer_flow(arena, graph_declaration, index, default);
-                let checked_param = self.resolved_graph_view(param_ty.clone());
-                if param.ty_defaulted && checked_param.annotation_source().is_some() {
+                if param.ty_defaulted && param_ty.annotation_source().is_some() {
                     self.annotation_facts.push(AnnotationFact {
                         kind: AnnotationFactKind::DefaultedParam {
                             span: param_span,
                             default: default_span,
                         },
-                        ty: checked_param,
+                        ty: param_ty.clone(),
                     });
                 }
             }
@@ -1393,10 +1267,9 @@ impl Checker {
             param_types.push((param.name, param_span, param_ty, schema));
         }
         self.publish_parameter_types(arena, def);
-        for (index, (name, span, ty, schema)) in param_types.into_iter().enumerate() {
+        for (name, span, ty, schema) in param_types {
             let mut binding = Binding::new(ty, false);
             binding.schema_expectation = schema;
-            if let Some(identity) = graph_declaration { binding.producer_flow = self.generic.borrow().pending[&identity].parameter_producer_flows.get(index).copied(); }
             self.define(name, binding, span);
         }
         if inferring {
@@ -1425,11 +1298,6 @@ impl Checker {
                 ty: return_ty.clone(),
             });
         }
-        if let Some(identity) = graph_declaration {
-            self.finish_graph_declaration(arena, def, identity);
-            self.generic.borrow_mut().diagnostics.extend(self.diagnostics[graph_diagnostics_start..].iter()
-                .filter(|diagnostic| !matches!(diagnostic.code.as_deref(), Some("check.type-relationship" | "check.type-mismatch"))).cloned());
-        }
         self.pop_scope();
         self.scopes = saved_capture_scopes;
         self.current_return = previous_return;
@@ -1442,26 +1310,7 @@ impl Checker {
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
         self.error_boundary_errors = previous_boundary_errors;
-        self.error_boundary_producer_flows = previous_boundary_producers;
         self.context_scope_depths = previous_context_scopes;
-        self.current_generic = previous_generic;
-        self.stage_callback_effects = previous_callback_effects;
-        self.inference_reachable = previous_reachable;
-        if let Some(returns) = previous_inferred_returns { self.inferred_returns = returns; }
-        if let Some(propagations) = previous_propagations { self.inferred_propagations = propagations; }
-        if let Some(identity) = graph_declaration {
-            let component = self.generic.borrow().components.get(&identity).cloned().unwrap_or_default();
-            for member in component.iter().copied() {
-                if self.generic.borrow().generated.contains(&member) || self.generic.borrow().checking.contains(&member) { continue; }
-                let member_def = arena.arena.function_def(member.declaration).clone();
-                let saved_namespace = self.current_namespace;
-                self.current_namespace = member.namespace;
-                let member_pure = self.generic.borrow().pending[&member].kind == crate::sema::inference::CallableKind::Pure;
-                if self.generic.borrow().pending[&member].kind == crate::sema::inference::CallableKind::Stream { self.check_stream_function_arena(arena, source, &member_def); }
-                else { self.check_function_arena(arena, source, &member_def, member_pure); }
-                self.current_namespace = saved_namespace;
-            }
-        }
     }
 
     pub(super) fn check_stream_function_arena(
@@ -1470,24 +1319,12 @@ impl Checker {
         source: &str,
         def: &ArenaFunctionDef,
     ) {
-        let graph_declaration = self.graph_declaration(def.body);
-        let graph_diagnostics_start = self.diagnostics.len();
-        if let Some(identity) = graph_declaration {
-            if !self.graph_generation || self.generic.borrow().generated.contains(&identity)
-                || self.generic.borrow().checking.contains(&identity) || self.generic.borrow().rejected.contains(&identity) { return; }
-            self.generic.borrow_mut().checking.insert(identity);
-            #[cfg(test)]
-            Self::record_declaration_check(identity);
-        }
-        let previous_callback_effects = self.stage_callback_effects.take();
         let saved_capture_scopes = self.scopes.clone();
-        let previous_generic = self.current_generic;
-        self.current_generic = graph_declaration;
+        self.collect_stream_local_constraints(arena, source, def);
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
         let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
-        let previous_boundary_producers = std::mem::take(&mut self.error_boundary_producer_flows);
         let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
         let previous_return = self.current_return.clone();
         let previous_yield = self.current_yield.clone();
@@ -1495,11 +1332,9 @@ impl Checker {
         let previous_effects = self.current_effects.clone();
         let previous_effect_owner = self.effect_owner;
         self.effect_owner = Some(self.effect_declaration_id(arena, def.body));
-        let return_ty = if let Some(identity) = graph_declaration {
-            self.graph_view(self.generic.borrow().pending[&identity].result)
-        } else { self.type_from_arena(arena, def.return_ty) };
-        let item_ty = match &return_ty {
-            Type::Stream(item) => (**item).clone(),
+        let return_ty = self.type_from_arena(arena, def.return_ty);
+        let item_ty = match return_ty {
+            Type::Stream(item) => *item,
             Type::Unknown | Type::Invalid => Type::Unknown,
             _ => {
                 self.error(
@@ -1510,12 +1345,12 @@ impl Checker {
                 Type::Unknown
             }
         };
-        self.function_return_types.insert(arena.arena.span(arena.arena.block(def.body).span), return_ty.clone());
         self.current_return = Some(Type::Unit);
         self.current_yield = Some(item_ty);
         self.in_pure = false;
-        self.current_effects = if graph_declaration.is_some() && def.effects.is_none() { None }
-            else { self.effective_function_effects(arena, def) };
+        self.current_effects = def
+            .effects
+            .map(|effects| arena.arena.effects(effects).collect());
         self.push_deferred_capture_scope();
         let mut saw_default = false;
         let mut param_types = Vec::new();
@@ -1537,12 +1372,7 @@ impl Checker {
                     "check.rest-position",
                 );
             }
-            let param_ty = if let Some(identity) = graph_declaration {
-                let ty = self.generic.borrow().pending[&identity].params[index];
-                let ty = self.graph_view(ty);
-                self.parameter_types.insert(param_span, ty.clone());
-                ty
-            } else { self.infer_checked_parameter(arena, source, param) };
+            let param_ty = self.infer_checked_parameter(arena, source, param);
             if param.rest && !matches!(param_ty, Type::List(_)) {
                 self.error(
                     arena.arena.type_expr_span(param.ty),
@@ -1563,24 +1393,17 @@ impl Checker {
                 let actual = self.check_expr_arena(arena, source, default, Some(&param_ty));
                 let default_span = arena.arena.expr(default).span;
                 self.expect_type(&param_ty, &actual, default_span);
-                self.record_parameter_default_producer_flow(arena, graph_declaration, index, default);
             }
             let schema = (!param.ty_defaulted).then(|| self.record_constructors.annotation_expectation(&arena.arena, param.ty, self.current_namespace).ok()).flatten();
             param_types.push((param.name, param_span, param_ty, schema));
         }
         self.publish_parameter_types(arena, def);
-        for (index, (name, span, ty, schema)) in param_types.into_iter().enumerate() {
+        for (name, span, ty, schema) in param_types {
             let mut binding = Binding::new(ty, false);
             binding.schema_expectation = schema;
-            if let Some(identity) = graph_declaration { binding.producer_flow = self.generic.borrow().pending[&identity].parameter_producer_flows.get(index).copied(); }
             self.define(name, binding, span);
         }
         self.check_value_block_arena(arena, source, def.body, &Type::Unit);
-        if let Some(identity) = graph_declaration {
-            self.finish_graph_declaration(arena, def, identity);
-            self.generic.borrow_mut().diagnostics.extend(self.diagnostics[graph_diagnostics_start..].iter()
-                .filter(|diagnostic| !matches!(diagnostic.code.as_deref(), Some("check.type-relationship" | "check.type-mismatch"))).cloned());
-        }
         self.pop_scope();
         self.scopes = saved_capture_scopes;
         self.current_return = previous_return;
@@ -1592,10 +1415,7 @@ impl Checker {
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
         self.error_boundary_errors = previous_boundary_errors;
-        self.error_boundary_producer_flows = previous_boundary_producers;
         self.context_scope_depths = previous_context_scopes;
-        self.current_generic = previous_generic;
-        self.stage_callback_effects = previous_callback_effects;
     }
 
     pub(super) fn check_signal_hook_arena(
@@ -1723,20 +1543,7 @@ impl Checker {
         let expected = ty.map(|ty_id| self.type_from_arena(arena, ty_id));
         let schema = ty.and_then(|ty| self.record_constructors.annotation_expectation(&arena.arena, ty, self.current_namespace).ok());
         let local_expected = if ty.is_none() { self.local_binding_expectation(span) } else { None };
-        if !mutable && ty.is_none() && let ArenaExprOrRun::Expr(expression) = initializer {
-            self.prepare_graph_callable_value(arena, source, expression);
-        }
-        let safe_value_initializer = !mutable && (ty.is_none() || matches!(expected, Some(Type::ErasedRecord))) && self.safe_value_initializer(arena, initializer);
-        let erased_value_initializer = safe_value_initializer && matches!(expected, Some(Type::ErasedRecord));
-        let previous_initializer_level = std::mem::replace(&mut self.local_initializer_level, safe_value_initializer.then_some(if self.current_generic.is_some() { 2 } else { 1 }));
-        let principal_initializer = !mutable && ty.is_none() && matches!(initializer, ArenaExprOrRun::Expr(expression) if self.graph_callable_target(arena, expression).is_some());
-        let previous_principal_initializer = std::mem::replace(&mut self.principal_callable_initializer, principal_initializer);
         let actual = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref().or(local_expected.as_ref()), schema.clone());
-        self.principal_callable_initializer = previous_principal_initializer;
-        self.local_initializer_level = previous_initializer_level;
-        let graph_callable = if !mutable && ty.is_none() {
-            match initializer { ArenaExprOrRun::Expr(expression) => self.graph_callable_target(arena, expression), _ => None }
-        } else { None };
         let callable_alias = if !mutable && ty.is_none() {
             match initializer {
                 ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(arena, expression),
@@ -1780,48 +1587,15 @@ impl Checker {
                 } else { Some(std::sync::Arc::new(self.infer_condition_narrowings_arena(arena, expr))) }
             } else { None }
         } else { None };
-        let boolean_proof = self.boolean_alias_source(arena, target, initializer, boolean_proof);
         let schema = schema.or_else(|| match initializer {
             ArenaExprOrRun::Expr(expression) => self.schema_expectation_for_expr(arena, expression),
             ArenaExprOrRun::Run(_) => None,
         });
         self.define_binding_target_arena(arena, target, &final_ty, mutable, span);
         self.record_checked_local_binding(arena, target, span, &final_ty);
-        self.record_graph_binding(target, &final_ty, mutable, span);
-        if !mutable && ty.is_none() && let ArenaExprOrRun::Expr(expression) = initializer {
-            let identity = self.expression_identity(arena, expression);
-            let (principal, scope) = {
-                let state = self.generic.borrow();
-                let principal = state.facts.expression_schemes.get(&identity).copied();
-                (principal, principal.or_else(|| state.facts.expression_value_scopes.get(&identity).copied()))
-            };
-            if let Some(scope) = scope {
-                let binding_identity = super::BindingIdentity { source: span.source_id, namespace: self.current_namespace, target };
-                if let Some(binding) = self.generic.borrow_mut().facts.bindings.get_mut(&binding_identity) { binding.scheme = Some(scope); }
-                if let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind
-                    && let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.value_scheme = principal; }
-            }
-        }
-        let native_reference_initializer = matches!(initializer, ArenaExprOrRun::Expr(expression)
-            if self.generic.borrow().facts.registry_references.contains_key(&self.expression_identity(arena, expression)));
-        if safe_value_initializer && (graph_callable.is_none() || native_reference_initializer) {
-            if erased_value_initializer { self.scope_erased_value_initializer(arena, initializer, span); }
-            else { self.generalize_value_binding(arena, target, initializer, &final_ty, span); }
-        }
-        self.record_binding_producer_flow(arena, target, initializer, span);
-        if let Some(mut callable) = graph_callable && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
-            if native_reference_initializer {
-                callable.scheme = self.lookup(name).and_then(|binding| binding.value_scheme);
-            }
-            if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.graph_callable = Some(callable.clone()); }
-            if self.graph_generation {
-                let identity = super::BindingIdentity { source: span.source_id, namespace: self.current_namespace, target };
-                self.generic.borrow_mut().facts.bindings.insert(identity, super::SolvedBinding { ty: callable.signature, scheme: callable.scheme, owner: self.current_generic, mutable });
-            }
-        }
         if let Some(alias) = callable_alias
             && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
-            if self.current_exported && self.lookup(name).is_none_or(|binding| binding.graph_callable.is_none()) && (alias.signature.definition.is_none() || !alias.signature.explicit_return || (!alias.pure && (alias.signature.inferred_effects || alias.signature.effects.is_none()))) {
+            if self.current_exported && (alias.signature.definition.is_none() || !alias.signature.explicit_return || (!alias.pure && (alias.signature.inferred_effects || alias.signature.effects.is_none()))) {
                 self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", "check.callable-alias-export");
             }
             self.attach_callable_alias(name, alias, expr_or_run_span_arena(arena, initializer));
@@ -1850,7 +1624,6 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        statement: StmtId,
         target: AssignTargetId,
         op: AssignOp,
         value: ArenaExprOrRun,
@@ -1884,14 +1657,13 @@ impl Checker {
                 self.error(value_span, "a live producer or host handle cannot escape through an outer assignment", "check.context-scope-escape");
             }
             self.expect_type(&target_ty, &actual, value_span);
-            self.record_assignment_producer_flow(arena, target, value, span);
             self.invalidate_binding_projection_arena(arena, target, name);
             return;
         }
         let rhs = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
         let value_span = expr_or_run_span_arena(arena, value);
-        self.check_compound_assignment_op(arena, statement, op, &target_ty, &rhs, span, value_span);
-        self.record_compound_assignment_producer_flow(arena, statement, target, op, value, span);
+        let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
+        self.expect_type(&target_ty, &result, span);
         self.invalidate_binding_projection_arena(arena, target, name);
     }
 
@@ -1908,9 +1680,7 @@ impl Checker {
         for scope in &mut self.scopes {
             for binding in scope.values_mut().filter(|binding| binding.proof.same_binding(&identity)) {
                 if !binding.mutable { continue; }
-                if let Some(statement) = self.current_statement {
-                    binding.proof.mutate_at(&path, super::StatementIdentity { source: arena.arena.stmt(statement).span.source_id, namespace: self.current_namespace, statement });
-                } else { binding.proof.mutate(&path); }
+                binding.proof.mutate(&path);
                 if let Some(original) = &binding.unrefined_ty {
                     super::proof::restore_projection(&mut binding.ty, original, &path);
                 }
@@ -2019,10 +1789,10 @@ impl Checker {
         if value.is_none() && expected.is_result_unit() {
             return;
         }
-        let context = if self.current_generic.is_some() && self.inferred_returns.is_some() { None } else { match value {
+        let context = match value {
             Some(ArenaExprOrRun::Expr(expr)) => tail_expr_context_arena(arena, expr, Some(&expected)),
             _ => None,
-        } };
+        };
         let actual = value
             .map(|value| {
                 let schema = self.return_schema.as_ref().map(|schema| {
@@ -2034,18 +1804,13 @@ impl Checker {
             })
             .unwrap_or(Type::Unit);
         let actual = self.resolve_local_tail_type(actual, Some(&expected), span);
-        let expression = match value { Some(ArenaExprOrRun::Expr(expr)) => Some(expr), _ => None };
-        let actual = if expression.is_some() {
-            self.normalize_graph_result_completion(arena, expression, None, Some(&expected), actual, span)
-        } else { actual };
-        if self.inference_reachable { self.record_graph_completion(&actual); }
         if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
             self.error(span, "a live producer or host handle cannot escape through a lexical return", "check.context-scope-escape");
         }
         if self.inference_reachable && let Some(returns) = &mut self.inferred_returns {
             returns.push((actual.clone(), span));
         }
-        if !(self.current_generic.is_some() && self.inferred_returns.is_some()) && !tail_type_matches_expected(&expected, &actual) {
+        if !tail_type_matches_expected(&expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
             self.expect_type(&expected, &actual, value_span);
         }
@@ -2055,7 +1820,6 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        statement: StmtId,
         value: ExprId,
         span: Span,
     ) {
@@ -2076,18 +1840,21 @@ impl Checker {
         };
         let actual = self.check_expr_arena(arena, source, value, collection.as_ref());
         let value_span = arena.arena.expr(value).span;
-        let (item, _, flow) = match actual {
-            Type::Unknown => return,
-            Type::Invalid => return,
-            _ => self.check_graph_delegation_operation(arena, statement, value, &actual),
-        };
-        if !self.context_scope_depths.is_empty() && !item.can_escape_context_scope() {
-            self.error(value_span, "a delegated live producer or host handle cannot escape a context", "check.context-scope-escape");
-        }
-        if let Some(expected) = expected { self.expect_type(&expected, &item, value_span); }
-        self.record_delegation_close_permissions(arena, statement, value_span);
-        if self.graph_generation && let Some(owner) = self.current_generic && let Some(flow) = flow {
-            self.generic.borrow_mut().pending.get_mut(&owner).unwrap().completion_producer_flows.push(flow);
+        match actual {
+            Type::List(item) | Type::Stream(item) => {
+                if !self.context_scope_depths.is_empty() && !item.can_escape_context_scope() {
+                    self.error(value_span, "a delegated live producer or host handle cannot escape a context", "check.context-scope-escape");
+                }
+                if let Some(expected) = expected {
+                    self.expect_type(&expected, &item, value_span);
+                }
+            }
+            Type::Unknown => {}
+            _ => self.error(
+                value_span,
+                "yield delegation requires a List or Stream; handle Results explicitly",
+                "check.yield-delegation",
+            ),
         }
     }
 
@@ -2115,18 +1882,6 @@ impl Checker {
         };
         let actual = self.check_expr_or_run_arena(arena, source, value, Some(&expected));
         let value_span = expr_or_run_span_arena(arena, value);
-        if self.graph_generation {
-            let outcome = (|| {
-                let actual = self.graph_type(&actual, value_span)?;
-                let mut state = self.generic.borrow_mut();
-                let reason = state.facts.graph.reason(value_span, None)?;
-                let requirement = state.facts.graph.require_eligibility(crate::sema::inference::Eligibility::YieldItem, actual, reason)?;
-                state.facts.graph.solve()?;
-                if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.push(requirement); }
-                Ok::<_, crate::sema::inference::InferenceError>(())
-            })();
-            if let Err(error) = outcome { self.graph_error(value_span, error); return; }
-        }
         if matches!(actual, Type::Stream(_)) {
             self.error(
                 value_span,
@@ -2139,14 +1894,6 @@ impl Checker {
             self.error(value_span, "a live producer or host handle cannot escape through yield", "check.context-scope-escape");
         }
         self.expect_type(&expected, &actual, value_span);
-        if self.graph_generation && let Some(owner) = self.current_generic
-            && let ArenaExprOrRun::Expr(expression) = value {
-            let identity = self.expression_identity(arena, expression);
-            let mut state = self.generic.borrow_mut();
-            if let Some(flow) = state.facts.expression_producer_flows.get(&identity).copied() {
-                state.pending.get_mut(&owner).unwrap().completion_producer_flows.push(flow);
-            }
-        }
     }
 
     fn check_defer_arena(
@@ -2251,7 +1998,7 @@ impl Checker {
         let previous_reachable = self.inference_reachable;
         for stmt_id in arena.arena.stmt_ids(block.statements) {
             self.check_stmt_arena(arena, source, stmt_id);
-            if self.return_inference_stmt_returns(arena, stmt_id) { self.inference_reachable = false; }
+            if self.inferred_returns.is_some() && self.return_inference_stmt_returns(arena, stmt_id) { self.inference_reachable = false; }
         }
         self.inference_reachable = previous_reachable;
         let bindings = self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect();
@@ -2355,12 +2102,11 @@ impl Checker {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
                 self.context_scope_tail_value = previous_tail;
-                if self.return_inference_stmt_returns(arena, stmt_id) { self.inference_reachable = false; }
+                if self.inferred_returns.is_some() && self.return_inference_stmt_returns(arena, stmt_id) { self.inference_reachable = false; }
             }
             if tail_producing {
-                let completion_expected = if self.inference_reachable { expected } else { None };
-                let ty = self.check_tail_stmt_arena(arena, source, tail, completion_expected);
-                if let Some(expected) = completion_expected {
+                let ty = self.check_tail_stmt_arena(arena, source, tail, expected);
+                if let Some(expected) = expected {
                     let tail_span = arena.arena.stmt(tail).span;
                     if !tail_type_matches_expected(expected, &ty) { self.expect_type(expected, &ty, tail_span); }
                 }
@@ -2375,7 +2121,8 @@ impl Checker {
         let reachable = self.inference_reachable;
         self.inference_reachable = previous_reachable;
         self.block_depth -= 1;
-        let always_returns = self.return_inference_block_returns(arena, block_id);
+        let always_returns = if self.inferred_returns.is_some() { self.return_inference_block_returns(arena, block_id) }
+            else { block_always_returns_arena(arena, block_id) };
         if !reachable || always_returns { Type::Unknown } else { result }
     }
 
@@ -2391,11 +2138,10 @@ impl Checker {
                 self.return_inference_block_returns(arena, body)
                     && self.return_inference_block_returns(arena, else_block)
             }
-            ArenaStmtKind::Expr(expr)
-            | ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. }
-            | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(expr), .. }
-            | ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. }
-            | ArenaStmtKind::Assign { value: ArenaExprOrRun::Expr(expr), .. } => self.return_inference_expression_returns(arena, expr),
+            ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
+                ArenaExprKind::ErrorContext { block, .. } => self.return_inference_block_returns(arena, block),
+                _ => false,
+            },
             ArenaStmtKind::If { branches, else_block: Some(other) } => {
                 arena.arena.if_branches(branches).iter().all(|branch| self.return_inference_block_returns(arena, branch.block))
                     && self.return_inference_block_returns(arena, other)
@@ -2410,21 +2156,9 @@ impl Checker {
         }
     }
 
-    // Captures intercept failure propagation, while ordinary returns keep their
-    // enclosing function target and leave no normal initializer completion.
-    pub(super) fn return_inference_expression_returns(&self, arena: &ArenaProgram, expression: ExprId) -> bool {
-        match arena.arena.expr(expression).kind {
-            ArenaExprKind::Try(inner) => self.return_inference_expression_returns(arena, inner),
-            ArenaExprKind::Retry { block, .. } | ArenaExprKind::Capture(block)
-            | ArenaExprKind::ValueBlock(block) | ArenaExprKind::ErrorContext { block, .. } => self.return_inference_block_returns(arena, block),
-            ArenaExprKind::If { branches, else_value } => arena.arena.if_expr_branches(branches).iter().all(|branch| self.return_inference_expression_returns(arena, branch.value)) && self.return_inference_expression_returns(arena, else_value),
-            _ => false,
-        }
-    }
-
     fn check_non_tail_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
-        self.record_statement_position(arena, id, super::StatementPosition::Statement);
+        self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
             let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
@@ -2439,7 +2173,6 @@ impl Checker {
             if !assertion { self.record_statement_error(&ty, stmt.span); }
             if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
             if assertion || expr_ty_auto_propagates(&ty) {
-                self.record_statement_producer_flow(arena, id);
                 return;
             }
             let expr_span = arena.arena.expr(expr_id).span;
@@ -2463,13 +2196,7 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Type {
         let stmt = arena.arena.stmt(id);
-        self.record_statement_position(arena, id, super::StatementPosition::Value);
-        if expected.is_none() && self.current_generic.is_some() && self.inferred_returns.is_some()
-            && matches!(stmt.kind, ArenaStmtKind::If { else_block: None, .. }) {
-            self.check_stmt_arena(arena, source, id);
-            self.record_statement_position(arena, id, super::StatementPosition::Statement);
-            return Type::Unit;
-        }
+        self.statement_positions.insert(stmt.span, super::StatementPosition::Value);
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit())
             && !(expected.is_some_and(Type::is_result_unit) && tail_stmt_uses_result_context_arena(arena, id)) {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
@@ -2505,16 +2232,16 @@ impl Checker {
                 {
                     self.expect_type(&Type::Unit, &actual, arena.arena.expr(expr_id).span);
                 }
-                self.record_statement_position(arena, id, super::StatementPosition::Statement);
+                self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
                 return Type::Unit;
             }
-            self.record_statement_position(arena, id, super::StatementPosition::Statement);
+            self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
             self.check_stmt_arena(arena, source, id);
             return Type::Unit;
         }
-        let actual = match stmt.kind {
+        match stmt.kind {
             ArenaStmtKind::Assert { .. } => {
-                self.record_statement_position(arena, id, super::StatementPosition::Statement);
+                self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
                 self.check_stmt_arena(arena, source, id);
                 Type::Unit
             }
@@ -2531,14 +2258,11 @@ impl Checker {
                 });
                 let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), ctx.as_ref(), schema);
                 self.context_scope_tail_value = previous;
-                let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
-                self.normalize_graph_result_completion(arena, Some(expr_id), None, expected, ty, stmt.span)
+                self.resolve_local_tail_type(ty, expected, stmt.span)
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
-                self.record_graph_tag_tail_constructor(arena, id, name, &ty);
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
-                let ty = self.normalize_graph_result_completion(arena, None, Some(id), expected, ty, stmt.span);
                 if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
                     && self.check_assertion_statement(&ty, stmt.span)
                 { Type::Unit } else { ty }
@@ -2552,24 +2276,23 @@ impl Checker {
                         "check.pure-command",
                     );
                 }
-                let ty = self.check_command_arena(arena, source, id, &command_stmt.command, stmt.span);
+                let ty = self.check_command_arena(arena, source, &command_stmt.command, stmt.span);
                 // A consumed capture tail keeps its output. Unit tails have
                 // already taken the statement path, which discards that output.
                 if let crate::syntax::arena::ArenaCommand::Run(run) = command_stmt.command
                     && super::command::run_capture_result_type_arena(arena, run).is_some()
                 {
-                    return self.normalize_graph_result_completion(arena, None, Some(id), expected, ty, stmt.span);
+                    return ty;
                 }
                 if command_stmt_asserts_success_arena(arena, &command_stmt.command) {
                     self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), stmt.span);
                     return Type::Unit;
                 }
-                let ty = if command_stmt.propagate || command_ty_auto_propagates(&ty) {
+                if command_stmt.propagate || command_ty_auto_propagates(&ty) {
                     self.check_propagation(&ty, stmt.span)
                 } else {
                     ty
-                };
-                self.normalize_graph_result_completion(arena, None, Some(id), expected, ty, stmt.span)
+                }
             }
             ArenaStmtKind::If { branches, else_block } => {
                 let infer_branches = self.inferred_returns.is_some() && expected.is_none();
@@ -2581,7 +2304,7 @@ impl Checker {
                     self.bind_pattern_condition_arena(arena, source, branch.condition);
                     let actual = self.check_tail_block_arena(arena, source, branch.block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
                     self.pop_scope();
-                    if actual != Type::Unknown && !self.non_completing_block_tail(arena, branch.block) {
+                    if actual != Type::Unknown {
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, stmt.span))
                         } else { inferred.unwrap_or(actual) });
@@ -2595,7 +2318,7 @@ impl Checker {
                     }
                     let actual = self.check_tail_block_arena(arena, source, block, if infer_branches { None } else { expected.or(inferred.as_ref()) });
                     self.pop_scope();
-                    if actual != Type::Unknown && !self.non_completing_block_tail(arena, block) {
+                    if actual != Type::Unknown {
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, stmt.span))
                         } else { inferred.unwrap_or(actual) });
@@ -2616,9 +2339,7 @@ impl Checker {
                 self.check_stmt_arena(arena, source, id);
                 Type::Unit
             }
-        };
-        self.record_statement_producer_flow(arena, id);
-        actual
+        }
     }
 
     fn check_tail_match_arena(
@@ -2645,8 +2366,6 @@ impl Checker {
         for arm in arm_list {
             self.push_scope();
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
-            self.record_checked_pattern_value_scope(arena, arm.pattern, value);
-            self.record_pattern_producer_flow(arena, arm.pattern, value);
             if let Some(value) = Self::single_error_handler_value_arena(arena, arm.block) {
                 self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);
             }

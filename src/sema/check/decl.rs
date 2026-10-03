@@ -10,63 +10,10 @@ use crate::sema::check::{
 };
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange, ArenaStmtKind,
-    ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeDefId, TypeExprId,
+    ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeExprId,
 };
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
-
-#[path = "decl/embedded_bridge.rs"]
-pub(crate) mod embedded_bridge;
-#[path = "decl/catalog_binding.rs"]
-pub(crate) mod catalog_binding;
-
-#[cfg(test)]
-/// Source checks and interface imports are separate events. Generalization
-/// records actual component membership, so one component may finish several
-/// declarations; scheme freshening and solver queue visits are not counted.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ModuleReuseCounters {
-    pub module_checks: BTreeMap<String, usize>,
-    pub module_check_completions: BTreeMap<String, usize>,
-    pub interface_publications: BTreeMap<String, usize>,
-    pub interface_imports: BTreeMap<String, Vec<Span>>,
-    pub declaration_checks: BTreeMap<super::DeclarationIdentity, usize>,
-    pub declaration_generations: BTreeMap<super::DeclarationIdentity, usize>,
-    pub declaration_generalizations: BTreeMap<super::DeclarationIdentity, usize>,
-    pub generalization_components: Vec<Vec<super::DeclarationIdentity>>,
-}
-
-#[cfg(test)]
-thread_local! {
-    static MODULE_REUSE_COUNTERS: std::cell::RefCell<ModuleReuseCounters> = std::cell::RefCell::new(ModuleReuseCounters::default());
-}
-
-#[cfg(test)]
-impl Checker {
-    pub(crate) fn reset_module_reuse_counters() {
-        MODULE_REUSE_COUNTERS.with(|counts| *counts.borrow_mut() = ModuleReuseCounters::default());
-    }
-
-    pub(crate) fn module_reuse_counters() -> ModuleReuseCounters {
-        MODULE_REUSE_COUNTERS.with(|counts| counts.borrow().clone())
-    }
-
-    pub(super) fn record_declaration_check(identity: super::DeclarationIdentity) {
-        MODULE_REUSE_COUNTERS.with(|counts| *counts.borrow_mut().declaration_checks.entry(identity).or_default() += 1);
-    }
-
-    pub(super) fn record_declaration_generation(identity: super::DeclarationIdentity) {
-        MODULE_REUSE_COUNTERS.with(|counts| *counts.borrow_mut().declaration_generations.entry(identity).or_default() += 1);
-    }
-
-    pub(super) fn record_declaration_generalization(component: &[super::DeclarationIdentity]) {
-        MODULE_REUSE_COUNTERS.with(|counts| {
-            let mut counts = counts.borrow_mut();
-            counts.generalization_components.push(component.to_vec());
-            for identity in component { *counts.declaration_generalizations.entry(*identity).or_default() += 1; }
-        });
-    }
-}
 
 #[allow(dead_code)]
 impl Checker {
@@ -78,16 +25,23 @@ impl Checker {
     ) {
         for module in &program.modules {
             if module.internal {
-                // Embedded declarations own checked body identities even when
-                // their return types are explicit. Check the bundle once in its
-                // declaring namespace without publishing a user import interface.
-                self.check_user_module_arena(program, type_program.clone(), source, module);
+                if program.module_statements(module).any(|id| {
+                    let kind = match program.arena.stmt(id).kind {
+                        ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                        other => other,
+                    };
+                    matches!(kind, ArenaStmtKind::PureDef(id) if program.arena.function_def(id).return_ty_defaulted)
+                }) {
+                    self.check_user_module_arena(program, type_program.clone(), source, module);
+                }
+                // Embedded implementations are not user modules: they have no
+                // `use` path, no module contract, and no public documentation
+                // obligations. Their bodies are checked with the program and
+                // validated against the registry by `script_impls`.
                 continue;
             }
             let sig = self.check_user_module_arena(program, type_program.clone(), source, module);
             self.user_modules.insert(module.key.clone(), sig);
-            #[cfg(test)]
-            MODULE_REUSE_COUNTERS.with(|counts| *counts.borrow_mut().interface_publications.entry(module.key.clone()).or_default() += 1);
         }
     }
 
@@ -193,23 +147,20 @@ impl Checker {
                     let body = type_def_body_arena(type_program.clone(), def_id, self.current_namespace);
                     self.type_defs.insert(def.name, body.clone());
                     if let TypeDefBody::TagUnion(variants) = &body {
-                        let nominal = crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(program.root_nominal_namespace), def.name);
-                        let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Type(def_id), member: None };
-                        self.generic.borrow_mut().nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::Tag(nominal)), identity);
                         for variant in variants {
                             let field_types = variant
                                 .fields
                                 .iter()
                                 .map(|field| self.type_from_ann(field))
                                 .collect();
-                            let info = TagVariantInfo {
-                                type_name: variant.type_name, field_count: variant.fields.len(), field_types,
-                                canonical_name: variant.name,
-                                identity: super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Type(def_id), member: Some(variant.name) },
-                            };
-                            let fields = info.field_types.iter().cloned().map(|ty| (None, ty)).collect::<Vec<_>>();
-                            self.record_checked_nominal_member(info.identity, super::NominalMemberKind::Tag, info.type_name, info.canonical_name, &fields, &[], span);
-                            self.tag_variants.insert(variant.name, info);
+                            self.tag_variants.insert(
+                                variant.name,
+                                TagVariantInfo {
+                                    type_name: variant.type_name,
+                                    field_count: variant.fields.len(),
+                                    field_types,
+                                },
+                            );
                         }
                     }
                 }
@@ -226,17 +177,9 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
-                    let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: None };
-                    {
-                        let mut state = self.generic.borrow_mut();
-                        state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorFamily(def.name)), identity);
-                        for variant in program.arena.error_variants(def.variants) {
-                            state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorVariant { family: def.name, variant: variant.name }), super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: Some(variant.name) });
-                        }
-                    }
-                    self.register_error_family_arena(program, source, def_id, span);
+                    self.register_error_family_arena(program, source, def_id);
                 }
-                ArenaStmtKind::ProcDef(def_id) | ArenaStmtKind::CliMain(def_id) => {
+                ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     if CoreCommand::from_name(&def.name.as_str()).is_some() {
@@ -272,22 +215,18 @@ impl Checker {
             match kind {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Proc);
+                    let sig = self.function_sig_arena(program, source, def_id);
                     if !def.test_declaration { self.procs.insert(def.name, sig); }
-                }
-                ArenaStmtKind::CliMain(def_id) => {
-                    self.register_graph_declaration(program, def_id, crate::sema::inference::CallableKind::Proc, true);
-                    self.generic.borrow_mut().names.remove(&(self.current_namespace, program.arena.function_def(def_id).name));
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let mut sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Pure);
-                    if def.return_ty_defaulted && self.graph_declaration(def.body).is_none() { sig.return_ty = Type::Unknown; }
+                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Stream);
+                    let sig = self.function_sig_arena(program, source, def_id);
                     self.streams.insert(def.name, sig);
                 }
                 ArenaStmtKind::ErrorDef(_) => {}
@@ -322,10 +261,7 @@ impl Checker {
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
-        #[cfg(test)]
-        if !module.internal {
-            MODULE_REUSE_COUNTERS.with(|counts| *counts.borrow_mut().module_checks.entry(module.key.clone()).or_default() += 1);
-        }
+        self.prepare_local_inference(program);
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();
@@ -339,8 +275,6 @@ impl Checker {
         let saved_exported = self.current_exported;
         let saved_module_depth = self.module_depth;
         let saved_namespace = self.current_namespace;
-        let saved_catalog_parameter_bindings = std::mem::replace(&mut self.catalog_parameter_bindings,
-            catalog_binding::CatalogParameterBindings::for_module(program, module));
         self.current_namespace = Some(module.name);
         let saved_scopes = self.scopes.clone();
         self.scopes = vec![FxHashMap::default()];
@@ -375,13 +309,8 @@ impl Checker {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
                     }
                     self.check_enum_constructor_names(program, def, &mut names);
-                    let body = type_def_body_arena(type_program.clone(), def_id, self.current_namespace);
-                    if matches!(&body, TypeDefBody::TagUnion(_)) {
-                        let nominal = crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(program.root_nominal_namespace), def.name);
-                        let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Type(def_id), member: None };
-                        self.generic.borrow_mut().nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::Tag(nominal)), identity);
-                    }
-                    self.type_defs.insert(def.name, body);
+                    self.type_defs
+                        .insert(def.name, type_def_body_arena(type_program.clone(), def_id, self.current_namespace));
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     let def = program.arena.error_def(def_id);
@@ -389,15 +318,7 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
                     }
-                    {
-                        let mut state = self.generic.borrow_mut();
-                        let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: None };
-                        state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorFamily(def.name)), identity);
-                        for variant in program.arena.error_variants(def.variants) {
-                            state.nominal_declarations.insert((self.current_namespace, super::generic::ResolvedNominal::ErrorVariant { family: def.name, variant: variant.name }), super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(program.root_nominal_namespace), declaration: super::NominalDeclaration::Error(def_id), member: Some(variant.name) });
-                        }
-                    }
-                    self.register_error_family_arena(program, source, def_id, span);
+                    self.register_error_family_arena(program, source, def_id);
                 }
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
@@ -405,7 +326,7 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module name", "check.duplicate-name");
                     }
-                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Proc);
+                    let sig = self.function_sig_arena(program, source, def_id);
                     if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
@@ -414,8 +335,8 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module name", "check.duplicate-name");
                     }
-                    let mut sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Pure);
-                    if def.return_ty_defaulted && self.graph_declaration(def.body).is_none() { sig.return_ty = Type::Unknown; }
+                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
@@ -424,7 +345,7 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module name", "check.duplicate-name");
                     }
-                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Stream);
+                    let sig = self.function_sig_arena(program, source, def_id);
                     self.streams.insert(def.name, sig);
                 }
                 _ => {}
@@ -437,11 +358,14 @@ impl Checker {
             if let ArenaStmtKind::TypeDef(def_id) = exported_stmt_kind_arena(program, stmt_id).0 {
                 let def = program.arena.type_def(def_id);
                 if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) {
-                    self.check_type_def_arena(program, source, def_id, def, program.arena.stmt(stmt_id).span);
+                    self.check_type_def_arena(program, source, def, program.arena.stmt(stmt_id).span);
                 }
             }
         }
-        let mut exports = UserModuleSig { namespace: Some(module.name), ..UserModuleSig::default() };
+        self.infer_default_parameter_types(program, source, &stmt_ids);
+        self.infer_local_pure_returns(program, source, &stmt_ids);
+        self.infer_default_parameter_types(program, source, &stmt_ids);
+        let mut exports = UserModuleSig::default();
         for stmt_id in &stmt_ids {
             let stmt = program.arena.stmt(*stmt_id);
             if let ArenaStmtKind::SignalHook(hook_id) = stmt.kind {
@@ -505,25 +429,25 @@ impl Checker {
                             self.check_function_arena(program, source, &def, false);
                             exports
                                 .procs
-                                .insert(def.name, self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Proc));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id));
                         }
                         ArenaStmtKind::PureDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_function_arena(program, source, &def, true);
                             exports
                                 .pures
-                                .insert(def.name, self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Pure));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id));
                         }
                         ArenaStmtKind::StreamDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_stream_function_arena(program, source, &def);
                             exports
                                 .streams
-                                .insert(def.name, self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Stream));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id));
                         }
                         ArenaStmtKind::TypeDef(def_id) => {
                             let def = program.arena.type_def(def_id);
-                            self.check_type_def_arena(program, source, def_id, def, inner.span);
+                            self.check_type_def_arena(program, source, def, inner.span);
                             exports.types.insert(
                                 def.name,
                                 type_def_body_arena(type_program.clone(), def_id, self.current_namespace),
@@ -542,7 +466,7 @@ impl Checker {
                             }
                         }
                         ArenaStmtKind::ErrorDef(def_id) => {
-                            self.check_error_def_arena(program, source, def_id, inner.span);
+                            self.check_error_def_arena(program, source, def_id);
                             let def = program.arena.error_def(def_id);
                             if let Some(family) = self.error_families.get(&def.name).cloned() {
                                 exports.error_families.insert(def.name, family);
@@ -585,10 +509,10 @@ impl Checker {
                 ),
                 ArenaStmtKind::TypeDef(def_id) => {
                     let def = program.arena.type_def(*def_id);
-                    self.check_type_def_arena(program, source, *def_id, def, stmt.span);
+                    self.check_type_def_arena(program, source, def, stmt.span);
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
-                    self.check_error_def_arena(program, source, *def_id, stmt.span);
+                    self.check_error_def_arena(program, source, *def_id);
                 }
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(*def_id).clone();
@@ -619,12 +543,7 @@ impl Checker {
         self.current_exported = saved_exported;
         self.module_depth = saved_module_depth;
         self.current_namespace = saved_namespace;
-        self.catalog_parameter_bindings = saved_catalog_parameter_bindings;
         self.scopes = saved_scopes;
-        #[cfg(test)]
-        if !module.internal {
-            MODULE_REUSE_COUNTERS.with(|counts| *counts.borrow_mut().module_check_completions.entry(module.key.clone()).or_default() += 1);
-        }
         exports
     }
 
@@ -633,17 +552,12 @@ impl Checker {
         program: &ArenaProgram,
         _source: &str,
         def_id: FunctionDefId,
-        kind: crate::sema::inference::CallableKind,
     ) -> FunctionSig {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
-        self.register_graph_declaration(program, def_id, kind, false);
-        self.register_embedded_bridge(program, def_id, kind);
-        let graph_parameters = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].params.clone());
-        let graph_return = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].result);
         FunctionSig {
             effect_declaration: Some(effect_declaration),
-            inferred_effects: kind != crate::sema::inference::CallableKind::Pure && def.effects.is_none() && !def.test_declaration && def.name != "main",
+            inferred_effects: self.effect_graph.is_inferred(effect_declaration),
             explicit_return: !def.return_ty_defaulted,
             is_alias: false,
             definition: Some(program.arena.span(program.arena.block(def.body).span)),
@@ -651,15 +565,15 @@ impl Checker {
                 .arena
                 .params(def.params)
                 .iter()
-                .enumerate().map(|(index, param)| FunctionParamSig {
+                .map(|param| FunctionParamSig {
                     name: param.name,
-                    ty: graph_parameters.as_ref().map(|params| self.graph_view(params[index])).or_else(|| self.checked_parameter_type(program, param)).unwrap_or_else(|| if param.ty_defaulted { Type::Unknown } else { self.type_from_arena(program, param.ty) }),
+                    ty: self.checked_parameter_type(program, param).unwrap_or_else(|| if param.ty_defaulted { Type::Unknown } else { self.type_from_arena(program, param.ty) }),
                     schema_expectation: self.record_constructors.annotation_expectation(&program.arena, param.ty, self.current_namespace).ok(),
                     defaulted: param.default.is_some(),
                     rest: param.rest,
                 })
                 .collect(),
-            return_ty: graph_return.map(|ty| self.graph_view(ty)).unwrap_or_else(|| self.type_from_arena(program, def.return_ty)),
+            return_ty: self.type_from_arena(program, def.return_ty),
             return_schema: (!def.return_ty_defaulted).then(|| self.record_constructors.annotation_expectation(&program.arena, def.return_ty, self.current_namespace).ok()).flatten(),
             effects: self.effective_function_effects(program, def),
         }
@@ -732,11 +646,9 @@ impl Checker {
             self.error(span, "empty module path", "check.unknown-module");
             return;
         };
-        #[cfg(test)]
-        MODULE_REUSE_COUNTERS.with(|counts| counts.borrow_mut().interface_imports.entry(key.to_string()).or_default().push(span));
         self.import_user_module_types(key, Some(namespace), span, false);
         let mut binding = Binding::new(module_type_from_user_signature(&module), false);
-        binding.static_namespace = module.namespace;
+        binding.static_namespace = true;
         self.define(namespace, binding, span);
         for (name, sig) in &module.procs {
             self.qualified_procs
@@ -784,7 +696,6 @@ impl Checker {
             }
             for (name, family) in module.error_families {
                 let qualified = Name::intern(format!("{alias}.{name}"));
-                self.record_imported_error_nominals(qualified, &family, span);
                 for variant in family.variants.values() {
                     for facet in &variant.facets {
                         self.error_facets
@@ -796,7 +707,6 @@ impl Checker {
             return;
         }
         let resolved_types = module.resolved_types.clone();
-        let imported_tag_variants = module.tag_variants;
         for (name, body) in module.types {
             let body = match body {
                 TypeDefBody::TagUnion(_) => body,
@@ -814,9 +724,19 @@ impl Checker {
                 }
                 if let TypeDefBody::TagUnion(variants) = &body {
                     for variant in variants {
-                        if let Some(info) = imported_tag_variants.get(&variant.name) {
-                            self.tag_variants.insert(variant.name, info.clone());
-                        }
+                        let field_types = variant
+                            .fields
+                            .iter()
+                            .map(|field| self.type_from_ann(field))
+                            .collect();
+                        self.tag_variants.insert(
+                            variant.name,
+                            TagVariantInfo {
+                                type_name: variant.type_name,
+                                field_count: variant.fields.len(),
+                                field_types,
+                            },
+                        );
                     }
                 }
                 self.type_defs.insert(name, body);
@@ -824,9 +744,19 @@ impl Checker {
                 if let TypeDefBody::TagUnion(variants) = &body {
                     for variant in variants {
                         if !self.tag_variants.contains_key(&variant.name) {
-                            if let Some(info) = imported_tag_variants.get(&variant.name) {
-                                self.tag_variants.insert(variant.name, info.clone());
-                            }
+                            let field_types = variant
+                                .fields
+                                .iter()
+                                .map(|field| self.type_from_ann(field))
+                                .collect();
+                            self.tag_variants.insert(
+                                variant.name,
+                                TagVariantInfo {
+                                    type_name: variant.type_name,
+                                    field_count: variant.fields.len(),
+                                    field_types,
+                                },
+                            );
                         }
                     }
                 }
@@ -841,7 +771,6 @@ impl Checker {
                     "check.duplicate-name",
                 );
             }
-            self.record_imported_error_nominals(name, &family, span);
             for variant in family.variants.values() {
                 for facet in &variant.facets {
                     self.error_facets.insert(*facet);
@@ -1025,7 +954,6 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        def_id: TypeDefId,
         def: &ArenaTypeDef,
         span: Span,
     ) {
@@ -1146,14 +1074,14 @@ impl Checker {
                             self.type_from_arena(arena, ty_id)
                         })
                         .collect();
-                    let info = TagVariantInfo {
-                        type_name: crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(arena.root_nominal_namespace), def.name),
-                        field_count: field_types.len(), field_types, canonical_name: variant.name,
-                        identity: super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(arena.root_nominal_namespace), declaration: super::NominalDeclaration::Type(def_id), member: Some(variant.name) },
-                    };
-                    let fields = info.field_types.iter().cloned().map(|ty| (None, ty)).collect::<Vec<_>>();
-                    self.record_checked_nominal_member(info.identity, super::NominalMemberKind::Tag, info.type_name, info.canonical_name, &fields, &[], span);
-                    self.tag_variants.insert(variant.name, info);
+                    self.tag_variants.insert(
+                        variant.name,
+                        TagVariantInfo {
+                            type_name: crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(arena.root_nominal_namespace), def.name),
+                            field_count: field_types.len(),
+                            field_types,
+                        },
+                    );
                 }
             }
         }
@@ -1164,7 +1092,6 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         id: ErrorDefId,
-        span: Span,
     ) {
         let def = arena.arena.error_def(id);
         let mut variants = FxHashSet::default();
@@ -1190,7 +1117,7 @@ impl Checker {
                 self.type_from_arena(arena, field.ty);
             }
         }
-        self.register_error_family_arena(arena, source, id, span);
+        self.register_error_family_arena(arena, source, id);
     }
 
     pub(super) fn register_error_family_arena(
@@ -1198,29 +1125,24 @@ impl Checker {
         arena: &ArenaProgram,
         _source: &str,
         id: ErrorDefId,
-        span: Span,
     ) {
         let def = arena.arena.error_def(id);
-        let canonical_name = crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(arena.root_nominal_namespace), def.name);
-        let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(arena.root_nominal_namespace), declaration: super::NominalDeclaration::Error(id), member: None };
         let mut variants = BTreeMap::new();
         for variant in arena.arena.error_variants(def.variants) {
-            let ordered_fields = arena.arena.error_fields(variant.fields).iter()
-                .map(|field| (Some(field.name), self.type_from_arena(arena, field.ty)))
-                .collect::<Vec<_>>();
-            let fields = ordered_fields.iter().map(|(name, ty)| (name.unwrap(), ty.clone())).collect();
-            let field_order = ordered_fields.iter().map(|(name, _)| name.unwrap()).collect();
-            let canonical_family = crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(arena.root_nominal_namespace), def.name);
-            let identity = super::QualifiedNominalIdentity::Source { source: span.source_id, namespace: self.current_namespace.or(arena.root_nominal_namespace), declaration: super::NominalDeclaration::Error(id), member: Some(variant.name) };
+            let fields = arena
+                .arena
+                .error_fields(variant.fields)
+                .iter()
+                .map(|field| (field.name, self.type_from_arena(arena, field.ty)))
+                .collect();
             let facets: Vec<Name> = arena.arena.names(variant.facets).collect();
             for facet in &facets {
                 self.error_facets.insert(*facet);
             }
-            self.record_checked_nominal_member(identity, super::NominalMemberKind::Error, canonical_family, variant.name, &ordered_fields, &facets, span);
-            variants.insert(variant.name, ErrorVariantInfo { fields, facets, field_order, canonical_family, canonical_name: variant.name, identity });
+            variants.insert(variant.name, ErrorVariantInfo { fields, facets });
         }
         self.error_families
-            .insert(def.name, ErrorFamilyInfo { variants, canonical_name, identity });
+            .insert(def.name, ErrorFamilyInfo { variants });
     }
 }
 

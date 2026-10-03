@@ -92,55 +92,33 @@ pub(crate) fn bind_err_arguments(args: &[ExpandedArgument]) -> Result<StaticArgu
 pub fn bind_static_arguments(
     params: &[CallableParamType], args: &[ExpandedArgument],
 ) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
-    let mut cursor = StaticArgumentCursor::new(params);
+    let mut occupied = vec![false; params.len()];
     let mut argument_slots = Vec::with_capacity(args.len());
+    let mut next = 0;
     for arg in args {
-        argument_slots.push(cursor.bind(arg)?);
+        let slot = if let Some(name) = arg.name {
+            params.iter().position(|param| !param.rest && param.name == name)
+                .ok_or_else(|| ArgumentExpansionError { span: arg.span, message: format!("unknown named parameter `{name}`") })?
+        } else {
+            while next < params.len() && occupied[next] && !params[next].rest { next += 1; }
+            if next == params.len() {
+                return Err(ArgumentExpansionError { span: arg.span, message: "too many positional arguments".into() });
+            }
+            next
+        };
+        if matches!(arg.value, ArgumentValueSource::PositionalSplice(_)) && !params[slot].rest {
+            return Err(ArgumentExpansionError { span: arg.span, message: "positional splice must bind a rest parameter when combined with named spreading".into() });
+        }
+        if occupied[slot] && !params[slot].rest {
+            return Err(ArgumentExpansionError { span: arg.span, message: format!("parameter `{}` supplied more than once", params[slot].name) });
+        }
+        occupied[slot] = true;
+        argument_slots.push(slot);
+        if arg.name.is_none() && !params[slot].rest { next = slot + 1; }
     }
-    let omitted_slots = cursor.omitted_slots();
+    let omitted_slots = occupied.iter().enumerate().filter_map(|(slot, supplied)| (!supplied).then_some(slot)).collect::<Vec<_>>();
     if let Some(&slot) = omitted_slots.iter().find(|&&slot| !params[slot].defaulted && !params[slot].rest) {
         return Err(ArgumentExpansionError { span: args.first().map(|arg| arg.span).unwrap_or_else(|| Span::at(crate::source::SourceId::new(0), 0)), message: format!("missing required parameter `{}`", params[slot].name) });
     }
     Ok(StaticArgumentBinding { argument_slots, omitted_slots })
-}
-
-/// Contextual argument checking advances the same slot occupancy rules as the
-/// completed binding. It can supply a field context before a later entry is
-/// checked without certifying missing arguments or constructing source nodes.
-pub(crate) struct StaticArgumentCursor<'a> {
-    params: &'a [CallableParamType],
-    occupied: Vec<bool>,
-    next: usize,
-}
-
-impl<'a> StaticArgumentCursor<'a> {
-    pub(crate) fn new(params: &'a [CallableParamType]) -> Self {
-        Self { params, occupied: vec![false; params.len()], next: 0 }
-    }
-
-    pub(crate) fn bind(&mut self, arg: &ExpandedArgument) -> Result<usize, ArgumentExpansionError> {
-        let slot = if let Some(name) = arg.name {
-            self.params.iter().position(|param| !param.rest && param.name == name)
-                .ok_or_else(|| ArgumentExpansionError { span: arg.span, message: format!("unknown named parameter `{name}`") })?
-        } else {
-            while self.next < self.params.len() && self.occupied[self.next] && !self.params[self.next].rest { self.next += 1; }
-            if self.next == self.params.len() {
-                return Err(ArgumentExpansionError { span: arg.span, message: "too many positional arguments".into() });
-            }
-            self.next
-        };
-        if matches!(arg.value, ArgumentValueSource::PositionalSplice(_)) && !self.params[slot].rest {
-            return Err(ArgumentExpansionError { span: arg.span, message: "positional splice must bind a rest parameter when combined with named spreading".into() });
-        }
-        if self.occupied[slot] && !self.params[slot].rest {
-            return Err(ArgumentExpansionError { span: arg.span, message: format!("parameter `{}` supplied more than once", self.params[slot].name) });
-        }
-        self.occupied[slot] = true;
-        if arg.name.is_none() && !self.params[slot].rest { self.next = slot + 1; }
-        Ok(slot)
-    }
-
-    fn omitted_slots(&self) -> Vec<usize> {
-        self.occupied.iter().enumerate().filter_map(|(slot, supplied)| (!supplied).then_some(slot)).collect()
-    }
 }

@@ -37,13 +37,6 @@ precedes the host invocation. Human text and trace rendering retain their
 existing display/escaping policy; diagnostic text does not become an argv
 encoding. Concatenation establishes no filesystem access or confinement.
 
-Creating `Path.lines()` or `Path.bytes_lines()` opens the file and requires
-`fs`. Pulling those producers reads the file and also requires `fs`; forwarding
-a producer preserves that permission independently of its `Stream[T]` item type.
-Builtin file producers release native resources without a language cleanup
-callback. Script producer cancellation runs registered cleanup and retains its
-separate close permissions.
-
 ## 2. Overall Design
 
 The OS runtime is the coordination layer between tree-shaped XSH evaluation and

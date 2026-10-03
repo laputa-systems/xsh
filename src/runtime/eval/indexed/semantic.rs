@@ -8,14 +8,7 @@ use std::mem::size_of;
 
 const PARAM_DEFAULTED: u32 = 1;
 const PARAM_REST: u32 = 1 << 1;
-const PARAM_NAMED_ONLY: u32 = 1 << 2;
 const MODULE_EXPORT_OPTIONAL: u32 = 1 << 2;
-
-#[derive(Clone, Copy)]
-pub(super) enum UnaryTypeKind { Optional, List, Stream }
-
-#[derive(Clone, Copy)]
-pub(super) enum PairTypeKind { Map, Result }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
@@ -56,7 +49,6 @@ pub(super) enum TypeTag {
     UInt,
     ErasedRecord,
     DynamicModule,
-    Callable,
 }
 
 impl TypeTag {
@@ -109,37 +101,9 @@ pub(super) struct SemanticPools {
     signature_extra: Vec<u32>,
     shapes: Vec<IrRange>,
     shape_fields: Vec<Name>,
-    original: Option<std::sync::Arc<SemanticPools>>,
 }
 
 impl SemanticPools {
-    pub(super) fn seal_original_contract(&mut self) {
-        if self.original.is_none() {
-            self.original = Some(std::sync::Arc::new(self.clone()));
-        }
-    }
-
-    pub(super) fn verify_original_contract(&self) -> Result<(), IrVerifyError> {
-        if let Some(original) = &self.original
-            && (self.type_tags != original.type_tags
-                || self.type_data != original.type_data
-                || self.type_extra != original.type_extra
-                || self.signature_data != original.signature_data
-                || self.signature_extra != original.signature_extra
-                || self.shapes != original.shapes
-                || self.shape_fields != original.shape_fields) {
-            return Err(IrVerifyError::new("semantic pools differ from their original prepared contract"));
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(super) fn test_reinterpret_uint_as_int(&mut self) {
-        for tag in &mut self.type_tags {
-            if *tag == TypeTag::UInt { *tag = TypeTag::Int; }
-        }
-    }
-
     pub(super) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.type_tags.capacity() * size_of::<TypeTag>()
@@ -149,7 +113,6 @@ impl SemanticPools {
             + self.signature_extra.capacity() * size_of::<u32>()
             + self.shapes.capacity() * size_of::<IrRange>()
             + self.shape_fields.capacity() * size_of::<Name>()
-            + self.original.as_ref().map_or(0, |original| original.retained_bytes() + 2 * size_of::<usize>())
     }
 
     pub(super) fn shrink_to_fit(&mut self) {
@@ -185,36 +148,6 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("type id is out of bounds"))
     }
 
-    pub(super) fn callable_descriptor(&self, id: TypeId) -> Result<Option<(super::generic::CallableKind, SignatureId)>, IrVerifyError> {
-        if self.type_tag(id)? != TypeTag::Callable { return Ok(None); }
-        let data = self.type_data[id.index()];
-        let signature = SignatureId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("callable signature is invalid"))?;
-        self.signature_payload(signature)?;
-        let kind = match data.rhs { 0 => super::generic::CallableKind::Pure, 1 => super::generic::CallableKind::Proc, _ => return Err(IrVerifyError::new("callable kind is invalid")) };
-        Ok(Some((kind, signature)))
-    }
-
-    pub(super) fn signature_closed_effects(&self, id: SignatureId) -> Result<crate::sema::inference::EffectSet, IrVerifyError> {
-        use crate::sema::inference::EffectSet;
-        let payload = self.signature_payload(id)?;
-        if payload[1] == IR_NONE { return Err(IrVerifyError::new("callable signature effects are not closed")); }
-        let count = signature_effect_count(payload)?;
-        let mut effects = EffectSet::EMPTY;
-        for &effect in &payload[3..3 + count] {
-            effects.0 |= match effect {
-                value if value == EffectCode::Fs as u32 => EffectSet::FS.0,
-                value if value == EffectCode::Net as u32 => EffectSet::NET.0,
-                value if value == EffectCode::Process as u32 => EffectSet::PROCESS.0,
-                value if value == EffectCode::Env as u32 => EffectSet::ENV.0,
-                value if value == EffectCode::Time as u32 => EffectSet::TIME.0,
-                value if value == EffectCode::Error as u32 => EffectSet::ERROR.0,
-                value if value == EffectCode::Io as u32 => EffectSet::IO.0,
-                _ => return Err(IrVerifyError::new("callable signature effect is invalid")),
-            };
-        }
-        Ok(effects)
-    }
-
     pub(super) fn signature_return_type(&self, id: SignatureId) -> Result<TypeId, IrVerifyError> {
         let payload = self.signature_payload(id)?;
         TypeId::from_raw(payload[0])
@@ -223,32 +156,6 @@ impl SemanticPools {
 
     pub(super) fn signature_param_count(&self, id: SignatureId) -> Result<usize, IrVerifyError> {
         Ok(self.signature_payload(id)?[2] as usize)
-    }
-
-    pub(super) fn signature_parameter_mode(&self, id: SignatureId, index: usize) -> Result<super::generic::ParameterMode, IrVerifyError> {
-        Ok(if self.signature_param(id, index)?.2 & PARAM_NAMED_ONLY != 0 { super::generic::ParameterMode::NamedOnly } else { super::generic::ParameterMode::PositionalOrNamed })
-    }
-
-    pub(super) fn signature_parameter_defaulted(&self, id: SignatureId, index: usize) -> Result<bool, IrVerifyError> {
-        Ok(self.signature_param(id, index)?.2 & PARAM_DEFAULTED != 0)
-    }
-
-    pub(super) fn signature_parameter_rest(&self, id: SignatureId, index: usize) -> Result<bool, IrVerifyError> {
-        Ok(self.signature_param(id, index)?.2 & PARAM_REST != 0)
-    }
-
-    pub(super) fn type_children(&self, id: TypeId) -> Result<Option<(TypeId, Option<TypeId>)>, IrVerifyError> {
-        let tag = self.type_tag(id)?;
-        if !tag.has_one_type() && !matches!(tag, TypeTag::Map | TypeTag::Result) { return Ok(None); }
-        let data = self.type_data[id.index()];
-        let left = TypeId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("type child id is invalid"))?;
-        self.type_tag(left)?;
-        let right = if tag.has_one_type() { None } else {
-            let right = TypeId::from_raw(data.rhs).ok_or_else(|| IrVerifyError::new("type child id is invalid"))?;
-            self.type_tag(right)?;
-            Some(right)
-        };
-        Ok(Some((left, right)))
     }
 
     pub(super) fn signature_param(
@@ -400,7 +307,6 @@ impl SemanticPools {
             TypeTag::ProcessError => Type::ProcessError,
             TypeTag::Pure => Type::Pure,
             TypeTag::Proc => Type::Proc,
-            TypeTag::Callable => return Err(IrVerifyError::new("typed callable cannot be erased into a legacy type")),
             TypeTag::Command => Type::Command,
             TypeTag::ProcessHandle => Type::ProcessHandle,
             TypeTag::NetJob => Type::NetJob,
@@ -515,16 +421,6 @@ impl SemanticPools {
             return Ok(Name::from_symbol(Symbol::from_raw(data.lhs)).to_string());
         }
         match tag {
-            TypeTag::Callable => {
-                let (kind, signature) = self.callable_descriptor(id)?.ok_or_else(|| IrVerifyError::new("callable descriptor is absent"))?;
-                let mut parameters = Vec::new();
-                for index in 0..self.signature_param_count(signature)? {
-                    let (label, ty, flags) = self.signature_param(signature, index)?;
-                    parameters.push(format!("{}{}: {}{}", if flags & 1 != 0 { "..." } else { "" }, label, self.display_type_inner(ty, depth + 1)?, if flags & 2 != 0 { " = ..." } else { "" }));
-                }
-                let result = self.display_type_inner(self.signature_return_type(signature)?, depth + 1)?;
-                Ok(format!("{kind:?}({}) -> {result}", parameters.join(", ")))
-            }
             TypeTag::Map => {
                 let key = TypeId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("map key type id is invalid"))?;
                 let value = TypeId::from_raw(data.rhs).ok_or_else(|| IrVerifyError::new("map value type id is invalid"))?;
@@ -576,7 +472,6 @@ impl SemanticPools {
     }
 
     pub(super) fn verify(&self) -> Result<(), IrVerifyError> {
-        self.verify_original_contract()?;
         if self.type_tags.len() != self.type_data.len() {
             return Err(IrVerifyError::new(
                 "type tag and data columns have different lengths",
@@ -615,7 +510,7 @@ impl SemanticPools {
             }
             for param in payload[3 + effects..].as_chunks::<3>().0 {
                 verify_type_raw(self, param[1], None)?;
-                if param[2] & !(PARAM_DEFAULTED | PARAM_REST | PARAM_NAMED_ONLY) != 0 {
+                if param[2] & !(PARAM_DEFAULTED | PARAM_REST) != 0 {
                     return Err(IrVerifyError::new("signature parameter flags are invalid"));
                 }
             }
@@ -647,12 +542,6 @@ impl SemanticPools {
                 continue;
             }
             match tag {
-                TypeTag::Callable => {
-                    let id = TypeId::new(index).map_err(|_| IrVerifyError::new("callable type index overflows"))?;
-                    let (kind, signature) = self.callable_descriptor(id)?.ok_or_else(|| IrVerifyError::new("callable descriptor is absent"))?;
-                    let effects = self.signature_closed_effects(signature)?;
-                    if kind == super::generic::CallableKind::Pure && effects != crate::sema::inference::EffectSet::EMPTY { return Err(IrVerifyError::new("pure callable descriptor has effects")); }
-                }
                 TypeTag::Map | TypeTag::Result => {
                     verify_type_raw(self, data.lhs, Some(index))?;
                     verify_type_raw(self, data.rhs, Some(index))?;
@@ -766,7 +655,6 @@ impl From<&Effect> for EffectCode {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum TypeKey {
-    Callable(super::generic::CallableKind, SignatureId),
     Scalar(TypeTag),
     Unary(TypeTag, TypeId),
     Pair(TypeTag, TypeId, TypeId),
@@ -807,51 +695,6 @@ pub(super) struct SemanticPoolBuilder {
 }
 
 impl SemanticPoolBuilder {
-    fn intern_parts(&mut self, pools: &mut SemanticPools, key: TypeKey, tag: TypeTag, data: IrData, extra: &[u32]) -> Result<TypeId, IrBuildError> {
-        if let Some(&id) = self.types.get(&key) { return Ok(id); }
-        let id = TypeId::new(pools.type_tags.len())?;
-        pools.type_tags.push(tag);
-        pools.type_data.push(data);
-        pools.type_extra.extend_from_slice(extra);
-        self.types.insert(key, id);
-        Ok(id)
-    }
-
-    pub(super) fn intern_unary_type(&mut self, pools: &mut SemanticPools, kind: UnaryTypeKind, child: TypeId) -> Result<TypeId, IrBuildError> {
-        pools.type_tag(child).map_err(|_| IrBuildError::format("type_child_invalid", None, 0, 0))?;
-        let tag = match kind { UnaryTypeKind::Optional => TypeTag::Optional, UnaryTypeKind::List => TypeTag::List, UnaryTypeKind::Stream => TypeTag::Stream };
-        self.intern_parts(pools, TypeKey::Unary(tag, child), tag, IrData::new(child.raw(), 0), &[])
-    }
-
-    pub(super) fn intern_pair_type(&mut self, pools: &mut SemanticPools, kind: PairTypeKind, left: TypeId, right: TypeId) -> Result<TypeId, IrBuildError> {
-        let left_tag = pools.type_tag(left).map_err(|_| IrBuildError::format("type_child_invalid", None, 0, 0))?;
-        pools.type_tag(right).map_err(|_| IrBuildError::format("type_child_invalid", None, 0, 0))?;
-        let tag = match kind { PairTypeKind::Map => TypeTag::Map, PairTypeKind::Result => TypeTag::Result };
-        if tag == TypeTag::Map && !matches!(left_tag, TypeTag::Any | TypeTag::Str | TypeTag::Int | TypeTag::UInt | TypeTag::Bool | TypeTag::Bytes | TypeTag::Path | TypeTag::Duration) {
-            return Err(IrBuildError::format("map_key_type_invalid", None, 0, 0));
-        }
-        self.intern_parts(pools, TypeKey::Pair(tag, left, right), tag, IrData::new(left.raw(), right.raw()), &[])
-    }
-
-    pub(super) fn intern_record_type(&mut self, pools: &mut SemanticPools, fields: &[(Name, TypeId)]) -> Result<TypeId, IrBuildError> {
-        if fields.windows(2).any(|pair| pair[0].0 >= pair[1].0) { return Err(IrBuildError::format("record_fields_not_unique_sorted", None, 0, 0)); }
-        for &(_, ty) in fields { pools.type_tag(ty).map_err(|_| IrBuildError::format("type_child_invalid", None, 0, 0))?; }
-        let shape = self.intern_shape(pools, &fields.iter().map(|&(name, _)| name).collect::<Vec<_>>())?;
-        let words = fields.iter().map(|&(_, ty)| ty.raw()).collect::<Vec<_>>();
-        let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
-        self.intern_parts(pools, TypeKey::Aggregate(TypeTag::Record, shape, words.clone().into_boxed_slice()), TypeTag::Record, IrData::new(shape.raw(), start), &words)
-    }
-
-    pub(super) fn intern_callable_descriptor(&mut self, pools: &mut SemanticPools, kind: super::generic::CallableKind, signature: SignatureId) -> Result<TypeId, IrBuildError> {
-        pools.signature_closed_effects(signature).map_err(|_| IrBuildError::format("callable_effects_not_closed", None, 0, 0))?;
-        let key = TypeKey::Callable(kind, signature);
-        if let Some(&id) = self.types.get(&key) { return Ok(id); }
-        let id = TypeId::new(pools.type_tags.len())?;
-        pools.type_tags.push(TypeTag::Callable);
-        pools.type_data.push(IrData::new(signature.raw(), u32::from(kind == super::generic::CallableKind::Proc)));
-        self.types.insert(key, id);
-        Ok(id)
-    }
     pub(super) fn retained_bytes(&self) -> usize {
         let type_key_bytes = self
             .types
@@ -916,7 +759,7 @@ impl SemanticPoolBuilder {
         ty: &Type,
     ) -> Result<TypeId, IrBuildError> {
         let (key, data, extra) = match ty {
-            Type::Inference(_) | Type::Graph(_) => {
+            Type::Inference(_) => {
                 return Err(IrBuildError::format("unresolved_type", None, 0, 0));
             }
             Type::BuiltinParameter(_) | Type::Unknown | Type::Invalid => {
@@ -1015,7 +858,6 @@ impl SemanticPoolBuilder {
         }
         let id = TypeId::new(pools.type_tags.len())?;
         let tag = match &key {
-            TypeKey::Callable(_, _) => TypeTag::Callable,
             TypeKey::Scalar(tag)
             | TypeKey::Unary(tag, _)
             | TypeKey::Pair(tag, _, _)

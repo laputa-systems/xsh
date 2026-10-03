@@ -153,42 +153,7 @@ struct Binding {
     immutable_byte_length: Option<usize>,
 }
 
-#[derive(Clone)]
-enum OriginalLintCheck<'a> {
-    Checked(&'a xsh::frontend::check::CheckOutput),
-    Lazy(std::rc::Rc<std::cell::LazyCell<xsh::frontend::check::CheckOutput, Box<dyn FnOnce() -> xsh::frontend::check::CheckOutput + 'a>>>),
-}
-
-impl<'a> OriginalLintCheck<'a> {
-    fn lazy(check: impl FnOnce() -> xsh::frontend::check::CheckOutput + 'a) -> Self {
-        let check: Box<dyn FnOnce() -> xsh::frontend::check::CheckOutput + 'a> = Box::new(move || {
-            #[cfg(test)]
-            local_annotation_probe_tests::record_original_check();
-            check()
-        });
-        Self::Lazy(std::rc::Rc::new(std::cell::LazyCell::new(check)))
-    }
-
-    fn checked(&self) -> &xsh::frontend::check::CheckOutput {
-        match self { Self::Checked(checked) => checked, Self::Lazy(checked) => checked }
-    }
-
-    fn annotation_baseline(&self, program: &'a ArenaProgram, source: &'a str) -> Self {
-        // The original removal proofs use the default checker policy. A caller
-        // with another policy keeps a distinct lazy baseline for those proofs.
-        match self {
-            Self::Checked(checked) if checked.check_options.interactive_commands.is_some()
-                || checked.check_options.reveal_types || checked.check_options.migration_diagnostics => {
-                Self::lazy(move || xsh::frontend::check::Checker::check_arena(program, source))
-            }
-            _ => self.clone(),
-        }
-    }
-}
-
 pub struct Linter<'a> {
-    program: &'a ArenaProgram,
-    annotation_original: OriginalLintCheck<'a>,
     arena: &'a AstArena,
     record_constructors: xsh::frontend::check::RecordConstructors,
     prefer_inferred_pure_returns: bool,
@@ -300,17 +265,6 @@ impl<'a> Linter<'a> {
         Self::lint_internal(program, source, options, false)
     }
 
-    /// Reuse the original checked bundle for migration validation. Candidate
-    /// rewrites retain their own fresh checks before a fix can be offered.
-    pub fn lint_with_checked(program: &'a ArenaProgram, source: &'a str, options: LintOptions, checked: &'a xsh::frontend::check::CheckOutput) -> LintOutput {
-        Self::lint_internal_with_checked(program, source, options, true, Some(checked), || checked.clone())
-    }
-
-    /// Preserve module reachability policy while borrowing its bundle's facts.
-    pub fn lint_module_with_checked(program: &'a ArenaProgram, source: &'a str, options: LintOptions, checked: &'a xsh::frontend::check::CheckOutput) -> LintOutput {
-        Self::lint_internal_with_checked(program, source, options, false, Some(checked), || checked.clone())
-    }
-
     fn lint_internal(
         program: &'a ArenaProgram,
         source: &'a str,
@@ -326,35 +280,16 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
         include_reachability: bool,
-        check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput + 'a,
+        check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput,
     ) -> LintOutput {
-        Self::lint_internal_with_checked(program, source, options, include_reachability, None, check_effects)
-    }
-
-    fn lint_internal_with_checked(
-        program: &'a ArenaProgram,
-        source: &'a str,
-        options: LintOptions,
-        include_reachability: bool,
-        supplied: Option<&'a xsh::frontend::check::CheckOutput>,
-        check_original: impl FnOnce() -> xsh::frontend::check::CheckOutput + 'a,
-    ) -> LintOutput {
-        let original_check = match supplied {
-            Some(checked) => OriginalLintCheck::Checked(checked),
-            None => OriginalLintCheck::lazy(check_original),
-        };
-        let annotation_original = original_check.annotation_baseline(program, source);
-        let original = || original_check.checked();
         // Constructor facts intern qualified enum names after checking. Retain
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
         let checked_effects = if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
-            original().function_effect_facts.clone()
+            check_effects().function_effect_facts
         } else { options.function_effect_facts };
         let mut linter = Self {
-            program,
-            annotation_original,
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
             duration_conversion_module_unshadowed: !(0..program.arena.stmt_tags.len()).any(|index| {
@@ -415,11 +350,11 @@ impl<'a> Linter<'a> {
         if native_test_file { linter.lint_legacy_test_declarations(&statements); }
         linter.lint_program(&statements);
         linter.lint_defer_block_helpers(&statements);
-        if include_reachability { linter.diagnostics.extend(cli_entry::signature_cli_migration_with_checked(program, source, original)); }
-        if include_reachability { linter.diagnostics.extend(lint_try_capture::lint_try_capture_helpers_with_checked(program, source, original)); }
+        if include_reachability { linter.diagnostics.extend(cli_entry::signature_cli_migration(program, source)); }
+        if include_reachability { linter.diagnostics.extend(lint_try_capture::lint_try_capture_helpers(program, source)); }
         if include_reachability {
             linter.lint_declaration_reachability(program);
-            linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases_with_checked(program, source, original));
+            linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
         LintOutput {
             diagnostics: linter.diagnostics,
@@ -1234,15 +1169,6 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(diagnostic);
     }
 
-    fn prepare_return_removal_baseline(&mut self, source_id: xsh::frontend::source::SourceId) {
-        if self.return_removal_before.is_some() { return; }
-        #[cfg(test)]
-        annotation_probe_tests::record_probe();
-        self.return_removal_before = Some(if standalone_annotation_imports_available(self.program) {
-            checked_return_removal_facts_from_checked(self.program, self.annotation_original.checked(), source_id, None)
-        } else { None });
-    }
-
     fn lint_inferred_pure_return(&mut self, id: FunctionDefId, exported: bool) {
         let def = self.arena.function_def(id);
         if !self.prefer_inferred_pure_returns || exported || def.return_ty_defaulted { return; }
@@ -1267,7 +1193,9 @@ impl<'a> Linter<'a> {
         let deletion = Span::new(ty_span.source_id, start, ty_span.end());
         let Some(annotation) = self.source.get(start..ty_span.end()) else { return; };
         if annotation.contains('#') { return; }
-        self.prepare_return_removal_baseline(ty_span.source_id);
+        if self.return_removal_before.is_none() {
+            self.return_removal_before = Some(checked_return_removal_facts(self.source, ty_span.source_id, None));
+        }
         let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else { return; };
         let mut rewritten = self.source.to_string();
         rewritten.replace_range(start..ty_span.end(), "");
@@ -1288,7 +1216,9 @@ impl<'a> Linter<'a> {
         let start = param_span.start() + colon;
         let Some(annotation) = self.source.get(start..span.end()) else { return; };
         if annotation.contains('#') { return; }
-        self.prepare_return_removal_baseline(span.source_id);
+        if self.return_removal_before.is_none() {
+            self.return_removal_before = Some(checked_return_removal_facts(self.source, span.source_id, None));
+        }
         let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else { return; };
         let mut rewritten = self.source.to_string();
         rewritten.replace_range(start..span.end(), "");
@@ -1316,10 +1246,9 @@ impl<'a> Linter<'a> {
         let Some(span) = scan_effect_list_span(self.arena, def, statement_span, self.source) else { return; };
         let mut rewritten = self.source.to_string();
         rewritten.replace_range(span.start()..span.end(), "");
-        self.prepare_return_removal_baseline(span.source_id);
-        let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else { return; };
+        let before = checked_return_removal_facts(self.source, span.source_id, None);
         let after = checked_return_removal_facts(&rewritten, span.source_id, Some((span.start(), span.end() - span.start())));
-        if Some(before) != after.as_ref() { return; }
+        if before.is_none() || before != after { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "private proc effect clause can be inferred exactly")
             .with_code("lint.prefer-inferred-private-effects")
             .with_label(Label::secondary(span, "checked body, caller contracts, and statement purposes remain equivalent"))
@@ -1955,11 +1884,7 @@ impl<'a> Linter<'a> {
 
     fn local_annotation_removal_preserves_contract(&mut self, deletion: Span, binding: Span) -> bool {
         if self.local_annotation_before.is_none() {
-            #[cfg(test)]
-            local_annotation_probe_tests::record_original();
-            self.local_annotation_before = Some(if standalone_annotation_imports_available(self.program) {
-                checked_local_annotation_facts_from_checked(self.annotation_original.checked(), deletion.source_id)
-            } else { None });
+            self.local_annotation_before = Some(checked_local_annotation_facts(self.source, deletion.source_id));
         }
         let Some(before) = self.local_annotation_before.as_ref().unwrap().as_ref() else { return false; };
         let Some(old_shape) = before.bindings.get(&binding.start()) else { return false; };
@@ -10331,16 +10256,25 @@ fn standalone_annotation_imports_available(program: &ArenaProgram) -> bool {
     }))
 }
 
-fn checked_local_annotation_facts_from_checked(checked: &xsh::frontend::check::CheckOutput, source_id: xsh::frontend::source::SourceId)
+fn checked_local_annotation_facts(source: &str, source_id: xsh::frontend::source::SourceId)
     -> Option<CheckedLocalAnnotationFacts> {
+    #[cfg(test)]
+    local_annotation_probe_tests::record_original();
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+    if !parsed.diagnostics.is_empty() || !standalone_annotation_imports_available(&parsed.arena) { return None; }
+    #[cfg(test)]
+    local_annotation_probe_tests::record_original_check();
+    let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
     if checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return None; }
-    let mut bindings = BTreeMap::new();
-    for (span, ty) in &checked.local_binding_types {
-        if span.source_id == source_id { bindings.entry(span.start()).or_insert_with(|| checked_return_type_shape(ty)); }
-    }
-    let expressions = checked.expr_types.iter().filter(|(span, _)| span.source_id == source_id)
-        .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty))).collect();
-    Some(CheckedLocalAnnotationFacts { bindings, expressions })
+    parsed.arena.symbol_owner().with_current(|| {
+        let mut bindings = BTreeMap::new();
+        for (span, ty) in &checked.local_binding_types {
+            bindings.entry(span.start()).or_insert_with(|| checked_return_type_shape(ty));
+        }
+        let expressions = checked.expr_types.iter().filter(|(span, _)| span.source_id == source_id)
+            .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty))).collect();
+        Some(CheckedLocalAnnotationFacts { bindings, expressions })
+    })
 }
 
 /// Source edits must preserve every checked expression and statement purpose,
@@ -10353,39 +10287,17 @@ fn checked_return_removal_facts(source: &str, source_id: xsh::frontend::source::
     if !parsed.diagnostics.is_empty() || !standalone_annotation_imports_available(&parsed.arena) { return None; }
     let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
     if !checked.diagnostics.is_empty() { return None; }
-    parsed.arena.symbol_owner().with_current(|| checked_return_removal_facts_from_checked(&parsed.arena, &checked, source_id, removed))
-}
-
-fn checked_return_removal_facts_from_checked(program: &ArenaProgram, checked: &xsh::frontend::check::CheckOutput, source_id: xsh::frontend::source::SourceId, removed: Option<(usize, usize)>)
-    -> Option<CheckedReturnRemovalFacts> {
-    if !checked.diagnostics.is_empty() { return None; }
     let original_offset = |offset: usize| match removed { Some((start, length)) if offset >= start => offset + length, _ => offset };
-    let mut effects = BTreeMap::new();
-    // Workspace facts cover other sources and namespace-qualified callables.
-    // Preserve this source's own contracts under its lexical declaration names.
-    for statement in program.statement_ids() {
-        if checked.callable_effects.is_empty() { break; }
-        let statement = program.arena.stmt(statement);
-        let kind = match statement.kind { ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind, kind => kind };
-        let definition = match kind { ArenaStmtKind::ProcDef(definition) | ArenaStmtKind::StreamDef(definition) => definition, _ => continue };
-        let definition = program.arena.function_def(definition);
-        let body = program.arena.span(program.arena.block(definition.body).span);
-        if body.source_id != source_id { continue; }
-        let mut owners = checked.function_effect_facts.keys().filter(|id| id.body == body);
-        let owner = owners.next()?;
-        if owners.next().is_some() { return None; }
-        let key = owner.namespace.map_or_else(|| definition.name.to_string(), |namespace| format!("{namespace}.{}", definition.name));
-        let Some(mut effective) = checked.callable_effects.get(&key).cloned() else { continue; };
-        if let Some(effects) = &mut effective { effects.sort_by_key(Effect::as_str); effects.dedup(); }
-        effects.insert(definition.name.to_string(), effective);
-    }
-    Some(CheckedReturnRemovalFacts {
-        expressions: checked.expr_types.iter().filter(|(span, _)| span.source_id == source_id).map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
-        statements: checked.statement_positions.iter().filter(|(span, _)| span.source_id == source_id).map(|(span, position)| (original_offset(span.start()), original_offset(span.end()), *position)).collect(),
-        returns: checked.function_return_types.iter().filter(|(span, _)| span.source_id == source_id).map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
-        parameters: checked.parameter_types.iter().filter(|(span, _)| span.source_id == source_id).map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
-        effects,
-    })
+    parsed.arena.symbol_owner().with_current(|| Some(CheckedReturnRemovalFacts {
+        expressions: checked.expr_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        statements: checked.statement_positions.iter().map(|(span, position)| (original_offset(span.start()), original_offset(span.end()), *position)).collect(),
+        returns: checked.function_return_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        parameters: checked.parameter_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        effects: checked.callable_effects.into_iter().map(|(name, effects)| {
+            let effects = effects.map(|mut effects| { effects.sort_by_key(Effect::as_str); effects.dedup(); effects });
+            (name, effects)
+        }).collect(),
+    }))
 }
 
 // Type display intentionally hides structural fields. Compare their complete
@@ -10437,52 +10349,6 @@ mod effect_fact_tests {
     use xsh::frontend::syntax::parser::Parser;
 
     #[test]
-    fn checked_migration_helpers_share_original_facts_without_rechecking() {
-        let source = "pure render(value: Str) -> Str { value }\npure format(value: Str) -> Str { render(value) }\nproc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(3), source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let counters = checked.solved.graph.counters().clone();
-        let output = Linter::lint_with_checked(&parsed.arena, source, LintOptions::default(), &checked);
-        for code in ["lint.prefer-callable-alias", "lint.prefer-try-capture"] {
-            let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some(code)).expect(code);
-            assert!(!diagnostic.fix_hints.is_empty(), "{diagnostic:?}");
-        }
-        assert_eq!(checked.solved.graph.counters().attempted_constraints, counters.attempted_constraints);
-        assert_eq!(checked.solved.graph.counters().unifications, counters.unifications);
-        let mut rejected = checked.clone();
-        rejected.diagnostics.push(Diagnostic::error("an imported source failed checking"));
-        let output = Linter::lint_with_checked(&parsed.arena, source, LintOptions::default(), &rejected);
-        assert!(!output.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-callable-alias" | "lint.prefer-try-capture"))), "{:?}", output.diagnostics);
-    }
-
-    #[test]
-    fn standalone_migration_helpers_share_one_original_check_and_keep_candidate_checks() {
-        for (source, expected) in [
-            ("pure render(value: Str) -> Str { value }\npure format(value: Str) -> Str { render(value) }\nproc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\n", "lint.prefer-try-capture"),
-            ("type Options = {jobs: Int}\nproc main(...argv: List[Str]) [error] -> Unit {\n  let {jobs}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}})?\n  print $jobs\n}\n", "lint.prefer-signature-cli"),
-        ] {
-            let parsed = Parser::parse_source_arena_only(SourceId::new(4), source);
-            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-            let checks = Cell::new(0);
-            let output = Linter::lint_internal_with_effect_check(&parsed.arena, source, LintOptions::default(), true, || {
-                checks.set(checks.get() + 1);
-                let checked = Checker::check_arena(&parsed.arena, source);
-                assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
-                checked
-            });
-            assert_eq!(checks.get(), 1);
-            let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some(expected)).unwrap_or_else(|| panic!("{expected}: {:?}", output.diagnostics));
-            assert!(!diagnostic.fix_hints.is_empty(), "{diagnostic:?}");
-            let checked = Checker::check_arena(&parsed.arena, source);
-            let supplied = Linter::lint_internal_with_checked(&parsed.arena, source, LintOptions::default(), true, Some(&checked), || panic!("original source was already checked"));
-            let reused = supplied.diagnostics.iter().find(|candidate| candidate.code == diagnostic.code).expect(expected);
-            assert_eq!(diagnostic.fix_hints, reused.fix_hints);
-        }
-    }
-
-    #[test]
     fn checked_empty_effect_facts_avoid_duplicate_frontend_checking() {
         let source = "print \"ready\"\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -10516,9 +10382,6 @@ mod annotation_probe_tests {
     pub(super) fn record_probe() {
         PROBES.with(|probes| probes.set(probes.get() + 1));
     }
-
-    pub(super) fn reset_probes() { PROBES.with(|value| value.set(0)); }
-    pub(super) fn probes() -> usize { PROBES.with(Cell::get) }
 
     #[test]
     fn annotation_probes_stop_after_original_signature_cannot_be_checked() {
@@ -10579,7 +10442,7 @@ mod nested_pipeline_index_tests {
 mod local_annotation_probe_tests {
     use super::{LintOptions, Linter};
     use std::cell::Cell;
-    use xsh::frontend::check::{CheckOptions, Checker};
+    use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
@@ -10599,62 +10462,6 @@ mod local_annotation_probe_tests {
 
     pub(super) fn record_candidate() {
         CANDIDATES.with(|candidates| candidates.set(candidates.get() + 1));
-    }
-
-    #[test]
-    fn checked_local_annotation_baseline_reuses_graph_without_original_check() {
-        let source = "pure count() -> Int {\nvar values: List[Int] = []\nvalues = [1]\n1\n}\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(4), source);
-        assert!(parsed.diagnostics.is_empty());
-        for (options, originals) in [
-            (CheckOptions::default(), 0),
-            (CheckOptions { reveal_types: true, ..CheckOptions::default() }, 1),
-            (CheckOptions { migration_diagnostics: true, ..CheckOptions::default() }, 1),
-            (CheckOptions { interactive_commands: Some(|_| false), ..CheckOptions::default() }, 1),
-        ] {
-            let checked = Checker::check_arena_with_options(&parsed.arena, source, options);
-            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-            ORIGINALS.with(|value| value.set(0));
-            ORIGINAL_CHECKS.with(|value| value.set(0));
-            CANDIDATES.with(|value| value.set(0));
-            let output = Linter::lint_with_checked(&parsed.arena, source, LintOptions::default(), &checked);
-            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{:?}", output.diagnostics);
-            assert_eq!(ORIGINAL_CHECKS.with(Cell::get), originals);
-            assert_eq!(CANDIDATES.with(Cell::get), 1);
-            assert_eq!(ORIGINALS.with(Cell::get), 1);
-        }
-    }
-
-    #[test]
-    fn checked_parameter_and_return_baselines_share_graph_and_keep_both_candidate_probes() {
-        use xsh::frontend::symbols::Name;
-        use xsh::frontend::syntax::arena::ArenaProgramBuilder;
-
-        let source = "pure count(value: Int = 1) -> Int { value }\n";
-        let module_source = "pure count(value: Str = \"foreign\") -> Str { value }\nproc clock() -> Int { let _ = time.now(); 7 }\n";
-        let mut builder = ArenaProgramBuilder::with_token_capacity(64);
-        let entry = Parser::parse_source_into_arena_builder(SourceId::new(5), source, &mut builder);
-        let module = Parser::parse_source_into_arena_builder(SourceId::new(9), module_source, &mut builder);
-        assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
-        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
-        let name = builder.symbol_owner().with_current(|| Name::intern("helper"));
-        builder.push_arena_module("helper".to_string(), name, module.statements);
-        let program = builder.finish_with_statements(entry.statements);
-        let checked = Checker::check_arena(&program, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        assert!(checked.parameter_types.keys().any(|span| span.source_id == SourceId::new(9)));
-        assert!(checked.function_effect_facts.keys().any(|identity| identity.body.source_id == SourceId::new(9)));
-        ORIGINAL_CHECKS.with(|value| value.set(0));
-        super::annotation_probe_tests::reset_probes();
-        let output = Linter::lint_with_checked(&program, source, LintOptions {
-            prefer_inferred_pure_returns: true,
-            ..LintOptions::default()
-        }, &checked);
-        for code in ["lint.default-param-type", "lint.prefer-inferred-pure-return"] {
-            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some(code)), "{code}: {:?}", output.diagnostics);
-        }
-        assert_eq!(ORIGINAL_CHECKS.with(Cell::get), 0);
-        assert_eq!(super::annotation_probe_tests::probes(), 3, "one fact conversion and two checked source revisions");
     }
 
     #[test]

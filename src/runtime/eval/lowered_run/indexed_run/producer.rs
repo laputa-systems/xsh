@@ -152,8 +152,7 @@ impl Evaluator {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         view: super::FullFunctionView<'_>,
-        mut slots: Vec<LoweredValue>,
-        pending_defaults: super::PendingParameterDefaults,
+        slots: Vec<LoweredValue>,
         call_span: Span,
     ) -> Result<ScriptStreamState, RuntimeError> {
         let program = Arc::clone(
@@ -171,18 +170,10 @@ impl Evaluator {
         let definition_span = view
             .definition_span()
             .map_err(|error| super::indexed_error(error, call_span))?;
-        let header = view.header().map_err(|error| super::indexed_error(error, call_span))?;
-        self.begin_indexed_live_frame(view, &header, &mut slots, None, call_span)?;
-        let live_capture = match self.suspend_indexed_live_frame(&mut slots, call_span) {
-            Ok(live_capture) => live_capture,
-            Err(error) => {
-                let _ = self.finish_indexed_live_frame(&mut slots, call_span);
-                return Err(error);
-            }
-        };
         // The call scope is entered on the first pull, so a producer whose body
         // never starts never owns one.
-        let frame = ProducerFrameState::begin_body_instantiated(statements, slots, pending_defaults, execution.active_instantiation(), live_capture);
+        let frame = ProducerFrameState::begin_body(statements, slots);
+        let header = view.header().map_err(|error| super::indexed_error(error, call_span))?;
         let item_check = header.return_check.clone().and_then(|check| {
             let ty = match check.ty {
                 crate::sema::types::Type::Stream(item) => *item,

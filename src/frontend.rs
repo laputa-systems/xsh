@@ -5,8 +5,6 @@
 //! checker items are first-party tooling APIs; their current representations
 //! remain coupled to the compiler pipeline.
 
-pub mod query;
-
 pub mod check {
     pub use crate::sema::arguments::{ArgumentExpansionError, ArgumentValueSource, ExpandedArgument, StaticArgumentBinding, expand_named_arguments, bind_static_arguments};
     pub use crate::sema::check::{

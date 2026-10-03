@@ -587,7 +587,7 @@ fn discover_native_tests(
 
         let prepared = match Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
             .with_native_test_host(Arc::new(native_test_host))
-            .prepare_test_program_checked(Arc::clone(&arena), source_id, &checked)
+            .prepare_test_program(Arc::clone(&arena), source_id)
         {
             Ok(prepared) => Arc::new(prepared),
             Err(diagnostic) => {

@@ -1,3 +1,0 @@
-running 1 tests
-tests/xsh/system-report.xsh::test_system_report_bounded_number_respects_source_state_and_json_range ... ok 2.4s
-test result: ok. 1 passed; 0 failed; 0 skipped

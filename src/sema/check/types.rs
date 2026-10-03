@@ -10,88 +10,12 @@ use crate::syntax::arena::{ArenaProgram, ArenaTypeExprTag, TypeExprId};
 use xsh_registry::types::BuiltinTypeName;
 
 impl Checker {
-    // A fresh inference variable can retain explicit dynamic data. Validation
-    // is required only where that data would cross an established contract.
-    pub(super) fn graph_argument_needs_validation(&mut self, expected: crate::sema::inference::TypeId, actual: crate::sema::inference::TypeId) -> Result<bool, crate::sema::inference::InferenceError> {
-        use crate::sema::inference::{Atom, TypeNode};
-        let mut pairs = vec![(expected, actual)];
-        let mut visited = std::collections::BTreeSet::new();
-        let mut state = self.generic.borrow_mut();
-        while let Some((expected, actual)) = pairs.pop() {
-            let graph = &mut state.facts.graph;
-            let expected = graph.resolved(expected)?;
-            let actual_id = graph.resolved(actual)?;
-            if !visited.insert((expected, actual_id)) { continue; }
-            graph.charge_source_fact_work(1)?;
-            let expected = graph.node(expected)?.clone();
-            let actual = graph.node(actual_id)?.clone();
-            if matches!(expected, TypeNode::Poison) || matches!(actual, TypeNode::Poison) { continue; }
-            if matches!(actual, TypeNode::Atom(Atom::Any))
-                && !matches!(expected, TypeNode::Meta(_) | TypeNode::Atom(Atom::Any)) { return Ok(true); }
-            match (expected, actual) {
-                (TypeNode::List(expected), TypeNode::List(actual)) | (TypeNode::Stream(expected), TypeNode::Stream(actual)) | (TypeNode::Optional(expected), TypeNode::Optional(actual)) => pairs.push((expected, actual)),
-                (TypeNode::Optional(_), TypeNode::Atom(Atom::Null)) => {},
-                (TypeNode::Optional(expected), _) => pairs.push((expected, actual_id)),
-                (TypeNode::Map(ek, ev), TypeNode::Map(ak, av)) | (TypeNode::Result(ek, ev), TypeNode::Result(ak, av)) => pairs.extend([(ek, ak), (ev, av)]),
-                (TypeNode::Record(expected), TypeNode::Record(actual)) => {
-                    let expected = graph.row_data(expected)?;
-                    let actual = graph.row_data(actual)?;
-                    for field in &expected.fields {
-                        if let Some(actual) = actual.fields.iter().find(|actual| actual.label == field.label) { pairs.push((field.ty, actual.ty)); }
-                    }
-                }
-                (TypeNode::Record(_), TypeNode::Atom(Atom::ErasedRecord)) | (TypeNode::Module(_), TypeNode::Atom(Atom::DynamicModule)) => return Ok(true),
-                (TypeNode::Module(expected), TypeNode::Module(actual)) => {
-                    for field in expected {
-                        if let Some(actual) = actual.iter().find(|actual| actual.label == field.label) { pairs.push((field.ty, actual.ty)); }
-                    }
-                }
-                (TypeNode::Arrow(expected), TypeNode::Arrow(actual)) => {
-                    pairs.extend(expected.params.iter().zip(actual.params.iter()).map(|(expected, actual)| (expected.ty, actual.ty)));
-                    pairs.push((expected.result, actual.result));
-                }
-                _ => {}
-            }
-        }
-        Ok(false)
-    }
-
-    fn propagation_result_parts(&mut self, ty: &Type, span: Span) -> Option<(Type, Type)> {
-        if let Some(parts) = result_types(ty) { return Some(parts); }
-        let Type::Graph(operand) = ty else { return None; };
-        let outcome = (|| {
-            use crate::sema::inference::{InferenceError, TypeNode};
-            let mut state = self.generic.borrow_mut();
-            let graph = &mut state.facts.graph;
-            match graph.node(graph.resolved(*operand)?)?.clone() {
-                TypeNode::Result(success, error) => Ok(Some((success, error))),
-                TypeNode::Meta(_) if self.graph_generation => {
-                    let level = graph.variable(*operand)?.ok_or(InferenceError::InvalidScheme)?.level;
-                    let success = graph.fresh(level, span)?;
-                    let error = graph.fresh(level, span)?;
-                    let result = graph.result(success, error)?;
-                    let reason = graph.reason(span, None)?;
-                    // Postfix propagation fixes the container shape at its
-                    // source operand; success and failure remain independent.
-                    graph.unify(*operand, result, reason)?;
-                    Ok(Some((success, error)))
-                }
-                _ => Ok(None),
-            }
-        })();
-        match outcome {
-            Ok(parts) => parts.map(|(success, error)| (self.graph_view(success), self.graph_view(error))),
-            Err(error) => { self.graph_error(span, error); Some((Type::Invalid, Type::Invalid)) }
-        }
-    }
-
     pub(super) fn check_propagation(&mut self, ty: &Type, span: Span) -> Type {
         if self.retry_attempt_depth > 0 {
             return self.check_attempt_propagation(ty, span);
         }
-        let parts = self.propagation_result_parts(ty, span);
         if let Some(errors) = &mut self.with_initializer_errors
-            && let Some((_, error)) = &parts {
+            && let Some((_, error)) = result_types(ty) {
             errors.push(error.clone());
         }
         if matches!(ty, Type::Unknown | Type::Invalid) {
@@ -111,7 +35,7 @@ impl Checker {
                 "check.effect-violation",
             );
         }
-        let Some((ok, err)) = parts else {
+        let Some((ok, err)) = result_types(ty) else {
             self.error(
                 span,
                 "`?` can be applied only to Result values",
@@ -128,7 +52,7 @@ impl Checker {
                 .as_ref()
                 .is_none_or(|return_ty| return_ty.is_result())
             || self.current_yield.is_some();
-        let inferring = self.inferred_returns.is_some() && (self.current_return == Some(Type::Unknown) || self.current_generic.is_some());
+        let inferring = self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown);
         if inferring { self.inferred_propagations.push((err.clone(), span)); }
         if !allowed && !inferring {
             self.error(
@@ -159,7 +83,7 @@ impl Checker {
         if matches!(ty, Type::Any) {
             return Type::Any;
         }
-        let Some((ok, err)) = self.propagation_result_parts(ty, span) else {
+        let Some((ok, err)) = result_types(ty) else {
             self.error(
                 span,
                 "`?` can be applied only to Result values",
@@ -174,43 +98,11 @@ impl Checker {
     pub(super) fn begin_error_boundary(&mut self) {
         self.retry_attempt_depth += 1;
         self.error_boundary_errors.push(Vec::new());
-        self.error_boundary_producer_flows.push(Vec::new());
     }
 
     pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>) -> Type {
-        self.end_error_boundary_recorded(expected, None)
-    }
-
-    pub(super) fn end_error_boundary_recorded(&mut self, expected: Option<&Type>, capture: Option<(super::ExpressionIdentity, crate::syntax::arena::BlockId)>) -> Type {
         self.retry_attempt_depth -= 1;
         let errors = self.error_boundary_errors.pop().expect("checked error boundary");
-        self.error_boundary_producer_flows.pop().expect("checked producer error boundary");
-        if self.graph_generation && (errors.iter().any(|(error, _)| error.contains_graph()) || capture.is_some() && !errors.is_empty()) {
-            let span = errors[0].1;
-            let outcome = (|| {
-                use crate::sema::inference::{ErrorJoin, InferenceError};
-                let inputs = errors.iter().map(|(error, span)| self.graph_type(error, *span)).collect::<Result<Vec<_>, _>>()?;
-                let bound = expected.map(|bound| self.graph_type(bound, span)).transpose()?;
-                let level = self.local_initializer_level.unwrap_or(if self.current_generic.is_some() { 1 } else { 0 });
-                let mut state = self.generic.borrow_mut();
-                let graph = &mut state.facts.graph;
-                // A single reached failure keeps its original payload port.
-                // Multiple ports remain independent until the join is known.
-                let result = if inputs.len() == 1 && bound.is_none() { inputs[0] } else { graph.fresh(level, span)? };
-                let reason = graph.reason(span, None)?;
-                let requirement = graph.require_error_join(ErrorJoin { inputs: inputs.clone(), result, bound }, reason)?;
-                graph.solve()?;
-                if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).ok_or(InferenceError::InvalidScheme)?.requirements.push(requirement); }
-                if let Some((origin, block)) = capture {
-                    state.facts.record_error_capture(origin, block, self.current_generic, requirement, inputs, result, bound)?;
-                }
-                Ok(result)
-            })();
-            return match outcome {
-                Ok(result) => self.graph_view(result),
-                Err(error) => { self.graph_error(span, error); Type::Invalid }
-            };
-        }
         let mut inferred = expected.cloned();
         for (error, span) in errors {
             if let Some(current) = &inferred {
@@ -230,7 +122,6 @@ impl Checker {
     }
 
     pub(super) fn record_callee_propagation(&mut self, effects: &Option<Vec<Effect>>, return_ty: &Type, span: Span) {
-        let return_ty = self.resolved_graph_view(return_ty.clone());
         if self.retry_attempt_depth > 0 && !return_ty.is_result() && !matches!(return_ty, Type::Stream(_))
             && effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
             && let Some(errors) = self.error_boundary_errors.last_mut() {
@@ -242,17 +133,12 @@ impl Checker {
         if matches!(ty, Type::Bool | Type::Result(_, _)) {
             self.require_effect(Effect::Error, span, "statement failure propagation");
         }
+        if self.retry_attempt_depth == 0 { return; }
         let error = match ty {
             Type::Result(_, error) => Some(error.as_ref().clone()),
             Type::Bool => Some(Type::ErrorFamily(Name::intern("AssertionError"))),
             _ => None,
         };
-        if self.retry_attempt_depth == 0 {
-            if self.inferred_returns.is_some() && ty.is_result_unit() && let Some(error) = error {
-                self.inferred_propagations.push((error, span));
-            }
-            return;
-        }
         if let (Some(errors), Some(error)) = (self.error_boundary_errors.last_mut(), error) { errors.push((error, span)); }
     }
 
@@ -263,27 +149,6 @@ impl Checker {
     }
 
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
-        let expected_graph_view = if let Type::Graph(id) = expected { Some(self.graph_view(*id)) } else { None };
-        let expected_view = expected_graph_view.as_ref().unwrap_or(expected);
-        let actual_graph_view = if let Type::Graph(id) = actual { Some(self.graph_view(*id)) } else { None };
-        let actual_view = actual_graph_view.as_ref().unwrap_or(actual);
-        let requires_validation = if expected.contains_graph() || actual.contains_graph() {
-            if !self.graph_generation { return; }
-            let result = (|| {
-                let expected = self.graph_type(expected, span)?;
-                let actual = self.graph_type(actual, span)?;
-                self.graph_argument_needs_validation(expected, actual)
-            })();
-            match result {
-                Ok(required) => required,
-                Err(error) => { self.graph_error(span, error); return; }
-            }
-        } else { actual_view.any_flows_to_concrete(expected_view) };
-        if requires_validation {
-            self.error(span, &format!("unchecked {actual_view} cannot establish {expected_view}; validate with `.require(Type)` or use a checked type pattern"), "check.dynamic-boundary");
-            return;
-        }
-        if self.graph_expect(expected, actual, span) { return; }
         if expected.contains_inference() || actual.contains_inference() {
             let constrained = if expected.contains_inference() {
                 self.type_constraints.constrain(expected, actual, span)
@@ -432,7 +297,6 @@ impl Checker {
         if let Some(builtin) = Type::builtin_from_name(&name.as_str()) {
             return builtin;
         }
-        if let Some(record) = self.check_graph_registry_schema(name, span) { return record; }
         if let Some(record) = standard_record_type(&name.as_str()) {
             return record;
         }
@@ -577,51 +441,5 @@ pub(super) fn collection_item_ty(ty: &Type) -> Type {
         Type::Unknown => Type::Unknown,
         Type::Any => Type::Any,
         _ => Type::Unknown,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::Checker;
-    use crate::source::SourceId;
-    use crate::syntax::parser::Parser;
-
-    #[test]
-    fn retry_return_preserves_written_enclosing_result_and_nested_results() {
-        let source = "proc outer() -> Result[Int] { let value = retry [] { return Ok(7) }?; value }\nlet nested = retry [] { Ok(7) }\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let (outer_identity, outer) = checked.solved.declarations.iter().next().unwrap();
-        assert!(checked.solved.graph.scheme(outer.scheme).unwrap().quantifiers.is_empty(), "the absent retry payload does not become a procedure type parameter");
-        let crate::sema::inference::TypeNode::Arrow(signature) = checked.solved.graph.node(outer.signature).unwrap() else { panic!("the written procedure retains its signature") };
-        assert_eq!(checked.solved.graph.export_type(signature.result).unwrap(), crate::sema::types::Type::Result(Box::new(crate::sema::types::Type::Int), Box::new(crate::sema::types::Type::Error)));
-        let outer_body = parsed.arena.arena.function_def(outer_identity.declaration).body;
-        let propagation = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(outer_body).statements).find_map(|statement| match parsed.arena.arena.stmt(statement).kind {
-            crate::syntax::arena::ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression), .. } => Some(super::super::ExpressionIdentity { source: parsed.arena.arena.expr(expression).span.source_id, namespace: outer_identity.namespace, expression }),
-            _ => None,
-        }).unwrap();
-        let crate::syntax::arena::ArenaExprKind::Try(retry) = parsed.arena.arena.expr(propagation.expression).kind else { panic!("the original initializer propagates the retry expression") };
-        let retry = super::super::ExpressionIdentity { expression: retry, ..propagation };
-        let scope = checked.solved.expression_schemes[&retry];
-        assert!(checked.solved.non_completing_expressions.contains(&propagation));
-        assert_eq!(checked.solved.expression_value_scopes[&propagation], scope);
-        assert!(!checked.solved.expression_schemes.contains_key(&propagation), "a noncompleting projection inherits scope without becoming a polymorphic value");
-        assert!(checked.solved.result_statement_wrappings.is_empty(), "the unreachable procedure tail contributes no successful wrapper");
-        let nested = *checked.solved.bindings.keys().find(|identity| matches!(parsed.arena.arena.binding_target(identity.target).kind, crate::syntax::arena::ArenaBindingTargetKind::Name(name) if name == "nested")).unwrap();
-        let nested = checked.solved.bindings[&nested].ty;
-        drop(parsed);
-        checked.solved.validate().unwrap();
-        assert_eq!(checked.solved.graph.export_type(nested).unwrap(), crate::sema::types::Type::Result(Box::new(crate::sema::types::Type::Int), Box::new(crate::sema::types::Type::Error)));
-        for invalid in [
-            "proc outer() -> Result[Int] { let value = retry [] { return Ok(\"wrong\") }?; value }\n",
-            "proc outer(flag: Bool) -> Result[Int] { let value = retry [] { if flag { return Ok(7) }; \"wrong\" }?; value }\n",
-        ] {
-            let parsed = Parser::parse_source_arena_only(SourceId::new(0), invalid);
-            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-            let checked = Checker::check_arena(&parsed.arena, invalid);
-            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")), "{invalid}: {:?}", checked.diagnostics);
-        }
     }
 }

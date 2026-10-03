@@ -1,62 +1,4 @@
-mod generic_prepare;
-mod scoped_callable_prepare;
-mod generic_operation_prepare;
-mod operation_prepare;
-#[cfg(test)]
-mod language_result_tests;
-mod language_result_prepare;
-mod result_receiver_prepare;
-pub(in crate::runtime::eval) use operation_prepare::{PreparedIntegerAddition, PreparedLiteralComparisonSlot, BuildLiteralComparison, PreparedComparisonLiteral, PreparedMembershipLowering, BuildMembershipSource, BuildFoldedMembership, BuildFallbackCreationCheck, PreparedFallbackCreationCheck, BuildTagEqualitySource, PreparedTagEquality};
-mod callable_prepare;
-mod module_invocation_prepare;
-pub(in crate::runtime::eval) use module_invocation_prepare::BuildModuleBindingOrigin;
-mod callable_receiver_prepare;
-mod argument_prepare;
-pub(in crate::runtime::eval) use argument_prepare::BuildOptionalReceiverGuard;
-mod iteration_prepare;
-mod record_prepare;
-mod record_update_prepare;
-mod conditional_prepare;
-mod path_prepare;
-pub(in crate::runtime::eval) use conditional_prepare::{BuildConditionalArm, BuildConditionalBody, BuildConditionalResult};
-mod comprehension_prepare;
-mod context_prepare;
-mod stage_prepare;
-mod duration_prepare;
-mod range_prepare;
-pub(in crate::runtime::eval) use range_prepare::range_stream;
-mod cli_call_prepare;
-mod capture_prepare;
-mod index_prepare;
-mod container_prepare;
-mod native_scalar_prepare;
-mod mutable_prepare;
-mod constructor_prepare;
-pub(in crate::runtime::eval) use native_scalar_prepare::{BuildByteAtFallbackOriginal, BuildFoldedNativeReceiver};
-pub(in crate::runtime::eval) use container_prepare::{BuildContainerCreationCheck, BuildNamedMapKeyOrigin};
-pub(in crate::runtime::eval) use index_prepare::BuildIndexOrigin;
-pub(in crate::runtime::eval) use context_prepare::{BuildContextScopeOrigin, BuildRunProducerOrigin, BuildSpawnRunOrigin, BuildRunPacketSource, BuildRunEnvironmentSource, BuildRunStdinSource};
-pub(in crate::runtime::eval) use capture_prepare::{BuildRetryCapturePolicy, BuildTryCaptureOrigin, PreparedCaptureErrorRelation};
-mod projection_prepare;
-mod pattern_prepare;
-mod native_prepare;
-mod fs_root_prepare;
-mod process_prepare;
-mod constant_prepare;
-mod host_binding_prepare;
-mod lexical_capture_prepare;
-mod mutable_path_prepare;
-mod error_constructor_prepare;
-mod tag_constructor_prepare;
-mod bridge_prepare;
-pub(in crate::runtime::eval) use native_prepare::BuildSavedNativeReceiverOrigin;
-mod native_callable_prepare;
-mod value_prepare;
-#[cfg(test)]
-mod evidence_audit_tests;
-
 use super::semantic::{SemanticPoolBuilder, SemanticPools};
-use super::generic::{GenericReturnPlan, TypeRef, CallEvidence, GenericCheckpoint, GenericEvidenceBuilder, GenericEvidenceStore, InstantiationId, InstructionOwner, Requirement, RequirementWitness, SchemeScopeId};
 use super::{
     IR_NONE, IrBlockId, IrBuildError, IrData, IrFunctionId, IrLocation, IrLocationId, IrRange,
     IrStringId, IrVerifyError, SignatureId, TypeId,
@@ -74,7 +16,7 @@ use crate::runtime::eval::{
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
-    LoweredValue, LoweredParamDefault, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
+    LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, RegexValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
@@ -177,7 +119,6 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprPreparedConstant,
     ExprPath,
     ExprFunctionRef,
-    ExprNativeCallableRef,
     ExprPathFrom,
     ExprParam,
     ExprAssert,
@@ -471,7 +412,7 @@ struct FullDriverProgram {
 #[repr(C)]
 struct FullFunction {
     name: u32,
-    signature: u32,
+    signature: SignatureId,
     params: IrRange,
     captures: IrRange,
     body: u32,
@@ -494,7 +435,7 @@ struct FullBlock {
 #[repr(C)]
 struct FullParam {
     name: u32,
-    type_id: u32,
+    type_id: TypeId,
     flags: u8,
     reserved: [u8; 3],
 }
@@ -520,19 +461,6 @@ struct FullCapture {
 struct FullValidation {
     type_id: TypeId,
     name: u32,
-}
-
-// The declaration header independently preserves completion wrapping: two
-// policies can share a Result type while producing different carrier depths.
-const GENERIC_RETURN_PLAN_MASK: u8 = 0b11 << 3;
-
-const fn generic_return_plan_flags(plan: GenericReturnPlan) -> u8 {
-    match plan {
-        GenericReturnPlan::Value => 0,
-        GenericReturnPlan::Result => 1 << 3,
-        GenericReturnPlan::Unit => 2 << 3,
-        GenericReturnPlan::ResultUnit => 3 << 3,
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -586,8 +514,6 @@ struct FullStore {
     run_kinds: Vec<RunKind>,
     redirection_kinds: Vec<RedirectionKind>,
     semantic: SemanticPools,
-    generic: Option<Box<GenericEvidenceStore>>,
-    original_generic_owner: Option<u64>,
 }
 
 impl Default for FullStore {
@@ -634,36 +560,11 @@ impl Default for FullStore {
             run_kinds: Vec::new(),
             redirection_kinds: Vec::new(),
             semantic: SemanticPools::default(),
-            generic: None,
-            original_generic_owner: None,
         }
     }
 }
 
 impl FullStore {
-    fn verify_generic_owner(&self) -> Result<(), IrVerifyError> {
-        if let Some(original) = self.original_generic_owner
-            && self.generic.as_deref().is_none_or(|generic| generic.program_owner() != original) {
-            return Err(IrVerifyError::new("prepared program lacks its original evidence owner"));
-        }
-        Ok(())
-    }
-    fn generic_instruction_owners(&self) -> Result<Vec<Option<InstructionOwner>>, IrVerifyError> {
-        let mut owners = vec![None; self.tags.len()];
-        for index in 0..self.functions.len() {
-            let owner = InstructionOwner::Function(IrFunctionId::new(index).map_err(|_| IrVerifyError::new("generic function owner overflows"))?);
-            for instruction in self.function_instruction_range(index)? {
-                if owners[instruction].replace(owner).is_some() { return Err(IrVerifyError::new("generic function instruction ranges overlap")); }
-            }
-        }
-        for index in 0..self.driver_steps.len() {
-            let owner = InstructionOwner::Driver(u32::try_from(index).map_err(|_| IrVerifyError::new("generic driver owner overflows"))?);
-            for instruction in self.driver_instruction_range(index)? {
-                if owners[instruction].replace(owner).is_some() { return Err(IrVerifyError::new("generic driver instruction ranges overlap")); }
-            }
-        }
-        Ok(owners)
-    }
     #[inline(always)]
     fn payload(&self, range: IrRange) -> Result<&[u32], IrVerifyError> {
         let bounds = range
@@ -782,7 +683,6 @@ impl FullStore {
             + self.byte_data.capacity()
             + self.prepared_constants.capacity() * size_of::<PreparedConstantValue>()
             + self.prepared_schemas.capacity() * size_of::<Arc<super::super::require::PreparedSchema>>()
-            + self.prepared_schemas.iter().map(|schema| schema.retained_bytes()).sum::<usize>()
             + self.wire_enums.capacity() * size_of::<Arc<crate::sema::wire_enums::WireEnumMapping>>()
             + self.prepared_cli_plans.capacity() * size_of::<Arc<crate::modules::cli::CliDescriptorPlan>>()
             + self.prepared_regexes.capacity() * size_of::<RegexValue>()
@@ -798,7 +698,6 @@ impl FullStore {
                 .semantic
                 .retained_bytes()
                 .saturating_sub(size_of::<SemanticPools>())
-            + self.generic.as_ref().map_or(0, |generic| generic.retained_bytes())
     }
 
     #[cfg(test)]
@@ -850,13 +749,11 @@ impl FullStore {
         self.run_kinds.shrink_to_fit();
         self.redirection_kinds.shrink_to_fit();
         self.semantic.shrink_to_fit();
-        if let Some(generic) = &mut self.generic { generic.shrink_to_fit(); }
     }
 }
 
 #[derive(Clone, Debug)]
 pub(in crate::runtime::eval) struct FullProgram {
-    source_lowering_stats: super::super::FrontendLoweredStats,
     store: FullStore,
     sources: Arc<SourceMap>,
     symbols: crate::symbol::SymbolOwner,
@@ -884,7 +781,6 @@ pub(in crate::runtime::eval) struct FullProgram {
 pub(in crate::runtime::eval) struct FullFunctionView<'a> {
     program: &'a FullProgram,
     index: usize,
-    instantiation: Option<InstantiationId>,
 }
 
 #[derive(Clone, Copy)]
@@ -894,28 +790,6 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullProgram {
-    pub(in crate::runtime::eval) fn function_view_by_id(&self, function: IrFunctionId) -> Result<FullFunctionView<'_>, IrVerifyError> {
-        if function.index() >= self.store.functions.len() { return Err(IrVerifyError::new("prepared callable function is out of bounds")); }
-        Ok(FullFunctionView { program: self, index: function.index(), instantiation: None })
-    }
-    pub(in crate::runtime::eval) fn callable_value(&self, instruction: u32) -> Result<Option<super::generic::CallableValueId>, IrVerifyError> {
-        if instruction as usize >= self.store.tags.len() { return Err(IrVerifyError::new("callable creation instruction is out of bounds")); }
-        self.store.generic.as_deref().map_or(Ok(None), |store| store.callable_value_at(instruction))
-    }
-    pub(in crate::runtime::eval) fn invocation_plan(&self, instruction: u32) -> Result<Option<super::generic::InvocationPlanId>, IrVerifyError> {
-        if instruction as usize >= self.store.tags.len() { return Err(IrVerifyError::new("invocation instruction is out of bounds")); }
-        self.store.generic.as_deref().map_or(Ok(None), |store| store.invocation_plan_at(instruction))
-    }
-    pub(in crate::runtime::eval) fn source_lowering_stats(&self) -> super::super::FrontendLoweredStats {
-        super::super::FrontendLoweredStats { retained_estimate_bytes: self.store.retained_bytes(), ..self.source_lowering_stats }
-    }
-    pub(in crate::runtime::eval) fn generic_evidence(&self) -> Option<&GenericEvidenceStore> { self.store.generic.as_deref() }
-    #[cfg(test)]
-    pub(in crate::runtime::eval) fn test_verify_native_result_record_layout(&self, source: &super::generic::NativeCallSource) -> Result<(), IrVerifyError> { source.verify_result_record_layout(&self.store.semantic) }
-    #[cfg(test)]
-    pub(in crate::runtime::eval) fn test_remove_callable_values(&mut self) { self.store.generic.as_deref_mut().unwrap().test_remove_callable_values(); }
-    #[cfg(test)]
-    pub(in crate::runtime::eval) fn test_semantic_type(&self, ty: TypeId) -> Result<Type, IrVerifyError> { self.store.semantic.to_type(ty) }
     pub(in crate::runtime::eval) fn symbol_owner(&self) -> &crate::symbol::SymbolOwner {
         &self.symbols
     }
@@ -972,7 +846,7 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
         self.store.params[params]
             .iter()
-            .map(|param| if param.type_id == IR_NONE { Ok(LoweredType::Generic) } else { lowered_type_from_type(&self.store.semantic.to_type(TypeId::from_raw(param.type_id).ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?)?) })
+            .map(|param| lowered_type_from_type(&self.store.semantic.to_type(param.type_id)?))
             .collect::<Result<Vec<_>, _>>()
             .map(Some)
     }
@@ -990,7 +864,6 @@ impl FullProgram {
             return Ok(identities.get(&(key, kind)).map(|index| FullFunctionView {
                 program: self,
                 index: *index,
-                instantiation: None,
             }));
         }
         for index in 0..self.store.functions.len() {
@@ -998,7 +871,6 @@ impl FullProgram {
                 return Ok(Some(FullFunctionView {
                     program: self,
                     index,
-                    instantiation: None,
                 }));
             }
         }
@@ -1025,7 +897,6 @@ impl FullProgram {
         (index < self.store.functions.len()).then_some(FullFunctionView {
             program: self,
             index,
-            instantiation: None,
         })
     }
 
@@ -1195,7 +1066,7 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
     }
 
-    fn verify_driver(&self, pattern_tree: Option<&std::sync::Mutex<super::pattern::PatternTreeBuilder>>) -> Result<(), IrVerifyError> {
+    fn verify_driver(&self) -> Result<(), IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             return Ok(());
         }
@@ -1205,7 +1076,6 @@ impl FullProgram {
             self.store.driver_root,
             &mut program_states,
             &mut step_states,
-            pattern_tree,
         )?;
         if program_states.iter().any(|state| *state != 2)
             || step_states.iter().any(|state| *state != 2)
@@ -1222,7 +1092,6 @@ impl FullProgram {
         raw: u32,
         program_states: &mut [u8],
         step_states: &mut [u8],
-        pattern_tree: Option<&std::sync::Mutex<super::pattern::PatternTreeBuilder>>,
     ) -> Result<(), IrVerifyError> {
         let index = raw
             .checked_sub(1)
@@ -1254,7 +1123,7 @@ impl FullProgram {
                 }
                 _ => unreachable!("driver step state is bounded"),
             }
-            self.verify_driver_step(step_index, program_states, step_states, pattern_tree)?;
+            self.verify_driver_step(step_index, program_states, step_states)?;
             step_states[step_index] = 2;
         }
         program_states[index] = 2;
@@ -1266,7 +1135,6 @@ impl FullProgram {
         step_index: usize,
         program_states: &mut [u8],
         step_states: &mut [u8],
-        pattern_tree: Option<&std::sync::Mutex<super::pattern::PatternTreeBuilder>>,
     ) -> Result<(), IrVerifyError> {
         let step = self.store.driver_steps[step_index];
         let instruction_range = self.store.driver_instruction_range(step_index)?;
@@ -1278,7 +1146,7 @@ impl FullProgram {
             instruction_range,
             block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
             slot_count: step.slot_count,
-            pattern_tree, pattern_ceiling: Cell::new(usize::MAX),
+            pattern_ceiling: Cell::new(usize::MAX),
             verified: false,
         };
         let location_words = [step.location];
@@ -1297,7 +1165,7 @@ impl FullProgram {
                 return Err(IrVerifyError::new("driver slot metadata is invalid"));
             }
             self.store.string(slot.name)?;
-            callable_prepare::checked_storage_kind(&self.store.semantic, slot.type_id)?;
+            lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
         }
         let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
         match step.tag {
@@ -1310,7 +1178,7 @@ impl FullProgram {
                 Vec::<LoweredModuleExport>::verify(&decoder, &mut payload)?;
                 let child = payload.raw()?;
                 Span::verify(&decoder, &mut payload)?;
-                self.verify_driver_program(child, program_states, step_states, pattern_tree)?;
+                self.verify_driver_program(child, program_states, step_states)?;
             }
             FullDriverTag::Let => {
                 Name::verify(&decoder, &mut payload)?;
@@ -1363,15 +1231,6 @@ impl FullProgram {
 }
 
 impl<'a> FullFunctionView<'a> {
-    pub(in crate::runtime::eval) fn with_instantiation(self, id: InstantiationId) -> Result<Self, IrVerifyError> {
-        let store = self.generic_evidence().ok_or_else(|| IrVerifyError::new("generic function entry has no evidence store"))?;
-        if Some(store.instance(id)?.scope) != self.generic_scope() { return Err(IrVerifyError::new("generic function entry proof belongs to another scope")); }
-        Ok(Self { instantiation: Some(id), ..self })
-    }
-    pub(in crate::runtime::eval) fn generic_scope(&self) -> Option<SchemeScopeId> {
-        self.program.generic_evidence()?.scope_for_function(IrFunctionId::new(self.index).ok()?)
-    }
-    pub(in crate::runtime::eval) fn generic_evidence(&self) -> Option<&'a GenericEvidenceStore> { self.program.generic_evidence() }
     pub(in crate::runtime::eval) fn index(&self) -> usize {
         self.index
     }
@@ -1426,7 +1285,7 @@ impl<'a> FullFunctionView<'a> {
 
     fn decode_header(&self) -> Result<FunctionHeader, IrVerifyError> {
         let function = self.program.store.functions[self.index];
-        let decoder = FullDecoder { store: &self.program.store, owner: IrFunctionId::new(self.index).map_err(|_| IrVerifyError::new("function id is invalid"))?.raw(), instruction_range: self.program.store.function_instruction_range(self.index)?, instruction_states: None, block_states: None, slot_count: function.slot_count, pattern_tree: None, pattern_ceiling: Cell::new(usize::MAX), verified: true };
+        let decoder = self.execution()?.decoder;
         let params = function
             .params
             .bounds(self.program.store.params.len())
@@ -1450,10 +1309,9 @@ impl<'a> FullFunctionView<'a> {
                 .ok()
                 .map(|index| self.program.store.param_cold[index]);
             param_names.push(Name::intern(self.program.store.string(param.name)?));
-            param_kinds.push(if param.type_id == IR_NONE {
-                if self.generic_scope().is_none() { return Err(IrVerifyError::new("generic parameter lacks a scope")); }
-                LoweredType::Generic
-            } else { lowered_type_from_type(&self.program.store.semantic.to_type(TypeId::from_raw(param.type_id).ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?)?)? });
+            param_kinds.push(lowered_type_from_type(
+                &self.program.store.semantic.to_type(param.type_id)?,
+            )?);
             param_checks.push(if cold.is_none_or(|cold| cold.validation == IR_NONE) {
                 None
             } else {
@@ -1472,37 +1330,38 @@ impl<'a> FullFunctionView<'a> {
             });
             param_rest.push(param.flags & 1 != 0);
             param_defaults.push(if param.flags & 4 != 0 {
-                LoweredParamDefault::Expression
+                Some(LoweredValue::OmittedArgument)
             } else if cold.is_none_or(|cold| cold.default == IR_NONE) {
-                LoweredParamDefault::None
+                None
             } else {
                 let raw = [cold.expect("checked above").default];
                 let mut value = FullCursor::new(&raw);
-                LoweredParamDefault::Constant(LoweredValue::decode(&decoder, &mut value)?)
+                Some(LoweredValue::decode(&decoder, &mut value)?)
             });
         }
         let mut decoded_captures = SmallVec::new();
         for capture in &self.program.store.captures[captures] {
             decoded_captures.push(LoweredTopLevelSlot {
-                lexical_binding: None,
-                host_binding: self.program.generic_evidence().map(|generic| generic.host_binding_capture_for_slot(IrFunctionId::new(self.index).map_err(|_| IrVerifyError::new("host capture function id is invalid"))?, capture.slot_and_flags & !(1 << 31))).transpose()?.flatten().map(|(_, capture)| capture.binding),
-                source_type: None,
                 name: Name::intern(self.program.store.string(capture.name)?),
                 slot: (capture.slot_and_flags & !(1 << 31)) as usize,
-                kind: callable_prepare::checked_storage_kind(&self.program.store.semantic, capture.type_id)?,
+                kind: lowered_type_from_type(
+                    &self.program.store.semantic.to_type(capture.type_id)?,
+                )?,
                 mutable: capture.slot_and_flags & (1 << 31) != 0,
             });
         }
-        let (return_kind, return_check) = if function.signature == IR_NONE {
-            let scope = self.generic_scope().ok_or_else(|| IrVerifyError::new("generic signature lacks a scope"))?;
-            let plan = self.generic_evidence().ok_or_else(|| IrVerifyError::new("generic signature lacks evidence"))?.scope(scope)?.return_plan;
-            (match plan { GenericReturnPlan::Value => LoweredReturnKind::Plain(LoweredType::Generic), GenericReturnPlan::Result | GenericReturnPlan::ResultUnit => LoweredReturnKind::Result(LoweredType::Generic), GenericReturnPlan::Unit => LoweredReturnKind::Plain(LoweredType::Unit) }, None)
-        } else {
-            let signature = SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("function signature id is invalid"))?;
-            let return_type = self.program.store.semantic.to_type(self.program.store.semantic.signature_return_type(signature)?)?;
-            let return_check = return_type.has_unsigned_constraint().then(|| LoweredTypeCheck { name: Arc::from(return_type.to_string()), ty: return_type.clone(), schema: None });
-            let return_kind = match return_type { Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?), ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?) };
-            (return_kind, return_check)
+        let return_type = self.program.store.semantic.to_type(
+            self.program
+                .store
+                .semantic
+                .signature_return_type(function.signature)?,
+        )?;
+        let return_check = return_type.has_unsigned_constraint().then(|| LoweredTypeCheck {
+            name: Arc::from(return_type.to_string()), ty: return_type.clone(), schema: None,
+        });
+        let return_kind = match return_type {
+            Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
+            ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
         };
         Ok(FunctionHeader {
             params: param_names,
@@ -1518,11 +1377,8 @@ impl<'a> FullFunctionView<'a> {
     }
 
     pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
-        self.program.store.verify_generic_owner()?;
-        if self.generic_scope().is_some() && self.instantiation.is_none() { return Err(IrVerifyError::new("generic function entry lacks prepared evidence")); }
         let function = self.program.store.functions[self.index];
         Ok(FullExecution {
-            instantiation: self.instantiation,
             decoder: FullDecoder {
                 store: &self.program.store,
                 owner: IrFunctionId::new(self.index)
@@ -1532,7 +1388,7 @@ impl<'a> FullFunctionView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: function.slot_count,
-                pattern_tree: None, pattern_ceiling: Cell::new(usize::MAX),
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: true,
             },
         })
@@ -1550,14 +1406,6 @@ impl<'a> FullFunctionView<'a> {
 
     pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
         self.program.store.functions[self.index].slot_count as usize
-    }
-
-    pub(in crate::runtime::eval) fn function_id(&self) -> IrFunctionId {
-        IrFunctionId::new(self.index).expect("function views retain a valid function index")
-    }
-
-    pub(in crate::runtime::eval) fn belongs_to_program(&self, program: &FullProgram) -> bool {
-        std::ptr::eq(self.program, program)
     }
 
     pub(in crate::runtime::eval) fn has_defers(&self) -> bool {
@@ -1585,10 +1433,8 @@ impl<'a> FullDriverStepView<'a> {
     }
 
     pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
-        self.program.store.verify_generic_owner()?;
         let step = self.program.store.driver_steps[self.index];
         Ok(FullExecution {
-            instantiation: None,
             decoder: FullDecoder {
                 store: &self.program.store,
                 owner: driver_owner(self.index)
@@ -1597,7 +1443,7 @@ impl<'a> FullDriverStepView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: step.slot_count,
-                pattern_tree: None, pattern_ceiling: Cell::new(usize::MAX),
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: true,
             },
         })
@@ -1637,12 +1483,9 @@ impl<'a> FullDriverStepView<'a> {
         let mut slots = SmallVec::new();
         for slot in &self.program.store.driver_slots[range] {
             slots.push(LoweredTopLevelSlot {
-                host_binding: None,
-                lexical_binding: None,
-                source_type: None,
                 name: Name::intern(self.program.store.string(slot.name)?),
                 slot: slot.slot as usize,
-                kind: callable_prepare::checked_storage_kind(&self.program.store.semantic, slot.type_id)?,
+                kind: lowered_type_from_type(&self.program.store.semantic.to_type(slot.type_id)?)?,
                 mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
             });
         }
@@ -1652,35 +1495,6 @@ impl<'a> FullDriverStepView<'a> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct FullCheckpoint {
-    stage_block_callback_rows: usize,
-    stage_fusion_rows: usize,
-    module_binding_rows: usize,
-    original_module_capture_rows: usize,
-    hash_policy_rows: usize,
-    field_presence_control_rows: usize,
-    value_binding_rows: usize,
-    value_use_rows: usize,
-    iteration_binding_rows: usize,
-    iteration_use_rows: usize,
-    argument_binding_rows: usize,
-    callable_binding_rows: usize,
-    callable_use_rows: usize,
-    callable_receiver_rows: usize,
-    original_callable_capture_rows: usize,
-    captured_callable_read_rows: usize,
-    membership_rows: usize,
-    tag_equality_rows: usize,
-    folded_membership_rows: usize,
-    fallback_creation_check_rows: usize,
-    saved_native_receiver_rows: usize,
-    result_receiver_rows: usize,
-    host_binding_read_rows: usize,
-    lexical_capture_read_rows: usize,
-    conditional_result_rows: usize,
-    path_source_rows: usize,
-    container_creation_check_rows: usize,
-    byte_at_fallback_rows: usize,
-    encoded_slot_uses: usize,
     tags: usize,
     extra: usize,
     patterns: usize,
@@ -1712,96 +1526,12 @@ struct FullCheckpoint {
     run_kinds: usize,
     redirection_kinds: usize,
     semantic: super::semantic::SemanticCheckpoint,
-    generic: Option<GenericCheckpoint>,
-    generic_expression_rows: usize,
-    generic_stage_call_rows: usize,
-    generic_pattern_rows: usize,
-    pattern_capture_slot_rows: usize,
-    pattern_capture_source_rows: usize,
-    pattern_use_rows: usize,
-    generic_pattern_statement_use_rows: usize,
-    generic_pattern_admissions: usize,
 }
 
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FullBuilder {
-    stage_block_callback_rows: Vec<super::generic::OriginalStageBlockCallback>,
-    stage_fusion_rows: Vec<super::generic::OriginalStageFusion>,
-    active_module_bindings: FxHashMap<BuildStmtId, (crate::sema::check::BindingIdentity, BuildModuleBindingOrigin)>,
-    module_binding_rows: Vec<(crate::sema::check::BindingIdentity, BuildModuleBindingOrigin, u32, u32, InstructionOwner)>,
-    original_module_capture_rows: Vec<(IrFunctionId, crate::sema::check::DeclarationIdentity, u32, LoweredTopLevelSlot)>,
-    hash_policy_rows: Vec<(u32, InstructionOwner, super::super::lower::hash_arguments::BuildHashPolicyPacket, [u32; 3])>,
-    field_presence_control_rows: Vec<(crate::sema::check::StatementIdentity, u32, InstructionOwner)>,
-    active_pattern_admissions: FxHashMap<super::super::BuildPatternControlRow, Vec<(BuildExprId, super::super::BuildPatternAdmission)>>,
-    active_pattern_statements: FxHashMap<BuildStmtId, u32>,
-    generic_pattern_admissions: Vec<(u32, super::pattern::PreparedPatternAdmission, InstructionOwner, Option<Box<super::pattern::PreparedPatternConditionalResult>>)>,
-    active_value_bindings: FxHashMap<BuildStmtId, (crate::sema::check::BindingIdentity, super::super::BuildValueBindingOrigin)>,
-    active_with_value_bindings: FxHashMap<BuildStmtId, Vec<(crate::sema::check::WithBindingIdentity, super::super::BuildValueBindingOrigin)>>,
-    active_guard_error_bindings: FxHashMap<BuildStmtId, (crate::sema::check::GuardErrorBindingIdentity, super::super::BuildValueBindingOrigin)>,
-    value_binding_rows: Vec<(super::generic::ValueBindingIdentity, super::super::BuildValueBindingOrigin, u32, u32, InstructionOwner)>,
-    value_use_rows: Vec<(super::generic::OperationSourceOrigin, super::generic::ValueBindingIdentity, u32, InstructionOwner)>,
-    active_iteration_bindings: FxHashMap<BuildStmtId, super::super::BuildIterationBindingOrigin>,
-    iteration_binding_rows: Vec<(super::super::BuildIterationBindingOrigin, u32, u32, u32, IrBlockId, InstructionOwner)>,
-    iteration_use_rows: Vec<(crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity, u32, InstructionOwner)>,
-    active_argument_wrappers: FxHashMap<BuildExprId, Vec<usize>>,
-    argument_binding_rows: Vec<(super::super::BuildArgumentBindingOrigin, u32, InstructionOwner, Option<(u32, u32, u32)>)>,
-    folded_native_receiver_rows: Vec<(u32, BuildFoldedNativeReceiver, InstructionOwner)>,
-    literal_comparison_rows: Vec<(u32, BuildLiteralComparison, InstructionOwner)>,
-    record_constructor_rows: Vec<constructor_prepare::StagedRecordConstructor>,
-    constant_source_rows: Vec<(super::generic::OriginalConstantSource, u32, InstructionOwner)>,
-    record_update_rows: Vec<record_update_prepare::StagedRecordUpdate>,
-    conditional_result_rows: Vec<super::generic::ConditionalResultSource>,
-    path_source_rows: Vec<path_prepare::PathSourceRow>,
-    container_creation_check_rows: Vec<(BuildContainerCreationCheck, u32, u32, InstructionOwner)>,
-    byte_at_fallback_rows: Vec<(u32, BuildByteAtFallbackOriginal, InstructionOwner)>,
-    encoded_slot_uses: Vec<(u32, usize)>,
-    error_constructor_rows: Vec<error_constructor_prepare::StagedErrorConstructor>,
-    tag_constructor_rows: Vec<tag_constructor_prepare::StagedTagConstructor>,
-    host_binding_read_rows: Vec<(u32, super::super::lower::host_bindings::BuildHostBindingRead, InstructionOwner)>,
-    lexical_capture_read_rows: Vec<(u32, super::super::lower::lexical_captures::BuildLexicalCaptureRead, InstructionOwner)>,
-    index_rows: Vec<(BuildIndexOrigin, u32, InstructionOwner)>,
-    line_scan_rows: Vec<iteration_prepare::StagedLineScan>,
-    record_source_rows: Vec<(super::super::lower::record_binding::OriginalRecordSource, u32, InstructionOwner, Box<[(u32, u32)]>)>,
-    compiler_argument_wrappers: FxHashMap<u32, argument_prepare::CompilerArgumentWrapper>,
-    optional_receiver_guards: FxHashMap<u32, super::generic::OriginalOptionalReceiverGuard>,
-    prepared_argument_origins: FxHashMap<u32, (crate::sema::check::ExpressionIdentity, InstructionOwner)>,
-    prepared_saved_argument_bindings: FxHashMap<u32, super::generic::OriginalArgumentBinding>,
-    active_callable_bindings: FxHashMap<BuildStmtId, (crate::sema::check::BindingIdentity, super::super::BuildCallableBindingOrigin)>,
-    active_encoded_expressions: FxHashMap<BuildExprId, u32>,
-    callable_binding_rows: Vec<(crate::sema::check::BindingIdentity, super::super::BuildCallableBindingOrigin, u32, u32, InstructionOwner)>,
-    membership_rows: Vec<BuildMembershipSource>,
-    tag_equality_rows: Vec<BuildTagEqualitySource>,
-    folded_membership_rows: Vec<(u32, BuildFoldedMembership, InstructionOwner)>,
-    fallback_creation_check_rows: Vec<(BuildFallbackCreationCheck, u32, u32, InstructionOwner)>,
-    original_callable_capture_rows: Vec<(IrFunctionId, crate::sema::check::DeclarationIdentity, u32, LoweredTopLevelSlot)>,
-    captured_callable_read_rows: Vec<(u32, super::super::lower::lexical_captures::BuildLexicalCaptureRead, InstructionOwner)>,
-    callable_use_rows: Vec<super::generic::OriginalCallableUse>,
-    callable_receiver_rows: Vec<(super::super::BuildCallableReceiverOrigin, u32, InstructionOwner, Option<(u32, u32, u32)>)>,
-    active_callable_receiver_wrappers: FxHashMap<BuildExprId, Vec<usize>>,
-    saved_native_receiver_rows: Vec<(BuildSavedNativeReceiverOrigin, u32, InstructionOwner, Option<(u32, u32, u32, u32)>)>,
-    result_receiver_rows: Vec<(super::super::lower::BuildResultReceiver, u32, InstructionOwner, u32)>,
-    active_native_receiver_wrappers: FxHashMap<BuildExprId, Vec<usize>>,
-    source_lowering_stats: super::super::FrontendLoweredStats,
     store: FullStore,
     semantic: SemanticPoolBuilder,
-    generic: Option<GenericEvidenceBuilder>,
-    solved: Option<Arc<crate::sema::check::SolvedTypes>>,
-    generic_declarations: BTreeMap<crate::sema::check::DeclarationIdentity, SchemeScopeId>,
-    declaration_functions: BTreeMap<crate::sema::check::DeclarationIdentity, IrFunctionId>,
-    generic_schemes: FxHashMap<SchemeScopeId, crate::sema::inference::SchemeId>,
-    generic_projection_uses: BTreeMap<crate::sema::check::ExpressionIdentity, (SchemeScopeId, u32)>,
-    active_expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
-    generic_expression_rows: Vec<(u32, crate::sema::check::ExpressionIdentity, InstructionOwner)>,
-    active_stage_call_origins: FxHashMap<BuildExprId, crate::sema::check::StageIdentity>,
-    generic_stage_call_rows: Vec<(u32, crate::sema::check::StageIdentity, InstructionOwner)>,
-    generic_pattern_rows: Vec<(u32, crate::sema::check::PatternIdentity, InstructionOwner)>,
-    pattern_capture_slots: BTreeMap<crate::sema::check::PatternCaptureIdentity, u32>,
-    pattern_capture_slot_rows: Vec<crate::sema::check::PatternCaptureIdentity>,
-    pattern_capture_sources: BTreeSet<crate::sema::check::PatternIdentity>,
-    pattern_capture_source_rows: Vec<crate::sema::check::PatternIdentity>,
-    pattern_use_origins: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::PatternCaptureIdentity>,
-    pattern_use_rows: Vec<crate::sema::check::ExpressionIdentity>,
-    generic_pattern_statement_use_rows: Vec<(u32, crate::sema::check::StatementIdentity, crate::sema::check::PatternCaptureIdentity, InstructionOwner)>,
     strings: BTreeMap<String, IrStringId>,
     bytes: BTreeMap<Vec<u8>, super::IrBytesId>,
     locations: BTreeMap<(SourceId, u32, u32), IrLocationId>,
@@ -1814,37 +1544,6 @@ pub(in crate::runtime::eval) struct FullBuilder {
 }
 
 impl FullBuilder {
-    pub(in crate::runtime::eval) fn generic_evidence_mut(&mut self) -> &mut GenericEvidenceBuilder { self.generic.get_or_insert_with(GenericEvidenceBuilder::default) }
-    pub(in crate::runtime::eval) fn generic_function_id(&self, function: LoweredFunctionKey) -> Option<IrFunctionId> { self.function_ids.get(&function).copied() }
-    pub(in crate::runtime::eval) fn intern_generic_ground_type(&mut self, ty: &Type) -> Result<TypeId, IrBuildError> { self.semantic.intern_type(&mut self.store.semantic, ty) }
-    fn stage_pattern_origin(&mut self, pattern: u32, origin: crate::sema::check::PatternIdentity, owner: InstructionOwner, scratch: &BuildScratch) -> Result<(), IrBuildError> {
-        self.generic_pattern_rows.push((pattern, origin, owner));
-        let solved = self.solved.as_ref().ok_or_else(|| IrBuildError::format("pattern_original_graph_missing", None, 0, 0))?;
-        let mut pending = vec![(origin, 0usize)];
-        while let Some((identity, depth)) = pending.pop() {
-            if self.pattern_capture_sources.contains(&identity) { continue; }
-            if depth >= 512 { return Err(IrBuildError::format("pattern_original_forest_depth", None, 0, 0)); }
-            let source = solved.patterns.get(&identity).ok_or_else(|| IrBuildError::format("pattern_original_source_missing", None, 0, 0))?;
-            for capture in &source.captures {
-                let slot = scratch.pattern_capture_slots.get(&capture.identity).copied().ok_or_else(|| IrBuildError::format("pattern_original_capture_allocation_missing", None, 0, 0))?;
-                let slot = u32::try_from(slot).map_err(|_| IrBuildError::format("pattern_capture_slot_overflow", None, 0, 0))?;
-                if let Some(previous) = self.pattern_capture_slots.insert(capture.identity, slot) {
-                    if previous != slot { return Err(IrBuildError::format("pattern_original_capture_allocation_changed", None, 0, 0)); }
-                } else { self.pattern_capture_slot_rows.push(capture.identity); }
-            }
-            pending.extend(source.children.iter().map(|&child| (child, depth + 1)));
-            self.pattern_capture_sources.insert(identity);
-            self.pattern_capture_source_rows.push(identity);
-        }
-        Ok(())
-    }
-    fn stage_pattern_expression_use(&mut self, origin: crate::sema::check::ExpressionIdentity, scratch: &BuildScratch) -> Result<(), IrBuildError> {
-        let Some(&capture) = scratch.pattern_use_origins.get(&origin) else { return Ok(()); };
-        if let Some(previous) = self.pattern_use_origins.insert(origin, capture) {
-            if previous != capture { return Err(IrBuildError::format("pattern_original_capture_use_changed", None, 0, 0)); }
-        } else { self.pattern_use_rows.push(origin); }
-        Ok(())
-    }
     fn new(source_id: SourceId) -> Self {
         Self {
             store: FullStore {
@@ -1853,61 +1552,6 @@ impl FullBuilder {
             },
             ..Self::default()
         }
-    }
-
-    fn stage_callable_scratch(&mut self, scratch: &BuildScratch) -> Result<(), IrBuildError> {
-        self.active_module_bindings.clear();
-        for (&binding, original) in &scratch.module_binding_origins {
-            if self.active_module_bindings.insert(original.row, (binding, original.clone())).is_some() {
-                return Err(IrBuildError::format("module_binding_allocation_ambiguous", None, 0, 0));
-            }
-        }
-        self.active_value_bindings.clear();
-        for (&binding, original) in &scratch.value_binding_origins {
-            if self.active_value_bindings.insert(original.row, (binding, original.clone())).is_some() {
-                return Err(IrBuildError::format("value_binding_allocation_ambiguous", None, 0, 0));
-            }
-        }
-        self.active_with_value_bindings.clear();
-        for (&binding, original) in &scratch.with_value_binding_origins {
-            self.active_with_value_bindings.entry(original.row).or_default().push((binding, original.clone()));
-        }
-        self.active_guard_error_bindings.clear();
-        for (&binding, original) in &scratch.guard_error_binding_origins {
-            if self.active_guard_error_bindings.insert(original.row, (binding, original.clone())).is_some() {
-                return Err(IrBuildError::format("guard_error_allocation_ambiguous", None, 0, 0));
-            }
-        }
-        self.active_pattern_admissions.clear();
-        self.active_pattern_statements.clear();
-        for (&matcher, original) in &scratch.pattern_admissions {
-            self.active_pattern_admissions.entry(original.control).or_default().push((matcher, original.clone()));
-        }
-        self.active_iteration_bindings.clear();
-        for (&binding, original) in &scratch.iteration_binding_origins {
-            if binding != original.binding || self.active_iteration_bindings.insert(original.row, original.clone()).is_some() {
-                return Err(IrBuildError::format("iteration_binding_allocation_ambiguous", None, 0, 0));
-            }
-        }
-        self.active_argument_wrappers.clear();
-        self.active_callable_receiver_wrappers.clear();
-        self.active_native_receiver_wrappers.clear();
-        self.active_callable_bindings.clear();
-        self.active_encoded_expressions.clear();
-        for (&binding, original) in &scratch.callable_binding_origins {
-            if self.active_callable_bindings.insert(original.row, (binding, original.clone())).is_some() {
-                return Err(IrBuildError::format("callable_binding_allocation_ambiguous", None, 0, 0));
-            }
-        }
-        Ok(())
-    }
-
-    fn stage_iteration_expression_use(&mut self, instruction: u32, origin: crate::sema::check::ExpressionIdentity, owner: InstructionOwner, scratch: &BuildScratch) -> Result<(), IrBuildError> {
-        if let Some(&binding) = scratch.iteration_binding_uses.get(&origin) {
-            if !scratch.iteration_binding_origins.contains_key(&binding) { return Err(IrBuildError::format("iteration_use_original_binding_missing", None, 0, 0)); }
-            self.iteration_use_rows.push((origin, binding, instruction, owner));
-        }
-        Ok(())
     }
 
     fn reserve_function_keys(
@@ -1989,84 +1633,15 @@ impl FullBuilder {
     }
 
     fn finish(
-        self,
+        mut self,
         sources: Arc<SourceMap>,
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
-        let stats = self.source_lowering_stats;
-        self.finish_inner(sources, symbols).map_err(|mut error| { error.source_lowering_stats = Some(stats); error })
-    }
-
-    fn finish_inner(mut self, sources: Arc<SourceMap>, symbols: crate::symbol::SymbolOwner) -> Result<FullProgram, IrBuildError> {
-        for (_, original, instruction, _, owner) in self.value_binding_rows.clone() {
-            self.generic_evidence_mut().register_instruction_origin(instruction, super::generic::OperationSourceOrigin::Statement(original.statement), owner).map_err(|_| IrBuildError::format("original_value_binding_registration", None, 0, 0))?;
-        }
-        for (original, instruction, _, _, _, owner) in self.iteration_binding_rows.clone() {
-            self.generic_evidence_mut().register_instruction_origin(instruction, super::generic::OperationSourceOrigin::Statement(original.statement), owner).map_err(|_| IrBuildError::format("original_iteration_binding_registration", None, 0, 0))?;
-        }
-        for row in self.line_scan_rows.clone() {
-            self.generic_evidence_mut().register_instruction_origin(row.instruction, super::generic::OperationSourceOrigin::Statement(row.original.iteration.statement), row.owner).map_err(|_| IrBuildError::format("original_line_scan_registration", None, 0, 0))?;
-        }
-        for (_, original, instruction, _, owner) in self.callable_binding_rows.clone() {
-            self.generic_evidence_mut().register_instruction_origin(instruction, super::generic::OperationSourceOrigin::Statement(original.statement), owner).map_err(|_| IrBuildError::format("original_callable_binding_registration", None, 0, 0))?;
-        }
-        for (instruction, origin, owner) in self.generic_expression_rows.clone() {
-            self.generic_evidence_mut().register_instruction_origin(instruction, super::generic::OperationSourceOrigin::Expression(origin), owner).map_err(|_| IrBuildError::format("original_expression_registration", None, 0, 0))?;
-        }
-        for (instruction, origin, owner) in self.generic_stage_call_rows.clone() {
-            self.generic_evidence_mut().register_instruction_origin(instruction, super::generic::OperationSourceOrigin::Stage(origin), owner).map_err(|_| IrBuildError::format("original_stage_registration", None, 0, 0))?;
-        }
-        for (pattern, origin, owner) in self.generic_pattern_rows.clone() {
-            self.generic_evidence_mut().register_pattern_origin(pattern, origin, owner);
-        }
-        for (instruction, origin, _, owner) in self.generic_pattern_statement_use_rows.clone() {
-            self.generic_evidence_mut().register_instruction_origin(instruction, super::generic::OperationSourceOrigin::Statement(origin), owner).map_err(|_| IrBuildError::format("original_pattern_statement_registration", None, 0, 0))?;
-        }
-        self.prepare_constant_sources()?;
-        self.prepare_host_bindings()?;
-        self.prepare_lexical_captures()?;
-        self.prepare_original_argument_bindings()?;
-        self.prepare_generic_expressions()?;
-        self.prepare_original_iteration_bindings()?;
-        self.prepare_native_callable_values()?;
-        self.prepare_module_invocations()?;
-        self.prepare_callable_values()?;
-        self.prepare_ground_containers()?;
-        self.prepare_native_calls()?;
-        self.prepare_hash_policy_calls()?;
-        self.prepare_cli_calls()?;
-        self.prepare_compiler_argument_wrappers()?;
-        self.prepare_record_constructors()?;
-        self.prepare_error_constructors()?;
-        self.prepare_tag_constructors()?;
-        self.prepare_embedded_bridges()?;
-        self.prepare_value_bindings()?;
-        self.prepare_native_scalar_sources()?;
-        self.prepare_ground_projections()?;
-        self.prepare_mutable_refinements()?;
-        self.prepare_record_sources()?;
-        self.prepare_record_updates()?;
-        self.prepare_conditional_results()?;
-        self.prepare_formatted_paths()?;
-        self.prepare_pattern_evidence()?;
-        self.prepare_source_operations()?;
-        self.prepare_duration_operations()?;
-        self.prepare_range_operations()?;
-        self.prepare_stage_pipelines()?;
-        self.prepare_original_indices()?;
-        self.store.semantic.seal_original_contract();
-        if let Some(generic) = self.generic.take() {
-            let owners = self.store.generic_instruction_owners().map_err(|_| IrBuildError::format("generic_instruction_owners", None, 0, 0))?;
-            self.store.generic = Some(Box::new(generic.finish(&self.store.semantic, self.store.functions.len(), &owners)
-                .map_err(|error| IrBuildError::verification("generic_evidence_verification", error))?));
-            self.store.original_generic_owner = self.store.generic.as_deref().map(GenericEvidenceStore::program_owner);
-        }
         self.store.shrink_to_fit();
         let headers = (0..self.store.functions.len())
             .map(|_| std::sync::OnceLock::new())
             .collect();
         let program = FullProgram {
-            source_lowering_stats: self.source_lowering_stats,
             store: self.store,
             sources,
             symbols,
@@ -2075,7 +1650,7 @@ impl FullBuilder {
             identities: std::sync::OnceLock::new(),
         };
         FullVerifier::verify(&program)
-            .map_err(|error| IrBuildError::verification("full_ir_verification", error))?;
+            .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
         Ok(program)
     }
 
@@ -2159,8 +1734,7 @@ impl FullBuilder {
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
-        builder.solved = Some(Arc::clone(&bodies.solved));
-        builder.reserve_function_keys(super::super::lower::compact_emitted_function_keys(program, declarations))?;
+        builder.reserve_function_keys(super::super::lower::compact_function_keys(program))?;
         let mut pures = rustc_hash::FxHashSet::default();
         let mut procs = rustc_hash::FxHashSet::default();
         let mut qualified_pures = rustc_hash::FxHashSet::default();
@@ -2173,7 +1747,6 @@ impl FullBuilder {
             &sources,
             stdlib_linkage,
             |mut unit| {
-                builder.accumulate_source_lowering_stats(unit.source_lowering_stats());
                 builder.predeclare(&[&unit])?;
                 let body = unit.take_lowered_body().ok_or_else(|| {
                     IrBuildError::format(
@@ -2213,14 +1786,14 @@ impl FullBuilder {
                 }
                 Ok(())
             },
-        ).map_err(|mut error| { error.source_lowering_stats = Some(builder.source_lowering_stats); error })?;
+        )?;
         let functions = super::super::LowerableFunctions::all(
             &pures,
             &procs,
             &qualified_pures,
             &qualified_procs,
         );
-        let (driver, probe_output) = super::super::lower::lower_compact_top_level_program_with_probe(
+        let (driver, _) = super::super::lower::lower_compact_top_level_program_with_probe(
             program,
             declarations,
             bodies,
@@ -2228,15 +1801,6 @@ impl FullBuilder {
             &sources,
             &functions,
         );
-        builder.accumulate_source_lowering_stats(super::super::FrontendLoweredStats {
-            function_count: probe_output.functions,
-            constructed_functions: probe_output.constructed_functions,
-            statement_count: probe_output.statements,
-            expression_count: probe_output.expressions,
-            pattern_count: probe_output.patterns,
-            blocker_events: probe_output.blocker_events,
-            retained_estimate_bytes: 0,
-        });
         let source_statements = program.statement_ids().collect::<Vec<_>>();
         drop(pures);
         drop(procs);
@@ -2250,19 +1814,9 @@ impl FullBuilder {
             error.attempted_instructions = builder.store.tags.len().saturating_sub(checkpoint.tags);
             builder.rewind(checkpoint);
             error.committed_instructions = builder.store.tags.len();
-            error.source_lowering_stats = Some(builder.source_lowering_stats);
             return Err(error);
         }
         builder.finish(sources, symbols)
-    }
-
-    fn accumulate_source_lowering_stats(&mut self, stats: super::super::FrontendLoweredStats) {
-        self.source_lowering_stats.function_count += stats.function_count;
-        self.source_lowering_stats.constructed_functions += stats.constructed_functions;
-        self.source_lowering_stats.statement_count += stats.statement_count;
-        self.source_lowering_stats.expression_count += stats.expression_count;
-        self.source_lowering_stats.pattern_count += stats.pattern_count;
-        self.source_lowering_stats.blocker_events += stats.blocker_events;
     }
 
     fn predeclare(&mut self, units: &[&LoweredFunctionUnit]) -> Result<(), IrBuildError> {
@@ -2302,53 +1856,25 @@ impl FullBuilder {
                 .map(|name| self.intern_string(&name.as_str()))
                 .transpose()?
                 .map_or(IR_NONE, IrStringId::raw);
-            let generic_scope = self.prepare_generic_scope(function_id, &body)?;
-            if let Some(declaration) = body.solved_declaration {
-                if self.declaration_functions.insert(declaration, function_id).is_some() {
-                    return Err(IrBuildError::format("duplicate_source_declaration", Some(unit.source_span()), 0, self.store.tags.len()));
-                }
-            }
-            let generic_parameters = generic_scope.map(|scope| self.generic.as_ref().expect("scope has builder").scope(scope).expect("scope was prepared").parameters.clone());
-            let grounded_signature = if generic_scope.is_none() {
-                if let (Some(identity), Some(solved)) = (body.solved_declaration, self.solved.as_ref()) {
-                    let declaration = solved.declarations.get(&identity).ok_or_else(|| IrBuildError::format("missing_ground_declaration", None, 0, 0))?;
-                    let signature = solved.graph.resolved(declaration.signature).map_err(|_| IrBuildError::format("invalid_ground_signature", None, 0, 0))?;
-                    let crate::sema::inference::TypeNode::Arrow(arrow) = solved.graph.node(signature).map_err(|_| IrBuildError::format("invalid_ground_signature", None, 0, 0))? else { return Err(IrBuildError::format("invalid_ground_signature", None, 0, 0)); };
-                    let parameters = arrow.params.iter().map(|parameter| super::generic::graph_ground_type(&solved.graph, parameter.ty).map_err(|_| IrBuildError::format("unresolved_ground_parameter", None, 0, 0))).collect::<Result<Vec<_>, _>>()?;
-                    let result = super::generic::graph_ground_type(&solved.graph, arrow.result).map_err(|_| IrBuildError::format("unresolved_ground_result", None, 0, 0))?;
-                    Some((parameters, result))
-                } else if body.solved_declaration.is_none() {
-                    body.legacy_checked_signature.clone()
-                } else {
-                    return Err(IrBuildError::format("missing_ground_signature_owner", None, 0, 0));
-                }
-            } else { None };
-            if let Some((parameters, _)) = &grounded_signature {
-                if parameters.len() != body.params.len() || body.param_kinds.len() != body.params.len() || body.param_defaults.len() != body.params.len() || body.param_rest.len() != body.params.len() || body.param_checks.len() != body.params.len() {
-                    return Err(IrBuildError::format("ground_parameter_arity", None, 0, 0));
-                }
-                for (index, ty) in parameters.iter().enumerate() {
-                    let kind = lowered_type_from_type(&executable_type(ty)).map_err(|_| IrBuildError::format("ground_parameter_storage", None, 0, 0))?;
-                    if kind != body.param_kinds[index] { return Err(IrBuildError::format("ground_parameter_storage", None, 0, 0)); }
-                }
-            }
             let params_start = self.store.params.len();
             let captures_start = self.store.captures.len();
             let mut signature_params = Vec::with_capacity(body.params.len());
             for (index, name) in body.params.iter().copied().enumerate() {
-                let type_id = if let Some(parameters) = &generic_parameters { match parameters.get(index).copied().ok_or_else(|| IrBuildError::format("generic_parameter_arity", None, 0, 0))? { TypeRef::Ground(ty) => ty.raw(), TypeRef::Rigid(_) | TypeRef::Template(_) => IR_NONE } } else if let Some((parameters, _)) = &grounded_signature { self.semantic.intern_type(&mut self.store.semantic, parameters.get(index).ok_or_else(|| IrBuildError::format("ground_parameter_arity", None, 0, 0))?)?.raw() } else { self.intern_lowered_type(body.param_kinds[index])?.raw() };
-                let default = match &body.param_defaults[index] {
-                    LoweredParamDefault::Constant(value) => self.encode_value_id(value)?,
-                    LoweredParamDefault::None | LoweredParamDefault::Expression => IR_NONE,
-                };
+                let type_id = self.intern_lowered_type(body.param_kinds[index])?;
+                let default = body.param_defaults[index]
+                    .as_ref()
+                    .filter(|value| !matches!(value, LoweredValue::OmittedArgument))
+                    .map(|value| self.encode_value_id(value))
+                    .transpose()?
+                    .unwrap_or(IR_NONE);
                 let validation = body.param_checks[index]
                     .as_ref()
                     .map(|check| self.encode_validation(check))
                     .transpose()?
                     .unwrap_or(IR_NONE);
                 let flags = u8::from(body.param_rest[index])
-                    | u8::from(!matches!(body.param_defaults[index], LoweredParamDefault::None)) << 1
-                    | u8::from(matches!(body.param_defaults[index], LoweredParamDefault::Expression)) << 2;
+                    | u8::from(body.param_defaults[index].is_some()) << 1
+                    | u8::from(matches!(body.param_defaults[index], Some(LoweredValue::OmittedArgument))) << 2;
                 let name_id = self.intern_string(&name.as_str())?.raw();
                 let param = u32::try_from(self.store.params.len())
                     .map_err(|_| IrBuildError::format("parameter_overflow", None, 0, 0))?;
@@ -2365,40 +1891,28 @@ impl FullBuilder {
                         validation,
                     });
                 }
-                if let Some(type_id) = TypeId::from_raw(type_id) {
-                    let signature_flags = u32::from(flags & 2 != 0) | u32::from(flags & 1 != 0) << 1;
-                    signature_params.push((name, type_id, signature_flags));
-                }
+                signature_params.push((name, type_id, u32::from(flags & 0b11)));
             }
             for capture in &body.captures {
                 let slot = u32::try_from(capture.slot)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
                 let name = self.intern_string(&capture.name.as_str())?.raw();
-                let type_id = if let Some(binding) = capture.host_binding { self.semantic.intern_type(&mut self.store.semantic, &binding.ty())? } else { self.intern_checked_slot_type(capture)? };
-                let header_index = u32::try_from(self.store.captures.len()).map_err(|_| IrBuildError::format("host_capture_header_overflow", None, 0, 0))?;
+                let type_id = self.intern_lowered_type(capture.kind)?;
                 self.store.captures.push(FullCapture {
                     name,
                     type_id,
                     slot_and_flags: slot | u32::from(capture.mutable) << 31,
                 });
-                self.stage_lexical_capture(function_id, body.solved_declaration, header_index, capture)?;
-                if body.solved_declaration.is_some() || capture.host_binding.is_none() {
-                    self.stage_host_binding_capture(function_id, body.solved_declaration, header_index, capture)?;
-                }
             }
-            let signature = if generic_scope.is_some() { IR_NONE } else {
-                let return_type = if let Some((_, result)) = &grounded_signature { self.semantic.intern_type(&mut self.store.semantic, result)? } else if let Some(check) = &body.return_check { self.semantic.intern_type(&mut self.store.semantic, &executable_type(&check.ty))? } else { self.intern_return_type(body.return_kind)? };
-                let effects = if let (Some(declaration), Some(solved)) = (body.solved_declaration, self.solved.as_ref()) {
-                    let declaration = solved.declarations.get(&declaration).ok_or_else(|| IrBuildError::format("missing_ground_effects", None, 0, 0))?;
-                    let signature = solved.graph.resolved(declaration.signature).map_err(|_| IrBuildError::format("invalid_ground_effects", None, 0, 0))?;
-                    let crate::sema::inference::TypeNode::Arrow(arrow) = solved.graph.node(signature).map_err(|_| IrBuildError::format("invalid_ground_effects", None, 0, 0))? else { return Err(IrBuildError::format("invalid_ground_effects", None, 0, 0)); };
-                    match solved.graph.closed_effect_summary(arrow.effects).map_err(|_| IrBuildError::format("invalid_ground_effects", None, 0, 0))? {
-                        crate::sema::inference::EffectSummary::Closed(effects) => Some(callable_prepare::closed_effect_names(effects)),
-                        _ => None,
-                    }
-                } else { None };
-                self.semantic.intern_signature_parts(&mut self.store.semantic, &signature_params, return_type, effects.as_deref())?.raw()
-            };
+            let return_type = if let Some(check) = &body.return_check {
+                self.semantic.intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
+            } else { self.intern_return_type(body.return_kind)? };
+            let signature = self.semantic.intern_signature_parts(
+                &mut self.store.semantic,
+                &signature_params,
+                return_type,
+                None,
+            )?;
             let params = table_range(params_start, self.store.params.len())?;
             let captures = table_range(captures_start, self.store.captures.len())?;
             self.function_ids.insert(unit.key(), function_id);
@@ -2412,19 +1926,12 @@ impl FullBuilder {
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
             });
             self.store.function_instruction_starts.push(IR_NONE);
-            if generic_scope.is_none() && let Some(declaration) = body.solved_declaration {
-                self.generic_evidence_mut().add_checked_function(super::generic::CheckedFunctionSource {
-                    declaration, target: function_id,
-                    signature: SignatureId::from_raw(signature).ok_or_else(|| IrBuildError::format("checked_function_signature", None, 0, 0))?,
-                }).map_err(|_| IrBuildError::format("checked_function_capacity", None, 0, 0))?;
-            }
-            let return_plan_flags = generic_scope.map(|scope| generic_return_plan_flags(self.generic.as_ref().expect("scope has builder").scope(scope).expect("scope was prepared").return_plan)).unwrap_or(0);
             self.store.function_metadata.push(FullFunctionMetadata {
                 owner,
                 flags: match unit.kind() {
                     LoweredFunctionKind::Pure => 0,
                     LoweredFunctionKind::Proc => 1,
-                } | u8::from(body.has_defers) << 1 | u8::from(generic_scope.is_some()) << 2 | return_plan_flags,
+                } | u8::from(body.has_defers) << 1,
                 reserved: [0; 3],
             });
             self.function_definition_spans.push(unit.definition_span());
@@ -2438,9 +1945,6 @@ impl FullBuilder {
         body: &FunctionBuild,
     ) -> Result<(), IrBuildError> {
         let instruction_start = self.store.tags.len();
-        self.active_expression_origins = body.expression_origins.clone();
-        self.active_stage_call_origins = body.stage_call_origins.clone();
-        self.stage_callable_scratch(&body.scratch.borrow())?;
         self.active_scratch = Some(body.scratch.clone());
         let mut words = self.take_payload();
         let encoded = body.body.encode(self, &mut words);
@@ -2463,13 +1967,10 @@ impl FullBuilder {
         let block = IrBlockId::from_raw(body_id).ok_or_else(|| {
             IrBuildError::format("function_body_block", None, 0, self.store.tags.len())
         })?;
-        let instruction_start = u32::try_from(instruction_start)
-            .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
-        self.finalize_synthetic_host_captures(function, body)?;
         self.store.blocks[block.index()].flags |= BLOCK_FUNCTION_BODY;
         self.store.functions[function.index()].body = body_id;
-        self.store.function_instruction_starts[function.index()] = instruction_start;
-        self.encoded_slot_uses.retain(|(owner, _)| *owner != function.raw());
+        self.store.function_instruction_starts[function.index()] = u32::try_from(instruction_start)
+            .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         Ok(())
     }
 
@@ -2480,10 +1981,6 @@ impl FullBuilder {
         arena: &ArenaProgram,
         allow_checker_only: bool,
     ) -> Result<(), IrBuildError> {
-        if self.solved.is_none() { self.solved = program.solved.clone(); }
-        self.active_expression_origins = program.expression_origins.clone();
-        self.active_stage_call_origins = program.stage_call_origins.clone();
-        self.stage_callable_scratch(&program.scratch.borrow())?;
         self.active_scratch = Some(program.scratch.clone());
         let result = self.encode_driver_root_with_scratch(
             program,
@@ -2717,7 +2214,6 @@ impl FullBuilder {
         statement: Option<BuildTopStmtId>,
         child_program: Option<u32>,
     ) -> Result<(), IrBuildError> {
-        let original_statement = statement;
         let statement = statement
             .map(|statement| self.build_top_stmt(statement))
             .transpose()?;
@@ -2736,7 +2232,7 @@ impl FullBuilder {
             for slot in &statement.slots {
                 let slot_index = u32::try_from(slot.slot)
                     .map_err(|_| IrBuildError::format("driver_slot_overflow", None, 0, 0))?;
-                let type_id = if let Some(host) = slot.host_binding { self.intern_generic_ground_type(&host.ty())? } else { self.intern_checked_slot_type(slot)? };
+                let type_id = self.intern_lowered_type(slot.kind)?;
                 let name = self.intern_string(&slot.name.as_str())?.raw();
                 self.store.driver_slots.push(FullDriverSlot {
                     name,
@@ -2888,10 +2384,6 @@ impl FullBuilder {
             tag,
             reserved: [0; 3],
         });
-        if let Some(row) = original_statement {
-            let scratch = self.active_scratch.clone().ok_or_else(|| IrBuildError::format("mutable_driver_build_scratch_missing", None, 0, 0))?;
-            self.stage_mutable_driver_step(row, u32::try_from(step_index).map_err(|_| IrBuildError::format("driver_step_overflow", None, 0, 0))?, &scratch.borrow())?;
-        }
         Ok(())
     }
 
@@ -3130,29 +2622,6 @@ impl FullBuilder {
 
     fn checkpoint(&self) -> FullCheckpoint {
         FullCheckpoint {
-            value_binding_rows: self.value_binding_rows.len(),
-            value_use_rows: self.value_use_rows.len(),
-            iteration_binding_rows: self.iteration_binding_rows.len(),
-            iteration_use_rows: self.iteration_use_rows.len(),
-            argument_binding_rows: self.argument_binding_rows.len(),
-            callable_binding_rows: self.callable_binding_rows.len(),
-            callable_use_rows: self.callable_use_rows.len(),
-            callable_receiver_rows: self.callable_receiver_rows.len(),
-            original_callable_capture_rows: self.original_callable_capture_rows.len(),
-            captured_callable_read_rows: self.captured_callable_read_rows.len(),
-            membership_rows: self.membership_rows.len(),
-            tag_equality_rows: self.tag_equality_rows.len(),
-            folded_membership_rows: self.folded_membership_rows.len(),
-            fallback_creation_check_rows: self.fallback_creation_check_rows.len(),
-            saved_native_receiver_rows: self.saved_native_receiver_rows.len(),
-            result_receiver_rows: self.result_receiver_rows.len(),
-            host_binding_read_rows: self.host_binding_read_rows.len(),
-            lexical_capture_read_rows: self.lexical_capture_read_rows.len(),
-            conditional_result_rows: self.conditional_result_rows.len(),
-            path_source_rows: self.path_source_rows.len(),
-            container_creation_check_rows: self.container_creation_check_rows.len(),
-            byte_at_fallback_rows: self.byte_at_fallback_rows.len(),
-            encoded_slot_uses: self.encoded_slot_uses.len(),
             tags: self.store.tags.len(),
             extra: self.store.extra.len(),
             patterns: self.store.patterns.len(),
@@ -3184,91 +2653,10 @@ impl FullBuilder {
             run_kinds: self.store.run_kinds.len(),
             redirection_kinds: self.store.redirection_kinds.len(),
             semantic: self.semantic.checkpoint(&self.store.semantic),
-            generic: self.generic.as_ref().map(GenericEvidenceBuilder::checkpoint),
-            generic_expression_rows: self.generic_expression_rows.len(),
-            stage_block_callback_rows: self.stage_block_callback_rows.len(),
-            stage_fusion_rows: self.stage_fusion_rows.len(),
-            module_binding_rows: self.module_binding_rows.len(),
-            original_module_capture_rows: self.original_module_capture_rows.len(),
-            hash_policy_rows: self.hash_policy_rows.len(),
-            field_presence_control_rows: self.field_presence_control_rows.len(),
-            generic_stage_call_rows: self.generic_stage_call_rows.len(),
-            generic_pattern_rows: self.generic_pattern_rows.len(),
-            pattern_capture_slot_rows: self.pattern_capture_slot_rows.len(),
-            pattern_capture_source_rows: self.pattern_capture_source_rows.len(),
-            pattern_use_rows: self.pattern_use_rows.len(),
-            generic_pattern_statement_use_rows: self.generic_pattern_statement_use_rows.len(),
-            generic_pattern_admissions: self.generic_pattern_admissions.len(),
         }
     }
 
     fn rewind(&mut self, checkpoint: FullCheckpoint) {
-        self.value_binding_rows.truncate(checkpoint.value_binding_rows);
-        self.value_use_rows.truncate(checkpoint.value_use_rows);
-        self.iteration_binding_rows.truncate(checkpoint.iteration_binding_rows);
-        self.iteration_use_rows.truncate(checkpoint.iteration_use_rows);
-        self.argument_binding_rows.truncate(checkpoint.argument_binding_rows);
-        self.active_argument_wrappers.retain(|_, rows| { rows.retain(|&row| row < checkpoint.argument_binding_rows); !rows.is_empty() });
-        self.prepared_argument_origins.retain(|instruction, _| (*instruction as usize) < checkpoint.tags);
-        self.prepared_saved_argument_bindings.retain(|instruction, _| (*instruction as usize) < checkpoint.tags);
-        self.callable_binding_rows.truncate(checkpoint.callable_binding_rows);
-        self.callable_use_rows.truncate(checkpoint.callable_use_rows);
-        self.callable_receiver_rows.truncate(checkpoint.callable_receiver_rows);
-        self.original_callable_capture_rows.truncate(checkpoint.original_callable_capture_rows);
-        self.captured_callable_read_rows.truncate(checkpoint.captured_callable_read_rows);
-        self.membership_rows.truncate(checkpoint.membership_rows);
-        self.tag_equality_rows.truncate(checkpoint.tag_equality_rows);
-        self.folded_membership_rows.truncate(checkpoint.folded_membership_rows);
-        self.fallback_creation_check_rows.truncate(checkpoint.fallback_creation_check_rows);
-        self.saved_native_receiver_rows.truncate(checkpoint.saved_native_receiver_rows);
-        self.result_receiver_rows.truncate(checkpoint.result_receiver_rows);
-        self.active_native_receiver_wrappers.retain(|_, rows| { rows.retain(|&row| row < checkpoint.saved_native_receiver_rows); !rows.is_empty() });
-        self.active_callable_receiver_wrappers.retain(|_, rows| { rows.retain(|&row| row < checkpoint.callable_receiver_rows); !rows.is_empty() });
-        self.active_encoded_expressions.retain(|_, instruction| (*instruction as usize) < checkpoint.tags);
-        self.compiler_argument_wrappers.retain(|instruction, _| (*instruction as usize) < checkpoint.tags);
-        self.optional_receiver_guards.retain(|_, guard| (guard.wrapper as usize) < checkpoint.tags);
-        self.record_source_rows.retain(|(_, instruction, _, _)| (*instruction as usize) < checkpoint.tags);
-        self.index_rows.retain(|(_, instruction, _)| (*instruction as usize) < checkpoint.tags);
-        self.literal_comparison_rows.retain(|(instruction, _, _)| (*instruction as usize) < checkpoint.tags);
-        self.folded_native_receiver_rows.retain(|(instruction, _, _)| (*instruction as usize) < checkpoint.tags);
-        self.record_constructor_rows.retain(|row| (row.1 as usize) < checkpoint.tags);
-        self.constant_source_rows.retain(|row| (row.1 as usize) < checkpoint.tags);
-        self.record_update_rows.retain(|row| (row.1 as usize) < checkpoint.tags);
-        self.error_constructor_rows.retain(|row| (row.1 as usize) < checkpoint.tags);
-        self.tag_constructor_rows.retain(|row| (row.1 as usize) < checkpoint.tags);
-        self.line_scan_rows.retain(|row| (row.instruction as usize) < checkpoint.tags);
-        self.host_binding_read_rows.truncate(checkpoint.host_binding_read_rows);
-        self.lexical_capture_read_rows.truncate(checkpoint.lexical_capture_read_rows);
-        self.conditional_result_rows.truncate(checkpoint.conditional_result_rows);
-        self.path_source_rows.truncate(checkpoint.path_source_rows);
-        self.container_creation_check_rows.truncate(checkpoint.container_creation_check_rows);
-        self.byte_at_fallback_rows.truncate(checkpoint.byte_at_fallback_rows);
-        self.encoded_slot_uses.truncate(checkpoint.encoded_slot_uses);
-        self.generic_expression_rows.truncate(checkpoint.generic_expression_rows);
-        self.stage_block_callback_rows.truncate(checkpoint.stage_block_callback_rows);
-        self.stage_fusion_rows.truncate(checkpoint.stage_fusion_rows);
-        self.module_binding_rows.truncate(checkpoint.module_binding_rows);
-        self.original_module_capture_rows.truncate(checkpoint.original_module_capture_rows);
-        self.hash_policy_rows.truncate(checkpoint.hash_policy_rows);
-        self.field_presence_control_rows.truncate(checkpoint.field_presence_control_rows);
-        self.active_module_bindings.clear();
-        self.generic_stage_call_rows.truncate(checkpoint.generic_stage_call_rows);
-        self.generic_pattern_rows.truncate(checkpoint.generic_pattern_rows);
-        for identity in self.pattern_capture_slot_rows.drain(checkpoint.pattern_capture_slot_rows..) { self.pattern_capture_slots.remove(&identity); }
-        for identity in self.pattern_capture_source_rows.drain(checkpoint.pattern_capture_source_rows..) { self.pattern_capture_sources.remove(&identity); }
-        for identity in self.pattern_use_rows.drain(checkpoint.pattern_use_rows..) { self.pattern_use_origins.remove(&identity); }
-        self.generic_pattern_statement_use_rows.truncate(checkpoint.generic_pattern_statement_use_rows);
-        self.generic_pattern_admissions.truncate(checkpoint.generic_pattern_admissions);
-        self.active_pattern_statements.retain(|_, instruction| (*instruction as usize) < checkpoint.tags);
-        match checkpoint.generic {
-            Some(checkpoint) => self.generic.as_mut().expect("generic checkpoint retains its builder").rewind(checkpoint).expect("generic checkpoint belongs to this builder"),
-            None => self.generic = None,
-        }
-        if let Some(generic) = &self.generic {
-            self.generic_declarations.retain(|_, scope| generic.scope(*scope).is_ok());
-            self.generic_schemes.retain(|scope, _| generic.scope(*scope).is_ok());
-            self.generic_projection_uses.retain(|_, (scope, _)| generic.scope(*scope).is_ok());
-        } else { self.generic_declarations.clear(); self.generic_schemes.clear(); self.generic_projection_uses.clear(); }
         self.store.tags.truncate(checkpoint.tags);
         self.store.data.truncate(checkpoint.tags);
         self.store.extra.truncate(checkpoint.extra);
@@ -3421,7 +2809,6 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
 
 fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
     Ok(match ty {
-        LoweredType::Generic => return Err(IrBuildError::format("generic_type_requires_scoped_metadata", None, 0, 0)),
         LoweredType::Any => Type::Any,
         LoweredType::Unit => Type::Unit,
         LoweredType::Int => Type::Int,
@@ -3535,7 +2922,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Stream(_) => LoweredType::Stream,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
-        Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
+        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
             LoweredType::Error
         }
         Type::ErasedRecord | Type::Record(_) => LoweredType::Record,
@@ -3545,7 +2932,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) => LoweredType::Any,
-        Type::BuiltinParameter(_) | Type::Inference(_) | Type::Graph(_) | Type::Invalid | Type::EnvPathList => {
+        Type::BuiltinParameter(_) | Type::Inference(_) | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
             return Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ));
@@ -3598,219 +2985,11 @@ impl<'a> FullPayload<'a> {
 
 pub(in crate::runtime::eval) struct FullExecution<'a> {
     decoder: FullDecoder<'a>,
-    instantiation: Option<InstantiationId>,
 }
 
 impl<'a> FullExecution<'a> {
-    pub(in crate::runtime::eval) fn module_invocation_source(&self, instruction: u32) -> Result<Option<&super::generic::ModuleInvocationSource>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("module invocation belongs to another body")); }
-        let Some(generic) = self.generic_evidence() else { return Ok(None); };
-        let Some(source) = generic.module_invocation_source(instruction)? else { return Ok(None); };
-        let owner = if let Some(driver) = driver_owner_index(self.decoder.owner) { InstructionOwner::Driver(driver as u32) } else {
-            InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("module invocation owner is invalid"))?)
-        };
-        if source.owner != owner || source.instruction != instruction { return Err(IrVerifyError::new("module invocation belongs to another owner or instruction")); }
-        FullVerifier::verify_module_invocation_source(self.decoder.store, generic, source)?;
-        Ok(Some(source))
-    }
-
-    pub(in crate::runtime::eval) fn ground_projection(&self, instruction: u32) -> Result<Option<(super::generic::PhysicalLayoutId, u32)>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("ground projection belongs to another body")); }
-        let Some(store) = self.generic_evidence() else { return Ok(None); };
-        let Some(id) = store.ground_projection_at(instruction)? else { return Ok(None); };
-        let proof = store.ground_projection(id)?;
-        let source = store.ground_projection_source(proof.source)?;
-        let owner = if let Some(driver) = driver_owner_index(self.decoder.owner) { InstructionOwner::Driver(driver as u32) } else {
-            InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("ground projection instruction owner is invalid"))?)
-        };
-        if source.owner != owner || source.instruction != instruction { return Err(IrVerifyError::new("ground projection belongs to another owner or instruction")); }
-        store.layout(proof.layout)?;
-        Ok(Some((proof.layout, proof.field_slot)))
-    }
-    pub(in crate::runtime::eval) fn ground_native_call(&self, instruction: u32, operation: RuntimeOp) -> Result<Option<&super::generic::GroundNativeCallContract>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("native call belongs to another body")); }
-        if crate::stdlib::is_private_bridge_op(operation) {
-            let generic = self.generic_evidence().ok_or_else(|| IrVerifyError::new("private native bridge lacks prepared authority"))?;
-            let owner = if let Some(driver) = driver_owner_index(self.decoder.owner) { InstructionOwner::Driver(driver as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("native bridge owner is invalid"))?) };
-            let original = generic.bridge_call(instruction)?.ok_or_else(|| IrVerifyError::new("private native bridge lacks its original invocation"))?;
-            if original.original.declaration().op() != operation { return Err(IrVerifyError::new("native bridge operation differs from its original catalog declaration")); }
-            FullVerifier::bridge_result(self.decoder.store, generic, instruction, owner)?;
-            return Ok(None);
-        }
-        let Some(generic) = self.generic_evidence() else { return Ok(None); };
-        let Some(id) = generic.ground_native_call_at(instruction)? else {
-            if generic.native_call_originally_prepared(instruction) { return Err(IrVerifyError::new("native call lacks its original prepared authority")); }
-            return Ok(None);
-        };
-        let proof = generic.ground_native_call(id)?;
-        let source = generic.native_call_source(proof.source)?;
-        let owner = if let Some(driver) = driver_owner_index(self.decoder.owner) { InstructionOwner::Driver(driver as u32) } else {
-            InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("native call instruction owner is invalid"))?)
-        };
-        if source.owner != owner || source.instruction != instruction
-            || !matches!(proof.contract.authority, super::generic::PreparedOperationAuthority::Registry { operation: selected, .. } if selected == operation) {
-            return Err(IrVerifyError::new("native call changes its original owner, instruction, or operation"));
-        }
-        FullVerifier::native_call_result(self.decoder.store, generic, instruction, owner)?;
-        Ok(Some(&proof.contract))
-    }
-    pub(in crate::runtime::eval) fn ground_native_method(&self, instruction: u32) -> Result<Option<RuntimeOp>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("native method belongs to another body")); }
-        let Some(generic) = self.generic_evidence() else { return Ok(None); };
-        if let Some(operation) = generic.scoped_native_method_operation(&self.decoder.store.semantic, instruction, self.instantiation)? {
-            let source = generic.scoped_native_method_source(generic.scoped_native_method_source_at(instruction)?.ok_or_else(|| IrVerifyError::new("scoped native method lacks its original source"))?)?;
-            if generic.scope(source.scope)?.owner.raw() != self.decoder.owner { return Err(IrVerifyError::new("scoped native method belongs to another execution owner")); }
-            FullVerifier::verify_scoped_native_method_instruction(self.decoder.store, generic, instruction)?;
-            return Ok(Some(operation));
-        }
-        let Some(id) = generic.ground_native_call_at(instruction)? else {
-            if generic.native_call_originally_prepared(instruction) { return Err(IrVerifyError::new("native method lacks its original prepared authority")); }
-            return Ok(None);
-        };
-        let proof = generic.ground_native_call(id)?;
-        let super::generic::PreparedOperationAuthority::Registry { operation, .. } = proof.contract.authority else { return Err(IrVerifyError::new("native method lacks registry authority")); };
-        if proof.contract.receiver.is_none() || !matches!(proof.contract.registry_owner, crate::sema::registry_graph::RegistryOwner::Method(_)) {
-            return Err(IrVerifyError::new("native method lacks its original receiver contract"));
-        }
-        self.ground_native_call(instruction, operation)?;
-        Ok(Some(operation))
-    }
-    pub(in crate::runtime::eval) fn callable_value(&self, instruction: u32) -> Result<Option<super::generic::CallableValueId>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("callable creation belongs to another body")); }
-        self.generic_evidence().map_or(Ok(None), |store| store.callable_value_at(instruction))
-    }
-    pub(in crate::runtime::eval) fn native_callable_value(&self, instruction: u32) -> Result<super::generic::NativeCallableValueId, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) {
-            return Err(IrVerifyError::new("native callable creation belongs to another body"));
-        }
-        let evidence = self.generic_evidence().ok_or_else(|| IrVerifyError::new("native callable creation has no evidence"))?;
-        let id = evidence.native_callable_value_at(instruction)?.ok_or_else(|| IrVerifyError::new("native callable creation has no original authority"))?;
-        let source = &evidence.native_callable_value(id)?.source;
-        let owner = if let Some(driver) = driver_owner_index(self.decoder.owner) { InstructionOwner::Driver(driver as u32) } else {
-            InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("native callable owner is invalid"))?)
-        };
-        if source.instruction != instruction || source.owner != owner || source.scope != self.generic_scope() {
-            return Err(IrVerifyError::new("native callable creation changes its original instruction, owner, or scope"));
-        }
-        Ok(id)
-    }
-    pub(in crate::runtime::eval) fn native_invocation_plan(&self, instruction: u32) -> Result<Option<super::generic::NativeInvocationPlanId>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) {
-            return Err(IrVerifyError::new("native invocation belongs to another body"));
-        }
-        let Some(evidence) = self.generic_evidence() else { return Ok(None); };
-        let Some(id) = evidence.native_invocation_plan_at(instruction)? else { return Ok(None); };
-        let source = &evidence.native_invocation_plan(id)?.source;
-        let owner = if let Some(driver) = driver_owner_index(self.decoder.owner) { InstructionOwner::Driver(driver as u32) } else {
-            InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("native invocation owner is invalid"))?)
-        };
-        if source.instruction != instruction || source.owner != owner || source.scope != self.generic_scope() {
-            return Err(IrVerifyError::new("native invocation changes its original instruction, owner, or scope"));
-        }
-        Ok(Some(id))
-    }
-    pub(in crate::runtime::eval) fn invocation_plan(&self, instruction: u32) -> Result<Option<super::generic::InvocationPlanId>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("invocation belongs to another body")); }
-        self.generic_evidence().map_or(Ok(None), |store| store.invocation_plan_at(instruction))
-    }
-    pub(in crate::runtime::eval) fn user_invocation_authority(&self, instruction: u32) -> Result<Option<super::generic::UserInvocationAuthority>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("invocation belongs to another body")); }
-        let Some(store) = self.generic_evidence() else { return Ok(None); };
-        if let Some(id) = store.invocation_plan_at(instruction)? {
-            let proof = store.invocation_plan(id)?;
-            let source = store.invocation_source(proof.source)?;
-            let owner = if let Some(driver) = driver_owner_index(self.decoder.owner) { InstructionOwner::Driver(driver as u32) } else {
-                InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("invocation instruction owner is invalid"))?)
-            };
-            if source.instruction != instruction || source.owner != owner { return Err(IrVerifyError::new("invocation belongs to another owner or instruction")); }
-            return Ok(Some(super::generic::UserInvocationAuthority::Ground(id)));
-        }
-        let Some(source) = store.scoped_invocation_source_at(instruction)? else { return Ok(None); };
-        let source = store.scoped_invocation_source(source)?;
-        if self.generic_scope() != Some(source.scope) { return Err(IrVerifyError::new("scoped invocation belongs to another body scope")); }
-        let instance = self.instantiation.ok_or_else(|| IrVerifyError::new("scoped invocation has no active instance"))?;
-        store.scoped_invocation_authority(instruction, instance)
-    }
-    pub(in crate::runtime::eval) fn prepared_result_constructor(&self, instruction: u32, expected: super::generic::ScopedOperationCode) -> Result<(), IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("constructor instruction belongs to another executable body")); }
-        let Some(generic) = self.generic_evidence() else { return Ok(()); };
-        let Some(source) = generic.scoped_operation_source_at(instruction)? else { return Ok(()); };
-        if Some(generic.scoped_operation_source(source)?.scope) != self.generic_scope() { return Err(IrVerifyError::new("constructor proof belongs to another body scope")); }
-        match generic.scoped_operation_authority(instruction, self.instantiation)? {
-            Some(actual) if actual == expected => Ok(()),
-            _ => Err(IrVerifyError::new("scoped constructor operation is missing or has another code")),
-        }
-    }
-    pub(in crate::runtime::eval) fn active_instantiation(&self) -> Option<InstantiationId> { self.instantiation }
-    pub(in crate::runtime::eval) fn has_declared_result_channel(&self) -> Result<bool, IrVerifyError> {
-        let Some(owner) = IrFunctionId::from_raw(self.decoder.owner) else { return Ok(false); };
-        if let Some(scope) = self.generic_scope() {
-            let evidence = self.generic_evidence().ok_or_else(|| IrVerifyError::new("generic return channel lacks scoped evidence"))?;
-            let scope = evidence.scope(scope)?;
-            if matches!(scope.return_plan, GenericReturnPlan::Result | GenericReturnPlan::ResultUnit) { return Ok(true); }
-            return match scope.result {
-                TypeRef::Ground(ty) => Ok(self.decoder.store.semantic.type_tag(ty)? == super::semantic::TypeTag::Result),
-                TypeRef::Template(id) => Ok(matches!(evidence.template(id)?, super::generic::TypeTemplate::Result { .. })),
-                TypeRef::Rigid(_) => Ok(false),
-            };
-        }
-        let function = self.decoder.store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("return channel function is out of bounds"))?;
-        let signature = SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("return channel lacks a fixed function signature"))?;
-        Ok(self.decoder.store.semantic.type_tag(self.decoder.store.semantic.signature_return_type(signature)?)? == super::semantic::TypeTag::Result)
-    }
-    pub(in crate::runtime::eval) fn constructor_layout(&self, instruction: u32) -> Result<Option<super::generic::PhysicalLayoutId>, IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("generic constructor belongs to another body")); }
-        let Some(store) = self.generic_evidence() else { return Ok(None); };
-        let Some(constructor) = store.constructor(instruction) else { return Ok(None); };
-        store.layout(constructor.layout)?;
-        Ok(Some(constructor.layout))
-    }
-    pub(in crate::runtime::eval) fn requirement_witness(&self, instruction: u32) -> Result<Option<RequirementWitness>, IrVerifyError> {
-        let Some(store) = self.generic_evidence() else { return Ok(None); };
-        let Some(use_) = store.requirement_use(instruction) else { return Ok(None); };
-        if Some(use_.scope) != self.generic_scope() { return Err(IrVerifyError::new("generic requirement use belongs to another function scope")); }
-        let instance = store.instance(self.instantiation.ok_or_else(|| IrVerifyError::new("generic requirement use lacks frame evidence"))?)?;
-        if instance.scope != use_.scope { return Err(IrVerifyError::new("generic requirement frame proof belongs to another scope")); }
-        instance.requirements.get(use_.requirement as usize).copied().map(Some).ok_or_else(|| IrVerifyError::new("generic requirement witness is missing"))
-    }
-    pub(in crate::runtime::eval) fn call_instantiation(&self, instruction: u32) -> Result<Option<InstantiationId>, IrVerifyError> {
-        let Some(store) = self.generic_evidence() else { return Ok(None); };
-        let Some(call) = store.call(instruction) else { return Ok(None); };
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("generic call proof lies outside its caller body")); }
-        let id = match call.evidence {
-            CallEvidence::Ground(instance) => instance,
-            CallEvidence::Forwarded(plan) => store.forwarded_instance(plan, self.instantiation.ok_or_else(|| IrVerifyError::new("generic forwarding call lacks frame evidence"))?)?,
-        };
-        if store.instance(id)?.scope != call.target { return Err(IrVerifyError::new("generic call proof targets another scope")); }
-        Ok(Some(id))
-    }
-    pub(in crate::runtime::eval) fn generic_evidence(&self) -> Option<&'a GenericEvidenceStore> { self.decoder.store.generic.as_deref() }
-
-    pub(in crate::runtime::eval) fn prepared_byte_at_fallback(&self, instruction: u32) -> Result<(), IrVerifyError> {
-        if !self.decoder.instruction_range.contains(&(instruction as usize)) {
-            return Err(IrVerifyError::new("folded byte lookup belongs to another body"));
-        }
-        let generic = self.generic_evidence().ok_or_else(|| IrVerifyError::new("folded byte lookup lacks its original source proof"))?;
-        let id = generic.native_scalar_at(instruction)?.ok_or_else(|| IrVerifyError::new("folded byte lookup lacks its original source proof"))?;
-        let source = generic.native_scalar_source(id)?;
-        if source.byte_at_fallback.is_none() {
-            return Err(IrVerifyError::new("folded byte lookup has another scalar protocol"));
-        }
-        let owner = if let Some(step) = driver_owner_index(self.decoder.owner) {
-            InstructionOwner::Driver(step as u32)
-        } else {
-            InstructionOwner::Function(IrFunctionId::from_raw(self.decoder.owner).ok_or_else(|| IrVerifyError::new("folded byte lookup owner is invalid"))?)
-        };
-        FullVerifier::verify_native_scalar_operand(self.decoder.store, generic, instruction, owner, &Type::Int, &mut Vec::new())
-    }
-    pub(in crate::runtime::eval) fn generic_scope(&self) -> Option<SchemeScopeId> {
-        let owner = IrFunctionId::from_raw(self.decoder.owner)?;
-        if owner.index() >= self.decoder.store.functions.len() { return None; }
-        self.generic_evidence()?.scope_for_function(owner)
-    }
     pub(in crate::runtime::eval) fn thread_local(&self) -> Self {
         Self {
-            instantiation: self.instantiation,
             decoder: FullDecoder {
                 store: self.decoder.store,
                 owner: self.decoder.owner,
@@ -3818,7 +2997,7 @@ impl<'a> FullExecution<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: self.decoder.slot_count,
-                pattern_tree: None, pattern_ceiling: Cell::new(usize::MAX),
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: self.decoder.verified,
             },
         }
@@ -4192,7 +3371,6 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     block_states: Option<RefCell<Vec<u8>>>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
-    pattern_tree: Option<&'a std::sync::Mutex<super::pattern::PatternTreeBuilder>>,
     verified: bool,
 }
 
@@ -4384,7 +3562,6 @@ impl<'a> FullDecoder<'a> {
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
-        if let Some(tree) = self.pattern_tree { tree.lock().map_err(|_| IrVerifyError::new("pattern verifier traversal was interrupted"))?.enter(index as u32)?; }
         Ok((index, tag, self.cursor(self.store.payload(data.range())?)))
     }
 
@@ -4414,7 +3591,6 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_instruction(&self, index: usize) {
-        if let Some(tree) = self.pattern_tree { tree.lock().expect("pattern verifier traversal has exclusive temporary ownership").exit(index as u32); }
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
         }
@@ -4442,13 +3618,7 @@ impl<'a> FullDecoder<'a> {
     }
 }
 
-pub(super) struct FullVerifier;
-
-#[derive(Clone, Copy)]
-enum StageItemInput {
-    Sequence(u32),
-    GroundCallback(u32),
-}
+struct FullVerifier;
 
 fn indexed_block_can_return(store: &FullStore, block: IrBlockId) -> Result<bool, IrVerifyError> {
     let block = store
@@ -4638,777 +3808,6 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
 }
 
 impl FullVerifier {
-    fn verify_generic_symbolic_source(store: &FullStore, generic: &GenericEvidenceStore, source: u32, scope_id: SchemeScopeId, expected: TypeRef, active: &mut Vec<u32>) -> Result<(), IrVerifyError> {
-        let scope = generic.scope(scope_id)?;
-        let range = store.function_instruction_range(scope.owner.index())?;
-        if !range.contains(&(source as usize)) || active.len() >= 256 || active.contains(&source) { return Err(IrVerifyError::new("symbolic operation source is foreign, cyclic, or too deep")); }
-        if let Some(id) = generic.lexical_capture_source_at(source)? {
-            let capture = generic.lexical_capture_source(id)?;
-            if !generic.reference_equals_ground(&store.semantic, scope_id, expected, store.semantic.to_type(capture.ty)?)? {
-                return Err(IrVerifyError::new("symbolic capture changes its original operand type"));
-            }
-            Self::verify_lexical_capture_source(store, generic, capture)?;
-            if capture.owner != InstructionOwner::Function(scope.owner) { return Err(IrVerifyError::new("symbolic capture changes its receiving declaration")); }
-            return Ok(());
-        }
-        active.push(source);
-        if Self::verify_scoped_native_method_symbolic_operand(store, generic, source, scope_id, expected, active)? { active.pop(); return Ok(()); }
-        if Self::verify_formatted_path_symbolic_operand(store, generic, source, scope_id, expected, active)? { active.pop(); return Ok(()); }
-        if let TypeRef::Ground(ty) = expected
-            && Self::verify_error_field_operand(store, generic, source, InstructionOwner::Function(scope.owner), &store.semantic.to_type(ty)?, None, active)? { active.pop(); return Ok(()); }
-        if Self::verify_conditional_symbolic_operand(store, generic, source, scope_id, expected, active)? { active.pop(); return Ok(()); }
-        if let TypeRef::Ground(ty) = expected
-            && generic.tag_constructor_at(source)?.is_some() {
-            if !Self::verify_tag_constructor_operand(store, generic, source, InstructionOwner::Function(scope.owner), &store.semantic.to_type(ty)?, active)? {
-                return Err(IrVerifyError::new("symbolic tag constructor lacks its original prepared proof"));
-            }
-            active.pop();
-            return Ok(());
-        }
-        if let TypeRef::Ground(ty) = expected
-            && generic.record_constructor_at(source)?.is_some() {
-            Self::verify_record_constructor_operand(store, generic, source, InstructionOwner::Function(scope.owner), &store.semantic.to_type(ty)?, None, active)?;
-            active.pop();
-            return Ok(());
-        }
-        if let Some(body) = Self::original_compiler_argument_wrapper_body(store, generic, source, InstructionOwner::Function(generic.scope(scope_id)?.owner))? {
-            Self::verify_generic_symbolic_source(store, generic, body, scope_id, expected, active)?;
-            active.pop();
-            return Ok(());
-        }
-        if let Some(saved) = generic.original_argument_binding(source) {
-            if saved.owner != InstructionOwner::Function(scope.owner) || saved.scope != Some(scope_id)
-                || !generic.references_equal(&store.semantic, scope_id, expected, saved.ty)? {
-                return Err(IrVerifyError::new("symbolic saved argument changes its original scope or type"));
-            }
-            Self::verify_generic_symbolic_source(store, generic, saved.initializer, scope_id, expected, active)?;
-            active.pop();
-            return Ok(());
-        }
-        let tag = store.tags[source as usize];
-        let words = store.payload(store.data[source as usize].range())?;
-        let valid = match tag {
-            FullTag::ExprParam => {
-                if Self::verify_pattern_symbolic_operand(store, generic, source, scope_id, expected)? {
-                    active.pop();
-                    return Ok(());
-                }
-                let slot = *words.first().ok_or_else(|| IrVerifyError::new("symbolic parameter source slot is missing"))? as usize;
-                if let Some(&ty) = scope.parameters.get(slot) { generic.references_equal(&store.semantic, scope_id, expected, ty)? }
-                else {
-                    for instruction in range.clone() { if matches!(store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtAssignInt | FullTag::StmtAssignBool) && store.payload(store.data[instruction].range())?.first() == Some(&(slot as u32)) { return Err(IrVerifyError::new("symbolic local operand is mutable without assignment evidence")); } }
-                    let function = store.functions[scope.owner.index()];
-                    let block = IrBlockId::from_raw(function.body).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("symbolic operand body is invalid"))?;
-                    let mut initializer = None;
-                    for &instruction in store.payload(block.instructions)?.iter().skip(1) {
-                        if instruction >= source || store.tags[instruction as usize] != FullTag::StmtLet { continue; }
-                        let binding = store.payload(store.data[instruction as usize].range())?;
-                        if binding.first() == Some(&(slot as u32)) { if initializer.replace(binding[1]).is_some() { return Err(IrVerifyError::new("symbolic operand has ambiguous local bindings")); } }
-                    }
-                    Self::verify_generic_symbolic_source(store, generic, initializer.ok_or_else(|| IrVerifyError::new("symbolic local operand lacks a dominating binding"))?, scope_id, expected, active)?;
-                    true
-                }
-            }
-            FullTag::ExprCheckedValue => { Self::verify_generic_symbolic_source(store, generic, *words.first().ok_or_else(|| IrVerifyError::new("symbolic checked operand is missing"))?, scope_id, expected, active)?; true }
-            FullTag::ExprList => {
-                let item = match expected {
-                    TypeRef::Template(id) => match generic.template(id)? {
-                        super::generic::TypeTemplate::List(item) => *item,
-                        _ => return Err(IrVerifyError::new("symbolic List source has another expected constructor")),
-                    },
-                    TypeRef::Ground(ty) if store.semantic.type_tag(ty)? == super::semantic::TypeTag::List => {
-                        TypeRef::Ground(store.semantic.type_children(ty)?.ok_or_else(|| IrVerifyError::new("symbolic List item type is missing"))?.0)
-                    }
-                    _ => return Err(IrVerifyError::new("symbolic List source has no checked List template")),
-                };
-                let block = words.first().copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("symbolic List source block is missing"))?;
-                let items = store.payload(block.instructions)?;
-                if block.flags & BLOCK_SEQUENCE_KIND_MASK != BLOCK_LIST || items.first().copied().map(|count| count as usize) != Some(items.len().saturating_sub(1)) {
-                    return Err(IrVerifyError::new("symbolic List source item sequence is invalid"));
-                }
-                for &source in &items[1..] { Self::verify_generic_symbolic_source(store, generic, source, scope_id, item, active)?; }
-                true
-            }
-            FullTag::ExprOk | FullTag::ExprErr => {
-                Self::verify_scoped_operation_instruction(store, generic, source)?;
-                let use_ = generic.requirement_use(source).ok_or_else(|| IrVerifyError::new("symbolic constructor lacks its original requirement"))?;
-                if use_.scope != scope_id { return Err(IrVerifyError::new("symbolic constructor has another scope")); }
-                let Some(Requirement::Operation(requirement)) = scope.requirements.get(use_.requirement as usize) else { return Err(IrVerifyError::new("symbolic constructor has another requirement kind")); };
-                generic.references_equal(&store.semantic, scope_id, expected, requirement.result)?
-            }
-            FullTag::ExprField | FullTag::ExprBinary => {
-                let use_ = generic.requirement_use(source).ok_or_else(|| IrVerifyError::new("symbolic computed operand lacks requirement evidence"))?;
-                if use_.scope != scope_id { return Err(IrVerifyError::new("symbolic operand requirement has another scope")); }
-                let result = match &scope.requirements[use_.requirement as usize] { Requirement::Add { result, .. } | Requirement::Projection { result, .. } | Requirement::Invocation { result, .. } => *result, Requirement::Operation(requirement) => requirement.result, Requirement::NativeMethod(requirement) => requirement.result, Requirement::TagConstructor(_) => return Err(IrVerifyError::new("tag constructor requirement cannot produce a field or binary value")), Requirement::Eligibility { .. } => return Err(IrVerifyError::new("eligibility requirement cannot produce a symbolic operation value")) };
-                generic.references_equal(&store.semantic, scope_id, expected, result)?
-            }
-            FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall if generic.call(source).is_some() => generic.call_result_matches(&store.semantic, scope_id, source, expected)?,
-            _ => {
-                let scalar = match tag { FullTag::ExprNull => Some(Type::Null), FullTag::ExprUnit => Some(Type::Unit), FullTag::ExprInt => Some(Type::Int), FullTag::ExprFloat => Some(Type::Float), FullTag::ExprDuration => Some(Type::Duration), FullTag::ExprBool => Some(Type::Bool), FullTag::ExprStr => Some(Type::Str), _ => None };
-                if let Some(scalar) = scalar { generic.reference_equals_ground(&store.semantic, scope_id, expected, scalar)? } else { return Err(IrVerifyError::new(format!("symbolic operation source {source} ({tag:?}) lacks a prepared type proof"))); }
-            }
-        };
-        active.pop();
-        if valid { Ok(()) } else { Err(IrVerifyError::new("generic operation operand disagrees with its scoped requirement type")) }
-    }
-
-    fn verify_generic_default(store: &FullStore, generic: &GenericEvidenceStore, instance_id: InstantiationId, slot: usize) -> Result<(), IrVerifyError> {
-        let instance = generic.instance(instance_id)?;
-        let scope = generic.scope(instance.scope)?;
-        let expected = store.semantic.to_type(instance.parameter_types[slot])?;
-        Self::verify_function_default(store, generic, scope.owner, slot, &expected, Some(instance_id))
-    }
-
-    fn verify_function_default(store: &FullStore, generic: &GenericEvidenceStore, target: IrFunctionId, slot: usize, expected: &Type, instance: Option<InstantiationId>) -> Result<(), IrVerifyError> {
-        let function = store.functions[target.index()];
-        let params = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("default parameter range is invalid"))?;
-        let param = *store.params.get(params.start + slot).ok_or_else(|| IrVerifyError::new("default parameter slot is invalid"))?;
-        if slot >= params.len() || param.flags & 2 == 0 { return Err(IrVerifyError::new("default parameter slot is not defaulted")); }
-        if param.flags & 4 != 0 {
-            let body = IrBlockId::from_raw(function.body).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic default body is invalid"))?;
-            let mut source = None;
-            for &instruction in store.payload(body.instructions)?.iter().skip(1) {
-                if store.tags[instruction as usize] != FullTag::StmtDefaultParameter { break; }
-                let payload = store.payload(store.data[instruction as usize].range())?;
-                if payload.first() == Some(&(slot as u32)) { source = payload.get(1).copied(); }
-            }
-            Self::verify_generic_source(store, generic, source.ok_or_else(|| IrVerifyError::new("generic lexical default lacks its source instruction"))?, InstructionOwner::Function(target), expected, instance, &mut Vec::new())
-        } else {
-            let cold = store.param_cold.binary_search_by_key(&((params.start + slot) as u32), |cold| cold.param).ok().map(|index| store.param_cold[index]).ok_or_else(|| IrVerifyError::new("generic literal default is missing"))?;
-            Self::verify_generic_default_value(store, cold.default, expected, &mut Vec::new())
-        }
-    }
-
-    fn verify_generic_default_value(store: &FullStore, value: u32, expected: &Type, active: &mut Vec<u32>) -> Result<(), IrVerifyError> {
-        let tag = *store.values.get(value as usize).ok_or_else(|| IrVerifyError::new("generic default value is out of bounds"))?;
-        if active.len() >= 256 || active.contains(&value) { return Err(IrVerifyError::new("generic default value is cyclic or too deep")); }
-        if *expected == Type::Any { return Ok(()); }
-        if let Type::Optional(inner) = expected { if tag == FullValueTag::Null { return Ok(()); } return Self::verify_generic_default_value(store, value, inner, active); }
-        active.push(value);
-        let words = store.payload(store.value_data[value as usize].range())?;
-        let scalar = match tag { FullValueTag::Null => Some(Type::Null), FullValueTag::Unit => Some(Type::Unit), FullValueTag::Int => Some(Type::Int), FullValueTag::Float => Some(Type::Float), FullValueTag::Duration => Some(Type::Duration), FullValueTag::Bool => Some(Type::Bool), FullValueTag::Str => Some(Type::Str), FullValueTag::Bytes => Some(Type::Bytes), FullValueTag::Regex => Some(Type::Regex), FullValueTag::Path => Some(Type::Path), _ => None };
-        if let Some(actual) = scalar {
-            let unsigned = actual == Type::Int && *expected == Type::UInt && words.len() == 2 && (((words[1] as u64) << 32 | words[0] as u64) as i64) >= 0;
-            if &actual != expected && !unsigned { return Err(IrVerifyError::new("generic literal default disagrees with its ground type")); }
-        } else { match (tag, expected) {
-            (FullValueTag::ResultOk, Type::Result(ok, _)) => Self::verify_generic_default_value(store, *words.first().ok_or_else(|| IrVerifyError::new("generic Result default value is missing"))?, ok, active)?,
-            (FullValueTag::List, Type::List(inner)) => {
-                let block = words.first().copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic list default block is invalid"))?;
-                for &value in store.payload(block.instructions)?.iter().skip(1) { Self::verify_generic_default_value(store, value, inner, active)?; }
-            }
-            (FullValueTag::RecordVec, Type::Record(fields)) => {
-                let block = words.first().copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic record default block is invalid"))?;
-                let values = store.payload(block.instructions)?;
-                if values.first().copied() != Some(fields.len() as u32) || values.len() != 1 + fields.len() * 2 { return Err(IrVerifyError::new("generic record default has the wrong width")); }
-                for (entry, (&name, ty)) in values[1..].chunks_exact(2).zip(fields) {
-                    if Name::from_symbol(Symbol::from_raw(entry[0])) != name { return Err(IrVerifyError::new("generic record default lacks canonical physical field order")); }
-                    Self::verify_generic_default_value(store, entry[1], ty, active)?;
-                }
-            }
-            (FullValueTag::Record | FullValueTag::RecordVec | FullValueTag::Stats | FullValueTag::StatsBlob, Type::ErasedRecord) | (FullValueTag::Module, Type::DynamicModule) => {},
-            _ => return Err(IrVerifyError::new("generic literal default lacks an independently prepared type proof")),
-        } }
-        active.pop();
-        Ok(())
-    }
-
-    fn verify_generic_source(store: &FullStore, generic: &GenericEvidenceStore, source: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>) -> Result<(), IrVerifyError> {
-        let range = match owner { InstructionOwner::Function(function) => store.function_instruction_range(function.index())?, InstructionOwner::Driver(step) => store.driver_instruction_range(step as usize)? };
-        if !range.contains(&(source as usize)) || active.len() >= 256 || active.contains(&source) { return Err(IrVerifyError::new("generic argument source is foreign, cyclic, or too deep")); }
-        if *expected == Type::Any { return Ok(()); }
-        if Self::verify_context_scope_source(store, generic, source, owner, expected)? { return Ok(()); }
-        if Self::verify_run_producer_source(store, generic, source, owner, expected)? { return Ok(()); }
-        if store.tags.get(source as usize) == Some(&FullTag::ExprProcessCommandArgv) && generic.ground_native_call_at(source)?.is_some() {
-            return Self::verify_native_call_operand(store, generic, source, owner, expected, active);
-        }
-        if Self::verify_module_invocation_operand(store, generic, source, owner, expected, instance, active)? { return Ok(()); }
-        if Self::verify_hash_policy_operand(store, generic, source, owner, expected)? { return Ok(()); }
-        if Self::verify_try_capture_operand(store, generic, source, owner, expected)? { return Ok(()); }
-        if Self::verify_index_operand(store, generic, source, owner, expected, active)? { return Ok(()); }
-        if Self::verify_comprehension_source(store, generic, source, owner, expected, instance, active)? { return Ok(()); }
-        if generic.constant_source_at(source)?.is_some() { return Self::verify_constant_operand(store, generic, source, owner, expected); }
-        if generic.record_update_source_at(source)?.is_some() { return Self::verify_record_update_operand(store, generic, source, owner, expected, instance, active); }
-        if Self::verify_host_binding_operand(store, generic, source, owner, expected)? { return Ok(()); }
-        if Self::verify_lexical_capture_operand(store, generic, source, owner, expected)? { return Ok(()); }
-        if Self::verify_stage_block_callback_operand(store, generic, source, owner, expected)? { return Ok(()); }
-        if Self::verify_error_constructor_operand(store, generic, source, owner, expected, active)? { return Ok(()); }
-        if Self::verify_tag_constructor_operand(store, generic, source, owner, expected, active)? { return Ok(()); }
-        if Self::verify_bridge_operand(store, generic, source, owner, expected)? { return Ok(()); }
-        if generic.stage_pipeline_at(source)?.is_some() { return Self::verify_stage_pipeline_operand(store, generic, source, owner, expected, instance, active); }
-        active.push(source);
-        if Self::verify_formatted_path_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_optional_receiver_guard_result(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_literal_comparison_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_null_optional_equality_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_conditional_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_uint_integer_arithmetic_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_scoped_native_method_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_duration_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_range_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_language_result_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if Self::verify_error_field_operand(store, generic, source, owner, expected, instance, active)? { active.pop(); return Ok(()); }
-        if generic.native_scalar_at(source)?.is_some() {
-            Self::verify_native_scalar_operand(store, generic, source, owner, expected, active)?;
-            active.pop();
-            return Ok(());
-        }
-        if generic.record_constructor_at(source)?.is_some() {
-            Self::verify_record_constructor_operand(store, generic, source, owner, expected, instance, active)?;
-            active.pop();
-            return Ok(());
-        }
-        if generic.ground_container_at(source)?.is_some() {
-            Self::verify_ground_container_operand(store, generic, source, owner, expected, instance, active)?;
-            active.pop();
-            return Ok(());
-        }
-        if let Some(body) = Self::original_compiler_argument_wrapper_body(store, generic, source, owner)? {
-            Self::verify_generic_source(store, generic, body, owner, expected, instance, active)?;
-            active.pop();
-            return Ok(());
-        }
-        if Self::verify_value_scalar_source(store, generic, source, owner, expected, active)? {
-            active.pop();
-            return Ok(());
-        }
-        if Self::verify_fallback_operand(store, generic, source, owner, expected, instance, active)? {
-            active.pop();
-            return Ok(());
-        }
-        if let Some(saved) = generic.original_argument_binding(source) {
-            if saved.owner != owner { return Err(IrVerifyError::new("saved argument read changes its original owner")); }
-            let actual = match (saved.scope, saved.ty) {
-                (None, TypeRef::Ground(ty)) => store.semantic.to_type(ty)?,
-                (None, _) => return Err(IrVerifyError::new("saved argument has an unowned symbolic type")),
-                (Some(scope), reference) => {
-                    if generic.scope(scope)?.owner != match owner { InstructionOwner::Function(function) => function, InstructionOwner::Driver(_) => return Err(IrVerifyError::new("driver saved argument has a declaration scope")) } {
-                        return Err(IrVerifyError::new("saved argument belongs to another body scope"));
-                    }
-                    if let Some(id) = instance {
-                        let frame = generic.instance(id)?;
-                        if frame.scope != scope { return Err(IrVerifyError::new("saved argument uses another declaration's instance")); }
-                        generic.expand(&store.semantic, reference, &frame.substitutions, &mut FxHashMap::default())?
-                    } else if let TypeRef::Ground(ty) = reference { store.semantic.to_type(ty)? }
-                    else { return Err(IrVerifyError::new("saved argument has no active instance")); }
-                }
-            };
-            if actual != *expected { return Err(IrVerifyError::new("saved argument read changes its original type")); }
-            Self::verify_generic_source(store, generic, saved.initializer, owner, expected, instance, active)?;
-            active.pop();
-            return Ok(());
-        }
-        if let Some((body, _)) = Self::original_argument_wrapper_body(store, generic, source, owner)? {
-            Self::verify_generic_source(store, generic, body, owner, expected, instance, active)?;
-            active.pop();
-            return Ok(());
-        }
-        let tag = store.tags[source as usize];
-        let words = store.payload(store.data[source as usize].range())?;
-        let child = |index: usize| words.get(index).copied().ok_or_else(|| IrVerifyError::new("generic source child is missing"));
-        let scalar = match tag {
-            FullTag::ExprNull => Some(Type::Null), FullTag::ExprUnit => Some(Type::Unit), FullTag::ExprInt => Some(Type::Int), FullTag::ExprFloat => Some(Type::Float), FullTag::ExprDuration => Some(Type::Duration), FullTag::ExprBool => Some(Type::Bool), FullTag::ExprStr => Some(Type::Str), FullTag::ExprBytes => Some(Type::Bytes), FullTag::ExprPreparedRegex => Some(Type::Regex), FullTag::ExprPath | FullTag::ExprPathFrom => Some(Type::Path), _ => None,
-        };
-        let expected = if let Type::Optional(inner) = expected && (scalar.is_some() || matches!(tag, FullTag::ExprRecord | FullTag::ExprList | FullTag::ExprOk | FullTag::ExprErr)) { if tag == FullTag::ExprNull { active.pop(); return Ok(()); } inner.as_ref() } else { expected };
-        if let Some(actual) = scalar {
-            let unsigned_literal = actual == Type::Int && *expected == Type::UInt && tag == FullTag::ExprInt && words.len() == 2 && (((words[1] as u64) << 32 | words[0] as u64) as i64) >= 0;
-            if &actual != expected && !unsigned_literal { return Err(IrVerifyError::new("generic argument type disagrees with literal source")); }
-        } else { match tag {
-            FullTag::ExprTag | FullTag::ExprPreparedConstant if Self::verify_native_nominal_source(store, source, expected)? => {},
-            FullTag::ExprCheckedValue => Self::verify_generic_source(store, generic, child(0)?, owner, expected, instance, active)?,
-            FullTag::ExprRecord => {
-                if generic.constructor(source).is_none() {
-                    Self::verify_record_source_operand(store, generic, source, owner, expected, instance, active)?;
-                    active.pop();
-                    return Ok(());
-                }
-                let constructor = generic.constructor(source).ok_or_else(|| IrVerifyError::new("generic record argument lacks constructor layout evidence"))?;
-                let layout = generic.layout(constructor.layout)?;
-                if store.semantic.to_type(layout.record_type)? != *expected { return Err(IrVerifyError::new("generic record argument disagrees with its constructor type")); }
-                let block = IrBlockId::from_raw(child(0)?).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic record source block is invalid"))?;
-                let fields = store.payload(block.instructions)?;
-                let Type::Record(types) = expected else { return Err(IrVerifyError::new("generic record argument expected a non-record")); };
-                for field in fields.get(1..).ok_or_else(|| IrVerifyError::new("generic record fields are missing"))?.chunks_exact(3) {
-                    if field[0] != 0 { return Err(IrVerifyError::new("generic record argument has an unprepared spread")); }
-                    let name = Name::from_symbol(Symbol::from_raw(field[1]));
-                    let ty = types.get(&name).ok_or_else(|| IrVerifyError::new("generic record source has an unexpected field"))?;
-                    Self::verify_generic_source(store, generic, field[2], owner, ty, instance, active)?;
-                }
-            }
-            FullTag::ExprList => {
-                let Type::List(inner) = expected else { return Err(IrVerifyError::new("generic list argument expected a non-list")); };
-                let block = IrBlockId::from_raw(child(0)?).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic list source block is invalid"))?;
-                for &item in store.payload(block.instructions)?.get(1..).ok_or_else(|| IrVerifyError::new("generic list values are missing"))? { Self::verify_generic_source(store, generic, item, owner, inner, instance, active)?; }
-            }
-            FullTag::ExprOk => {
-                let Type::Result(ok, _) = expected else { return Err(IrVerifyError::new("generic Result argument expected a non-Result")); };
-                Self::verify_generic_source(store, generic, child(0)?, owner, ok, instance, active)?;
-            }
-            FullTag::ExprErr => {
-                let Type::Result(_, error) = expected else { return Err(IrVerifyError::new("generic error argument expected a non-Result")); };
-                Self::verify_generic_source(store, generic, child(0)?, owner, error, instance, active)?;
-            }
-            FullTag::ExprError => {
-                if words.first() == Some(&1) { return Err(IrVerifyError::new("structured error lacks its original constructor authority")); }
-                let family = if words.first() == Some(&1) { Some(Name::intern(store.string(child(1)?)?)) } else { None };
-                let variant = if family.is_some() { Some(Name::intern(store.string(child(2)?)?)) } else { None };
-                let valid = match expected {
-                    Type::Error => matches!(words.first(), Some(0 | 1)),
-                    Type::ErrorFamily(name) => family == Some(*name),
-                    Type::ErrorVariant { family: name, variant: tag } => family == Some(*name) && variant == Some(*tag),
-                    _ => false,
-                };
-                if !valid { return Err(IrVerifyError::new("generic error constructor disagrees with its nominal carrier")); }
-            }
-            FullTag::ExprRequire => {
-                let Type::Result(ok, error) = expected else { return Err(IrVerifyError::new("generic validation producer expected a non-Result carrier")); };
-                let ty = TypeId::from_raw(child(1)?).ok_or_else(|| IrVerifyError::new("generic validation producer type is invalid"))?;
-                if store.semantic.to_type(ty)? != **ok || **error != Type::Error { return Err(IrVerifyError::new("generic validation producer disagrees with its checked success type")); }
-            }
-            FullTag::ExprEmptyMap => {
-                if !matches!(expected, Type::Map(_, _)) { return Err(IrVerifyError::new("generic empty map source expected a non-map")); }
-            }
-            FullTag::ExprTry => {
-                let original_producer = child(0)?;
-                let mut producer = original_producer;
-                let mut wrapped_call = None;
-                let mut wrappers = Vec::new();
-                loop {
-                    let next = if let Some((body, call)) = Self::original_argument_wrapper_body(store, generic, producer, owner)? {
-                        if wrapped_call.is_some_and(|expected| expected != call) {
-                            return Err(IrVerifyError::new("propagated saved argument wrappers have another original call"));
-                        }
-                        wrapped_call = Some(call);
-                        Some(body)
-                    } else { Self::original_compiler_argument_wrapper_body(store, generic, producer, owner)? };
-                    let Some(body) = next else { break; };
-                    if wrappers.len() >= 256 || wrappers.contains(&producer) {
-                        return Err(IrVerifyError::new("propagated compiler argument wrappers are cyclic or too deep"));
-                    }
-                    wrappers.push(producer);
-                    producer = body;
-                }
-                if let Some(call) = wrapped_call
-                    && generic.registered_instruction_origin(producer, false) != Some((super::generic::OperationSourceOrigin::Expression(call), owner)) {
-                    return Err(IrVerifyError::new("saved argument wrapper body changes its original call"));
-                }
-                let producer_tag = *store.tags.get(producer as usize).ok_or_else(|| IrVerifyError::new("generic propagation producer is out of bounds"))?;
-                let carrier = if let Some(call) = generic.call(producer) {
-                    let id = match call.evidence { CallEvidence::Ground(id) => id, CallEvidence::Forwarded(plan) => generic.forwarded_instance(plan, instance.ok_or_else(|| IrVerifyError::new("generic propagated call lacks a frame proof"))?)? };
-                    store.semantic.to_type(generic.instance(id)?.result_type)?
-                } else if matches!(producer_tag, FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
-                    let target = if producer_tag == FullTag::ExprSelfCall { match owner { InstructionOwner::Function(function) => function, _ => return Err(IrVerifyError::new("generic propagation self call has no owner")) } } else {
-                        let payload = store.payload(store.data[producer as usize].range())?;
-                        IrFunctionId::from_raw(*payload.first().ok_or_else(|| IrVerifyError::new("generic propagation call target is missing"))?).ok_or_else(|| IrVerifyError::new("generic propagation call target is invalid"))?
-                    };
-                    let callable = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("generic propagation call target is out of bounds"))?;
-                    let signature = SignatureId::from_raw(callable.signature).ok_or_else(|| IrVerifyError::new("generic propagation producer lacks scoped evidence"))?;
-                    store.semantic.to_type(store.semantic.signature_return_type(signature)?)?
-                } else if generic.ground_native_call_at(producer)?.is_some() {
-                    Self::native_call_result(store, generic, producer, owner)?
-                } else if let Some(capture) = generic.try_capture_source_at(producer)? {
-                    store.semantic.to_type(generic.try_capture_source(capture)?.carrier)?
-                } else if let Some(carrier) = Self::context_scope_carrier(store, generic, producer, owner)? {
-                    carrier
-                } else if let Some(carrier) = Self::run_producer_carrier(store, generic, producer, owner)? {
-                    carrier
-                } else if producer_tag == FullTag::ExprRequire {
-                    let payload = store.payload(store.data[producer as usize].range())?;
-                    let ty = TypeId::from_raw(*payload.get(1).ok_or_else(|| IrVerifyError::new("generic validation producer lacks a checked type"))?).ok_or_else(|| IrVerifyError::new("generic validation producer type is invalid"))?;
-                    Type::Result(Box::new(store.semantic.to_type(ty)?), Box::new(Type::Error))
-                } else { return Err(IrVerifyError::new(format!("generic propagation producer {producer} ({producer_tag:?}) requires a prepared carrier type"))); };
-                let Type::Result(ok, _) = &carrier else { return Err(IrVerifyError::new("generic propagation producer lacks a Result carrier")); };
-                if ok.as_ref() != expected { return Err(IrVerifyError::new("generic propagated success type disagrees with argument type")); }
-                Self::verify_generic_source(store, generic, original_producer, owner, &carrier, instance, active)?;
-            }
-            FullTag::ExprModuleCall | FullTag::ExprMethod | FullTag::ExprPathReadText | FullTag::ExprPathReadBytes | FullTag::ExprStrByteAt | FullTag::ExprFsList if generic.ground_native_call_at(source)?.is_some() => {
-                Self::verify_native_call_operand(store, generic, source, owner, expected, active)?;
-            }
-            FullTag::ExprPatternIf => {
-                Self::verify_pattern_conditional_result(store, generic, source, owner, expected, instance, active)?;
-            }
-            FullTag::ExprParam | FullTag::IntSlot | FullTag::BoolSlot => {
-                if Self::verify_iteration_operand(store, generic, source, owner, expected)? || Self::verify_pattern_operand_instantiated(store, generic, source, owner, expected, instance)? || Self::verify_value_binding_operand(store, generic, source, owner, expected, active)? || Self::verify_mutable_binding_operand(store, generic, source, owner, expected, active)? {
-                    active.pop();
-                    return Ok(());
-                }
-                let slot = child(0)? as usize;
-                match owner {
-                    InstructionOwner::Function(function) => {
-                        let callable = &store.functions[function.index()];
-                        if slot < callable.params.len as usize {
-                            let actual = if let Some(scope) = generic.scope_for_function(function) {
-                                if let Some(instance) = instance { let instance = generic.instance(instance)?; if instance.scope != scope { return Err(IrVerifyError::new("generic source parameter instance is foreign")); } store.semantic.to_type(instance.parameter_types[slot])? }
-                                else { let TypeRef::Ground(ty) = generic.scope(scope)?.parameters[slot] else { return Err(IrVerifyError::new("generic source parameter lacks a concrete frame proof")); }; store.semantic.to_type(ty)? }
-                            } else { let params = callable.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("generic source parameter range is invalid"))?; let ty = TypeId::from_raw(store.params[params.start + slot].type_id).ok_or_else(|| IrVerifyError::new("generic source parameter has no ground type"))?; store.semantic.to_type(ty)? };
-                            if actual != *expected { return Err(IrVerifyError::new("generic argument disagrees with source parameter type")); }
-                        } else {
-                            for instruction in range.clone() { if matches!(store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtAssignInt | FullTag::StmtAssignBool) && store.payload(store.data[instruction].range())?.first() == Some(&(slot as u32)) { return Err(IrVerifyError::new(format!("generic local source {source} ({tag:?}) slot {slot} in {owner:?} is mutable and lacks a prepared assignment proof; original {:?}, expected {expected:?}, write {instruction} ({:?})", generic.registered_instruction_origin(source, false), store.tags[instruction]))); } }
-                            let block = IrBlockId::from_raw(callable.body).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic local source body is invalid"))?;
-                            let mut initializer = None;
-                            for &instruction in store.payload(block.instructions)?.iter().skip(1) {
-                                if instruction >= source || store.tags[instruction as usize] != FullTag::StmtLet { continue; }
-                                let binding = store.payload(store.data[instruction as usize].range())?;
-                                if binding.first() == Some(&(slot as u32)) { if initializer.replace(binding[1]).is_some() { return Err(IrVerifyError::new("generic local source has ambiguous bindings")); } }
-                            }
-                            let initializer = initializer.ok_or_else(|| IrVerifyError::new(format!("generic local source {source} ({tag:?}) slot {slot} in {owner:?} lacks a dominating prepared binding; original {:?}, expected {expected:?}, pattern use {}", generic.registered_instruction_origin(source, false), generic.pattern_use(source).is_some())))?;
-                            Self::verify_generic_source(store, generic, initializer, owner, expected, instance, active)?;
-                        }
-                    }
-                    InstructionOwner::Driver(step) => {
-                        let slots = store.driver_steps[step as usize].slots.bounds(store.driver_slots.len()).ok_or_else(|| IrVerifyError::new("generic driver source slots are invalid"))?;
-                        let binding = store.driver_slots[slots].iter().find(|binding| binding.slot as usize == slot).ok_or_else(|| IrVerifyError::new(format!("generic driver source {source} slot {slot} in {owner:?} has no lexical binding; original {:?}, expected {expected:?}, payload {words:?}", generic.registered_instruction_origin(source, false))))?;
-                        if binding.flags & DRIVER_SLOT_MUTABLE != 0 { return Err(IrVerifyError::new("generic driver source is mutable and lacks assignment proof")); }
-                        let program = store.driver_programs.iter().find(|program| program.steps.bounds(store.driver_steps.len()).is_some_and(|steps| steps.contains(&(step as usize)))).ok_or_else(|| IrVerifyError::new("generic driver source has no program owner"))?;
-                        let mut initializer = None;
-                        for index in program.steps.start as usize..step as usize {
-                            let previous = store.driver_steps[index];
-                            if !matches!(previous.tag, FullDriverTag::Let | FullDriverTag::Assign) { continue; }
-                            let payload = store.payload(previous.data.range())?;
-                            if payload.first().copied().map(|raw| Name::from_symbol(Symbol::from_raw(raw))) != Some(Name::intern(store.string(binding.name)?)) { continue; }
-                            if previous.tag == FullDriverTag::Assign || initializer.is_some() { return Err(IrVerifyError::new("generic driver source has an assignment or ambiguous binding")); }
-                            let decoder = FullDecoder { store, owner: driver_owner(index).map_err(|_| IrVerifyError::new("generic driver source owner is invalid"))?, instruction_range: store.driver_instruction_range(index)?, instruction_states: None, block_states: None, slot_count: previous.slot_count, pattern_tree: None, pattern_ceiling: Cell::new(usize::MAX), verified: true };
-                            let mut payload = FullCursor::new(payload);
-                            Name::decode(&decoder, &mut payload)?; Option::<LoweredType>::decode(&decoder, &mut payload)?; Option::<LoweredTypeCheck>::decode(&decoder, &mut payload)?;
-                            if bool::decode(&decoder, &mut payload)? { return Err(IrVerifyError::new("generic driver initializer is mutable")); }
-                            initializer = Some((index, payload.raw()?));
-                        }
-                        let (index, initializer) = initializer.ok_or_else(|| IrVerifyError::new("generic driver source lacks a prepared initializer"))?;
-                        Self::verify_generic_source(store, generic, initializer, InstructionOwner::Driver(index as u32), expected, None, active)?;
-                    }
-                }
-            }
-            FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall => {
-                let Some(call) = generic.call(source) else {
-                    let target = if tag == FullTag::ExprSelfCall { match owner { InstructionOwner::Function(function) => function, InstructionOwner::Driver(_) => return Err(IrVerifyError::new("generic source self call has no function owner")) } } else { IrFunctionId::from_raw(child(0)?).ok_or_else(|| IrVerifyError::new("generic source call target is invalid"))? };
-                    let function = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("generic source call target is out of bounds"))?;
-                    let signature = SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("generic source call lacks scoped evidence"))?;
-                    if store.semantic.to_type(store.semantic.signature_return_type(signature)?)? != *expected { return Err(IrVerifyError::new("generic argument disagrees with fixed producer result type")); }
-                    active.pop();
-                    return Ok(());
-                };
-
-                if let CallEvidence::Forwarded(plan) = call.evidence && instance.is_none() {
-                    let plan = generic.forwarding(plan)?;
-                    if owner != InstructionOwner::Function(generic.scope(plan.caller)?.owner)
-                        || !generic.call_result_equals_ground(&store.semantic, plan.caller, source, expected.clone())? {
-                        return Err(IrVerifyError::new("generic unused forwarding result changes its original scope or checked relationship"));
-                    }
-                    active.pop();
-                    return Ok(());
-                }
-                let instance = match call.evidence { CallEvidence::Ground(id) => id, CallEvidence::Forwarded(plan) => generic.forwarded_instance(plan, instance.ok_or_else(|| IrVerifyError::new("generic argument forwarding result lacks a frame proof"))?)? };
-                if store.semantic.to_type(generic.instance(instance)?.result_type)? != *expected { return Err(IrVerifyError::new("generic argument call result disagrees with prepared type")); }
-            }
-            FullTag::ExprField if generic.ground_projection_at(source)?.is_some() => {
-                Self::verify_ground_projection_operand(store, generic, source, owner, expected, active)?;
-            }
-            FullTag::ExprField | FullTag::ExprBinary => {
-                if tag == FullTag::ExprBinary && generic.requirement_use(source).is_none() {
-                    let operation = words.first().and_then(|index| store.binary_ops.get(*index as usize)).ok_or_else(|| IrVerifyError::new("generic arithmetic source operator is invalid"))?;
-                    let supported = match expected { Type::Int => matches!(operation, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem), Type::Float => matches!(operation, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div), Type::Str | Type::List(_) => *operation == BinaryOp::Add, _ => false };
-                    if !supported { return Err(IrVerifyError::new(format!("generic arithmetic source {source} ({tag:?}) lacks a supported fixed contract; original {:?}, operator {operation:?}, payload {words:?}, expected {expected:?}", generic.registered_instruction_origin(source, false)))); }
-                    Self::verify_generic_source(store, generic, child(1)?, owner, expected, instance, active)?;
-                    Self::verify_generic_source(store, generic, child(2)?, owner, expected, instance, active)?;
-                    active.pop();
-                    return Ok(());
-                }
-                let use_ = generic.requirement_use(source).ok_or_else(|| IrVerifyError::new(format!("generic computed argument {source} ({tag:?}) lacks solved operation evidence; original {:?}, payload {words:?}, expected {expected:?}", generic.registered_instruction_origin(source, false))))?;
-                let instance = generic.instance(instance.ok_or_else(|| IrVerifyError::new("generic computed argument lacks a frame proof"))?)?;
-                if instance.scope != use_.scope { return Err(IrVerifyError::new("generic computed argument proof is foreign")); }
-                let result = match instance.requirements[use_.requirement as usize] { RequirementWitness::Projection { result, .. } | RequirementWitness::Add { result, .. } => result, RequirementWitness::Invocation(id) => store.semantic.signature_return_type(generic.scoped_invocation_witness(id)?.signature)?, RequirementWitness::Operation(id) => generic.scoped_operation_witness(id)?.result, RequirementWitness::NativeMethod(id) => generic.scoped_native_method_witness(id)?.result, RequirementWitness::TagConstructor => return Err(IrVerifyError::new("tag constructor witness cannot produce a field or binary value")), RequirementWitness::Eligibility { .. } => return Err(IrVerifyError::new("eligibility witness cannot produce an operation value")) };
-                if store.semantic.to_type(result)? != *expected { return Err(IrVerifyError::new("generic computed argument disagrees with operation result type")); }
-            }
-            _ => return Err(IrVerifyError::new(format!("generic argument source {source} ({tag:?}) requires an independently prepared type proof; original {:?}, payload {words:?}, expected {expected:?}", generic.registered_instruction_origin(source, false)))),
-        } }
-        active.pop();
-        Ok(())
-    }
-
-    fn stage_call_topology(store: &FullStore, generic: &GenericEvidenceStore, owners: &[Option<InstructionOwner>]) -> Result<FxHashMap<u32, (StageItemInput, u32, InstructionOwner)>, IrVerifyError> {
-        let mut calls = FxHashMap::default();
-        for (pipeline, tag) in store.tags.iter().enumerate() {
-            if *tag != FullTag::ExprPipeline { continue; }
-            let words = store.payload(store.data[pipeline].range())?;
-            let input = *words.first().ok_or_else(|| IrVerifyError::new("generic stage input is missing"))?;
-            let owner = owners[pipeline].ok_or_else(|| IrVerifyError::new("generic stage pipeline has no owner"))?;
-            if owners.get(input as usize) != Some(&Some(owner)) { return Err(IrVerifyError::new("generic stage input has another owner")); }
-            let block = words.get(1).copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index()))
-                .ok_or_else(|| IrVerifyError::new("generic stage sequence is invalid"))?;
-            let stages = store.payload(block.instructions)?;
-            let count = stages.first().copied().ok_or_else(|| IrVerifyError::new("generic stage sequence length is missing"))? as usize;
-            if stages.len() != count.checked_add(1).ok_or_else(|| IrVerifyError::new("generic stage sequence length overflows"))? { return Err(IrVerifyError::new("generic stage sequence length is invalid")); }
-            let mut previous = Some(StageItemInput::Sequence(input));
-            let mut pipeline_origin = None;
-            for (position, &stage) in stages[1..].iter().enumerate() {
-                let tag = store.stages.get(stage as usize);
-                if !matches!(tag, Some(FullStageTag::Map | FullStageTag::Where)) { previous = None; continue; }
-                let data = store.stage_data.get(stage as usize).ok_or_else(|| IrVerifyError::new("generic Map stage payload is missing"))?;
-                let words = store.payload(data.range())?;
-                if words.len() != 2 { return Err(IrVerifyError::new("generic Map stage payload is invalid")); }
-                let slot = words[0];
-                let callback = words[1];
-                let ground = generic.ground_stage_call_at(callback)?;
-                if generic.call(callback).is_none() && ground.is_none() { previous = None; continue; }
-                if let Some(proof) = ground {
-                    let source = generic.stage_call_source(proof.source)?;
-                    if proof.contract.original_position as usize != position || pipeline_origin.is_some_and(|origin| origin != source.origin.pipeline) { return Err(IrVerifyError::new("ground stage call order or original pipeline identity changed")); }
-                    pipeline_origin = Some(source.origin.pipeline);
-                    let super::generic::PreparedOperationAuthority::Stage { stage: expected, .. } = &proof.contract.stage_authority else { return Err(IrVerifyError::new("ground stage has no selected authority")); };
-                    if !matches!((expected, tag), (crate::syntax::node::StreamStageKind::Map, Some(FullStageTag::Map)) | (crate::syntax::node::StreamStageKind::Where, Some(FullStageTag::Where))) { return Err(IrVerifyError::new("ground stage opcode disagrees with its original selected authority")); }
-                } else if position != 0 || tag != Some(&FullStageTag::Map) { return Err(IrVerifyError::new("generic callback requires prepared preceding stage results")); }
-                if owners.get(callback as usize) != Some(&Some(owner)) { return Err(IrVerifyError::new("generic stage callback has another owner")); }
-                let source = previous.ok_or_else(|| IrVerifyError::new("stage callback requires an original preceding stage transition"))?;
-                if calls.insert(callback, (source, slot, owner)).is_some() { return Err(IrVerifyError::new("generic stage callback belongs to multiple pipelines")); }
-                previous = ground.map(|_| StageItemInput::GroundCallback(callback));
-            }
-        }
-        Ok(calls)
-    }
-
-    fn verify_generic_call_argument(store: &FullStore, generic: &GenericEvidenceStore, stages: &FxHashMap<u32, (StageItemInput, u32, InstructionOwner)>, call: u32, source: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>) -> Result<(), IrVerifyError> {
-        if let Some(&(input, slot, stage_owner)) = stages.get(&call) {
-            if owner != stage_owner || store.tags.get(source as usize) != Some(&FullTag::ExprParam) { return Err(IrVerifyError::new("generic stage argument is not its original item parameter")); }
-            if store.payload(store.data[source as usize].range())? != [slot] { return Err(IrVerifyError::new("generic stage item slot disagrees with its callback argument")); }
-            match input {
-                StageItemInput::Sequence(input) => {
-                    let sequence = if let Some(proof) = generic.ground_stage_call_at(call)? {
-                        let TypeRef::Ground(ty) = proof.contract.input_sequence else { return Err(IrVerifyError::new("stage input sequence is not ground")); };
-                        store.semantic.to_type(ty)?
-                    } else { Type::List(Box::new(expected.clone())) };
-                    Self::verify_generic_source(store, generic, input, owner, &sequence, instance, &mut Vec::new())
-                }
-                StageItemInput::GroundCallback(previous) => {
-                    let preceding = generic.ground_stage_call_at(previous)?.ok_or_else(|| IrVerifyError::new("preceding stage has no original result proof"))?;
-                    let current = generic.ground_stage_call_at(call)?.ok_or_else(|| IrVerifyError::new("stage input lacks a prepared result relationship"))?;
-                    if previous >= call || generic.stage_call_source(preceding.source)?.owner != owner { return Err(IrVerifyError::new("preceding stage result has another owner or order")); }
-                    let (TypeRef::Ground(result), TypeRef::Ground(input), TypeRef::Ground(item)) = (preceding.contract.result_sequence, current.contract.input_sequence, preceding.contract.result_item) else { return Err(IrVerifyError::new("preceding stage result is not ground")); };
-                    if store.semantic.to_type(result)? != store.semantic.to_type(input)? || store.semantic.to_type(item)? != *expected { return Err(IrVerifyError::new("preceding original stage result disagrees with the next item source")); }
-                    Ok(())
-                }
-            }
-        } else { Self::verify_generic_source(store, generic, source, owner, expected, instance, &mut Vec::new()) }
-    }
-
-    fn verify_ground_stage_calls(store: &FullStore, generic: &GenericEvidenceStore, stages: &FxHashMap<u32, (StageItemInput, u32, InstructionOwner)>) -> Result<(), IrVerifyError> {
-        for (_, root) in generic.checked_functions() {
-            let function = store.functions.get(root.target.index()).ok_or_else(|| IrVerifyError::new("checked function target is invalid"))?;
-            if function.signature != root.signature.raw() || store.function_metadata[root.target.index()].flags & 4 != 0 { return Err(IrVerifyError::new("checked function signature disagrees with its original declaration")); }
-        }
-        for (_, proof) in generic.ground_stage_calls() {
-            let source = generic.stage_call_source(proof.source)?;
-            let contract = &proof.contract;
-            if !stages.contains_key(&source.instruction) { return Err(IrVerifyError::new("ground stage callback lacks its original pipeline item topology")); }
-            let tag = store.tags[source.instruction as usize];
-            if !matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall)
-                || (tag == FullTag::ExprDirectPureCall && (contract.kind != super::generic::CallableKind::Pure || !contract.default_slots.is_empty())) { return Err(IrVerifyError::new("ground stage callback has another call opcode or default policy")); }
-            let words = store.payload(store.data[source.instruction as usize].range())?;
-            if words.first() != Some(&contract.target.raw()) { return Err(IrVerifyError::new("ground stage callback target disagrees with its original declaration")); }
-            let function = store.functions[contract.target.index()];
-            let metadata = store.function_metadata[contract.target.index()];
-            if (metadata.flags & 1 != 0) != (contract.kind == super::generic::CallableKind::Proc) { return Err(IrVerifyError::new("ground stage callback kind disagrees with its original declaration")); }
-            let params = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("ground stage parameter range is invalid"))?;
-            if params.len() != contract.argument_types.len() { return Err(IrVerifyError::new("ground stage parameter arity is invalid")); }
-            let block = words.get(1).copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("ground stage call arguments are invalid"))?;
-            let args = store.payload(block.instructions)?;
-            let count = args.first().copied().ok_or_else(|| IrVerifyError::new("ground stage call argument count is absent"))? as usize;
-            if count > params.len() || args.len() != 1 + count.checked_mul(2).ok_or_else(|| IrVerifyError::new("ground stage argument count overflows"))? { return Err(IrVerifyError::new("ground stage call argument count is invalid")); }
-            for (slot, &ty) in contract.argument_types.iter().enumerate() {
-                let param = store.params[params.start + slot];
-                let (name, formal, flags) = store.semantic.signature_param(contract.signature, slot)?;
-                let signature_flags = u32::from(param.flags & 2 != 0) | u32::from(param.flags & 1 != 0) << 1;
-                if Name::intern(store.string(param.name)?) != name || param.type_id != formal.raw() || signature_flags != flags { return Err(IrVerifyError::new("ground stage parameter header disagrees with its checked signature")); }
-                let (tag, value) = if slot < count { (args[1 + slot * 2], args[2 + slot * 2]) } else { (2, slot as u32) };
-                let expected = store.semantic.to_type(ty)?;
-                match (tag, contract.argument_sources[slot]) {
-                    (0, Some(instruction)) if instruction == value => Self::verify_generic_call_argument(store, generic, stages, source.instruction, instruction, source.owner, &expected, None)?,
-                    (2, None) if value == slot as u32 && param.flags & 2 != 0 => Self::verify_function_default(store, generic, contract.target, slot, &expected, None)?,
-                    _ => return Err(IrVerifyError::new("ground stage argument source or default slot disagrees with its original binding")),
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn verify_local_call_default_slots(store: &FullStore) -> Result<(), IrVerifyError> {
-        let owners = store.generic_instruction_owners()?;
-        for (instruction, &tag) in store.tags.iter().enumerate() {
-            if !matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) { continue; }
-            let words = store.payload(store.data[instruction].range())?;
-            let (target, args_index) = if tag == FullTag::ExprSelfCall {
-                let Some(InstructionOwner::Function(target)) = owners[instruction] else { return Err(IrVerifyError::new("self call has no function owner")); };
-                (target, 0)
-            } else {
-                (words.first().copied().and_then(IrFunctionId::from_raw).ok_or_else(|| IrVerifyError::new("call default target is invalid"))?, 1)
-            };
-            let function = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("call default target is out of bounds"))?;
-            let params = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("call default parameters are invalid"))?;
-            let block = words.get(args_index).copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("call default argument block is invalid"))?;
-            let args = store.payload(block.instructions)?;
-            let count = args.first().copied().ok_or_else(|| IrVerifyError::new("call default argument count is absent"))? as usize;
-            if args.len() != 1 + count.checked_mul(2).ok_or_else(|| IrVerifyError::new("call argument count overflows"))? { return Err(IrVerifyError::new("call default argument count is invalid")); }
-            let has_splice = args[1..].chunks_exact(2).any(|argument| argument[0] == 1);
-            let mut omitted = std::collections::BTreeSet::new();
-            for (position, argument) in args[1..].chunks_exact(2).enumerate() {
-                if argument[0] != 2 { continue; }
-                let slot = argument[1] as usize;
-                if slot >= params.len() || store.params[params.start + slot].flags & 2 == 0
-                    || !omitted.insert(slot) || (!has_splice && slot != position) || tag == FullTag::ExprDirectPureCall {
-                    return Err(IrVerifyError::new("call omission has a duplicate, misplaced, or nondefault parameter slot"));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn verify_generic_evidence(store: &FullStore) -> Result<(), IrVerifyError> {
-        store.verify_generic_owner()?;
-        Self::verify_local_call_default_slots(store)?;
-        let Some(generic) = store.generic.as_deref() else { return Ok(()); };
-        let owners = store.generic_instruction_owners()?;
-        generic.verify(&store.semantic, store.functions.len(), &owners)?;
-        Self::verify_module_invocation_sources(store, generic)?;
-        Self::verify_callable_values(store, generic)?;
-        Self::verify_native_callable_values(store, generic)?;
-        Self::verify_native_calls(store, generic)?;
-        Self::verify_ground_containers(store, generic)?;
-        Self::verify_native_scalar_sources(store, generic)?;
-        Self::verify_record_constructors(store, generic)?;
-        Self::verify_constant_sources(store, generic)?;
-        Self::verify_record_updates(store, generic)?;
-        Self::verify_error_constructors(store, generic)?;
-        Self::verify_tag_constructors(store, generic)?;
-        Self::verify_embedded_bridges(store, generic)?;
-        Self::verify_hash_policy_calls(store, generic)?;
-        Self::verify_record_sources(store, generic)?;
-        Self::verify_value_bindings(store, generic)?;
-        Self::verify_ground_projections(store, generic)?;
-        Self::verify_source_operations(store, generic)?;
-        for (_, scope) in generic.scopes() {
-            let function = &store.functions[scope.owner.index()];
-            if function.params.len as usize != scope.parameters.len() { return Err(IrVerifyError::new("generic scheme parameters disagree with function header")); }
-            let metadata = store.function_metadata[scope.owner.index()];
-            if function.signature != IR_NONE || metadata.flags & 4 == 0 || (metadata.flags & 1 != 0) != (scope.kind == super::generic::CallableKind::Proc) { return Err(IrVerifyError::new("generic scheme kind disagrees with function header")); }
-            if metadata.flags & GENERIC_RETURN_PLAN_MASK != generic_return_plan_flags(scope.return_plan) { return Err(IrVerifyError::new("generic return plan disagrees with declaration header")); }
-            let params = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("generic parameter range is invalid"))?;
-            for (index, param) in store.params[params].iter().enumerate() {
-                if Name::intern(store.string(param.name)?) != scope.parameter_names[index] || param.flags != scope.parameter_flags[index] { return Err(IrVerifyError::new("generic scheme labels or argument modes disagree with header")); }
-                let expected = match scope.parameters[index] { TypeRef::Ground(ty) => ty.raw(), TypeRef::Rigid(_) | TypeRef::Template(_) => IR_NONE };
-                if param.type_id != expected { return Err(IrVerifyError::new("generic parameter storage disagrees with scoped type")); }
-            }
-        }
-        for call in generic.calls() {
-            let instruction = call.instruction as usize;
-            let words = store.payload(store.data[instruction].range())?;
-            let target = match store.tags[instruction] {
-                FullTag::ExprCall | FullTag::ExprDirectPureCall => words.first().copied(),
-                FullTag::ExprSelfCall => match call.caller { InstructionOwner::Function(owner) => Some(owner.raw()), InstructionOwner::Driver(_) => None },
-                _ => return Err(IrVerifyError::new("generic call evidence is attached to a non-call instruction")),
-            };
-            if target != Some(generic.scope(call.target)?.owner.raw()) {
-                return Err(IrVerifyError::new("generic call evidence disagrees with encoded target"));
-            }
-        }
-        let stage_calls = Self::stage_call_topology(store, generic, &owners)?;
-        Self::verify_ground_stage_calls(store, generic, &stage_calls)?;
-        Self::verify_stage_pipelines(store, generic)?;
-        for call in generic.calls() {
-            let words = store.payload(store.data[call.instruction as usize].range())?;
-            let args_index = if store.tags[call.instruction as usize] == FullTag::ExprSelfCall { 0 } else { 1 };
-            let args_block = words.get(args_index).copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic call arguments block is invalid"))?;
-            let args = store.payload(args_block.instructions)?;
-            let count = args.first().copied().ok_or_else(|| IrVerifyError::new("generic call argument count is missing"))? as usize;
-            if args.len() != 1 + count.checked_mul(2).ok_or_else(|| IrVerifyError::new("generic argument count overflow"))? || count > generic.call_arguments(call.instruction).len() { return Err(IrVerifyError::new("generic call argument evidence disagrees with encoded arity")); }
-            for (index, argument) in generic.call_arguments(call.instruction).iter().enumerate() {
-                let (tag, source) = if index < count { (args[1 + index * 2], args[2 + index * 2]) } else { (2, argument.parameter) };
-                match (tag, argument.source_instruction) {
-                    (0, Some(instruction)) if instruction == source => {},
-                    (2, None) if source == argument.parameter && generic.scope(call.target)?.parameter_flags[index] & 2 != 0 => {},
-                    _ => return Err(IrVerifyError::new("generic argument evidence disagrees with encoded source")),
-                }
-                let Some(source) = argument.source_instruction else {
-                    match call.evidence {
-                        CallEvidence::Ground(instance) => Self::verify_generic_default(store, generic, instance, argument.parameter as usize)?,
-                        CallEvidence::Forwarded(plan) => for &(_, instance) in &generic.forwarding(plan)?.instances { Self::verify_generic_default(store, generic, instance, argument.parameter as usize)?; },
-                    }
-                    continue;
-                };
-                match call.evidence {
-                    CallEvidence::Ground(_) => {
-                        let TypeRef::Ground(ty) = argument.ty else { return Err(IrVerifyError::new("ground generic argument is not grounded")); };
-                        if store.semantic.callable_descriptor(ty)?.is_some() {
-                            Self::verify_scoped_callable_source(store, generic, source, call.caller, ty, None, 0)?;
-                            continue;
-                        }
-                        let expected = store.semantic.to_type(ty)?;
-                        if let InstructionOwner::Function(owner) = call.caller && let Some(scope) = generic.scope_for_function(owner) {
-                            let instances = generic.instances().filter(|(_, instance)| instance.scope == scope).collect::<Vec<_>>();
-                            if instances.is_empty() { Self::verify_generic_call_argument(store, generic, &stage_calls, call.instruction, source, call.caller, &expected, None)?; }
-                            for (instance, _) in instances { Self::verify_generic_call_argument(store, generic, &stage_calls, call.instruction, source, call.caller, &expected, Some(instance))?; }
-                        } else { Self::verify_generic_call_argument(store, generic, &stage_calls, call.instruction, source, call.caller, &expected, None)?; }
-                    }
-                    CallEvidence::Forwarded(plan) => for &(from, to) in &generic.forwarding(plan)?.instances {
-                        let ty = generic.instance(to)?.parameter_types[argument.parameter as usize];
-                        if store.semantic.callable_descriptor(ty)?.is_some() { Self::verify_scoped_callable_source(store, generic, source, call.caller, ty, Some(from), 0)?; continue; }
-                        let expected = generic.expand(&store.semantic, argument.ty, &generic.instance(from)?.substitutions, &mut FxHashMap::default())?;
-                        Self::verify_generic_call_argument(store, generic, &stage_calls, call.instruction, source, call.caller, &expected, Some(from))?;
-                    },
-                }
-            }
-        }
-        for use_ in generic.requirement_uses() {
-            let instruction = use_.instruction as usize;
-            let words = store.payload(store.data[instruction].range())?;
-            let requirement = &generic.scope(use_.scope)?.requirements[use_.requirement as usize];
-            match (store.tags[instruction], requirement) {
-                (FullTag::ExprMethod, Requirement::NativeMethod(_)) => Self::verify_scoped_native_method_instruction(store, generic, use_.instruction)?,
-                (FullTag::ExprOk | FullTag::ExprErr, Requirement::Operation(_)) => Self::verify_scoped_operation_instruction(store, generic, use_.instruction)?,
-                (FullTag::ExprDynamicCall, Requirement::Invocation { .. }) => Self::verify_scoped_invocation_instruction(store, generic, use_.instruction)?,
-                (FullTag::ExprField, Requirement::Projection { receiver_parameter, field, .. }) => {
-                    let name = words.get(1).copied().ok_or_else(|| IrVerifyError::new("generic projection field is missing"))?;
-                    if Name::intern(store.string(name)?) != *field { return Err(IrVerifyError::new("generic projection evidence disagrees with encoded field")); }
-                    let base = words.first().copied().ok_or_else(|| IrVerifyError::new("generic projection receiver is missing"))? as usize;
-                    if store.tags.get(base) != Some(&FullTag::ExprParam) { return Err(IrVerifyError::new("generic projection receiver is not its prepared parameter")); }
-                    let base_words = store.payload(store.data[base].range())?;
-                    if base_words.first() != Some(receiver_parameter) { return Err(IrVerifyError::new("generic projection receiver parameter disagrees with evidence")); }
-                }
-                (FullTag::ExprBinary, Requirement::Add { .. }) => {
-                    let op = words.first().and_then(|index| store.binary_ops.get(*index as usize));
-                    if op != Some(&BinaryOp::Add) { return Err(IrVerifyError::new("generic Add evidence is attached to another binary operator")); }
-                    let Requirement::Add { left, right, .. } = requirement else { unreachable!() };
-                    let left_source = *words.get(1).ok_or_else(|| IrVerifyError::new("generic Add left operand is missing"))?;
-                    let right_source = *words.get(2).ok_or_else(|| IrVerifyError::new("generic Add right operand is missing"))?;
-                    Self::verify_generic_symbolic_source(store, generic, left_source, use_.scope, *left, &mut Vec::new())?;
-                    Self::verify_generic_symbolic_source(store, generic, right_source, use_.scope, *right, &mut Vec::new())?;
-                    for (instance_id, instance) in generic.instances().filter(|(_, instance)| instance.scope == use_.scope) {
-                        let RequirementWitness::Add { left, right, .. } = instance.requirements[use_.requirement as usize] else { return Err(IrVerifyError::new("generic Add witness has another kind")); };
-                        Self::verify_generic_source(store, generic, left_source, InstructionOwner::Function(generic.scope(use_.scope)?.owner), &store.semantic.to_type(left)?, Some(instance_id), &mut Vec::new())?;
-                        Self::verify_generic_source(store, generic, right_source, InstructionOwner::Function(generic.scope(use_.scope)?.owner), &store.semantic.to_type(right)?, Some(instance_id), &mut Vec::new())?;
-                    }
-                }
-                _ => return Err(IrVerifyError::new("generic requirement evidence is attached to the wrong instruction kind")),
-            }
-        }
-        for record in generic.constructors() {
-            let instruction = record.instruction as usize;
-            if store.tags[instruction] != FullTag::ExprRecord { return Err(IrVerifyError::new("generic physical layout is attached to a non-record constructor")); }
-            let words = store.payload(store.data[instruction].range())?;
-            let block = words.first().and_then(|raw| IrBlockId::from_raw(*raw)).and_then(|id| store.blocks.get(id.index()))
-                .ok_or_else(|| IrVerifyError::new("generic record constructor entries are missing"))?;
-            let entries = store.payload(block.instructions)?;
-            let count = entries.first().copied().ok_or_else(|| IrVerifyError::new("generic record constructor count is missing"))? as usize;
-            let fields = entries.get(1..).ok_or_else(|| IrVerifyError::new("generic record constructor entries are missing"))?;
-            if fields.len() != count.checked_mul(3).ok_or_else(|| IrVerifyError::new("generic record constructor count overflows"))? { return Err(IrVerifyError::new("generic physical layout requires fixed literal record fields")); }
-            let mut names = Vec::with_capacity(count);
-            for entry in fields.chunks_exact(3) {
-                if entry[0] != 0 { return Err(IrVerifyError::new("generic physical layout requires fixed literal record fields")); }
-                names.push(Name::from_symbol(Symbol::from_raw(entry[1])));
-            }
-            names.sort_unstable();
-            let layout = generic.layout(record.layout)?;
-            if names.len() != layout.fields.len() || names.iter().copied().ne(layout.fields.iter().map(|field| field.0)) { return Err(IrVerifyError::new("generic physical layout disagrees with constructor field order")); }
-        }
-        Ok(())
-    }
     /// Private representation operations are reachable only from the embedded
     /// implementation module that declares them.
     ///
@@ -5463,10 +3862,6 @@ impl FullVerifier {
                     "private representation operation reached from outside its implementation module",
                 ));
             }
-            let generic = store.generic.as_deref().ok_or_else(|| IrVerifyError::new("private native bridge lacks prepared original authority"))?;
-            let source = generic.bridge_call(instruction as u32)?.ok_or_else(|| IrVerifyError::new("private native bridge lacks its original invocation"))?;
-            if source.original.declaration().op() != *op { return Err(IrVerifyError::new("private native bridge changes its original selected operation")); }
-
         }
         Ok(())
     }
@@ -5474,7 +3869,6 @@ impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
-        let pattern_tree = store.generic.as_deref().is_some_and(|generic| generic.has_pattern_applications() || generic.has_original_patterns() || generic.has_local_callable_bindings() || generic.original_callable_receivers().next().is_some() || generic.has_original_argument_bindings() || generic.has_iteration_bindings() || generic.has_value_bindings() || generic.has_comprehensions() || generic.has_context_producers() || generic.has_try_captures() || generic.has_native_scalars() || generic.has_mutable_bindings() || generic.has_saved_native_receivers() || generic.has_mutable_paths() || generic.has_host_bindings() || generic.has_lexical_captures() || generic.has_conditionals() || generic.has_formatted_paths() || generic.has_optional_receiver_guards() || generic.has_native_record_arguments() || generic.operations().any(|(_, operation)| operation.literal_comparison_slot.is_some())).then(|| std::sync::Mutex::new(super::pattern::PatternTreeBuilder::new(store.tags.len())));
         let mut wire_types = rustc_hash::FxHashSet::default();
         for mapping in &store.wire_enums {
             if mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len() {
@@ -5579,7 +3973,7 @@ impl FullVerifier {
             if metadata.owner != IR_NONE {
                 store.string(metadata.owner)?;
             }
-            if metadata.flags & !0b1_1111 != 0 {
+            if metadata.flags & !0b11 != 0 {
                 return Err(IrVerifyError::new("function metadata flags are invalid"));
             }
             let instructions = store.function_instruction_range(index)?;
@@ -5597,17 +3991,14 @@ impl FullVerifier {
                 .captures
                 .bounds(store.captures.len())
                 .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
-            let generic_scope = store.generic.as_deref().and_then(|evidence| evidence.scope_for_function(IrFunctionId::new(index).ok()?));
-            if (metadata.flags & 4 != 0) != generic_scope.is_some() || (function.signature == IR_NONE) != generic_scope.is_some() { return Err(IrVerifyError::new("generic function header and scoped metadata disagree")); }
-            if generic_scope.is_none() && metadata.flags & GENERIC_RETURN_PLAN_MASK != 0 { return Err(IrVerifyError::new("nongeneric function carries generic return-plan flags")); }
-            if function.signature != IR_NONE && store.semantic.signature_param_count(SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("function signature id is invalid"))?)? != params.len() {
+            if store.semantic.signature_param_count(function.signature)? != params.len() {
                 return Err(IrVerifyError::new(
                     "function parameters do not match its signature",
                 ));
             }
             for param in &store.params[params.clone()] {
                 store.string(param.name)?;
-                if param.type_id == IR_NONE { if generic_scope.is_none() { return Err(IrVerifyError::new("generic parameter lacks scoped metadata")); } } else { store.semantic.type_tag(TypeId::from_raw(param.type_id).ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?)?; }
+                store.semantic.type_tag(param.type_id)?;
                 if param.flags & !0b111 != 0 {
                     return Err(IrVerifyError::new("parameter flags are invalid"));
                 }
@@ -5629,7 +4020,7 @@ impl FullVerifier {
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
                 block_states: Some(RefCell::new(vec![0; store.blocks.len()])),
                 slot_count: function.slot_count,
-                pattern_tree: pattern_tree.as_ref(), pattern_ceiling: Cell::new(usize::MAX),
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: false,
             };
             let body_id = IrBlockId::from_raw(function.body)
@@ -5699,8 +4090,10 @@ impl FullVerifier {
                     "function {index} has an empty body"
                 )));
             }
-            let is_stream = if function.signature == IR_NONE { false } else { matches!(store.semantic.to_type(store.semantic.signature_return_type(SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("function signature id is invalid"))?)?)?, Type::Stream(_)) };
-            if !is_stream && !indexed_block_can_return(store, body_id)?
+            let return_type = store
+                .semantic
+                .to_type(store.semantic.signature_return_type(function.signature)?)?;
+            if !matches!(return_type, Type::Stream(_)) && !indexed_block_can_return(store, body_id)?
             {
                 return Err(IrVerifyError::new(format!(
                     "function {index} body does not terminate with a return"
@@ -5907,36 +4300,13 @@ impl FullVerifier {
                     "driver plan contains an unreachable sync row",
                 ));
             }
-            program.verify_driver(pattern_tree.as_ref())?;
+            program.verify_driver()?;
         }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(
                 "full IR contains instructions outside executable owner ranges",
             ));
         }
-        if let Some(tree) = pattern_tree {
-            let tree = tree.into_inner().map_err(|_| IrVerifyError::new("pattern verifier traversal was interrupted"))?.finish()?;
-            Self::verify_pattern_evidence(store, &tree)?;
-            Self::verify_local_callable_dominance(store, &tree)?;
-            Self::verify_module_receiver_dominance(store, &tree)?;
-            Self::verify_value_binding_dominance(store, &tree)?;
-            Self::verify_native_scalar_dominance(store, &tree)?;
-            Self::verify_literal_comparison_scopes(store, &tree)?;
-            Self::verify_native_receiver_scopes(store, &tree)?;
-            Self::verify_optional_receiver_guard_scopes(store, &tree)?;
-            Self::verify_host_bindings(store, &tree)?;
-            Self::verify_lexical_captures(store, &tree)?;
-            Self::verify_mutable_binding_dominance(store, &tree)?;
-            Self::verify_original_argument_bindings(store, &tree)?;
-            Self::verify_original_iteration_bindings(store, &tree)?;
-            Self::verify_original_comprehensions(store, &tree)?;
-            Self::verify_original_context_scopes(store, &tree)?;
-            Self::verify_conditionals(store, &tree)?;
-            if let Some(generic) = store.generic.as_deref() { Self::verify_formatted_paths(store, generic, &tree)?; }
-        }
-        Self::verify_compiler_argument_wrappers(store)?;
-        if let Some(generic) = store.generic.as_deref() { Self::verify_try_capture_sources(store, generic)?; Self::verify_ground_containers(store, generic)?; }
-        Self::verify_generic_evidence(store)?;
         Ok(())
     }
 }
@@ -5979,7 +4349,6 @@ impl FullCodec for usize {
         if *self >= builder.current_slot_count as usize {
             return Err(IrBuildError::format("slot_out_of_bounds", None, 0, 0));
         }
-        builder.encoded_slot_uses.push((builder.current_owner.unwrap(), *self));
         output.push(
             u32::try_from(*self).map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
         );
@@ -6543,7 +4912,6 @@ fn visit_value_wire_mappings(value: &LoweredValue, visit: &mut impl FnMut(&Arc<c
         LoweredValue::List(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
         LoweredValue::SharedList(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
         LoweredValue::Record(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
-        LoweredValue::RecordVec(values) => values.iter().all(|(_, value)| visit_value_wire_mappings(value, visit)),
         LoweredValue::Map(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
         _ => true,
     }
@@ -6571,7 +4939,6 @@ fn prepared_constant_is_data(value: &LoweredValue, depth: usize) -> bool {
         LoweredValue::List(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
         LoweredValue::SharedList(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
         LoweredValue::Record(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
-        LoweredValue::RecordVec(values) => values.iter().all(|(_, value)| prepared_constant_is_data(value, depth + 1)),
         LoweredValue::Map(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
         LoweredValue::Tag(value) => value.fields.iter().all(|value| prepared_constant_is_data(value, depth + 1))
             && value.wire.as_ref().is_none_or(|mapping| value.fields.is_empty()
@@ -6760,24 +5127,14 @@ impl FullCodec for Type {
 
 impl FullCodec for LoweredType {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        if *self == LoweredType::Generic {
-            let owner = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("generic_storage_without_function", None, 0, 0))?;
-            if builder.store.function_metadata.get(owner.index()).is_none_or(|metadata| metadata.flags & 4 == 0) { return Err(IrBuildError::format("generic_storage_without_scope", None, 0, 0)); }
-            output.push(IR_NONE);
-            Ok(())
-        } else { lowered_type_to_type(*self)?.encode(builder, output) }
+        lowered_type_to_type(*self)?.encode(builder, output)
     }
 
     fn decode(
         decoder: &FullDecoder<'_>,
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
-        let raw = input.raw()?;
-        if raw == IR_NONE {
-            let owner = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("generic storage belongs to a non-function owner"))?;
-            if decoder.store.function_metadata.get(owner.index()).is_none_or(|metadata| metadata.flags & 4 == 0) || decoder.store.generic.as_deref().and_then(|evidence| evidence.scope_for_function(owner)).is_none() { return Err(IrVerifyError::new("generic storage lacks scoped metadata")); }
-            Ok(LoweredType::Generic)
-        } else { lowered_type_from_type(&decoder.store.semantic.to_type(TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("lowered type id is invalid"))?)?) }
+        lowered_type_from_type(&Type::decode(decoder, input)?)
     }
 }
 
@@ -6848,9 +5205,6 @@ impl FullCodec for LoweredTopLevelSlot {
             slot: usize::decode(decoder, input)?,
             kind: LoweredType::decode(decoder, input)?,
             mutable: bool::decode(decoder, input)?,
-            source_type: None,
-            host_binding: None,
-            lexical_binding: None,
         })
     }
 }
@@ -6942,6 +5296,7 @@ impl FullCodec for LoweredValue {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
+            Self::OmittedArgument => return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0)),
             Self::Null => FullValueTag::Null,
             Self::Unit => FullValueTag::Unit,
             Self::Int(value) => {
@@ -7046,8 +5401,6 @@ impl FullCodec for LoweredValue {
             | Self::Stream(_)
             | Self::Pure(_)
             | Self::Proc(_)
-            | Self::Callable(_)
-            | Self::NativeCallable(_)
             | Self::Error(_)
             | Self::ResultErr(_) => {
                 return Err(IrBuildError::format(
@@ -7290,239 +5643,7 @@ macro_rules! impl_build_id_codec {
                     .$rows
                     .get(self.index())
                     .ok_or_else(|| IrBuildError::format("indexed_build_id", None, 0, 0))?;
-                row.encode(builder, output)?;
-                if stringify!($rows) == "expressions" {
-                    let expression = BuildExprId::new(self.index());
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("callable_encoded_expression_missing", None, 0, 0))?;
-                    builder.active_encoded_expressions.insert(expression, instruction);
-                    builder.stage_original_block_callback(expression, instruction, &scratch)?;
-                    builder.stage_original_pipeline_fusions(expression, instruction, &scratch)?;
-                    if scratch.hash_policy_packets.contains_key(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("hash_policy_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("hash_policy_owner_invalid", None, 0, 0))?) };
-                        builder.stage_hash_policy_packet(expression, instruction, owner, &scratch)?;
-                    }
-                    if let Some(original) = scratch.named_map_key_origins.get(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("named_map_key_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("named_map_key_owner_invalid", None, 0, 0))?) };
-                        builder.stage_named_map_key(original.clone(), instruction, owner)?;
-                    }
-                    if scratch.container_creation_checks.contains_key(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("container_creation_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("container_creation_owner_invalid", None, 0, 0))?) };
-                        builder.stage_original_container_creation_check(expression, instruction, owner, &scratch)?;
-                    }
-                    builder.stage_original_record_source(expression, instruction, &scratch)?;
-                    if scratch.result_receiver_origins.contains_key(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("result_receiver_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("result_receiver_owner_invalid", None, 0, 0))?) };
-                        builder.stage_original_result_receiver(expression, instruction, owner, &scratch)?;
-                    }
-                    builder.stage_optional_receiver_guard(expression, instruction, &scratch)?;
-                    builder.stage_formatted_path(expression, instruction, &scratch)?;
-                    builder.stage_original_constant(expression, instruction, &scratch)?;
-                    builder.stage_original_record_update(expression, instruction, &scratch)?;
-                    builder.stage_original_error_constructor(expression, instruction, &scratch)?;
-                    builder.stage_original_tag_constructor(expression, instruction, &scratch)?;
-                    if let Some(&origin) = builder.active_expression_origins.get(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("conditional_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("conditional_owner_invalid", None, 0, 0))?) };
-                        builder.stage_conditional_result(instruction, origin, owner, &scratch)?;
-                        builder.stage_lexical_capture_read(instruction, origin, owner, &scratch)?;
-                        builder.stage_original_captured_callable_read(instruction, origin, owner, &scratch)?;
-                        if scratch.host_binding_reads.contains_key(&origin) {
-                            let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("host_binding_owner_missing", None, 0, 0))?;
-                            let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("host_binding_owner_invalid", None, 0, 0))?) };
-                            builder.stage_host_binding_read(instruction, origin, owner, &scratch)?;
-                        }
-                    }
-                    builder.stage_original_record_constructor(expression, instruction, &scratch)?;
-                    builder.stage_fallback_creation_check(expression, instruction, &scratch)?;
-                    builder.stage_conditional_creation_check(expression, instruction, &scratch)?;
-                    builder.stage_original_index(expression, instruction, &scratch)?;
-                    if let Some(original) = scratch.membership_origins.get(&expression) {
-                        if let Some(staged) = builder.stage_original_membership(expression, instruction, &scratch, original)? {
-                            builder.membership_rows.push(staged);
-                        }
-                    }
-                    if let Some(original) = scratch.tag_equality_origins.get(&expression) {
-                        if let Some(staged) = builder.stage_original_tag_equality(expression, instruction, &scratch, original)? { builder.tag_equality_rows.push(staged); }
-                    }
-                    builder.stage_original_comprehension(expression, instruction, &scratch)?;
-                    builder.stage_original_context_scope(expression, instruction, &scratch)?;
-                    builder.stage_original_run_producer(expression, instruction, &scratch)?;
-                    builder.stage_try_capture(expression, instruction, &scratch)?;
-                    builder.stage_compiler_argument_wrapper(expression, instruction, &scratch)?;
-                    if scratch.native_receiver_origins.contains_key(&expression) || builder.active_native_receiver_wrappers.contains_key(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("native_saved_receiver_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("native_saved_receiver_owner_invalid", None, 0, 0))?) };
-                        builder.stage_saved_native_receiver(expression, instruction, owner, &scratch)?;
-                    }
-                    builder.stage_pattern_admission_control(super::super::BuildPatternControlRow::Expression(expression), instruction, &scratch)?;
-                    if let Some(original) = scratch.argument_binding_origins.get(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("saved_argument_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("saved_argument_owner_invalid", None, 0, 0))?) };
-                        let (wrapper, _) = original.wrapper.ok_or_else(|| IrBuildError::format("saved_argument_wrapper_missing", None, 0, 0))?;
-                        builder.active_argument_wrappers.entry(wrapper).or_default().push(builder.argument_binding_rows.len());
-                        builder.argument_binding_rows.push((original.clone(), instruction, owner, None));
-                    }
-                    if let Some(rows) = builder.active_argument_wrappers.remove(&expression) {
-                        let (initializer, pattern, _) = argument_prepare::saved_argument_wrapper(&builder.store, instruction).map_err(|_| IrBuildError::format("saved_argument_wrapper_changed", None, 0, 0))?;
-                        for row in rows { builder.argument_binding_rows[row].3 = Some((instruction, initializer, pattern)); }
-                    }
-                    if let Some(original) = scratch.callable_receiver_origins.get(&expression) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("callable_receiver_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("callable_receiver_owner_invalid", None, 0, 0))?) };
-                        let (wrapper, _) = original.wrapper.ok_or_else(|| IrBuildError::format("callable_receiver_wrapper_missing", None, 0, 0))?;
-                        builder.active_callable_receiver_wrappers.entry(wrapper).or_default().push(builder.callable_receiver_rows.len());
-                        builder.callable_receiver_rows.push((original.clone(), instruction, owner, None));
-                        if original.capture.is_none() { builder.callable_use_rows.push(super::generic::OriginalCallableUse { instruction, origin: original.origin, binding: original.binding, owner }); }
-                    }
-                    if let Some(rows) = builder.active_callable_receiver_wrappers.remove(&expression) {
-                        let (initializer, pattern, _) = argument_prepare::saved_argument_wrapper(&builder.store, instruction).map_err(|_| IrBuildError::format("callable_receiver_wrapper_changed", None, 0, 0))?;
-                        for row in rows { builder.callable_receiver_rows[row].3 = Some((instruction, initializer, pattern)); }
-                    }
-                    if builder.store.tags[instruction as usize] == FullTag::ExprParam
-                        && let Some(&origin) = builder.active_expression_origins.get(&expression)
-                        && let Some(&binding) = scratch.callable_binding_uses.get(&origin)
-                        && scratch.callable_binding_origins.contains_key(&binding) {
-                        let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("callable_use_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("callable_use_owner_invalid", None, 0, 0))?) };
-                        builder.callable_use_rows.push(super::generic::OriginalCallableUse { instruction, origin, binding, owner });
-                    }
-                }
-                if stringify!($rows) == "statements" && (!builder.active_pattern_admissions.is_empty() || !scratch.conditional_result_origins.is_empty()) {
-                    let statement = BuildStmtId::new(self.index());
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("pattern_admission_statement_missing", None, 0, 0))?;
-                    builder.active_pattern_statements.insert(statement, instruction);
-                    builder.stage_pattern_admission_control(super::super::BuildPatternControlRow::Statement(statement), instruction, &scratch)?;
-                }
-                if stringify!($rows) == "statements"
-                    && let Some((binding, original)) = builder.active_callable_bindings.get(&BuildStmtId::new(self.index())).cloned() {
-                    let statement = scratch.statements.get(original.row.index()).ok_or_else(|| IrBuildError::format("callable_binding_statement_missing", None, 0, 0))?;
-                    let BuildStmtRow::Let { slot, value } = statement else { return Err(IrBuildError::format("callable_binding_statement_changed", None, 0, 0)); };
-                    if *slot != original.slot || *value != original.initializer { return Err(IrBuildError::format("callable_binding_allocation_changed", None, 0, 0)); }
-                    let initializer = *builder.active_encoded_expressions.get(value).ok_or_else(|| IrBuildError::format("callable_binding_initializer_missing", None, 0, 0))?;
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("callable_binding_encoded_statement_missing", None, 0, 0))?;
-                    let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("callable_binding_owner_missing", None, 0, 0))?;
-                    let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("callable_binding_owner_invalid", None, 0, 0))?) };
-                    builder.callable_binding_rows.push((binding, original, instruction, initializer, owner));
-                }
-                if stringify!($rows) == "expressions" {
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("value_read_encoded_expression_missing", None, 0, 0))?;
-                    builder.stage_value_expression_use(instruction, BuildExprId::new(self.index()), &scratch)?;
-                }
-                if stringify!($rows) == "statements" {
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("value_binding_encoded_statement_missing", None, 0, 0))?;
-                    builder.stage_value_statement_binding(BuildStmtId::new(self.index()), instruction, &scratch)?;
-                    builder.stage_module_statement_binding(BuildStmtId::new(self.index()), instruction, &scratch)?;
-                    builder.stage_mutable_statement(BuildStmtId::new(self.index()), instruction, &scratch)?;
-                    builder.stage_mutable_path_statement(BuildStmtId::new(self.index()), instruction, &scratch)?;
-                }
-                if stringify!($rows) == "statements" {
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("iteration_binding_encoded_statement_missing", None, 0, 0))?;
-                    builder.stage_original_iteration_statement(BuildStmtId::new(self.index()), instruction, &scratch)?;
-                }
-                let use_row = match stringify!($rows) {
-                    "expressions" => Some(super::super::BuildPatternUseRow::Expression(BuildExprId::new(self.index()))),
-                    "ints" => Some(super::super::BuildPatternUseRow::Int(BuildIntId::new(self.index()))),
-                    "bools" => Some(super::super::BuildPatternUseRow::Bool(BuildBoolId::new(self.index()))),
-                    _ => None,
-                };
-                if let Some(use_row) = use_row {
-                    if let Some(&statement) = scratch.pattern_statement_use_rows.get(&use_row) {
-                        let &(original_row, capture) = scratch.pattern_statement_use_origins.get(&statement).ok_or_else(|| IrBuildError::format("pattern_statement_use_original_missing", None, 0, 0))?;
-                        if original_row != use_row { return Err(IrBuildError::format("pattern_statement_use_row_changed", None, 0, 0)); }
-                        let raw_owner = builder.current_owner.ok_or_else(|| IrBuildError::format("pattern_statement_use_owner_missing", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw_owner) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw_owner).ok_or_else(|| IrBuildError::format("pattern_statement_use_owner_invalid", None, 0, 0))?) };
-                        let instruction = *output.last().ok_or_else(|| IrBuildError::format("pattern_statement_use_encoded_row_missing", None, 0, 0))?;
-                        builder.generic_pattern_statement_use_rows.push((instruction, statement, capture, owner));
-                    }
-                }
-                if stringify!($rows) == "patterns" {
-                    if let Some(&origin) = scratch.pattern_origins.get(&BuildPatternId::new(self.index())) {
-                        let raw_owner = builder.current_owner.ok_or_else(|| IrBuildError::format("pattern_without_instruction_owner", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw_owner) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw_owner).ok_or_else(|| IrBuildError::format("pattern_instruction_owner", None, 0, 0))?) };
-                        let pattern = *output.last().ok_or_else(|| IrBuildError::format("pattern_encoded_row_missing", None, 0, 0))?;
-                        builder.stage_pattern_origin(pattern, origin, owner, &scratch)?;
-                    }
-                }
-                let typed_origin = match stringify!($rows) {
-                    "ints" => scratch.int_expression_origins.get(&BuildIntId::new(self.index())).copied(),
-                    "bools" => scratch.bool_expression_origins.get(&BuildBoolId::new(self.index())).copied(),
-                    _ => None,
-                };
-                if let Some(origin) = typed_origin {
-                    let raw_owner = builder.current_owner.ok_or_else(|| IrBuildError::format("solved_expression_without_owner", None, 0, 0))?;
-                    let owner = if let Some(index) = driver_owner_index(raw_owner) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw_owner).ok_or_else(|| IrBuildError::format("solved_expression_owner", None, 0, 0))?) };
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("solved_expression_instruction", None, 0, 0))?;
-                    builder.generic_expression_rows.push((instruction, origin, owner));
-                    builder.stage_pattern_expression_use(origin, &scratch)?;
-                    builder.stage_iteration_expression_use(instruction, origin, owner, &scratch)?;
-                    builder.stage_value_typed_use(instruction, origin, owner, &scratch)?;
-                    builder.stage_mutable_use(instruction, origin, owner, &scratch)?;
-                    builder.stage_lexical_capture_read(instruction, origin, owner, &scratch)?;
-                        builder.stage_original_captured_callable_read(instruction, origin, owner, &scratch)?;
-                    if stringify!($rows) == "bools" && let Some(original) = scratch.folded_literal_comparison.get(&BuildBoolId::new(self.index())) { builder.literal_comparison_rows.push((instruction, original.clone(), owner)); }
-                    if stringify!($rows) == "bools" && let Some(original) = scratch.folded_memberships.get(&BuildBoolId::new(self.index())) { builder.folded_membership_rows.push((instruction, original.clone(), owner)); }
-                    if stringify!($rows) == "ints" && let Some(original) = scratch.folded_native_receivers.get(&BuildIntId::new(self.index())) { builder.stage_folded_native_receiver(instruction, original.clone(), owner); }
-                    if stringify!($rows) == "ints" && let Some(original) = scratch.byte_at_fallback_origins.get(&BuildIntId::new(self.index())) { builder.stage_original_byte_at_fallback(instruction, original.clone(), owner); }
-                }
-                let statement_use = match stringify!($rows) {
-                    "expressions" => scratch.value_statement_reads.get(&BuildExprId::new(self.index())).copied(),
-                    "ints" => scratch.int_value_statement_reads.get(&BuildIntId::new(self.index())).copied(),
-                    "bools" => scratch.bool_value_statement_reads.get(&BuildBoolId::new(self.index())).copied(),
-                    _ => None,
-                };
-                if let Some((statement, binding)) = statement_use {
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("value_statement_read_missing", None, 0, 0))?;
-                    builder.stage_value_statement_use(instruction, statement, binding, &scratch)?;
-                }
-                let with_statement_use = match stringify!($rows) {
-                    "expressions" => scratch.with_value_statement_reads.get(&BuildExprId::new(self.index())).copied(),
-                    "ints" => scratch.int_with_value_statement_reads.get(&BuildIntId::new(self.index())).copied(),
-                    "bools" => scratch.bool_with_value_statement_reads.get(&BuildBoolId::new(self.index())).copied(),
-                    _ => None,
-                };
-                if let Some((statement, binding)) = with_statement_use {
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("with_statement_read_missing", None, 0, 0))?;
-                    builder.stage_with_value_statement_use(instruction, statement, binding, &scratch)?;
-                }
-                let guard_error_statement_use = match stringify!($rows) {
-                    "expressions" => scratch.guard_error_statement_reads.get(&BuildExprId::new(self.index())).copied(),
-                    "ints" => scratch.int_guard_error_statement_reads.get(&BuildIntId::new(self.index())).copied(),
-                    "bools" => scratch.bool_guard_error_statement_reads.get(&BuildBoolId::new(self.index())).copied(),
-                    _ => None,
-                };
-                if let Some((statement, binding)) = guard_error_statement_use {
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("guard_error_statement_read_missing", None, 0, 0))?;
-                    builder.stage_guard_error_statement_use(instruction, statement, binding, &scratch)?;
-                }
-                let mutable_statement_use = match stringify!($rows) {
-                    "expressions" => scratch.mutable_statement_reads.get(&BuildExprId::new(self.index())).copied(),
-                    "ints" => scratch.int_mutable_statement_reads.get(&BuildIntId::new(self.index())).copied(),
-                    "bools" => scratch.bool_mutable_statement_reads.get(&BuildBoolId::new(self.index())).copied(),
-                    _ => None,
-                };
-                if let Some((statement, binding)) = mutable_statement_use {
-                    let raw = builder.current_owner.ok_or_else(|| IrBuildError::format("mutable_statement_read_owner_missing", None, 0, 0))?;
-                    let owner = if let Some(index) = driver_owner_index(raw) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw).ok_or_else(|| IrBuildError::format("mutable_statement_read_owner_invalid", None, 0, 0))?) };
-                    let instruction = *output.last().ok_or_else(|| IrBuildError::format("mutable_statement_read_missing", None, 0, 0))?;
-                    builder.stage_mutable_read(instruction, super::generic::OperationSourceOrigin::Statement(statement), binding, owner, &scratch)?;
-                }
-                if stringify!($rows) == "expressions" {
-                    let expr = BuildExprId::new(self.index());
-                    let expression_origin = builder.active_expression_origins.get(&expr).copied();
-                    let stage_origin = builder.active_stage_call_origins.get(&expr).copied();
-                    if expression_origin.is_some() || stage_origin.is_some() {
-                        let raw_owner = builder.current_owner.ok_or_else(|| IrBuildError::format("solved_expression_without_owner", None, 0, 0))?;
-                        let owner = if let Some(index) = driver_owner_index(raw_owner) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw_owner).ok_or_else(|| IrBuildError::format("solved_expression_owner", None, 0, 0))?) };
-                        let instruction = *output.last().ok_or_else(|| IrBuildError::format("solved_expression_instruction", None, 0, 0))?;
-                        if let Some(origin) = expression_origin { builder.generic_expression_rows.push((instruction, origin, owner)); builder.stage_pattern_expression_use(origin, &scratch)?; builder.stage_iteration_expression_use(instruction, origin, owner, &scratch)?; builder.stage_mutable_use(instruction, origin, owner, &scratch)?; }
-                        if let Some(origin) = stage_origin { builder.generic_stage_call_rows.push((instruction, origin, owner)); }
-                    }
-                }
-                Ok(())
+                row.encode(builder, output)
             }
 
             fn decode(
@@ -8993,7 +7114,6 @@ impl_node_codec! {
             function: FunctionName,
             pure: bool,
         } => BuildExprRow::FunctionRef { function, pure },
-        BuildExprRow::NativeCallableRef => ExprNativeCallableRef {} => BuildExprRow::NativeCallableRef,
         BuildExprRow::PathFrom { value, span } => ExprPathFrom {
             value: BuildExprId,
             span: Span,
@@ -10015,7 +8135,7 @@ defer run true
 run true
 "#;
 
-    pub(super) fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
+    fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(f)
@@ -10024,7 +8144,7 @@ run true
             .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
     }
 
-    pub(super) fn fixture(name: &str, source: &str) -> FullProgram {
+    fn fixture(name: &str, source: &str) -> FullProgram {
         // Prepare through the loader so embedded standard-library
         // implementations are attached, exactly as the script runner does.
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
@@ -10056,7 +8176,7 @@ run true
         .unwrap()
     }
 
-    pub(super) fn program_name(program: &FullProgram, text: &str) -> Name {
+    fn program_name(program: &FullProgram, text: &str) -> Name {
         program.symbol_owner().with_current(|| Name::intern(text))
     }
 
@@ -10454,7 +8574,7 @@ pure selected() -> Str {
             let shared = program.store.prepared_constants.iter().find_map(|constant| match &constant.0 {
                 LoweredValue::SharedList(values) => Some(Arc::clone(values)), _ => None,
             }).expect("prepared list pool");
-            let decoder = FullDecoder { store: &program.store, owner: 0, instruction_range: 0..0, instruction_states: None, block_states: None, slot_count: 0, pattern_tree: None, pattern_ceiling: Cell::new(usize::MAX), verified: false };
+            let decoder = FullDecoder { store: &program.store, owner: 0, instruction_range: 0..0, instruction_states: None, block_states: None, slot_count: 0, pattern_ceiling: Cell::new(usize::MAX), verified: false };
             let mut words = vec![0];
             let mut cursor = FullCursor::new(&words);
             let decoded = PreparedConstantValue::decode(&decoder, &mut cursor).unwrap();
@@ -10613,105 +8733,6 @@ pure selected() -> Str {
     }
 
     #[test]
-    fn generic_metadata_is_owned_by_the_encoded_function_and_operation() {
-        use super::super::generic::{CallEvidence, GenericReturnPlan};
-        let program = fixture("generic-metadata.xsh", "pure add(left, right, label: Str = \"z\") { left + right }\npure caller() -> Str { add(\"a\", \"b\") }\n");
-        let find = |name: &str| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
-        let add = find("add"); let caller = find("caller");
-        let add_owner = IrFunctionId::new(add).unwrap(); let caller_owner = IrFunctionId::new(caller).unwrap();
-        let generic = program.generic_evidence().unwrap();
-        let (scope, original_scope) = generic.scopes().find(|(_, scope)| scope.owner == add_owner).unwrap();
-        assert!(!original_scope.quantifiers.is_empty());
-        let requirement = original_scope.requirements.iter().position(|requirement| matches!(requirement, Requirement::Add { .. })).unwrap();
-        let body_instruction = generic.requirement_uses().iter().find(|usage| usage.scope == scope && usage.requirement as usize == requirement).unwrap().instruction as usize;
-        let original_call = generic.calls().iter().find(|call| call.caller == InstructionOwner::Function(caller_owner) && call.target == scope).unwrap();
-        let call_instruction = original_call.instruction as usize;
-        let CallEvidence::Ground(instance) = original_call.evidence else { panic!("the authored caller has a ground instantiation"); };
-        let supplied_argument = generic.arguments().iter().find(|argument| argument.call_instruction == original_call.instruction && argument.parameter == 0).unwrap().source_instruction.unwrap();
-        let argument_source = generic.original_argument_bindings().find(|binding| binding.instruction == supplied_argument)
-            .map_or(supplied_argument, |binding| binding.initializer_source_instruction) as usize;
-        FullVerifier::verify(&program).unwrap();
-        let view = program.function_view_at(add).unwrap();
-        assert_eq!(view.generic_scope(), Some(scope));
-        assert!(view.execution().is_err());
-        assert_eq!(view.with_instantiation(instance).unwrap().execution().unwrap().generic_scope(), Some(scope));
-        assert_eq!(view.generic_evidence().unwrap().instance(instance).unwrap().scope, scope);
-        let mut wrong_header = program.clone(); wrong_header.store.function_metadata[add].flags &= !4;
-        assert!(FullVerifier::verify(&wrong_header).is_err());
-        let mut wrong_nongeneric_plan = program.clone();
-        wrong_nongeneric_plan.store.function_metadata[caller].flags |= generic_return_plan_flags(GenericReturnPlan::Result);
-        assert!(FullVerifier::verify(&wrong_nongeneric_plan).unwrap_err().message.contains("nongeneric function carries generic return-plan flags"));
-        let mut wrong_argument = program.clone();
-        wrong_argument.store.tags[argument_source] = FullTag::ExprInt;
-        assert!(FullVerifier::verify_generic_evidence(&wrong_argument.store).unwrap_err().message.contains("literal source"));
-        let mut wrong_default = program.clone();
-        let parameter = program.store.functions[add].params.start + 2;
-        let default = program.store.param_cold.iter().find(|cold| cold.param == parameter).unwrap().default as usize;
-        wrong_default.store.values[default] = FullValueTag::Int;
-        assert!(FullVerifier::verify_generic_evidence(&wrong_default.store).unwrap_err().message.contains("literal default"));
-        let mut wrong_operation = program.clone();
-        let start = wrong_operation.store.data[body_instruction].lhs as usize;
-        let op = wrong_operation.store.extra[start] as usize;
-        wrong_operation.store.binary_ops[op] = BinaryOp::Sub;
-        assert!(FullVerifier::verify_generic_evidence(&wrong_operation.store).unwrap_err().message.contains("another binary operator"));
-        let mut wrong_target = program.clone();
-        let start = wrong_target.store.data[call_instruction].lhs as usize;
-        wrong_target.store.extra[start] = caller_owner.raw();
-        assert!(FullVerifier::verify_generic_evidence(&wrong_target.store).unwrap_err().message.contains("encoded target"));
-        let mut wrong_tag = program.clone(); wrong_tag.store.tags[call_instruction] = FullTag::ExprNull;
-        assert!(FullVerifier::verify_generic_evidence(&wrong_tag.store).unwrap_err().message.contains("non-call"));
-        let mut foreign_owner = program.clone(); foreign_owner.store.function_instruction_starts[caller] = body_instruction as u32;
-        assert!(FullVerifier::verify_generic_evidence(&foreign_owner.store).is_err());
-    }
-
-    #[test]
-    fn generic_builder_checkpoint_discards_new_roots_and_retires_reused_slots() {
-        use super::super::generic::{GenericReturnPlan, QuantifierKind, SchemeScope, TypeRef};
-        let make_scope = || SchemeScope { owner: IrFunctionId::new(0).unwrap(), quantifiers: Box::new([QuantifierKind::Type]), parameters: Box::new([TypeRef::Rigid(0)]), parameter_names: Box::new([Name::intern("value")]), parameter_flags: Box::new([0]), kind: super::super::generic::CallableKind::Pure, result: TypeRef::Rigid(0), requirements: Box::new([]), return_plan: GenericReturnPlan::Value };
-        let source = "pure name(entry) { entry.name }";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
-        let (declaration, callable) = bodies.solved.declarations.iter().next().unwrap();
-        let expression = *bodies.solved.projections.keys().next().unwrap();
-        let stage = crate::sema::check::StageIdentity { pipeline: expression, index: 0 };
-        let mut builder = FullBuilder::new(SourceId::new(0));
-        let empty = builder.checkpoint();
-        let retired = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
-        builder.generic_declarations.insert(*declaration, retired);
-        builder.generic_schemes.insert(retired, callable.scheme);
-        builder.generic_projection_uses.insert(expression, (retired, 0));
-        builder.generic_expression_rows.push((0, expression, InstructionOwner::Function(IrFunctionId::new(0).unwrap())));
-        builder.generic_stage_call_rows.push((0, stage, InstructionOwner::Function(IrFunctionId::new(0).unwrap())));
-        builder.rewind(empty);
-        assert!(builder.generic.is_none());
-        assert!(builder.generic_declarations.is_empty());
-        assert!(builder.generic_schemes.is_empty());
-        assert!(builder.generic_projection_uses.is_empty());
-        assert!(builder.generic_expression_rows.is_empty());
-        assert!(builder.generic_stage_call_rows.is_empty());
-        let replacement = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
-        assert_ne!(retired, replacement);
-        let retained = builder.checkpoint();
-        let discarded = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
-        builder.generic_declarations.insert(*declaration, discarded);
-        builder.generic_schemes.insert(discarded, callable.scheme);
-        builder.generic_projection_uses.insert(expression, (discarded, 0));
-        builder.generic_expression_rows.push((0, expression, InstructionOwner::Function(IrFunctionId::new(0).unwrap())));
-        builder.generic_stage_call_rows.push((0, stage, InstructionOwner::Function(IrFunctionId::new(0).unwrap())));
-        builder.rewind(retained);
-        let replaced = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
-        assert_ne!(discarded, replaced);
-        assert!(builder.generic_declarations.is_empty());
-        assert!(builder.generic_schemes.is_empty());
-        assert!(builder.generic_projection_uses.is_empty());
-        assert!(builder.generic_expression_rows.is_empty());
-        assert!(builder.generic_stage_call_rows.is_empty());
-        assert!(builder.generic.as_ref().unwrap().scope(discarded).is_err());
-    }
-
-    #[test]
     fn compact_driver_executes_effects_after_arena_drop() {
         run_with_large_stack(|| {
             let (program, plan, mut evaluator) = {
@@ -10866,7 +8887,6 @@ pure selected() -> Str {
         let lowered = ProgramBuild {
             statements: vec![None],
             scratch: Rc::new(RefCell::new(BuildScratch::default())),
-            ..ProgramBuild::default()
         };
         let error = FullBuilder::build_with_driver(
             &[],
@@ -10880,7 +8900,7 @@ pure selected() -> Str {
 
     #[test]
     fn verifier_checks_assertion_children_locations_and_propagation_effects() {
-        let program = fixture("assertion-ir.xsh", "pure value() -> Bool { false }\nproc check() [error] -> Unit { false }\nlet _ = value()\ntrue\n");
+        let program = fixture("assertion-ir.xsh", "pure value() -> Bool { false }\nproc check() { false }\nlet _ = value()\ntrue\n");
         let assertions: Vec<_> = program.store.tags.iter().enumerate().filter_map(|(index, tag)| (*tag == FullTag::ExprAssert).then_some(index)).collect();
         assert_eq!(assertions.len(), 2, "only statement consumers lower to assertions");
         assert!(program.store.driver_steps.iter().any(|step| step.effects & (EFFECT_PROPAGATE | EFFECT_TRACE) == (EFFECT_PROPAGATE | EFFECT_TRACE)));
@@ -11882,7 +9902,6 @@ proc configured() [] -> Int {
 
         let program = FullProgram {
             store: builder.store,
-            source_lowering_stats: crate::runtime::eval::FrontendLoweredStats::default(),
             sources: Arc::new(sources),
             symbols: crate::symbol::SymbolOwner::new(),
             function_definition_spans: Vec::new(),

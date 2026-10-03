@@ -459,3 +459,9 @@ print f"${summary.events}:${summary.complete}"
   }
   (output.stdout) == ("2:true\n")
 }
+
+test test_json_set_keeps_path_segments_and_runtime_validation [error] {
+  let input = {rows: [{name: "first"}]}
+  json.encode(json.set(input, ["rows", 0, "name"], "second")?)? == "{\"rows\":[{\"name\":\"second\"}]}"
+  test.error_kind(json.set(input, ["rows", 1.5], "second"), "json-path")?
+}

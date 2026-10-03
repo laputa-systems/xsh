@@ -795,7 +795,6 @@ pub(super) fn lowered_return_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (kind, value) {
-        (LoweredReturnKind::Plain(LoweredType::Generic) | LoweredReturnKind::Result(LoweredType::Generic), value) => Ok(value),
         (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
             let mut error = super::runtime_error_from_value(*error, span);
             error.propagated = true;
@@ -821,18 +820,9 @@ pub(super) fn lowered_return_value(
 }
 
 pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> bool {
-    if let LoweredValue::NativeCallable(value)=value {
-        return matches!(kind,LoweredType::Any|LoweredType::Generic)
-            ||matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc));
-    }
-    if let LoweredValue::Callable(value)=value {
-        return matches!(kind,LoweredType::Any|LoweredType::Generic)
-            ||matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc));
-    }
     matches!(
         (kind, value),
         (LoweredType::Any, _)
-            | (LoweredType::Generic, _)
             | (LoweredType::Unit, LoweredValue::Unit)
             | (LoweredType::Int, LoweredValue::Int(_))
             | (LoweredType::Float, LoweredValue::Float(_))
@@ -872,7 +862,6 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
 pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
     match kind {
         LoweredType::Any => "Any",
-        LoweredType::Generic => "generic value",
         LoweredType::Unit => "Unit",
         LoweredType::Int => "Int",
         LoweredType::Float => "Float",
@@ -903,7 +892,6 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
 
 pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Option<LoweredValue> {
     match (kind, value) {
-        (LoweredType::Generic, _) => None,
         (LoweredType::Any, _) => lowered_value_from_runtime_any(value),
         (_, Value::Result(ResultValue::Ok(value))) if kind != LoweredType::Result => {
             lowered_value_from_runtime(value, kind)
@@ -939,9 +927,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Pure, Value::Pure(value)) => Some(LoweredValue::Pure(*value)),
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
-        (LoweredType::Pure|LoweredType::Proc,Value::Callable(value)) if matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc))=>Some(LoweredValue::Callable(value.clone())),
-        (LoweredType::Pure|LoweredType::Proc,Value::NativeCallable(value)) if matches!((kind,value.kind()),(LoweredType::Pure,crate::sema::inference::CallableKind::Pure)|(LoweredType::Proc,crate::sema::inference::CallableKind::Proc))=>Some(LoweredValue::NativeCallable(value.clone())),
-        (LoweredType::Error, Value::Error(_) | Value::RunError(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
+        (LoweredType::Error, Value::Error(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
         (LoweredType::Record, Value::FsEntry(value)) => Some(LoweredValue::FsEntry(value.clone())),
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
@@ -985,8 +971,6 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
         Value::Pure(value) => Some(LoweredValue::Pure(*value)),
         Value::Proc(value) => Some(LoweredValue::Proc(*value)),
-        Value::Callable(value)=>Some(LoweredValue::Callable(value.clone())),
-        Value::NativeCallable(value)=>Some(LoweredValue::NativeCallable(value.clone())),
         Value::Error(_) | Value::RunError(_) => Some(LoweredValue::Error(Box::new(value.clone()))),
         Value::Record(value) => lowered_record_from_runtime(value),
         Value::Module(value) => lowered_module_from_runtime(value),
@@ -1030,13 +1014,6 @@ fn lowered_result_from_runtime(value: &ResultValue) -> Option<LoweredValue> {
 }
 
 pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
-    // Shaped storage carries the physical slots of validated records through
-    // host calls and recursively through lists, maps, tags, and Results.
-    if matches!(value, RecordMap::Shaped { .. } | RecordMap::SparseShaped(_)) {
-        return Some(LoweredValue::RecordVec(Arc::new(value.owned_key_iter()
-            .map(|(key, value)| Some((Name::intern(key.as_str()), lowered_value_from_runtime_any(value)?)))
-            .collect::<Option<Vec<_>>>()?)));
-    }
     let mut record = BTreeMap::new();
     for (key, value) in value.owned_key_iter() {
         record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);

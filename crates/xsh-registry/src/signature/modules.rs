@@ -193,7 +193,7 @@ fn error_module() -> ModuleSig {
         sig(
             vec![param("message", Type::Str)],
             result(Type::Unit),
-            true,
+            false,
             RuntimeOp::ResultContext,
         ),
     )])
@@ -2964,7 +2964,7 @@ fn process_module() -> ModuleSig {
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Str))),
@@ -2985,12 +2985,11 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Path))),
@@ -3011,12 +3010,11 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Str))),
@@ -3037,12 +3035,11 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Path))),
@@ -3063,12 +3060,11 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Str))),
@@ -3089,12 +3085,11 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Str),
                     param("argv", Type::List(Box::new(Type::Path))),
@@ -3115,12 +3110,11 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Str))),
@@ -3141,12 +3135,11 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (
             "command_argv",
-            sig_with_arg_check(
+            sig(
                 vec![
                     param("target", Type::Path),
                     param("argv", Type::List(Box::new(Type::Path))),
@@ -3167,7 +3160,6 @@ fn process_module() -> ModuleSig {
                 Type::Command,
                 true,
                 RuntimeOp::ProcessCommandArgv,
-                ApiArgCheck::CommandArgv,
             ),
         ),
         (

@@ -12,331 +12,6 @@ using existing prepared default slots and capture hydration. Dynamic module
 exports register an alias handle against the original indexed definition;
 they do not create a forwarding body.
 
-`generic/callable_receivers.rs::OriginalCallableReceiver` retains a saved `.call`
-receiver independently of supplied arguments. Captured immutable aliases retain
-their original checked binding, receiving capture allocation and exact
-`UserCallableContract`. A compiler temporary cannot supply local binding authority
-or substitute another capture with the same signature.
-
-`runtime::eval::RuntimeCallableValue` carries an owning `Arc<FullProgram>`, a
-validated `CallableValueId`, and the original lexical capture environment.
-Immutable captures retain values; supported mutable captures retain live cells.
-`Value::Callable` and `LoweredValue::Callable` preserve that same
-creation through the host bridge and nested containers; neither conversion
-replaces it with a function name. Creation validates the prepared program owner,
-capture order, storage kinds, and original callable kind. Clones preserve
-creation identity, while separate creations remain distinct. Persistent value
-encoding refuses these handles. Mutable captures require an authenticated live
-cell for the original program, `BindingIdentity`, definition owner and type;
-an immutable value snapshot cannot supply that authority.
-stream callable activation is not part of its current prepared contract.
-
-`generic/lexical_captures.rs` seals declaration capture allocations independently
-of their original reads. `full/lexical_capture_prepare.rs` checks the original
-`BindingIdentity`, definition owner, declaration header, scoped type root and
-`CapturedBinding` producer provenance. `indexed_run/live_capture_cells.rs`
-binds supported ground captures to their original allocation and defining
-activation. Nested calls, supplied arguments, defaults and defers share those
-cells; reads refresh the receiving slots and assignments publish immediately.
-The evaluator's shared environment retains the cell registry. Completion
-refreshes slots and retires the receiving activation before slot reuse;
-`CompletedLiveCaptureFrame` authenticates publication to external scopes while
-local captures keep their defining cells. Resource and callable captures need
-their own ownership transport; the plain ground cell protocol does not retain
-those values.
-
-Captured scalar and aggregate writes retain the receiving declaration's
-`LexicalCaptureId` separately from the defining binding and its real versioned
-producer flow. Aggregate writes also authenticate their original path selectors
-and checked UInt boundaries. Specialized scalar reads preserve their actual
-`IntSlot` or `BoolSlot` encoding in the lexical capture receipt.
-
-Producer suspension detaches the physical slot registration while retaining an
-opaque `SuspendedLiveCaptureFrame` for the original cells and receiving frame.
-Resume authenticates that frame and refreshes slots before defaults, body work
-or cancellation defers. Completion retires the activation before publication or
-slot reuse. Empty Driver slot vectors do not register an allocation: nested
-imports may share their dangling pointer without sharing any binding cells.
-
-A scoped native method keeps its original pending candidate family in the
-definition and forwarding declarations. Each ground instantiation retains a
-separate selected witness; unused definitions retain the family without
-instances. `generic/native_callables/scoped_methods.rs` validates the original
-Str/Bytes `starts_with` family, source ancestry, and declaration frame.
-`full/native_callable_prepare/scoped_methods.rs` seals the authored receiver and
-argument packets before frontend disposal. Execution selects the stored witness.
-
-`RuntimeNativeCallableValue` retains a separate `NativeCallableValueId` and
-owning `Arc<FullProgram>`. `NativeCallableRef` encodes no registry name or
-frontend ID; its original checked expression supplies the sealed registry
-authority. `generic/native_callables.rs` owns the creation and invocation
-receipts, and `full/native_callable_prepare.rs` validates their source, owner,
-signature, permissions, admission guards, producer roles, operands, and omission
-masks. A declared `Any` formal preserves each original operand descriptor and
-its checked eligibility.
-Native handles use `Value::NativeCallable` and `LoweredValue::NativeCallable`
-through the host bridge and remain distinct from user declarations. Persistent
-encoding refuses them. The current prepared execution supports a single
-closed native module authority with static argument slots; conditional
-families and scoped native invocations require their own prepared protocols.
-`indexed_run/native_callable_run.rs` checks the owning program and value receipt
-before constructing the formal native argument packet. Saved bindings evaluate
-named operands in source order; absent default slots stay absent for the
-existing numeric native backend, including its trace and error handling.
-
-The recursive expression dispatcher keeps scalar operations and user calls in
-`indexed_run/scalar_call_expr.rs`. Compound expressions use a separate handler,
-so each recursive call reserves only the scratch space for its own operation
-family. Both handlers consume the same decoded instruction and prepared
-execution authority; worker stack limits and recursion policy remain unchanged.
-
-Framed user invocation keeps the prepared `InvocationPlanId` through callee and
-argument continuations. A typed value must match that plan's owning program and
-callable contract before entry by numeric function target. Its retained captures
-hydrate the callee slots before defaults execute; the ordinary current-binding
-hydration path does not overwrite that environment. Typed values with no prepared
-invocation authority are refused. This entry path covers prepared monomorphic
-user Pure/Proc callables, independently of conditional/native/stream protocols.
-
-Loaded module invocations retain the promised export contract independently of
-an implementation declaration in the caller. `generic/module_invocations.rs`
-seals the original module projection, caller, signature and argument recipes.
-`indexed_run/module_invocation_run.rs` validates the actual published module and
-pins its implementation program before evaluating arguments. The implementation
-must match the promised kind, parameter modes, types and effects.
-
-Module receiver bindings and captures retain their original allocation, slot,
-initializer and declaration owner in `generic/module_invocations.rs`. Equal
-module schemas cannot substitute another receiver slot or capture header.
-Publication identity for a same-signature replacement remains a separate
-boundary from this allocation proof.
-
-Original immutable local callable `let` bindings retain a `BindingIdentity`
-through lowering. `BuildScratch::callable_binding_origins` pairs that identity
-with the original statement, emitted `Let` row and slot, actual initializer row
-and expression identity, and checked binding root with its lexical scheme.
-`SlotScope::callable_binding_authorities` follows lexical declaration and
-shadowing; `BuildScratch::callable_binding_uses` links original identifier reads
-to the visible definition before expression lowering discards names. Equal
-signatures do not identify a creation environment. Missing checked definition
-or initializer facts refuse lowering; explicit kind erasure, mutable bindings,
-constants, and compiler argument temporaries do not acquire this local receipt.
-
-Original immutable closed-data `let` bindings use the separate
-`BuildScratch::value_binding_origins` and `value_binding_uses` ledgers.
-`lower/value_binding.rs` retains the qualified binding and statement, actual
-emitted `Let` and initializer rows, original initializer expression, and both
-the binding and initializer scoped graph roots. Groundness only determines
-whether this transport is supported; a tree view cannot replace either root.
-`SlotScope::value_binding_authorities` restores the original definition after
-lexical shadows and excludes mutable and callable bindings. Missing source
-facts refuse supported data lowering. Ordinary `Let`, specialized `LetInt` and
-`LetBool`, and successful `Guard` continuations retain their actual physical
-allocation and lexical reads. `full/value_prepare.rs` validates those rows;
-equal storage kinds never replace the original binding identity.
-
-Literal field membership can refine an immutable record read inside its
-successful lexical branch. `sema/check/field_presence.rs` retains the original
-predicate, binding, checked roots and write stamp; `value_prepare/field_presence.rs`
-checks the actual membership instruction and branch ancestry. A sibling branch,
-changed field, rewritten predicate or intervening mutation cannot borrow that
-read authority.
-
-Optimized line scans retain the original line operation, trim and predicates,
-ordered checks, literal prefixes, and mutable counter allocation in
-`generic/iterations.rs`. `FullExecution::line_scan_counter_binding` authenticates
-that allocation before execution. Each increment uses checked arithmetic and
-the authored assignment span, then publishes the result to its original live
-cell when another closure captures the counter.
-
-Original simple `for` item bindings retain the selected iteration operation,
-qualified statement, binding and iterator identities, and independently checked
-input, item and binding roots. `generic::OriginalIterationBinding` seals the
-encoded loop, iterator, item slot and body in a program-owned original receipt;
-`OriginalIterationUse` seals each original read's relationship to that binding.
-Cold verification checks actual body ancestry, excludes iterator and sibling
-reads, rejects mutable item slots, and verifies the original iterator producer.
-The prepared item type supplies operand evidence without searching for a
-same-typed local slot. Direct closed Lists, including Path items, and scalar
-Bytes iteration retain original item authority. Fallible Bytes sources also
-retain their actual propagation carrier. `full/iteration_prepare.rs` verifies
-each supported producer and physical item read before execution.
-
-Saved named call arguments retain a separate compiler binding receipt in
-`BuildScratch::argument_binding_origins`. Each generated slot read names the
-original call, authored expansion ordinal and `SolvedArgumentSource`, actual
-initializer, slot, and emitted match wrapper with its bind pattern. Parameter
-reordering changes destinations without changing this evaluation sequence.
-Generated reads never acquire the original initializer's expression identity.
-
-Prepared ground native calls retain their selected registry operation, signature,
-argument recipes, omitted slots, result carrier and closed effect roles in the
-owning `GenericEvidenceStore`. Both indexed execution routes consult
-`FullExecution::ground_native_call` before dispatch, validating the exact program,
-body, instruction and decoded operation against the prepared authority. Calls
-without an activated proof remain explicit legacy boundaries until their full
-operand and protocol authority can be prepared.
-Removing a proof for an originally prepared native call or method is rejected
-before dispatch by `FullExecution::ground_native_call` and
-`FullExecution::ground_native_method`.
-`FullStore::original_generic_owner` preserves the original evidence owner
-outside the optional evidence store. Verification and both worker entry paths
-reject removal or replacement of that complete store.
-
-`lower/native_arguments.rs` transfers original selected argument recipes into
-native module packets. The expression Result root and operation Result root
-are checked independently; equality of their outer graph IDs is not required.
-Selected signatures, source ownership and any original registry boundary remain
-mandatory. `native_prepare/list_text_methods.rs` prepares Bytes string extraction
-and Record/Module keys. Module keys retain the original Module expression while
-the selected hidden receiver uses its declared Record erasure.
-
-`lower/hash_arguments.rs` retains the public two-argument Hash call and its
-original algorithm boundary independently of the private three-argument core
-implementation. `generic/bridges.rs` seals this adaptation inside the existing
-bridge store. `FullExecution::verify_hash_policy_call` checks the protected
-original instruction index and exact packet before either worker evaluates
-arguments or performs filesystem effects.
-
-`generic/stages.rs::OriginalStageFusion` preserves the actual contiguous authored
-stages when map/reduce or map/identity-flat-map/reduce share one physical stage.
-`full/stage_prepare.rs` checks each original callback's independent signature,
-effects and producer ports, including the erased identity tail's original
-statement. Fusion cannot synthesize an expression identity for that statement.
-
-`lowered_run/utils_cache.rs` keeps a cached callback's typed declaration and
-capture environment. Mutable captures compare allocation identity; equal values
-from distinct cells cannot identify the same callback result.
-
-Generated Result postfix receivers retain a separate
-`generic/result_receivers.rs::PreparedResultReceiver` inside the original
-native call receipt. `full/result_receiver_prepare.rs` checks the carrier's
-authored identity, Result success/error domains and executed `ExprTry` before
-admitting the success value as a method receiver. The generated `ExprTry`
-never acquires an authored expression identity.
-
-`full/language_result_prepare.rs::verify_language_result_operand` consumes the
-original selected primitive operation's operand and result domains separately.
-A string equality result remains `Bool` when supplied to a generic function;
-its operand domain remains `Str`. `operation_prepare/error_field.rs` applies
-the same original-operation boundary to concrete Error `.message` projections,
-including family, variant, facet and ProcessError receivers.
-
-`indexed/native_methods.rs::nondefault_method_spelling` shares the bounded
-Str and Bytes operation mapping between preparation and execution. The backend
-spelling comes from the selected numeric operation and actual receiver domain;
-source spelling remains checked by the original sealed method receipt. These
-nondefault operations reuse the existing text and byte implementations while
-retaining their selected result domains and effects.
-
-`Str.parse_int` carries its selected `TextParseInt` operation and closed
-`Result[Int, Error]` producer type through native receipts. Both workers use
-the selected operation when producing success values or parser errors.
-
-Materialized `Str.lines` and `Bytes.lines` retain their selected item domains.
-`List.collect` retains a separate List receiver contract even though its
-selected operation is `StreamCollect`; the worker returns those list items
-without introducing a lazy stream carrier.
-
-`Stream.collect` retains its selected Stream receiver, item type and producer
-effect roles separately from `List.collect`. Both workers drain it through
-the existing evaluator stream driver, preserving suspended script ownership,
-producer cancellation and cleanup.
-
-`Str.words` and `Str.split` retain their original selected text operations.
-The split packet records an omitted trailing limit as absence, checked against
-the original default slot; its backend receives that absence directly. Named
-arguments retain authored evaluation order separately from formal slots.
-
-`List.join` retains its concrete string-list receiver and an omitted separator
-as absence in the original two-formal method packet. The selected default slot
-authorizes the existing backend's empty separator behavior; preparation does
-not synthesize a string operand. A named separator retains its authored source
-recipe and formal destination separately.
-
-`List.extend` retains the closed item type shared by its receiver, supplied
-list and result. Its native packet has one supplied argument and no default
-slots. The backend appends the supplied items in order, including shared list
-storage, after the original selected operation and operands are verified.
-
-`Record.get` retains its erased registry signature separately from a constant
-field's producer type. `sema/check/record_get.rs` seals the original receiver,
-key, field constraint and selected requirement; `full/native_prepare/record_get.rs`
-checks that the physical key still selects that visible field. The native
-source receipt preserves checked argument wrappers separately from their
-authored value recipes, including unsigned checks around saved reads.
-An unsigned argument's source descriptor remains Int while its checked
-material descriptor is UInt; the original selected formal authenticates the
-check target. Source verification consumes the authored descriptor, and
-signature validation consumes the checked descriptor.
-
-Closed `Regex` methods retain the compiled receiver and selected native member
-through `full/native_prepare/regex_methods.rs`. Captures and matches keep their
-original closed result types; find results use the same prepared record item
-layout as other native list results. Runtime backend selection uses the numeric
-operation and receiver domain in `indexed/native_methods.rs`.
-
-`Bytes.dump` preserves an omitted `format` argument as absence in its original
-native packet, authorizing the backend's canonical format. Its receiver receipt also retains an authored Result
-postfix when the bytes come from a fallible producer.
-
-`Map.push` retains its original `Map[K, List[T]]` receiver, key `K`, item `T`
-and unchanged map result in `full/native_prepare/map_methods.rs`. Authored
-argument order and formal destinations remain separate; an Int expression at a
-UInt item boundary retains its original checked validation before dispatch.
-
-`Str.byte_slice` retains its byte offset and an omitted trailing length as
-absence in the original method packet. Its selected backend preserves UTF-8
-boundary errors and does not reinterpret those bounds as character offsets.
-
-`fs.children` retains its selected `FsChildren` authority, omitted stat/order
-markers and original `Result[Stream[FsEntry], Error]` producer. Specialized
-`ExprFsList` and module call packets each retain an exact operand decoder;
-named source order and omitted defaults remain part of the original call
-receipt. Both workers validate native authority before evaluating its operands
-and preserve the existing filesystem stream lifecycle.
-
-`Digest.hex` and `Digest.base64` retain the nominal Digest producer and selected
-encoding operation. Their native receipts admit that closed receiver directly
-without converting it into a byte or record boundary.
-
-Finite native spread fields retain `PreparedNativeRecordFieldArgument` in the
-same sealed `NativeCallSource`. Each receipt keeps the authored record entry,
-expansion ordinal and formal destination, exact field membership and closed
-record type, and both compiler allocations. Cold verification checks the actual
-projection and saved read scopes against the original record producer; a
-generated field never acquires an invented expression identity.
-
-Native `Result` success records retain their canonical selected schema in the
-sealed native source receipt. `FullExecution::materialize_native_result_record`
-uses that schema on `Ok` values before numeric projection. The existing `Err`
-value and opaque capability identity remain intact through the host bridge.
-
-Authored `?` field access on a native Result record retains the original
-checked success root through `sema/check/null_safe_projection.rs`. Its projection
-receipt includes the postfix carrier and prepared success layout; an unrelated
-record with equal storage cannot replace that producer.
-
-Native List and Stream record items retain their selected carrier and record
-layout in the same receipt. Materialized items receive that layout immediately;
-live streams apply it only to reached items. `lowered_run/native_record_items.rs`
-preserves buffering, cancellation and producer ownership without draining the
-stream. Filesystem entries retain canonical numeric field slots while metadata
-reads remain lazy; prepared layout does not change their logical equality.
-
-Structured group-by stages retain their original selected record result row in
-`generic/stages.rs::PreparedStageResultRecord`. The semantic result remains a
-Stream of buckets; the existing backend materializes those buckets as a List.
-`FullExecution::materialize_stage_result_record` applies canonical field order
-only to each generated outer bucket. Nested item collections keep their storage
-identity, and subsequent callbacks use prepared numeric projections.
-
-Scoped Display eligibility retains its original published requirement and exact
-`TypeRef` in the declaring scheme. Concrete witnesses use the checker’s Display
-policy for the instantiated type. Generalization may replace source graph type
-handles with rigid binders; preparation compares both references within the
-original scheme, preserving the source requirement identity.
-
 XSH is implemented as a small compiler-style pipeline around a verified
 indexed runtime:
 
@@ -351,221 +26,6 @@ indexed runtime:
    checked program bundle used by runtime and tooling. `src/runner.rs` owns
    plain script execution for `xsh`, and `crates/xsht/src/cli/mod.rs` wires the
    `xsht` tooling commands.
-
-Declaration inference uses `sema/inference.rs::InferenceContext` for scoped
-type and row identities, level-based generalization, operation requirements,
-and latent effect relationships. `check/generic.rs` generates constraints;
-`check/solved.rs::SolvedTypes` freezes the graph once and attaches declaration,
-expression, call-binding, projection, and return-elaboration facts to source
-arena identities. `Type::Graph` preserves unresolved generic relationships
-inside checking instead of replacing them with `Any`. Ground tree views remain
-bounded adapters for consumers that do not yet consume graph identities.
-Graph publication validates each resolved node in its exact member scope and
-shares the validation cache across retained roots. Cached subtree heights preserve
-the structural-depth guard when the same graph is reached through a longer path.
-Scope authorization and publication walks charge the solver work budget. The
-finite effect inclusion graph is closed before publication; retained arrows,
-scheme endpoints, operation evidence, and external callable/substitution facts
-preserve quantified effect identities or their solved closed sets.
-Source operation requirements retain their exact declaration or value scheme.
-Publication checks their templates, selected certificates, substitutions,
-producer outputs, and dependency certificates in that source scope. A catalog
-candidate does not authorize foreign binders. Shared proof walks charge the work
-budget once per requirement and scope; immutable consumers validate membership
-with `SolvedGraph::validate_requirement_scoped`.
-
-`RequirementTemplate::CallableInvocation` retains an `InvocationCall` with the
-callable type, ordered positional/named/splice arguments, result, computed output
-effects, and exact Pure or Pure/Proc/Stream domain. `inference/invocations.rs`
-keeps Meta and Rigid callables residual instead of manufacturing Arrow labels,
-defaults, rest slots, or kind. A concrete Arrow supplies `InvocationEvidence`
-through the shared argument binder, including default timing derived from its
-actual kind. `SolvedTypes::invocations` attaches the source requirement and caller
-to the actual expression identity through `SolvedInvocation`; publication checks
-that requirement in its source scheme. `frontend/query.rs` normalizes the retained
-relationship and its actual argument modes without rechecking or guessing a
-signature. Computed invocation effects remain distinct from the caller's
-permission budget.
-
-`SolvedTypes::argument_sources` retains each checked call's ordered supplied
-sources independently of graph handles. `SolvedArgumentSource` preserves the
-original entry index, label, span, and expression, record-field projection, or
-positional splice. Fields from one finite spread share an entry index and source
-record so consumers evaluate that record once. Static supplied slots, dynamic
-segment argument indices, conditional branch plans, and constructor supplied
-values correspond to this same vector order. Receivers and omitted defaults
-remain separate; zero supplied arguments have an explicit empty recipe. Producer
-argument transfers use this retained ledger rather than a transient source cache.
-
-`SolvedQuery::schema_validation` and `constructor_application` project frozen
-source application facts. Applied phantom arguments and qualified declaration,
-default and member owners remain distinct from structural record layouts.
-Caller scopes supply alpha normalization; original expression and record-spread
-identities supply argument provenance. Exact per-source application certificates
-and recorded counts reject substitutions and omissions before projection, without
-replaying syntax or validating unrelated sources. Shared type, scope and default
-roots use one bounded normalization budget. Assignment and projection indexes
-locate local certificates and do not define application equivalence. Conditional
-invocation views retain every branch plan; error joins retain independent ordered
-input roots, their result and any written completion bound.
-`Checker::compact_declarations_from_checked` borrows the existing `CheckOutput`,
-retains the same `Arc<SolvedTypes>`, and adapts its prepared constants, constructors,
-wire enums, CLI entry plan, and checked callable facts. The tool's single-file and
-workspace check paths use this adapter instead of checking the original arena
-again. The structural declaration collector remains a ground-view adapter until
-compact lowering consumes solved declarations directly; it neither validates
-source nor generates constraints.
-`Linter::lint_with_checked` and `lint_module_with_checked` borrow that same checked
-bundle for effect facts and source-migration baselines. Standalone lint checks
-share one lazy original-source check. Different checker options and rewritten
-candidate text retain their own checks. Annotation rendering uses `SolvedQuery`
-for ground graph types and preserves the conservative source-syntax exclusions.
-Annotation writes are a new source revision: the tooling checks the rewritten
-text and its compact lowerability with the entry's source identity, module roots,
-and checker options before writing. A rejected rewrite leaves the file unchanged.
-
-`indexed/generic.rs::GenericEvidenceStore` owns declaration scopes, canonical
-type templates, concrete instantiations, physical record layouts, and sealed
-operation witnesses. `indexed/full/generic_prepare.rs` translates solved facts
-into these artifacts before verification. Forwarding relationships are derived
-from declaration-scoped substitutions, including for unused declarations;
-concrete edges are prepared once for reachable call instantiations. Execution
-selects an existing edge and uses numeric field slots and fixed operations.
-Both indexed evaluators carry the active instantiation through calls and
-suspended frames. Their return and cleanup behavior uses the declaration's
-fixed return plan, so a returned `Err` payload is distinguished from a declared
-Result failure channel.
-
-`indexed/generic/callable_types.rs` materializes type templates directly into
-semantic pool identities. Callable templates retain their kind, parameter
-labels, positional or named mode, default and rest markers, result, and closed
-effects through nested data types. Instance and forwarding validation compares
-that complete structure. Signature parameter flags use default bit 0, rest bit
-1, and named-only bit 2; function body parameter flags have a separate encoding.
-Exporting a typed callable through the legacy `Type` representation remains an
-explicit refusal. Materializing a signature alone does not authorize invoking
-an unresolved generic callback; invocation needs its own prepared source proof.
-
-`indexed/full/scoped_callable_prepare.rs` reads the original frozen callable
-obligation and its exact contextual requirement correspondence for a concrete
-instance. `indexed/generic/scoped_invocations.rs` retains the protected source
-receipt separately from its public proof view. A signature-only invocation
-witness supplies the actual parameter binding; it does not invent a declaration
-target. The value handle retains its numeric target and creation environment.
-Forwarded obligations retain each enclosing scheme's immediate requirement ID
-and the exact ancestry to that original body obligation. Concrete frame
-preparation composes those correspondences before reading the frozen invocation
-evidence, so repeated calls of the same generic body remain distinct and binder
-reordering cannot substitute another invocation's proof. The protected body
-receipt owns these correspondences alongside the original argument recipes.
-The initial scoped protocol admits Pure callbacks with closed empty effects and
-static supplied/default slots. Native alternatives, conditional plans, splice
-binding, and effect-quantifier activation require their own prepared protocol.
-
-`indexed/full/generic_operation_prepare.rs` prepares the original checked
-`Ok(value)` constructor requirement and its concrete contextual certificates.
-`indexed/generic/operation_requirements.rs` retains the constructor's source
-instruction and operand separately from the instance witness. Forwarding keeps
-the exact source requirement ancestry and each declaration's binder mapping;
-it does not create a second constructor instruction. Cold verification checks
-the canonical language authority, complete signature, result shell, empty
-effects, and original operand before either evaluator selects the stored numeric
-constructor operation. Other operation requirements remain explicitly unavailable
-until their own source and witness protocols are prepared.
-
-Recursive declaration groups share a canonical binder owner while each member
-retains only its reachable type and effect binders. `inference/components.rs`
-generalizes after all member constraints and restrictions are solved.
-`generic::register_graph_declaration` includes default-only headers with written
-returns. Mutable local collection seeds use the graph directly and retain the
-same variable in early alias expression facts. Indexed template preparation uses
-`scheme_binder_index` to map a member's actual binder identities to local evidence
-slots; the canonical owner's ordinal is not a member's ordinal.
-
-The graph path registers pure, proc, native-test, and stream definitions,
-including omitted parameters, defaults, and returns. Callable expression facts
-preserve complete signatures through aliases, aggregates, conditionals, and
-returned values. Mutable bindings keep one shared instantiation. Remaining
-adapters are explicit integration work:
-
-- Declaration, local collection, default, and return inference use the shared
-  source graph. `return_join::unify_inferred_returns` joins ordinary body
-  completions without another declaration walker. Constructor named spreads
-  expand original argument sources and check each supplied value once; checker
-  cloning and fabricated projection expressions are removed. A bounded legacy
-  constructor-variable group still bridges null/empty fields to independently
-  checked anchors before graph publication. Its deferred type imports remain
-  temporary work for replacing constructor groups with graph variables.
-- One checker traversal generates type constraints, finite effect inclusions,
-  callable obligations, and producer flows. Declaration generalization retains
-  latent effect relationships; graph solving and publication establish the
-  summaries. Whole-program effect scans and a second source checker are removed.
-- Full and compact consumers project the same immutable solved facts. Source
-  registry, operator, and stage requirements retain canonical candidate authority,
-  original binding plans, and exact producer paths. Schema validation records
-  independently established targets and qualified applications. Constructor and
-  process source plans and complete native callable families remain integration
-  work; unsupported new execution evidence still fails preparation.
-- `lower.rs::CompactLowerConstructProbe::solved_type` projects immutable graph
-  container shells into old storage views. Expression and call type helpers
-  retain tree/slot/shape reconstruction outside solved expression coverage;
-  statement/assertion consumers retain span facts outside exact solved identities.
-  `lower_function_with_blocker` obtains parameter and result storage kinds from
-  `lower/storage.rs::checked_storage_view` using the original declaration's
-  Arrow roots and scheme. A generic `List[T]` keeps List storage, while a bare
-  type parameter uses Generic storage. `FunctionBuild::solved_declaration`
-  preserves the semantic signature independently of those physical kinds.
-  Record destructuring publishes each original leaf `BindingIdentity` while
-  `define_binding_target_arena` checks that leaf. Top-level storage and capture
-  consumers use those facts directly. Metadata collection returns the first
-  unsupported statement, and function prefixes refuse that failure instead of
-  constructing a partial binding environment.
-- `lower/call_argument_plan.rs::lower_function_call_args` reads original supplied
-  sources and checked slot plans from `SolvedTypes`. Script implementations use
-  the selected registry candidate's binding rather than an overload search.
-  Supplied values stay in source order, while interior omitted slots retain
-  declaration-owned default markers. `lower_named_spread_call` consumes original
-  call and invocation argument recipes directly, evaluates authored entries
-  once, and calls the existing dispatch with unchanged syntax and saved values.
-  It does not expand fields again, rebind parameters, or clone an arena for those
-  plans. `lower_legacy_named_spread_call` keeps temporary argument projections
-  only for native operation and constructor adapters outside that active path.
-  Saved finite record entries retain separate original record roots and real
-  initialization wrappers in `BuildScratch::argument_record_binding_origins`;
-  generated record reads and field projections do not acquire syntax identities.
-- `check_stream_stage_arena` keeps temporary stage-call AST nodes outside graph
-  publication and accepts only a resolved ground target signature through its
-  stage adapter. Generic stage calls require a plan tied to the original stage
-  descriptor; generated arena identities cannot establish evidence ownership.
-- `lower/iteration.rs` reads original statement and comprehension operation
-  facts, their selected language authority, and exact iterator endpoints.
-  Item graph identities remain available alongside bounded storage views;
-  destructured leaves use their own checked binding facts. Generator identities
-  preserve relative qualifier ordinals across filters. Materialized map, string,
-  and byte Result sources retain lexical propagation, while list and stream
-  adapters retain runtime failure transport. Missing or pending source evidence
-  refuses preparation instead of reconstructing an iterable relationship.
-- `FullBuilder::predeclare` retains coarse storage-to-signature construction
-  for non-scoped headers. Exact ground, nested container, nominal, and producer
-signatures must come from solved declarations before this adapter is removed.
-  Graph-backed ground declarations now supply exact checked types directly.
-  `FunctionBuild::legacy_checked_signature` transfers already checked ground
-  parameter/result trees for declarations outside graph ownership, preserving
-  precise container contracts across generic calls. It rejects unresolved
-  holes and disappears when those declarations use solved graph signatures.
-
-These adapters do not supply missing evidence for generic execution. Unsupported
-generic bindings, sources, or operation domains fail preparation.
-`lower.rs::CompactFunctionIndex` retains definition keys for lookup and
-enumeration. `FullBuilder` predeclares the function units before encoding their
-bodies, so mutual recursion and declaration order need no additional lowering
-dependency graph. Source-owned checked declaration identities and instance
-receipts preserve each generic call's relationship through preparation.
-Effect quantifiers currently require prepared effect evidence that the indexed
-scope format does not yet carry. Extra row lacks constraints must be represented
-by the signature's checked record prefixes; unrepresented constraints fail
-preparation. Multiple solved row extensions are flattened before projection
-obligations are emitted.
 
 The primary retrieval path is symbol-first: search for the concrete type or
 method named in this document, then open its owner file and nearest test. For
@@ -605,14 +65,6 @@ walk; both execution routes validate and convert a private value before returnin
 it. Schemas and prepared constants register in the same declaring mapping pool
 as constructors; the verifier rejects independently altered mapping copies and
 checks schema and constructor metadata before execution.
-Scoped tag payloads retain a `ScopedTagConstructorRequirement` and the
-original constructor member, payload roots and declaring scheme in
-`full/tag_constructor_prepare.rs`. Concrete frames consume the corresponding
-unit witness and check the active declaration scope before payload evaluation.
-Nullary tag equality retains the complete original qualified family roster in
-`full/operation_prepare/tag_equality.rs`; transported operands must remain
-members of that family with the original wire mapping.
-
 Record validation uses `lowered_record_field_value`, the owned field view shared
 with ordinary record methods. Synthesized fields in compact Stats values remain
 visible to the same schema contract as stored record fields.
@@ -758,18 +210,6 @@ and lexical cleanup ownership.
 The parser retains ungrouped run argv boundaries; grouped expressions own their
 closing delimiter so a run-valued payload can precede a postfix guard.
 
-A fused line scanner retains its original iterable, selected byte operations,
-and counter assignments in `generic/iterations.rs::OriginalLineScan`. Its
-physical statement and checks block are validated before input reads. Counter
-updates use checked arithmetic and the same defining activation cells as ordinary
-assignments, including counters captured by another callable.
-
-`sema/check/run_operation.rs` retains each interpolated argv expression's
-original checked type port for rendering authority. Named splices own separate
-ports. A captured run command in a value tail already produces a Result;
-`CompactLowerConstructProbe::lower_tail_block` uses its original `SolvedRun`
-and statement identity to preserve that Result without adding a success wrapper.
-
 There is no JIT, green-thread scheduler, or async task runtime in the execution
 path. The checked arena is lowered into a compact verified indexed store before
 execution. `src/runner.rs` shares the owned parsed arena between the full
@@ -809,12 +249,6 @@ Optional postfix receiver absence and Optional fallback lower through verified `
 with a hidden receiver slot. The null arm skips the whole selected operation;
 the present arm retains Result values. Result postfix receivers instead lower
 through one `Try` instruction before the ordinary operation.
-Unsigned fallback and conditional results retain their original creation checks
-separately from branch source types. `full/operation_prepare/fallback.rs` and
-`full/conditional_prepare.rs` authenticate the actual checked wrapper and selected
-UInt result, while the original Int parameter or branch root remains intact.
-The selected value is checked before later effects or outward use.
-
 Runtime changes should preserve source-visible order, explicit boundaries, and
 traceable failure paths before pursuing cleverness. List compound assignment
 uses the ordinary indexed assignment route. A singleton list right side is
@@ -918,16 +352,6 @@ wrapping contract without per-word chunk vectors.
    `src/runtime/eval/lower.rs` bind a script-backed public call to the prepared
    implementation function and emit an ordinary `Call`, so execution uses the
    normal frame engine.
-
-Catalog ingestion seals original native bridge declarations and formal rows
-from that module's existing parse. The checker publishes the exact native
-signature and effects without assigning expression or completion facts to its
-linkage body. Lowering rewrites only original checked invocations in the
-declaring catalog module. `full/bridge_prepare.rs` and `generic/bridges.rs`
-retain the original caller, argument recipe, formal and actual types, result,
-and program receipt. Both execution routes consume that authority after the
-frontend has been disposed. Authored functions with matching names or internal
-module flags acquire no catalog authority.
 
 A dynamically loaded user module never reparses embedded source: it lowers its
 standard calls to `BuildExprRow::ExternalCall`, and the runtime resolves them
@@ -1087,29 +511,8 @@ and identity migration metadata. Its finite scalar migration table never enters
 runtime dispatch. The record module and its private string-contract parser are
 absent; `.require(Type)` uses the ordinary schema checker and indexed schema
 validation. Record receiver methods and typed module contracts retain their
-existing owners. `SolvedModuleProjection` retains the original receiver, access
-carrier, and exact export type against a core `ModuleProjection` constraint
-contribution. Cold validation checks that promise without recovering a record
-row or an implementation declaration. Prepared constants provide contract values; a known plain
+existing owners. Prepared constants provide contract values; a known plain
 receiver and exact existing schema are required before offering an edit.
-
-`InvocationPlan` retains either a unique selected signature and binding or every
-possible callable branch with its own binding, default timing, and effects.
-Source callable joins use `InferenceContext::join_callable_values` while each
-branch is checked independently. Computed invocation arguments reuse the original
-checked expression endpoints and prove compatibility with their checked views;
-list splices keep the original list endpoint and source flow before branch binding. Ordinary callable producer references retain
-the checked expression instance as their immutable origin; their principal
-declaration signature remains separate navigation and scope metadata. Frozen
-source validation rejects replacing that instance with the principal signature.
-
-`ProducerFlowKind::OptionalLift` retains nullable completion independently of
-type equality. It transfers original producer and callable locations into one
-`OptionalPayload` layer, preserving inputs that already carry that layer.
-Declaration completion creates this flow after its return relationship is solved.
-Local error captures separately retain reached failure projections from their
-original operands; nested captures own separate lists, and consuming a failure
-payload retains its pull and cleanup permissions.
 
 `Checker` in `src/sema/check.rs` owns the main checker state: lexical scopes, function
 signatures, imported modules, current return type, purity context, `$?`
@@ -1125,19 +528,20 @@ Focused semantic rules live beside it:
   substitution keeps unresolved identities until the owning checker requires
   a concrete contract. Indexed type pools reject unresolved identities, and
   runtime type tests cannot satisfy them.
-- `src/sema/check/local_inference.rs` connects local empty collections and
-  mutable nullable accumulators to the enclosing declaration's shared graph.
-  Initializers, aliases, and later contributions retain the same monomorphic
-  identities; immutable value schemes obey the graph's level and capture
-  restrictions. Defaults and original argument sources are checked once.
-  Checker cloning, speculative body probes, and spread-generated projection
-  expressions are removed. A bounded constructor-variable adapter temporarily
-  retains checked original-expression types and callers while null/empty fields
-  await independently checked anchors, then publishes each source fact once.
-  Checked binding types supply indexed slot metadata, so a null initializer
-  cannot erase a solved Optional contract. Full and compact publication use
-  the same solved expression and callable facts; unresolved material facts
-  diagnose rather than become dynamic types.
+- `src/sema/check/local_inference.rs` gathers constraints for local empty
+  collections and mutable nullable accumulators before checking operations in
+  their enclosing callable. A cloned ordinary checker retains substitutions
+  and seed identities while discarding speculative diagnostics and facts.
+  `Checker::constraint_probe` retains declaration, lexical, parameter, return,
+  and substitution contracts while excluding completed expression and block
+  facts. Speculative local constraints, default parameters, and argument spreads
+  recompute those facts before consuming them; cloning prior output repeatedly
+  copies captured module contracts as the program grows.
+  Normal checking then uses the same monomorphic identities. Checked binding
+  types supply indexed slot metadata, so a null initializer cannot erase a
+  solved Optional contract. Full and compact publication canonicalize every
+  retained expression and callable fact through their owning constraint store;
+  unresolved material facts diagnose rather than become dynamic types.
 - `crates/xsh-registry/src/signature/` owns standard callable contracts and
   runtime operation identities; `src/modules/signature.rs` adapts them to
   semantic types and effects. `src/sema/builtin_templates.rs` instantiates
@@ -1160,47 +564,12 @@ Focused semantic rules live beside it:
   structural receiver fields never invent unused application arguments.
   Concrete `record_constructor_instances` facts feed compact checking and
   lowering after inference completes. Defaults supply no inference evidence.
-  `src/sema/check/constructor_application.rs` publishes original expression and
-  spread-record field identities, qualified applied aliases and underlying
-  default owners, phantom arguments, fixed supplied/default slots, and exact
-  graph assignment and projection origins. `constructor_defaults` shares
-  declaration-owned prepared constants; `constructor_nominals` retains exact
-  member payload slots. Tag and error-variant plans retain an operation
-  requirement whose canonical declaration candidate includes the qualified
-  source, namespace, declaration, and member identity. Equal payload signatures
-  cannot substitute a different member after syntax disposal. Frozen validation
-  compares those authorities and source
-  endpoints without syntax or name-based member discovery. Scoped roots include
-  application arguments, formals, actual values, and results; retained storage
-  accounts nested contexts, vector capacities, and shared literal allocations.
-  The remaining constructor-group `TypeConstraints` adapter contributes
-  independently checked operands before graph import, and defers original
-  null/empty/nested expression facts until the group resolves. It never rechecks
-  a source expression or chooses a type from observed callers.
   Fully substituted instances reuse `Type::Record`; no runtime generic dispatch
   is introduced. `LiteralConstant` admits bounded
   literal trees and earlier immutable literal bindings; checker, parameter-default
   lowering, constructor lowering, and conservative constructor fixes share this
   analysis. Constructor lowering emits existing record and schema-check rows,
   preserving supplied field order and independent aggregate values.
-  `RecordConstructors::source_id` indexes each declaration's source while its
-  lexical namespace is collected. `check/schema_validation.rs` publishes
-  explicit and contextual `require` decisions in `SolvedTypes::schema_validations`.
-  Each expression identity retains its original input expression and type,
-  independently selected target and Result type, lexical caller, and recursive
-  qualified application identities with concrete argument handles. Phantom
-  arguments remain present when record layouts are equal. Collection charges
-  bounded node and edge work; publication roots and validation preserve the
-  handles and private declaration owners after AST disposal.
-  `SolvedGraph` retains a complete immutable `ScopedApplicationRoot` ledger.
-  Each certificate binds an original source expression, typed nested schema
-  path, alias ordinal, qualified type declaration, and original argument
-  handles. `SolvedTypes::source_application_roots` projects current schema and
-  record-constructor facts for comparison with that ledger, rejecting changed
-  phantom arguments and missing applications even when record layouts agree.
-  Publication validates constructor arguments in their exact source scheme;
-  validation targets still require concrete reifiable arguments. Ledger path
-  and argument storage is included in retained graph accounting.
 - `src/sema/check/stream.rs` checks structured stream pipelines.
   `CheckedStreamStage` retains canonical input and output types per stage;
   namespace and source spans distinguish equal offsets in separate modules.
@@ -1401,44 +770,28 @@ nested cleanup order. `run_indexed_defers` executes every registered action,
 retains the first failure, and reports secondary failures without replacing the
 primary traceback.
 
-Eager recursive calls and lexical statement blocks use
-`indexed_run.rs::finish_indexed_statement_scope`. It retains escaping values and
-checked failures in the parent, releases unused process handles before deferred
-actions, and closes the resource scope even after an error or forced abort.
-Explicit calls use `explicit_run.rs::cleanup_deferred_call_body` and
-`exit_block_scope` for the same body-before-defer resource ordering while
-preserving escaping handles and the scope that registers each deferred action.
-Parameter defaults share the function's resource scope. Suspended stream bodies
-retain their own continuation lifecycle.
-
 Callable result slots retain complete declared schemas through
 `compact_function_return_type`. Checked or inferred signature facts take
 precedence over syntactic recovery. Resolving a named record return before
 field aliases are stored keeps Optional receivers distinguishable from Result
 receivers when guarded postfix operations are lowered.
 
-Callable return inference is owned by `src/sema/check/generic.rs` and
-`src/sema/inference/components.rs`. Structural declaration dependencies establish
-recursive groups; each group is constrained before its member schemes are
-published. An omitted return keeps its principal relationship, including in
-exports and recursive declarations. `CheckOutput::function_return_types` and
+Private pure return inference is owned by
+`src/sema/check/infer_return.rs::infer_local_pure_returns`. Declaration dependency
+components are computed with iterative graph traversals; recursive unannotated
+members require explicit signatures. `CheckOutput::function_return_types` and
 `CompactDeclOutput::function_return_types` retain checked body return facts for
 qualified calls, indexed return kinds, lint rechecks, and annotation rendering.
 No caller supplies the inferred definition's return context.
 
 Private proc effects are owned by `src/sema/check/infer_effects.rs`. A checker
-records raw execution requirements in the shared graph independently of its
-checked permission budget. Declared clauses remain caller-visible bounds;
-missing permissions still reject the body without truncating its required
-summary. `EffectDeclarationId` combines declaring namespace and body span so
+collection pass records direct requirements and edges from resolved calls;
+`EffectGraph::solve` computes finite transitive summaries before final bound
+checking. `EffectDeclarationId` combines declaring namespace and body span so
 separately parsed module arenas may reuse local spans safely.
 `CheckOutput::function_effect_facts` and
 `CompactDeclOutput::function_effect_facts` publish effective requirements and
-inference provenance. Calculated finite diagnostic summaries remain available
-when a permission failure or unrelated type error prevents publishing
-`SolvedTypes`; unresolved and unrestricted summaries remain unknown. This
-projection permits a safe permission edit while preserving the rejected program
-and its other diagnostics. Linting consumes these checked facts and uses equivalent
+inference provenance. Linting consumes these checked facts and uses equivalent
 rechecks for opt-in private-clause removal; it has no syntax-based effect solver.
 
 Explicit field labels share `TokenTable::label_text_at` and the parser's
@@ -1452,11 +805,7 @@ and key contracts. Tooling reads the same label vocabulary for safe unquoting.
 
 Nested functional record updates retain `ArenaRecordFieldKind::Path` selectors
 separately from their replacement expressions. Checked updates preserve the
-complete base row in `SolvedTypes::record_updates`, including fields in open
-row tails. Each leaf retains its exact projection chain, replacement source
-identity and mutable version, producer flow, and original assignability
-constraint index. Frozen validation checks those endpoints without re-solving
-or reconstructing names. Updates lower to `BuildExprRow::RecordUpdate`; its indexed payload
+base schema and lower to `BuildExprRow::RecordUpdate`; its indexed payload
 verifies nonempty, disjoint static paths. Both execution routes evaluate the
 base and replacements before `lowered_record_update_batch` rebuilds a private
 snapshot. A path trie groups shared ancestors and uses
@@ -1469,13 +818,6 @@ and defer execution while preserving `StmtFlow::Return`, `Break`, and
 `Continue` separately from `Propagate`. Checked cleanup propagation carries
 an internal origin marker across runtime-error transport; defects and abort
 never acquire that marker.
-`SolvedErrorCapture` retains a capture's original reached error ports and
-`ErrorJoin` requirement independently of its output annotation. The sealed
-boundary receipt qualifies the source block and declaration owner;
-`full/capture_prepare/error_capture.rs` validates the published scoped roots
-before retaining their exact error domains. This supplies nominal error
-authority when a capture completes with a pipeline whose callback propagates
-an error, without treating the pipeline's success type as an error carrier.
 Explicit value pipeline arguments retain `ArenaExprKind::ValuePipelineCall`
 with the input, ordinary call, and sole immediate hole. Full and compact checkers
 bind the hole to the checked input type while checking that ordinary call.
@@ -1545,77 +887,21 @@ Structural grep distinguishes value blocks from literal records and local Result
 capture. Expression-only block replacements substitute captures at child source
 spans, retaining parentheses and surrounding block trivia.
 
-Imported module initializers use separate lexical binding maps keyed by their
-original module owner. `Evaluator::indexed_module_bindings` retains private
-values after the initializer scope is removed; capture hydration uses the
-callee's qualified owner. Import aliases select the exposed namespace without
-changing ownership. Nested imports and equally spelled private bindings therefore
-cannot replace each other's captures or leak into root bindings.
-
-`SolvedTypes::patterns` retains original pattern topology, capture identities,
-checked joins, structural shape, literal values, and canonical constructor
-owners. A shared immutable original receipt authenticates cold projections.
-Repeated success-branch lexical visits reuse that receipt; unresolved recovery
-children leave ancestor authority unavailable. Lowering transports pattern rows,
-allocated capture slots, and lexical uses before cleanup, including bare terminal
-identifier statements with their own statement identities.
-Pattern tests retain both original arms' receipts, including the wildcard false
-arm, against the single checked subject type.
-
-`SolvedTypes::nominal_members` independently retains ground enum and error
-member declarations, including unused and private members. Original registration
-publishes qualified declaration identities, canonical families and members,
-ordered payload fields, and facets. `checked_nominal_member` authenticates a
-projection against its shared immutable original receipt. Import aliases retain
-that owner; an error pattern's surface tested type stays separate from its
-canonical declaration member. Cold preparation consumes these checked roots
-without resolving field annotations or treating a pattern as its own declaration
-authority. Non-ground declaration member receipts remain unavailable.
-`checked_pattern_nominal` authenticates the input and tested roots' original
-nominal owners after declaration solving and import publication. Surface error
-aliases retain their original qualified family and member owners without changing
-type equality. Missing provenance for a nominal root stays unavailable;
-`checked_pattern_scope` separately projects the authenticated source scope.
-
 ### Static argument expansion
 
 `sema::arguments::expand_named_arguments` exposes only checked finite record
 fields and retains each source entry's index. `bind_static_arguments` resolves
 those fields and ordinary arguments to callable parameter slots before runtime
 lowering; absent slots continue to select ordinary defaults. Expression calls
-and structured stages share these facts. Original calls and invocations retain
-ordered `SolvedArgumentSource` recipes in `SolvedTypes::argument_sources`.
-`lower_named_spread_call` consumes those recipes and their checked binding
-without repeating expansion or changing the source argument range.
-An unresolved Pure callback may instead retain its exact original invocation
-in the caller's declaration scheme. Its supplied values remain in authored
-order until the instance proof selects formal destinations; missing evidence
-outside that original declaration scope still refuses lowering.
-`lower_source_argument_values` creates source-ordered hygienic slots, saves each
-spread record once, and projects its fields before the next entry.
-`wrap_argument_bindings` sequences the initialization around existing call and
-operation rows. Saved records retain their original scoped graph root separately
-from the argument receipts; generated reads and projections have no invented
-syntax identities. Selected standard native operations also consume these
-recipes directly through `lower_original_native_named_call`, using the original
-registry authority and checked slot/default masks. Their finite spreads create
-no projection syntax nodes and repeat neither expansion nor binding.
-A saved argument read cannot carry its initializer's source operation identity;
-`checked_saved_argument_read` validates the original initializer receipt before
-suppressing source stamping. `lower_legacy_named_spread_call` still uses temporary
-projection expressions for specialized native boundaries and constructor
-adapters. A separate adapter map validates those projections against the exact
-record-field recipe and original saved-record receipt; temporary syntax has no
-source authority. A checked interior
-omission uses `LoweredCallArg::Default`, the callee's parameter index in the
-existing call argument codec. `IndexedCallArguments` carries evaluated supplied
-values separately from omitted indices; a supplied null remains a value.
-`LoweredParamDefault` distinguishes absent, prepared constant, and expression
-defaults. Callee binding installs constants and retains expression defaults in
-`IndexedCallSlots::pending_defaults`. Both evaluators execute the verified
-declaration prefix after capture hydration, once in parameter order. Suspended
-producer frames retain pending defaults until first pull. No default expression
-is evaluated in the caller or reconstructed from source syntax.
+and structured stages share these facts. `lower_expanded_argument_values`
+creates source-ordered hygienic slots and projects each spread before the next
+entry. `wrap_argument_bindings` sequences the initialization around existing
+call and operation rows. Compiler-generated projection IDs are transient and
+leave the original source argument ranges and CST unchanged. A checked omitted
+parameter of a loaded module call uses `LoweredCallArg::Default`, a parameter
+index in the existing call argument codec. Execution selects that exact
+prepared callable's immutable default; it is distinct from a caller frame slot
+and introduces no runtime name binding.
 
 Native `ModuleCall` argument vectors retain optional expression slots in static
 parameter order. `NativeArgumentValues` exposes an omitted slot as absence to
@@ -1680,12 +966,6 @@ and continuation intersections. Immutable aliases retain shared proof sets;
 revive stale evidence. Both routes publish precise expression types and proved
 Optional fallback receivers. Indexed lowering reads those facts and inserts no
 casts or runtime proof checks.
-`SolvedTypes::checked_refined_read` retains the original null predicate,
-immutable Boolean aliases, exiting guard, subject binding and projection path
-for a refined read. Its sealed receipt preserves the invariant binding type
-separately from the narrowed read type and records accepted disjoint writes.
-`full/mutable_prepare.rs::prepare_mutable_refinements` checks that relationship
-against the actual prepared statements before the frontend is discarded.
 Removed compatibility vocabulary has no executable registry entry or lowering
 mode. `Checker::removed_compatibility_name` records fatal diagnostics and exact
 edits after ordinary name/receiver resolution; the parser recovers canonical run

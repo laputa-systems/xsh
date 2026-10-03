@@ -203,23 +203,6 @@ impl Checker {
         params: &[FunctionParamSig],
         span: Span,
     ) {
-        if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
-            let Ok(expanded) = self.check_expanded_constructor_arguments(arena, source, args, params, span) else { return; };
-            let callable = params.iter().map(|param| crate::sema::types::CallableParamType {
-                name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest,
-            }).collect::<Vec<_>>();
-            let binding = match crate::sema::arguments::bind_static_arguments(&callable, &expanded) {
-                Ok(binding) => binding,
-                Err(error) => { self.error(error.span, &error.message, "check.named-arg"); return; }
-            };
-            for (argument, slot) in expanded.iter().zip(binding.argument_slots) {
-                let parameter = &params[slot];
-                let item = if parameter.rest { match &parameter.ty { Type::List(item) => item.as_ref(), other => other } } else { &parameter.ty };
-                let expected = if matches!(argument.value, crate::sema::arguments::ArgumentValueSource::PositionalSplice(_)) { Type::List(Box::new(item.clone())) } else { item.clone() };
-                self.expect_type(&expected, &argument.ty, argument.span);
-            }
-            return;
-        }
         if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. })) {
             use crate::sema::arguments::{bind_static_arguments, expand_named_arguments};
             let callable = params.iter().map(|param| crate::sema::types::CallableParamType {

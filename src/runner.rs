@@ -85,10 +85,10 @@ pub fn run_startup() -> ScriptOutput {
     let mut sources = SourceMap::new();
     let source_id = sources.add_file("<startup>", "");
     let parsed = Parser::parse_source_arena_only(source_id, "");
-    let checked = Checker::check_arena(&parsed.arena, "");
+    let _ = Checker::check_compact_declarations(&parsed.arena);
     let mut evaluator = Evaluator::new_with_sources_and_command(Vec::new(), sources, "xsh".into());
     let plan = evaluator
-        .prepare_compact_indexed_only_from_checked(&parsed.arena, source_id, &checked)
+        .prepare_compact_indexed_only(&parsed.arena, source_id)
         .expect("empty startup program must encode as indexed IR");
     let output = evaluator
         .eval_installed_compact_indexed_only(plan)
@@ -216,12 +216,13 @@ fn render_checked_diagnostics(
             stderr: text_bytes(checked_program.render_check_diagnostics()),
         };
     }
-    let mut evaluator = Evaluator::new_with_sources_and_command(args, checked_program.sources.clone(), script_command_name(script));
-    let diagnostics = evaluator.prepare_compact_indexed_only_from_checked(
+    let diagnostics = Evaluator::compact_indexed_diagnostics(
         &checked_program.parsed.arena,
         checked_program.entry_source_id,
-        checked_program.checked.as_ref().expect("checked program after clean parse"),
-    ).err().into_iter().collect::<Vec<_>>();
+        checked_program.sources.clone(),
+        args,
+        script_command_name(script),
+    );
     if !diagnostics.is_empty() {
         return ScriptOutput {
             status: 2,
@@ -329,18 +330,10 @@ fn prepare_entry_source(
         evaluator =
             evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
     }
-    let plan = match evaluator.prepare_compact_indexed_only_from_checked(&arena, source_id, &check) {
-        Ok(plan) => plan,
-        Err(diagnostic) => {
-            let sources = evaluator.into_sources();
-            return Err(RunAttempt::Output(ScriptOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(DiagnosticRenderer::new().render(&[diagnostic], &sources)),
-            }));
-        }
+    let plan = evaluator.prepare_compact_indexed_only(&arena, source_id);
+    let Some(plan) = plan else {
+        return Err(diagnostic_attempt(evaluator.into_sources(), source_id));
     };
-    drop(check);
     drop(arena);
     Ok(PreparedRun {
         evaluator,
@@ -675,7 +668,7 @@ print $root
         .expect("compact runner attempt")
         .expect("path parse and print should be compact-covered");
 
-        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.status, 0);
         assert_eq!(output.stdout, b"/tmp/xsh-compact\n");
         assert!(output.stderr.is_empty());
         let _ = fs::remove_file(&path);
@@ -701,31 +694,12 @@ print $child
         .expect("compact runner attempt")
         .expect("Path constructor binding should be compact-covered");
 
-        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.status, 0);
         assert_eq!(output.stdout, b"/tmp/xsh-compact/child\n");
         assert!(output.stderr.is_empty());
         let _ = fs::remove_file(&path);
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);
-        }
-    }
-
-    #[test]
-    fn compact_indexed_runner_rejects_nul_paths_before_printing() {
-        for (name, source) in [
-            ("invalid-path-constructor", "let root = Path(args[0])\nprint $root\n"),
-            ("invalid-path-format", "let root = fp\"${args[0]}\"\nprint $root\n"),
-        ] {
-            let path = temp_script(name, source);
-            let output = try_run_compact_indexed_script(&RunOptions {
-                script: path.to_string_lossy().into_owned(),
-                args: vec!["/tmp/invalid\0path".to_string()],
-                coverage_trace_dir: None,
-            }).expect("compact runner attempt").expect("invalid path source remains covered");
-            let _ = fs::remove_dir_all(path.parent().unwrap());
-            assert_eq!(output.status, 3, "{}", String::from_utf8_lossy(&output.stderr));
-            assert!(output.stdout.is_empty(), "invalid paths must stop before the following print");
-            assert!(String::from_utf8_lossy(&output.stderr).contains("paths cannot contain NUL bytes"), "{}", String::from_utf8_lossy(&output.stderr));
         }
     }
 
@@ -1102,7 +1076,7 @@ for row in counts {
         .expect("compact runner attempt")
         .expect("extension-count shape should be compact-covered");
 
-        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.status, 0);
         assert_eq!(output.stdout, b"1 md\n2 rs\n");
         assert!(output.stderr.is_empty());
         if let Some(parent) = path.parent() {
@@ -1194,27 +1168,20 @@ for row in rows {
         .expect("write log");
         fs::write(logs.join("ignore.txt"), b"not json").expect("write ignored file");
 
-        let options = RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
-        };
-        let output = try_run_compact_indexed_script(&options)
+        })
         .expect("compact runner attempt")
         .expect("json-log-rollup shape should be compact-covered");
 
-        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.status, 0);
         assert_eq!(
             output.stdout,
             b"api:error 1 7\napi:info 1 11\nworker:warn 1 3\n"
         );
         assert!(output.stderr.is_empty());
-        fs::write(logs.join("a.jsonl"), b"{\"service\":\"api\",\"level\":\"info\",\"duration_ms\":1.5}\n").expect("write non-integer log item");
-        let rejected = try_run_compact_indexed_script(&options)
-            .expect("compact runner attempt")
-            .expect("dynamic JSON keeps the existing compact path");
-        assert_eq!(rejected.status, 3, "{}", String::from_utf8_lossy(&rejected.stderr));
-        assert!(String::from_utf8_lossy(&rejected.stderr).contains("sum expected Int stream"), "{}", String::from_utf8_lossy(&rejected.stderr));
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir_all(parent);
         }
@@ -1284,7 +1251,7 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
         .expect("compact runner attempt")
         .expect("manifest-hash shape should be compact-covered");
 
-        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.status, 0);
         assert_eq!(output.stdout, expected.as_bytes());
         assert!(output.stderr.is_empty());
         if let Some(parent) = path.parent() {
@@ -1344,7 +1311,7 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
         .expect("compact runner attempt")
         .expect("archive-package shape should be compact-covered");
 
-        assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.status, 0);
         assert_eq!(output.stdout, expected.as_bytes());
         assert!(output.stderr.is_empty());
         if let Some(parent) = path.parent() {

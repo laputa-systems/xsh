@@ -207,38 +207,6 @@ pub(crate) struct CliDescriptorPlan {
 }
 
 impl CliDescriptorPlan {
-    pub(crate) fn retained_bytes(&self) -> usize {
-        use std::mem::size_of;
-        fn strings(values: &Vec<String>) -> usize { values.capacity() * size_of::<String>() + values.iter().map(String::capacity).sum::<usize>() }
-        fn default_bytes(value: &Value, shared: &mut FxHashSet<usize>) -> usize {
-            match value {
-                Value::Str(text) => if shared.insert(Arc::as_ptr(text) as *const () as usize) { text.len() } else { 0 },
-                Value::Path(path) => path.bytes.capacity(),
-                Value::List(values) => values.capacity() * size_of::<Value>() + values.iter().map(|value| default_bytes(value, shared)).sum::<usize>(),
-                Value::Null | Value::Bool(_) | Value::Int(_) | Value::Duration(_) => 0,
-                _ => unreachable!("normalized CLI defaults contain only declared scalar values or lists"),
-            }
-        }
-        fn options(specs: &BTreeMap<String, OptionSpec>, shared: &mut FxHashSet<usize>) -> usize {
-            specs.len() * size_of::<(String, OptionSpec)>() + specs.iter().map(|(name, spec)| {
-                name.capacity() + strings(&spec.long) + strings(&spec.short) + strings(&spec.choices)
-                    + strings(&spec.conflicts) + strings(&spec.requires)
-                    + [&spec.form, &spec.help, &spec.deprecated, &spec.required_group, &spec.env].iter().filter_map(|value| value.as_ref()).map(String::capacity).sum::<usize>()
-                    + [&spec.default, &spec.optional_default].iter().filter_map(|value| value.as_ref()).map(|value| default_bytes(value, shared)).sum::<usize>()
-            }).sum::<usize>()
-        }
-        fn command(spec: &CommandSpec, shared: &mut FxHashSet<usize>) -> usize {
-            spec.canonical.capacity() + strings(&spec.aliases) + strings(&spec.positionals)
-                + spec.types.len() * size_of::<(String, ArgValueType)>() + spec.types.keys().map(String::capacity).sum::<usize>()
-                + spec.rest.as_ref().map_or(0, String::capacity) + options(&spec.options, shared)
-        }
-        let mut shared = FxHashSet::default();
-        size_of::<Self>() + options(&self.specs, &mut shared) + self.commands.as_ref().map_or(0, |(commands, fallback)| {
-            commands.len() * size_of::<(String, CommandSpec)>() + commands.iter().map(|(name, spec)| name.capacity() + command(spec, &mut shared)).sum::<usize>()
-                + fallback.as_ref().map_or(0, |spec| command(spec, &mut shared))
-        })
-    }
-
     pub(crate) fn normalize(schema: RecordMap, span: Span, policy: ParsePolicy, origins: &BTreeMap<String, Span>) -> Result<Self, RuntimeError> {
         Ok(Self { specs: parse_schema_at(schema, span, policy, origins)?, policy, commands: None })
     }

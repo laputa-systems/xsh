@@ -580,7 +580,6 @@ impl ArenaProgram {
     pub fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.modules.capacity() * size_of::<ArenaUserModule>()
-            + self.modules.iter().filter_map(|module| module.canonical_stdlib_source.as_ref()).map(CanonicalStdlibSource::retained_payload_bytes).sum::<usize>()
             + self.arena.capacity_bytes()
     }
 
@@ -1033,7 +1032,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             name,
             statements,
             internal: false,
-            canonical_stdlib_source: None,
         });
     }
 
@@ -1043,40 +1041,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             name,
             statements,
             internal: true,
-            canonical_stdlib_source: None,
-        });
-    }
-
-    pub(crate) fn parse_catalog_arena_module(&mut self, catalog: &'static crate::stdlib::StdlibModule, source: SourceId) -> Vec<crate::diagnostic::Diagnostic> {
-        let selected = crate::stdlib::find(catalog.identity).expect("catalog source has a retained module identity");
-        assert!(std::ptr::eq(selected, catalog));
-        let parsed = self.with_internal_source(|arena| crate::syntax::parser::Parser::parse_source_into_arena_builder(source, catalog.source, arena));
-        if parsed.diagnostics.is_empty() { self.push_catalog_arena_module(catalog, source, parsed.statements); }
-        parsed.diagnostics
-    }
-
-    fn push_catalog_arena_module(&mut self, catalog: &'static crate::stdlib::StdlibModule, source: SourceId, statements: ArenaRange) {
-        let selected = crate::stdlib::find(catalog.identity).expect("catalog source has a retained module identity");
-        assert!(std::ptr::eq(selected, catalog));
-        let name = self.name(&crate::stdlib::namespace_text(catalog.identity));
-        let arena = &self.lowerer.arena;
-        let declarations = arena.stmt_ids(statements).filter_map(|statement| {
-            let original = arena.stmt(statement);
-            let inner = if let ArenaStmtKind::Export(inner) = original.kind { arena.stmt(inner) } else { original };
-            let definition = match inner.kind { ArenaStmtKind::PureDef(id) | ArenaStmtKind::ProcDef(id) | ArenaStmtKind::StreamDef(id) => id, _ => return None };
-            Some((statement, definition))
-        }).collect::<Vec<_>>();
-        let parameters = declarations.iter().flat_map(|(_, definition)| arena.params(arena.function_def(*definition).params))
-            .map(|parameter| CanonicalParameterBinding { parameter: parameter.clone(), span: arena.span(parameter.span),
-                type_tag: arena.type_expr_tags[parameter.ty.index()], type_data: arena.type_expr_data[parameter.ty.index()], type_span: arena.type_expr_span(parameter.ty) }).collect();
-        let bridges = self.symbol_owner().with_current(|| declarations.iter().filter_map(|&(statement, definition)| {
-            let def = arena.function_def(definition);
-            crate::stdlib::bridge_op(catalog, &def.name.as_str())?;
-            CanonicalBridgeDeclaration::capture(arena, statement, definition, source)
-        }).collect());
-        self.modules.push(ArenaUserModule {
-            key: catalog.label.to_owned(), name, statements, internal: true,
-            canonical_stdlib_source: Some(CanonicalStdlibSource { identity: catalog.identity, source, parameters, bridges }),
         });
     }
 
@@ -4798,92 +4762,6 @@ fn effect_from_code(code: u32) -> Effect {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct CanonicalStdlibSource {
-    identity: &'static str,
-    source: SourceId,
-    parameters: Vec<CanonicalParameterBinding>,
-    bridges: Vec<CanonicalBridgeDeclaration>,
-}
-
-impl CanonicalStdlibSource {
-    fn retained_payload_bytes(&self) -> usize {
-        self.parameters.capacity() * size_of::<CanonicalParameterBinding>()
-            + self.bridges.capacity() * size_of::<CanonicalBridgeDeclaration>()
-            + self.bridges.iter().map(|bridge| bridge.parameters.capacity() * size_of::<ArenaParam>()
-                + bridge.annotations.capacity() * size_of::<(TypeExprId, ArenaTypeExprTag, ArenaTypeExprData, Span)>()
-                + bridge.statements.capacity() * size_of::<(StmtId, ArenaStmt)>()
-                + bridge.expressions.capacity() * size_of::<(ExprId, ArenaExpr)>()
-                + bridge.elements.capacity() * size_of::<ArenaListElement>()).sum::<usize>()
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct CanonicalParameterBinding {
-    parameter: ArenaParam,
-    span: Span,
-    type_tag: ArenaTypeExprTag,
-    type_data: ArenaTypeExprData,
-    type_span: Span,
-}
-
-/// Catalog ingestion retains the actual declaration and placeholder allocation
-/// before checker or lowering consumers can replace those arena rows.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct CanonicalBridgeDeclaration {
-    definition: FunctionDefId,
-    header: ArenaFunctionDef,
-    parameters: Vec<ArenaParam>,
-    annotations: Vec<(TypeExprId, ArenaTypeExprTag, ArenaTypeExprData, Span)>,
-    statements: Vec<(StmtId, ArenaStmt)>,
-    block: ArenaBlock,
-    block_span: Span,
-    expressions: Vec<(ExprId, ArenaExpr)>,
-    list: ArenaListElementRange,
-    elements: Vec<ArenaListElement>,
-    integer: (IntLiteralId, IntLiteral),
-}
-
-impl CanonicalBridgeDeclaration {
-    fn capture(arena: &AstArena, statement: StmtId, definition: FunctionDefId, source: SourceId) -> Option<Self> {
-        let outer = arena.stmt(statement);
-        let ArenaStmtKind::Export(inner) = outer.kind else { return None; };
-        let inner_statement = arena.stmt(inner);
-        if inner_statement.kind != ArenaStmtKind::PureDef(definition) { return None; }
-        let header = arena.function_def(definition).clone();
-        let block = arena.block(header.body).clone();
-        let statements = arena.stmt_ids(block.statements).collect::<Vec<_>>();
-        let [returned_statement] = statements.as_slice() else { return None; };
-        let returned_statement_value = arena.stmt(*returned_statement);
-        let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(returned))) = returned_statement_value.kind else { return None; };
-        let ArenaExprKind::Index { base, index, guarded: false } = arena.expr(returned).kind else { return None; };
-        let ArenaExprKind::List(list) = arena.expr(base).kind else { return None; };
-        let elements = arena.list_elements(list).collect::<Vec<_>>();
-        let [element] = elements.as_slice() else { return None; };
-        let ArenaExprKind::Int(integer) = arena.expr(index).kind else { return None; };
-        let expressions = [returned, base, index, element.value].into_iter().map(|id| (id, arena.expr(id))).collect::<Vec<_>>();
-        if outer.span.source_id != source || expressions.iter().any(|(_, expression)| expression.span.source_id != source) { return None; }
-        let parameters = arena.params(header.params).to_vec();
-        let annotations = parameters.iter().map(|parameter| parameter.ty).chain(std::iter::once(header.return_ty))
-            .map(|id| (id, arena.type_expr_tags[id.index()], arena.type_expr_data[id.index()], arena.type_expr_span(id))).collect();
-        Some(Self { definition, parameters, annotations, block_span: arena.span(block.span), header,
-            statements: vec![(statement, outer), (inner, inner_statement), (*returned_statement, returned_statement_value)],
-            block, expressions, list, elements, integer: (integer, arena.int_literal(integer).clone()) })
-    }
-
-    fn matches(&self, arena: &AstArena) -> bool {
-        arena.function_def(self.definition) == &self.header && arena.params(self.header.params) == self.parameters
-            && self.annotations.iter().all(|(id, tag, data, span)| arena.type_expr_tags[id.index()] == *tag
-                && arena.type_expr_data[id.index()] == *data && arena.type_expr_span(*id) == *span)
-            && arena.block(self.header.body) == &self.block && arena.span(self.block.span) == self.block_span
-            && arena.stmt_ids(self.block.statements).eq(self.statements.iter().skip(2).map(|(id, _)| *id))
-            && self.statements.iter().all(|(id, original)| arena.stmt(*id) == *original)
-            && self.expressions.iter().all(|(id, original)| arena.expr(*id) == *original)
-            && arena.list_elements(self.list).eq(self.elements.iter().copied())
-            && arena.int_literal(self.integer.0) == &self.integer.1
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaUserModule {
     pub key: String,
     pub name: Name,
@@ -4893,30 +4771,6 @@ pub struct ArenaUserModule {
     /// through registry implementation bindings; they never participate in
     /// user `use` resolution or public introspection.
     pub internal: bool,
-    canonical_stdlib_source: Option<CanonicalStdlibSource>,
-}
-
-impl ArenaUserModule {
-    pub(crate) fn canonical_stdlib_source(&self) -> Option<(&'static crate::stdlib::StdlibModule, SourceId)> {
-        let source = self.canonical_stdlib_source.as_ref()?;
-        Some((crate::stdlib::find(source.identity)?, source.source))
-    }
-    pub(crate) fn canonical_parameter_binding(&self, name: &str, span: Span) -> bool {
-        self.canonical_stdlib_source.as_ref().is_some_and(|source| span.source_id == source.source
-            && source.parameters.iter().any(|original| original.parameter.name == name && original.span == span))
-    }
-    pub(crate) fn canonical_parameter_binding_matches(&self, arena: &AstArena, parameter: &ArenaParam) -> bool {
-        self.canonical_stdlib_source.as_ref().is_some_and(|source| source.parameters.iter().any(|original|
-            original.parameter == *parameter && original.span == arena.span(parameter.span) && original.span.source_id == source.source
-                && original.type_tag == arena.type_expr_tags[parameter.ty.index()] && original.type_data == arena.type_expr_data[parameter.ty.index()]
-                && original.type_span == arena.type_expr_span(parameter.ty)))
-    }
-    pub(crate) fn canonical_bridge_declaration_matches(&self, arena: &AstArena, definition: FunctionDefId) -> bool {
-        self.canonical_stdlib_source.as_ref().is_some_and(|source| source.bridges.iter().any(|original| original.definition == definition && original.matches(arena)))
-    }
-    pub(crate) fn canonical_bridge_function(&self, definition: FunctionDefId) -> Option<Name> {
-        self.canonical_stdlib_source.as_ref()?.bridges.iter().find(|original| original.definition == definition).map(|original| original.header.name)
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

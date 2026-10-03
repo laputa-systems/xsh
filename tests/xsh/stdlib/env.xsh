@@ -16,23 +16,6 @@ pure int_failure(result: Result[Int]) -> Str {
   }
 }
 
-test environment_path_lookup_requires_permission_at_the_read [fs, process, error] { |ctx|
-  for permissions in ["env", ""] {
-    let source = f"""proc observed() [${permissions}] -> Bool { let _ = env.PATH; true }
-"""
-    let file = test.temp_file(ctx, name: "environment-path-effects.xsh", contents: bytes.from_text(source))?
-    let checked = run.capture --text "xsht" check $file ?
-    if permissions == "env" {
-      assert checked.status.exited_with(0), checked.stderr
-    } else {
-      assert checked.status.exited_with(2), checked.stderr
-      assert "check.effect-violation" in checked.stderr, checked.stderr
-      assert "env" in checked.stderr, checked.stderr
-    }
-  }
-  true
-}
-
 test test_env_get_or_yields_the_fallback_only_for_an_unset_name [env, error] {
   env ({
     XSH_ENV_EMPTY: "",

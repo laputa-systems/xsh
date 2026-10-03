@@ -1,5 +1,0 @@
-# Fixture
-
-```rust
-fn embedded() {}
-```

@@ -8,7 +8,7 @@ use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRedirection,
     ArenaRedirectionTarget, ArenaRunSegment, ArenaWordPart, BlockId, CommandStmtId, ExprId,
-    RunFormId, StmtId,
+    RunFormId,
 };
 use crate::syntax::node::{CommandWordRefSegment, parse_command_word_reference};
 
@@ -177,7 +177,6 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        statement: StmtId,
         id: CommandStmtId,
     ) {
         let stmt = arena.arena.command_stmt(id);
@@ -198,7 +197,7 @@ impl Checker {
                 "check.pure-command",
             );
         }
-        let ty = self.check_command_arena(arena, source, statement, &stmt.command, span);
+        let ty = self.check_command_arena(arena, source, &stmt.command, span);
         if command_stmt_asserts_success_arena(arena, &stmt.command) {
             self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
             return;
@@ -214,7 +213,6 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        statement: StmtId,
         command: &ArenaCommand,
         span: Span,
     ) -> Type {
@@ -227,7 +225,7 @@ impl Checker {
                 args,
                 env,
                 block,
-            } => self.check_core_command_arena(arena, source, statement, *name, *args, *env, *block, span),
+            } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
                 self.record_required_effect(Effect::Process);
                 if let Some(effs) = &self.current_effects
@@ -240,13 +238,7 @@ impl Checker {
                         "check.effect-violation",
                     );
                 }
-                // Tail commands are checked directly, so the ambient statement
-                // can still belong to the enclosing declaration or initializer.
-                // The process observation belongs to this authored command.
-                let previous = self.current_statement.replace(statement);
-                let result = self.check_run_arena(arena, source, *run_id);
-                self.current_statement = previous;
-                result
+                self.check_run_arena(arena, source, *run_id)
             }
         }
     }
@@ -394,7 +386,6 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        statement: StmtId,
         name: CoreCommand,
         args: ArenaRange,
         env: ArenaRange,
@@ -403,7 +394,6 @@ impl Checker {
     ) -> Type {
         match name {
             CoreCommand::Print | CoreCommand::Eprint => {
-                let mut display_arguments = Vec::new();
                 for arg in arena.arena.command_args(args) {
                     if let ArenaCommandArgKind::Word(parts) = &arg.kind {
                         let word_list: Vec<ArenaWordPart> =
@@ -412,13 +402,13 @@ impl Checker {
                             .iter()
                             .any(|p| !matches!(p, ArenaWordPart::Bare(_)))
                         {
-                            display_arguments.extend(self.check_command_arg_arena_print_tail(arena, source, arg));
+                            self.check_command_arg_arena_print_tail(arena, source, arg);
                             continue;
                         }
                         let word_text = word_parts_text_arena(arena, source, &word_list);
                         let arg_span = arena.arena.span(arg.span);
                         if word_text.is_empty() {
-                            display_arguments.extend(self.check_command_arg_arena_print_tail(arena, source, arg));
+                            self.check_command_arg_arena_print_tail(arena, source, arg);
                             continue;
                         }
                         let name_resolves = is_bare_ident(&word_text)
@@ -491,12 +481,11 @@ impl Checker {
                                 );
                             }
                         }
-                        display_arguments.extend(self.check_command_arg_arena_print_tail(arena, source, arg));
+                        self.check_command_arg_arena_print_tail(arena, source, arg);
                         continue;
                     }
-                    display_arguments.extend(self.check_command_arg_arena_print_tail(arena, source, arg));
+                    self.check_command_arg_arena_print_tail(arena, source, arg);
                 }
-                self.check_graph_display_command(arena, statement, name == CoreCommand::Eprint, &display_arguments);
                 Type::Unit
             }
             CoreCommand::Cd => {
@@ -532,25 +521,23 @@ impl Checker {
         }
     }
 
-    /// Word fragments retain each interpolated operand's display contract before
-    /// rendering joins them into text. Literal fragments add no type constraint.
+    /// Runs the plain "check the arg, flag non-displayable types" tail
+    /// shared by every branch of the `Print`/`Eprint` arm above.
     fn check_command_arg_arena_print_tail(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         arg: &ArenaCommandArg,
-    ) -> Vec<Type> {
-        if let ArenaCommandArgKind::Word(parts) = arg.kind {
-            let mut operands = Vec::new();
-            for part in arena.arena.word_parts(parts) {
-                if let ArenaWordPart::Interpolation(expression) | ArenaWordPart::Shorthand(expression) = part {
-                    operands.push(self.check_expr_arena(arena, source, expression, None));
-                }
-            }
-            if operands.is_empty() { operands.push(Type::Str); }
-            return operands;
+    ) {
+        let ty = self.check_command_arg_arena(arena, source, arg, None);
+        if !ty.can_display() && !matches!(ty, Type::Unknown) {
+            let arg_span = arena.arena.span(arg.span);
+            self.error(
+                arg_span,
+                "value cannot be displayed by print",
+                "check.display-conversion",
+            );
         }
-        vec![self.check_command_arg_arena(arena, source, arg, None)]
     }
 
     pub(super) fn check_run_arena(
@@ -565,7 +552,6 @@ impl Checker {
         if segments.is_empty() {
             return Type::Unknown;
         }
-        self.begin_run_arguments();
         for segment in segments {
             self.check_run_segment_arena(arena, source, segment);
         }
@@ -599,7 +585,7 @@ impl Checker {
         }
         self.last_status_available = true;
 
-        let result = match segments[0].kind {
+        match segments[0].kind {
             RunKind::Plain | RunKind::Status => {
                 if run.propagate {
                     self.check_propagation(
@@ -619,9 +605,7 @@ impl Checker {
                     result
                 }
             }
-        };
-        self.record_graph_run(arena, run_id, &result);
-        result
+        }
     }
 
     pub(super) fn check_run_segment_arena(
@@ -756,12 +740,10 @@ impl Checker {
                     );
                     return;
                 }
-                self.check_external_arg_with_interpolation_mode_arena(arena, source, arg, super::run_operation::RunArgumentMode::Environment);
+                self.check_external_arg_arena(arena, source, arg);
             }
             ArenaEnvAssignmentValue::Expr(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                let expr_span = arena.arena.expr(*expr_id).span;
-                if self.check_graph_run_argument(super::run_operation::RunArgumentSource::Expression(self.expression_identity(arena, *expr_id)), &ty, super::run_operation::RunArgumentMode::Environment, expr_span) { return; }
                 if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
                     self.error(
@@ -879,10 +861,6 @@ impl Checker {
         source: &str,
         arg: &ArenaCommandArg,
     ) {
-        self.check_external_arg_with_interpolation_mode_arena(arena, source, arg, super::run_operation::RunArgumentMode::Expansion);
-    }
-
-    fn check_external_arg_with_interpolation_mode_arena(&mut self, arena: &ArenaProgram, source: &str, arg: &ArenaCommandArg, standalone_mode: super::run_operation::RunArgumentMode) {
         match &arg.kind {
             ArenaCommandArgKind::Word(parts) => {
                 let word_list: Vec<ArenaWordPart> = arena.arena.word_parts(*parts).collect();
@@ -895,8 +873,6 @@ impl Checker {
                     | ArenaWordPart::Shorthand(expr_id) = part
                     {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                        let mode = if standalone_interpolation { standalone_mode } else { super::run_operation::RunArgumentMode::Display };
-                        if self.check_graph_run_argument(super::run_operation::RunArgumentSource::Expression(self.expression_identity(arena, *expr_id)), &ty, mode, arena.arena.expr(*expr_id).span) { continue; }
                         let valid = if standalone_interpolation {
                             ty.can_be_argv_item()
                                 || matches!(&ty, Type::List(item) if item.can_be_argv_item())
@@ -916,8 +892,6 @@ impl Checker {
             }
             ArenaCommandArgKind::Typed(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
-                let mode = if standalone_mode == super::run_operation::RunArgumentMode::Environment { standalone_mode } else { super::run_operation::RunArgumentMode::Single };
-                if self.check_graph_run_argument(super::run_operation::RunArgumentSource::Expression(self.expression_identity(arena, *expr_id)), &ty, mode, arena.arena.expr(*expr_id).span) { return; }
                 if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
                     self.error(
@@ -933,13 +907,11 @@ impl Checker {
                     .map(|binding| binding.ty.clone())
                     .unwrap_or(Type::Unknown);
                 let arg_span = arena.arena.span(arg.span);
-                if self.check_graph_run_argument(super::run_operation::RunArgumentSource::NamedSplice { span: arg_span, name: *name }, &ty, super::run_operation::RunArgumentMode::Splice, arg_span) { return; }
                 self.check_external_splice_type(&ty, arg_span);
             }
             ArenaCommandArgKind::SpliceExpr(expr_id) => {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
                 let arg_span = arena.arena.span(arg.span);
-                if self.check_graph_run_argument(super::run_operation::RunArgumentSource::Expression(self.expression_identity(arena, *expr_id)), &ty, super::run_operation::RunArgumentMode::Splice, arena.arena.expr(*expr_id).span) { return; }
                 self.check_external_splice_type(&ty, arg_span);
             }
         }

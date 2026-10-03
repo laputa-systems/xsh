@@ -817,9 +817,11 @@ impl<'a> Parser<'a> {
                     let ty_id = unknown_type_expr(arena, default_span);
                     (ty_id, true, Some(default_id), default_span.end())
                 } else {
-                    let end = self.previous_end();
-                    let ty_id = unknown_type_expr(arena, self.span(start, end));
-                    (ty_id, true, None, end)
+                    self.diagnostic_here(
+                        "expected `:` or default value after parameter name",
+                        "parse.expected-param-type",
+                    );
+                    break;
                 };
             params.push((
                 name,
@@ -928,10 +930,14 @@ impl<'a> Parser<'a> {
         let params = self.parse_params_arena_only(arena);
         self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
         let effects = self.parse_effect_list();
-        let (return_ty, return_ty_defaulted) = if self.consume(TokenKindMatch::Arrow).is_some() {
-            (self.parse_type_expr(arena)?, false)
+        let return_ty = if self.consume(TokenKindMatch::Arrow).is_some() {
+            self.parse_type_expr(arena)?
         } else {
-            (unknown_type_expr(arena, self.current_span()), true)
+            self.diagnostic_here(
+                "stream producer return annotations are required",
+                "parse.required-return",
+            );
+            unknown_type_expr(arena, self.current_span())
         };
         let body_id = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
@@ -944,7 +950,7 @@ impl<'a> Parser<'a> {
             params_range,
             effects_range,
             return_ty,
-            return_ty_defaulted,
+            false,
             body_id,
             span,
         );

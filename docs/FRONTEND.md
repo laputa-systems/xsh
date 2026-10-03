@@ -24,7 +24,6 @@ column are the first places to read.
 | compact parsed program | `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/parser.rs`, `src/syntax/arena.rs`; parser coverage in `tests/syntax.rs` |
 | loaded module graph | `CompactFileUnit`, `CompactModuleGraph`, `parse_load_entry_source_compact_file_unit` | `src/loader.rs`; module fixtures in `tests/fixtures/runtime` |
 | compact declaration checking | `Checker::check_compact_declarations`, `CompactDeclOutput` | `src/sema/check/compact.rs`; semantic coverage in `tests/sema.rs` |
-| solved signature and schema queries | `SolvedQuery`, `NormalizedCallable`, `NormalizedType`, `registry_type` | `src/frontend/query.rs`; `solved_query_` library tests and `crates/xsht/tests/api.rs` |
 | compact body probing | `Checker::probe_compact_bodies`, `CompactBodyProbe`, `check_compact_program`, `check_compact_expr` | `src/sema/check/compact.rs`; compact frontend fixtures in `tests/fixtures/frontend-indexed` |
 | executable commit | `FullBuilder::build_compact`, `FullProgram`, `FullVerifier::verify` | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed/full.rs`; verifier tests under `runtime::eval::indexed::full::tests` |
 | indexed execution | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `CallFrame` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run`; `tests/runtime/frontend_indexed.rs` and `tests/runtime/stack_depth.rs` |
@@ -108,182 +107,6 @@ row gains behavior-bearing data, update every applicable checker, lowerer, and
 parity test; an indexed program that silently drops a format specification,
 stream error, trace event, method argument, or run option is incorrect even if
 it still lowers successfully.
-
-### Solved Tooling Queries
-
-`frontend::query::SolvedQuery` borrows the immutable `SolvedTypes` from one
-check result and the source's retained `SymbolOwner`. Declaration queries
-return the principal scheme; expression queries return that expression's
-checked type. `expression_scheme` also exposes an immutable value's published
-scheme without borrowing quantifiers from its enclosing function. Descendants
-of a generalized initializer retain that value's exact scope without acquiring
-an independent principal scheme or a new `forall`. Callable-value and binding
-queries consume their own published facts, preserving a monomorphic value separately from a generalized
-declaration. A missing fact is reported as missing, without another checker
-pass or reconstruction from source spelling.
-
-Normalized results own their labels and display names. They preserve type and
-row binder relationships, row tails and lacks, operation requirements, effect
-quantifiers and inclusions, callable kind, parameter order, default/rest flags,
-and fixed return elaboration. Declaration results retain required and effective
-effects separately. Binder numbering follows first occurrence in the callable's
-semantic signature, then producer profiles in resolved path order, published
-operation operands and effect roles, explicit effect roots, and their inclusion
-relationships. Matching quantifier bounds are reordered together. Effect quantifiers retain whether they are minimally derived
-calculations or unconstrained inputs; equal display bounds alone do not establish
-parity between those contracts. Pull and close roles retain their source index
-separately from a callable's creation effects. This preserves answers when
-declarations in a recursive component or inference allocations are reordered.
-Retained callable invocations preserve the callable relationship, ordered actual
-arguments and their positional, named, or splice modes, result, output effects,
-and accepted callable domain. A positional argument never invents a callback's
-formal parameter label. The general callable domain covers Pure, Proc, and
-Stream factories; it does not represent erased `Any`. These principal obligations
-do not display selected-call evidence or invent default evaluation timing.
-Native callable values keep their monomorphic signature child and every retained
-native or authored authority alternative in `NormalizedShape::NativeCallable`.
-`callable_signature` borrows the signature without discarding those alternatives.
-Native contracts retain the once-created instance, canonical candidate guards,
-declared erasure relations, and pull/close role mappings; their declaration
-prototype is normalized in its own quantified scope. Indexed candidate output
-roles refer to `NormalizedCandidate::output_effect_roots`, whose order is
-preserved separately from a scheme's sorted informational roots. Canonical
-candidate identities remain proof metadata; display uses registered public
-labels. Unsupported native callable annotations remain unavailable.
-
-`NormalizedNativeAuthority::Family` retains one canonical overload choice and
-all of its once-created member instances. It remains distinct from the multiple
-possible authorities in a conditional callable value. The common signature's
-`FiniteDomain` alternatives preserve their exact admission relations; complete
-member signatures preserve relationships across parameter slots. Public omission
-is allowed when a compatible member provides that default. Each member keeps its
-own default mask, so a defaulted Path stdin does not make a Bytes stdin optional.
-Normalization sorts owned domain names and canonical member identities, retains
-member prototypes in their own scopes, and never chooses an overload. Source
-publication currently requires complete member monotypes with a uniform fixed
-value protocol; it does not freshen generic overload members or erase differing
-producer input/output protocols.
-
-`SolvedQuery::invocation` reads one actual source invocation and separates its
-residual callable requirement from optional selected evidence. Evidence retains
-the monomorphic callable and signature, supplied/default/rest masks, dynamic
-segments and guards, default timing, and exact native child operation receipts.
-Original arguments survive declared erasure. Native source origins are retained
-for navigation; normalized contracts are shared within the query rather than
-copied for each child proof. Reading or displaying these facts does not freshen
-a scheme, select another native candidate, or execute a producer. When the child
-operation has certified a member, `selected_member` borrows the normalized
-retained member through a shared contract. A pending child operation leaves that
-receipt absent. This evidence does not replace the original family authority or
-its other members.
-
-Masked effect inclusions retain both scoped summaries and the exact excluded
-permission set. Catching `error` does not erase another permission or change an
-unknown summary into an empty one. Normalization describes the relation without
-solving it or consuming the caller's permission budget.
-Captured handles resolve in their enclosing scope and never become new binders.
-Producer profiles retain separate pull and close summaries at exact structural
-paths through records, lists, maps, Optional/Result payloads, and callable
-parameters/results. Declaration queries preserve parameter-slot alignment and
-the returned value's profile. Field components resolve through the retained
-symbol owner and sort by spelling before latent binder numbering; raw interned
-name order does not determine a public contract. A principal immutable callable
-alias may share a declaration profile only through its exact published scheme.
-Absent expression profiles are reported as missing; they do not become invented
-empty permissions. Profile metadata describes retained handle permissions and
-does not merge them into Arrow creation effects.
-
-Foreign graph handles and unowned dynamic names are rejected; preloaded names are shared.
-Normalization bounds structural depth, expanded nodes, and text retention.
-
-Normalized equality compares metadata, not type compatibility. In particular,
-nominal spelling does not establish declaration identity or assignability.
-Consumers compare semantic answers through `semantic_parity`, which refuses
-unidentified nominal leaves, cross-owner nominal comparisons, unscoped binders,
-and captured relationships lacking their defining context. Quantified scheme
-binders compare within their explicit scheme; a displayed free `T0` never
-creates a new quantified contract.
-Source nominal identities retain the actual type or error declaration and its
-namespace. Builtin error identities come from registered families and members,
-without fabricated source declarations. Both remain qualified by the checked
-graph owner; numeric source IDs from unrelated bundles cannot establish parity.
-Unpublished nominal identities remain opaque. Row normalization describes
-semantic fields and never selects a physical runtime layout.
-
-Producer flow queries preserve the frozen value relationships separately from
-type equality: parameter slots, captured binding versions, projections,
-aggregates, joins, named callable references, and applications tied to their
-actual call-expression identity. Pipeline applications retain a distinct stage
-identity consisting of the actual pipeline expression and its stage ordinal;
-normalization does not create an expression identity for a stage. Comprehension
-generator sources retain the actual parent expression and original qualifier
-ordinal, including positions occupied by filters. They keep their iterable input
-and produced item as separate values; an iteration relation never overwrites
-the iterable expression's own operation. Stage facts and
-their parent expression establish the published scope. Statement nodes use their
-published owner; shared edges remain shared. Opaque nodes preserve unknown permissions separately
-from empty flows. Operation nodes retain every published candidate alternative,
-its exact optional carrier path, transfers from owned input paths to output
-paths, uncertainty, the normalized requirement, and pull/close outputs. Transfer
-paths and source identities sort before local node IDs; shared input references
-remain shared. Aggregate inputs may share an item or value path; stable ordering
-retains every distinct input instead of treating the path as a unique record field.
-Normalization never selects a pending candidate. Addition nodes
-retain their original Add requirement and separate left/right value edges;
-a solved value type never selects a producer-transfer rule. Paths resolve field
-names before traversal, and each node retains its exact source scope through a local table of independently alpha-normalized
-schemes. Allocation scheme IDs do not appear in those contracts. Graph-owner
-mismatches refuse parity even when numeric source identities coincide. Querying
-never expands recursive declaration bodies or calculates producer closure;
-missing published roots are reported as missing.
-
-Residual operations retain sealed candidate identities in normalized metadata;
-principal display uses their registered public labels. Completed operation
-certificates belong to source proof metadata rather than the principal signature.
-`SolvedQuery::language_operation`, `SolvedQuery::statement_operation`, and
-`SolvedQuery::comprehension_operation` read exact source facts through one
-normalized operation view. `comprehension_producer_flow` reads the corresponding
-generator's item flow, preserving its parent expression and qualifier identity.
-The exact published source scope owns its type and effect binders: a generalized
-value initializer takes precedence over its lexical caller. The view retains
-the actual argument types, receiver, explicit coercions, and supplied/default/rest
-slots without reconstructing a callable signature. Missing source identities and
-missing operation facts remain distinct. Operation parity refuses different
-graph owners; coincident arena ordinals cannot identify the same source operation.
-Incoming candidate roles preserve their own formal quantifier ordinals or fixed
-closed permissions. Produced pull/close roles refer to the candidate's formal
-output-root table. Caller output bindings normalize independently and retain
-minimal-derived provenance; they do not become incoming role bounds or Arrow
-creation effects.
-Projected incoming roles retain both their source slot and typed projection:
-`pull[0].ok` and `close[0].ok` refer to the success payload of source zero,
-separately from that source's root roles or another source slot.
-
-Known callable producer profiles add informational diagnostic metadata after
-the unchanged scheme, for example `; creation []; result.pull [time];
-result.close [env]`. Parameter profiles use `parameter NAME`; sorted nested
-paths use `.field("name")`, `.item`, `.key`, `.value`, `.optional`, `.ok`,
-`.error`, `.parameter(INDEX)`, and `.result`. These suffixes distinguish
-creation from retained pull/close permissions. Creation comes from the Arrow
-summary, while the effective stream summary preserves its written latent bound.
-Missing profiles add no clauses. These suffixes are neither declaration syntax
-nor source annotations; written stream
-effect clauses still bound latent body, default, and cleanup work.
-
-Principal display is informational. `NormalizedType::annotation_source`
-returns only closed types accepted by the existing type-source boundary;
-quantified relationships, anonymous rows, erased/dynamic types, and builtin
-template parameters cannot produce source annotations. The API catalog uses
-`registry_type` for its canonical builtin templates and rejects source graph
-handles without a solved owner. Its existing text and JSON signatures remain
-unchanged.
-
-`reveal_type` requests retain the source expression identity until the checked
-graph is frozen. `SolvedQuery::reveal` displays the principal scheme of a named
-callable, immutable callable alias, or generalized immutable value, and the
-instantiated type of other expressions.
-Reveal output, API display, and annotation eligibility share the normalized
-type boundary; reveal rendering performs no independent semantic check.
 
 ## Indexed Executable Representation
 
@@ -429,15 +252,6 @@ and exact error spans.
 traffic, peak live bytes, blocker counts, dynamic-symbol ownership, and a
 reconciliation delta. The binary in `src/entrypoints/frontend_stats.rs` alone
 installs `mem_track::CountingAllocator`; product binaries do not.
-
-The lower stage passes the loader's existing `CheckOutput` to
-`Evaluator::prepare_compact_indexed_only_from_checked` and builds executable IR
-once. `Evaluator::frontend_lowered_stats` reports the source statement,
-expression, and pattern visits from that build, rather than counting finalized
-instructions as expressions. Failed preparation retains the partial work and
-blocker events from the actual build; it does not run a discarded lowering pass
-to count bodies beyond the refusal. Semantic retained-byte projections remain
-separate from executable construction.
 
 The library reports structural counters without allocator tracking, marking the
 lowered retained value as estimated when necessary. With tracking enabled,
@@ -589,24 +403,21 @@ parameter span. Declaration analysis checks defaults in their outer lexical
 environment and publishes only concrete canonical substitutions. It runs before
 callers and after private return dependencies are established.
 
-`LoweredParamDefault` retains absent, prepared constant, and expression defaults
-as distinct header cases. Other checked defaults lower to
-`BuildStmtRow::DefaultParameter` at callee entry. `IndexedCallArguments` retains
-supplied values separately from omitted parameter indices, keeping supplied null
-distinct from absence. Binding produces `IndexedCallSlots::pending_defaults`;
-entry evaluates only these slots, in parameter order, after all supplied
-arguments and capture hydration. The shared call frame evaluates
+Prepared defaults retain their compact values. Other checked defaults lower to
+`BuildStmtRow::DefaultParameter` at callee entry. Argument binding preserves an
+unforgeable private omission marker; entry evaluates only marked slots, in
+parameter order, after all supplied arguments. The shared call frame evaluates
 default expressions and their cleanup without introducing a new return or error
 boundary. A lazy producer executes this entry prefix on its first pull; supplied
 arguments are still bound during the call, and a producer stopped before its
-first pull executes no defaults. `FullParam` records expression-default presence
-separately from the semantic signature's defaulted flag. Omission is call state
-and never a runtime literal value.
+first pull executes no defaults. `FullParam` records expression-default presence separately from the
+semantic signature's defaulted flag; omission markers cannot be encoded as
+literal values.
 
 CLI entry validation consumes these checked parameter types after declaration
 analysis; an omitted annotation supplies its parser spelling from the concrete
 supported type. Explicit alias annotations preserve their parser constraints,
 including UInt. CLI default values still come exclusively from preparation.
-Static callable alias dispatch retains the same typed argument packet through
-callee binding; nested local alias calls use the same heap frame engine as
-direct calls.
+Static callable alias dispatch retains lowered arguments through callee binding,
+including private omission markers; nested local alias calls use the same heap
+frame engine as direct calls.

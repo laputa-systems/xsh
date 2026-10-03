@@ -791,7 +791,7 @@ fn eval_env_xsh(
         baseline.clone(),
         session.last_process_status.clone(),
     )
-    .eval_checked(&parsed.arena, source_id, &checked);
+    .eval(&parsed.arena, source_id);
     if !output.diagnostics.is_empty() {
         return Err(DiagnosticRenderer::new()
             .render(&output.diagnostics, &output.sources)

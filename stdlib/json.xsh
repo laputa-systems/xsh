@@ -21,10 +21,8 @@ pure lines_error(message: Str) -> JsonError {
 ## returned, so an item that cannot be encoded reports its own failure and no
 ## partial text is produced.
 export pure encode_lines(values: List[Any]) -> Result[Str] {
-  let kind = type_name(values)
-  if kind != "List" {
-    return Err(lines_error(f"expected List, found ${kind}"))
+  match values {
+    items is List[Any] => return Ok([(json.encode(item)?) + "\n" for item in items].join(""))
+    _ => return Err(lines_error(f"expected List, found ${type_name(values)}"))
   }
-  let items = values
-  return Ok([(json.encode(item)?) + "\n" for item in items].join(""))
 }

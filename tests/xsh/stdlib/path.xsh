@@ -133,20 +133,6 @@ print \${files[0]}
 """
 }
 
-test test_generic_path_interpolation_keeps_each_call_type [error] { |ctx|
-  let output = test.run_script(ctx, r"""
-pure rendered(value) -> Path { fp"entry-${value}" }
-print ${rendered(7)}
-print ${rendered("leaf")}
-""")?
-  {
-    let {success: assertion_condition, stderr: assertion_message, ..} = output
-    assert assertion_condition, assertion_message
-  }
-  output.stdout == "entry-7\nentry-leaf\n"
-  output.stderr == ""
-}
-
 test test_path_interpolation_retains_native_bytes_and_text_boundaries [error] { |ctx|
   let raw = Path.parse_bytes(b"raw\xff name")?
   fp"prefix/${raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?

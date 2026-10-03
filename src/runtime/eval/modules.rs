@@ -225,7 +225,7 @@ pub(super) fn test_mock_expected_return_type(op: &str) -> Option<Type> {
 pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
     match ty {
         Type::BuiltinParameter(_) => false,
-        Type::Inference(_) | Type::Graph(_) => false,
+        Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),
@@ -285,8 +285,8 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
         }
         Type::ProcessError => matches!(value, Value::RunError(_)),
-        Type::Pure => matches!(value, Value::Pure(_))||matches!(value,Value::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Pure)||matches!(value,Value::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Pure),
-        Type::Proc => matches!(value, Value::Proc(_))||matches!(value,Value::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Proc)||matches!(value,Value::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Proc),
+        Type::Pure => matches!(value, Value::Pure(_)),
+        Type::Proc => matches!(value, Value::Proc(_)),
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
@@ -626,8 +626,6 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::RunError(_) => return Err("ProcessError"),
         Value::Pure(_) => return Err("Pure"),
         Value::Proc(_) => return Err("Proc"),
-        Value::Callable(value)=>return Err(value.type_name()),
-        Value::NativeCallable(value)=>return Err(value.type_name()),
         Value::Command(_) => return Err("Command"),
         Value::ProcessHandle(_) => return Err("ProcessHandle"),
         Value::NetJob(_) => return Err("NetJob"),

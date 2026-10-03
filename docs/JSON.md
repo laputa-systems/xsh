@@ -31,9 +31,6 @@ for file in package.files {
 the text parsed. `.require(Package)?` is the trust boundary: it checks the
 runtime value, including nested named records inside collections, and gives the
 checker a concrete type for the rest of the script.
-Validation preserves additional object fields, including inside nested records;
-encoding the checked value retains them. Required fields use the schema's
-prepared order for typed access without changing JSON's object-name semantics.
 
 Prefer this whenever the script knows what it needs. It produces better errors,
 keeps field access ordinary, and avoids scattering dynamic checks through the
@@ -78,15 +75,6 @@ json.write(log_path, event)?
 `json.write_lines` also accepts an existing concrete list of JSON-compatible
 records. Serialization reads its values without converting the list to
 `List[Any]`; container assignments retain their invariant element domains.
-
-A list literal supplied directly to a declared JSON `List[Any]` parameter can
-contain heterogeneous values. Checking retains each child's original type and
-JSON eligibility instead of unifying the children into one inferred item type.
-Splices retain their own element domain. Dynamic children are validated during
-encoding; statically incompatible children fail checking. This admission belongs
-to the canonical JSON parameter contract and does not widen an ordinary local
-list or an explicit `List[Int]`. `check_graph_special_module_call` and
-`validate_json_literal_boundaries` own this distinction.
 
 The record is already typed in XSH. A separate `Event` type is useful only if
 the script will read the value back, accept it from another process, or pass it

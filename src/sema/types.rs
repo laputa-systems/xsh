@@ -16,8 +16,6 @@ fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
 pub enum Type {
     BuiltinParameter(BuiltinTypeParameter),
     Inference(super::constraints::TypeVariableId),
-    /// A relationship owned by the checked bundle's retained type graph.
-    Graph(super::inference::TypeId),
     Any,
     Unknown,
     Invalid,
@@ -324,7 +322,6 @@ impl Type {
             Self::Unit => Some(BuiltinTypeName::Unit),
             Self::BuiltinParameter(_)
             | Self::Inference(_)
-            | Self::Graph(_)
             | Self::Invalid
             | Self::List(_)
             | Self::Stream(_)
@@ -364,20 +361,6 @@ impl Type {
                         }
                     }
                 },
-                _ => {}
-            }
-        }
-        false
-    }
-
-    pub fn contains_graph(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Graph(_) => return true,
-                Self::List(item) | Self::Stream(item) | Self::Optional(item) => pending.push(item),
-                Self::Result(left, right) | Self::Map(left, right) => { pending.push(left); pending.push(right); }
-                Self::Record(fields) => pending.extend(fields.values()),
                 _ => {}
             }
         }
@@ -598,7 +581,6 @@ impl Type {
         match self {
             Self::BuiltinParameter(parameter) => Some(parameter.label().to_string()),
             Self::Inference(_)
-            | Self::Graph(_)
             | Self::Any
             | Self::Unknown
             | Self::Invalid
@@ -653,7 +635,6 @@ impl fmt::Display for Type {
         match self {
             Self::BuiltinParameter(parameter) => write!(f, "{}", parameter.label()),
             Self::Inference(_) => write!(f, "<type needs an annotation>"),
-            Self::Graph(_) => write!(f, "<checked type relationship>"),
             Self::Any => write!(f, "Any"),
             Self::Unknown => write!(f, "<unknown>"),
             Self::Invalid => write!(f, "<invalid>"),

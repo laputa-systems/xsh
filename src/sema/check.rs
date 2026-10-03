@@ -25,9 +25,6 @@ mod callable_alias;
 mod builder;
 #[path = "check/call.rs"]
 mod call;
-mod constructor_arguments;
-mod constructor_application;
-pub use constructor_application::{ConstructorAuthority, ConstructorDefaultIdentity, ConstructorValueSource, SolvedConstructorApplication, SolvedConstructorArgument, SolvedConstructorDefault, SolvedConstructorParameter};
 mod record_require;
 #[path = "check/command.rs"]
 mod command;
@@ -35,7 +32,6 @@ mod command;
 mod compact;
 #[path = "check/decl.rs"]
 mod decl;
-pub(crate) use decl::embedded_bridge::{CanonicalNativeBridge, NativeBridgeInvocation};
 #[path = "check/expr.rs"]
 mod expr;
 #[path = "check/expected.rs"]
@@ -43,10 +39,8 @@ mod expected;
 pub use expected::RequirementTarget;
 #[path = "check/infer_effects.rs"]
 mod infer_effects;
-#[path = "check/return_join.rs"]
-mod return_join;
-#[path = "check/dynamic_result.rs"]
-mod dynamic_result;
+#[path = "check/infer_return.rs"]
+mod infer_return;
 #[path = "check/infer_param.rs"]
 mod infer_param;
 #[path = "check/local_inference.rs"]
@@ -55,93 +49,14 @@ mod local_inference;
 mod method;
 #[path = "check/pattern.rs"]
 mod pattern;
-#[path = "check/pattern_plan.rs"]
-mod pattern_plan;
-#[path = "check/nominal_member_plan.rs"]
-mod nominal_member_plan;
 #[path = "check/proof.rs"]
 mod proof;
-mod refinement;
 #[path = "check/stmt.rs"]
 mod stmt;
 #[path = "check/stream.rs"]
 mod stream;
 #[path = "check/types.rs"]
 mod types;
-#[path = "check/solved.rs"]
-mod solved;
-#[path = "check/generic.rs"]
-mod generic;
-mod dependency;
-mod registry;
-mod registry_boundaries;
-#[cfg(test)]
-mod cli_boundaries;
-mod error_capture;
-pub(crate) use error_capture::SolvedErrorCapture;
-mod field_presence;
-mod standard_operation;
-mod stage_operation;
-mod callable;
-mod language_operation;
-mod command_operation;
-mod wait_operation;
-mod run_operation;
-pub(crate) use run_operation::{RunIdentity, SpawnTarget, RunArgumentGuard, RunArgumentMode, RunArgumentSource};
-mod operation_catalog;
-pub(crate) use operation_catalog::{SolvedOperationAuthority, SolvedOperationCatalog};
-mod iteration_operation;
-mod record_update;
-mod module_projection;
-pub use module_projection::{ModuleProjectionKind, SolvedModuleProjection};
-mod schema_validation;
-pub use schema_validation::{SolvedSchemaValidation, SolvedSchemaExpectation, SolvedSchemaApplication, SchemaValidationMode};
-mod producer;
-#[path = "check/producer_eval.rs"]
-pub(crate) mod producer_eval;
-pub use producer::{ProducerFlowField, ProducerFlowGraph, ProducerFlowId, ProducerFlowKind, ProducerFlowOperationAlternative, ProducerFlowOperationTransfer, ProducerFlowNode, ProducerFlowSource};
-pub use solved::OriginalEnvPathListGetter;
-pub use solved::{NominalDeclaration, QualifiedNominalIdentity, BindingIdentity, CallBinding, ComprehensionIdentity, DeclarationIdentity, ExpressionIdentity, StageIdentity, StageCallback, SolvedStage, SolvedComprehensionClause, ProducerEffects, ProducerPath, ProducerPathComponent, ProducerProfile, ReturnElaboration, SolvedBinding, SolvedCall, SolvedCallable, SolvedExpressionCallable, SolvedInvocation, SolvedOperation, SolvedArgumentSource, SolvedProjection, SolvedRecordUpdate, SolvedRecordUpdateReplacement, RecordUpdateValueSource, SolvedTypes, StatementIdentity};
-pub use solved::RegistryArgumentCoercion;
-pub use solved::{WithBindingIdentity, SolvedWithBinding, SolvedRefinedRead, SolvedRefinementAlias, SolvedRefinementWrite, SolvedFieldPresenceRead};
-pub use solved::{GuardErrorBindingIdentity, SolvedGuardErrorBinding};
-pub use solved::{PatternIdentity, PatternCaptureIdentity, SolvedPattern, SolvedPatternCapture, SolvedPatternDecision, SolvedPatternShape};
-pub use solved::{NominalMemberKind, SolvedNominalMember};
-mod tag_tail_constructor;
-mod record_get;
-mod null_safe_projection;
-pub(crate) use record_get::SolvedRecordGetProjection;
-pub use tag_tail_constructor::SolvedTagTailConstructor;
-pub use solved::PatternTypePosition;
-
-#[cfg(test)]
-#[path = "check/generic_tests.rs"]
-mod generic_tests;
-
-#[cfg(test)]
-#[path = "check/native_callable_tests.rs"]
-mod native_callable_tests;
-#[cfg(test)]
-#[path = "check/native_command_tests.rs"]
-mod native_command_tests;
-#[cfg(test)]
-#[path = "check/native_family_tests.rs"]
-mod native_family_tests;
-#[cfg(test)]
-#[path = "check/call_contract_source_tests.rs"]
-mod call_contract_source_tests;
-
-#[cfg(test)]
-#[path = "check/equality_operation_tests.rs"]
-mod equality_operation_tests;
-
-#[cfg(test)]
-#[path = "check/source_language_contract_tests.rs"]
-mod source_language_contract_tests;
-
-#[cfg(test)]
-#[path = "check/source_permission_contract_tests.rs"]
-mod source_permission_contract_tests;
 
 use self::args::{
     call_arg_expr_id_arena, call_arg_span_arena, common_module_overload_expected_arena,
@@ -156,6 +71,7 @@ pub use super::constants::RecordConstructors;
 pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
+use self::infer_effects::{EffectGraph, EffectSummary};
 
 pub use self::compact::{
     CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
@@ -184,15 +100,9 @@ pub struct CheckedStreamStage {
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
-    pub check_options: CheckOptions,
-    pub solved: Arc<SolvedTypes>,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub local_binding_types: BTreeMap<Span, Type>,
     pub prepared_constants: super::constants::PreparedConstants,
-    pub record_constructors: RecordConstructors,
-    pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
-    pub(crate) cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
-    pub error_families: FxHashMap<Name, ErrorFamilyInfo>,
     /// Optional receivers whose checked presence proof makes their fallback unreachable.
     pub proven_nonnull_fallback_receivers: BTreeSet<Span>,
     pub diagnostics: Vec<Diagnostic>,
@@ -255,20 +165,13 @@ pub enum AnnotationFactKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
-    // An import alias keeps the namespace that actually declares its exports.
-    static_namespace: Option<Name>,
+    static_namespace: bool,
     callable_alias: Option<CallableAlias>,
-    graph_callable: Option<SolvedExpressionCallable>,
-    value_scheme: Option<crate::sema::inference::SchemeId>,
-    producer_flow: Option<ProducerFlowId>,
-    producer_binding: Option<(BindingIdentity, u32)>,
     ty: Type,
     mutable: bool,
     pure_local_mutation: bool,
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
-    original_binding: Option<BindingIdentity>,
-    refinements: Vec<proof::Narrowing>,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
     schema_expectation: Option<super::constants::SchemaExpectation>,
 }
@@ -277,16 +180,12 @@ impl Binding {
     fn new(ty: Type, mutable: bool) -> Self {
         Self {
             callable_alias: None,
-            graph_callable: None,
-            value_scheme: None,
-            producer_flow: None, producer_binding: None,
-            static_namespace: None,
+            static_namespace: false,
             ty,
             mutable,
             pure_local_mutation: false,
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
-            original_binding: None, refinements: Vec::new(),
             boolean_proof: None,
             schema_expectation: None,
         }
@@ -295,16 +194,12 @@ impl Binding {
     fn pure_local_var(ty: Type) -> Self {
         Self {
             callable_alias: None,
-            graph_callable: None,
-            value_scheme: None,
-            producer_flow: None, producer_binding: None,
-            static_namespace: None,
+            static_namespace: false,
             ty,
             mutable: true,
             pure_local_mutation: true,
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
-            original_binding: None, refinements: Vec::new(),
             boolean_proof: None,
             schema_expectation: None,
         }
@@ -338,8 +233,6 @@ pub struct TagVariantInfo {
     pub type_name: Name,
     pub field_count: usize,
     pub field_types: Vec<Type>,
-    pub canonical_name: Name,
-    pub identity: QualifiedNominalIdentity,
 }
 
 #[derive(Clone, Debug)]
@@ -411,18 +304,12 @@ pub(super) struct TagVariant {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorFamilyInfo {
     pub variants: BTreeMap<Name, ErrorVariantInfo>,
-    pub canonical_name: Name,
-    pub identity: QualifiedNominalIdentity,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorVariantInfo {
     pub fields: BTreeMap<Name, Type>,
     pub facets: Vec<Name>,
-    pub field_order: Vec<Name>,
-    pub canonical_family: Name,
-    pub canonical_name: Name,
-    pub identity: QualifiedNominalIdentity,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -432,7 +319,6 @@ enum BuilderKind {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct UserModuleSig {
-    namespace: Option<Name>,
     values: BTreeMap<Name, Type>,
     procs: FxHashMap<Name, FunctionSig>,
     pures: FxHashMap<Name, FunctionSig>,
@@ -444,44 +330,13 @@ pub(super) struct UserModuleSig {
 }
 
 #[derive(Clone)]
-struct StreamItemFact {
-    ty: Type,
-    producer_flow: Option<ProducerFlowId>,
-}
-
-#[derive(Clone)]
-struct LoopValueBoundary {
-    depth: usize,
-    declaration: Option<DeclarationIdentity>,
-    deferred: bool,
-    stream_depth: usize,
-    expected: Option<Type>,
-    contributions: Vec<(Type, Span)>,
-    producers: Vec<ProducerFlowId>,
-}
-
-#[derive(Clone)]
 pub struct Checker {
-    catalog_parameter_bindings: decl::catalog_binding::CatalogParameterBindings,
-    generic: std::rc::Rc<std::cell::RefCell<generic::GenericState>>,
-    graph_generation: bool,
-    current_generic: Option<DeclarationIdentity>,
-    diagnostic_effect_facts: BTreeMap<DeclarationIdentity, FunctionEffectFact>,
-    stage_callback_effects: Option<crate::sema::inference::EffectSummary>,
-    current_expression: Option<crate::syntax::arena::ExprId>,
-    current_statement: Option<crate::syntax::arena::StmtId>,
-    field_presence_branches: Vec<field_presence::FieldPresenceBranch>,
-    constructor_spread_contexts: BTreeMap<ExpressionIdentity, constructor_arguments::ConstructorSpreadContext>,
-    graph_argument_depth: usize,
-    stage_ground_call_adapter: bool,
-    principal_callable_initializer: bool,
-    local_initializer_level: Option<u32>,
-    erased_literal_context: Option<(Vec<crate::syntax::arena::ExprId>, bool)>,
-    // Mixed argv admission belongs only to this original literal expression.
-    command_argv_literal_context: Option<crate::syntax::arena::ExprId>,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
+    argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
+    argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
+    argument_projection_contexts: FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
     record_constructors: RecordConstructors,
     expected_schema: Option<super::constants::SchemaExpectation>,
     return_schema: Option<super::constants::SchemaExpectation>,
@@ -489,11 +344,9 @@ pub struct Checker {
     requirement_targets: BTreeMap<Span, RequirementTarget>,
     requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     constructor_group_depth: usize,
-    pending_record_constructors: Vec<constructor_application::PendingRecordConstructor>,
-    pending_constructor_expressions: BTreeMap<ExpressionIdentity, (Type, Option<DeclarationIdentity>)>,
+    pending_record_constructors: Vec<(Span, super::constants::SchemaInstance, Type)>,
     prepared_constants: super::constants::PreparedConstants,
     wire_enums: crate::sema::wire_enums::PreparedWireEnums,
-    cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
     condition_proofs: FxHashMap<crate::syntax::arena::ExprId, Arc<proof::ConditionNarrowings>>,
     block_exit_bindings: FxHashMap<crate::syntax::arena::BlockId, FxHashMap<Name, Binding>>,
     proven_nonnull_fallback_receivers: BTreeSet<Span>,
@@ -518,7 +371,6 @@ pub struct Checker {
     diagnostics: Vec<Diagnostic>,
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
-    reveal_requests: BTreeMap<ExpressionIdentity, Span>,
     expr_types: BTreeMap<Span, Type>,
     stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     projections: BTreeMap<Span, CheckedProjection>,
@@ -545,15 +397,16 @@ pub struct Checker {
     current_yield: Option<Type>,
     in_pure: bool,
     current_effects: Option<Vec<Effect>>,
+    collecting_effects: bool,
+    effect_graph: EffectGraph,
+    effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
     effect_owner: Option<EffectDeclarationId>,
     last_status_available: bool,
-    stream_items: Vec<StreamItemFact>,
+    stream_item_types: Vec<Type>,
     loop_depth: usize,
-    loop_value_boundaries: Vec<LoopValueBoundary>,
     block_depth: usize,
     retry_attempt_depth: usize,
     error_boundary_errors: Vec<Vec<(Type, Span)>>,
-    error_boundary_producer_flows: Vec<Vec<ProducerFlowId>>,
     module_depth: usize,
     in_signal_hook: bool,
     in_defer_block: bool,
@@ -599,22 +452,20 @@ impl Checker {
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
+            // Resolve bodies once to collect dependencies, then check against the
+            // fixed-point contracts so callers never depend on source order.
+            let mut probe = Self::new(options);
+            probe.collecting_effects = true;
+            probe.check_program_arena_with_type_program(program, source, type_program.clone());
             let mut checker = Self::new(options);
+            checker.effect_summaries = probe.effect_graph.solve();
+            checker.effect_graph = probe.effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
-            let solved = checker.freeze_solved_types();
-            checker.render_reveal_requests(&solved);
-            let callable_effects = checker.callable_effects_from_solved(&solved, program);
-            let function_effect_facts = checker.function_effect_facts_from_solved(&solved, program);
+            let callable_effects = checker.callable_effects();
             CheckOutput {
-                check_options: options,
-                solved,
                 static_callable_aliases: checker.static_callable_aliases,
                 local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
-                record_constructors: checker.record_constructors,
-                wire_enums: checker.wire_enums,
-                cli_entry: checker.cli_entry,
-                error_families: checker.error_families,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
@@ -628,7 +479,7 @@ impl Checker {
                 stream_stage_types: checker.stream_stage_types,
                 projections: checker.projections,
                 statement_positions: checker.statement_positions,
-                function_effect_facts,
+                function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
                 assertion_spans: checker.assertion_spans,
@@ -704,21 +555,17 @@ impl Checker {
                 }
             }
 
+            let mut probe = Self::new(CheckOptions::default());
+            probe.collecting_effects = true;
+            probe.check_program_arena(&main_program, main.1);
+            checker.effect_summaries = probe.effect_graph.solve();
+            checker.effect_graph = probe.effect_graph;
             checker.check_program_arena(&main_program, main.1);
-            let solved = checker.freeze_solved_types();
-            checker.render_reveal_requests(&solved);
-            let callable_effects = checker.callable_effects_from_solved(&solved, &main_program);
-            let function_effect_facts = checker.function_effect_facts_from_solved(&solved, &main_program);
+            let callable_effects = checker.callable_effects();
             CheckOutput {
-                check_options: CheckOptions::default(),
-                solved,
                 static_callable_aliases: checker.static_callable_aliases,
                 local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
-                record_constructors: checker.record_constructors,
-                wire_enums: checker.wire_enums,
-                cli_entry: checker.cli_entry,
-                error_families: checker.error_families,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
@@ -732,7 +579,7 @@ impl Checker {
                 stream_stage_types: checker.stream_stage_types,
                 projections: checker.projections,
                 statement_positions: checker.statement_positions,
-                function_effect_facts,
+                function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
                 assertion_spans: checker.assertion_spans,
@@ -748,22 +595,6 @@ impl Checker {
 
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
-            catalog_parameter_bindings: decl::catalog_binding::CatalogParameterBindings::default(),
-            generic: std::rc::Rc::new(std::cell::RefCell::new(generic::GenericState::default())),
-            graph_generation: true,
-            current_generic: None,
-            diagnostic_effect_facts: BTreeMap::new(),
-            stage_callback_effects: None,
-            current_expression: None,
-            current_statement: None,
-            field_presence_branches: Vec::new(),
-            constructor_spread_contexts: BTreeMap::new(),
-            graph_argument_depth: 0,
-            stage_ground_call_adapter: false,
-            principal_callable_initializer: false,
-            local_initializer_level: None,
-            erased_literal_context: None,
-            command_argv_literal_context: None,
             static_callable_aliases: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
             context_scope_depths: Vec::new(),
@@ -777,6 +608,9 @@ impl Checker {
             type_defs: FxHashMap::default(),
             local_inference: local_inference::LocalInference::default(),
             type_constraints: super::constraints::TypeConstraints::default(),
+            argument_projection_types: FxHashMap::default(),
+            argument_projection_sources: FxHashMap::default(),
+            argument_projection_contexts: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
             expected_schema: None,
             return_schema: None,
@@ -785,10 +619,8 @@ impl Checker {
             requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
-            pending_constructor_expressions: BTreeMap::new(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
-            cli_entry: None,
             condition_proofs: FxHashMap::default(),
             block_exit_bindings: FxHashMap::default(),
             proven_nonnull_fallback_receivers: BTreeSet::default(),
@@ -802,7 +634,6 @@ impl Checker {
             diagnostics: Vec::new(),
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
-            reveal_requests: BTreeMap::new(),
             expr_types: BTreeMap::new(),
             stream_stage_types: BTreeMap::new(),
             projections: BTreeMap::new(),
@@ -828,15 +659,16 @@ impl Checker {
             current_yield: None,
             in_pure: false,
             current_effects: None,
+            collecting_effects: false,
+            effect_graph: EffectGraph::default(),
+            effect_summaries: BTreeMap::new(),
             effect_owner: None,
             last_status_available: false,
-            stream_items: Vec::new(),
+            stream_item_types: Vec::new(),
             loop_depth: 0,
-            loop_value_boundaries: Vec::new(),
             block_depth: 0,
             retry_attempt_depth: 0,
             error_boundary_errors: Vec::new(),
-            error_boundary_producer_flows: Vec::new(),
             module_depth: 0,
             in_signal_hook: false,
             in_defer_block: false,
@@ -850,8 +682,6 @@ impl Checker {
 
     fn register_builtin_process_error_family(&mut self) {
         for family in xsh_registry::errors::builtin_error_families() {
-            let family_name = if family.name == "ProcessError" { Name::PROCESS_ERROR } else { Name::intern(family.name) };
-            let field_order = family.fields.iter().map(|field| Name::intern(field.name)).collect::<Vec<_>>();
             let fields = family
                 .fields
                 .iter()
@@ -864,23 +694,14 @@ impl Checker {
                 .collect::<BTreeMap<_, _>>();
             let mut variants = BTreeMap::new();
             for variant in family.variants {
-                let member = Name::intern(variant.name);
-                let identity = QualifiedNominalIdentity::Builtin { family: family_name, member: Some(member) };
-                let facets = variant.facets.iter().map(Name::intern).collect::<Vec<_>>();
-                let ordered_fields = field_order.iter().map(|name| (Some(*name), fields[name].clone())).collect::<Vec<_>>();
-                self.record_checked_nominal_member(identity, NominalMemberKind::Error, family_name, member, &ordered_fields, &facets, Span::at(crate::source::SourceId::new(0), 0));
                 for facet in variant.facets {
                     self.error_facets.insert(Name::intern(facet));
                 }
                 variants.insert(
-                    member,
+                    Name::intern(variant.name),
                     ErrorVariantInfo {
                         fields: fields.clone(),
-                        facets,
-                        field_order: field_order.clone(),
-                        canonical_family: family_name,
-                        canonical_name: member,
-                        identity,
+                        facets: variant.facets.iter().map(Name::intern).collect(),
                     },
                 );
             }
@@ -889,18 +710,8 @@ impl Checker {
             } else {
                 Name::intern(family.name)
             };
-            {
-                let mut state = self.generic.borrow_mut();
-                state.nominal_declarations.insert((None, generic::ResolvedNominal::ErrorFamily(family_name)), QualifiedNominalIdentity::Builtin { family: family_name, member: None });
-                for (variant, info) in &variants {
-                    state.nominal_declarations.insert((None, generic::ResolvedNominal::ErrorVariant { family: family_name, variant: *variant }), QualifiedNominalIdentity::Builtin { family: family_name, member: Some(*variant) });
-                    for facet in &info.facets {
-                        state.nominal_declarations.insert((None, generic::ResolvedNominal::ErrorFacet(*facet)), QualifiedNominalIdentity::Builtin { family: *facet, member: None });
-                    }
-                }
-            }
             self.error_families
-                .insert(family_name, ErrorFamilyInfo { variants, canonical_name: family_name, identity: QualifiedNominalIdentity::Builtin { family: family_name, member: None } });
+                .insert(family_name, ErrorFamilyInfo { variants });
         }
     }
 
@@ -939,8 +750,8 @@ impl Checker {
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) {
-        #[cfg(test)]
-        generic_tests::record_source_check_pass();
+        self.prepare_effect_declarations(program, None);
+        self.prepare_local_inference(program);
         self.diagnostics.extend(Self::prepare_regex_literals(program));
         self.record_constructors = RecordConstructors::collect(program);
         self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
@@ -956,16 +767,18 @@ impl Checker {
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());
-        self.prepare_graph_components(program);
+        let statements = program.statement_ids().collect::<Vec<_>>();
+        self.infer_default_parameter_types(program, source, &statements);
+        self.infer_local_pure_returns(program, source, &statements);
+        self.infer_default_parameter_types(program, source, &statements);
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }
         self.resolve_checked_types();
-        let (cli_entry, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
+        let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
             |parameter| self.checked_parameter_type(program, parameter).unwrap_or_else(|| self.record_constructors.resolve_type(&program.arena, parameter.ty, None)),
             |ty| self.record_constructors.cli_parser_type(&program.arena, ty),
             |expr| self.prepared_constants.analyze_expression(&program.arena, expr));
-        self.cli_entry = cli_entry;
         self.diagnostics.extend(diagnostics);
     }
 
@@ -1049,6 +862,23 @@ impl Checker {
         }
     }
 
+    fn callable_effects(&self) -> FxHashMap<String, Option<Vec<Effect>>> {
+        let mut effects = FxHashMap::default();
+        for (name, sig) in &self.procs {
+            effects.insert(name.to_string(), sig.effects.clone());
+        }
+        for (name, sig) in &self.streams {
+            effects.insert(name.to_string(), sig.effects.clone());
+        }
+        for (name, sig) in &self.qualified_procs {
+            effects.insert(name.to_string(), sig.effects.clone());
+        }
+        for (name, sig) in &self.qualified_streams {
+            effects.insert(name.to_string(), sig.effects.clone());
+        }
+        effects
+    }
+
     pub(crate) fn effects_covers(caller: &[Effect], required: &Effect) -> bool {
         if caller.contains(required) {
             return true;
@@ -1112,7 +942,6 @@ impl Checker {
     }
 
     pub(crate) fn check_standard_module_shadow(&mut self, name: &str, span: Span) {
-        if self.catalog_parameter_bindings.contains(name, span) { return; }
         if name == "args" {
             if self.scopes.len() == 1 {
                 self.error(
@@ -1129,17 +958,13 @@ impl Checker {
         }
     }
 
-    fn render_reveal_requests(&mut self, solved: &SolvedTypes) {
-        let query = crate::frontend::query::SolvedQuery::new(solved, solved.symbol_owner());
-        for (identity, span) in std::mem::take(&mut self.reveal_requests) {
-            let message = match query.reveal(identity) {
-                Ok(rendered) => format!("revealed type: {rendered}"),
-                Err(_) => "revealed type is unavailable because no solved source contract was established".to_string(),
-            };
-            self.reveal_types.push(Diagnostic::new(Severity::Note, message)
+    pub(crate) fn reveal_type(&mut self, ty: &Type, span: Span) {
+        let message = format!("revealed type: {ty}");
+        self.reveal_types.push(
+            Diagnostic::new(Severity::Note, message)
                 .with_code("check.reveal-type")
-                .with_label(Label::primary(span, "expression has this checked type")));
-        }
+                .with_label(Label::primary(span, "expression has this type")),
+        );
     }
 
     fn current_scope(&self) -> &FxHashMap<Name, Binding> {
@@ -1174,6 +999,3 @@ impl Checker {
         );
     }
 }
-
-#[cfg(test)]
-mod argument_recipe_tests;

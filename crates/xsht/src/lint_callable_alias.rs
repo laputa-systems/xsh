@@ -3,20 +3,14 @@ use xsh::frontend::check::Checker;
 use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, FunctionDefId};
 use xsh::frontend::syntax::parser::Parser;
 
-#[cfg(test)]
+pub(super) fn lint_callable_aliases(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
+    lint_callable_aliases_with_check(program, source, || Checker::check_arena(program, source))
+}
+
 fn lint_callable_aliases_with_check(
     program: &ArenaProgram,
     source: &str,
     check_original: impl FnOnce() -> xsh::frontend::check::CheckOutput,
-) -> Vec<Diagnostic> {
-    let checked = std::cell::LazyCell::new(check_original);
-    lint_callable_aliases_with_checked(program, source, || &checked)
-}
-
-pub(super) fn lint_callable_aliases_with_checked<'checked>(
-    program: &ArenaProgram,
-    source: &str,
-    check_original: impl FnOnce() -> &'checked xsh::frontend::check::CheckOutput,
 ) -> Vec<Diagnostic> {
     let before = std::cell::LazyCell::new(check_original);
     let mut diagnostics = Vec::new();

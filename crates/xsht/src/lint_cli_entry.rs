@@ -10,12 +10,11 @@ use xsh::frontend::syntax::parser::Parser;
 /// policy: ordinary positional descriptors also accept their long spelling.
 /// Exact generated help and an initializer-free entry keep preflight observable
 /// output and timing unchanged.
-pub(super) fn signature_cli_migration_with_checked<'checked>(program: &ArenaProgram, source: &str, check_original: impl FnOnce() -> &'checked xsh::frontend::check::CheckOutput) -> Vec<Diagnostic> {
-    program.symbol_owner().with_current(|| signature_cli_migration_inner(program, source, check_original))
+pub(super) fn signature_cli_migration(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
+    program.symbol_owner().with_current(|| signature_cli_migration_inner(program, source))
 }
 
-fn signature_cli_migration_inner<'checked>(program: &ArenaProgram, source: &str, check_original: impl FnOnce() -> &'checked xsh::frontend::check::CheckOutput) -> Vec<Diagnostic> {
-    let before = std::cell::LazyCell::new(check_original);
+fn signature_cli_migration_inner(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
     if !program.modules.is_empty() || program.module_doc_for(program.statements).is_some() { return Vec::new(); }
     let roots = program.statement_ids().collect::<Vec<_>>();
     if !roots.iter().all(|id| matches!(program.arena.stmt(*id).kind,
@@ -23,6 +22,7 @@ fn signature_cli_migration_inner<'checked>(program: &ArenaProgram, source: &str,
         return Vec::new();
     }
     let arena = &program.arena;
+    let constructors = xsh::frontend::check::RecordConstructors::collect(program);
     let mut diagnostics = Vec::new();
     for statement in roots {
         let declaration = arena.stmt(statement);
@@ -34,7 +34,7 @@ fn signature_cli_migration_inner<'checked>(program: &ArenaProgram, source: &str,
         let binding = arena.stmt(first);
         let ArenaStmtKind::Let { target, ty: Some(annotation), initializer: ArenaExprOrRun::Expr(value) } = binding.kind else { continue; };
         let ArenaBindingTargetKind::Record { fields: bindings, rest: false } = arena.binding_target(target).kind else { continue; };
-        let Type::Record(expected) = before.record_constructors.resolve_type(arena, annotation, None) else { continue; };
+        let Type::Record(expected) = constructors.resolve_type(arena, annotation, None) else { continue; };
         let ArenaExprKind::Try(call) = arena.expr(value).kind else { continue; };
         let ArenaExprKind::Call { callee, args } = arena.expr(call).kind else { continue; };
         let ArenaExprKind::Field { base: target, name } = arena.expr(callee).kind else { continue; };
@@ -85,6 +85,7 @@ fn signature_cli_migration_inner<'checked>(program: &ArenaProgram, source: &str,
             candidate.replace_range(declaration.span.range(), &replacement);
             let parsed = Parser::parse_source_arena_only(declaration.span.source_id, &candidate);
             if !parsed.diagnostics.is_empty() { continue; }
+            let before = Checker::check_arena(program, source);
             let after = Checker::check_arena(&parsed.arena, &candidate);
             if !before.diagnostics.is_empty() || !after.diagnostics.is_empty() { continue; }
             let old_prefix = declaration.span.start()..binding.span.end();

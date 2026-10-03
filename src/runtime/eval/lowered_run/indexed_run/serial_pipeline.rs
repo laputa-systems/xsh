@@ -167,7 +167,6 @@ pub(super) fn indexed_for_pipeline_input(
     if tag != FullTag::ExprPipeline {
         return Ok(None);
     }
-    execution.stage_pipeline(instruction).map_err(|error| indexed_error(error, call_span))?;
     let input = indexed_raw(&mut payload, call_span)?;
     let (_, mut stages) = execution
         .block(&mut payload, BLOCK_LIST)

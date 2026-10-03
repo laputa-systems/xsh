@@ -25,18 +25,7 @@ Three result shapes:
 `Str.lines()` and `Bytes.lines()` are materialized List sources. Their
 `.collect()` calls preserve the existing element domain without pulling a live
 producer; `Path.lines()` and `Path.bytes_lines()` retain their lazy Stream
-contracts. Creating either Path producer requires `fs`, because creation opens
-the file. Later pulls also require `fs`, because they read from that file.
-Builtin file producers have no language cleanup callback; their close effect is
-empty. Script producers retain the effects of their registered cleanup separately
-from pull effects.
-
-`run.stream --text` and `run.stream --bytes` without an explicit completion
-policy capture the child output before returning the stream. Their later pulls
-and close require no process work. With `--accept=...`, the stream owns a live
-child: pulls require `process` and `error` for incremental I/O and completion
-validation, and close requires `process` for cancellation and reaping. Creation
-requires `process` in both cases; the policy's validation also requires `error`.
+contracts.
 
 Structured stage configuration uses ordinary named arguments, identifier puns,
 and statically known nonempty record spreads. The canonical parameter types,
@@ -61,17 +50,6 @@ each actual invocation. Qualified imports retain their prepared function
 identity; erased callable values and bound methods require explicit blocks.
 `stage_accepts_callable` owns the supported body roles, while
 `stage_parameters` continues to own fixed configuration.
-
-An immutable native callable descriptor retains its complete monomorphic
-signatures and canonical authorities. Overloaded descriptors use the stage's
-checked positional item, result, and effect protocol to select the ordinary
-invocation; the selected member retains its original labels, defaults, rest
-arguments, and default timing. Pure and Proc alternatives remain separate
-until the actual item proves the selected kind. Pending generic stages retain
-the operation and callback-slot relationship without claiming a selected
-invocation. Creation, produced-value pull, and cleanup permissions remain
-separate. `StageCallback::Protocol` and `candidate_callback_invocation` expose
-that relationship; neither supplies a representative callable signature.
 
 Result-valued `map` and `par-map` calls stay in-band. `where`, `any`, and
 `all` require direct Bool values; `sort-by` requires a direct sortable key,

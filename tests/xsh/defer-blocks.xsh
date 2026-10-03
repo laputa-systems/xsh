@@ -235,15 +235,3 @@ test test_defer_blocks_reject_delegated_yield_during_checking [error] { |ctx|
   assert ! output.success, output.stderr
   "check.defer-control-flow" in output.stderr
 }
-
-test test_defer_nested_call_preserves_mutable_global_capture [error] { |ctx|
-  let output = test.run_script(ctx, r"""
-var observed = 0
-proc record() [] { observed = 1 }
-proc completed() [error] -> Result[Int] { defer record(); 7 }
-print (completed()?)
-print $observed
-""")?
-  assert output.success, output.stderr
-  output.stdout == "7\n1\n"
-}

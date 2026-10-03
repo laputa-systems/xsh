@@ -1,9 +1,12 @@
 use super::{BTreeMap, BTreeSet, Checker, Diagnostic, Label, Span, Type};
-use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
+use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BindingTargetId, StmtId};
 
 #[derive(Clone, Default)]
 pub(super) struct LocalInference {
+    collecting: bool,
+    seeds: BTreeSet<Span>,
     bindings: BTreeMap<Span, Type>,
+    solved_functions: BTreeSet<Span>,
     nonmaterial_expressions: BTreeSet<Span>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
 }
@@ -96,26 +99,109 @@ impl Checker {
     pub(super) fn record_inert_expression_discard(&mut self, program: &ArenaProgram, expression: ArenaExprOrRun) {
         if self.lookup(super::Name::intern("map")).is_none() && empty_map_call(program, expression) {
             self.local_inference.nonmaterial_expressions.insert(super::expr::expr_or_run_span_arena(program, expression));
-            if self.graph_generation && let ArenaExprOrRun::Expr(expression) = expression {
-                let identity = self.expression_identity(program, expression);
-                let outcome = (|| {
-                    let mut state = self.generic.borrow_mut();
-                    if state.facts.expression_schemes.contains_key(&identity) { return Ok(()); }
-                    let Some(&ty) = state.facts.expressions.get(&identity) else { return Ok(()); };
-                    let Some(operation) = state.facts.operations.get(&identity) else { return Ok(()); };
-                    let requirements = [operation.requirement];
-                    let scheme = state.facts.graph.generalize(ty, 0, crate::sema::inference::Generalization::Allowed, &requirements)?;
-                    if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.retain(|requirement| !requirements.contains(requirement)); }
-                    state.facts.expression_schemes.insert(identity, scheme);
-                    Ok::<_, crate::sema::inference::InferenceError>(())
-                })();
-                if let Err(error) = outcome { self.graph_error(program.arena.expr(expression).span, error); }
-            }
         }
     }
 
     pub(super) fn is_inert_expression_discard(&self, span: Span) -> bool {
         self.local_inference.nonmaterial_expressions.contains(&span)
+    }
+
+    pub(super) fn prepare_local_inference(&mut self, program: &ArenaProgram) {
+        for index in 0..program.arena.stmt_tags.len() {
+            let statement = program.arena.stmt(StmtId::from_index(index));
+            let (target, annotation, initializer, mutable) = match statement.kind {
+                ArenaStmtKind::Let { target, ty, initializer } => (target, ty, initializer, false),
+                ArenaStmtKind::Var { target, ty, initializer } => (target, ty, initializer, true),
+                _ => continue,
+            };
+            if annotation.is_none() && local_seed_kind(program, target, initializer, mutable).is_some() {
+                self.local_inference.seeds.insert(statement.span);
+            }
+        }
+    }
+
+    /// Gather constraints before checking concrete operations. The cloned
+    /// checker owns speculative diagnostics and facts; only its substitutions
+    /// and seed identities are retained for ordinary checking.
+    pub(super) fn collect_function_local_constraints(&mut self, program: &ArenaProgram, source: &str, definition: &ArenaFunctionDef, pure: bool) {
+        self.collect_callable_local_constraints(program, source, definition, pure, false);
+    }
+
+    pub(super) fn collect_stream_local_constraints(&mut self, program: &ArenaProgram, source: &str, definition: &ArenaFunctionDef) {
+        self.collect_callable_local_constraints(program, source, definition, false, true);
+    }
+
+    fn collect_callable_local_constraints(&mut self, program: &ArenaProgram, source: &str, definition: &ArenaFunctionDef, pure: bool, stream: bool) {
+        if self.local_inference.collecting { return; }
+        let body = program.arena.span(program.arena.block(definition.body).span);
+        if self.local_inference.solved_functions.contains(&body) { return; }
+        let start = Span::new(body.source_id, body.start(), body.start());
+        let end = Span::new(body.source_id, body.end(), body.end());
+        if self.local_inference.seeds.range(start..end).next().is_none() { return; }
+        let mut probe = self.constraint_probe();
+        probe.local_inference.collecting = true;
+        if stream { probe.check_stream_function_arena(program, source, definition); }
+        else { probe.check_function_arena(program, source, definition, pure); }
+        self.type_constraints = probe.type_constraints;
+        self.local_inference.bindings = probe.local_inference.bindings;
+        self.local_inference.solved_functions.insert(body);
+    }
+
+    /// Speculative checks retain declaration and lexical contracts but rebuild
+    /// expression facts and branch joins before consuming them. Prior published
+    /// facts carry no additional constraints, and copying them makes each probe
+    /// pay for every earlier body, including captured module contracts.
+    pub(super) fn constraint_probe(&mut self) -> Self {
+        let block_exit_bindings = std::mem::take(&mut self.block_exit_bindings);
+        let expr_types = std::mem::take(&mut self.expr_types);
+        let projections = std::mem::take(&mut self.projections);
+        let record_constructor_instances = std::mem::take(&mut self.record_constructor_instances);
+        let requirement_targets = std::mem::take(&mut self.requirement_targets);
+        let requirement_expected_targets = std::mem::take(&mut self.requirement_expected_targets);
+        let condition_proofs = std::mem::take(&mut self.condition_proofs);
+        let proven_nonnull_fallback_receivers = std::mem::take(&mut self.proven_nonnull_fallback_receivers);
+        let static_callable_aliases = std::mem::take(&mut self.static_callable_aliases);
+        let diagnostics = std::mem::take(&mut self.diagnostics);
+        let annotation_facts = std::mem::take(&mut self.annotation_facts);
+        let reveal_types = std::mem::take(&mut self.reveal_types);
+        let stream_stage_types = std::mem::take(&mut self.stream_stage_types);
+        let statement_positions = std::mem::take(&mut self.statement_positions);
+        let pattern_test_types = std::mem::take(&mut self.pattern_test_types);
+        let terminating_call_spans = std::mem::take(&mut self.terminating_call_spans);
+        let assertion_spans = std::mem::take(&mut self.assertion_spans);
+        let assertion_effect_spans = std::mem::take(&mut self.assertion_effect_spans);
+        let statement_expression_spans = std::mem::take(&mut self.statement_expression_spans);
+        let membership_migration_spans = std::mem::take(&mut self.membership_migration_spans);
+        let standard_call_spans = std::mem::take(&mut self.standard_call_spans);
+        let statically_resolved_call_spans = std::mem::take(&mut self.statically_resolved_call_spans);
+        let definitely_exiting_block_spans = std::mem::take(&mut self.definitely_exiting_block_spans);
+        let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
+        let probe = self.clone();
+        self.block_exit_bindings = block_exit_bindings;
+        self.expr_types = expr_types;
+        self.projections = projections;
+        self.record_constructor_instances = record_constructor_instances;
+        self.requirement_targets = requirement_targets;
+        self.requirement_expected_targets = requirement_expected_targets;
+        self.condition_proofs = condition_proofs;
+        self.proven_nonnull_fallback_receivers = proven_nonnull_fallback_receivers;
+        self.static_callable_aliases = static_callable_aliases;
+        self.diagnostics = diagnostics;
+        self.annotation_facts = annotation_facts;
+        self.reveal_types = reveal_types;
+        self.stream_stage_types = stream_stage_types;
+        self.statement_positions = statement_positions;
+        self.pattern_test_types = pattern_test_types;
+        self.terminating_call_spans = terminating_call_spans;
+        self.assertion_spans = assertion_spans;
+        self.assertion_effect_spans = assertion_effect_spans;
+        self.statement_expression_spans = statement_expression_spans;
+        self.membership_migration_spans = membership_migration_spans;
+        self.standard_call_spans = standard_call_spans;
+        self.statically_resolved_call_spans = statically_resolved_call_spans;
+        self.definitely_exiting_block_spans = definitely_exiting_block_spans;
+        self.local_inference.checked_bindings = checked_bindings;
+        probe
     }
 
     pub(super) fn local_binding_expectation(&self, span: Span) -> Option<Type> {
@@ -137,237 +223,10 @@ impl Checker {
     // Later parameter and return destinations can solve holes nested in a
     // binding. Preserve their identities until every source constraint is checked.
     pub(super) fn record_checked_local_binding(&mut self, program: &ArenaProgram, target: BindingTargetId, span: Span, ty: &Type) {
-        if self.current_return.is_some()
+        if self.current_return.is_some() && !self.local_inference.collecting
             && matches!(program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name != "_")
         {
             self.local_inference.checked_bindings.insert(span, ty.clone());
-        }
-    }
-
-    pub(super) fn safe_value_initializer(&mut self, arena: &ArenaProgram, initializer: ArenaExprOrRun) -> bool {
-        self.inert_value_expressions(arena, initializer).is_some()
-    }
-
-    pub(super) fn scope_inert_error_propagation(&mut self, arena: &ArenaProgram, operand: crate::syntax::arena::ExprId, propagation: crate::syntax::arena::ExprId, ty: &Type) {
-        use crate::sema::inference::{Generalization, InferenceError, TypeNode};
-        let ArenaExprKind::Call { callee, .. } = arena.arena.expr(operand).kind else { return; };
-        if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err" && self.lookup(name).is_none())
-            || !self.safe_value_initializer(arena, ArenaExprOrRun::Expr(operand)) { return; }
-        let identity = self.expression_identity(arena, propagation);
-        let constructor = self.expression_identity(arena, operand);
-        let span = arena.arena.expr(operand).span;
-        let outcome = (|| {
-            let value = self.graph_type(ty, span)?;
-            let mut state = self.generic.borrow_mut();
-            state.facts.graph.charge_source_fact_nodes(1)?;
-            state.facts.non_completing_expressions.insert(identity);
-            let TypeNode::Result(success, _) = state.facts.graph.node(state.facts.graph.resolved(value)?)? else { return Err(InferenceError::InvalidScheme); };
-            if !matches!(state.facts.graph.node(state.facts.graph.resolved(*success)?)?, TypeNode::Meta(_)) { return Ok(()); }
-            let requirements = state.facts.operations.get(&constructor).map(|operation| vec![operation.requirement]).unwrap_or_default();
-            let scheme = state.facts.graph.generalize(value, if self.current_generic.is_some() { 1 } else { 0 }, Generalization::Allowed, &requirements)?;
-            if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.retain(|requirement| !requirements.contains(requirement)); }
-            state.facts.expression_schemes.insert(constructor, scheme);
-            state.facts.expression_value_scopes.insert(identity, scheme);
-            Ok(())
-        })();
-        if let Err(error) = outcome { self.graph_error(span, error); }
-    }
-
-    // A lexical return never supplies the projected success value. Its absent
-    // payload remains in the original expression scope through propagation.
-    pub(super) fn scope_returning_capture_propagation(&mut self, arena: &ArenaProgram, operand: crate::syntax::arena::ExprId, propagation: crate::syntax::arena::ExprId) {
-        if !self.graph_generation || !self.return_inference_expression_returns(arena, operand) { return; }
-        let operand = self.expression_identity(arena, operand);
-        let propagation = self.expression_identity(arena, propagation);
-        let outcome = (|| {
-            let mut state = self.generic.borrow_mut();
-            let scope = state.facts.expression_schemes.get(&operand).or_else(|| state.facts.expression_value_scopes.get(&operand)).copied();
-            if let Some(scope) = scope { state.facts.expression_value_scopes.insert(propagation, scope); }
-            if !state.facts.non_completing_expressions.contains(&propagation) {
-                state.facts.graph.charge_source_fact_nodes(1)?;
-                state.facts.non_completing_expressions.insert(propagation);
-            }
-            Ok::<_, crate::sema::inference::InferenceError>(())
-        })();
-        if let Err(error) = outcome { self.graph_error(arena.arena.expr(propagation.expression).span, error); }
-    }
-
-    pub(super) fn non_completing_block_tail(&self, arena: &ArenaProgram, block: crate::syntax::arena::BlockId) -> bool {
-        let Some(tail) = arena.arena.stmt_ids(arena.arena.block(block).statements).last() else { return false; };
-        match arena.arena.stmt(tail).kind {
-            ArenaStmtKind::Return(_) => true,
-            ArenaStmtKind::Expr(expression) => self.non_completing_expression(arena, expression),
-            ArenaStmtKind::If { branches, else_block: Some(other) } => arena.arena.if_branches(branches).iter().all(|branch| self.non_completing_block_tail(arena, branch.block)) && self.non_completing_block_tail(arena, other),
-            _ => false,
-        }
-    }
-
-    pub(super) fn non_completing_expression(&self, arena: &ArenaProgram, expression: crate::syntax::arena::ExprId) -> bool {
-        if self.generic.borrow().facts.non_completing_expressions.contains(&self.expression_identity(arena, expression)) { return true; }
-        match arena.arena.expr(expression).kind {
-            ArenaExprKind::ValueBlock(block) => self.non_completing_block_tail(arena, block),
-            ArenaExprKind::If { branches, else_value } => arena.arena.if_expr_branches(branches).iter().all(|branch| self.non_completing_expression(arena, branch.value)) && self.non_completing_expression(arena, else_value),
-            _ => false,
-        }
-    }
-
-    pub(super) fn scope_absent_capture_success(&mut self, arena: &ArenaProgram, error: Type, span: Span) -> Type {
-        use crate::sema::inference::Generalization;
-        let Some(expression) = self.current_expression else { return Type::Invalid; };
-        let identity = self.expression_identity(arena, expression);
-        let outcome = (|| {
-            let error = self.graph_type(&error, span)?;
-            let mut state = self.generic.borrow_mut();
-            let level = if self.current_generic.is_some() { 2 } else { 1 };
-            let success = state.facts.graph.fresh(level, span)?;
-            let value = state.facts.graph.result(success, error)?;
-            let scheme = state.facts.graph.generalize(value, level - 1, Generalization::Allowed, &[])?;
-            state.facts.expression_schemes.insert(identity, scheme);
-            Ok::<_, crate::sema::inference::InferenceError>(value)
-        })();
-        match outcome { Ok(value) => self.graph_view(value), Err(error) => { self.graph_error(span, error); Type::Invalid } }
-    }
-
-    fn inert_error_constructor(&self, arena: &ArenaProgram, callee: crate::syntax::arena::ExprId) -> bool {
-        let ArenaExprKind::Field { base, name: variant } = arena.arena.expr(callee).kind else { return false; };
-        let family = match arena.arena.expr(base).kind {
-            ArenaExprKind::Ident(family) => family,
-            ArenaExprKind::Field { base, name: family } => {
-                let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else { return false; };
-                super::Name::intern(format!("{namespace}.{family}"))
-            }
-            _ => return false,
-        };
-        self.error_families.get(&family).is_some_and(|family| family.variants.contains_key(&variant))
-    }
-
-    fn inert_value_expressions(&mut self, arena: &ArenaProgram, initializer: ArenaExprOrRun) -> Option<Vec<crate::syntax::arena::ExprId>> {
-        let ArenaExprOrRun::Expr(expression) = initializer else { return None; };
-        let immutable_name = |name| self.lookup(name).map(|binding| !binding.mutable)
-            .unwrap_or_else(|| self.generic.borrow().names.contains_key(&(self.current_namespace, name)));
-        let mut pending = vec![expression];
-        let mut expressions = Vec::new();
-        while let Some(expression) = pending.pop() {
-            if self.generic.borrow_mut().facts.graph.charge_source_fact_work(1).is_err() { return None; }
-            expressions.push(expression);
-            match arena.arena.expr(expression).kind {
-                ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_)
-                | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_) | ArenaExprKind::PathStr(_) | ArenaExprKind::Bytes(_) => {}
-                ArenaExprKind::Ident(name) if immutable_name(name) => {}
-                ArenaExprKind::Field { base, name } if matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(module)
-                    if self.lookup(module).is_none() && super::api_spec().module(&module.as_str())
-                        .is_some_and(|entry| entry.function_overloads(&name.as_str()).is_some())) => {}
-                ArenaExprKind::List(elements) => pending.extend(arena.arena.list_element_exprs(elements)),
-                ArenaExprKind::Record(fields) => {
-                    for field in arena.arena.record_fields(fields) {
-                        match field.kind {
-                            crate::syntax::arena::ArenaRecordFieldKind::Named { value, .. } | crate::syntax::arena::ArenaRecordFieldKind::Path { value, .. } => pending.push(value),
-                            crate::syntax::arena::ArenaRecordFieldKind::Computed { key, value, .. } => { pending.push(key); pending.push(value); }
-                            crate::syntax::arena::ArenaRecordFieldKind::Shorthand { name, .. } if immutable_name(name) => {}
-                            crate::syntax::arena::ArenaRecordFieldKind::Spread { expr, .. } => pending.push(expr),
-                            _ => return None,
-                        }
-                    }
-                }
-                ArenaExprKind::Call { callee, args } if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if (name == "Ok" || name == "Err") && self.lookup(name).is_none()) => {
-                    for argument in arena.arena.call_args(args) {
-                        let value = match argument.kind {
-                            crate::syntax::arena::ArenaCallArgKind::Positional(value) | crate::syntax::arena::ArenaCallArgKind::Named { value, .. }
-                            | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value, .. } | crate::syntax::arena::ArenaCallArgKind::Splice { value, .. } => value,
-                        };
-                        pending.push(value);
-                    }
-                }
-                // A resolved error constructor only stores its checked fields.
-                // Its arguments still need the same inert-value proof.
-                ArenaExprKind::Call { callee, args } if self.inert_error_constructor(arena, callee) => {
-                    for argument in arena.arena.call_args(args) {
-                        let value = match argument.kind {
-                            crate::syntax::arena::ArenaCallArgKind::Positional(value) | crate::syntax::arena::ArenaCallArgKind::Named { value, .. }
-                            | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value, .. } | crate::syntax::arena::ArenaCallArgKind::Splice { value, .. } => value,
-                        };
-                        pending.push(value);
-                    }
-                }
-                _ if self.lookup(super::Name::intern("map")).is_none() && empty_map_call(arena, ArenaExprOrRun::Expr(expression)) => {}
-                _ => return None,
-            }
-        }
-        Some(expressions)
-    }
-
-    // Erasure leaves the physical container's fresh literal holes unobserved.
-    // Their source facts have a scope; referenced values keep their original
-    // levels and mutable bindings never acquire a polymorphic value scheme.
-    pub(super) fn scope_erased_literal_facts(&mut self, arena: &ArenaProgram, expression: crate::syntax::arena::ExprId, expressions: &[crate::syntax::arena::ExprId]) {
-        let identity = self.expression_identity(arena, expression);
-        let identities: Vec<_> = expressions.iter().map(|expression| self.expression_identity(arena, *expression)).collect();
-        let outcome = (|| {
-            let mut state = self.generic.borrow_mut();
-            state.facts.graph.charge_source_fact_work(identities.len() as u64)?;
-            let Some(&ty) = state.facts.expressions.get(&identity) else { return Ok(()); };
-            let scheme = state.facts.graph.generalize(ty, if self.current_generic.is_some() { 1 } else { 0 }, crate::sema::inference::Generalization::Allowed, &[])?;
-            state.facts.expression_schemes.insert(identity, scheme);
-            for descendant in identities { state.facts.expression_value_scopes.entry(descendant).or_insert(scheme); }
-            Ok::<_, crate::sema::inference::InferenceError>(())
-        })();
-        if let Err(error) = outcome { self.graph_error(arena.arena.expr(expression).span, error); }
-    }
-
-    pub(super) fn scope_erased_value_initializer(&mut self, arena: &ArenaProgram, initializer: ArenaExprOrRun, span: Span) {
-        if !self.graph_generation { return; }
-        let ArenaExprOrRun::Expr(expression) = initializer else { return; };
-        let identity = self.expression_identity(arena, expression);
-        let Some(expressions) = self.inert_value_expressions(arena, initializer) else { return; };
-        let identities: Vec<_> = expressions.into_iter().map(|expression| self.expression_identity(arena, expression)).collect();
-        let outcome = (|| {
-            let mut state = self.generic.borrow_mut();
-            let Some(&ty) = state.facts.expressions.get(&identity) else { return Ok(()); };
-            let mut requirements = Vec::new();
-            for identity in &identities {
-                if let Some(operation) = state.facts.operations.get(identity) { requirements.push(operation.requirement); }
-                if let Some(reference) = state.facts.registry_references.get(identity) { requirements.extend_from_slice(&reference.requirements(&state.facts.graph)?); }
-            }
-            let scheme = state.facts.graph.generalize(ty, if self.current_generic.is_some() { 1 } else { 0 }, crate::sema::inference::Generalization::Allowed, &requirements)?;
-            if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.retain(|requirement| !requirements.contains(requirement)); }
-            state.facts.expression_schemes.insert(identity, scheme);
-            for descendant in identities { state.facts.expression_value_scopes.insert(descendant, scheme); }
-            Ok::<_, crate::sema::inference::InferenceError>(())
-        })();
-        if let Err(error) = outcome { self.graph_error(span, error); }
-    }
-
-    pub(super) fn generalize_value_binding(&mut self, arena: &ArenaProgram, target: BindingTargetId, initializer: ArenaExprOrRun, ty: &Type, span: Span) {
-        if !self.graph_generation { return; }
-        if !ty.contains_graph() { return; }
-        let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind else { return; };
-        if name == "_" { return; }
-        let ArenaExprOrRun::Expr(expression) = initializer else { return; };
-        let identity = self.expression_identity(arena, expression);
-        let Some(expressions) = self.inert_value_expressions(arena, initializer) else { return; };
-        let identities: Vec<_> = expressions.into_iter().map(|expression| self.expression_identity(arena, expression)).collect();
-        let outcome = (|| {
-            let ty = self.graph_type(ty, span)?;
-            let mut state = self.generic.borrow_mut();
-            let mut requirements = Vec::new();
-            for identity in &identities {
-                if let Some(operation) = state.facts.operations.get(identity) { requirements.push(operation.requirement); }
-                if let Some(reference) = state.facts.registry_references.get(identity) { requirements.extend_from_slice(&reference.requirements(&state.facts.graph)?); }
-            }
-            if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.retain(|requirement| !requirements.contains(requirement)); }
-            let scheme = state.facts.graph.generalize(ty, if self.current_generic.is_some() { 1 } else { 0 }, crate::sema::inference::Generalization::Allowed, &requirements)?;
-            state.facts.expression_schemes.insert(identity, scheme);
-            if state.facts.registry_references.contains_key(&identity)
-                && let Some(callable) = state.facts.expression_callables.get_mut(&identity) {
-                callable.scheme = Some(scheme);
-            }
-            for descendant in identities { state.facts.expression_value_scopes.insert(descendant, scheme); }
-            if let Some(binding) = state.facts.bindings.get_mut(&super::BindingIdentity { source: span.source_id, namespace: self.current_namespace, target }) { binding.ty = ty; binding.scheme = Some(scheme); }
-            Ok::<_, crate::sema::inference::InferenceError>(scheme)
-        })();
-        match outcome {
-            Ok(scheme) => if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.value_scheme = Some(scheme); },
-            Err(error) => self.graph_error(span, error),
         }
     }
 
@@ -376,29 +235,6 @@ impl Checker {
         let Some(seed) = local_seed_kind(program, target, initializer, mutable) else { return ordinary; };
         if matches!(seed, LocalSeed::Map) && (self.lookup(super::Name::intern("map")).is_some() || !matches!(ordinary, Type::Map(_, _))) {
             return ordinary;
-        }
-        if self.current_generic.is_some() && self.graph_generation {
-            let origin = super::expr::expr_or_run_span_arena(program, initializer);
-            let ty = if ordinary.contains_graph() { ordinary } else {
-                let result = (|| {
-                    let mut state = self.generic.borrow_mut();
-                    let variable = state.facts.graph.fresh(1, origin)?;
-                    let ty = match seed {
-                        LocalSeed::List => state.facts.graph.list(variable)?,
-                        LocalSeed::Nullable => state.facts.graph.optional(variable)?,
-                        LocalSeed::Map => {
-                            let value = state.facts.graph.fresh(1, origin)?;
-                            state.facts.graph.map(variable, value)?
-                        }
-                    };
-                    Ok::<_, crate::sema::inference::InferenceError>(ty)
-                })();
-                match result { Ok(ty) => self.graph_view(ty), Err(error) => { self.graph_error(origin, error); Type::Invalid } }
-            };
-            self.local_inference.bindings.insert(span, ty.clone());
-            self.local_inference.checked_bindings.insert(span, ty.clone());
-            if let ArenaExprOrRun::Expr(expression) = initializer { self.record_graph_expression(program, expression, &ty); }
-            return ty;
         }
         let raw = if let Some(ty) = self.local_inference.bindings.get(&span) { ty.clone() } else {
             let origin = super::expr::expr_or_run_span_arena(program, initializer);
@@ -411,7 +247,7 @@ impl Checker {
             self.local_inference.bindings.insert(span, ty.clone());
             ty
         };
-        {
+        if !self.local_inference.collecting {
             let resolved = self.type_constraints.resolve(&raw).unwrap_or(Type::Invalid);
             if resolved.contains_inference() {
                 self.diagnostics.push(Diagnostic::error("local type needs an annotation")
@@ -490,5 +326,56 @@ pub(super) fn finalize_projection(constraints: &crate::sema::constraints::TypeCo
         Some(crate::sema::types::ModuleExportType::Value { ty, .. }) => finalize_type(constraints, ty, span, reported, diagnostics),
         Some(crate::sema::types::ModuleExportType::Proc { sig, .. } | crate::sema::types::ModuleExportType::Pure { sig, .. }) => finalize_callable(constraints, sig, span, reported, diagnostics),
         None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+    use crate::syntax::arena::BlockId;
+
+    #[test]
+    fn local_constraint_probe_does_not_copy_completed_body_binding_history() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::default());
+            let span = Span::new(SourceId::new(0), 0, 1);
+            let name = super::super::Name::intern("prior");
+            for block in 0..256 {
+                checker.block_exit_bindings.insert(BlockId::from_index(block), rustc_hash::FxHashMap::from_iter([
+                    (name, super::super::Binding::new(Type::Int, false)),
+                ]));
+            }
+            checker.expr_types.insert(span, Type::Int);
+            let probe = checker.constraint_probe();
+            let copied_bindings = probe.block_exit_bindings.values().map(|scope| scope.len()).sum::<usize>();
+            assert_eq!(copied_bindings, 0, "completed body bindings copied into the constraint probe");
+            assert_eq!(checker.block_exit_bindings.len(), 256);
+            assert_eq!(checker.expr_types[&span], Type::Int);
+        });
+    }
+
+    #[test]
+    fn local_constraint_probe_does_not_copy_checked_expression_history() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::default());
+            let contract = Span::new(SourceId::new(0), 0, 1);
+            let name = super::super::Name::intern("captured");
+            checker.define(name, super::super::Binding::new(Type::Int, false), contract);
+            checker.parameter_types.insert(contract, Type::Str);
+            checker.function_return_types.insert(contract, Type::Bool);
+            let variable = checker.type_constraints.fresh(contract);
+            checker.type_constraints.constrain(&variable, &Type::Int, contract).unwrap();
+            for index in 0..256 {
+                checker.expr_types.insert(Span::new(SourceId::new(1), index, index + 1), Type::Int);
+            }
+            let probe = checker.constraint_probe();
+            assert_eq!(probe.expr_types.len(), 0, "checked expression facts copied into the constraint probe");
+            assert_eq!(checker.expr_types.len(), 256);
+            assert_eq!(probe.lookup(name).unwrap().ty, Type::Int);
+            assert_eq!(probe.parameter_types[&contract], Type::Str);
+            assert_eq!(probe.function_return_types[&contract], Type::Bool);
+            assert_eq!(probe.type_constraints.resolve(&variable).unwrap(), Type::Int);
+        });
     }
 }

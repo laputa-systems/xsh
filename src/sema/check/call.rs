@@ -113,9 +113,10 @@ impl Checker {
     ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
-        if let Some(result) = self.graph_call(arena, source, callee, args, span) { return result; }
-        if let Some(result) = self.graph_computed_call(arena, source, callee, args, span) { return result; }
         if self.check_removed_record_require_arena(arena, source, callee, args, span) { return Type::Invalid; }
+        if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
+            return self.check_spread_call_arena(arena, source, callee, args_range, span, expected_context);
+        }
         if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
             self.record_callable_alias(arena.arena.expr(callee).span, &alias);
             if let ArenaExprKind::Field { base, name } = callee_kind
@@ -202,9 +203,6 @@ impl Checker {
             }
             if let ArenaExprKind::Ident(module) = base_kind {
                 if module.as_str() == "error" && name.as_str() == "fail" {
-                    if self.graph_generation {
-                        return self.check_graph_module_call(arena, source, "error", "fail", args, span, expected_context);
-                    }
                     let params = [super::FunctionParamSig { name: Name::intern("message"), ty: Type::Str, schema_expectation: None, defaulted: false, rest: false }];
                     self.check_function_arg_list_arena(arena, source, args, &params, span);
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
@@ -263,8 +261,6 @@ impl Checker {
                     return self.check_registered_method_arena(
                         arena,
                         source,
-                        None,
-                        &super::ProducerPath::default(),
                         MethodReceiver::PathConstructor,
                         &name.as_str(),
                         args,
@@ -289,10 +285,8 @@ impl Checker {
                         );
                         Name::intern("children")
                     } else { name };
-                    if !self.graph_generation {
-                        if let Some(required) = api_spec().module_required_effect(&module.as_str(), &canonical_name.as_str()) {
-                            self.require_effect(required, span, &format!("`{module}.{name}`"));
-                        }
+                    if let Some(required) = api_spec().module_required_effect(&module.as_str(), &canonical_name.as_str()) {
+                        self.require_effect(required, span, &format!("`{module}.{name}`"));
                     }
                     return self.check_module_call_arena(
                         arena,
@@ -306,7 +300,6 @@ impl Checker {
                 }
             }
             let base_ty = self.check_expr_arena(arena, source, base, None);
-            let base_ty = self.graph_method_receiver(base_ty, &name.as_str(), arena.arena.expr(base).span);
             let guarded_base = match arena.arena.expr(base).kind {
                 ArenaExprKind::NullSafeField { .. }
                 | ArenaExprKind::Index { guarded: true, .. }
@@ -339,9 +332,6 @@ impl Checker {
                                 span,
                             );
                         }
-                        if self.graph_generation {
-                            return self.check_graph_module_contract_call(arena, source, callee, args, sig, &Type::Proc, span);
-                        }
                         self.check_module_callable_arg_list_arena(
                             arena,
                             source,
@@ -353,9 +343,6 @@ impl Checker {
                         return sig.return_ty.as_ref().clone();
                     }
                     ModuleExportType::Pure { sig, .. } => {
-                        if self.graph_generation {
-                            return self.check_graph_module_contract_call(arena, source, callee, args, sig, &Type::Pure, span);
-                        }
                         self.check_module_callable_arg_list_arena(
                             arena,
                             source,
@@ -382,7 +369,6 @@ impl Checker {
                 source,
                 base,
                 base_ty,
-                &super::ProducerPath::default(),
                 &canonical_name.as_str(),
                 args,
                 span,
@@ -424,7 +410,6 @@ impl Checker {
                 source,
                 base,
                 inner_ty,
-                &super::ProducerPath(vec![if wrap_optional { super::ProducerPathComponent::OptionalPayload } else { super::ProducerPathComponent::ResultSuccess }]),
                 &canonical_name.as_str(),
                 args,
                 span,
@@ -461,18 +446,10 @@ impl Checker {
                 );
             }
         }
-        let saved_principal = self.principal_callable_initializer;
-        if self.options.reveal_types
-            && let Some(ArenaCallArg { kind: ArenaCallArgKind::Positional(expression), .. }) = args.first()
-            && self.graph_callable_target(arena, *expression).is_some()
-        {
-            self.principal_callable_initializer = true;
-        }
         let revealed = args
             .first()
             .map(|arg| self.check_call_arg_arena(arena, source, &arg.kind, None))
             .unwrap_or(Type::Unknown);
-        self.principal_callable_initializer = saved_principal;
         for arg in args.iter().skip(1) {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
@@ -481,18 +458,7 @@ impl Checker {
                 && let Some(arg) = args.first()
                 && matches!(arg.kind, ArenaCallArgKind::Positional(_))
             {
-                let ArenaCallArgKind::Positional(expression) = arg.kind else { unreachable!() };
-                let identity = self.expression_identity(arena, expression);
-                if self.graph_generation {
-                    self.record_graph_expression(arena, expression, &revealed);
-                    if !self.generic.borrow().facts.expressions.contains_key(&identity) {
-                        match self.graph_type(&revealed, arena.arena.expr(expression).span) {
-                            Ok(ty) => { self.generic.borrow_mut().facts.expressions.insert(identity, ty); }
-                            Err(error) => self.graph_error(arena.arena.expr(expression).span, error),
-                        }
-                    }
-                }
-                self.reveal_requests.insert(identity, call_arg_span_arena(arena, &arg.kind));
+                self.reveal_type(&revealed, call_arg_span_arena(arena, &arg.kind));
             }
         } else {
             self.error(
@@ -502,47 +468,6 @@ impl Checker {
             );
         }
         Type::Unit
-    }
-
-    fn check_graph_module_contract_call(
-        &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
-        args: &[ArenaCallArg], contract: &crate::sema::types::CallableType, checked: &Type, span: Span,
-    ) -> Type {
-        use crate::sema::inference::{InferenceError, TypeNode};
-        let Some(expression) = self.current_expression else {
-            self.graph_error(span, InferenceError::InvalidScheme); return Type::Invalid;
-        };
-        let identity = self.expression_identity(arena, expression);
-        let projected = self.record_graph_module_projection(arena, callee, checked);
-        let Some(Type::Graph(signature)) = projected else {
-            if !matches!(projected, Some(Type::Invalid)) { self.graph_error(span, InferenceError::Boundary("module callable has no checked original export projection")); }
-            return Type::Invalid;
-        };
-        let outcome = (|| {
-            let arrow = {
-                let state = self.generic.borrow();
-                let TypeNode::Arrow(arrow) = state.facts.graph.node(state.facts.graph.resolved(signature)?)? else { return Err(InferenceError::KindMismatch); };
-                arrow.clone()
-            };
-            let schemas = contract.params.iter().map(|parameter| Some(if parameter.rest {
-                crate::sema::constants::SchemaExpectation { instances: Vec::new(), children: BTreeMap::from([(crate::sema::constants::SchemaComponent::Item, crate::sema::constants::SchemaExpectation::default())]) }
-            } else { crate::sema::constants::SchemaExpectation::default() })).collect::<Vec<_>>();
-            let (actual_arguments, binding) = self.check_graph_callable_arguments(arena, source, signature, args, span, &schemas)?;
-            self.generic.borrow_mut().facts.graph.solve()?;
-            self.record_graph_effect_summary(arrow.effects, span);
-            self.record_callee_propagation(&contract.effects, &contract.return_ty, span);
-            let mut state = self.generic.borrow_mut();
-            state.producer_inputs.call_bindings.insert(identity, binding.clone());
-            state.facts.calls.insert(identity, super::SolvedCall {
-                signature, declaration: None, caller: self.current_generic,
-                requirements: Vec::new(), requirement_origins: Vec::new(), substitutions: Vec::new(), effect_substitutions: Vec::new(),
-                argument_producers: vec![BTreeMap::new(); actual_arguments.len()], result_producers: BTreeMap::new(),
-                result_producer_flow: None, actual_arguments, binding,
-            });
-            state.facts.expressions.insert(identity, arrow.result);
-            Ok::<_, InferenceError>(arrow.result)
-        })();
-        match outcome { Ok(result) => self.graph_view(result), Err(error) => { self.graph_error(span, error); Type::Invalid } }
     }
 
     fn check_module_callable_arg_list_arena(
@@ -561,6 +486,110 @@ impl Checker {
         self.check_function_arg_list_arena(arena, source, args, &params, span);
     }
 
+    fn check_spread_call_arena(
+        &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
+        args_range: ArenaRange, span: Span, expected_context: Option<&Type>,
+    ) -> Type {
+        use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
+        use crate::syntax::arena::ArenaCallArgInput;
+        let args = arena.arena.call_args(args_range);
+        // Discover finite field sets without applying argument flow changes
+        // to the real checker. Actual checks run at each source entry below.
+        let mut probe = self.constraint_probe();
+        let receiver_type = match arena.arena.expr(callee).kind {
+            ArenaExprKind::Field { base, .. } => Some(probe.check_expr_arena(arena, source, base, None)),
+            _ => None,
+        };
+        let signature = self.resolve_callable_alias_call(arena, callee).map(|alias| alias.signature).or_else(|| match arena.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name)).cloned(),
+            ArenaExprKind::Field { base, name } => if let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind {
+                let qualified = QualifiedName::new(module, name);
+                self.qualified_pures.get(&qualified).or_else(|| self.qualified_procs.get(&qualified)).or_else(|| self.qualified_streams.get(&qualified)).cloned()
+            } else { None },
+            _ => None,
+        });
+        let parameters = signature.map(|signature| signature.params).or_else(|| {
+            let definition = self.record_constructors.constructor_definition(&arena.arena, callee, self.current_namespace)?;
+            let Type::Record(fields) = self.record_constructors.constructor_type(&arena.arena, callee, self.current_namespace)? else { return None; };
+            let schema = self.record_constructors.instance_expectation(&arena.arena, definition, &[]).ok()?;
+            Some(fields.into_iter().map(|(name, ty)| super::FunctionParamSig {
+                name, ty, schema_expectation: schema.children.get(&crate::sema::constants::SchemaComponent::Field(name)).cloned(), defaulted: false, rest: false,
+            }).collect())
+        });
+        let mut checked = super::FxHashMap::default();
+        for arg in args {
+            let value = call_arg_expr_id_arena(&arg.kind);
+            let ty = probe.check_expr_arena(arena, source, value, None);
+            if matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })
+                && let (Some(parameters), Type::Record(fields)) = (&parameters, &ty) {
+                let mut context = crate::sema::constants::SchemaExpectation::default();
+                let expected = fields.iter().map(|(name, actual)| {
+                    if let Some(parameter) = parameters.iter().find(|parameter| parameter.name == *name && !parameter.rest) {
+                        if let Some(schema) = &parameter.schema_expectation { context.children.insert(crate::sema::constants::SchemaComponent::Field(*name), schema.clone()); }
+                        (*name, parameter.ty.clone())
+                    } else { (*name, actual.clone()) }
+                }).collect();
+                self.argument_projection_contexts.insert(value, (Type::Record(expected), context));
+            }
+            checked.insert(value, ty);
+        }
+        let expanded = match expand_named_arguments(arena, args, |id| checked.get(&id).cloned()) {
+            Ok(expanded) => expanded,
+            Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return Type::Invalid; }
+        };
+        let statically_named = self.resolve_callable_alias_call(arena, callee).is_some() || match arena.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => name == "Err" || self.procs.contains_key(&name) || self.pures.contains_key(&name)
+                || self.streams.contains_key(&name)
+                || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some(),
+            ArenaExprKind::Field { base, name } => {
+                let static_namespace = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    if api_spec().module(&namespace.as_str()).is_some() || self.error_families.contains_key(&namespace))
+                    || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some();
+                let positional_tag = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    if self.tag_variants.contains_key(&Name::intern(format!("{namespace}.{name}"))));
+                !positional_tag && (static_namespace || match receiver_type.clone().unwrap_or(Type::Unknown) {
+                    Type::Module(exports) => exports.get(&name).is_some_and(|export| matches!(export, ModuleExportType::Pure { .. } | ModuleExportType::Proc { .. })),
+                    Type::Any | Type::Unknown | Type::DynamicModule | Type::Pure | Type::Proc | Type::Optional(_) | Type::Result(_, _) => false,
+                    _ => true,
+                })
+            },
+            _ => false,
+        };
+        if !statically_named {
+            self.error(span, "named argument spreading requires a statically checked callable signature", "check.named-spread");
+            return Type::Invalid;
+        }
+        let mut temporary = arena.clone();
+        let mut inputs = Vec::new();
+        let mut projections = Vec::new();
+        let mut supplied = super::FxHashSet::default();
+        let mut checked_entries = super::FxHashSet::default();
+        for arg in expanded {
+            if let Some(name) = arg.name && !supplied.insert(name) {
+                self.error(arg.span, &format!("parameter `{name}` supplied more than once"), "check.named-arg");
+            }
+            let value = match arg.value {
+                ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => value,
+                ArgumentValueSource::RecordField { record, field } => {
+                    let id = temporary.arena.append_argument_projection(record, field, arg.span);
+                    self.argument_projection_types.insert(id, arg.ty);
+                    if checked_entries.insert(arg.entry_index) { self.argument_projection_sources.insert(id, record); }
+                    projections.push(id); id
+                }
+            };
+            inputs.push(if let Some(name) = arg.name {
+                ArenaCallArgInput::Named { name, value, span: arg.span }
+            } else if matches!(arg.value, ArgumentValueSource::PositionalSplice(_)) {
+                ArenaCallArgInput::Splice { value, span: arg.span }
+            } else { ArenaCallArgInput::Positional(value) });
+        }
+        let args = temporary.arena.append_call_arguments(&inputs);
+        let result = self.check_call_arena(&temporary, source, callee, args, span, expected_context);
+        for id in projections { self.argument_projection_types.remove(&id); self.argument_projection_sources.remove(&id); }
+        for arg in arena.arena.call_args(args_range) { self.argument_projection_contexts.remove(&call_arg_expr_id_arena(&arg.kind)); }
+        result
+    }
+
     fn check_inferred_record_constructor_arena(
         &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
         record_definition: crate::syntax::arena::TypeDefId, args: &[ArenaCallArg],
@@ -573,25 +602,18 @@ impl Checker {
             Ok(inference) => inference,
             Err(error) => { self.error(span, &error.message, error.code); return Type::Invalid; }
         };
-        let expression = self.current_expression.map(|expression| self.expression_identity(arena, expression));
-        let caller = self.current_generic;
         self.constructor_group_depth += 1;
-        let (actual, arguments) = self.check_record_constructor_arena(arena, source, record_definition, args, inference.ty, Some(&inference.expectation), span);
-        if let Some(expression) = expression {
-            self.pending_record_constructors.push(super::constructor_application::PendingRecordConstructor { span, expression, origin: record_definition, instance: inference.instance, arguments, caller, valid: !matches!(actual, Type::Invalid) });
-        }
+        let actual = self.check_record_constructor_arena(arena, source, record_definition, args, inference.ty, Some(&inference.expectation), span);
+        self.pending_record_constructors.push((span, inference.instance, actual.clone()));
         self.constructor_group_depth -= 1;
         if self.constructor_group_depth != 0 { return actual; }
 
         // Nested occurrences can share variables with their surrounding field
         // expectations. Publish only after every supplied field contributed.
-        self.finish_constructor_expression_facts(arena);
         let pending = std::mem::take(&mut self.pending_record_constructors);
-        for pending in pending {
-            let call_span = pending.span;
-            match self.record_constructors.finish_constructor_inference(&arena.arena, &pending.instance, &self.type_constraints) {
+        for (call_span, instance, _) in pending {
+            match self.record_constructors.finish_constructor_inference(&arena.arena, &instance, &self.type_constraints) {
                 Ok(fact) => {
-                    if pending.valid { self.record_graph_record_constructor(arena, &pending, &fact); }
                     self.expr_types.insert(call_span, fact.ty.clone());
                     self.record_constructor_instances.insert(call_span, fact);
                 }
@@ -615,48 +637,32 @@ impl Checker {
         expected: Type,
         schema: Option<&crate::sema::constants::SchemaExpectation>,
         span: Span,
-    ) -> (Type, Vec<crate::sema::arguments::ExpandedArgument>) {
-        let Type::Record(fields) = &expected else { return (Type::Invalid, Vec::new()); };
+    ) -> Type {
+        let Type::Record(fields) = &expected else { return Type::Invalid; };
         let defaults = self.record_constructors.defaults(definition).cloned().unwrap_or_default();
-        let diagnostics_before = self.diagnostics.len();
-        let parameters = fields.iter().map(|(&name, ty)| super::FunctionParamSig { name, ty: ty.clone(), schema_expectation: schema.and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Field(name))).cloned(), defaulted: defaults.contains_key(&name), rest: false }).collect::<Vec<_>>();
-        let Ok(arguments) = self.check_expanded_constructor_arguments(arena, source, args, &parameters, span) else { return (Type::Invalid, Vec::new()); };
         let mut supplied = super::FxHashSet::default();
-        for argument in &arguments {
-            let Some(name) = argument.name else {
-                self.error(argument.span,
+        for arg in args {
+            let ArenaCallArgKind::Named { name, .. } = arg.kind else {
+                self.error(call_arg_span_arena(arena, &arg.kind),
                     "record constructors require named fields", "check.record-constructor");
+                self.check_call_arg_arena(arena, source, &arg.kind, None);
                 continue;
             };
-            if matches!(argument.value, crate::sema::arguments::ArgumentValueSource::PositionalSplice(_)) {
-                self.error(argument.span, "record constructors require fixed named fields", "check.record-constructor");
-                continue;
-            }
             if !supplied.insert(name) {
-                self.error(argument.span,
+                self.error(call_arg_span_arena(arena, &arg.kind),
                     "duplicate constructor field", "check.record-constructor");
             }
             let field_type = fields.get(&name);
             if field_type.is_none() {
-                self.error(argument.span,
+                self.error(call_arg_span_arena(arena, &arg.kind),
                     "unknown constructor field", "check.record-constructor");
             }
+            let context = schema.and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Field(name))).cloned();
+            let previous = std::mem::replace(&mut self.expected_schema, context);
+            let actual = self.check_call_arg_arena(arena, source, &arg.kind, field_type);
+            self.expected_schema = previous;
             if let Some(field_type) = field_type {
-                if field_type.contains_inference() {
-                    let resolved = self.type_constraints.resolve(field_type).unwrap_or_else(|_| field_type.clone());
-                    if !resolved.contains_inference() {
-                        self.expect_type(&resolved, &argument.ty, argument.span);
-                        continue;
-                    }
-                    match self.type_constraints.constrain(&resolved, &argument.ty, argument.span) {
-                        Ok(()) => {
-                            if let Ok(resolved) = self.type_constraints.resolve(field_type) && !resolved.contains_inference() {
-                                self.expect_type(&resolved, &argument.ty, argument.span);
-                            }
-                        }
-                        Err(conflict) => self.error(argument.span, &format!("expected {}, found {}", conflict.expected, conflict.actual), "check.type-mismatch"),
-                    }
-                } else { self.expect_type(field_type, &argument.ty, argument.span); }
+                self.expect_type(field_type, &actual, call_arg_span_arena(arena, &arg.kind));
             }
         }
         for name in fields.keys() {
@@ -665,7 +671,7 @@ impl Checker {
                     "check.record-constructor");
             }
         }
-        (if self.diagnostics.len() == diagnostics_before { expected } else { Type::Invalid }, arguments)
+        expected
     }
 
     pub(super) fn check_constructor_call_arena(
@@ -678,37 +684,22 @@ impl Checker {
         expected_context: Option<&Type>,
     ) -> Type {
         if let Some(info) = self.tag_variants.get(&Name::intern(name)).cloned() {
-            let expression = self.current_expression.map(|expression| self.expression_identity(arena, expression));
-            let before = self.diagnostics.len();
-            let parameters = info.field_types.iter().enumerate().map(|(slot, ty)| super::FunctionParamSig {
-                name: args.get(slot).and_then(|argument| match argument.kind { ArenaCallArgKind::Named { name, .. } => Some(name), _ => None }).unwrap_or_else(|| Name::intern("")),
-                ty: ty.clone(), schema_expectation: None, defaulted: false, rest: false,
-            }).collect::<Vec<_>>();
-            let Ok(arguments) = self.check_expanded_constructor_arguments(arena, source, args, &parameters, span) else { return Type::Invalid; };
-            if arguments.len() != info.field_count {
+            if args.len() != info.field_count {
                 self.error(
                     span,
                     &format!(
                         "tag constructor `{name}` expects {} argument(s), got {}",
                         info.field_count,
-                        arguments.len()
+                        args.len()
                     ),
                     "check.arity",
                 );
             }
-            for (argument, expected_ty) in arguments.iter().zip(info.field_types.iter()) {
-                if matches!(argument.value, crate::sema::arguments::ArgumentValueSource::PositionalSplice(_)) { self.error(argument.span, "tag constructors require fixed arguments", "check.splice-target"); }
-                self.expect_type(expected_ty, &argument.ty, argument.span);
+            for (arg, expected_ty) in args.iter().zip(info.field_types.iter()) {
+                let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(expected_ty));
+                self.expect_type(expected_ty, &actual, call_arg_span_arena(arena, &arg.kind));
             }
-            let result = Type::Tag(info.type_name);
-            if self.diagnostics.len() == before && let Some(expression) = expression {
-                let member = match arena.arena.expr(expression.expression).kind {
-                    ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind { ArenaExprKind::Ident(member) | ArenaExprKind::Field { name: member, .. } => member, _ => return result },
-                    _ => return result,
-                };
-                self.record_graph_nominal_constructor(arena, expression, &result, &vec![None; info.field_types.len()], &info.field_types, &arguments, &(0..arguments.len()).collect::<Vec<_>>(), member, span);
-            }
-            return result;
+            return Type::Tag(info.type_name);
         }
         match name {
             "Ok" => {
@@ -717,49 +708,39 @@ impl Checker {
                 let previous = std::mem::replace(&mut self.expected_schema, schema);
                 let ty = args.first().map_or(Type::Unit, |arg| self.check_call_arg_arena(arena, source, &arg.kind, expected));
                 self.expected_schema = previous;
-                let mut actuals = args.first().map(|_| ty.clone()).into_iter().collect::<Vec<_>>();
-                for argument in args.iter().skip(1) { actuals.push(self.check_call_arg_arena(arena, source, &argument.kind, None)); }
                 let error = match expected_context {
                     Some(Type::Result(_, error)) => error.as_ref().clone(),
                     _ => Type::Error,
                 };
-                let result = Type::Result(Box::new(ty.clone()), Box::new(error));
-                if self.graph_generation {
-                    let Some(sources) = Self::fixed_constructor_argument_sources(arena, args) else { return Type::Invalid; };
-                    self.record_graph_constructor_operation(arena, &actuals, &(0..args.len()).collect::<Vec<_>>(), sources, Some(&result), span, crate::sema::operation_graph::ValueConstructor::Ok)
-                } else { result }
+                Type::Result(Box::new(ty), Box::new(error))
             }
             "Err" => {
-                use crate::sema::arguments::bind_err_arguments;
+                use crate::sema::arguments::{expand_named_arguments, bind_err_arguments};
                 let expected = match expected_context { Some(Type::Result(_, error)) => Some(error.as_ref()), _ => None };
-                let parameters = [
-                    super::FunctionParamSig { name: Name::intern("error"), ty: expected.cloned().unwrap_or(Type::Unknown), schema_expectation: None, defaulted: false, rest: false },
-                    super::FunctionParamSig { name: Name::intern("cause"), ty: Type::Error, schema_expectation: None, defaulted: true, rest: false },
-                ];
-                let Ok(expanded) = self.check_expanded_constructor_arguments(arena, source, args, &parameters, span) else { return Type::Invalid; };
+                let previous = std::mem::replace(&mut self.expected_schema, None);
+                let types = args.iter().map(|arg| {
+                    let outer = !matches!(arg.kind, ArenaCallArgKind::Named { name, .. } if name == "cause");
+                    self.check_call_arg_arena(arena, source, &arg.kind, if outer { expected } else { None })
+                }).collect::<Vec<_>>();
+                self.expected_schema = previous;
+                let expanded = expand_named_arguments(arena, args, |expr| args.iter().zip(&types).find_map(|(arg, ty)| {
+                    let value = match arg.kind {
+                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value,
+                        _ => return None,
+                    };
+                    (value == expr).then(|| ty.clone())
+                })).expect("named spreads are expanded before constructor checking");
                 let binding = match bind_err_arguments(&expanded) {
                     Ok(binding) => binding,
                     Err(error) => { self.error(error.span, &error.message, "check.err-arguments"); return Type::Invalid; }
                 };
                 let mut outer = Type::Error;
                 let has_cause = binding.argument_slots.contains(&1);
-                for (arg, &slot) in expanded.iter().zip(&binding.argument_slots) {
+                for (arg, slot) in expanded.iter().zip(binding.argument_slots) {
                     if slot == 0 { outer = arg.ty.clone(); }
                     if slot == 1 || has_cause { self.expect_type(&Type::Error, &arg.ty, arg.span); }
                 }
-                let success = if let Some(Type::Result(success, _)) = expected_context {
-                    success.as_ref().clone()
-                } else if self.graph_generation {
-                    match self.generic.borrow_mut().facts.graph.fresh(self.local_initializer_level.unwrap_or(if self.current_generic.is_some() { 2 } else { 1 }), span) {
-                        Ok(success) => Type::Graph(success),
-                        Err(_) => Type::Invalid,
-                    }
-                } else { Type::Unknown };
-                let result = Type::Result(Box::new(success), Box::new(outer));
-                if self.graph_generation {
-                    let sources = expanded.iter().map(|argument| super::SolvedArgumentSource { entry_index: argument.entry_index, name: argument.name, value: argument.value, span: argument.span }).collect();
-                    self.record_graph_constructor_operation(arena, &expanded.iter().map(|argument| argument.ty.clone()).collect::<Vec<_>>(), &binding.argument_slots, sources, Some(&result), span, crate::sema::operation_graph::ValueConstructor::Err)
-                } else { result }
+                Type::Result(Box::new(Type::Unknown), Box::new(outer))
             }
             "Error" => {
                 self.error(
@@ -794,8 +775,11 @@ impl Checker {
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
                 Type::Result(Box::new(Type::Str), Box::new(Type::Error))
             }
-            "Path" => self.check_graph_value_constructor(arena, source, args, span, crate::sema::operation_graph::ValueConstructor::Path),
-            "range" => self.check_graph_value_constructor(arena, source, args, span, crate::sema::operation_graph::ValueConstructor::Range),
+            "Path" => {
+                self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
+                Type::Path
+            }
+            "range" if args.len() == 1 || args.len() == 2 => Type::Stream(Box::new(Type::Int)),
             _ => {
                 self.record_effect_contract(&None, name);
                 self.error(
@@ -806,72 +790,6 @@ impl Checker {
                 Type::Unknown
             }
         }
-    }
-
-    fn check_graph_value_constructor(&mut self, arena: &ArenaProgram, source: &str, args: &[ArenaCallArg], span: Span, kind: crate::sema::operation_graph::ValueConstructor) -> Type {
-        let expected = if kind == crate::sema::operation_graph::ValueConstructor::Path { Type::Str } else { Type::Int };
-        let actuals = args.iter().map(|argument| self.check_call_arg_arena(arena, source, &argument.kind, Some(&expected))).collect::<Vec<_>>();
-        let Some(sources) = Self::fixed_constructor_argument_sources(arena, args) else { return Type::Invalid; };
-        self.record_graph_constructor_operation(arena, &actuals, &(0..actuals.len()).collect::<Vec<_>>(), sources, None, span, kind)
-    }
-
-    fn fixed_constructor_argument_sources(arena: &ArenaProgram, args: &[ArenaCallArg]) -> Option<Vec<super::SolvedArgumentSource>> {
-        use crate::sema::arguments::ArgumentValueSource;
-        args.iter().enumerate().map(|(entry_index, argument)| {
-            let (name, value, span) = match argument.kind {
-                ArenaCallArgKind::Positional(value) => (None, ArgumentValueSource::Expression(value), arena.arena.expr(value).span),
-                ArenaCallArgKind::Named { name, value, span } => (Some(name), ArgumentValueSource::Expression(value), arena.arena.span(span)),
-                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
-            };
-            Some(super::SolvedArgumentSource { entry_index, name, value, span })
-        }).collect()
-    }
-
-    fn record_graph_constructor_operation(&mut self, arena: &ArenaProgram, actuals: &[Type], supplied_slots: &[usize], sources: Vec<super::SolvedArgumentSource>, expected: Option<&Type>, span: Span, kind: crate::sema::operation_graph::ValueConstructor) -> Type {
-        use crate::sema::inference::{OperationCall, EffectSummary, EffectSet};
-        let Some(expression) = self.current_expression else { return Type::Invalid; };
-        let identity = self.expression_identity(arena, expression);
-        if !self.graph_generation { return self.generic.borrow().facts.expressions.get(&identity).map(|&ty| self.graph_view(ty)).unwrap_or(Type::Invalid); }
-        let outcome = (|| {
-            let arguments = actuals.iter().map(|actual| self.graph_type(actual, span)).collect::<Result<Vec<_>, _>>()?;
-            let expected = expected.map(|expected| self.graph_type(expected, span)).transpose()?;
-            let level = self.local_initializer_level.unwrap_or(if kind == crate::sema::operation_graph::ValueConstructor::Err {
-                if self.current_generic.is_some() { 2 } else { 1 }
-            } else if self.current_generic.is_some() { 1 } else { 0 });
-            let mut state = self.generic.borrow_mut();
-            let family = {
-                let super::generic::GenericState { facts, language_operations, .. } = &mut *state;
-                language_operations.constructor_family(&mut facts.graph, kind, span)?
-            };
-            let candidates = state.facts.graph.family(family)?.iter().copied().filter(|candidate| matches!(state.language_operations.metadata(&state.facts.graph, *candidate), Ok(metadata) if matches!(metadata.operation, crate::sema::operation_graph::PreparedLanguageOperation::Constructor { arity, .. } if arity == arguments.len()))).collect::<Vec<_>>();
-            if candidates.is_empty() {
-                drop(state);
-                self.graph_boundary_error(span, "incorrect constructor arity", "check.arity");
-                return Ok(Type::Invalid);
-            }
-            let family = state.facts.graph.register_family(&candidates)?;
-            let result = state.facts.graph.fresh(level, span)?;
-            let effects = EffectSummary::Closed(EffectSet::EMPTY);
-            let reason = state.facts.graph.reason(span, None)?;
-            if arguments.len() != supplied_slots.len() || arguments.len() != sources.len() { return Err(crate::sema::inference::InferenceError::InvalidScheme); }
-            let mut formal_arguments = vec![None; arguments.len()];
-            for (&argument, &slot) in arguments.iter().zip(supplied_slots) {
-                let target = formal_arguments.get_mut(slot).ok_or(crate::sema::inference::InferenceError::InvalidScheme)?;
-                if target.replace(argument).is_some() { return Err(crate::sema::inference::InferenceError::InvalidScheme); }
-            }
-            let requirement = state.facts.graph.require_operation(family, OperationCall { binding: crate::sema::inference::OperationBinding::Slots, effect_mode: crate::sema::inference::OperationEffectMode::AvailableBudget, mono_authority: None, declared_error_bound: None, receiver: None, arguments: formal_arguments, result, effects, effect_bindings: Vec::new(), output_effect_bindings: Vec::new() }, reason)?;
-            state.facts.graph.solve()?;
-            if let Some(expected) = expected { state.facts.graph.assignable(expected, result, reason)?; state.facts.graph.solve()?; }
-            drop(state);
-            self.record_argument_source_rows(identity, sources)?;
-            let mut state = self.generic.borrow_mut();
-            if let Some(owner) = self.current_generic { state.pending.get_mut(&owner).unwrap().requirements.push(requirement); state.facts.expression_owners.insert(identity, owner); }
-            state.facts.operations.insert(identity, super::SolvedOperation { requirement, result, effects, receiver: None, binding: super::CallBinding { supplied_slots: supplied_slots.to_vec(), default_slots: Vec::new(), rest_slot: None, dynamic: None }, argument_coercions: Vec::new(), actual_arguments: arguments, caller: self.current_generic });
-            state.facts.expressions.insert(identity, result);
-            drop(state);
-            Ok(self.graph_view(result))
-        })();
-        match outcome { Ok(result) => result, Err(error) => { self.graph_error(span, error); Type::Invalid } }
     }
 
     pub(super) fn check_abort_call_arena(
@@ -917,7 +835,6 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
     ) -> Type {
-        if let Some(result) = self.check_graph_builtin_error_constructor(arena, source, family, variant, args, span) { return result; }
         let Some(info) = self
             .error_families
             .get(&family)
@@ -931,54 +848,56 @@ impl Checker {
             return Type::Error;
         };
 
-        let expression = self.current_expression.map(|expression| self.expression_identity(arena, expression));
-        let before = self.diagnostics.len();
-        let parameters = info.fields.iter().map(|(&name, ty)| super::FunctionParamSig { name, ty: ty.clone(), schema_expectation: None, defaulted: false, rest: false }).collect::<Vec<_>>();
-        let Ok(arguments) = self.check_expanded_constructor_arguments(arena, source, args, &parameters, span) else { return Type::Invalid; };
         let mut seen = FxHashSet::default();
         let field_names: Vec<_> = info.fields.keys().copied().collect();
         let mut positional_index = 0usize;
-        let mut slots = Vec::new();
-        for argument in &arguments {
-            if matches!(argument.value, crate::sema::arguments::ArgumentValueSource::PositionalSplice(_)) {
-                self.error(argument.span, "error constructors do not accept argument splices", "check.splice-target");
-                continue;
-            }
-            let (name, expected) = match argument.name {
-                Some(name) => {
-                    let Some(expected) = info.fields.get(&name) else {
+        for arg in args {
+            let (name, expected) = match &arg.kind {
+                ArenaCallArgKind::Named { name, .. } => {
+                    let Some(expected) = info.fields.get(name) else {
                         self.error(
-                            argument.span,
+                            call_arg_span_arena(arena, &arg.kind),
                             "unknown error payload field",
                             "check.error-constructor",
                         );
+                        self.check_call_arg_arena(arena, source, &arg.kind, None);
                         continue;
                     };
-                    (name, expected.clone())
+                    (*name, expected.clone())
                 }
-                None => {
+                ArenaCallArgKind::Positional(_) => {
                     let Some(name) = field_names.get(positional_index).copied() else {
                         self.error(
-                            argument.span,
+                            call_arg_span_arena(arena, &arg.kind),
                             "too many error constructor arguments",
                             "check.arity",
                         );
+                        self.check_call_arg_arena(arena, source, &arg.kind, None);
                         continue;
                     };
                     positional_index += 1;
                     let expected = info.fields.get(&name).cloned().unwrap_or(Type::Unknown);
                     (name, expected)
                 }
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
+                    self.error(
+                        call_arg_span_arena(arena, &arg.kind),
+                        "error constructors do not accept argument splices",
+                        "check.splice-target",
+                    );
+                    self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    continue;
+                }
             };
             if !seen.insert(name) {
                 self.error(
-                    argument.span,
+                    call_arg_span_arena(arena, &arg.kind),
                     "duplicate error payload field",
                     "check.error-constructor",
                 );
             }
-            self.expect_type(&expected, &argument.ty, argument.span);
-            slots.push(field_names.iter().position(|field| *field == name).unwrap());
+            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
+            self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
         for name in info.fields.keys() {
             if !seen.contains(name) {
@@ -989,11 +908,7 @@ impl Checker {
                 );
             }
         }
-        let result = Type::ErrorVariant { family, variant };
-        if self.diagnostics.len() == before && let Some(expression) = expression {
-            self.record_graph_nominal_constructor(arena, expression, &result, &field_names.iter().copied().map(Some).collect::<Vec<_>>(), &info.fields.values().cloned().collect::<Vec<_>>(), &arguments, &slots, variant, span);
-        }
-        result
+        Type::ErrorVariant { family, variant }
     }
 
     pub(super) fn check_module_call_arena(
@@ -1054,20 +969,7 @@ impl Checker {
             return Type::Unknown;
         };
         if module == "process" && name == "command_argv" {
-            if self.graph_generation {
-                return self.check_graph_command_argv_call(arena, source, args, span, expected_context);
-            }
             return self.check_process_command_argv_call_arena(arena, source, args, span);
-        }
-        if migration.is_none() && overloads.iter().all(|signature| signature.arg_check == ApiArgCheck::Standard
-            && signature.semantic_rule == crate::modules::signature::SemanticRule::Standard) {
-            return self.check_graph_module_call(arena, source, module, name, args, span, expected_context);
-        }
-        if self.graph_generation && migration.is_none() && overloads.iter().all(|signature|
-            signature.arg_check == ApiArgCheck::JsonCompatible || signature.arg_check == ApiArgCheck::HashVerifyFile
-                || matches!(signature.semantic_rule, crate::modules::signature::SemanticRule::CliDescriptor | crate::modules::signature::SemanticRule::CliCommands))
-        {
-            return self.check_graph_special_module_call(arena, source, module, name, args, span, expected_context);
         }
         let (sig, args_checked) = if overloads.len() == 1 {
             (&overloads[0], false)
@@ -1108,7 +1010,7 @@ impl Checker {
                     self.check_module_sig_args_arena(arena, source, args, sig, span);
                 }
             }
-            ApiArgCheck::PathLikeSingle | ApiArgCheck::ResultContext | ApiArgCheck::CommandArgv => {
+            ApiArgCheck::PathLikeSingle | ApiArgCheck::ResultContext => {
                 if !args_checked {
                     self.check_module_sig_args_arena(arena, source, args, sig, span);
                 }
@@ -1344,7 +1246,7 @@ impl Checker {
         }
     }
 
-    pub(super) fn check_static_positive_call_int_arena(
+    fn check_static_positive_call_int_arena(
         &mut self,
         arena: &ArenaProgram,
         expr_id: ExprId,

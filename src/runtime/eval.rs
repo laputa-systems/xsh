@@ -19,7 +19,7 @@ use crate::runtime::value::{
     NetJobValue, FsRootValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue, RuntimeError,
     StreamValue, Value,
 };
-use crate::sema::check::{CheckOutput, Checker, CompactBodyProbeOutput, CompactDeclOutput};
+use crate::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, NameText, QualifiedName};
@@ -45,11 +45,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
 mod indexed;
-mod callable_value;
-mod host_environment;
-pub use callable_value::RuntimeCallableValue;
-mod native_callable_value;
-pub use native_callable_value::RuntimeNativeCallableValue;
 mod lower;
 use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
@@ -465,7 +460,7 @@ pub(super) struct TestCall {
 
 macro_rules! build_id {
     ($name:ident) => {
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(transparent)]
         struct $name(u32);
 
@@ -488,62 +483,6 @@ build_id!(BuildIntId);
 build_id!(BuildBoolId);
 build_id!(BuildTopStmtId);
 
-// Bare terminal identifiers belong to original statements. Their prepared
-// use names the physical row that survives scalar specialization.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-enum BuildPatternUseRow {
-    Expression(BuildExprId),
-    Int(BuildIntId),
-    Bool(BuildBoolId),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-enum BuildPatternControlRow { Expression(BuildExprId), Statement(BuildStmtId) }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum BuildPatternAdmissionBody { Expression(BuildExprId), Statements(Box<[BuildStmtId]>) }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct BuildPatternResultSource {
-    origin: crate::sema::check::ExpressionIdentity,
-    ty: crate::sema::inference::TypeId,
-    scope: Option<crate::sema::inference::SchemeId>,
-    caller: Option<crate::sema::check::DeclarationIdentity>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum BuildPatternResultTerminalSource {
-    Expression(BuildPatternResultSource),
-    PatternCapture(crate::sema::check::PatternCaptureIdentity),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct BuildPatternResultBody {
-    instruction: BuildExprId,
-    source: BuildPatternResultSource,
-    condition: Option<(BuildExprId, BuildPatternResultSource)>,
-    terminal: Option<(BuildStmtId, BuildExprId, BuildPatternResultTerminalSource, crate::sema::check::StatementIdentity)>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct BuildPatternConditionalResult {
-    source: BuildPatternResultSource,
-    branches: Box<[BuildPatternResultBody]>,
-    fallback: BuildPatternResultBody,
-}
-
-// The original condition selects one admitted branch. Its user body remains
-// separate from the synthetic Bool body used to implement pattern testing.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct BuildPatternAdmission {
-    control: BuildPatternControlRow,
-    control_origin: indexed::generic::OperationSourceOrigin,
-    condition_origin: crate::sema::check::ExpressionIdentity,
-    branch: u32,
-    body: BuildPatternAdmissionBody,
-    result: Option<Box<BuildPatternConditionalResult>>,
-}
-
 #[derive(Clone, Debug, Default)]
 struct BuildScratch {
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
@@ -554,177 +493,9 @@ struct BuildScratch {
     duration_binary_expressions: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
     patterns: Vec<BuildPatternRow>,
-    pattern_origins: FxHashMap<BuildPatternId, crate::sema::check::PatternIdentity>,
-    pattern_admissions: FxHashMap<BuildExprId, BuildPatternAdmission>,
-    pattern_capture_slots: BTreeMap<crate::sema::check::PatternCaptureIdentity, usize>,
-    pattern_use_origins: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::PatternCaptureIdentity>,
-    callable_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildCallableBindingOrigin>,
-    callable_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
-    module_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, indexed::full::BuildModuleBindingOrigin>,
-    value_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildValueBindingOrigin>,
-    field_presence_controls: BTreeMap<crate::sema::check::StatementIdentity, BuildStmtId>,
-    value_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
-    with_value_binding_origins: BTreeMap<crate::sema::check::WithBindingIdentity, BuildValueBindingOrigin>,
-    guard_error_binding_origins: BTreeMap<crate::sema::check::GuardErrorBindingIdentity, BuildValueBindingOrigin>,
-    with_value_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::WithBindingIdentity>,
-    guard_error_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::GuardErrorBindingIdentity>,
-    iteration_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, BuildIterationBindingOrigin>,
-    iteration_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
-    line_scan_origins: FxHashMap<BuildStmtId, lower::BuildLineScanOrigin>,
-    fallback_creation_checks: FxHashMap<BuildExprId, indexed::full::BuildFallbackCreationCheck>,
-    callable_receiver_origins: FxHashMap<BuildExprId, BuildCallableReceiverOrigin>,
-    tag_equality_origins: FxHashMap<BuildExprId, indexed::full::BuildTagEqualitySource>,
-    membership_origins: FxHashMap<BuildExprId, indexed::full::BuildMembershipSource>,
-    folded_memberships: FxHashMap<BuildBoolId, indexed::full::BuildFoldedMembership>,
-    callable_receiver_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
-    native_receiver_origins: FxHashMap<BuildExprId, indexed::full::BuildSavedNativeReceiverOrigin>,
-    native_receiver_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
-    comprehension_origins: FxHashMap<BuildExprId, lower::BuildComprehensionOrigin>,
-    named_map_key_origins: FxHashMap<BuildExprId, indexed::full::BuildNamedMapKeyOrigin>,
-    folded_native_receivers: FxHashMap<BuildIntId, indexed::full::BuildFoldedNativeReceiver>,
-    folded_literal_comparison: FxHashMap<BuildBoolId, indexed::full::BuildLiteralComparison>,
-    stage_block_callback_origins: FxHashMap<BuildExprId, lower::BuildStageBlockCallbackOrigin>,
-    stage_fusion_origins: FxHashMap<BuildExprId, lower::BuildStageFusionOrigin>,
-    hash_policy_packets: FxHashMap<BuildExprId, lower::hash_arguments::BuildHashPolicyPacket>,
-    byte_at_fallback_origins: FxHashMap<BuildIntId, indexed::full::BuildByteAtFallbackOriginal>,
-    record_constructor_sources: FxHashMap<BuildExprId, lower::constructor_prepare::OriginalRecordConstructorSource>,
-    constant_sources: FxHashMap<BuildExprId, indexed::generic::OriginalConstantSource>,
-    record_update_sources: FxHashMap<BuildExprId, lower::record_update::OriginalRecordUpdate>,
-    conditional_result_origins: BTreeMap<crate::sema::check::ExpressionIdentity, indexed::full::BuildConditionalResult>,
-    error_constructor_sources: FxHashMap<BuildExprId, lower::error_constructor::OriginalErrorConstructorSource>,
-    tag_constructor_sources: FxHashMap<BuildExprId, lower::tag_constructor::OriginalTagConstructorSource>,
-    host_binding_reads: BTreeMap<crate::sema::check::ExpressionIdentity, lower::host_bindings::BuildHostBindingRead>,
-    lexical_capture_reads: BTreeMap<crate::sema::check::ExpressionIdentity, lower::lexical_captures::BuildLexicalCaptureRead>,
-    captured_callable_reads: BTreeMap<crate::sema::check::ExpressionIdentity, lower::lexical_captures::BuildLexicalCaptureRead>,
-    formatted_paths: FxHashMap<BuildExprId, lower::paths::OriginalFormattedPath>,
-    container_creation_checks: FxHashMap<BuildExprId, indexed::full::BuildContainerCreationCheck>,
-    mutable_path_writes: FxHashMap<BuildStmtId, lower::mutable_path::BuildMutablePathWrite>,
-    mutable_binding_origins: BTreeMap<crate::sema::check::BindingIdentity, lower::mutable_binding::BuildMutableBindingOrigin>,
-    mutable_driver_bindings: BTreeMap<crate::sema::check::BindingIdentity, lower::mutable_binding::BuildMutableDriverBinding>,
-    mutable_driver_writes: FxHashMap<BuildTopStmtId, lower::mutable_binding::BuildMutableDriverWrite>,
-    mutable_binding_writes: FxHashMap<BuildStmtId, lower::mutable_binding::BuildMutableBindingWrite>,
-    mutable_refinement_guards: FxHashMap<BuildStmtId, crate::sema::check::StatementIdentity>,
-    result_receiver_origins: FxHashMap<BuildExprId, lower::BuildResultReceiver>,
-    mutable_binding_uses: BTreeMap<crate::sema::check::ExpressionIdentity, crate::sema::check::BindingIdentity>,
-    mutable_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
-    int_mutable_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
-    bool_mutable_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
-    index_origins: FxHashMap<BuildExprId, indexed::full::BuildIndexOrigin>,
-    context_scope_origins: FxHashMap<BuildExprId, indexed::full::BuildContextScopeOrigin>,
-    run_producer_origins: FxHashMap<BuildExprId, indexed::full::BuildRunProducerOrigin>,
-    try_capture_origins: FxHashMap<BuildExprId, indexed::full::BuildTryCaptureOrigin>,
-    value_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
-    int_value_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
-    bool_value_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::BindingIdentity)>,
-    with_value_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::WithBindingIdentity)>,
-    guard_error_statement_reads: FxHashMap<BuildExprId, (crate::sema::check::StatementIdentity, crate::sema::check::GuardErrorBindingIdentity)>,
-    int_with_value_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::WithBindingIdentity)>,
-    int_guard_error_statement_reads: FxHashMap<BuildIntId, (crate::sema::check::StatementIdentity, crate::sema::check::GuardErrorBindingIdentity)>,
-    bool_with_value_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::WithBindingIdentity)>,
-    bool_guard_error_statement_reads: FxHashMap<BuildBoolId, (crate::sema::check::StatementIdentity, crate::sema::check::GuardErrorBindingIdentity)>,
-    record_sources: FxHashMap<BuildExprId, lower::record_binding::OriginalRecordSource>,
-    compiler_argument_wrappers: FxHashMap<BuildExprId, (BuildExprId, BuildPatternId, BuildExprId, usize)>,
-    optional_receiver_guards: FxHashMap<BuildExprId, indexed::full::BuildOptionalReceiverGuard>,
-    argument_binding_origins: FxHashMap<BuildExprId, BuildArgumentBindingOrigin>,
-    argument_binding_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
-    argument_record_binding_origins: FxHashMap<BuildExprId, BuildArgumentRecordBindingOrigin>,
-    argument_record_binding_initializers: FxHashMap<(BuildExprId, usize), BuildExprId>,
-    pattern_statement_use_origins: BTreeMap<crate::sema::check::StatementIdentity, (BuildPatternUseRow, crate::sema::check::PatternCaptureIdentity)>,
-    // Specialization updates the physical row of an original statement use
-    // directly, without scanning unrelated capture statements.
-    pattern_statement_use_sources: FxHashMap<BuildExprId, crate::sema::check::StatementIdentity>,
-    pattern_statement_use_rows: FxHashMap<BuildPatternUseRow, crate::sema::check::StatementIdentity>,
     ints: Vec<BuildIntRow>,
-    int_expression_origins: FxHashMap<BuildIntId, crate::sema::check::ExpressionIdentity>,
     bools: Vec<BuildBoolRow>,
-    bool_expression_origins: FxHashMap<BuildBoolId, crate::sema::check::ExpressionIdentity>,
     top_statements: Vec<BuildTopStmtRow>,
-}
-
-/// The original immutable binding and its emitted initialization row remain
-/// paired so a callable read cannot acquire another same-signature value's
-/// creation environment by sharing a slot number.
-#[derive(Clone, Debug)]
-struct BuildCallableBindingOrigin {
-    statement: crate::sema::check::StatementIdentity,
-    row: BuildStmtId,
-    slot: usize,
-    initializer: BuildExprId,
-    initializer_source: crate::sema::check::ExpressionIdentity,
-    source_type: crate::sema::inference::ScopedRoot,
-}
-
-/// A checked immutable data binding keeps its original definition and actual
-/// initialization row. The initializer's scoped type remains independent of
-/// a written binding annotation or a later use of the allocated slot.
-#[derive(Clone, Debug)]
-struct BuildValueBindingOrigin {
-    statement: crate::sema::check::StatementIdentity,
-    row: BuildStmtId,
-    slot: usize,
-    initializer: BuildExprId,
-    initializer_source: crate::sema::check::ExpressionIdentity,
-    source_type: crate::sema::inference::ScopedRoot,
-    initializer_type: crate::sema::inference::ScopedRoot,
-}
-
-/// A loop item belongs to one original iteration operation and binding target.
-/// Its emitted loop and operand remain separate from later identifier reads.
-#[derive(Clone, Debug)]
-struct BuildIterationBindingOrigin {
-    statement: crate::sema::check::StatementIdentity,
-    binding: crate::sema::check::BindingIdentity,
-    iterator_source: crate::sema::check::ExpressionIdentity,
-    caller: Option<crate::sema::check::DeclarationIdentity>,
-    selected: crate::sema::inference::CandidateId,
-    input: crate::sema::inference::ScopedRoot,
-    item: crate::sema::inference::ScopedRoot,
-    binding_type: crate::sema::inference::ScopedRoot,
-    iterator_parameter: Option<(crate::sema::check::DeclarationIdentity, u32)>,
-    producer: lower::BuildIterationProducer,
-    row: BuildStmtId,
-    iterator: BuildExprId,
-    carrier: Option<BuildExprId>,
-    slot: usize,
-}
-
-/// A saved method receiver retains its original immutable callable binding;
-/// it is separate from the supplied argument recipes of the invocation.
-#[derive(Clone, Debug)]
-struct BuildCallableReceiverOrigin {
-    capture: Option<lower::callable_binding::BuildCapturedCallableReceiver>,
-    origin: crate::sema::check::ExpressionIdentity,
-    binding: crate::sema::check::BindingIdentity,
-    initializer: BuildExprId,
-    slot: usize,
-    wrapper: Option<(BuildExprId, BuildPatternId)>,
-}
-
-/// Saved call arguments have compiler-generated reads. Their original recipes
-/// remain separate from those reads, and the actual binding wrapper proves
-/// which initialization supplies each read before parameter reordering.
-#[derive(Clone, Debug)]
-struct BuildArgumentBindingOrigin {
-    call: crate::sema::check::ExpressionIdentity,
-    ordinal: usize,
-    recipe: crate::sema::check::SolvedArgumentSource,
-    initializer: BuildExprId,
-    slot: usize,
-    wrapper: Option<(BuildExprId, BuildPatternId)>,
-}
-
-/// A finite named spread saves its original record once before projecting
-/// fields. That record read has its own authored entry and initialization
-/// authority, independently of the argument ordinals supplied by its fields.
-#[derive(Clone, Debug)]
-struct BuildArgumentRecordBindingOrigin {
-    call: crate::sema::check::ExpressionIdentity,
-    entry_index: usize,
-    record: crate::sema::check::ExpressionIdentity,
-    initializer: BuildExprId,
-    slot: usize,
-    source_type: crate::sema::inference::ScopedRoot,
-    wrapper: Option<(BuildExprId, BuildPatternId)>,
 }
 
 impl BuildScratch {
@@ -767,14 +538,6 @@ impl BuildScratch {
 
 #[derive(Clone, Debug)]
 struct FunctionBuild {
-    // The declaration selects a scheme in the program-owned solved graph.
-    solved_declaration: Option<crate::sema::check::DeclarationIdentity>,
-    // Legacy-checked declarations retain exact trees until they acquire a
-    // graph-owned signature; physical storage tags cannot reconstruct them.
-    legacy_checked_signature: Option<(Vec<Type>, Type)>,
-    // Scratch instructions keep arena identities until final instruction IDs exist.
-    expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
-    stage_call_origins: FxHashMap<BuildExprId, crate::sema::check::StageIdentity>,
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -804,10 +567,6 @@ struct FunctionHeader {
 
 #[derive(Clone, Debug, Default)]
 struct ProgramBuild {
-    // One retained owner covers declaration, expression, and call proof handles.
-    solved: Option<Arc<crate::sema::check::SolvedTypes>>,
-    expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
-    stage_call_origins: FxHashMap<BuildExprId, crate::sema::check::StageIdentity>,
     statements: Vec<Option<BuildTopStmtId>>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
@@ -847,10 +606,6 @@ impl LoweredFunctionKey {
 
     pub fn is_qualified(self) -> bool {
         matches!(self, Self::Qualified(_))
-    }
-
-    pub(crate) fn namespace(self) -> Option<Name> {
-        match self { Self::Name(_) => None, Self::Qualified(qualified) => Some(qualified.namespace) }
     }
 }
 
@@ -896,7 +651,6 @@ impl LoweredFunctionBlocker {
 
 #[derive(Clone, Debug)]
 pub struct LoweredFunctionUnit {
-    source_lowering_stats: FrontendLoweredStats,
     key: LoweredFunctionKey,
     kind: LoweredFunctionKind,
     source_span: Span,
@@ -905,16 +659,15 @@ pub struct LoweredFunctionUnit {
     param_count: usize,
     capture_count: usize,
     slot_count: usize,
+    dependency_edges: Vec<LoweredFunctionKey>,
     body: Option<FunctionBuild>,
     blocker: Option<LoweredFunctionBlocker>,
     blocker_detail: Option<(Span, String)>,
+    scc_member_count: usize,
+    scc_group: Option<usize>,
 }
 
 impl LoweredFunctionUnit {
-    pub(in crate::runtime::eval) fn source_lowering_stats(&self) -> FrontendLoweredStats {
-        self.source_lowering_stats
-    }
-
     pub fn key(&self) -> LoweredFunctionKey {
         self.key
     }
@@ -947,6 +700,10 @@ impl LoweredFunctionUnit {
         self.slot_count
     }
 
+    pub fn dependency_edges(&self) -> &[LoweredFunctionKey] {
+        &self.dependency_edges
+    }
+
     pub fn is_lowered(&self) -> bool {
         self.body.is_some()
     }
@@ -957,6 +714,18 @@ impl LoweredFunctionUnit {
 
     pub fn blocker_detail(&self) -> Option<&(Span, String)> {
         self.blocker_detail.as_ref()
+    }
+
+    pub fn scc_member_count(&self) -> usize {
+        self.scc_member_count
+    }
+
+    pub fn scc_group(&self) -> Option<usize> {
+        self.scc_group
+    }
+
+    pub fn is_scc_member(&self) -> bool {
+        self.scc_member_count > 1
     }
 
     fn lowered_body(&self) -> Option<FunctionBuild> {
@@ -1119,14 +888,10 @@ struct LoweredModuleExport {
 
 #[derive(Clone, Debug)]
 struct LoweredTopLevelSlot {
-    host_binding: Option<lower::host_bindings::HostBinding>,
-    lexical_binding: Option<crate::sema::check::BindingIdentity>,
     name: Name,
     slot: usize,
     kind: LoweredType,
     mutable: bool,
-    // Source construction keeps the semantic root; decoded slots use sealed type IDs.
-    source_type: Option<crate::sema::inference::ScopedRoot>,
 }
 
 // A driver owns slot copies of surrounding bindings. Script calls use scopes,
@@ -1137,25 +902,13 @@ struct IndexedRootSlots {
     bindings: Vec<(LoweredTopLevelSlot, LoweredValue)>,
 }
 
-// Host record storage identifies the binding value without keeping it alive.
-// Its original lowered storage remains usable only while that backing is live.
-struct IndexedRootRecord {
-    shape: std::sync::Weak<crate::runtime::value::RecordShapeData>,
-    values: std::sync::Weak<[Value]>,
-    lowered: LoweredValue,
-}
-
 #[derive(Clone, Debug)]
 struct LoweredTopLevelBinding {
-    host_binding: Option<lower::host_bindings::HostBinding>,
-    lexical_binding: Option<crate::sema::check::BindingIdentity>,
     kind: LoweredType,
     result_ok: Option<LoweredType>,
     checked: Option<Type>,
     mutable: bool,
     slot: bool,
-    // Physical storage cannot replace the binding's original type and scope.
-    source_type: Option<crate::sema::inference::ScopedRoot>,
 }
 
 #[derive(Clone, Debug)]
@@ -1174,8 +927,6 @@ enum LoweredReturnKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoweredType {
     Any,
-    // Parameter and return storage is selected by prepared scheme evidence.
-    Generic,
     Unit,
     Int,
     Float,
@@ -1207,28 +958,7 @@ type LoweredParamNames = SmallVec<[Name; 4]>;
 type LoweredParamKinds = SmallVec<[LoweredType; 4]>;
 type LoweredParamChecks = SmallVec<[Option<LoweredTypeCheck>; 4]>;
 type LoweredParamRest = SmallVec<[bool; 4]>;
-#[derive(Clone, Debug)]
-enum LoweredParamDefault {
-    None,
-    Constant(LoweredValue),
-    Expression,
-}
-
-type LoweredParamDefaults = SmallVec<[LoweredParamDefault; 4]>;
-type PendingParameterDefaults = SmallVec<[usize; 4]>;
-
-// Omission names a parameter position independently of its supplied value;
-// null is therefore never interpreted as a request to evaluate a default.
-#[derive(Default)]
-struct IndexedCallArguments {
-    values: Vec<LoweredValue>,
-    omitted_parameters: PendingParameterDefaults,
-}
-
-struct IndexedCallSlots {
-    slots: Vec<LoweredValue>,
-    pending_defaults: PendingParameterDefaults,
-}
+type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
 type BuildPatternIdSlots = SmallVec<[Option<usize>; 2]>;
 type LoweredCompFields = SmallVec<[(Name, Box<LoweredCompTarget>, Span); 4]>;
@@ -1645,7 +1375,6 @@ enum BuildExprRow {
         function: FunctionName,
         pure: bool,
     },
-    NativeCallableRef,
     PathFrom {
         value: BuildExprId,
         span: Span,
@@ -2433,6 +2162,8 @@ fn assign_lowered_bytes_view(slot: &mut LoweredValue, bytes: &Arc<[u8]>, start: 
 
 #[derive(Clone, Debug)]
 enum LoweredValue {
+    // This private marker survives argument binding only until callee entry.
+    OmittedArgument,
     Null,
     Unit,
     Int(i64),
@@ -2455,8 +2186,6 @@ enum LoweredValue {
     Stream(Box<StreamValue>),
     Pure(FunctionName),
     Proc(FunctionName),
-    Callable(RuntimeCallableValue),
-    NativeCallable(RuntimeNativeCallableValue),
     Error(Box<Value>),
     // Container payloads are shareable: reading a slot is a pointer bump
     // rather than a copy of every entry, and a mutation copies only when the
@@ -2737,7 +2466,7 @@ impl PartialEq for LoweredValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Null, Self::Null) => true,
-            (Self::Unit, Self::Unit) => true,
+            (Self::Unit, Self::Unit) | (Self::OmittedArgument, Self::OmittedArgument) => true,
             (Self::Int(left), Self::Int(right)) => left == right,
             (Self::Float(left), Self::Float(right)) => left == right,
             (Self::Duration(left), Self::Duration(right)) => left == right,
@@ -2762,8 +2491,6 @@ impl PartialEq for LoweredValue {
             (Self::Stream(left), Self::Stream(right)) => left == right,
             (Self::Pure(left), Self::Pure(right)) => left == right,
             (Self::Proc(left), Self::Proc(right)) => left == right,
-            (Self::Callable(left), Self::Callable(right)) => left == right,
-            (Self::NativeCallable(left), Self::NativeCallable(right)) => left == right,
             (Self::Error(left), Self::Error(right)) => left == right,
             (Self::Record(left), Self::Record(right)) => left == right,
             (Self::RecordVec(left), Self::RecordVec(right)) => left == right,
@@ -2815,6 +2542,7 @@ impl PartialEq for LoweredValue {
 impl LoweredValue {
     fn into_value(self) -> Value {
         match self {
+            Self::OmittedArgument => unreachable!("omitted argument escaped callee entry"),
             Self::Null => Value::Null,
             Self::Unit => Value::Unit,
             Self::Int(value) => Value::Int(value),
@@ -2837,8 +2565,6 @@ impl LoweredValue {
             Self::Stream(value) => Value::Stream(value),
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
-            Self::Callable(value) => Value::Callable(value),
-            Self::NativeCallable(value) => Value::NativeCallable(value),
             Self::Error(value) => *value,
             Self::Record(value) => Value::Record(RecordMap::from_name_values(
                 crate::runtime::eval::lower::take_shared(value)
@@ -2846,13 +2572,12 @@ impl LoweredValue {
                     .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
                     .collect(),
             )),
-            Self::RecordVec(value) => {
-                // Numeric projections depend on this field order, including
-                // the required prefix before any retained extra fields.
-                let (names, values): (Vec<_>, Vec<_>) = crate::runtime::eval::lower::take_shared(value)
-                    .into_iter().map(|(key, value)| (Arc::from(key.as_str().as_str()), value.into_value())).unzip();
-                Value::Record(RecordMap::shaped(&crate::runtime::value::RecordShape::new(names), values))
-            }
+            Self::RecordVec(value) => Value::Record(RecordMap::from_name_values(
+                crate::runtime::eval::lower::take_shared(value)
+                    .into_iter()
+                    .map(|(key, value)| (key, value.into_value()))
+                    .collect(),
+            )),
             Self::Stats {
                 blanks,
                 code,
@@ -2900,6 +2625,7 @@ impl LoweredValue {
     fn type_name(&self) -> &'static str {
         match self {
             Self::Null => "Null",
+            Self::OmittedArgument => "omitted argument",
             Self::Unit => "Unit",
             Self::Int(_) => "Int",
             Self::Float(_) => "Float",
@@ -2919,8 +2645,6 @@ impl LoweredValue {
             Self::Stream(_) => "Stream",
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
-            Self::Callable(value) => value.type_name(),
-            Self::NativeCallable(value) => value.type_name(),
             Self::Error(_) => "Error",
             Self::Record(_) | Self::RecordVec(_) | Self::Stats { .. } | Self::StatsBlob(_) => {
                 "Record"
@@ -3121,13 +2845,10 @@ pub(super) struct ModuleExportSignature {
 }
 
 pub struct Evaluator {
-    host_environment: host_environment::HostBindingEnvironment,
     sources: Arc<SourceMap>,
     command_name: String,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
-    indexed_module_bindings: FxHashMap<Name, FxHashMap<Name, Binding>>,
-    indexed_module_owners: Vec<Name>,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
     // compact declaration probe at load time so `module.require` can validate
@@ -3135,10 +2856,7 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
-    live_capture_cells: Arc<std::sync::Mutex<lowered_run::indexed_run::live_capture_cells::LiveCaptureCells>>,
-    last_lowering_stats: Option<FrontendLoweredStats>,
     indexed_root_slots: Option<IndexedRootSlots>,
-    indexed_root_records: FxHashMap<(usize, usize), IndexedRootRecord>,
     scope_write_revision: u64,
     // Resolved indices are keyed with the program they were resolved in and
     // hold it alive, because one evaluator resolves the same qualified key
@@ -3188,7 +2906,6 @@ pub struct Evaluator {
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
     net_pool_options: FxHashMap<String, NetPoolOptions>,
     utils_cache: FxHashMap<String, Value>,
-    prepared_utils_cache: lowered_run::PreparedUtilsCache,
     signal_hooks: FxHashMap<String, RegisteredSignalHook>,
     signal_handler_guards: Vec<SignalHandlerGuard>,
     active_process_groups: Vec<ActiveProcessGroup>,
@@ -3237,17 +2954,13 @@ impl Drop for Evaluator {
 }
 
 struct LoweredSharedState {
-    host_environment: host_environment::HostBindingEnvironment,
     sources: Arc<SourceMap>,
     command_name: String,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
-    indexed_module_bindings: FxHashMap<Name, FxHashMap<Name, Binding>>,
-    indexed_module_owners: Vec<Name>,
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
-    live_capture_cells: Arc<std::sync::Mutex<lowered_run::indexed_run::live_capture_cells::LiveCaptureCells>>,
     indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
@@ -3338,9 +3051,16 @@ impl Evaluator {
     }
 
     pub fn frontend_lowered_stats(&self) -> FrontendLoweredStats {
-        if let Some(stats) = self.last_lowering_stats { return stats; }
         if let Some(indexed) = &self.indexed_program {
-            return indexed.source_lowering_stats();
+            return FrontendLoweredStats {
+                function_count: indexed.function_count(),
+                constructed_functions: indexed.function_count(),
+                statement_count: 0,
+                expression_count: indexed.instruction_count(),
+                pattern_count: 0,
+                blocker_events: 0,
+                retained_estimate_bytes: indexed.store_retained_bytes(),
+            };
         }
         FrontendLoweredStats::default()
     }
@@ -3374,7 +3094,6 @@ impl Evaluator {
         let cwd =
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         let mut evaluator = Self {
-            host_environment: host_environment::HostBindingEnvironment::new(argv.clone()),
             sources,
             command_name,
             // The invocation name is available without reading process metadata.
@@ -3383,14 +3102,9 @@ impl Evaluator {
                 .and_then(|arg| arg.into_string().ok())
                 .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
-            indexed_module_bindings: FxHashMap::default(),
-            indexed_module_owners: Vec::new(),
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
-            live_capture_cells: Arc::new(std::sync::Mutex::new(Default::default())),
-            last_lowering_stats: None,
             indexed_root_slots: None,
-            indexed_root_records: FxHashMap::default(),
             scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: Arc::new(FxHashMap::default()),
@@ -3426,7 +3140,6 @@ impl Evaluator {
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
             utils_cache: FxHashMap::default(),
-            prepared_utils_cache: lowered_run::PreparedUtilsCache::default(),
             signal_hooks: FxHashMap::default(),
             signal_handler_guards: Vec::new(),
             active_process_groups: Vec::new(),
@@ -3527,16 +3240,12 @@ impl Evaluator {
 
     fn lowered_shared_state(&self) -> Arc<LoweredSharedState> {
         Arc::new(LoweredSharedState {
-            host_environment: self.host_environment.clone(),
             sources: self.sources.clone(),
             command_name: self.command_name.clone(),
             exe_path: self.exe_path.clone(),
             scopes: self.scopes.clone(),
-            indexed_module_bindings: self.indexed_module_bindings.clone(),
-            indexed_module_owners: self.indexed_module_owners.clone(),
             module_export_signatures: self.module_export_signatures.clone(),
             indexed_program: self.indexed_program.clone(),
-            live_capture_cells: self.live_capture_cells.clone(),
             indexed_dynamic_functions: self.indexed_dynamic_functions.clone(),
             tag_variants: self.tag_variants.clone(),
             error_families: self.error_families.clone(),
@@ -3553,19 +3262,13 @@ impl Evaluator {
 
     fn new_lowered_worker(shared: &LoweredSharedState) -> Self {
         Self {
-            host_environment: shared.host_environment.clone(),
             sources: shared.sources.clone(),
             command_name: shared.command_name.clone(),
             exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
-            indexed_module_bindings: shared.indexed_module_bindings.clone(),
-            indexed_module_owners: shared.indexed_module_owners.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
-            live_capture_cells: shared.live_capture_cells.clone(),
-            last_lowering_stats: None,
             indexed_root_slots: None,
-            indexed_root_records: FxHashMap::default(),
             scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
@@ -3603,7 +3306,6 @@ impl Evaluator {
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
             utils_cache: FxHashMap::default(),
-            prepared_utils_cache: lowered_run::PreparedUtilsCache::default(),
             signal_hooks: FxHashMap::default(),
             signal_handler_guards: Vec::new(),
             active_process_groups: Vec::new(),
@@ -3961,25 +3663,13 @@ impl Evaluator {
 
     /// Build, verify, and execute the indexed program. The arena is used only
     /// during construction and is never consulted by the installed evaluator.
-    pub fn eval(self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
-        self.eval_with_checked(program, source_id, None)
-    }
-
-    /// Prepare and execute the same arena from its existing checked result.
-    /// Checking failures remain failures and never trigger another checker.
-    pub fn eval_checked(self, program: &ArenaProgram, source_id: SourceId, checked: &CheckOutput) -> EvalOutput {
-        self.eval_with_checked(program, source_id, Some(checked))
-    }
-
-    fn eval_with_checked(mut self, program: &ArenaProgram, source_id: SourceId, checked: Option<&CheckOutput>) -> EvalOutput {
+    pub fn eval(mut self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
         let symbols = program.symbol_owner().clone();
         run_eval(move || {
             symbols.with_current(|| {
-                let prepared = match checked {
-                    Some(checked) => self.prepare_compact_indexed_only_from_checked(program, source_id, checked),
-                    None => self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false),
-                };
-                let plan = match prepared {
+                let plan = match self
+                    .prepare_compact_indexed_only_or_diagnostic(program, source_id, false)
+                {
                     Ok(plan) => plan,
                     Err(diagnostic) => {
                         let status = if diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check.")) { 2 } else { 1 };
@@ -4071,9 +3761,7 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map(|_| ())
-        .map_err(|error| {
-            if let Some(cause) = error.verification.as_ref() { return format!("{}: {}", error.construct, cause.message); }
-            match error.span {
+        .map_err(|error| match error.span {
             Some(span) => format!(
                 "{} at bytes {}..{}",
                 error.construct,
@@ -4081,7 +3769,6 @@ impl Evaluator {
                 span.end()
             ),
             None => error.construct.to_string(),
-            }
         })
     }
 
@@ -4211,7 +3898,6 @@ impl Evaluator {
         source_id: SourceId,
         allow_checker_only: bool,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
-        self.last_lowering_stats = Some(FrontendLoweredStats::default());
         let mut declarations = Checker::check_compact_declarations(program);
         if !declarations.diagnostics.is_empty() {
             return Err(declarations.diagnostics.remove(0));
@@ -4227,25 +3913,6 @@ impl Evaluator {
             declarations,
             bodies,
         )
-    }
-
-    pub(crate) fn prepare_compact_indexed_only_from_checked(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-        checked: &CheckOutput,
-    ) -> Result<CompactIndexedRunPlan, Diagnostic> {
-        self.last_lowering_stats = Some(FrontendLoweredStats::default());
-        program.symbol_owner().with_current(|| {
-            if let Some(diagnostic) = checked.diagnostics.iter().find(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
-                return Err(diagnostic.clone());
-            }
-            let mut declarations = Checker::compact_declarations_from_checked(program, checked);
-            if !declarations.diagnostics.is_empty() { return Err(declarations.diagnostics.remove(0)); }
-            let mut bodies = Checker::probe_compact_bodies(program, &declarations);
-            if !bodies.diagnostics.is_empty() { return Err(bodies.diagnostics.remove(0)); }
-            self.prepare_compact_indexed_only_or_diagnostic_with_parts(program, source_id, false, declarations, bodies)
-        })
     }
 
     fn prepare_compact_indexed_only_or_diagnostic_with_parts(
@@ -4276,21 +3943,13 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map_err(|error| {
-            let mut stats = error.source_lowering_stats.unwrap_or_default();
-            stats.blocker_events = stats.blocker_events.max(1);
-            self.last_lowering_stats = Some(stats);
             let span = error.span.unwrap_or_else(zero_span);
-            let mut diagnostic = compact_lowerability_diagnostic(
+            compact_lowerability_diagnostic(
                 span,
                 &format!("indexed IR could not encode `{}`", error.construct),
                 "compact.indexed-build",
-            );
-            if let Some(verification) = error.verification {
-                diagnostic.notes.push(verification.message);
-            }
-            diagnostic
+            )
         })?;
-        self.last_lowering_stats = Some(indexed.source_lowering_stats());
         let root = program.statement_ids().collect::<Vec<_>>();
         let driver_steps = indexed.driver_step_count().map_err(|error| {
             compact_lowerability_diagnostic(
@@ -4420,7 +4079,6 @@ impl Evaluator {
                 skip_auto_main,
             });
         }
-        self.last_lowering_stats = None;
         Ok(CompactIndexedRunPlan {
             script_span: statements
                 .first()
@@ -5061,34 +4719,13 @@ impl Evaluator {
 
     #[cfg(feature = "native-tests")]
     pub fn prepare_test_program(
-        self,
-        program: Arc<ArenaProgram>,
-        source_id: SourceId,
-    ) -> Result<PreparedTestProgram, Diagnostic> {
-        self.prepare_test_program_with_checked(program, source_id, None)
-    }
-
-    #[cfg(feature = "native-tests")]
-    pub fn prepare_test_program_checked(
-        self,
-        program: Arc<ArenaProgram>,
-        source_id: SourceId,
-        checked: &CheckOutput,
-    ) -> Result<PreparedTestProgram, Diagnostic> {
-        self.prepare_test_program_with_checked(program, source_id, Some(checked))
-    }
-
-    #[cfg(feature = "native-tests")]
-    fn prepare_test_program_with_checked(
         mut self,
         program: Arc<ArenaProgram>,
         source_id: SourceId,
-        checked: Option<&CheckOutput>,
     ) -> Result<PreparedTestProgram, Diagnostic> {
         self.capture_process_output = true;
-        let plan = program.symbol_owner().with_current(|| match checked {
-            Some(checked) => self.prepare_compact_indexed_only_from_checked(&program, source_id, checked),
-            None => self.prepare_compact_indexed_only_or_diagnostic(&program, source_id, false),
+        let plan = program.symbol_owner().with_current(|| {
+            self.prepare_compact_indexed_only_or_diagnostic(&program, source_id, false)
         })?;
         let script_span = plan.script_span;
         let shared = self.lowered_shared_state();
@@ -6931,7 +6568,7 @@ fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
 pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
     match ty {
         Type::BuiltinParameter(_) => false,
-        Type::Inference(_) | Type::Graph(_) => false,
+        Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),
@@ -6998,8 +6635,8 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
         }
         Type::ProcessError => matches!(value, Value::RunError(_)),
-        Type::Pure => matches!(value, Value::Pure(_))||matches!(value,Value::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Pure)||matches!(value,Value::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Pure),
-        Type::Proc => matches!(value, Value::Proc(_))||matches!(value,Value::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Proc)||matches!(value,Value::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Proc),
+        Type::Pure => matches!(value, Value::Pure(_)),
+        Type::Proc => matches!(value, Value::Proc(_)),
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
@@ -7015,7 +6652,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
 fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
     match ty {
         Type::BuiltinParameter(_) => false,
-        Type::Inference(_) | Type::Graph(_) => false,
+        Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, LoweredValue::Null),
         Type::Bool => matches!(value, LoweredValue::Bool(_)),
@@ -7123,8 +6760,8 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::ProcessError => {
             matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::RunError(_)))
         },
-        Type::Pure => matches!(value, LoweredValue::Pure(_))||matches!(value,LoweredValue::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Pure)||matches!(value,LoweredValue::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Pure),
-        Type::Proc => matches!(value, LoweredValue::Proc(_))||matches!(value,LoweredValue::Callable(value) if value.kind()==crate::sema::inference::CallableKind::Proc)||matches!(value,LoweredValue::NativeCallable(value) if value.kind()==crate::sema::inference::CallableKind::Proc),
+        Type::Pure => matches!(value, LoweredValue::Pure(_)),
+        Type::Proc => matches!(value, LoweredValue::Proc(_)),
         Type::Unit => matches!(value, LoweredValue::Unit),
         Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
         Type::Optional(inner) => {
@@ -7433,7 +7070,7 @@ fn zero_span() -> Span {
     Span::new(crate::source::SourceId::new(0), 0, 0)
 }
 
-pub(crate) fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
+fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     const EVAL_STACK_SIZE: usize = 12 * 1024 * 1024;
     std::thread::scope(|scope| {
         std::thread::Builder::new()

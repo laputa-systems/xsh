@@ -1,8 +1,4 @@
 use crate::runtime::eval::lowered_run::validate_parameter_default;
-use crate::runtime::eval::callable_value::RuntimeCallableValue;
-use super::live_capture_cells::SuspendedLiveCaptureFrame;
-use crate::runtime::eval::indexed::generic::{ConcreteOperationId, InstantiationId, UserInvocationAuthority, NativeInvocationPlanId, PhysicalLayoutId, RequirementWitness};
-use super::super::generic_run::{execute_operation, project_record_slot, finish_return};
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::map_key::MapKey;
 use super::{LoweredMapCursor, LoweredScalarCursor};
@@ -12,10 +8,10 @@ use super::serial_pipeline::{
 };
 use super::{
     checked_indexed_assignment, IndexedAssignStep, ResolvedAssignStep, decode_assign_path, apply_indexed_path_assignment, resolve_assign_index, IndexedCompQualifier, decode_comp_qualifiers, decode_record_updates, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
-    Flow, FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader, IndexedCallArguments, IndexedCallSlots, PendingParameterDefaults,
+    FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
-    TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, Value, assign_lowered_bytes_view,
+    TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
     comparison_chain_assertion_failure, indexed_callable_identity, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
     append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
@@ -26,41 +22,6 @@ use super::{
     lowered_str_parts, lowered_value_from_runtime_any,
     push_lowered_fmt_value, push_lowered_native_fmt_value, capture_checked_error,
 };
-
-enum FrameFieldProjection {
-    Name(String),
-    Slot(u32),
-}
-
-#[derive(Clone)]
-enum FrameInvocationAuthority {
-    User(UserInvocationAuthority),
-    Native(NativeInvocationPlanId),
-    Module(super::module_invocation_run::PreparedModuleCallable),
-}
-
-// A prepared field slot indexes this storage directly; compact record forms
-// cannot replace it while a caller's layout proof remains live.
-fn frame_record_value(fields: Vec<(Name, LoweredValue)>, layout: Option<PhysicalLayoutId>) -> LoweredValue {
-    match layout {
-        Some(_) => LoweredValue::RecordVec(Arc::new(fields)),
-        None => lowered_record_vec_or_stats(fields),
-    }
-}
-
-fn instantiated_view(
-    view: FullFunctionView<'_>,
-    instantiation: Option<InstantiationId>,
-) -> Result<FullFunctionView<'_>, super::IrVerifyError> {
-    match instantiation {
-        Some(id) => view.with_instantiation(id),
-        None if view.generic_scope().is_some() => {
-            view.execution()?;
-            Ok(view)
-        },
-        None => Ok(view),
-    }
-}
 
 enum FrameValue {
     Value(LoweredValue),
@@ -116,7 +77,6 @@ enum FmtPart {
 }
 
 struct AssignPathState {
-    instruction: u32,
     slot: usize,
     path: Vec<IndexedAssignStep>,
     selectors: Vec<ResolvedAssignStep>,
@@ -143,10 +103,9 @@ enum FrameContinuation {
         else_body: u32,
         span: Span,
     },
-    Store { slot: usize, instruction: u32 },
+    Store(usize),
     ParameterDefault { slot: usize, kind: LoweredType, check: Option<LoweredTypeCheck>, span: Span },
     Assign {
-        instruction: u32,
         slot: usize,
         op: AssignOp,
         singleton: bool,
@@ -175,22 +134,18 @@ enum FrameContinuation {
         assertion: bool,
         next: Box<FrameContinuation>,
     },
-    Field { projection: FrameFieldProjection, span: Span, next: Box<FrameContinuation> },
+    Field { name: String, span: Span, next: Box<FrameContinuation> },
     IndexBase { instruction: u32, span: Span, next: Box<FrameContinuation> },
     IndexValue { base: LoweredValue, span: Span, next: Box<FrameContinuation> },
-    ModuleArguments { call_instruction: u32, op: super::RuntimeOp, cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>, descriptor: Option<super::super::super::indexed::generic::PreparedCliDescriptor>, args: Vec<Option<u32>>, position: usize, values: Vec<Option<LoweredValue>>, span: Span, next: Box<FrameContinuation> },
+    ModuleArguments { op: super::RuntimeOp, cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>, args: Vec<Option<u32>>, position: usize, values: Vec<Option<LoweredValue>>, span: Span, next: Box<FrameContinuation> },
     BinaryLeft {
-        instruction: u32,
         op: BinaryOp,
-        operation: Option<ConcreteOperationId>,
         right: u32,
         span: Span,
         next: Box<FrameContinuation>,
     },
     BinaryRight {
-        instruction: u32,
         op: BinaryOp,
-        operation: Option<ConcreteOperationId>,
         left: LoweredValue,
         span: Span,
         next: Box<FrameContinuation>,
@@ -262,16 +217,14 @@ enum FrameContinuation {
     YieldDelegate {
         span: Span,
     },
-    ModuleCallee { instruction: u32, args: Vec<(u32, u32)>, span: Span, next: Box<FrameContinuation> },
-    DynamicCallee { plan: Option<FrameInvocationAuthority>, args: Vec<(u32, u32)>, span: Span, next: Box<FrameContinuation> },
-    DynamicArguments { plan: Option<FrameInvocationAuthority>, callee: LoweredValue, args: Vec<(u32, u32)>, argument: usize, values: IndexedCallArguments, span: Span, next: Box<FrameContinuation> },
+    DynamicCallee { args: Vec<(u32, u32)>, span: Span, next: Box<FrameContinuation> },
+    DynamicArguments { callee: LoweredValue, args: Vec<(u32, u32)>, argument: usize, values: Vec<LoweredValue>, span: Span, next: Box<FrameContinuation> },
     CallArguments {
-        instantiation: Option<InstantiationId>,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         args: Vec<(u32, u32)>,
         index: usize,
-        values: IndexedCallArguments,
+        values: Vec<LoweredValue>,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -293,8 +246,6 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     MethodReceiver {
-        call_instruction: u32,
-        operation: Option<crate::modules::RuntimeOp>,
         name: Arc<str>,
         args: Vec<u32>,
         span: Span,
@@ -305,8 +256,6 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     MethodArg {
-        call_instruction: u32,
-        operation: Option<crate::modules::RuntimeOp>,
         name: Arc<str>,
         args: Vec<u32>,
         receiver: LoweredValue,
@@ -342,17 +291,13 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     RecordUpdateBase {
-        schema: Option<Arc<super::super::super::require::PreparedSchema>>,
         updates: Vec<(Vec<Name>, u32, Span)>, span: Span, next: Box<FrameContinuation>,
     },
     RecordUpdateItems {
-        schema: Option<Arc<super::super::super::require::PreparedSchema>>,
         base: LoweredValue, updates: Vec<(Vec<Name>, u32, Span)>, index: usize,
         values: Vec<(Vec<Name>, LoweredValue, Span)>, span: Span, next: Box<FrameContinuation>,
     },
     RecordItems {
-        layout: Option<PhysicalLayoutId>,
-        schema: Option<Arc<super::super::super::require::PreparedSchema>>,
         entries: Vec<FrameRecordEntry>,
         index: usize,
         fields: Vec<(Name, LoweredValue)>,
@@ -400,7 +345,6 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
             | FrameContinuation::MatchExprValue { next, .. }
             | FrameContinuation::MatchExprGuard { next, .. }
             | FrameContinuation::CallArguments { next, .. }
-            | FrameContinuation::ModuleCallee { next, .. }
             | FrameContinuation::DynamicCallee { next, .. }
             | FrameContinuation::DynamicArguments { next, .. }
             | FrameContinuation::Try { next, .. }
@@ -512,8 +456,6 @@ pub(super) struct CallFrame<'p> {
     pub(super) scope_id: u64,
     pub(super) execution: FullExecution<'p>,
     pub(super) slots: Vec<LoweredValue>,
-    live_capture: Option<SuspendedLiveCaptureFrame>,
-    pending_defaults: PendingParameterDefaults,
     pub(super) slot_scopes: Vec<u64>,
     pub(super) call_span: Span,
     pub(super) definition_span: Span,
@@ -541,18 +483,6 @@ pub(super) struct ExplicitFrames<'a, 'p> {
 }
 
 impl Evaluator {
-    pub(super) fn eval_indexed_with_callable_slots(
-        &mut self,
-        program: &FullProgram,
-        handle: &RuntimeCallableValue,
-        bound: IndexedCallSlots,
-        span: Span,
-    ) -> Result<LoweredValue,RuntimeError> {
-        let mut frames=ExplicitFrames::new(self,program);
-        frames.push_callable_with_slots(handle,bound,span,None)?;
-        frames.run()
-    }
-
     pub(super) fn indexed_frames_supported(
         &self,
         view: FullFunctionView<'_>,
@@ -573,20 +503,8 @@ impl Evaluator {
         values: &[LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        self.eval_indexed_with_frames_instantiated(program, function, kind, values, call_span, None)
-    }
-
-    pub(super) fn eval_indexed_with_frames_instantiated(
-        &mut self,
-        program: &FullProgram,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-        values: &[LoweredValue],
-        call_span: Span,
-        instantiation: Option<InstantiationId>,
-    ) -> Result<LoweredValue, RuntimeError> {
         let mut frames = ExplicitFrames::new(self, program);
-        frames.push_call(function, kind, IndexedCallArguments::supplied(values.to_vec()), call_span, instantiation, None)?;
+        frames.push_call(function, kind, values.to_vec(), call_span, None)?;
         frames.run()
     }
 
@@ -595,23 +513,11 @@ impl Evaluator {
         program: &FullProgram,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
-        slots: IndexedCallSlots,
+        slots: Vec<LoweredValue>,
         call_span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        self.eval_indexed_with_frame_slots_instantiated(program, function, kind, slots, call_span, None)
-    }
-
-    pub(super) fn eval_indexed_with_frame_slots_instantiated(
-        &mut self,
-        program: &FullProgram,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-        slots: IndexedCallSlots,
-        call_span: Span,
-        instantiation: Option<InstantiationId>,
     ) -> Result<LoweredValue, RuntimeError> {
         let mut frames = ExplicitFrames::new(self, program);
-        frames.push_call_with_slots(function, kind, slots, call_span, instantiation, None)?;
+        frames.push_call_with_slots(function, kind, slots, call_span, None)?;
         frames.run()
     }
 }
@@ -788,11 +694,8 @@ impl FrameScratch {
 /// body's scope, discards a body's remaining work, and moves the state between
 /// pulls, but never reaches into the machine's own bookkeeping.
 pub(super) struct ProducerFrameState {
-    instantiation: Option<InstantiationId>,
     work: Vec<FrameWork>,
     slots: Vec<LoweredValue>,
-    live_capture: Option<SuspendedLiveCaptureFrame>,
-    pending_defaults: PendingParameterDefaults,
     slot_scopes: Vec<u64>,
     defers: Vec<u32>,
     block_scopes: Vec<u64>,
@@ -802,23 +705,14 @@ pub(super) struct ProducerFrameState {
 
 impl ProducerFrameState {
     /// The state of a producer whose body has not run yet.
-    pub(super) fn begin_body_instantiated(
-        statements: Vec<u32>,
-        slots: Vec<LoweredValue>,
-        pending_defaults: PendingParameterDefaults,
-        instantiation: Option<InstantiationId>,
-        live_capture: Option<SuspendedLiveCaptureFrame>,
-    ) -> Self {
+    pub(super) fn begin_body(statements: Vec<u32>, slots: Vec<LoweredValue>) -> Self {
         Self {
-            instantiation,
             work: vec![FrameWork::Statements {
                 statements,
                 complete_call: true,
                 scope_id: None,
             }],
             slots,
-            live_capture,
-            pending_defaults,
             slot_scopes: Vec::new(),
             defers: Vec::new(),
             block_scopes: Vec::new(),
@@ -867,11 +761,8 @@ impl<'p> CallFrame<'p> {
 
     pub(super) fn into_state(self) -> ProducerFrameState {
         ProducerFrameState {
-            instantiation: self.execution.active_instantiation(),
             work: self.work,
             slots: self.slots,
-            live_capture: self.live_capture,
-            pending_defaults: self.pending_defaults,
             slot_scopes: self.slot_scopes,
             defers: self.defers,
             block_scopes: self.block_scopes,
@@ -895,7 +786,7 @@ impl<'p> CallFrame<'p> {
         let Some(view) = program.function_view(function, kind)? else {
             return Ok(None);
         };
-        let execution = instantiated_view(view, state.instantiation)?.execution()?;
+        let execution = view.execution()?;
         Ok(Some(CallFrame {
             function,
             kind,
@@ -903,8 +794,6 @@ impl<'p> CallFrame<'p> {
             scope_id: state.scope_id,
             execution,
             slots: state.slots,
-            live_capture: state.live_capture,
-            pending_defaults: state.pending_defaults,
             slot_scopes: state.slot_scopes,
             call_span,
             definition_span,
@@ -960,42 +849,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     /// Runs a producer frame until it yields or finishes.
-    pub(super) fn run_producer(&mut self, mut call: CallFrame<'p>) -> ProducerStep {
-        let resumed = self.program.function_view(call.function, call.kind)
-            .map_err(|error| indexed_error(error, call.call_span))
-            .and_then(|view| view.ok_or_else(|| RuntimeError::new("unresolved-lowered-call", call.function.display_name()).with_span(call.call_span)))
-            .and_then(|view| instantiated_view(view, call.execution.active_instantiation()).map_err(|error| indexed_error(error, call.call_span)))
-            .and_then(|view| self.evaluator.resume_indexed_live_frame(view, &mut call.slots, call.live_capture.take(), call.call_span));
+    pub(super) fn run_producer(&mut self, call: CallFrame<'p>) -> ProducerStep {
         self.calls.push(call);
-        if let Err(error) = resumed { self.begin_error_unwind(error); }
-        loop {
-            while self.result.is_none() && self.suspended.is_none() {
-                let index = self.calls.len().checked_sub(1).expect("active indexed frame");
-                let work = self.calls[index].work.pop().expect("indexed frame work");
-                if let Err(error) = self.step(index, work) { self.begin_error_unwind(error); }
+        while self.result.is_none() && self.suspended.is_none() {
+            let index = self
+                .calls
+                .len()
+                .checked_sub(1)
+                .expect("active indexed frame");
+            let work = self.calls[index].work.pop().expect("indexed frame work");
+            if let Err(error) = self.step(index, work) {
+                self.begin_error_unwind(error);
             }
-            if let Some(suspension) = self.suspended.take() {
-                let call = self.calls.last_mut().expect("suspended producer frame");
-                match self.evaluator.suspend_indexed_live_frame(&mut call.slots, call.call_span) {
-                    Ok(live_capture) => call.live_capture = live_capture,
-                    Err(error) => { self.begin_error_unwind(error); continue; }
-                }
-                let state = self.calls.pop().expect("suspended producer frame").into_state();
-                return match suspension {
-                    ProducerSuspension::Yielded(value) => ProducerStep::Yielded { value, state },
-                    ProducerSuspension::Delegated { value, span } => ProducerStep::Delegated { value, span, state },
-                };
-            }
-            return ProducerStep::Finished(self.result.take().expect("indexed frame result"));
         }
-    }
-
-    fn finish_live_call_frame(&self, call: &mut CallFrame<'p>) -> Result<Option<super::live_capture_cells::CompletedLiveCaptureFrame>, RuntimeError> {
-        if !call.producer { return self.evaluator.finish_indexed_live_frame(&mut call.slots, call.call_span); }
-        let view = self.program.function_view(call.function, call.kind).map_err(|error| indexed_error(error, call.call_span))?
-            .ok_or_else(|| RuntimeError::new("unresolved-lowered-call", call.function.display_name()).with_span(call.call_span))?;
-        let view = instantiated_view(view, call.execution.active_instantiation()).map_err(|error| indexed_error(error, call.call_span))?;
-        self.evaluator.finish_indexed_live_producer_frame(view, &mut call.slots, call.call_span)
+        if let Some(suspension) = self.suspended.take() {
+            let state = self.calls.pop().expect("suspended producer frame").into_state();
+            return match suspension {
+                ProducerSuspension::Yielded(value) => ProducerStep::Yielded { value, state },
+                ProducerSuspension::Delegated { value, span } => ProducerStep::Delegated { value, span, state },
+            };
+        }
+        ProducerStep::Finished(self.result.take().expect("indexed frame result"))
     }
 
     fn begin_error_unwind(&mut self, error: RuntimeError) {
@@ -1083,7 +957,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn discard_calls(&mut self) {
         while let Some(mut call) = self.calls.pop() {
-            let completed = self.finish_live_call_frame(&mut call);
             if let Ok(header) = self
                 .program
                 .function_view(call.function, call.kind)
@@ -1094,15 +967,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             .with_span(call.call_span)
                     })
                 })
-                .and_then(|view| instantiated_view(view, call.execution.active_instantiation()).map_err(|error| indexed_error(error, call.call_span)))
                 .and_then(|view| {
                     view.header()
                         .map_err(|error| indexed_error(error, call.call_span))
                 })
             {
-                let _ = completed.and_then(|completed| self.evaluator.write_back_lowered_captures(
-                    &header, &call.slots, call.call_span, call.function.namespace(), completed.as_ref(),
-                ));
+                let _ = self.evaluator.write_back_lowered_captures(
+                    &header,
+                    &call.slots,
+                    call.call_span,
+                );
             }
             // Forced discard skips user defers but still closes inner owned
             // scopes before restoring each evaluator context in lexical order.
@@ -1149,9 +1023,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
-        values: IndexedCallArguments,
+        values: Vec<LoweredValue>,
         span: Span,
-        instantiation: Option<InstantiationId>,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         let stream_call = match self
@@ -1160,7 +1033,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map_err(|error| indexed_error(error, span))?
         {
             Some(view) => matches!(
-                instantiated_view(view, instantiation).map_err(|error| indexed_error(error, span))?.header()
+                view.header()
                     .map_err(|error| indexed_error(error, span))?
                     .return_kind,
                 LoweredReturnKind::Plain(LoweredType::Stream)
@@ -1170,85 +1043,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if stream_call {
             let value = self
                 .evaluator
-                .eval_indexed_named_call_with_arguments(function, values, span, instantiation)?;
+                .eval_indexed_named_call(function, &values, span)?;
             self.push_value(index, FrameValue::Value(value), next);
             return Ok(());
         }
-        self.push_call(function, kind, values, span, instantiation, Some(next))
+        self.push_call(function, kind, values, span, Some(next))
     }
 
-    fn push_call_arguments(
-        &mut self,
-        index: usize,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-        instantiation: Option<InstantiationId>,
-        args: Vec<(u32, u32)>,
-        mut argument: usize,
-        mut values: IndexedCallArguments,
-        span: Span,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        while let Some((tag, instruction)) = args.get(argument).copied() {
-            if tag == 2 {
-                values.omit(instruction as usize, span)?;
-                argument += 1;
-            } else {
-                if tag > 1 {
-                    return Err(RuntimeError::new("indexed-ir", "invalid call argument kind").with_span(span));
-                }
-                self.push_expr(index, instruction, span, FrameContinuation::CallArguments {
-                    instantiation, function, kind, args, index: argument, values, span, next: Box::new(next),
-                });
-                return Ok(());
-            }
-        }
-        self.evaluator.frame_scratch.recycle_call_args(args);
-        self.push_resolved_call(index, function, kind, values, span, instantiation, next)
-    }
-
-    fn push_dynamic_arguments(&mut self, index: usize, plan: Option<FrameInvocationAuthority>, callee: LoweredValue, args: Vec<(u32, u32)>, mut argument: usize, mut values: IndexedCallArguments, span: Span, next: FrameContinuation) -> Result<(), RuntimeError> {
+    fn push_dynamic_arguments(&mut self, index: usize, callee: LoweredValue, args: Vec<(u32, u32)>, mut argument: usize, mut values: Vec<LoweredValue>, span: Span, next: FrameContinuation) -> Result<(), RuntimeError> {
         while let Some((kind, instruction)) = args.get(argument).copied() {
             if kind == 2 {
-                values.omit(instruction as usize, span)?;
+                values.push(self.evaluator.indexed_argument_default(&callee, instruction as usize, span)?);
                 argument += 1;
             } else {
-                self.push_expr(index, instruction, span, FrameContinuation::DynamicArguments { plan, callee, args, argument, values, span, next: Box::new(next) });
+                self.push_expr(index, instruction, span, FrameContinuation::DynamicArguments { callee, args, argument, values, span, next: Box::new(next) });
                 return Ok(());
             }
         }
         self.evaluator.frame_scratch.recycle_call_args(args);
-        if let Some(FrameInvocationAuthority::Module(callable)) = plan {
-            let value = self.evaluator.eval_indexed_module_callable(callable, values, span)?;
-            self.push_value(index, FrameValue::Value(value), next);
-            return Ok(());
-        }
-        if let Some(FrameInvocationAuthority::Native(plan)) = plan {
-            let flow = self.evaluator.eval_indexed_native_callable(&self.calls[index].execution, plan, &callee, values, span)?;
-            self.push_value(index, match flow { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) }, next);
-            return Ok(());
-        }
-        if let Some(FrameInvocationAuthority::User(plan))=plan {
-            let handle=self.evaluator.checked_indexed_callable_authority(&self.calls[index].execution,plan,&callee,span)?;
-            let values=Evaluator::prepared_indexed_callable_arguments(plan,&handle,values,span)?;
-            let view=self.program.function_view_by_id(handle.contract().target).map_err(|error|indexed_error(error,span))?;
-            let header=view.header().map_err(|error|indexed_error(error,span))?;
-            if matches!(header.return_kind,LoweredReturnKind::Plain(LoweredType::Stream)) {
-                let value=self.evaluator.eval_indexed_prepared_callable(handle,values,span)?;
-                self.push_value(index,FrameValue::Value(value),next);
-                return Ok(());
-            }
-            let bound=self.evaluator.bind_indexed_call_arguments(&header,values,span)?;
-            return self.push_callable_with_slots(&handle,bound,span,Some(next));
-        }
-        if matches!(callee,LoweredValue::Callable(_) | LoweredValue::NativeCallable(_)) {
-            return Err(RuntimeError::new("indexed-ir","typed callable invocation has no prepared authority").with_span(span));
-        }
         let (function, kind) = indexed_callable_identity(&callee, span)?;
         if self.program.function_view(function, kind).map_err(|error| indexed_error(error, span))?.is_some() {
-            self.push_resolved_call(index, function, kind, values, span, None, next)
+            self.push_resolved_call(index, function, kind, values, span, next)
         } else if let LoweredFunctionKey::Qualified(qualified) = function {
-            let value = self.evaluator.eval_indexed_external_call_with_arguments(qualified, values, span)?;
+            let value = self.evaluator.eval_indexed_external_call(qualified, &values, span)?;
             self.push_value(index, FrameValue::Value(value), next);
             Ok(())
         } else {
@@ -1260,9 +1077,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
-        values: IndexedCallArguments,
+        values: Vec<LoweredValue>,
         call_span: Span,
-        instantiation: Option<InstantiationId>,
         return_to: Option<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let view = self
@@ -1273,13 +1089,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 RuntimeError::new("unresolved-lowered-call", function.display_name())
                     .with_span(call_span)
             })?;
-        let view = instantiated_view(view, instantiation).map_err(|error| indexed_error(error, call_span))?;
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
         let slots = self
             .evaluator
-            .bind_indexed_call_arguments(&header, values, call_span)?;
+            .bind_lowered_values_owned(&header, values, call_span)?;
         self.push_call_with_header(function, kind, view, header, slots, call_span, return_to)
     }
 
@@ -1287,9 +1102,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
-        slots: IndexedCallSlots,
+        slots: Vec<LoweredValue>,
         call_span: Span,
-        instantiation: Option<InstantiationId>,
         return_to: Option<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let view = self
@@ -1300,7 +1114,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 RuntimeError::new("unresolved-lowered-call", function.display_name())
                     .with_span(call_span)
             })?;
-        let view = instantiated_view(view, instantiation).map_err(|error| indexed_error(error, call_span))?;
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
@@ -1313,45 +1126,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         kind: LoweredFunctionKind,
         view: FullFunctionView<'p>,
         header: Arc<FunctionHeader>,
-        bound: IndexedCallSlots,
+        mut slots: Vec<LoweredValue>,
         call_span: Span,
         return_to: Option<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
-        self.push_call_with_header_and_environment(function,kind,view,header,bound,call_span,return_to,None)
-    }
-
-    fn push_callable_with_slots(
-        &mut self,
-        handle: &RuntimeCallableValue,
-        bound: IndexedCallSlots,
-        span: Span,
-        return_to: Option<FrameContinuation>,
-    ) -> Result<(),RuntimeError> {
-        if !std::ptr::eq(self.program,handle.program().as_ref()) {
-            return Err(RuntimeError::new("indexed-ir","callable frame and value belong to different programs").with_span(span));
-        }
-        let view=self.program.function_view_by_id(handle.contract().target).map_err(|error|indexed_error(error,span))?;
-        let header=view.header().map_err(|error|indexed_error(error,span))?;
-        // The key identifies trace frames; the prepared numeric target owns
-        // function selection and is never resolved through that key.
-        let (function,kind)=view.execution().map_err(|error|indexed_error(error,span))?.function_identity().map_err(|error|indexed_error(error,span))?;
-        self.push_call_with_header_and_environment(function,kind,view,header,bound,span,return_to,Some(handle))
-    }
-
-    fn push_call_with_header_and_environment(
-        &mut self,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-        view: FullFunctionView<'p>,
-        header: Arc<FunctionHeader>,
-        bound: IndexedCallSlots,
-        call_span: Span,
-        return_to: Option<FrameContinuation>,
-        handle: Option<&RuntimeCallableValue>,
-    ) -> Result<(), RuntimeError> {
-        #[cfg(test)]
-        super::super::observe_indexed_call_route(function, false);
-        let IndexedCallSlots { mut slots, pending_defaults } = bound;
+        self.evaluator
+            .hydrate_lowered_captures(&header, &mut slots, call_span)?;
         let execution = view
             .execution()
             .map_err(|error| indexed_error(error, call_span))?;
@@ -1367,15 +1147,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let definition_span = view
             .definition_span()
             .map_err(|error| indexed_error(error, call_span))?;
-        self.evaluator.begin_indexed_live_frame(view, &header, &mut slots, handle.map(|handle| handle.captures()), call_span)?;
-        let hydration = match handle {
-            Some(handle) => Evaluator::hydrate_indexed_callable_environment(handle.captures(), &mut slots, call_span),
-            None => self.evaluator.hydrate_lowered_captures(&header, &mut slots, call_span, function.namespace()),
-        };
-        if let Err(error) = hydration {
-            let _ = self.evaluator.finish_indexed_live_frame(&mut slots, call_span);
-            return Err(error);
-        }
         // Tracing is off unless a tool turned it on, and rendering a function's
         // display name allocates; only do it when an event will use it.
         if self.evaluator.trace_enabled {
@@ -1406,8 +1177,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             scope_id,
             execution,
             slots,
-            live_capture: None,
-            pending_defaults,
             slot_scopes,
             call_span,
             definition_span,
@@ -1431,7 +1200,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step(&mut self, index: usize, work: FrameWork) -> Result<(), RuntimeError> {
         match work {
             FrameWork::ClearSlots(slots) => {
-                self.evaluator.retire_indexed_live_locals(&self.calls[index].slots, &slots);
                 for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
                 Ok(())
             }
@@ -1573,8 +1341,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, &self.calls[index].execution, span)?;
                 let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                if let Some(position) = self.calls[index].pending_defaults.iter().position(|&pending| pending == slot) {
-                    self.calls[index].pending_defaults.remove(position);
+                if matches!(self.calls[index].slots[slot], LoweredValue::OmittedArgument) {
                     self.push_expr(index, value, span, FrameContinuation::ParameterDefault { slot, kind, check, span });
                 }
                 Ok(())
@@ -1583,7 +1350,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(index, value, span, FrameContinuation::Store { slot, instruction });
+                self.push_expr(index, value, span, FrameContinuation::Store(slot));
                 Ok(())
             }
             FullTag::StmtWith => {
@@ -1639,9 +1406,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 match flow {
                     ControlFlow::Continue(value) => {
-                        self.calls[index].slots[slot] = LoweredValue::Int(value);
-                        let call = &self.calls[index];
-                        self.evaluator.register_indexed_live_local(&call.execution, instruction, &call.slots, slot, span)?;
+                        self.calls[index].slots[slot] = LoweredValue::Int(value)
                     }
                     ControlFlow::Break(value) => {
                         return self.complete_expression_escape(index, value);
@@ -1664,9 +1429,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 match flow {
                     ControlFlow::Continue(value) => {
-                        self.calls[index].slots[slot] = LoweredValue::Bool(value);
-                        let call = &self.calls[index];
-                        self.evaluator.register_indexed_live_local(&call.execution, instruction, &call.slots, slot, span)?;
+                        self.calls[index].slots[slot] = LoweredValue::Bool(value)
                     }
                     ControlFlow::Break(value) => {
                         return self.complete_expression_escape(index, value);
@@ -1687,7 +1450,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     value_span,
                     FrameContinuation::Assign {
-                        instruction,
                         slot,
                         op,
                         singleton,
@@ -1706,7 +1468,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 let (value, singleton) = indexed_assignment_operand(&self.calls[index].execution, value, op, span)?;
-                self.advance_assign_path(index, AssignPathState { instruction, slot, path, selectors: Vec::new(), position: 0, op, value, singleton, check, span });
+                self.advance_assign_path(index, AssignPathState { slot, path, selectors: Vec::new(), position: 0, op, value, singleton, check, span });
                 Ok(())
             }
             FullTag::StmtExpr => {
@@ -1965,7 +1727,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        self.evaluator.refresh_indexed_live_slots(&mut self.calls[index].slots);
         let (tag, mut payload) = indexed_value(
             self.calls[index].execution.instruction_id(instruction),
             span,
@@ -2044,7 +1805,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let body = indexed_raw(&mut payload, span)?;
                 let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.calls[index].execution.context_producer(instruction, kind, input, body).map_err(|error| indexed_error(error, span))?;
                 self.push_expr(index, input, span, FrameContinuation::ContextScopeEntry { kind, body, span, next: Box::new(next) });
             }
             FullTag::ExprErrorContext => {
@@ -2079,25 +1839,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_expr(index, first, span, FrameContinuation::ComparisonLeft { pairs, assertion, next: Box::new(next) });
             }
             FullTag::ExprBinary => {
-                self.calls[index].execution.tag_equality(instruction).map_err(|error| indexed_error(error, span))?;
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let left = indexed_raw(&mut payload, span)?;
                 let right = indexed_raw(&mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                let operation = match self.calls[index].execution.requirement_witness(instruction).map_err(|error| indexed_error(error, value_span))? {
-                    Some(RequirementWitness::Add { operation, .. }) if op == BinaryOp::Add => Some(operation),
-                    None => None,
-                    _ => return Err(RuntimeError::new("indexed-ir", "binary operation has incompatible generic evidence").with_span(value_span)),
-                };
                 self.push_expr(
                     index,
                     left,
                     value_span,
                     FrameContinuation::BinaryLeft {
-                        instruction,
                         op,
-                        operation,
                         right,
                         span: value_span,
                         next: Box::new(next),
@@ -2141,10 +1893,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FullTag::ExprMatch => {
-                let next = if let Some((check, check_span)) = self.calls[index].execution.prepared_fallback(instruction).map_err(|error| indexed_error(error, span))? {
-                    FrameContinuation::CheckedValue { check, span: check_span, next: Box::new(next) }
-                } else { next };
-                self.calls[index].execution.tag_constructor_argument_wrapper(instruction).map_err(|error| indexed_error(error, span))?;
                 let value = indexed_raw(&mut payload, span)?;
                 let (_, mut arms) = self.calls[index]
                     .execution
@@ -2217,17 +1965,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(BTreeMap::new()))), next); }
             }
             FullTag::ExprRecordUpdate => {
-                let schema = self.calls[index].execution.record_update_schema(instruction).map_err(|error| indexed_error(error, span))?;
                 let base = indexed_raw(&mut payload, span)?;
                 let updates = decode_record_updates(&self.calls[index].execution, &mut payload, span)?;
                 let update_span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(index, base, update_span, FrameContinuation::RecordUpdateBase { schema, updates, span: update_span, next: Box::new(next) });
+                self.push_expr(index, base, update_span, FrameContinuation::RecordUpdateBase { updates, span: update_span, next: Box::new(next) });
             }
             FullTag::ExprRecord => {
-                let prepared = self.calls[index].execution.record_source_layout(instruction).map_err(|error| indexed_error(error, span))?;
-                let layout = self.calls[index].execution.constructor_layout(instruction).map_err(|error| indexed_error(error, span))?.or_else(|| prepared.as_ref().map(|(layout, _)| *layout));
-                let schema = prepared.map(|(_, schema)| schema);
                 let (_, mut entries) = self.calls[index]
                     .execution
                     .block(&mut payload, BLOCK_LIST)
@@ -2263,8 +2007,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         instruction,
                         span,
                                     FrameContinuation::RecordItems {
-                            layout,
-                            schema,
                             entries: decoded_entries,
                             index: 0,
                             fields: Vec::new(),
@@ -2273,9 +2015,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         },
                     );
                 } else {
-                    let value = frame_record_value(Vec::new(), layout);
-                    let value = if let Some(schema) = schema { super::super::super::require::materialize_record_layout(self.evaluator, &schema, value, span)? } else { value };
-                    self.push_value(index, FrameValue::Value(value), next);
+                    self.push_value(
+                        index,
+                        FrameValue::Value(lowered_record_vec_or_stats(Vec::new())),
+                        next,
+                    );
                 }
             }
             FullTag::ExprListComp | FullTag::ExprMapComp => {
@@ -2343,9 +2087,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprResultFallback => {
-                let next = if let Some((check, check_span)) = self.calls[index].execution.prepared_fallback(instruction).map_err(|error| indexed_error(error, span))? {
-                    FrameContinuation::CheckedValue { check, span: check_span, next: Box::new(next) }
-                } else { next };
                 let left = indexed_raw(&mut payload, span)?;
                 let right = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
@@ -2361,7 +2102,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprOk => {
-                self.calls[index].execution.prepared_result_constructor(instruction, crate::runtime::eval::indexed::generic::ScopedOperationCode::ResultOk).map_err(|error| indexed_error(error, span))?;
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
                 self.push_expr(
@@ -2372,7 +2112,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprErr => {
-                self.calls[index].execution.prepared_result_constructor(instruction, crate::runtime::eval::indexed::generic::ScopedOperationCode::ResultErr).map_err(|error| indexed_error(error, span))?;
                 let value = indexed_raw(&mut payload, span)?;
                 let cause = indexed_optional_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
@@ -2416,7 +2155,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprMethod => {
-                let operation = self.calls[index].execution.ground_native_method(instruction).map_err(|error| indexed_error(error, span))?;
                 let receiver = indexed_raw(&mut payload, span)?;
                 let name = indexed_string(&mut payload, &self.calls[index].execution, span)?;
                 let (_, mut args) = self.calls[index]
@@ -2453,8 +2191,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     receiver,
                     value_span,
                     FrameContinuation::MethodReceiver {
-                        call_instruction: instruction,
-                        operation,
                         name: Arc::from(name),
                         args: decoded_args,
                         span: value_span,
@@ -2464,47 +2200,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprDynamicCall => {
-                let plan = if let Some(native) = self.calls[index].execution.native_invocation_plan(instruction).map_err(|error| indexed_error(error, span))? {
-                    Some(FrameInvocationAuthority::Native(native))
-                } else {
-                    self.calls[index].execution.user_invocation_authority(instruction).map_err(|error| indexed_error(error, span))?.map(FrameInvocationAuthority::User)
-                };
                 let callee = indexed_raw(&mut payload, span)?;
                 let mut args = self.evaluator.frame_scratch.take_call_args();
                 decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                let module_receiver = self.calls[index].execution.module_invocation_source(instruction).map_err(|error| indexed_error(error, value_span))?.map(|source| source.receiver_instruction);
-                if let Some(receiver) = module_receiver {
-                    self.push_expr(index, receiver, value_span, FrameContinuation::ModuleCallee { instruction, args, span: value_span, next: Box::new(next) });
-                } else {
-                    self.push_expr(index, callee, value_span, FrameContinuation::DynamicCallee { plan, args, span: value_span, next: Box::new(next) });
-                }
+                self.push_expr(index, callee, value_span, FrameContinuation::DynamicCallee { args, span: value_span, next: Box::new(next) });
             }
             FullTag::ExprField => {
                 let base = indexed_raw(&mut payload, span)?;
-                let name = indexed_string(&mut payload, &self.calls[index].execution, span)?;
+                let name = indexed_string(&mut payload, &self.calls[index].execution, span)?.to_string();
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                let projection = match self.calls[index].execution.requirement_witness(instruction).map_err(|error| indexed_error(error, value_span))? {
-                    Some(RequirementWitness::Projection { field_slot, .. }) => FrameFieldProjection::Slot(field_slot),
-                    None => {
-                        if let Some((_, field_slot)) = self.calls[index].execution.ground_projection(instruction).map_err(|error| indexed_error(error, value_span))? {
-                            self.push_expr(index, base, value_span, FrameContinuation::Field { projection: FrameFieldProjection::Slot(field_slot), span: value_span, next: Box::new(next) });
-                            return Ok(());
-                        }
-                        if self.calls[index].execution.generic_scope().is_none()
-                            && let Some(base) = Evaluator::indexed_field_chain_ref(&self.calls[index].execution, base, &self.calls[index].slots, value_span)?
-                            && let Some(value) = super::lowered_record_field_value(base, name)
-                        {
-                            self.push_value(index, FrameValue::Value(value), next);
-                            return Ok(());
-                        }
-                        FrameFieldProjection::Name(name.to_string())
-                    }
-                    _ => return Err(RuntimeError::new("indexed-ir", "field projection has incompatible generic evidence").with_span(value_span)),
-                };
-                self.push_expr(index, base, value_span, FrameContinuation::Field { projection, span: value_span, next: Box::new(next) });
+                if let Some(base) = Evaluator::indexed_field_chain_ref(&self.calls[index].execution, base, &self.calls[index].slots, value_span)?
+                    && let Some(value) = super::lowered_record_field_value(base, &name)
+                {
+                    self.push_value(index, FrameValue::Value(value), next);
+                    return Ok(());
+                }
+                self.push_expr(index, base, value_span, FrameContinuation::Field { name, span: value_span, next: Box::new(next) });
             }
             FullTag::ExprIndex => {
                 let base = indexed_raw(&mut payload, span)?;
@@ -2515,8 +2229,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprModuleCall => {
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let descriptor = self.calls[index].execution.ground_native_call(instruction, op)
-                    .map_err(|error| indexed_error(error, span))?.and_then(|contract| contract.cli_descriptor.clone());
                 let cli_plan = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let (_, mut encoded_args) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
                 let len = indexed_raw(&mut encoded_args, span)? as usize;
@@ -2525,10 +2237,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 indexed_finish(encoded_args, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.step_module_arguments(index, instruction, op, cli_plan, descriptor, args, 0, Vec::new(), value_span, next)?;
+                self.step_module_arguments(index, op, cli_plan, args, 0, Vec::new(), value_span, next)?;
             }
             FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
-                if tag == FullTag::ExprCall { self.calls[index].execution.verify_hash_policy_call(instruction).map_err(|error| indexed_error(error, span))?; }
                 let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
                     indexed_decode(&mut payload, &self.calls[index].execution, span)?
                 } else {
@@ -2539,17 +2250,35 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .0
                 };
                 let kind = self.function_kind(function, span)?;
-                let instantiation = self.calls[index].execution.call_instantiation(instruction).map_err(|error| indexed_error(error, span))?;
                 let mut args = self.evaluator.frame_scratch.take_call_args();
                 decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.push_call_arguments(index, function, kind, instantiation, args, 0, IndexedCallArguments::default(), value_span, next)?;
+                if let Some((_, value)) = args.first().copied() {
+                    self.push_expr(
+                        index,
+                        value,
+                        value_span,
+                        FrameContinuation::CallArguments {
+                            function,
+                            kind,
+                            args,
+                            index: 0,
+                            values: Vec::new(),
+                            span: value_span,
+                            next: Box::new(next),
+                        },
+                    );
+                } else {
+                    // A zero-argument call has no argument list to walk, so it
+                    // reaches the call decision here instead of through
+                    // `FrameContinuation::CallArguments`. Both paths resolve
+                    // the callee the same way.
+                    self.evaluator.frame_scratch.recycle_call_args(args);
+                    self.push_resolved_call(index, function, kind, Vec::new(), value_span, next)?;
+                }
             }
             _ => {
-                if tag == FullTag::ExprRetry {
-                    self.calls[index].execution.retry_capture(instruction).map_err(|error| indexed_error(error, span))?;
-                }
                 let flow = {
                     let call = &mut self.calls[index];
                     self.evaluator.eval_indexed_expr(
@@ -2575,7 +2304,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         value: FrameValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        self.evaluator.refresh_indexed_live_slots(&mut self.calls[index].slots);
         if matches!(value, FrameValue::Break(LoweredValue::ResultErr(_)))
             && matches!(self.evaluator.pending_value_block_flow, None | Some(StmtFlow::Propagate(_)))
             && let Some((else_param_slot, else_body, span)) = with_initializer_handler(&next)
@@ -2616,12 +2344,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
-            FrameContinuation::Field { projection, span, next } => match value {
+            FrameContinuation::Field { name, span, next } => match value {
                 FrameValue::Value(base) => {
-                    let value = match projection {
-                        FrameFieldProjection::Slot(slot) => project_record_slot(&base, slot, span)?,
-                        FrameFieldProjection::Name(name) => self.evaluator.indexed_field_value(base, &name, span)?,
-                    };
+                    let value = self.evaluator.indexed_field_value(base, &name, span)?;
                     self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
@@ -2637,10 +2362,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
-            FrameContinuation::ModuleArguments { call_instruction, op, cli_plan, descriptor, args, position, mut values, span, next } => match value {
+            FrameContinuation::ModuleArguments { op, cli_plan, args, position, mut values, span, next } => match value {
                 FrameValue::Value(value) => {
                     values.push(Some(value));
-                    self.step_module_arguments(index, call_instruction, op, cli_plan, descriptor, args, position + 1, values, span, *next)?;
+                    self.step_module_arguments(index, op, cli_plan, args, position + 1, values, span, *next)?;
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
@@ -2688,18 +2413,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
-            FrameContinuation::Store { slot, instruction } => match value {
+            FrameContinuation::Store(slot) => match value {
                 FrameValue::Value(value) => {
                     self.calls[index].slots[slot] = value;
                     self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
-                    let call = &self.calls[index];
-                    self.evaluator.register_indexed_live_local(&call.execution, instruction, &call.slots, slot, call.call_span)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Assign { instruction, slot, op, singleton, check, span } => match value {
+            FrameContinuation::Assign { slot, op, singleton, check, span } => match value {
                 FrameValue::Value(value) => {
                     self.check_context_assignment(index, slot, &value, span)?;
                     let value = if let Some(check) = check.as_ref() {
@@ -2717,8 +2440,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             owner_scope,
                         );
                     self.calls[index].slots[slot] = value;
-                    let call = &self.calls[index];
-                    self.evaluator.publish_indexed_live_slot(&call.execution, instruction, &call.slots, slot, span)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -2735,8 +2456,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(value) => {
                     self.check_context_assignment(index, state.slot, &value, state.span)?;
                     apply_indexed_path_assignment(&mut self.calls[index].slots[state.slot], &state.selectors, state.op, value, state.singleton, state.check.as_ref(), state.span)?;
-                    let call = &self.calls[index];
-                    self.evaluator.publish_indexed_live_slot(&call.execution, state.instruction, &call.slots, state.slot, state.span)?;
 
                     self.evaluator.transfer_owned_host_resources_in_lowered_value(
                         &self.calls[index].slots[state.slot], self.evaluator.current_scope_id(), self.calls[index].slot_scopes[state.slot],
@@ -2806,9 +2525,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
                         FrameContinuation::BinaryLeft {
-                instruction,
                 op,
-                operation,
                 right,
                 span,
                 next,
@@ -2831,9 +2548,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     right,
                     span,
                     FrameContinuation::BinaryRight {
-                        instruction,
                         op,
-                        operation,
                         left,
                         span,
                         next,
@@ -2844,20 +2559,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::BinaryRight {
-                instruction,
                 op,
-                operation,
                 left,
                 span,
                 next,
             } => match value {
-                FrameValue::Value(right) => {
-                    self.calls[index].execution.tag_equality_values(instruction, &left, &right).map_err(|error| indexed_error(error, span))?;
-                    self.push_value(index, FrameValue::Value(match operation {
-                        Some(operation) => execute_operation(operation, &left, &right, span)?,
-                        None => lowered_binary_value(op, left, right, span)?,
-                    }), *next);
-                },
+                FrameValue::Value(right) => self.push_value(
+                    index,
+                    FrameValue::Value(lowered_binary_value(op, left, right, span)?),
+                    *next,
+                ),
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
@@ -3139,30 +2850,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::ModuleCallee { instruction, args, span, next } => match value {
-                FrameValue::Value(receiver) => {
-                    let callable = self.evaluator.checked_indexed_module_callable(&self.calls[index].execution, instruction, &receiver, span)?;
-                    self.push_dynamic_arguments(index, Some(FrameInvocationAuthority::Module(callable)), receiver, args, 0, IndexedCallArguments::default(), span, *next)?;
-                }
+            FrameContinuation::DynamicCallee { args, span, next } => match value {
+                FrameValue::Value(callee) => self.push_dynamic_arguments(index, callee, args, 0, Vec::new(), span, *next)?,
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
-            FrameContinuation::DynamicCallee { plan, args, span, next } => match value {
-                FrameValue::Value(callee) => self.push_dynamic_arguments(index, plan, callee, args, 0, IndexedCallArguments::default(), span, *next)?,
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
-            },
-            FrameContinuation::DynamicArguments { plan, callee, args, argument, mut values, span, next } => match value {
+            FrameContinuation::DynamicArguments { callee, args, argument, mut values, span, next } => match value {
                 FrameValue::Value(value) => {
                     match args[argument].0 {
-                        0 => values.values.push(value),
-                        1 => values.values.extend(lowered_splice_arg_items(value, span)?),
+                        0 => values.push(value),
+                        1 => values.extend(lowered_splice_arg_items(value, span)?),
                         _ => return Err(RuntimeError::new("indexed-ir", "invalid dynamic call argument kind").with_span(span)),
                     }
-                    self.push_dynamic_arguments(index, plan, callee, args, argument + 1, values, span, *next)?;
+                    self.push_dynamic_arguments(index, callee, args, argument + 1, values, span, *next)?;
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::CallArguments {
-                instantiation,
                 function,
                 kind,
                 args,
@@ -3173,8 +2876,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     match args[argument].0 {
-                        0 => values.values.push(value),
-                        1 => values.values.extend(lowered_splice_arg_items(value, span)?),
+                        0 => values.push(value),
+                        1 => values.extend(lowered_splice_arg_items(value, span)?),
                         _ => {
                             return Err(RuntimeError::new(
                                 "indexed-ir",
@@ -3183,7 +2886,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             .with_span(span));
                         }
                     }
-                    self.push_call_arguments(index, function, kind, instantiation, args, argument + 1, values, span, *next)?;
+                    let next_index = argument + 1;
+                    if let Some((_, instruction)) = args.get(next_index).copied() {
+                        self.push_expr(
+                            index,
+                            instruction,
+                            span,
+                            FrameContinuation::CallArguments {
+                                function,
+                                kind,
+                                args,
+                                index: next_index,
+                                values,
+                                span,
+                                next,
+                            },
+                        );
+                    } else {
+                        self.evaluator.frame_scratch.recycle_call_args(args);
+                        self.push_resolved_call(index, function, kind, values, span, *next)?;
+                    }
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -3255,8 +2977,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
             FrameContinuation::MethodReceiver {
-                call_instruction,
-                operation,
                 name,
                 args,
                 span,
@@ -3271,8 +2991,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             argument,
                             span,
                             FrameContinuation::MethodArg {
-                                call_instruction,
-                                operation,
                                 name,
                                 args,
                                 receiver,
@@ -3286,7 +3004,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else {
                         let receiver =
                             take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
-                        self.push_method_result(index, call_instruction, receiver, name, Vec::new(), operation, span, *next)?;
+                        self.push_method_result(index, receiver, name, Vec::new(), span, *next)?;
                     }
                 }
                 FrameValue::Break(value) => {
@@ -3294,8 +3012,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::MethodArg {
-                call_instruction,
-                operation,
                 name,
                 args,
                 receiver,
@@ -3314,8 +3030,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             instruction,
                             span,
                             FrameContinuation::MethodArg {
-                                call_instruction,
-                                operation,
                                 name,
                                 args,
                                 receiver,
@@ -3329,7 +3043,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else {
                         let receiver =
                             take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
-                        self.push_method_result(index, call_instruction, receiver, name, values, operation, span, *next)?;
+                        self.push_method_result(index, receiver, name, values, span, *next)?;
                     }
                 }
                 FrameValue::Break(value) => {
@@ -3413,38 +3127,31 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
-            FrameContinuation::RecordUpdateBase { schema, updates, span, next } => match value {
+            FrameContinuation::RecordUpdateBase { updates, span, next } => match value {
                 FrameValue::Value(base) => {
                     if let Some((_, instruction, field_span)) = updates.first() {
                         self.push_expr(index, *instruction, *field_span, FrameContinuation::RecordUpdateItems {
-                            schema, base, updates, index: 0, values: Vec::new(), span, next,
+                            base, updates, index: 0, values: Vec::new(), span, next,
                         });
-                    } else {
-                        let value = if let Some(schema) = schema { super::super::super::require::materialize_record_layout(self.evaluator, &schema, base, span)? } else { base };
-                        self.push_value(index, FrameValue::Value(value), *next);
-                    }
+                    } else { self.push_value(index, FrameValue::Value(base), *next); }
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
-            FrameContinuation::RecordUpdateItems { schema, base, updates, index: item_index, mut values, span, next } => match value {
+            FrameContinuation::RecordUpdateItems { base, updates, index: item_index, mut values, span, next } => match value {
                 FrameValue::Value(value) => {
                     let (path, _, field_span) = &updates[item_index];
                     values.push((path.clone(), value, *field_span));
                     if let Some((_, instruction, field_span)) = updates.get(item_index + 1) {
                         self.push_expr(index, *instruction, *field_span, FrameContinuation::RecordUpdateItems {
-                            schema, base, updates, index: item_index + 1, values, span, next,
+                            base, updates, index: item_index + 1, values, span, next,
                         });
                     } else {
-                        let value = lowered_record_update_batch(base, values, span)?;
-                        let value = if let Some(schema) = schema { super::super::super::require::materialize_record_layout(self.evaluator, &schema, value, span)? } else { value };
-                        self.push_value(index, FrameValue::Value(value), *next);
+                        self.push_value(index, FrameValue::Value(lowered_record_update_batch(base, values, span)?), *next);
                     }
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::RecordItems {
-                layout,
-                schema,
                 entries,
                 index: entry_index,
                 mut fields,
@@ -3463,8 +3170,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             instruction,
                             span,
                             FrameContinuation::RecordItems {
-                                layout,
-                                schema,
                                 entries,
                                 index: entry_index + 1,
                                 fields,
@@ -3474,9 +3179,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         );
                     } else {
                         fields.sort_unstable_by_key(|(name, _)| *name);
-                        let value = frame_record_value(fields, layout);
-                        let value = if let Some(schema) = schema { super::super::super::require::materialize_record_layout(self.evaluator, &schema, value, span)? } else { value };
-                        self.push_value(index, FrameValue::Value(value), *next);
+                        self.push_value(
+                            index,
+                            FrameValue::Value(lowered_record_vec_or_stats(fields)),
+                            *next,
+                        );
                     }
                 }
                 FrameValue::Break(value) => {
@@ -3617,18 +3324,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    // A returned Err is primary only when the declaration owns a Result channel.
-    // Rigid and dynamic value payloads cannot make cleanup failures secondary.
-    fn flow_has_primary_failure(&self, index: usize, flow: &StmtFlow) -> Result<bool, RuntimeError> {
-        match flow {
-            StmtFlow::Propagate(_) => Ok(true),
-            StmtFlow::Return(LoweredValue::ResultErr(_)) => self.calls[index].execution
-                .has_declared_result_channel()
-                .map_err(|error| indexed_error(error, self.calls[index].call_span)),
-            _ => Ok(false),
-        }
-    }
-
     fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
         if let StmtFlow::Propagate(value) = &flow
             && let Some(boundary) = self.capture_boundary(index) {
@@ -3673,12 +3368,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         // Lexical exits and checked failures retain resources from every
         // discarded block before cleanup runs in the registering scopes.
-        let primary_failure = self.flow_has_primary_failure(index, &flow)?;
-        let cleanup = self.discard_work_from_with_primary(index, 0, primary_failure);
+        let cleanup = self.discard_work_from_with_primary(index, 0, matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))));
         if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
             return Err(cleanup.expect_err("forced cleanup abort"));
         }
-        if primary_failure {
+        if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
             if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
         } else {
             cleanup?;
@@ -3801,43 +3495,36 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     // Argument holes preserve omitted native defaults; present operands run once
     // in source order without retaining recursive evaluator frames across calls.
     fn step_module_arguments(
-        &mut self, index: usize, call_instruction: u32, op: super::RuntimeOp,
+        &mut self, index: usize, op: super::RuntimeOp,
         cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
-        descriptor: Option<super::super::super::indexed::generic::PreparedCliDescriptor>,
         args: Vec<Option<u32>>, mut position: usize,
         mut values: Vec<Option<LoweredValue>>, span: Span, next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         while let Some(argument) = args.get(position).copied() {
             if let Some(instruction) = argument {
-                self.push_expr(index, instruction, span, FrameContinuation::ModuleArguments { call_instruction, op, cli_plan, descriptor, args, position, values, span, next: Box::new(next) });
+                self.push_expr(index, instruction, span, FrameContinuation::ModuleArguments { op, cli_plan, args, position, values, span, next: Box::new(next) });
                 return Ok(());
             }
             values.push(None);
             position += 1;
         }
-        let flow = self.evaluator.eval_indexed_module_call_values(op, super::super::NativeArgumentValues::new(values), span, cli_plan.as_deref(), descriptor.as_ref())?;
-        let flow = match flow {
-            ControlFlow::Continue(value) => FrameValue::Value(self.calls[index].execution.materialize_native_result_record(call_instruction, self.evaluator, value, span)?),
-            ControlFlow::Break(value) => FrameValue::Break(value),
-        };
-        self.push_value(index, flow, next);
+        let flow = self.evaluator.eval_indexed_module_call_values(op, super::super::NativeArgumentValues::new(values), span, cli_plan.as_deref())?;
+        self.push_value(index, match flow { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) }, next);
         Ok(())
     }
 
     fn push_method_result(
         &mut self,
         index: usize,
-        call_instruction: u32,
         receiver: LoweredValue,
         name: Arc<str>,
         values: Vec<LoweredValue>,
-        operation: Option<crate::modules::RuntimeOp>,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         let result = if !self.evaluator.trace_enabled {
             self.evaluator
-                .eval_indexed_method_authority(receiver, name.as_ref(), values, operation, &span)?
+                .eval_lowered_method_dispatch(receiver, name.as_ref(), values, &span)?
         } else {
             let trace_name = format!("{}.{}", receiver.type_name(), name);
             self.evaluator.trace_enter(
@@ -3848,7 +3535,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
             let result =
                 self.evaluator
-                    .eval_indexed_method_authority(receiver, name.as_ref(), values, operation, &span);
+                    .eval_lowered_method_dispatch(receiver, name.as_ref(), values, &span);
             self.evaluator.trace_exit(
                 TraceKind::MethodResult,
                 Some(span),
@@ -3858,7 +3545,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             result?
         };
         let result = match result {
-            ControlFlow::Continue(value) => FrameValue::Value(self.calls[index].execution.materialize_native_result_record(call_instruction, self.evaluator, value, span)?),
+            ControlFlow::Continue(value) => FrameValue::Value(value),
             ControlFlow::Break(value) => FrameValue::Break(value),
         };
         self.push_value(index, result, next);
@@ -3908,20 +3595,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
-        let primary_failure = self.flow_has_primary_failure(index, &flow)?;
-        if let Err(error) = self.cleanup_deferred_call_body(index, Some(&flow)) {
-            if error.abort.as_ref().is_some_and(|signal| signal.force) || !primary_failure {
-                return Err(error);
-            }
-            self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
-        }
         let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let call = &mut self.calls[index];
         let cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
         let cleanup = if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
             cleanup
-        } else if primary_failure {
+        } else if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
             if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
             Ok(())
         } else { cleanup };
@@ -3931,10 +3611,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn finish_error_deferred_call(&mut self, index: usize) -> Result<(), RuntimeError> {
-        if let Err(error) = self.cleanup_deferred_call_body(index, None) {
-            if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
-            self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
-        }
         let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let call = &mut self.calls[index];
@@ -3952,24 +3628,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.finish_error_call(index)
     }
 
-    fn cleanup_deferred_call_body(&mut self, index: usize, flow: Option<&StmtFlow>) -> Result<(), RuntimeError> {
-        let header = self.call_header(index)?;
-        let call = &self.calls[index];
-        let parent = self.evaluator.parent_owned_host_scope();
-        if let Some(error) = &self.pending_error
-            && error.abort.is_none() && error.propagated {
-            self.evaluator.transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
-        }
-        self.evaluator.retain_indexed_scope_writeback(call.scope_id, parent, &header, &call.slots, &Ok(StmtFlow::None));
-        // Keep the call's owner active for resources created by defers while
-        // releasing unused body resources before those defers observe them.
-        self.evaluator.cleanup_indexed_scope_body(call.scope_id, flow)
-    }
-
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
         let mut call = self.calls.pop().expect("active indexed frame");
-        let completed = self.finish_live_call_frame(&mut call);
         if let Ok(header) = self
             .program
             .function_view(call.function, call.kind)
@@ -3980,15 +3641,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .with_span(call.call_span)
                 })
             })
-            .and_then(|view| instantiated_view(view, call.execution.active_instantiation()).map_err(|error| indexed_error(error, call.call_span)))
             .and_then(|view| {
                 view.header()
                     .map_err(|error| indexed_error(error, call.call_span))
             })
         {
-            let _ = completed.and_then(|completed| self.evaluator.write_back_lowered_captures(
-                &header, &call.slots, call.call_span, call.function.namespace(), completed.as_ref(),
-            ));
+            let _ =
+                self.evaluator
+                    .write_back_lowered_captures(&header, &call.slots, call.call_span);
         }
         if let Some(error) = self.pending_error.as_ref()
             && error.abort.is_none() && error.propagated {
@@ -4036,7 +3696,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .function_view(call.function, call.kind)
             .map_err(|error| indexed_error(error, call.call_span))?
             .expect("active indexed frame function");
-        let view = instantiated_view(view, call.execution.active_instantiation()).map_err(|error| indexed_error(error, call.call_span))?;
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call.call_span))?;
@@ -4049,15 +3708,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             call.call_span
         };
-        let value = if let Some(scope) = call.execution.generic_scope() {
-            let plan = call.execution.generic_evidence()
-                .expect("generic frame evidence store")
-                .scope(scope)
-                .map_err(|error| indexed_error(error, return_span))?
-                .return_plan;
-            finish_return(plan, flow, return_span)
-                .and_then(|value| super::super::checked_lowered_return_value(&header, value, return_span))
-        } else { match flow {
+        let value = match flow {
             StmtFlow::Return(LoweredValue::Unit) if call.producer => Ok(LoweredValue::Unit),
             StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                 super::super::checked_lowered_return_value(&header, value, return_span)
@@ -4075,11 +3726,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             StmtFlow::Continue => Err(RuntimeError::new("control-flow", "continue outside loop")
                 .with_span(call.call_span)),
-        }};
-        let completed = if call.producer { self.evaluator.finish_indexed_live_producer_frame(view, &mut call.slots, call.call_span) }
-            else { self.evaluator.finish_indexed_live_frame(&mut call.slots, call.call_span) };
-        let write_back = completed.and_then(|completed| self.evaluator
-            .write_back_lowered_captures(&header, &call.slots, call.call_span, call.function.namespace(), completed.as_ref()));
+        };
+        let write_back =
+            self.evaluator
+                .write_back_lowered_captures(&header, &call.slots, call.call_span);
         if let Ok(value) = &value {
             let parent_scope = self.evaluator.parent_owned_host_scope();
             self.evaluator.transfer_owned_host_resources_in_value(
@@ -4127,12 +3777,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn call_header(&self, index: usize) -> Result<Arc<FunctionHeader>, RuntimeError> {
         let call = &self.calls[index];
-        let view = self.program
+        self.program
             .function_view(call.function, call.kind)
             .map_err(|error| indexed_error(error, call.call_span))?
-            .expect("active indexed frame function");
-        instantiated_view(view, call.execution.active_instantiation())
-            .and_then(|view| view.header())
+            .expect("active indexed frame function")
+            .header()
             .map_err(|error| indexed_error(error, call.call_span))
     }
 
@@ -4567,21 +4216,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn exit_block_scope(&mut self, index: usize, scope_id: u64, include_work_contexts: bool, mut disposition: CleanupFailureResources) -> Result<(), RuntimeError> {
-        let header = self.call_header(index)?;
         let previous_contexts = include_work_contexts.then(|| self.install_cleanup_contexts());
         let defer_offset = self.calls[index].block_defer_offsets.pop().expect("live block owns a defer boundary");
         let defers = self.calls[index].defers.split_off(defer_offset);
         let call = &mut self.calls[index];
-        let parent = self.evaluator.parent_owned_host_scope();
-        self.evaluator.retain_indexed_scope_writeback(scope_id, parent, &header, &call.slots, &Ok(StmtFlow::None));
-        let host_cleanup = self.evaluator.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit))).map(|_| ());
-        let mut result = self.evaluator.complete_indexed_scope_cleanup(&call.execution, Ok(StmtFlow::None), host_cleanup, call.call_span);
-        if !result.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
-            let deferred_cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
-            result = self.evaluator.complete_indexed_scope_cleanup(&call.execution, result, deferred_cleanup, call.call_span);
-        }
-        self.evaluator.retain_indexed_scope_writeback(scope_id, parent, &header, &call.slots, &Ok(StmtFlow::None));
-        let mut cleanup = result.map(|_| ());
+        let mut cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
         if include_work_contexts && disposition == CleanupFailureResources::Retain {
             let keep = self.capture_boundary(index).map_or(0, |boundary| boundary + 1);
             if self.crosses_context_scope(index, keep) { disposition = CleanupFailureResources::RejectContextEscape; }
@@ -4641,7 +4280,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             let result = match work {
                 FrameWork::ClearSlots(slots) => {
-                    self.evaluator.retire_indexed_live_locals(&self.calls[index].slots, &slots);
                     for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
                     Ok(())
                 }
@@ -4856,325 +4494,4 @@ fn decode_call_args_into<'a>(
     }
     indexed_finish(args, span)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::runtime::eval::indexed::full::FullBuilder;
-    use crate::sema::check::Checker;
-
-    mod callable_template_tests;
-
-    fn prepared_frame_fixture(source: &str) -> (Evaluator, Arc<FullProgram>, Span) {
-        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
-            "generic-frame-lifecycle.xsh",
-            crate::loader::entry_source_from_text("generic-frame-lifecycle.xsh", source.to_string()),
-            Vec::new(),
-        );
-        let source_id = crate::source::SourceMap::files(&sources).first().unwrap().id();
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
-        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-        assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
-        let program = FullBuilder::build_compact(
-            &parsed.arena, &declarations, &bodies, source, Arc::new(sources.clone()), source_id,
-        ).expect("frame fixture prepares");
-        assert!(program.generic_evidence().is_some(), "fixture must prepare generic evidence");
-        let program = Arc::new(program);
-        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
-        evaluator.indexed_program = Some(Arc::clone(&program));
-        (evaluator, program, Span::new(source_id, 0, 0))
-    }
-
-    fn fixture_function(program: &FullProgram, name: &str) -> LoweredFunctionKey {
-        LoweredFunctionKey::Name(program.symbol_owner().with_current(|| Name::intern(name)))
-    }
-
-    fn call_prepared_fixture_route(
-        evaluator: &mut Evaluator,
-        program: &FullProgram,
-        function: LoweredFunctionKey,
-        span: Span,
-        recursive: bool,
-    ) -> Result<LoweredValue, RuntimeError> {
-        call_prepared_fixture_route_with_values(evaluator,program,function,&[],span,recursive)
-    }
-
-    fn call_prepared_fixture_route_with_values(
-        evaluator: &mut Evaluator,
-        program: &FullProgram,
-        function: LoweredFunctionKey,
-        values: &[LoweredValue],
-        span: Span,
-        recursive: bool,
-    ) -> Result<LoweredValue, RuntimeError> {
-        if !recursive {
-            return super::super::super::with_indexed_explicit_frames(|| {
-                evaluator.eval_indexed_with_frames(program, function, LoweredFunctionKind::Proc, values, span)
-            });
-        }
-        let view = program.function_view(function, LoweredFunctionKind::Proc)
-            .map_err(|error| indexed_error(error, span))?
-            .expect("verified fixture entry exists");
-        let header = view.header().map_err(|error| indexed_error(error, span))?;
-        let IndexedCallSlots { mut slots, pending_defaults } = evaluator.bind_lowered_values(&header, values, span)?;
-        let result = super::super::super::with_forced_recursive_fast_path(|| {
-            evaluator.eval_indexed_call_frame(function, LoweredFunctionKind::Proc, view, &header, &mut slots, pending_defaults, span)
-                .and_then(|value| super::super::super::checked_lowered_return_value(&header, value, span))
-        });
-        evaluator.recycle_lowered_slots(slots);
-        result
-    }
-
-    #[test]
-    fn prepared_callable_frame_entry_retains_its_creation_environment_for_defaults() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"let base: Str = "original"
-pure plus(value: Str, step: Str = base) -> Str { value + step }
-let alias = plus
-"#;
-            let (mut evaluator, program, span) = prepared_frame_fixture(source);
-            let _symbols = program.symbol_owner().enter();
-            evaluator.eval_indexed_driver_step(0,span).unwrap().unwrap();
-            evaluator.eval_indexed_driver_step(2,span).unwrap().unwrap();
-            let crate::runtime::value::Value::Callable(handle)=evaluator.lookup(Name::intern("alias")).unwrap().value.clone() else {panic!("creation must retain a typed callable")};
-            {
-                let mut frames=ExplicitFrames::new(&mut evaluator,&program);
-                let error=frames.push_dynamic_arguments(0,None,LoweredValue::Callable(handle.clone()),Vec::new(),0,IndexedCallArguments::default(),span,FrameContinuation::Store { slot: 0, instruction: 0 }).expect_err("typed values cannot invoke without their prepared authority");
-                assert_eq!(error.kind,"indexed-ir");
-                assert!(error.message.contains("no prepared authority"));
-            }
-            evaluator.define(Name::intern("base"),crate::runtime::eval::Binding{value:crate::runtime::value::Value::Str(Arc::from("replacement")),mutable:false});
-            let header=program.function_view_by_id(handle.contract().target).unwrap().header().unwrap();
-            let (_,foreign,_)=prepared_frame_fixture(source);
-            let bound=evaluator.bind_lowered_values(&header,&[LoweredValue::Str(Arc::from("value"))],span).unwrap();
-            let error=evaluator.eval_indexed_with_callable_slots(&foreign,&handle,bound,span).expect_err("same-shaped foreign program cannot accept the callable creation");
-            assert_eq!(error.kind,"indexed-ir");
-            assert!(error.message.contains("different programs"));
-            let bound=evaluator.bind_lowered_values(&header,&[LoweredValue::Str(Arc::from("value"))],span).unwrap();
-            let value=evaluator.eval_indexed_with_callable_slots(&program,&handle,bound,span).expect("frame entry uses captures from callable creation");
-            assert_eq!(value,LoweredValue::Str(Arc::from("valueoriginal")));
-            assert!(evaluator.call_stack.is_empty());
-        });
-    }
-
-    #[test]
-    fn prepared_callable_frame_omission_evaluates_the_default_in_its_creation_environment() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"let base: Str = "original"
-pure captured(step: Str = base) -> Str { step }
-proc selected(base: Str) [] -> Str {
-  let callback = captured
-  callback()
-}
-"#;
-            for recursive in [false,true] {
-                let (mut evaluator, program, span) = prepared_frame_fixture(source);
-                let _symbols=program.symbol_owner().enter();
-                evaluator.eval_indexed_driver_step(0,span).unwrap().unwrap();
-                let value=call_prepared_fixture_route_with_values(
-                    &mut evaluator,&program,fixture_function(&program,"selected"),&[LoweredValue::Str(Arc::from("shadow"))],span,recursive,
-                ).expect("omitted callable parameter uses the original capture");
-                assert_eq!(value,LoweredValue::Str(Arc::from("original")));
-                assert!(evaluator.call_stack.is_empty());
-            }
-        });
-    }
-
-    #[test]
-    fn prepared_captured_callable_frame_uses_its_original_default_on_both_runtime_routes() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"let base: Str = "original"
-pure captured(step: Str = base) -> Str { step }
-let callback = captured
-proc selected(base: Str) [] -> Str { callback() }
-"#;
-            for recursive in [false,true] {
-                let (mut evaluator, program, span)=prepared_frame_fixture(source);
-                let _symbols=program.symbol_owner().enter();
-                assert!(program.generic_evidence().unwrap().invocation_plans().next().is_some());
-                evaluator.eval_indexed_driver_step(0,span).unwrap().unwrap();
-                evaluator.eval_indexed_driver_step(2,span).unwrap().unwrap();
-                let value=call_prepared_fixture_route_with_values(
-                    &mut evaluator,&program,fixture_function(&program,"selected"),&[LoweredValue::Str(Arc::from("shadow"))],span,recursive,
-                ).expect("captured callable retains its default environment on each route");
-                assert_eq!(value,LoweredValue::Str(Arc::from("original")));
-                assert!(evaluator.call_stack.is_empty());
-            }
-        });
-    }
-
-    #[test]
-    fn prepared_callable_frame_uses_original_capture_and_default_despite_caller_shadowing() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"let base: Str = "original"
-pure plus(value: Str, step: Str = base) -> Str { value + step }
-proc selected(base: Str, value: Str) [] -> Str {
-  let callback = plus
-  callback(value: value)
-}
-"#;
-            for recursive in [false,true] {
-                let (mut evaluator, program, span) = prepared_frame_fixture(source);
-                let _symbols = program.symbol_owner().enter();
-                evaluator.eval_indexed_driver_step(0,span).unwrap().unwrap();
-                let value=call_prepared_fixture_route_with_values(
-                    &mut evaluator,&program,fixture_function(&program,"selected"),&[LoweredValue::Str(Arc::from("shadow")),LoweredValue::Str(Arc::from("value"))],span,recursive,
-                ).expect("typed callable frame uses its original immutable environment");
-                assert_eq!(value,LoweredValue::Str(Arc::from("valueoriginal")));
-                assert!(evaluator.call_stack.is_empty());
-            }
-        });
-    }
-
-    #[test]
-    fn prepared_generic_frame_call_evidence_survives_effectful_arguments_and_reentry() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"pure add(left, right) { left + right }
-pure forwarded(left, right) { add(left, right) }
-proc mark(value: Str) [] -> Str { print $value; value }
-proc selected() [] -> Str { forwarded(mark("left"), mark("right")) }
-"#;
-            let (mut evaluator, program, span) = prepared_frame_fixture(source);
-            let _symbols = program.symbol_owner().enter();
-            let function_count = program.function_count();
-            let retained_bytes = program.retained_bytes();
-            for _ in 0..2 {
-                let value = evaluator.eval_indexed_with_frames(
-                    &program, fixture_function(&program, "selected"), LoweredFunctionKind::Proc, &[], span,
-                ).expect("prepared frame call succeeds after frontend destruction");
-                assert_eq!(value, LoweredValue::Str(Arc::from("leftright")));
-                assert!(evaluator.call_stack.is_empty());
-            }
-            assert_eq!(evaluator.stdout, b"left\nright\nleft\nright\n");
-            assert_eq!(program.function_count(), function_count);
-            assert_eq!(program.retained_bytes(), retained_bytes);
-            let missing = evaluator.eval_indexed_with_frames(
-                &program, fixture_function(&program, "forwarded"), LoweredFunctionKind::Pure,
-                &[LoweredValue::Str(Arc::from("left")), LoweredValue::Str(Arc::from("right"))], span,
-            ).expect_err("cached generic header cannot authorize an unproved entry");
-            assert_eq!(missing.kind, "indexed-ir");
-            assert!(evaluator.call_stack.is_empty());
-        });
-    }
-
-    #[test]
-    fn prepared_generic_frame_argument_propagation_stops_later_arguments_and_runs_cleanup() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"pure add(left, right) { left + right }
-pure forwarded(left, right) { add(left, right) }
-proc mark(value: Str, fail: Bool) [error] -> Result[Str] {
-  defer { print "argument cleanup" }
-  print $value
-  if fail { error.fail("argument failed")? }
-  Ok(value)
-}
-proc selected(fail: Bool) [error] -> Result[Str] {
-  defer { print "caller cleanup" }
-  forwarded(mark("left", fail)?, mark("right", false)?)
-}
-"#;
-            let (mut evaluator, program, span) = prepared_frame_fixture(source);
-            let _symbols = program.symbol_owner().enter();
-            let value = evaluator.eval_indexed_with_frames(
-                &program, fixture_function(&program, "selected"), LoweredFunctionKind::Proc, &[LoweredValue::Bool(true)], span,
-            ).expect("checked argument failure remains a Result");
-            assert!(matches!(value, LoweredValue::ResultErr(_)), "{value:?}");
-            assert_eq!(evaluator.stdout, b"left\nargument cleanup\ncaller cleanup\n");
-            assert!(evaluator.call_stack.is_empty());
-            let value = evaluator.eval_indexed_with_frames(
-                &program, fixture_function(&program, "selected"), LoweredFunctionKind::Proc,
-                &[LoweredValue::Bool(false)], span,
-            ).expect("the same evaluator can enter a fresh proved call after cleanup");
-            assert_eq!(value, LoweredValue::ResultOk(Box::new(LoweredValue::Str(Arc::from("leftright")))));
-            assert_eq!(evaluator.stdout, b"left\nargument cleanup\ncaller cleanup\nleft\nargument cleanup\nright\nargument cleanup\ncaller cleanup\n");
-            assert!(evaluator.call_stack.is_empty());
-        });
-    }
-
-    #[test]
-    fn prepared_generic_frame_constructor_preserves_witnessed_stats_shaped_storage() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"pure code(row) { row.code }
-proc selected() [] -> Int {
-  let blobs: Map[Int] = {}
-  let row = {blanks: 1, blobs, code: 7, comments: 2}
-  code(row)
-}
-"#;
-            let (mut evaluator, program, span) = prepared_frame_fixture(source);
-            let _symbols = program.symbol_owner().enter();
-            let value = evaluator.eval_indexed_with_frames(
-                &program, fixture_function(&program, "selected"), LoweredFunctionKind::Proc, &[], span,
-            ).expect("a witnessed constructor retains record storage inside the frame");
-            assert_eq!(value, LoweredValue::Int(7));
-            assert!(evaluator.stdout.is_empty());
-            assert!(evaluator.call_stack.is_empty());
-        });
-    }
-
-    #[test]
-    fn prepared_generic_frame_returned_err_payload_does_not_hide_defer_failure() {
-        crate::runtime::eval::run_eval(|| {
-            let source = r#"error PayloadError = Returned(message: Str)
-proc rigid(value) [] {
-  defer { print "cleanup"; let _ = 1 / 0 }
-  return value
-}
-proc erased(value: Any) [] -> Any {
-  defer { print "cleanup"; let _ = 1 / 0 }
-  return value
-}
-proc fixed(value: Result[Int], marker) [] -> Result[Int] {
-  defer { print "cleanup"; let _ = 1 / 0 }
-  let _ = marker
-  return value
-}
-proc selected() [] -> Result[Int] {
-  let payload: Result[Int] = Err(PayloadError.Returned(message: "payload"))
-  rigid(payload)
-}
-proc selected_any() [] -> Any {
-  let payload: Result[Int] = Err(PayloadError.Returned(message: "payload"))
-  erased(payload)
-}
-proc selected_fixed() [] -> Result[Int] {
-  let payload: Result[Int] = Err(PayloadError.Returned(message: "payload"))
-  fixed(payload, 1)
-}
-"#;
-            for recursive in [false, true] {
-                let (mut evaluator, program, span) = prepared_frame_fixture(source);
-                let _symbols = program.symbol_owner().enter();
-                let view = program.function_view(fixture_function(&program, "rigid"), LoweredFunctionKind::Proc).unwrap().unwrap();
-                let scope = program.generic_evidence().unwrap().scope(view.generic_scope().unwrap()).unwrap();
-                assert!(matches!(scope.result, crate::runtime::eval::indexed::generic::TypeRef::Rigid(_)));
-                assert_eq!(scope.return_plan, crate::runtime::eval::indexed::generic::GenericReturnPlan::Value);
-                for function in ["selected", "selected_any"] {
-                    let error = call_prepared_fixture_route(
-                        &mut evaluator, &program, fixture_function(&program, function), span, recursive,
-                    ).expect_err("a returned Err payload cannot suppress the defer's runtime failure");
-                    assert_eq!(error.kind, "division-by-zero");
-                    assert!(evaluator.call_stack.is_empty());
-                }
-                assert_eq!(evaluator.stdout, b"cleanup\ncleanup\n");
-                assert!(evaluator.stderr.is_empty(), "cleanup failures are primary here");
-                let fixed = program.function_view(fixture_function(&program, "fixed"), LoweredFunctionKind::Proc).unwrap().unwrap();
-                let fixed_scope = program.generic_evidence().unwrap().scope(fixed.generic_scope().unwrap()).unwrap();
-                assert!(matches!(fixed_scope.result, crate::runtime::eval::indexed::generic::TypeRef::Ground(_)));
-                assert_eq!(fixed_scope.return_plan, crate::runtime::eval::indexed::generic::GenericReturnPlan::Value);
-                let value = call_prepared_fixture_route(
-                    &mut evaluator, &program, fixture_function(&program, "selected_fixed"), span, recursive,
-                ).expect("a fixed declared Result keeps its returned failure primary");
-                let LoweredValue::ResultErr(error) = value else { panic!("declared failure channel did not preserve Err") };
-                let crate::runtime::value::Value::Error(error) = error.as_ref() else { panic!("Err lost its typed Error payload") };
-                assert_eq!(error.message, "payload");
-                assert_eq!(evaluator.stdout, b"cleanup\ncleanup\ncleanup\n");
-                assert!(String::from_utf8_lossy(&evaluator.stderr).contains("division by zero"));
-                assert!(evaluator.call_stack.is_empty());
-            }
-        });
-    }
 }
