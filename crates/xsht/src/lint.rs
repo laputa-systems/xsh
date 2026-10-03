@@ -149,6 +149,10 @@ pub const LINT_CODES: &[&str] = &[
     "lint.unused-type",
 ];
 
+/// Checker diagnostic codes that carry a source fix and may be selected with
+/// `xsht lint --only`, for scoped migrations such as `--only check.bool-statement --fix`.
+pub const FIXABLE_CHECK_CODES: &[&str] = &["check.bool-statement"];
+
 /// Whether `only` (the `--only` selection, if any) admits a diagnostic code.
 pub fn lint_code_selected(only: Option<&[String]>, code: Option<&str>) -> bool {
     only.is_none_or(|only| code.is_some_and(|code| only.iter().any(|selected| selected == code)))

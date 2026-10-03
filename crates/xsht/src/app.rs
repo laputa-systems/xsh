@@ -489,7 +489,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
         };
         if let Some(selection) = selection {
             for code in selection.split(',') {
-                if !crate::xsht::lint::LINT_CODES.contains(&code) {
+                if !crate::xsht::lint::LINT_CODES.contains(&code) && !crate::xsht::lint::FIXABLE_CHECK_CODES.contains(&code) {
                     return Err(format!("unknown lint rule '{code}' for `xsht lint --only`"));
                 }
                 only.get_or_insert_with(Vec::new).push(code.to_owned());

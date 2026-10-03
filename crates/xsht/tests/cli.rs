@@ -719,6 +719,18 @@ fn lint_fix_applies_the_bool_statement_assert_fix() {
 }
 
 #[test]
+fn lint_only_bool_statement_applies_only_its_assert_fix() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(&script, "let name: Str = \"x\"\nname == \"x\"\n").expect("write script");
+    let fixed = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--only", "check.bool-statement", "--fix", "main.xsh"])
+        .current_dir(root.path()).output().expect("run xsht lint");
+    assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
+    assert_eq!(fs::read_to_string(&script).expect("read fixed script"), "let name: Str = \"x\"\nassert name == \"x\"\n");
+}
+
+#[test]
 fn lint_only_rejects_unknown_codes() {
     for args in [&["lint", "--only", "lint.prefer-const,lint.no-such-rule", "."][..], &["lint", "--only"][..]] {
         let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(args).output().expect("run xsht lint");
