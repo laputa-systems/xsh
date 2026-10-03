@@ -377,11 +377,11 @@ fn a_loaded_module_calls_prepared_implementations() {
         "loaded.xsh",
         "##! A module that uses a migrated entry.\n\n\
          ## Verify a file against an expected checksum.\n\
-         export pure check(path: Path, checksum: Str) -> Result[Unit] {\n  \
-         return hash.verify_file(path, sha256: checksum)\n}\n\n\
+         export proc check(file: Path, checksum: Str) [fs] -> Result[Unit] {\n  \
+         return hash.verify_file(file, sha256: checksum)\n}\n\n\
          ## The checksum of a file.\n\
-         export pure digest_of(path: Path) -> Result[Str] {\n  \
-         return hash.sha256(path)?.hex()\n}\n",
+         export proc digest_of(file: Path) [fs, error] -> Result[Str] {\n  \
+         return hash.sha256(file)?.hex()\n}\n",
     );
     let data = dir.join("data.txt");
     std::fs::write(&data, "abc").expect("write data");
@@ -390,8 +390,8 @@ fn a_loaded_module_calls_prepared_implementations() {
         "loader.xsh",
         &format!(
             "type Loaded = module {{\n  \
-             export pure check(path: Path, checksum: Str) -> Result[Unit]\n  \
-             export pure digest_of(path: Path) -> Result[Str]\n}}\n\n\
+             export proc check(file: Path, checksum: Str) [fs] -> Result[Unit]\n  \
+             export proc digest_of(file: Path) [fs, error] -> Result[Str]\n}}\n\n\
              proc main() [io, error] {{\n  \
              let loaded = module.load(p\"{}\" )?.require(Loaded)?\n  \
              let hex = loaded.digest_of(p\"{}\" )?\n  \

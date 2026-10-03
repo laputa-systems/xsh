@@ -395,20 +395,22 @@ print ${{responses[0]?.body.utf8()?}} ${{responses[1]?.body.utf8()?}} ${{respons
     let script = std::thread::spawn(move || run_temp_script("net-completion-window", &source));
 
     let mut received = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(3);
+    // The refill window starts at the first request rather than at script
+    // spawn, so slow startup cannot expire it.
+    let mut deadline = None;
     let third_started_before_a_completed = loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
+        if deadline.map_or(script.is_finished(), |deadline| Instant::now() >= deadline) {
             break false;
         }
-        match server.events.recv_timeout(remaining) {
+        match server.events.recv_timeout(Duration::from_millis(10)) {
             Ok(path) => {
+                deadline.get_or_insert_with(|| Instant::now() + Duration::from_secs(3));
                 received.push(path);
                 if received.last().is_some_and(|path| path == "/gate-c") {
                     break true;
                 }
             }
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => break false,
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break false,
         }
     };
@@ -556,11 +558,7 @@ fn assert_native_xsh_test(test_name: &str, output: std::process::Output) {
 #[cfg(feature = "net")]
 #[test]
 fn native_xsh_dns_explicit_server_transport() {
-    // Resolve the test runner before the server starts its request deadline.
-    crate::runtime::common::workspace_binary("xsht");
-    // Native test discovery precedes the first query; subsequent queries retain
-    // the ordinary request deadline.
-    let server = LocalDnsServer::spawn_with_startup_timeout(2, Duration::from_secs(60));
+    let server = LocalDnsServer::spawn(2);
     let output = run_native_xsh_test(
         "tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport",
         &[("XSH_DNS_TEST_SERVER", &server.addr)],
@@ -617,10 +615,7 @@ print ${{foreground.body.utf8()?}} ${{job.wait()?.body.utf8()?}}
 #[cfg(feature = "net")]
 #[test]
 fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
-    crate::runtime::common::workspace_binary("xsht");
-    // Native test discovery precedes transport; parsed requests start the
-    // ordinary request deadline, while idle connections leave startup intact.
-    let server = ConcurrentProgressServer::spawn_with_startup_timeout(Duration::from_secs(60));
+    let server = ConcurrentProgressServer::spawn();
     // The fixture waits for two parsed requests, even if another socket is idle.
     let _idle = std::net::TcpStream::connect(server.url.strip_prefix("http://").unwrap())
         .expect("open idle concurrent-progress connection");
@@ -1761,7 +1756,8 @@ print ${{fp\"${{out}}/dir/source.txt\".read_text()?.trim()}} ${{fp\"${{out}}/dir
 #[cfg(feature = "net")]
 struct LocalDnsServer {
     addr: String,
-    handle: std::thread::JoinHandle<LocalDnsSummary>,
+    handle: Option<std::thread::JoinHandle<LocalDnsSummary>>,
+    stop: LocalServerStop,
 }
 
 #[derive(Debug)]
@@ -1773,36 +1769,53 @@ struct LocalDnsSummary {
 #[cfg(feature = "net")]
 impl LocalDnsServer {
     fn spawn(expected: usize) -> Self {
-        Self::spawn_with_startup_timeout(expected, Duration::from_secs(10))
-    }
-
-    fn spawn_with_startup_timeout(expected: usize, startup_timeout: Duration) -> Self {
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind DNS listener");
         socket
-            .set_read_timeout(Some(startup_timeout))
-            .expect("set DNS startup timeout");
+            .set_read_timeout(Some(Duration::from_millis(5)))
+            .expect("set DNS poll timeout");
         let addr = socket.local_addr().expect("DNS listener addr").to_string();
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
             let mut handled = 0;
             let mut request = [0_u8; 512];
-            while handled < expected {
-                let (len, peer) = socket.recv_from(&mut request).expect("read DNS request");
-                if handled == 0 {
-                    socket
-                        .set_read_timeout(Some(Duration::from_secs(10)))
-                        .expect("set DNS request timeout");
-                }
+            let mut give_up_at = None;
+            while handled < expected && !server_stop.expired(&mut give_up_at) {
+                let (len, peer) = match socket.recv_from(&mut request) {
+                    Ok(received) => received,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(error) => panic!("read DNS request: {error}"),
+                };
                 let response = local_dns_response(&request[..len]);
                 socket.send_to(&response, peer).expect("write DNS response");
                 handled += 1;
             }
             LocalDnsSummary { handled }
         });
-        Self { addr, handle }
+        Self {
+            addr,
+            handle: Some(handle),
+            stop,
+        }
     }
 
-    fn join(self) -> std::thread::Result<LocalDnsSummary> {
-        self.handle.join()
+    fn join(mut self) -> std::thread::Result<LocalDnsSummary> {
+        self.stop.signal();
+        self.handle.take().expect("DNS server handle").join()
+    }
+}
+
+#[cfg(feature = "net")]
+impl Drop for LocalDnsServer {
+    fn drop(&mut self) {
+        self.stop.signal();
     }
 }
 
@@ -1849,16 +1862,13 @@ fn local_dns_response(request: &[u8]) -> Vec<u8> {
 #[cfg(feature = "net")]
 struct ConcurrentProgressServer {
     url: String,
-    handle: std::thread::JoinHandle<()>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    stop: LocalServerStop,
 }
 
 #[cfg(feature = "net")]
 impl ConcurrentProgressServer {
     fn spawn() -> Self {
-        Self::spawn_with_startup_timeout(Duration::from_secs(30))
-    }
-
-    fn spawn_with_startup_timeout(startup_timeout: Duration) -> Self {
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").expect("bind concurrent-progress listener");
         listener
@@ -1870,25 +1880,18 @@ impl ConcurrentProgressServer {
         let (job_started_tx, job_started_rx) = crossbeam_channel::bounded(1);
         let (sync_started_tx, sync_started_rx) = crossbeam_channel::bounded(1);
         let (job_response_sent_tx, job_response_sent_rx) = crossbeam_channel::bounded(1);
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
             let completed = Arc::new(AtomicUsize::new(0));
             let done = Arc::new(AtomicBool::new(false));
-            let request_started = Arc::new(AtomicBool::new(false));
-            let startup_deadline = Instant::now() + startup_timeout;
-            let mut request_deadline = None;
+            let mut give_up_at = None;
             let mut workers = Vec::new();
-            while completed.load(Ordering::SeqCst) < 2 {
-                if request_deadline.is_none() && request_started.load(Ordering::SeqCst) {
-                    request_deadline = Some(Instant::now() + Duration::from_secs(30));
-                }
-                if Instant::now() >= request_deadline.unwrap_or(startup_deadline) {
-                    break;
-                }
+            while completed.load(Ordering::SeqCst) < 2 && !server_stop.expired(&mut give_up_at) {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let completed = Arc::clone(&completed);
                         let done = Arc::clone(&done);
-                        let request_started = Arc::clone(&request_started);
                         let job_started_tx = job_started_tx.clone();
                         let job_started_rx = job_started_rx.clone();
                         let sync_started_tx = sync_started_tx.clone();
@@ -1906,7 +1909,6 @@ impl ConcurrentProgressServer {
                                 job_response_sent_rx,
                                 completed,
                                 done,
-                                request_started,
                             );
                         }));
                     }
@@ -1928,12 +1930,24 @@ impl ConcurrentProgressServer {
         });
         Self {
             url: format!("http://{addr}"),
-            handle,
+            handle: Some(handle),
+            stop,
         }
     }
 
-    fn join(self) -> std::thread::Result<()> {
-        self.handle.join()
+    fn join(mut self) -> std::thread::Result<()> {
+        self.stop.signal();
+        self.handle
+            .take()
+            .expect("concurrent-progress server handle")
+            .join()
+    }
+}
+
+#[cfg(feature = "net")]
+impl Drop for ConcurrentProgressServer {
+    fn drop(&mut self) {
+        self.stop.signal();
     }
 }
 
@@ -1948,7 +1962,6 @@ fn handle_concurrent_progress_connection(
     job_response_sent_rx: crossbeam_channel::Receiver<()>,
     completed: Arc<AtomicUsize>,
     done: Arc<AtomicBool>,
-    request_started: Arc<AtomicBool>,
 ) {
     stream
         .set_read_timeout(Some(Duration::from_secs(1)))
@@ -1974,7 +1987,6 @@ fn handle_concurrent_progress_connection(
         }
     }
 
-    request_started.store(true, Ordering::SeqCst);
     match path {
         "/job" => {
             job_started_tx
@@ -2022,7 +2034,8 @@ struct BatchBarrierServer {
     url: String,
     events: crossbeam_channel::Receiver<String>,
     release_a_tx: crossbeam_channel::Sender<()>,
-    handle: std::thread::JoinHandle<()>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    stop: LocalServerStop,
 }
 
 #[cfg(feature = "net")]
@@ -2035,12 +2048,14 @@ impl BatchBarrierServer {
         let addr = listener.local_addr().expect("batch barrier address");
         let (event_tx, events) = crossbeam_channel::unbounded();
         let (release_a_tx, release_a_rx) = crossbeam_channel::bounded(1);
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
             let completed = Arc::new(AtomicUsize::new(0));
             let done = Arc::new(AtomicBool::new(false));
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut give_up_at = None;
             let mut workers = Vec::new();
-            while completed.load(Ordering::SeqCst) < 3 && Instant::now() < deadline {
+            while completed.load(Ordering::SeqCst) < 3 && !server_stop.expired(&mut give_up_at) {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let event_tx = event_tx.clone();
@@ -2077,7 +2092,8 @@ impl BatchBarrierServer {
             url: format!("http://{addr}"),
             events,
             release_a_tx,
-            handle,
+            handle: Some(handle),
+            stop,
         }
     }
 
@@ -2085,8 +2101,18 @@ impl BatchBarrierServer {
         self.release_a_tx.send(()).expect("release gated request A");
     }
 
-    fn join(self) {
-        self.handle.join().expect("batch barrier server");
+    fn join(mut self) {
+        self.stop.signal();
+        if let Some(handle) = self.handle.take() {
+            handle.join().expect("batch barrier server");
+        }
+    }
+}
+
+#[cfg(feature = "net")]
+impl Drop for BatchBarrierServer {
+    fn drop(&mut self) {
+        self.stop.signal();
     }
 }
 
@@ -2170,7 +2196,8 @@ fn read_fixture_request_line(
 #[cfg(feature = "net")]
 struct LocalHttpServer {
     url: String,
-    handle: std::thread::JoinHandle<LocalHttpSummary>,
+    handle: Option<std::thread::JoinHandle<LocalHttpSummary>>,
+    stop: LocalServerStop,
 }
 
 #[derive(Debug)]
@@ -2208,13 +2235,15 @@ impl LocalHttpServer {
             .expect("set HTTP listener nonblocking");
         let addr = listener.local_addr().expect("HTTP listener addr");
         let url = format!("http://{addr}");
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
             let handled = Arc::new(AtomicUsize::new(0));
             let connections = Arc::new(AtomicUsize::new(0));
             let (request_tx, request_rx) = crossbeam_channel::unbounded();
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut give_up_at = None;
             let mut workers = Vec::new();
-            while handled.load(Ordering::SeqCst) < expected && Instant::now() < deadline {
+            while handled.load(Ordering::SeqCst) < expected && !server_stop.expired(&mut give_up_at) {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         connections.fetch_add(1, Ordering::SeqCst);
@@ -2241,11 +2270,27 @@ impl LocalHttpServer {
                 requests,
             }
         });
-        Self { url, handle }
+        Self {
+            url,
+            handle: Some(handle),
+            stop,
+        }
     }
 
-    fn join(self) -> LocalHttpSummary {
-        self.handle.join().expect("HTTP server")
+    fn join(mut self) -> LocalHttpSummary {
+        self.stop.signal();
+        self.handle
+            .take()
+            .expect("HTTP server handle")
+            .join()
+            .expect("HTTP server")
+    }
+}
+
+#[cfg(feature = "net")]
+impl Drop for LocalHttpServer {
+    fn drop(&mut self) {
+        self.stop.signal();
     }
 }
 
@@ -2550,7 +2595,8 @@ I8+sa866U25QjqrMXvpD7g==
 #[cfg(feature = "net")]
 struct LocalHttpsServer {
     url: String,
-    handle: std::thread::JoinHandle<LocalHttpsSummary>,
+    handle: Option<std::thread::JoinHandle<LocalHttpsSummary>>,
+    stop: LocalServerStop,
 }
 
 #[cfg(feature = "net")]
@@ -2589,11 +2635,13 @@ impl LocalHttpsServer {
         let addr = listener.local_addr().expect("HTTPS listener addr");
         let url = format!("https://{addr}");
         let config = Arc::new(config);
+        let stop = LocalServerStop::default();
+        let server_stop = stop.clone();
         let handle = std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut give_up_at = None;
             let mut handled = 0;
             let mut alpn_protocols = Vec::new();
-            while handled < expected && Instant::now() < deadline {
+            while handled < expected && !server_stop.expired(&mut give_up_at) {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         alpn_protocols.push(handle_local_https_connection(stream, config.clone()));
@@ -2610,11 +2658,27 @@ impl LocalHttpsServer {
                 alpn_protocols,
             }
         });
-        Self { url, handle }
+        Self {
+            url,
+            handle: Some(handle),
+            stop,
+        }
     }
 
-    fn join(self) -> LocalHttpsSummary {
-        self.handle.join().expect("HTTPS server")
+    fn join(mut self) -> LocalHttpsSummary {
+        self.stop.signal();
+        self.handle
+            .take()
+            .expect("HTTPS server handle")
+            .join()
+            .expect("HTTPS server")
+    }
+}
+
+#[cfg(feature = "net")]
+impl Drop for LocalHttpsServer {
+    fn drop(&mut self) {
+        self.stop.signal();
     }
 }
 
@@ -2895,6 +2959,12 @@ impl LocalServerStop {
     fn signaled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
+
+    /// Whether `GRACE` has passed since the polling server first saw the signal.
+    fn expired(&self, give_up_at: &mut Option<Instant>) -> bool {
+        self.signaled()
+            && Instant::now() >= *give_up_at.get_or_insert_with(|| Instant::now() + Self::GRACE)
+    }
 }
 
 #[cfg(feature = "net")]
@@ -2915,12 +2985,8 @@ fn accept_local_connection_until_stopped(
                 return Some(stream);
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if stop.signaled() {
-                    let give_up_at =
-                        *give_up_at.get_or_insert_with(|| Instant::now() + LocalServerStop::GRACE);
-                    if Instant::now() >= give_up_at {
-                        return None;
-                    }
+                if stop.expired(&mut give_up_at) {
+                    return None;
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }

@@ -85,7 +85,7 @@ fn xsh_rejects_removed_strict_lower_option() {
 }
 
 fn dynamic_lowerability_script() -> &'static str {
-    "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+    "proc main(...argv: List[Str]) -> Result[Unit] {
   let exports: Record = {sources: {name: \"demo\"}}
   let sources = exports.get(\"sources\")?
 
