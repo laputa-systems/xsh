@@ -1,0 +1,1535 @@
+# A Tour of XSH
+
+XSH is a clean-slate systems scripting language for a modern Linux userspace.
+
+It is not a POSIX shell replacement in the compatibility sense, and it is not
+an interactive terminal interface. It is a language for writing the glue that
+holds a system together: package managers, build recipes, init systems, service
+supervisors, installer scripts, maintenance tools, and distribution policy.
+
+## The Archaeological Site
+
+The modern Linux userspace is an archaeological site. Beneath every build lies
+sedimentary layers of languages accumulated over decades: shell scripts call m4
+macros, configure scripts emit Makefiles, Makefiles invoke compilers through
+wrapper scripts, and those wrappers are often written in Perl, Python, awk, sed,
+or a private DSL that nobody meant to become infrastructure.
+
+This is Unix sludge: the entropic product of many weak languages duct-taped
+together because no single glue language was powerful enough for the whole job.
+
+XSH starts from a different premise. The system deserves one strong language for
+glue, one that can speak fluently to processes, files, paths, byte streams,
+structured data, and system state without turning every boundary into a quoting
+puzzle.
+
+## What Shell Got Right
+
+The old Unix shell succeeded because it made operating-system pieces feel
+composable. Processes, files, pipes, environment variables, working
+directories, exit statuses, and argument vectors became everyday building
+blocks. A small script could assemble existing programs into something larger
+than any one of them.
+
+That idea is still right.
+
+XSH keeps the useful model: coarse-grained reuse, explicit process boundaries,
+pipeline-shaped data flow, ordinary source files, and scripts that can grow into
+tools. It treats the Unix process model as an asset, not as historical baggage.
+The expensive work should be visible as a process, a file operation, or a typed
+host API, not hidden behind a scheduler or runtime trick.
+
+## What Shell Got Wrong
+
+The traditional shell encoded too much composition in strings and ambient state.
+It made parsing dynamic, word splitting implicit, quoting fragile, error flow
+surprising, and standards vague enough that every serious script eventually
+became a local dialect.
+
+XSH rejects that sludge:
+
+- no implicit eval;
+- no hidden word splitting;
+- no untyped text as the only interface between programs;
+- no ad hoc DSL stacking where a script generates another language to generate
+  another language;
+- no pretending that decades of compatibility quirks are a design philosophy.
+
+The goal is not to preserve the old spellbook. The goal is to carry forward the
+part of Unix that was worth preserving.
+
+## One Glue Language
+
+XSH is not trying to be a general-purpose application language. It is trying to
+be the best possible language for orchestration: starting processes, shaping
+argv, moving through directories, reading and writing files, transforming text
+and bytes, crossing JSON boundaries, inspecting host state, and making expected
+failures visible.
+
+Shell is the language of heterogeneity. It must speak to everything. XSH says
+that heterogeneity should be handled with clarity rather than incantation.
+
+For old Unix hands, the promise is familiar: small pieces, composed well. The
+difference is that XSH gives that promise a modern type system, structured
+errors, typed paths, structured streams, and a runtime that can trace what
+happened.
+
+That is the worthy successor: not a clone of the old shell, and not a small
+application runtime wearing shell syntax, but a clean language for the work the
+old shell proved was essential.
+
+## What XSH Is Not
+
+XSH does not compete with runtimes designed for fine-grained concurrency,
+long-lived application services, or interactive terminal interfaces. Keep those
+jobs in a service runtime, a dedicated TUI framework, or a specialized tool;
+use XSH to compose the host-facing work around them.
+
+The rest of this tour shows what that means in practice. Most sections start
+from a shell script you have probably written, point at the place it breaks,
+and then show the XSH version. Read it top to bottom once before you write
+your first script; after that, [`docs/SPEC.md`](SPEC.md) and `xsht api` are the
+references.
+
+Every `xsh` block below is a complete program that passes `xsht check`. Blocks
+followed by output were run to produce it. Blocks marked `# platform: linux`
+read `/proc` or other Linux-only interfaces.
+
+## Running a Script
+
+```xsh
+#!/usr/bin/env -S xsh --
+print "hello from xsh"
+```
+
+<!-- expected-output -->
+
+```text
+hello from xsh
+```
+
+Two binaries do the work. `xsh` runs scripts; `xsht` is the toolchain:
+
+```bash
+xsh hello.xsh                 # run it
+xsh deploy.xsh -- web-2 -f    # arguments after `--` go to the script
+chmod +x hello.xsh && ./hello.xsh
+xsht check hello.xsh          # parse, resolve, and type-check without running
+```
+
+`xsh` checks the whole program before executing anything. A type error on the
+last line means the first line never runs, so a half-applied change caused by
+a typo three screens down cannot happen. Check failures exit with status 2;
+runtime failures exit with status 3.
+
+Script arguments arrive as `args: List[Str]`. For anything beyond a couple of
+positional words, declare the interface instead of parsing it. A `cli main`
+signature is the argument parser, the usage text, and the type conversion:
+
+```xsh
+#!/usr/bin/env -S xsh --
+# Show the largest files under ROOT.
+cli main(root: Path, limit: UInt = 5, hidden = false) {
+  let largest = fs.files(root, stat: true, hidden:)?
+    |> sort-by(desc: true) .size
+    |> take(limit)
+
+  for entry in largest {
+    print f"${entry.size:>12} ${entry.path}"
+  }
+}
+```
+
+Required parameters are positional; defaulted ones become options
+(`--limit 3`, `--hidden`); `-h` prints generated help. A bad `--limit` value
+is rejected with usage status 2 before any of your code runs.
+
+## Values at a Glance
+
+```xsh
+const host = "db-01"
+const port = 5432
+const load = 0.75
+const grace = 90s
+const conf = /etc/postgresql/postgresql.conf
+const replicas = ["db-02", "db-03"]
+const limits = {cpu: 2, memory_mb: 4096}
+const owner: Str? = null
+let data = fp"/srv/${host}/data"
+
+print f"${host}:${port} load=${load} grace=${grace} doubled=${grace * 2}"
+print f"${conf.name()} in ${conf.parent()} (.${conf.ext()})"
+print f"data=${data} replicas=${replicas.join(",")}"
+print f"cpu=${limits.cpu} owner=${owner ?? "nobody"}"
+```
+
+<!-- expected-output -->
+
+```text
+db-01:5432 load=0.75 grace=90s doubled=3m
+postgresql.conf in /etc/postgresql (.conf)
+data=/srv/db-01/data replicas=db-02,db-03
+cpu=2 owner=nobody
+```
+
+Every value has a type, and the checker infers most of them: `Str`, `Int`,
+`Float`, `Duration`, `Path`, `List[Str]`, a record `{cpu: Int, memory_mb: Int}`,
+and an optional `Str?`. `const` is data fixed when the script is checked, `let`
+is an immutable runtime binding, and `var` is mutable. `f"..."`
+interpolates; plain `"..."` never does, so a stray `$` in a string literal is
+just a dollar sign.
+
+There are no implicit conversions. `"8080" + 1` is a check error, and
+`"8080".parse_int()` returns `Result[Int]` because parsing can fail. You will
+see that pattern everywhere: anything that can fail says so in its type.
+
+## Commands and argv
+
+The bug every shell scripter has shipped at least once:
+
+```bash
+file="quarterly report.pdf"
+rm $file                      # removes "quarterly" and "report.pdf"
+flags="-l -a"
+ls $flags "$dir"              # works only *because* of word splitting
+for f in $(find . -name '*.log'); do gzip $f; done   # spaces, globs, newlines
+```
+
+In XSH a value is one argv item. Lists splice only where you write `@`. Words
+are never split, globbed, or expanded:
+
+```xsh
+const file = "quarterly report.pdf"
+const flags = ["-l", "-a"]
+let argv = run.text printf "<%s>\n" $file @flags "*.log" ?
+print argv.trim()
+```
+
+<!-- expected-output -->
+
+```text
+<quarterly report.pdf>
+<-l>
+<-a>
+<*.log>
+```
+
+`$name` and `${expr}` interpolate into a command word; `"*.log"` stays a
+literal asterisk. When you actually want a glob, say so with a glob literal,
+`g"*.log"`, which produces a `List[Path]` you can splice with `@`. There is no
+shell underneath: external programs only run through `run`, and a bare word
+like `make` in statement position is an unresolved name, not a `PATH` lookup.
+
+The `run` family chooses what you get back:
+
+| Form | Result |
+|---|---|
+| `run cmd ...` | statement: fails the script on nonzero exit; value: `Status` |
+| `run.status cmd ...` | `Status`, never fails on exit code |
+| `run.text cmd ...` | `Result[Str]`: captured stdout |
+| `run.bytes cmd ...` | `Result[Bytes]` |
+| `run.capture --text cmd ...` | `Result[{status, stdout, stderr}]` |
+| `run.stream --text cmd ...` | `Result[Stream[Str]]`: lines as they arrive |
+
+Byte pipelines and redirections look the way you expect:
+`run tar -cf - $dir | run zstd -q > $archive`. Environment and working
+directory changes are scoped to a block, so they cannot leak into the rest of
+the script:
+
+```xsh
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let dir = scratch.host_path()?
+
+cd $dir {
+  p"notes.txt".write("hi\n")?
+  let listing = run.text ls ?
+  print f"inside: ${listing.trim()}"
+}
+
+env LC_ALL=C GREETING="hello world" {
+  let said = run.text printenv GREETING ?
+  print f"child saw: ${said.trim()}"
+}
+
+let outside = env.Str.GREETING ?? "(unset)"
+print f"after the block: ${outside}"
+```
+
+<!-- expected-output -->
+
+```text
+inside: notes.txt
+child saw: hello world
+after the block: (unset)
+```
+
+## Paths
+
+Paths are a type, not strings that happen to contain slashes. They hold native
+bytes, so a filename that is not valid UTF-8 still round-trips to `run`
+untouched.
+
+```xsh
+const log_dir = /var/log/nginx
+const today = p"access.log"
+let rotated = fp"${log_dir}/${today}.1"
+
+print $rotated
+print f"name=${rotated.name()} ext=${rotated.ext()} parent=${rotated.parent()}"
+print f"as gzip: ${rotated.with_ext("gz")}"
+```
+
+<!-- expected-output -->
+
+```text
+/var/log/nginx/access.log.1
+name=access.log.1 ext=1 parent=/var/log/nginx
+as gzip: /var/log/nginx/access.log.gz
+```
+
+Literals that start with `/`, `./`, or `../` are paths. `p"..."` makes a path
+from any literal and `fp"..."` builds one with interpolation. There is no `/`
+operator on paths and no implicit normalization: what you wrote is what the
+kernel sees. File operations are methods (`read_text`, `lines`, `write`,
+`write_atomic`, `exists`, `mkdir`) or `fs.*` functions (`fs.files`, `fs.walk`,
+`fs.copy`, `fs.rename`, `fs.mounts`).
+
+## Errors, Results, and `?`
+
+`set -euo pipefail` is a promise the shell does not keep:
+
+```bash
+set -euo pipefail
+count=$(grep -c ERROR app.log)  # zero matches: grep exits 1, script dies silently
+deploy() { cd /srv/app; git pull; systemctl restart app; }
+if deploy; then echo ok; fi     # set -e is off inside deploy: every step runs
+local version=$(get_version)    # `local` succeeds, so the failure is masked
+```
+
+XSH has no `set -e` to forget. A `run` in statement position that exits
+nonzero fails the script, every time, in every context, with the command that
+failed:
+
+```xsh
+proc backup(src: Path, dest: Path) [process, error] {
+  run tar -czf $dest $src
+  print "backup written"
+}
+
+backup(/var/lib/app, /backups/app.tgz)?
+```
+
+```text
+tar: Failed to open '/backups/app.tgz'
+runtime traceback
+executable: /usr/local/bin/xsh
+operation: result.propagate
+error: nonzero-exit: pipeline segment 0 `tar` exited with status 1
+cwd: /home/ops
+argv: tar -czf /backups/app.tgz /var/lib/app
+at backup.xsh:6:1-6:39
+call path:
+  1. proc backup at backup.xsh:6:1-6:39
+```
+
+When a nonzero exit is an answer rather than a failure, say which codes are
+acceptable. `grep` exits 1 for "no matches":
+
+```xsh
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let log = fp"${scratch.host_path()?}/app.log"
+log.write("ok\nERROR disk full\nok\nERROR link down\n")?
+
+let errors = run.text --accept=[0, 1] grep -c ERROR $log ?
+let panics = run.text --accept=[0, 1] grep -c PANIC $log ?
+print f"errors=${errors.trim()} panics=${panics.trim()}"
+```
+
+<!-- expected-output -->
+
+```text
+errors=2 panics=0
+```
+
+Functions that can fail return `Result[T]`. Four tools handle it:
+
+- `expr?` unwraps `Ok` or returns the `Err` to the caller.
+- `expr ?? fallback` recovers with a default.
+- `match` handles each outcome.
+- `guard ... else { ... }` exits early when a precondition fails.
+
+Expected failures get names. An `error` declaration is a small family of typed
+variants that callers can match on, instead of grepping message strings:
+
+```xsh
+error PortError = Missing(file: Path) | Invalid(text: Str)
+
+proc read_port(file: Path) [fs, error] -> Result[Int] {
+  guard file.exists()? else {
+    return Err(PortError.Missing(file:))
+  }
+
+  let text = file.read_text()?.trim()
+  text.parse_int() ?? { |_| Err(PortError.Invalid(text:))? }
+}
+
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let dir = scratch.host_path()?
+fp"${dir}/good".write("8080\n")?
+fp"${dir}/bad".write("eighty\n")?
+
+print f"good: ${read_port(fp"${dir}/good")?}"
+print f"missing, with default: ${read_port(fp"${dir}/none") ?? 80}"
+
+match read_port(fp"${dir}/bad") {
+  Ok(port) => print f"port ${port}"
+  Err(PortError.Invalid {text}) => print f"not a port: ${text}"
+  Err(error) => print f"unreadable: ${error.message}"
+}
+```
+
+<!-- expected-output -->
+
+```text
+good: 8080
+missing, with default: 80
+not a port: eighty
+```
+
+The `[fs, error]` clause lists the proc's effects; the [Effects](#effects)
+section covers it. `error` is the effect that permits `?`.
+
+Two more tools round this out. `ctx "description" { ... }` attaches context to
+anything that fails inside the block, so a bare "No such file or directory"
+becomes "No such file or directory (ctx: loading /etc/app.json)". `try { ... }`
+turns a block into a `Result` value when you want to collect failures as data
+instead of propagating them.
+
+## Records, Lists, and Maps
+
+Records are the unit of structure. A `type` names a schema; the checker then
+knows every field and rejects typos.
+
+```xsh
+type Host = {name: Str, role: Str, cores: Int}
+
+const fleet: List[Host] = [
+  {name: "web-1", role: "web", cores: 4},
+  {name: "web-2", role: "web", cores: 8},
+  {name: "db-1", role: "db", cores: 16},
+]
+
+let web = [h.name for h in fleet if h.role == "web"]
+let cores_by_name = {h.name: h.cores for h in fleet}
+print f"web: ${web.join(" ")}; db-1 has ${cores_by_name.get("db-1") ?? 0} cores"
+
+for {name, cores, ..} in fleet {
+  print f"${name}=${cores}"
+}
+
+let upgraded = {...fleet[0], cores: 32}
+print f"${upgraded.name}: ${fleet[0].cores} -> ${upgraded.cores}"
+
+for role in fleet |> group-by .role {
+  print f"${role.key}: ${[h.name for h in role.items].join(",")}"
+}
+
+match "deploy web-2 --force".fields() {
+  ["deploy", target, ..flags] => print f"deploy ${target} with ${flags.len()} flag(s)"
+  ["status"] => print "status"
+  _ => print "usage: deploy TARGET | status"
+}
+```
+
+<!-- expected-output -->
+
+```text
+web: web-1 web-2; db-1 has 16 cores
+web-1=4
+web-2=8
+db-1=16
+web-1: 4 -> 32
+web: web-1,web-2
+db: db-1
+deploy web-2 with 1 flag(s)
+```
+
+Values have value semantics: `upgraded` is a new record and `fleet` is
+unchanged. Maps iterate in key order and `group-by` keeps encounter order, so
+output is deterministic. List patterns in `match` replace most hand-written
+argument dispatch.
+
+## Streams and Pipelines
+
+The classic log one-liner:
+
+```bash
+grep ' 500 ' access.log | awk '{print $7}' | sort | uniq -c | sort -rn | head
+```
+
+It works until a response size happens to be 500, or the log format gains a
+field and `$7` silently becomes something else. Every stage re-parses text the
+previous stage flattened.
+
+XSH parses once, at the edge, into records. After that, `|>` passes typed
+values between stages:
+
+```xsh
+const access_line = rx"""^(\S+) \S+ \S+ \[[^\]]+\] "(\S+) (\S+) [^"]*" (\d{3}) (\d+)"""
+
+type Hit = {client: Str, method: Str, url: Str, status: Int, size: Int}
+
+stream hits(file: Path) [fs, error] -> Stream[Hit] {
+  for line in file.lines()? {
+    match access_line.captures(line) {
+      [_, client, method, url, status, size] => yield Hit(
+        client:,
+        method:,
+        url:,
+        status: status.parse_int()?,
+        size: size.parse_int()?,
+      )
+      _ => continue
+    }
+  }
+}
+
+const sample = """
+  10.0.0.5 - - [03/Oct/2026:10:00:01 +0000] "GET /api/users HTTP/1.1" 200 512
+  10.0.0.7 - - [03/Oct/2026:10:00:02 +0000] "GET /api/orders HTTP/1.1" 500 31
+  10.0.0.5 - - [03/Oct/2026:10:00:03 +0000] "POST /api/orders HTTP/1.1" 500 31
+  10.0.0.9 - - [03/Oct/2026:10:00:04 +0000] "GET /healthz HTTP/1.1" 200 500
+  a line that is not an access log entry
+  10.0.0.7 - - [03/Oct/2026:10:00:05 +0000] "GET /api/users HTTP/1.1" 503 0
+  """
+
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let log = fp"${scratch.host_path()?}/access.log"
+log.write(sample)?
+
+let failures = hits(log)
+  |> where .status >= 500
+  |> count { |hit| hit.url }
+
+for {key, value} in failures {
+  print f"${value} ${key}"
+}
+
+let heaviest = hits(log) |> sort-by(desc: true) .size |> take(2) |> map .client
+print f"heaviest clients: ${heaviest.join(" ")}"
+```
+
+<!-- expected-output -->
+
+```text
+2 /api/orders
+1 /api/users
+heaviest clients: 10.0.0.5 10.0.0.9
+```
+
+`stream` declares a lazy producer: nothing is read until a pipeline pulls, and
+a pipeline that stops early closes the file. `rx"..."` regexes are compiled
+and validated by `xsht check`, so a broken pattern is a check error rather than
+a runtime surprise. The `/healthz` line with a 500-byte body is not miscounted
+as a server error, because `status` and `size` are different fields with
+different meanings, not columns 9 and 10.
+
+Pipelines evaluate to a `List`. The stage vocabulary is small and regular:
+`where`, `map`, `flat-map`, `sort`, `sort-by`, `take`, `drop`, `unique-by`,
+`enumerate`, `batch`, `par-map`, and terminals such as `count`, `sum`,
+`first`, `group-by`, `fold`, and `each`. `.field` is shorthand for a
+one-field projection. `xsht api language:stream.where` (and so on) documents
+each stage.
+
+Keep the two pipe operators straight: `|` connects processes byte-to-byte,
+exactly like the shell; `|>` connects XSH values.
+
+## Host State Without Scraping Text
+
+Much of sysadmin scripting is scraping `ps`, `ss`, `df`, and `ip` output whose
+columns shift between versions and locales. XSH reads the same state as
+records:
+
+```bash
+ps -eo pid,etimes,comm --sort=-etimes | head -4       # truncates comm at 15 chars
+df -P | awk 'NR>1 && $5+0 >= 90 {print $6, $5}'        # breaks on mount points with spaces
+ss -ltnp | awk '{print $4}' | grep -o '[0-9]*$'        # depends on ss's column layout
+```
+
+```xsh
+let me = user.current()?
+
+let oldest = process.list()?
+  |> where .uid == me.uid
+  |> sort-by(desc: true) .runtime_seconds
+  |> take(3)
+
+for p in oldest {
+  print f"${p.pid:>7} ${p.runtime_seconds:>9}s ${p.command}"
+}
+
+for m in fs.mounts()? |> where .capacity_percent >= 90 {
+  print f"${m.mounted_on} is ${m.capacity_percent}% full (${m.fstype})"
+}
+
+let listeners = process.ports()?
+  |> where .state == "LISTEN"
+  |> unique-by .local_port
+  |> sort-by .local_port
+
+for l in listeners {
+  print f"${l.protocol} ${l.local_port:>5} ${l.command} (pid ${l.pid})"
+}
+```
+
+Many tools can already emit JSON; take them up on it. Instead of
+`ip -o addr | awk '{print $2, $4}'`, ask `ip` for JSON and validate it against
+the fields you need (the [JSON Boundaries](#json-boundaries) section explains
+`.require`):
+
+```xsh
+# platform: linux
+type Address = {family: Str, local: Str, prefixlen: Int}
+type Link = {ifname: Str, operstate: Str, addr_info: List[Address]}
+
+let links = json.decode(run.text ip -j addr show ?)?.require(List[Link])?
+
+for link in links |> sort-by .ifname {
+  let v4 = [f"${a.local}/${a.prefixlen}" for a in link.addr_info if a.family == "inet"]
+  print f"${link.ifname:<12} ${link.operstate.lower():<8} ${v4.join(", ")}"
+}
+```
+
+```text
+eth0         up       192.168.215.2/24
+lo           unknown  127.0.0.1/8
+```
+
+The schema names only the fields this script uses; `ip` may add others in
+future releases without breaking it, and a release that renames one fails
+loudly at `.require` instead of printing an empty column.
+
+When the state you need is only exposed as text, parse it once into a record
+and get back to typed values. Finding the CPU-heaviest processes from
+`/proc/PID/stat` is a good example. The second field is the command name in
+parentheses, and it may itself contain spaces and parentheses, which is why
+`awk '{print $14+$15}' /proc/*/stat` quietly reports garbage for
+`(Web Content)`:
+
+```xsh
+# platform: linux
+# Top CPU consumers over one second, from /proc/PID/stat (USER_HZ = 100).
+const stat_line = rx"^(\d+) \((.*)\) \S+ (.*)$"
+
+type Sample = {pid: Int, comm: Str, ticks: Int}
+
+pure parse_stat(line: Str) -> Sample? {
+  if let [_, pid, comm, rest] = stat_line.captures(line) {
+    let fields = rest.fields()
+    let ticks = (fields[10].parse_int() ?? 0) + (fields[11].parse_int() ?? 0)
+    Sample(pid: pid.parse_int() ?? 0, comm:, ticks:)
+  } else {
+    null
+  }
+}
+
+proc snapshot() [fs, process, error] -> Result[Map[Int, Sample]] {
+  var samples: Map[Int, Sample] = {}
+
+  for entry in process.list()? {
+    # A process can exit between listing and reading; skip it.
+    guard let text = fp"/proc/${entry.pid}/stat".read_text() else {
+      continue
+    }
+
+    let sample = parse_stat(text.trim())
+    if sample != null {
+      samples[sample.pid] = sample
+    }
+  }
+
+  samples
+}
+
+let before = snapshot()?
+time.sleep(1s)?
+let after = snapshot()?
+
+let busiest = after.values()
+  |> map { |now|
+    let prev = before.get(now.pid) ?? now
+    {now, delta: now.ticks - prev.ticks}
+  }
+  |> sort-by(desc: true) .delta
+  |> take(5)
+
+for {now, delta} in busiest {
+  print f"${now.pid:>7} ${delta:>4}% ${now.comm}"
+}
+```
+
+The greedy `(.*)` matches up to the last `)` on the line, so the command name
+can contain anything. `guard let` binds an `Ok` value or runs its `else` block,
+which here skips processes that vanished mid-scan instead of failing the run.
+
+## JSON Boundaries
+
+`jq` is a second language you embed as strings inside the first. In XSH, JSON
+is just data, with one rule: decoded JSON has type `Any`, and you must check
+it against a schema before touching its fields.
+
+```xsh
+type Service = {name: Str, port: Int, tags: List[Str]}
+
+const raw = """
+  [{"name": "api", "port": 8080, "tags": ["web", "public"]},
+   {"name": "db", "port": 5432, "tags": []}]
+  """
+
+let services = json.decode(raw)?.require(List[Service])?
+for svc in services {
+  print f"${svc.name} -> ${svc.port} [${svc.tags.join(",")}]"
+}
+
+let wrong = json.decode("""{"name": "cache", "port": "6379", "tags": []}""")?
+match wrong.require(Service) {
+  Ok(svc) => print f"unexpected: ${svc.name}"
+  Err(error) => print f"rejected: ${error.message}"
+}
+
+let report = {count: services.len(), public: [s.name for s in services if "public" in s.tags]}
+print json.encode(report)?
+print json.encode(report, pretty: true)?
+```
+
+<!-- expected-output -->
+
+```text
+api -> 8080 [web,public]
+db -> 5432 []
+rejected: schema check failed at port: expected Int, found Str
+{"count":2,"public":["api"]}
+{
+  "count": 2,
+  "public": [
+    "api"
+  ]
+}
+```
+
+`.require(T)` validates the whole value, nested lists and records included,
+and returns `Result[T]`. A missing or mistyped field fails at the boundary with
+its path, not three functions later as a confusing `null`. Once validated,
+every field access is checked statically.
+
+When the shape is genuinely open, match on it with type patterns instead:
+
+```xsh
+let doc = json.decode("""{"version": 3, "features": ["ipv6"]}""")?
+let version = if let {version: v is Int, ..} = doc { v } else { 0 }
+print f"config version ${version}"
+```
+
+<!-- expected-output -->
+
+```text
+config version 3
+```
+
+`json.read(path)` and `json.write path (value)` do the same at file
+boundaries. Records encode with sorted keys, so output is stable enough to
+diff and commit. [`docs/JSON.md`](JSON.md) has the full contract, including
+JSON lines.
+
+## Effects
+
+A proc can declare which kinds of side effects it performs:
+
+```xsh
+proc disk_used_kb(root: Path) [process, error] -> Result[Int] {
+  let out = run.text du -sk $root ?
+  out.fields()[0].parse_int()?
+}
+
+pure percent(part: Int, whole: Int) -> Int {
+  if whole == 0 { 0 } else { part * 100 / whole }
+}
+
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let dir = scratch.host_path()?
+fp"${dir}/data".write("hello\n")?
+
+print f"measured: ${disk_used_kb(dir)? > 0}; 3 of 4 is ${percent(3, 4)}%"
+```
+
+<!-- expected-output -->
+
+```text
+measured: true; 3 of 4 is 75%
+```
+
+The effects are `fs`, `process`, `net`, `env`, `time`, `io`, and `error`
+(permission to propagate with `?`). A declared list is an upper bound the
+checker enforces through every call. Had `disk_used_kb` claimed only `[fs]`:
+
+```text
+err[check.effect-violation]: `run` requires the `process` effect
+  disk.xsh:2:13
+    let out = run.text du -sk $root ?
+              ^^^^^^^^^^^^^^^^^^^^^ `run` requires the `process` effect
+```
+
+`pure` functions have no effects at all: no processes, no files, no clock.
+They are where parsing and policy belong, and they are trivially testable.
+Private procs without a clause get their effects inferred from their bodies;
+write the clause where you want a promise, such as exported APIs and anything
+that must not touch the network.
+
+## Functions and Inference
+
+The rule of thumb: annotate parameters, let the checker infer the rest.
+
+```xsh
+type Disk = {mount: Str, used: Int, size: Int}
+
+const disks: List[Disk] = [
+  {mount: "/", used: 45, size: 50},
+  {mount: "/var", used: 99, size: 100},
+  {mount: "/home", used: 10, size: 100},
+]
+
+pure usage(d: Disk) {
+  d.used * 100 / d.size
+}
+
+pure hottest(disks: List[Disk], over = 80) {
+  disks
+    |> where { |d| usage(d) >= over }
+    |> sort-by(desc: true, block: usage)
+    |> first()
+}
+
+proc mount_of(target: Path) {
+  let m = fs.mount_for(target)?
+  Disk(mount: m.mounted_on.display(), used: m.used_1k, size: m.blocks_1k)
+}
+
+let worst = hottest(disks)?
+print f"${worst.mount} at ${usage(worst)}%"
+print f"anything at 100%: ${hottest(disks, over: 100) is Ok(_)}"
+print f"root has capacity: ${mount_of(/)?.size > 0}"
+```
+
+<!-- expected-output -->
+
+```text
+/var at 99%
+anything at 100%: false
+root has capacity: true
+```
+
+Parameters carry types, or defaults that imply them (`over = 80` is an
+`Int`). Local bindings rarely need annotations. A private `pure` function
+infers its return type from its tail: `usage` returns `Int`, and `hottest`
+returns `Result[Disk]` because `first()` fails on an empty list. A private
+`proc` whose tail is a value returns `Result[T]`, so `mount_of` returns
+`Result[Disk]` and callers use `?` or `??`. A proc whose body ends in a
+statement returns `Result[Unit]`. Exported functions, `main`, and recursive
+functions declare their return types, because those are promises other files
+depend on. So does a proc that mixes early `return Err(...)` exits with a
+value tail: write `-> Result[T]` and the checker holds both paths to it.
+
+Arguments can be positional, named (`over: 100`), or punned (`over:` passes
+the local `over`). Rest parameters (`...hosts: List[Str]`) collect the tail.
+The last expression of a block is its value; `return` is for early exits.
+
+## Concurrency: Fan Out, Collect
+
+XSH's unit of concurrency is the process and the pipeline stage, never a
+thread or a future. `par-map` runs its block on a bounded worker pool and
+returns results in input order:
+
+```xsh
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let root = scratch.host_path()?
+
+for file in [
+  "etc/hosts.conf",
+  "etc/app.conf",
+  "var/log/app.log",
+  "var/log/app.log.gz",
+  "srv/www/index.html",
+  "srv/www/app.js",
+  "srv/www/style.css",
+  "srv/README",
+] {
+  let target = fp"${root}/${file}"
+  target.parent().mkdir()?
+  target.write("x\n")?
+}
+
+let per_dir = fs.children(root)?
+  |> where .kind == "dir"
+  |> par-map(jobs: 4) { |dir|
+    {dir: dir.name, counts: fs.files(dir.path)? |> count { |f| f.ext }}
+  }
+
+let totals = per_dir |> fold(map.empty()) { |acc, part|
+  var merged = acc
+  for {key, value} in part.counts {
+    merged[key] = (merged.get(key) ?? 0) + value
+  }
+
+  merged
+}
+
+for {key, value} in totals {
+  let ext = if key == "" { "(none)" } else { key }
+  print f"${value:>3} ${ext}"
+}
+```
+
+<!-- expected-output -->
+
+```text
+  1 (none)
+  2 conf
+  1 css
+  1 gz
+  1 html
+  1 js
+  1 log
+```
+
+If a block uses `?` and one item fails, the stage stops scheduling new work
+and the error propagates. Leave the `?` off and wrap the work in `try { ... }`
+to get a `List[Result[T]]` instead, keeping every success and every failure.
+
+For long-running processes that should overlap with other work, `spawn`
+returns a handle and `wait` collects one or a list:
+
+```xsh
+const hosts = ["10.0.0.11", "10.0.0.12", "10.0.0.13"]
+
+var probes: List[ProcessHandle] = []
+for host in hosts {
+  probes += [spawn run --timeout=5s ping -c 1 $host > /dev/null ?]
+}
+
+let statuses = wait probes?
+for i in range(hosts.len()) {
+  let state = if statuses[i].ok { "up" } else { "down" }
+  print f"${hosts[i]} ${state}"
+}
+```
+
+Handles are owned by the scope that created them. If the script fails or is
+interrupted before `wait`, XSH terminates and reaps the children; nothing is
+left running in the background by accident.
+
+## Cleanup with `defer`
+
+The shell's cleanup story is `trap`:
+
+```bash
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+lock=/run/rotate.lock
+touch "$lock"
+trap 'rm -f "$lock"' EXIT     # silently replaces the first trap: $tmp now leaks
+```
+
+`defer` registers cleanup for the enclosing block. Deferred actions run in
+reverse order when the block exits for any reason: normal completion,
+`return`, `?` propagation, or a runtime failure.
+
+```xsh
+proc rotate(dir: Path) [fs, error] {
+  let lock = fp"${dir}/.rotate.lock"
+  lock.write("locked\n")?
+  defer {
+    lock.remove()?
+    print "released lock"
+  }
+
+  let staging = fp"${dir}/staging"
+  staging.mkdir()?
+  defer {
+    staging.remove_dir()?
+    print "removed staging"
+  }
+
+  print "rotating"
+  let _ = fp"${dir}/missing.log".read_text()?
+  print "never reached"
+}
+
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let dir = scratch.host_path()?
+
+match rotate(dir) {
+  Ok(_) => print "rotated"
+  Err(error) => print f"rotate failed: ${error.message}"
+}
+
+print f"left behind: ${fs.children(dir)? |> count()}"
+```
+
+<!-- expected-output -->
+
+```text
+rotating
+removed staging
+released lock
+rotate failed: No such file or directory (os error 2)
+left behind: 0
+```
+
+`fs.tempdir()` returns a handle to a private directory; pair it with
+`defer scratch.close()?` on the next line, as the examples in this tour do.
+
+### Editing a config file safely
+
+`sed -i` on a live config is a classic outage: no backup, no validation, and
+nothing happens at all if the line you expected is missing. Do the edit in a
+`pure` function, write atomically, and keep a backup:
+
+```xsh
+pure set_option(text: Str, key: Str, value: Str) -> Str {
+  var out = []
+  var done = false
+  for line in text.lines() {
+    let words = line.replace("#", " ").fields()
+    if ! done and words.len() > 0 and words[0] == key {
+      out += [f"${key} ${value}"]
+      done = true
+    } else {
+      out += [line]
+    }
+  }
+
+  if ! done {
+    out += [f"${key} ${value}"]
+  }
+
+  out.join("\n") + "\n"
+}
+
+proc edit_config(file: Path, key: Str, value: Str) [fs, error] {
+  let before = file.read_text()?
+  let after = set_option(before, key, value)
+  if after == before {
+    print f"${file.name()}: ${key} is already ${value}"
+    return
+  }
+
+  let backup = fp"${file}.bak"
+  fs.copy(file, backup, overwrite: true)?
+  file.write_atomic(after)?
+  print diff.unified(backup, file)?.text.trim()
+}
+
+let scratch = fs.tempdir()?
+defer scratch.close()?
+let config = fp"${scratch.host_path()?}/sshd_config"
+config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")?
+
+edit_config(config, "PermitRootLogin", "no")?
+edit_config(config, "PermitRootLogin", "no")?
+```
+
+<!-- expected-output -->
+
+```text
+--- sshd_config.bak
++++ sshd_config
+@@ -1,3 +1,3 @@
+ Port 22
+-#PermitRootLogin prohibit-password
++PermitRootLogin no
+ PasswordAuthentication yes
+sshd_config: PermitRootLogin is already no
+```
+
+`write_atomic` writes a sibling file and renames it into place, so readers see
+either the old config or the new one. In production, validate the candidate
+before the rename, for example with `run sshd -t -f $candidate`, then
+`run systemctl reload sshd`.
+
+## Timeouts and Retries
+
+Every `run` form accepts `--timeout`. A timeout is a typed error you can match,
+not exit status 124 that you have to remember:
+
+```xsh
+let slow = run.capture --text --timeout=200ms sleep 5
+
+match slow {
+  Ok(out) => print f"finished: ${out.status.ok}"
+  Err(ProcessError.Timeout {..}) => print "timed out; process group killed"
+  Err(error) => print f"failed: ${error.message}"
+}
+```
+
+<!-- expected-output -->
+
+```text
+timed out; process group killed
+```
+
+`retry` re-runs a block after each delay until it succeeds, and returns the
+last error when the delays run out. `on (...)` restricts retries to errors
+worth retrying:
+
+```xsh
+error FetchError = Transient(message: Str) : Transient | Fatal(message: Str)
+
+var attempts = 0
+
+proc fetch_index() [error] -> Result[Str] {
+  attempts += 1
+  if attempts < 3 {
+    return Err(FetchError.Transient(message: f"attempt ${attempts}: connection reset"))
+  }
+
+  "index-v42"
+}
+
+let index = retry [100ms, 200ms, 400ms] on (is Transient) {
+  fetch_index()?
+}?
+
+print f"${index} after ${attempts} attempts"
+```
+
+<!-- expected-output -->
+
+```text
+index-v42 after 3 attempts
+```
+
+A `Fatal` error would stop immediately without consuming the remaining delays.
+Combine the two for the common case of a flaky network command:
+
+```xsh
+const url = "https://mirror.example.org/releases/index.json"
+let body = retry [1s, 2s, 4s] {
+  run.text --timeout=10s curl -fsS $url ?
+}
+
+match body {
+  Ok(text) => print f"fetched ${text.byte_len()} bytes"
+  Err(error) => print f"mirror unavailable: ${error.message}"
+}
+```
+
+## Rendering Config from a Template
+
+Generating config with `cat <<EOF` and shell variables means every `$` in the
+target format is a quoting hazard. The `template` module renders Go
+text/template syntax against ordinary XSH data:
+
+<!-- requires: template -->
+
+```xsh
+let source = """
+  upstream {{.name}} {
+  {{range .servers}}    server {{.host}}:{{.port}}{{if .backup}} backup{{end}};
+  {{end}}}
+  """
+
+let conf = template.render(
+  source,
+  {
+    name: "api",
+    servers: [
+      {host: "10.0.0.11", port: 8080, backup: false},
+      {host: "10.0.0.12", port: 8080, backup: true},
+    ],
+  },
+)?
+
+print $conf
+```
+
+<!-- expected-output -->
+
+```text
+upstream api {
+    server 10.0.0.11:8080;
+    server 10.0.0.12:8080 backup;
+}
+```
+
+`{{.field}}` reads a field, `{{range}}` iterates, `{{if}}` branches, and
+`{{template "name"}}` includes a named block. Write the result with
+`write_atomic` and the reload story is the same as for the hand-edited config
+above.
+
+## A Real Program
+
+Here is a preflight check that decides whether a host is ready for traffic. It
+reads a JSON config, probes service ports and health endpoints in parallel,
+checks disk headroom and required files, and prints either a table or a JSON
+report. It exits 1 if anything failed, so it can gate a deploy.
+
+```xsh
+#!/usr/bin/env -S xsh --
+# preflight: verify a host is ready to take traffic.
+#
+#   xsh preflight.xsh -- /etc/preflight.json
+#   xsh preflight.xsh -- /etc/preflight.json --emit-json
+#
+# {"services": [{"name": "api", "port": 8080, "health": "http://127.0.0.1:8080/healthz"}],
+#  "disk_threshold": 90, "required_files": ["/etc/app/app.conf"]}
+
+type Service = {name: Str, port: Int, health: Str?}
+type Config = {services: List[Service], disk_threshold: Int, required_files: List[Str]}
+type Check = {check: Str, ok: Bool, detail: Str}
+
+const pseudo_filesystems = ["devfs", "devtmpfs", "tmpfs", "overlay", "squashfs", "proc", "sysfs"]
+
+proc load_config(file: Path) [fs, error] -> Result[Config] {
+  ctx f"loading ${file}" {
+    # The return type supplies the schema: this is `.require(Config)`.
+    json.read(file)?.require()?
+  }
+}
+
+proc listening(svc: Service) [process, error] -> Result[Check] {
+  let owners = process.port(svc.port)? |> where .state == "LISTEN" |> map .command
+  let detail = if owners.len() > 0 { owners[0] } else { "nothing listening" }
+  Check(check: f"port ${svc.port} (${svc.name})", ok: owners.len() > 0, detail:)
+}
+
+proc healthy(svc: Service, url: Str) [net] -> Check {
+  let label = f"health ${svc.name}"
+  match net.request({method: "GET", url, timeout: 3s, fail_status: false}) {
+    Ok(response) => Check(check: label, ok: response.status == 200, detail: f"HTTP ${response.status}")
+    Err(error) => Check(check: label, ok: false, detail: error.message)
+  }
+}
+
+proc disks(threshold: Int) [fs, error] -> Result[List[Check]] {
+  fs.mounts()?
+    |> where { |m| ! m.readonly and m.blocks_1k > 0 and m.fstype not in pseudo_filesystems }
+    |> map { |m|
+      Check(
+        check: f"disk ${m.mounted_on}",
+        ok: m.capacity_percent < threshold,
+        detail: f"${m.capacity_percent}% used",
+      )
+    }
+}
+
+proc files(names: List[Str]) [fs, error] -> Result[List[Check]] {
+  var checks: List[Check] = []
+  for name in names {
+    let present = fp"${name}".exists()?
+    checks += [Check(check: f"file ${name}", ok: present, detail: if present { "present" } else { "missing" })]
+  }
+
+  checks
+}
+
+cli main(config: Path, emit_json = false) {
+  let cfg = load_config(config)?
+
+  let probes = cfg.services |> par-map { |svc|
+    var found = [listening(svc)?]
+    if svc.health != null {
+      found += [healthy(svc, svc.health)]
+    }
+
+    found
+  }
+
+  let service_checks = probes |> flat-map { |found| found }
+  let all = service_checks + disks(cfg.disk_threshold)? + files(cfg.required_files)?
+  let failed = all |> where { |c| ! c.ok } |> count()
+
+  if emit_json {
+    print json.encode({ok: failed == 0, checks: all}, pretty: true)?
+  } else {
+    for c in all {
+      let mark = if c.ok { "ok  " } else { "FAIL" }
+      print f"${mark} ${c.check:<32} ${c.detail}"
+    }
+  }
+
+  if failed > 0 {
+    eprint f"${failed} check(s) failed"
+    abort(1)
+  }
+}
+```
+
+```text
+ok   port 5432 (db)                   postgres
+FAIL port 8080 (api)                  nothing listening
+FAIL health api                       Connection refused (os error 111)
+ok   disk /                           61% used
+ok   disk /var                        38% used
+ok   file /etc/app/app.conf           present
+2 check(s) failed
+```
+
+A config with a wrong type stops before any probe runs, and the `ctx` block
+says which file was being loaded:
+
+```text
+$ xsh preflight.xsh -- bad.json
+runtime traceback
+executable: /usr/local/bin/xsh
+operation: result.propagate
+error: schema: schema check failed at disk_threshold: expected Int, found Str (ctx: loading bad.json)
+...
+```
+
+Things worth noticing:
+
+- The only text parsing is `json.read`, and its result is validated once
+  against `Config`. Everything after that is typed.
+- `svc.health` is `Str?`; after the `!= null` test the checker knows it is a
+  `Str`, so `healthy(svc, svc.health)` type-checks.
+- `healthy` turns network failures into data (`Check` with `ok: false`) instead
+  of propagating them, because an unreachable endpoint is a finding, not a
+  crash. `listening` propagates, because failing to read the socket table means
+  the check itself is broken.
+- The effect clauses document exactly which procs touch the network.
+- `abort(1)` exits with a chosen status without a traceback. Deferred cleanup
+  still runs.
+
+## Testing
+
+Tests are declarations in ordinary XSH files. `xsht test` discovers
+`test NAME { ... }` blocks under the configured test roots, runs each one in a
+fresh evaluator with its own temp directory, and reports failures with the
+values involved. `assert condition` (with an optional message) is the
+assertion.
+
+A small project, with a library module, a script that uses it, and tests for
+both:
+
+```ini
+# file: xsht-config.ini
+module_path = lib
+test_roots = tests
+```
+
+```xsh
+# file: lib/sshd.xsh
+##! Edit sshd-style `Key value` configuration text.
+
+## Set `key` to `value`, replacing the first active or commented-out
+## occurrence, or appending the setting when the key is absent.
+export pure set_option(text: Str, key: Str, value: Str) -> Str {
+  var out = []
+  var done = false
+  for line in text.lines() {
+    let words = line.replace("#", " ").fields()
+    if ! done and words.len() > 0 and words[0] == key {
+      out += [f"${key} ${value}"]
+      done = true
+    } else {
+      out += [line]
+    }
+  }
+
+  if ! done {
+    out += [f"${key} ${value}"]
+  }
+
+  out.join("\n") + "\n"
+}
+```
+
+```xsh
+# file: bin/harden.xsh
+use sshd
+
+cli main(config: Path = /etc/ssh/sshd_config) {
+  let before = config.read_text()?
+  let after = sshd.set_option(before, "PermitRootLogin", "no")
+  if after != before {
+    fs.copy(config, fp"${config}.bak", overwrite: true)?
+    config.write_atomic(after)?
+    print f"updated ${config}"
+  }
+}
+```
+
+```xsh
+# file: tests/test-sshd.xsh
+use sshd
+
+test replaces_commented_default {
+  let updated = sshd.set_option("Port 22\n#PermitRootLogin yes\n", "PermitRootLogin", "no")
+  assert updated == "Port 22\nPermitRootLogin no\n"
+}
+
+test appends_missing_key {
+  let updated = sshd.set_option("Port 22\n", "PasswordAuthentication", "no")
+  assert updated.ends_with("PasswordAuthentication no\n"), "new keys go at the end"
+}
+
+test harden_script_edits_file_and_keeps_backup { |ctx|
+  let dir = test.temp_dir(ctx)?
+  let config = fp"${dir}/sshd_config"
+  config.write("#PermitRootLogin yes\n")?
+
+  let source = p"bin/harden.xsh".read_text()?
+  let result = test.run_script(ctx, source, args: ["--config", config.display()])?
+  assert result.success, result.stderr
+  assert config.read_text()? == "PermitRootLogin no\n"
+  assert fp"${config}.bak".exists()?
+}
+```
+
+```text
+$ xsht test
+running 3 tests
+tests/test-sshd.xsh::appends_missing_key ... ok 1ms
+tests/test-sshd.xsh::replaces_commented_default ... ok 1ms
+tests/test-sshd.xsh::harden_script_edits_file_and_keeps_backup ... ok 21ms
+
+test result: ok. 3 passed; 0 failed; 0 skipped
+```
+
+The pieces:
+
+- `assert a == b` reports both sides when it fails. Comparisons, `and`/`or`
+  chains, and ordering chains all report the operands that made them false.
+  A bare `Bool` statement is an error, never a silent no-op, so a forgotten
+  `assert` cannot pass vacuously.
+- `{ |ctx| ... }` binds the test context. `test.temp_dir(ctx)` and
+  `test.temp_file(ctx, ...)` create files under a per-test root that the runner
+  removes.
+- `test.run_script(ctx, source, args:, env:, stdin:)` runs a whole script under
+  `xsh` and returns its status, stdout, and stderr. Child scripts inherit the
+  configured `module_path`, so `use sshd` resolves exactly as it does in the
+  test file.
+- `test.mock(ctx, "net.request", matcher, result)` substitutes host effects such
+  as `net.*` and `dns.*` calls. `test.skip("reason")` skips.
+- Pure functions like `set_option` need no setup at all, which is a good reason
+  to put policy in them.
+
+Useful flags: `xsht test FILTER` runs matching tests, `--nocapture` shows
+output live, and `--cov` adds a coverage report.
+
+## Project Layout
+
+The layout above is the canonical one:
+
+```text
+ops/
+  xsht-config.ini
+  bin/          entry scripts (cli main), one per tool
+  lib/          modules shared by the scripts
+  tests/        test-*.xsh files with test declarations
+```
+
+### Modules
+
+Any `.xsh` file is a module. `export` makes a declaration visible; everything
+else stays private. A module that exports anything starts with a `##!` doc
+block, and every export has a `##` doc comment; `xsht check` enforces both.
+Modules may contain declarations and `let`/`const` values, but no top-level
+commands or control flow, so importing one never has side effects.
+
+`use NAME` binds exactly one namespace, and nothing is injected into your
+scope:
+
+```text
+use sshd                  # lib/sshd.xsh, used as sshd.set_option(...)
+use checks.disk           # lib/checks/disk.xsh, used as disk.*
+use checks.disk as usage  # the same module, bound as usage.*
+```
+
+Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
+(colon-separated). That has two consequences worth knowing:
+
+- `xsh` itself does not read `xsht-config.ini`. Run entry scripts with
+  `XSH_MODULE_PATH=lib xsh bin/harden.xsh`, install modules next to the
+  scripts, or set the variable in the unit file or wrapper that launches them.
+- File-relative lookup wins, so a test file named `tests/sshd.xsh` that says
+  `use sshd` imports itself. Name test files `test-*.xsh`.
+
+### `xsht-config.ini`
+
+`xsht` reads the nearest `xsht-config.ini` above each file. Relative paths
+resolve from the config's directory.
+
+```ini
+# Extra files or directories for no-argument `xsht check`, `lint`, `fmt`.
+include = tools
+# Glob patterns excluded from discovery.
+exclude = build/**/*.xsh
+  vendor/**/*.xsh
+# Module search roots for checking, linting, and tests (default: .).
+module_path = lib
+# Where `xsht test` looks for test declarations.
+test_roots = tests
+
+[dead-code]
+# Files where unused-function and unreachable-code lints stay quiet.
+exclude = examples/**/*.xsh
+
+[coverage]
+# Files left out of `xsht test --cov` reports.
+exclude = tests/**/*.xsh
+```
+
+Multi-value keys continue on indented lines. A `[format]` section with
+`line-width = 100` changes the formatter's target width (default 120).
+
+## Formatting and Linting
+
+```bash
+xsht fmt                       # format every discovered file in place
+xsht fmt --check               # exit 1 if anything would change (CI)
+xsht lint                      # report warnings and errors
+xsht lint --fix                # apply the safe autofixes
+xsht lint --only lint.prefer-named-argument-pun --fix bin/
+```
+
+The formatter has one style and no options beyond line width. The linter
+knows the language's idioms: it suggests `assert` for a stray `Bool`
+statement, named-argument puns, list comprehensions over accumulator loops,
+guard clauses, and removal of annotations the checker can already infer.
+Every autofix is applied only if the rewritten file still parses and checks
+with no new diagnostics. `--only RULE[,RULE...]` restricts both the report and
+the fixes, which makes large migrations reviewable one rule at a time.
+
+## Where to Go Next
+
+- [`docs/SPEC.md`](SPEC.md) is the language contract. When this tour and the
+  spec disagree, the spec wins.
+- `xsht api` answers "what is the signature of...?" without leaving the
+  terminal:
+
+  ```bash
+  xsht api summary                    # every module, method, and record
+  xsht api module:fs                  # one module
+  xsht api api:fs.files               # one function, with its contract
+  xsht api method:Path.write_atomic   # a method
+  xsht api language:core.defer        # a language feature
+  xsht api search:timeout             # full-text search
+  ```
+
+- [`docs/SPEC-TYPING.md`](SPEC-TYPING.md) covers inference, `Any`, and
+  narrowing; [`docs/STREAMS.md`](STREAMS.md) covers pipelines;
+  [`docs/JSON.md`](JSON.md) covers JSON; [`docs/SPEC-OS.md`](SPEC-OS.md)
+  covers signals and process groups.
+- `xsht trace script.xsh` runs a script and shows where the time went: every
+  process, its argv as an array, and how long each proc took.
+- `showcase/` holds larger programs (`px.xsh`, `ecount.xsh`, `run-retry.xsh`,
+  `wait-for.xsh`, and more), and `core/` holds coreutils-style tools written
+  in XSH.
