@@ -162,7 +162,11 @@ Blank lines express logical sections, declarations, major control-flow
 constructs, or an authored blank line. A multiline call, collection, pipeline,
 or control-flow expression does not create a blank line merely because it uses
 more than one output line. `needs_top_level_blank` owns this top-level section
-policy.
+policy. Inside a block, an `if`, `match`, `for`, `while`, `with`, or `loop`
+statement whose formatted output spans several lines is followed by one blank
+line; the decision uses the formatted output, not the authored layout, so a
+one-line `if c { return x }` that the formatter expands gets the same blank
+line on the first pass as on later passes.
 
 ### Comments and `fmt: skip`
 

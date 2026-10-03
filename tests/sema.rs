@@ -3487,6 +3487,25 @@ export let exported: Int = value
 }
 
 #[test]
+fn doc_only_module_does_not_attribute_orphan_docs_to_another_source() {
+    let main_source = "use helper\nlet value = helper.exported\n";
+    let helper_source = "##! Helper module.\n\n## Exposes a documented value.\nexport let exported: Int = 1\n";
+    let proof_source = "##! Presence-only fixture with no statements.\n";
+    let main = Parser::parse_source_arena_only(SourceId::new(1), main_source);
+    let helper = Parser::parse_source_arena_only(SourceId::new(0), helper_source);
+    let proof = Parser::parse_source_arena_only(SourceId::new(2), proof_source);
+    let output = Checker::check_arena_with_modules(
+        (&main.arena, main_source),
+        &[
+            ("helper", "helper", &helper.arena, helper_source),
+            ("proof", "proof", &proof.arena, proof_source),
+        ],
+    );
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn checker_records_value_and_statement_bool_positions() {
     let source = "pure choose(flag: Bool) -> Bool {\n  let asserted: Result[Unit] = try { true }\n  let _ = asserted\n  if flag { false } else { true }\n}\nproc assertions() {\n  if true { false }\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

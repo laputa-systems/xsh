@@ -380,17 +380,20 @@ impl<'a> Writer<'a> {
     }
 
     fn gap_has_blank_line_in_block(&self, previous: Span, current_start: usize) -> bool {
-        let Some(gap) = self.source.get(previous.end()..current_start) else {
-            return false;
-        };
-        let previous_is_multiline = self
+        // Control-flow statement spans end at their closing brace while other
+        // statement spans own their terminating newline; trim so only an
+        // authored blank line counts.
+        let previous_end = self
             .source
             .get(previous.range())
-            .is_some_and(|source| source.contains('\n'));
+            .map_or(previous.end(), |text| previous.start() + text.trim_end().len());
+        let Some(gap) = self.source.get(previous_end..current_start) else {
+            return false;
+        };
         if let Some(comment_start) = gap.rfind('#') {
             return gap[comment_start..].matches('\n').count() >= 2;
         }
-        gap.matches('\n').count() >= 2 || (previous_is_multiline && gap.contains('\n'))
+        gap.matches('\n').count() >= 2
     }
 
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
@@ -1283,6 +1286,7 @@ impl<'a> Writer<'a> {
         }
         output.push('\n');
         let mut previous_span: Option<Span> = None;
+        let mut previous_multiline_control_flow = false;
         for (index, stmt_id) in stmts.iter().enumerate() {
             let stmt = self.arena.stmt(*stmt_id);
             let stmt_span = stmt.span;
@@ -1292,10 +1296,11 @@ impl<'a> Writer<'a> {
                 let original_blank = previous_span.is_some_and(|previous| {
                     self.gap_has_blank_line_in_block(previous, stmt_span.start())
                 });
-                if pending_comment || original_blank {
+                if pending_comment || original_blank || previous_multiline_control_flow {
                     output.push('\n');
                 }
             }
+            let stmt_output_start = output.len();
             let grouped = preserve_value_shape && index == 0 && params.is_empty();
             match stmt.kind {
                 ArenaStmtKind::Expr(expr) if grouped && matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(_)) => {
@@ -1317,6 +1322,15 @@ impl<'a> Writer<'a> {
                 _ => self.write_stmt(*stmt_id, indent + 1, output),
             }
             previous_span = Some(stmt_span);
+            previous_multiline_control_flow = matches!(
+                stmt.kind,
+                ArenaStmtKind::If { .. }
+                    | ArenaStmtKind::While { .. }
+                    | ArenaStmtKind::For { .. }
+                    | ArenaStmtKind::With { .. }
+                    | ArenaStmtKind::Loop { .. }
+                    | ArenaStmtKind::Match { .. }
+            ) && output[stmt_output_start..].contains('\n');
         }
         output.push('\n');
         self.write_indent(indent, output);
@@ -3703,6 +3717,16 @@ mod tests {
     fn assert_statements_format_in_every_statement_position() {
         let source = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    _ => { assert n > 1, \"large\" }\n  }\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
         let expected = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    _ => assert n > 1, \"large\"\n  }\n\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
+        let formatted = Formatter::new().format_source(SourceId::new(0), source);
+        assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+        assert_eq!(formatted.formatted, expected);
+        assert_eq!(Formatter::new().format_source(SourceId::new(0), expected).formatted, expected);
+    }
+
+    #[test]
+    fn control_flow_expanded_to_multiple_lines_is_followed_by_one_blank_line() {
+        let source = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" { return fp\"${configured}\" }\n  process.which(\"xsh\")?\n}\n";
+        let expected = "proc runner() -> Result[Path] {\n  let configured = \"\"\n  if configured != \"\" {\n    return fp\"${configured}\"\n  }\n\n  process.which(\"xsh\")?\n}\n";
         let formatted = Formatter::new().format_source(SourceId::new(0), source);
         assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
         assert_eq!(formatted.formatted, expected);
