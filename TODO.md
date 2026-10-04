@@ -237,6 +237,20 @@ Rejected, with reasons:
   (recorded above).
 - `/` as path join: keep `fp"..."`.
 
+## Target-typed variants: open follow-ups
+
+- The inferred-variant and positional-constructor lints are opt-in
+  (`[lint] prefer-inferred-variants`, `prefer-positional-constructors`)
+  because the repository lint gate requires zero diagnostics; enable them by
+  default after migrating the corpus (347 + 32 sites here, 13 + 7 in Laputa),
+  then delete the settings.
+- `Err(.Variant(...))` needs a family-typed return. Laputa's ~652
+  `Err(Family.Variant(...))` sites mostly return `Result[T]` (plain `Error`),
+  which names no family, so they cannot use it. Decide between family-typed
+  returns in Laputa and a different rule; "the one visible family with this
+  variant" would be a guess and covers only ~266 sites.
+- `.Name` in match patterns is not implemented; patterns stay qualified.
+
 ## Accepted and specified, not started (first batch)
 
 - **`collect { ... }` blocks**: the block's `yield`s (including
@@ -255,6 +269,13 @@ Rejected, with reasons:
   `if c { return Err(..) }` guards ~445 vs 96 flagged. Find why and fix.
 
 ## Defects found while migrating Laputa
+
+- Positional error-constructor arguments bind to payload fields in
+  alphabetical order, not declaration order: with
+  `Conflict(path: Path, owner: Str)`, `Conflict(p"x", "o")` is a type error,
+  and two same-typed fields would silently swap. Laputa's
+  `Failed(kind, message)` works only because its names are alphabetical.
+  Fixing this changes behavior.
 
 - `module.load(p)?.require(C)?.build()` fails to check ("unknown method
   `build` on Record") while binding the required module with `let` first
