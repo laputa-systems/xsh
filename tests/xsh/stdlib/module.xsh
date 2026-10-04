@@ -73,6 +73,21 @@ export let version = module.load(fp"{versioned}")?.require(VersionedModule)?.ver
   assert module.load(second)?.require(VersionedModule)?.version == 2
 }
 
+# Loading a module again in the same evaluator sees its current file: an
+# unchanged module keeps its exports, and a rewritten one is reloaded.
+test test_module_load_reloads_a_changed_module_in_the_same_evaluator { |ctx|
+  let root = test.temp_dir(ctx, name: "reloaded-module")?
+  let versioned = fp"{root}/versioned.xsh"
+  let module_text = """##! Versioned module.
+## Exposes the version.
+export let version = """
+  versioned.write(module_text + "1\n")?
+  assert module.load(versioned)?.require(VersionedModule)?.version == 1
+  assert module.load(versioned)?.require(VersionedModule)?.version == 1
+  versioned.write(module_text + "2\n")?
+  assert module.load(versioned)?.require(VersionedModule)?.version == 2
+}
+
 test test_module_load_exports_private_fields_and_contract_errors { |ctx|
   let root = test.temp_dir(ctx, name: "dynamic-module-contract")?
   fp"{root}/helper.xsh".write(r"""

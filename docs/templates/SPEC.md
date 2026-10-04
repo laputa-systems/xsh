@@ -510,7 +510,9 @@ A module contract describes a runtime module's exports. Each entry's kind and
 full signature must match exactly; `optional` entries may be absent, and extra
 exports are allowed. Statically imported modules satisfy contracts directly;
 `module.load` values are checked when `.require(Contract)` runs. Streams are
-not contract members.
+not contract members. Loading the same file again returns the same exports
+while the module and its imports are unchanged on disk, and reloads it once
+they change.
 
 ### 4.10 Errors
 

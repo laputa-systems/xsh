@@ -1448,6 +1448,14 @@ struct PreparedDynamicModule {
     harvest: Option<PreparedModuleHarvest>,
 }
 
+/// A loaded module's exports, valid while its prepared program still matches
+/// the files on disk.
+#[derive(Clone)]
+pub(super) struct CachedModule {
+    prepared: Arc<PreparedDynamicModule>,
+    record: RecordMap,
+}
+
 struct PreparedModuleHarvest {
     plan: super::CompactIndexedRunPlan,
     shared: Arc<super::LoweredSharedState>,
@@ -10415,20 +10423,25 @@ impl Evaluator {
     ) -> Result<RecordMap, RuntimeError> {
         let module_path = self.host_path(&path);
         let key = crate::loader::module_key(&module_path);
-        if let Some(cached) = self.module_value_cache.get(&key) {
-            return Ok(cached.clone());
+        let display_path = module_path.to_string_lossy().into_owned();
+        let bytes = std::fs::read(&module_path).map_err(|error| {
+            RuntimeError::new("module-load", format!("failed to read module: {error}"))
+                .with_span(span)
+        })?;
+        let current = lookup_prepared_dynamic_module(&key, &self.module_roots, &bytes);
+        // Loading an unchanged module again returns the same exports without
+        // rerunning its initializers; a module whose files changed reloads.
+        if let (Some(cached), Some(current)) = (self.module_value_cache.get(&key), &current)
+            && Arc::ptr_eq(&cached.prepared, current)
+        {
+            return Ok(cached.record.clone());
         }
         self.expose_prepared_stdlib_implementations();
         if self.active_modules.iter().any(|active| active == &key) {
             return Err(RuntimeError::new("module-cycle", "cyclic module import").with_span(span));
         }
 
-        let display_path = module_path.to_string_lossy().into_owned();
-        let bytes = std::fs::read(&module_path).map_err(|error| {
-            RuntimeError::new("module-load", format!("failed to read module: {error}"))
-                .with_span(span)
-        })?;
-        let prepared = match lookup_prepared_dynamic_module(&key, &self.module_roots, &bytes) {
+        let prepared = match current {
             Some(prepared) => prepared,
             None => {
                 let prepared = Arc::new(prepare_dynamic_module(
@@ -10567,7 +10580,7 @@ impl Evaluator {
         }
         let record = RecordMap::from_name_values(record_fields);
 
-        Arc::make_mut(&mut self.module_value_cache).insert(key, record.clone());
+        Arc::make_mut(&mut self.module_value_cache).insert(key, CachedModule { prepared: Arc::clone(&prepared), record: record.clone() });
         Ok(record)
     }
 
