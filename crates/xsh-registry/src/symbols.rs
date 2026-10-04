@@ -1,4 +1,4 @@
-use crate::errors::builtin_error_families;
+use crate::errors::{ErrorFacet, builtin_error_families};
 use crate::records::record_schemas;
 use crate::signature::api_spec;
 use crate::types::Type;
@@ -73,10 +73,10 @@ fn collect_error_symbols(output: &mut BTreeSet<String>) {
         }
         for variant in family.variants {
             output.insert(variant.name.to_string());
-            for facet in variant.facets {
-                output.insert((*facet).to_string());
-            }
         }
+    }
+    for facet in ErrorFacet::ALL {
+        output.insert(facet.name().to_string());
     }
 }
 
@@ -139,7 +139,7 @@ fn insert_symbol(symbols: &mut Vec<String>, seen: &mut BTreeSet<String>, symbol:
 #[cfg(test)]
 mod tests {
     use super::{preloaded_symbol_names, semantic_symbol_names};
-    use crate::errors::builtin_error_families;
+    use crate::errors::{ErrorFacet, builtin_error_families};
     use crate::records::record_schemas;
     use crate::signature::api_spec;
     use crate::types::{BUILTIN_TYPE_NAMES, Type};
@@ -234,10 +234,10 @@ mod tests {
             }
             for variant in family.variants {
                 assert!(symbols.contains(variant.name));
-                for facet in variant.facets {
-                    assert!(symbols.contains(*facet));
-                }
             }
+        }
+        for facet in ErrorFacet::ALL {
+            assert!(symbols.contains(facet.name()));
         }
     }
 

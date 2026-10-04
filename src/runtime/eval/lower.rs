@@ -11599,7 +11599,7 @@ fn compact_pattern_test_type(arena: &AstArena, name: Name, ty: TypeExprId, decla
         return Type::ErrorFamily(name);
     }
     if declarations.error_families_by_name.values().any(|family| family.variants.values().any(|variant| variant.facets.contains(&name)))
-        || xsh_registry::errors::builtin_error_families().iter().any(|family| family.variants.iter().any(|variant| variant.facets.iter().any(|facet| *facet == name.as_str().as_str())))
+        || xsh_registry::errors::ErrorFacet::from_name(&name.as_str()).is_some()
     {
         return Type::ErrorFacet(name);
     }

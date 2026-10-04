@@ -89,6 +89,20 @@ impl Checker {
         if !applicable { self.error(span, "error facet pattern does not match value type", "check.pattern-type"); }
     }
 
+    /// Facets are the built-in vocabulary plus the ones visible `error`
+    /// declarations implement; a misspelling names the nearest one.
+    fn report_unknown_error_facet(&mut self, facet: Name, span: Span) {
+        let unknown = facet.as_str();
+        let unknown: &str = unknown.as_ref();
+        let mut diagnostic = Diagnostic::error(format!("unknown error facet `{unknown}`"))
+            .with_code("check.pattern-constructor")
+            .with_label(super::Label::primary(span, "unknown error facet"));
+        if let Some(nearby) = super::method::nearest_name(unknown, self.error_facets.iter().map(|known| known.as_str().to_string())) {
+            diagnostic = diagnostic.with_note(format!("did you mean `{nearby}`?"));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn check_type_pattern_applicability(&mut self, tested: &Type, value_ty: &Type, span: Span) {
         if type_pattern_input_is_dynamic(value_ty) { return; }
         let family = match tested {
@@ -475,13 +489,10 @@ impl Checker {
                 }
             }
             ArenaPatternKind::Facet(name) => {
-                self.check_error_facet_applicability(*name, value_ty, span);
-                if !self.error_facets.contains(name) {
-                    self.error(
-                        span,
-                        "unknown error facet pattern",
-                        "check.pattern-constructor",
-                    );
+                if self.error_facets.contains(name) {
+                    self.check_error_facet_applicability(*name, value_ty, span);
+                } else {
+                    self.report_unknown_error_facet(*name, span);
                 }
                 if !matches!(
                     value_ty,

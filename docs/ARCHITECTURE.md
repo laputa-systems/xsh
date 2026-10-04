@@ -159,7 +159,10 @@ are support modules the snippets import. A snippet runs, sandboxed in an empty
 directory with only `PATH`, exactly when a template shows its `.output`, and a
 `# platform: linux` snippet never runs, so generation is host-independent.
 `docs/reference/stdlib.md`, `cli.md`, and `lints.md` are read from
-`xsht api --format jsonl`, the binaries' help, and `xsht lint --list`.
+`xsht api --format jsonl`, the binaries' help, and `xsht lint --list`. The
+SPEC facet table is read from the `language:facet` API items, which come from
+`xsh_registry::errors::ErrorFacet`, the one facet vocabulary the checker,
+runtime, and built-in error families share.
 `dev/docs.xsh::check` (the `check-docs` stage of `cargo dev check` and
 `make check`, and `make docs-check`) re-renders and fails on any difference,
 then runs `xsht check` on each snippet, requiring no diagnostics or exactly the

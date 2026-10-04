@@ -870,10 +870,10 @@ mod tests {
             }
             for variant in family.variants {
                 assert_preloaded(variant.name);
-                for facet in variant.facets {
-                    assert_preloaded(facet);
-                }
             }
+        }
+        for facet in xsh_registry::errors::ErrorFacet::ALL {
+            assert_preloaded(facet.name());
         }
     }
 

@@ -261,6 +261,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "abort",
 ];
 use crate::api_docs::ApiDocs;
+use crate::errors::{ErrorFacet, builtin_error_families};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LanguageReference {
@@ -314,7 +315,39 @@ pub fn language_references() -> Vec<LanguageReference> {
         let doc = core_doc(item);
         references.push(language_reference(format!("core.{item}"), doc));
     }
+    for facet in ErrorFacet::ALL {
+        references.push(language_reference(format!("facet.{}", facet.name()), facet_doc(*facet)));
+    }
     references
+}
+
+/// A facet's contract lists every built-in source that implements it: the
+/// built-in family variants that declare it and the host OS errors mapped onto it.
+fn facet_doc(facet: ErrorFacet) -> ReferenceDoc {
+    let mut sources = builtin_error_families()
+        .iter()
+        .flat_map(|family| {
+            family
+                .variants
+                .iter()
+                .filter(|variant| variant.facets.contains(&facet))
+                .map(|variant| format!("`{}.{}`", family.name, variant.name))
+        })
+        .collect::<Vec<_>>();
+    let host_kinds = facet.host_io_kinds().map(|kind| format!("`{kind:?}`")).collect::<Vec<_>>();
+    if facet == ErrorFacet::HostIo {
+        sources.push("host OS errors of every kind without a more specific facet".to_string());
+    } else if !host_kinds.is_empty() {
+        sources.push(format!("host OS errors of kind {}", host_kinds.join(", ")));
+    }
+    let name = facet.name();
+    reference_doc_full(
+        facet.summary(),
+        &format!("Implemented by {}.", sources.join(", ")),
+        &["error", "facet", name],
+        &format!("is {name}"),
+        &[],
+    )
 }
 
 struct ReferenceDoc {

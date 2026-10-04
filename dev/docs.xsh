@@ -17,8 +17,8 @@
 ##!   their names must not start with a digit.
 ##! - `project.KEY`: `{path, source}` for each file of `docs/snippets/tour/project/`,
 ##!   keyed by its relative path without the extension, non-alphanumeric runs as `_`.
-##! - `stdlib`, `cli`, `lints`: reference data read from `xsht api`, the binaries'
-##!   help, and `xsht lint --list`.
+##! - `stdlib`, `cli`, `lints`, `facets`: reference data read from `xsht api`, the
+##!   binaries' help, `xsht lint --list`, and the `language:facet` API items.
 use context
 use stage as stages
 
@@ -51,6 +51,12 @@ type ApiAnswer = {query: Str, matches: List[ApiMatch]}
 type IndexLine = {signature: Str, summary: Str}
 
 type LintCode = {code: Str, summary: Str}
+
+type FacetMatch = {id: Str, summary: Str, contract: Str}
+
+type FacetAnswer = {query: Str, matches: List[FacetMatch]}
+
+type FacetRow = {name: Str, summary: Str, contract: Str}
 
 const snippet_name = rx"^[0-9][0-9]-([a-z0-9-]+)\.xsh$"
 
@@ -414,6 +420,12 @@ proc lints(xsht: Path) [process, error] -> Result[List[LintCode]] {
   [json.decode(line)?.require(LintCode)? for line in (run.text $xsht lint --list --format jsonl)?.lines()]
 }
 
+# The built-in error facet vocabulary, one row per `language.facet.NAME` API item.
+proc facets(xsht: Path) [process, error] -> Result[List[FacetRow]] {
+  let answer = json.decode(run.text $xsht api --strict --format jsonl "language:facet"?)?.require(FacetAnswer)?
+  [FacetRow(name: found.id.split(".")[2], summary: found.summary, contract: found.contract) for found in answer.matches]
+}
+
 # Renders every template with freshly collected data.
 proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[List[Rendered]] {
   let templates_dir = fp"{root}/docs/templates"
@@ -427,6 +439,7 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
     stdlib: stdlib(tools.xsht)?,
     cli: cli_reference(tools)?,
     lints: lints(tools.xsht)?,
+    facets: facets(tools.xsht)?,
   }
 
   [Rendered(
