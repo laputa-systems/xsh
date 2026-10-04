@@ -118,6 +118,14 @@ these tokens, none of which can begin a statement (the item expression
 A line that starts with `-` (negation) or `/` (an absolute path) starts a new
 statement; to split around them, end the first line with the operator.
 
+## Expressions before a block
+
+A condition, `for` iterable, `match` subject, `with` value, or `ctx` message
+is followed by a block, so the `condition_` rules read it: there a brace after
+a qualified pattern test (`x is E.V`) is the test's payload only when it looks
+like one (`{name: P}`, `{..}`), and any other brace opens the block. Inside a
+bracket, brace, or parenthesis the general rules apply again.
+
 ## Programs and blocks
 
 ```ebnf
@@ -199,17 +207,17 @@ defer_statement = "defer" ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
 expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "process" ~"." ~"command" "{" ) expression "?"? ;
 if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
-condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* expression | expression ) ;
+condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
 while_statement = "while" condition block ;
-for_statement = "for" binding_target "in" expression block ;
+for_statement = "for" binding_target "in" condition_expression block ;
 loop_statement = "loop" block ;
-match_statement = "match" expression "{" ( separator | arm_head ( block | compound_statement ) ","? | arm_head arm_statement separator | arm_head !( "assert" | "error" IDENT "=" | "export" "error" ) arm_statement "," )* ( arm_head arm_statement )? "}" ;
+match_statement = "match" condition_expression "{" ( separator | arm_head ( block | compound_statement ) ","? | arm_head arm_statement separator | arm_head !( "assert" | "error" IDENT "=" | "export" "error" ) arm_statement "," )* ( arm_head arm_statement )? "}" ;
 arm_head = pattern ( "if" expression )? "=>" ;
 arm_statement = !"{" simple_statement
               | &( "{" "." "." | "{" "[" | "{" LABEL ":" | "{" LABEL "." | "{" STRING ":" | "{" NEWLINE "." "." | "{" NEWLINE "[" | "{" NEWLINE LABEL ":" | "{" NEWLINE LABEL "." | "{" NEWLINE STRING ":" ) record_expression "?"? ;
 guard_statement = "guard" ( !"let" guard_condition "else" block | "let" binding_target ( ":" type_expr )? "=" ( expression_item | run_form "?" ) "else" NEWLINE* block ) ;
-guard_condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) expression ;
-with_statement = "with" list(IDENT "=" expression) block NEWLINE* "else" NEWLINE* block ;
+guard_condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) condition_expression ;
+with_statement = "with" list(IDENT "=" condition_expression) block NEWLINE* "else" NEWLINE* block ;
 ```
 
 ## Expressions
@@ -221,6 +229,16 @@ logical = conjunction ( ( "??" | "or" ) NEWLINE* conjunction )* ;
 conjunction = equality ( "and" NEWLINE* equality )* ;
 equality = ordering
          | equality_operand ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* test_pattern )* ;
+pipe_stage = stream_stage | value_stage ;
+value_stage = !( "where" | "map" | "par-map" | "each" | "batch" | "sort" | "sort-by" | "take" | "drop" | "first" | "last" | "unique-by" | "enumerate" | "zip" | "range" | "repeat" | "tee" | "sum" | "min" | "max" | "group-by" | "fold" | "reduce" | "flat-map" | "any" | "all" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" | "count" | "collect" | "reduce-by" ) stage_expression ;
+stage_expression = logical ;
+stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" )? ( block postfix* logical_tail | !( "{" | "(" ) stage_expression | stage_end )
+             | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" )? ( block postfix* logical_tail | !"{" postfix* logical_tail )
+             | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" )? postfix* logical_tail ;
+equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
+              | additive_tail ( ( "in" | "not" "in" ) NEWLINE* additive )* ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* test_pattern )* ;
+conjunction_tail = equality_tail ( "and" NEWLINE* equality )* ;
+logical_tail = conjunction_tail ( ( "??" | "or" ) NEWLINE* conjunction )* ;
 equality_operand = membership | additive ;
 ordering = additive ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+ ;
 membership = additive ( ( "in" | "not" "in" ) NEWLINE* additive )+ ;
@@ -256,10 +274,10 @@ primary = literal
         | "loop" block
         | "try" block
         | retry_expression
-        | run_form run_end
+        | run_form ( "?" &"|>" | run_end )
         | "spawn" ( run_form run_end | operand )
         | "wait" operand
-        | "ctx" line(expression) block
+        | "ctx" line(condition_expression) block
         | context_scope
         | builder_call
         | item_expression
@@ -286,7 +304,7 @@ record_field = "." ~"." ~"." expression
              | IDENT ;
 map_comprehension = "{" NEWLINE* ( "[" NEWLINE* expression NEWLINE* "]" | ( LABEL | STRING ) ( "." LABEL )* ) ":" expression NEWLINE* comprehension "}" ;
 if_expression = "if" condition block ( "else" "if" condition block )* "else" block ;
-match_expression = "match" expression "{" ( separator | match_expression_arm ( "," | separator ) )* match_expression_arm? "}" ;
+match_expression = "match" condition_expression "{" ( separator | match_expression_arm ( "," | separator ) )* match_expression_arm? "}" ;
 match_expression_arm = arm_head ( block | !"{" expression_item | record_expression "?"? ) ;
 record_expression = ( record_literal | map_comprehension ) postfix* logical_tail ( "|>" pipe_stage )* ;
 retry_expression = "retry" "[" list(expression) "]" ( "on" "(" NEWLINE* pattern NEWLINE* ")" ( "as" IDENT )* )? block ;
@@ -312,24 +330,32 @@ builder_entry = binding
               | NAME !"=" command_argument* ;
 item_expression = "." ( MEMBER | !( MEMBER | "." | ~"/" ) ) ;
 bare_path = ( "/" | "." ~"/" | "." ~"." ~"/" ) ~PATH_PART* !~PATH_PART ;
-pipe_stage = stream_stage | value_stage ;
-value_stage = !( "where" | "map" | "par-map" | "each" | "batch" | "sort" | "sort-by" | "take" | "drop" | "first" | "last" | "unique-by" | "enumerate" | "zip" | "range" | "repeat" | "tee" | "sum" | "min" | "max" | "group-by" | "fold" | "reduce" | "flat-map" | "any" | "all" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" | "count" | "collect" | "reduce-by" ) stage_expression ;
-stage_expression = logical ;
-stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" )? ( block postfix* logical_tail | !( "{" | "(" ) stage_expression | stage_end )
-             | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" )? ( block postfix* logical_tail | !"{" postfix* logical_tail )
-             | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" )? postfix* logical_tail ;
 multiplicative_tail = ( ( "*" | "/" | "%" ) NEWLINE* unary )* ;
 additive_tail = multiplicative_tail ( ( "+" | "-" ) NEWLINE* multiplicative )* ;
-equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
-              | additive_tail ( ( "in" | "not" "in" ) NEWLINE* additive )* ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* test_pattern )* ;
-conjunction_tail = equality_tail ( "and" NEWLINE* equality )* ;
-logical_tail = conjunction_tail ( ( "??" | "or" ) NEWLINE* conjunction )* ;
 stage_end = &( NEWLINE | ";" | "}" | "|>" | ")" | "]" | "," ) ;
+condition_expression = condition_logical ( "|>" condition_pipe_stage )* ;
+condition_logical = condition_conjunction ( ( "??" | "or" ) NEWLINE* condition_conjunction )* ;
+condition_conjunction = condition_equality ( "and" NEWLINE* condition_equality )* ;
+condition_equality = ordering
+                   | equality_operand ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* condition_test_pattern )* ;
+condition_pipe_stage = condition_stream_stage | condition_value_stage ;
+condition_value_stage = !( "where" | "map" | "par-map" | "each" | "batch" | "sort" | "sort-by" | "take" | "drop" | "first" | "last" | "unique-by" | "enumerate" | "zip" | "range" | "repeat" | "tee" | "sum" | "min" | "max" | "group-by" | "fold" | "reduce" | "flat-map" | "any" | "all" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" | "count" | "collect" | "reduce-by" ) condition_stage_expression ;
+condition_stage_expression = condition_logical ;
+condition_stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" )? ( block postfix* condition_logical_tail | !( "{" | "(" ) condition_stage_expression | stage_end )
+                       | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" )? ( block postfix* condition_logical_tail | !"{" postfix* condition_logical_tail )
+                       | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" )? postfix* condition_logical_tail ;
+condition_equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
+                        | additive_tail ( ( "in" | "not" "in" ) NEWLINE* additive )* ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* condition_test_pattern )* ;
+condition_conjunction_tail = condition_equality_tail ( "and" NEWLINE* condition_equality )* ;
+condition_logical_tail = condition_conjunction_tail ( ( "??" | "or" ) NEWLINE* condition_conjunction )* ;
 ```
 
 ## Patterns
 
 ```ebnf
+test_pattern = builtin_type type_arguments? "?"?
+             | named_type ( type_arguments "?"? | "?" )
+             | ( ( "_" | !"is" NAME ) "is" type_expr | primary_pattern ) ( "as" !"_" IDENT )* ;
 pattern = alias_pattern ( "|" alias_pattern )* ;
 alias_pattern = typed_pattern ( "as" !"_" IDENT )* ;
 typed_pattern = ( "_" | !"is" NAME ) "is" type_expr | primary_pattern ;
@@ -355,28 +381,28 @@ list_pattern = "[" NEWLINE* ( ( pattern ( NEWLINE* "," NEWLINE* pattern )* ( NEW
 list_rest = "." ~"." NAME? ;
 record_pattern = "{" list(record_pattern_field) "}" ;
 record_pattern_field = "." ~"." | LABEL ":" pattern | IDENT ;
-test_pattern = builtin_type type_arguments? "?"?
-             | named_type ( type_arguments "?"? | "?" )
-             | ( ( "_" | !"is" NAME ) "is" type_expr | test_primary_pattern ) ( "as" !"_" IDENT )* ;
-test_primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
-                     | "_" !"is"
-                     | "is" IDENT ( "." IDENT )?
-                     | NAME "." IDENT "(" pattern? ")"
-                     | NAME "." IDENT ( "." IDENT )? test_payload?
-                     | NAME "(" ( pattern ( "," pattern )* ","? )? ")"
-                     | !( "is" | "_" ) NAME !"is"
-                     | "null"
-                     | "true"
-                     | "false"
-                     | "-" ( ~INT | ~FLOAT )
-                     | INT
-                     | FLOAT
-                     | DURATION
-                     | STRING
-                     | BYTES
-                     | list_pattern
-                     | record_pattern ;
-test_payload = "{" NEWLINE* ( "." ~"." | IDENT ":" pattern ) ( NEWLINE* "," NEWLINE* record_pattern_field )* ( NEWLINE* "," )? NEWLINE* "}" ;
+condition_primary_pattern = "(" NEWLINE* pattern NEWLINE* ")"
+                          | "_" !"is"
+                          | "is" IDENT ( "." IDENT )?
+                          | NAME "." IDENT "(" pattern? ")"
+                          | NAME "." IDENT ( "." IDENT )? condition_payload?
+                          | NAME "(" ( pattern ( "," pattern )* ","? )? ")"
+                          | !( "is" | "_" ) NAME !"is"
+                          | "null"
+                          | "true"
+                          | "false"
+                          | "-" ( ~INT | ~FLOAT )
+                          | INT
+                          | FLOAT
+                          | DURATION
+                          | STRING
+                          | BYTES
+                          | list_pattern
+                          | record_pattern ;
+condition_payload = "{" NEWLINE* ( "." ~"." | IDENT ":" pattern ) ( NEWLINE* "," NEWLINE* record_pattern_field )* ( NEWLINE* "," )? NEWLINE* "}" ;
+condition_test_pattern = builtin_type type_arguments? "?"?
+                       | named_type ( type_arguments "?"? | "?" )
+                       | ( ( "_" | !"is" NAME ) "is" type_expr | condition_primary_pattern ) ( "as" !"_" IDENT )* ;
 ```
 
 ## Types
@@ -395,7 +421,7 @@ type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 ## Commands and processes
 
 ```ebnf
-run_statement = run_form "?"? ;
+run_statement = run_form "?"? ( "|>" pipe_stage )* ;
 named_command = ( "print" | "eprint" ) ( lead_argument command_argument* )?
               | "cd" !"=" command_argument block
               | "env" line(env_assignment+) block

@@ -155,7 +155,7 @@ fn stage_name_terms(stage: &StreamStage) -> Vec<Term> {
 /// of whatever suffixes and operators follow. A stage that takes a block
 /// reads a `{` right after its arguments as that block, and a stage that
 /// takes an inline expression but has none must end the stage.
-fn stream_stages() -> Item {
+fn stream_stages(context: ExpressionContext) -> Item {
     let mut groups: Vec<((bool, bool), Vec<Item>)> = Vec::new();
     for stage in &STREAM_STAGES {
         let key = (stage.block, stage.inline);
@@ -166,13 +166,13 @@ fn stream_stages() -> Item {
     }
     alt(groups.into_iter().map(|((block, inline), names)| {
         let arguments = opt(seq([t(TokenTag::LParen), r("call_arguments"), t(TokenTag::RParen)]));
-        let continued = || seq([star(r("postfix")), r("logical_tail")]);
+        let continued = || seq([star(r("postfix")), r(context.rule("logical_tail"))]);
         let no_block = || not([vec![tag_term(TokenTag::LBrace)]]);
         let tail = match (block, inline) {
             // A `(` after the stage name is always its argument list.
             (true, true) => alt([
                 seq([r("block"), continued()]),
-                seq([not([vec![tag_term(TokenTag::LBrace)], vec![tag_term(TokenTag::LParen)]]), r("stage_expression")]),
+                seq([not([vec![tag_term(TokenTag::LBrace)], vec![tag_term(TokenTag::LParen)]]), r(context.rule("stage_expression"))]),
                 r("stage_end"),
             ]),
             (true, false) => alt([seq([r("block"), continued()]), seq([no_block(), continued()])]),
@@ -259,9 +259,8 @@ fn rule(section: Section, name: &'static str, body: Item) -> Rule {
     Rule { section, name, body }
 }
 
-/// The primary patterns. A pattern test's error-variant payload must look
-/// like one (`{name: P}`, `{..}`), because in a condition the parser reads
-/// any other brace after a qualified name as the body block.
+/// The primary patterns, with the payload rule that follows a qualified
+/// name.
 fn pattern_primary(payload: &'static str) -> Item {
     alt([
         seq([t(TokenTag::LParen), nl(), r("pattern"), nl(), t(TokenTag::RParen)]),
@@ -295,6 +294,98 @@ fn pattern_primary(payload: &'static str) -> Item {
         r("list_pattern"),
         r("record_pattern"),
     ])
+}
+
+/// Where an expression is read. A condition is followed by its body block:
+/// an `if`, `while`, or `guard` condition, a `for` iterable, a `match`
+/// subject, a `with` value, or a `ctx` message. There a brace after a
+/// qualified pattern test is the test's payload only when it looks like one
+/// (`{name: P}`, `{..}`); any other brace opens the body. Every bracket,
+/// brace, and parenthesis inside a condition returns to the general rules,
+/// so only the rules between a condition and its pattern tests have a
+/// condition form.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ExpressionContext {
+    General,
+    Condition,
+}
+
+impl ExpressionContext {
+    /// The name of a context-dependent rule in this context.
+    fn rule(self, general: &'static str) -> &'static str {
+        if self == Self::General {
+            return general;
+        }
+        match general {
+            "expression" => "condition_expression",
+            "logical" => "condition_logical",
+            "conjunction" => "condition_conjunction",
+            "equality" => "condition_equality",
+            "pipe_stage" => "condition_pipe_stage",
+            "value_stage" => "condition_value_stage",
+            "stage_expression" => "condition_stage_expression",
+            "stream_stage" => "condition_stream_stage",
+            "logical_tail" => "condition_logical_tail",
+            "conjunction_tail" => "condition_conjunction_tail",
+            "equality_tail" => "condition_equality_tail",
+            "test_pattern" => "condition_test_pattern",
+            _ => panic!("`{general}` does not depend on the expression context"),
+        }
+    }
+}
+
+/// The rules from an expression down to its pattern tests, in `context`.
+fn expression_rules(context: ExpressionContext) -> Vec<Rule> {
+    use Section::*;
+    use TokenTag as T;
+    let c = |name| r(context.rule(name));
+    let logical_operators = || alt([operators(OperatorFamily::Fallback), kw(Keyword::Or)]);
+    let equality_suffixes = || {
+        star(alt([
+            seq([operators(OperatorFamily::Equality), nl(), r("equality_operand")]),
+            seq([w("is"), nl(), c("test_pattern")]),
+        ]))
+    };
+    let payload_pattern = match context {
+        ExpressionContext::General => "primary_pattern",
+        ExpressionContext::Condition => "condition_primary_pattern",
+    };
+    vec![
+        rule(Expressions, context.rule("expression"), seq([c("logical"), star(seq([t(T::PipeGt), c("pipe_stage")]))])),
+        rule(Expressions, context.rule("logical"), seq([c("conjunction"), star(seq([logical_operators(), nl(), c("conjunction")]))])),
+        rule(Expressions, context.rule("conjunction"), seq([c("equality"), star(seq([kw(Keyword::And), nl(), c("equality")]))])),
+        rule(Expressions, context.rule("equality"), alt([r("ordering"), seq([r("equality_operand"), equality_suffixes()])])),
+        rule(Expressions, context.rule("pipe_stage"), alt([c("stream_stage"), c("value_stage")])),
+        rule(Expressions, context.rule("value_stage"), seq([not(STREAM_STAGES.iter().map(stage_name_terms)), c("stage_expression")])),
+        rule(Expressions, context.rule("stage_expression"), c("logical")),
+        rule(Expressions, context.rule("stream_stage"), stream_stages(context)),
+        rule(
+            Expressions,
+            context.rule("equality_tail"),
+            alt([
+                seq([r("additive_tail"), plus(seq([operators(OperatorFamily::Ordering), nl(), r("additive")]))]),
+                seq([r("additive_tail"), star(seq([operators(OperatorFamily::Membership), nl(), r("additive")])), equality_suffixes()]),
+            ]),
+        ),
+        rule(Expressions, context.rule("conjunction_tail"), seq([c("equality_tail"), star(seq([kw(Keyword::And), nl(), c("equality")]))])),
+        rule(Expressions, context.rule("logical_tail"), seq([c("conjunction_tail"), star(seq([logical_operators(), nl(), c("conjunction")]))])),
+        rule(
+            Patterns,
+            context.rule("test_pattern"),
+            alt([
+                // A name followed by `[` or `?` is read as a type.
+                seq([r("builtin_type"), opt(r("type_arguments")), opt(t(T::Question))]),
+                seq([r("named_type"), alt([seq([r("type_arguments"), opt(t(T::Question))]), t(T::Question)])]),
+                seq([
+                    alt([
+                        seq([alt([w("_"), seq([not([vec![word_term("is", false)]]), class(Class::Name)])]), w("is"), r("type_expr")]),
+                        r(payload_pattern),
+                    ]),
+                    star(seq([w("as"), not([vec![word_term("_", false)]]), t(T::Ident)])),
+                ]),
+            ]),
+        ),
+    ]
 }
 
 pub(super) fn rules() -> Vec<super::Rule> {
@@ -591,20 +682,20 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 not(shell_test_leads()),
                 alt([
-                    seq([kw(Keyword::Let), nl(), r("pattern"), nl(), t(T::Equals), nl(), r("expression")]),
-                    r("expression"),
+                    seq([kw(Keyword::Let), nl(), r("pattern"), nl(), t(T::Equals), nl(), r("condition_expression")]),
+                    r("condition_expression"),
                 ]),
             ]),
         ),
         rule(Statements, "while_statement", seq([kw(Keyword::While), r("condition"), block()])),
-        rule(Statements, "for_statement", seq([kw(Keyword::For), r("binding_target"), kw(Keyword::In), r("expression"), block()])),
+        rule(Statements, "for_statement", seq([kw(Keyword::For), r("binding_target"), kw(Keyword::In), r("condition_expression"), block()])),
         rule(Statements, "loop_statement", seq([kw(Keyword::Loop), block()])),
         rule(
             Statements,
             "match_statement",
             seq([
                 kw(Keyword::Match),
-                r("expression"),
+                r("condition_expression"),
                 t(T::LBrace),
                 star(alt([
                     sep(),
@@ -661,7 +752,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "guard_condition",
             seq([
                 not(shell_test_leads()),
-                r("expression"),
+                r("condition_expression"),
             ]),
         ),
         rule(
@@ -669,7 +760,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "with_statement",
             seq([
                 kw(Keyword::With),
-                list(seq([ident(), t(T::Equals), r("expression")])),
+                list(seq([ident(), t(T::Equals), r("condition_expression")])),
                 block(),
                 nl(),
                 kw(Keyword::Else),
@@ -679,30 +770,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
         ),
         // Expressions.
         rule(Expressions, "expression_or_run", alt([r("expression_item"), seq([r("run_form"), opt(t(T::Question))])])),
-        rule(Expressions, "expression", seq([r("logical"), star(seq([t(T::PipeGt), r("pipe_stage")]))])),
-        rule(
-            Expressions,
-            "logical",
-            seq([
-                r("conjunction"),
-                star(seq([alt([operators(OperatorFamily::Fallback), kw(Keyword::Or)]), nl(), r("conjunction")])),
-            ]),
-        ),
-        rule(Expressions, "conjunction", seq([r("equality"), star(seq([kw(Keyword::And), nl(), r("equality")]))])),
-        rule(
-            Expressions,
-            "equality",
-            alt([
-                r("ordering"),
-                seq([
-                    r("equality_operand"),
-                    star(alt([
-                        seq([operators(OperatorFamily::Equality), nl(), r("equality_operand")]),
-                        seq([w("is"), nl(), r("test_pattern")]),
-                    ])),
-                ]),
-            ]),
-        ),
         rule(Expressions, "equality_operand", alt([r("membership"), r("additive")])),
         rule(Expressions, "ordering", seq([r("additive"), plus(seq([operators(OperatorFamily::Ordering), nl(), r("additive")]))])),
         rule(
@@ -789,10 +856,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([kw(Keyword::Loop), block()]),
                 seq([kw(Keyword::Try), block()]),
                 r("retry_expression"),
-                seq([r("run_form"), r("run_end")]),
+                // The `?` before a `|>` belongs to the run form.
+                seq([r("run_form"), alt([seq([t(T::Question), Item::Peek(vec![vec![tag_term(T::PipeGt)]])]), r("run_end")])]),
                 seq([kw(Keyword::Spawn), alt([seq([r("run_form"), r("run_end")]), r("operand")])]),
                 seq([kw(Keyword::Wait), r("operand")]),
-                seq([w("ctx"), line(r("expression")), block()]),
+                seq([w("ctx"), line(r("condition_expression")), block()]),
                 r("context_scope"),
                 r("builder_call"),
                 r("item_expression"),
@@ -889,7 +957,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "match_expression",
             seq([
                 kw(Keyword::Match),
-                r("expression"),
+                r("condition_expression"),
                 t(T::LBrace),
                 star(alt([sep(), seq([r("match_expression_arm"), alt([t(T::Comma), sep()])])])),
                 opt(r("match_expression_arm")),
@@ -1016,43 +1084,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 not([vec![term(Class::PathPart, true)]]),
             ]),
         ),
-        rule(Expressions, "pipe_stage", alt([r("stream_stage"), r("value_stage")])),
-        rule(
-            Expressions,
-            "value_stage",
-            seq([not(STREAM_STAGES.iter().map(stage_name_terms)), r("stage_expression")]),
-        ),
-        rule(Expressions, "stage_expression", r("logical")),
-        rule(Expressions, "stream_stage", stream_stages()),
         rule(Expressions, "multiplicative_tail", star(seq([operators(OperatorFamily::Multiplicative), nl(), r("unary")]))),
         rule(
             Expressions,
             "additive_tail",
             seq([r("multiplicative_tail"), star(seq([operators(OperatorFamily::Additive), nl(), r("multiplicative")]))]),
-        ),
-        rule(
-            Expressions,
-            "equality_tail",
-            alt([
-                seq([r("additive_tail"), plus(seq([operators(OperatorFamily::Ordering), nl(), r("additive")]))]),
-                seq([
-                    r("additive_tail"),
-                    star(seq([operators(OperatorFamily::Membership), nl(), r("additive")])),
-                    star(alt([
-                        seq([operators(OperatorFamily::Equality), nl(), r("equality_operand")]),
-                        seq([w("is"), nl(), r("test_pattern")]),
-                    ])),
-                ]),
-            ]),
-        ),
-        rule(Expressions, "conjunction_tail", seq([r("equality_tail"), star(seq([kw(Keyword::And), nl(), r("equality")]))])),
-        rule(
-            Expressions,
-            "logical_tail",
-            seq([
-                r("conjunction_tail"),
-                star(seq([alt([operators(OperatorFamily::Fallback), kw(Keyword::Or)]), nl(), r("conjunction")])),
-            ]),
         ),
         rule(
             Expressions,
@@ -1096,26 +1132,10 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(Patterns, "list_rest", seq([dot_dot(), opt(name())])),
         rule(Patterns, "record_pattern", seq([t(T::LBrace), list(r("record_pattern_field")), t(T::RBrace)])),
         rule(Patterns, "record_pattern_field", alt([dot_dot(), seq([label(), t(T::Colon), r("pattern")]), ident()])),
+        rule(Patterns, "condition_primary_pattern", pattern_primary("condition_payload")),
         rule(
             Patterns,
-            "test_pattern",
-            alt([
-                // A name followed by `[` or `?` is read as a type.
-                seq([r("builtin_type"), opt(r("type_arguments")), opt(t(T::Question))]),
-                seq([r("named_type"), alt([seq([r("type_arguments"), opt(t(T::Question))]), t(T::Question)])]),
-                seq([
-                    alt([
-                        seq([alt([w("_"), seq([not([vec![word_term("is", false)]]), name()])]), w("is"), r("type_expr")]),
-                        r("test_primary_pattern"),
-                    ]),
-                    star(seq([w("as"), not([vec![word_term("_", false)]]), ident()])),
-                ]),
-            ]),
-        ),
-        rule(Patterns, "test_primary_pattern", pattern_primary("test_payload")),
-        rule(
-            Patterns,
-            "test_payload",
+            "condition_payload",
             seq([
                 t(T::LBrace),
                 nl(),
@@ -1158,7 +1178,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([t(T::LBracket), opt(seq([r("type_expr"), star(seq([t(T::Comma), r("type_expr")]))])), t(T::RBracket)]),
         ),
         // Commands and processes.
-        rule(Commands, "run_statement", seq([r("run_form"), opt(t(T::Question))])),
+        // A run form followed by `|>` heads a pipeline, as it does in value
+        // position.
+        rule(Commands, "run_statement", seq([r("run_form"), opt(t(T::Question)), star(seq([t(T::PipeGt), r("pipe_stage")]))])),
         rule(
             Commands,
             "named_command",
@@ -1379,6 +1401,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
             ]),
         ),
     ];
+    let general_at = rules.iter().position(|rule| rule.name == "expression_or_run").expect("expression_or_run rule") + 1;
+    rules.splice(general_at..general_at, expression_rules(ExpressionContext::General));
+    rules.extend(expression_rules(ExpressionContext::Condition));
     rules.sort_by_key(|rule| rule.section);
     rules
 }

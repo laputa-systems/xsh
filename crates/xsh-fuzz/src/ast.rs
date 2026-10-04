@@ -7,6 +7,8 @@
 //! `and`/`or`/`??` and for Bool operands of comparisons).
 
 use std::fmt::Write as _;
+use xsh::frontend::syntax::grammar;
+use xsh::frontend::syntax::node::BinaryOp;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Fam {
@@ -396,45 +398,43 @@ struct Printer<'a> {
     indent: usize,
 }
 
-const PREC_FALLBACK: u8 = 1;
-const PREC_OR: u8 = 2;
-const PREC_AND: u8 = 3;
-const PREC_EQ: u8 = 4;
-const PREC_CMP: u8 = 5;
-const PREC_TERM: u8 = 6;
-const PREC_FACTOR: u8 = 7;
-const PREC_UNARY: u8 = 8;
-const PREC_POSTFIX: u8 = 9;
+// Binding strengths come from the XSH grammar's operator table, so a printed
+// program groups exactly as the parser reads it.
+const PREC_FALLBACK: u8 = grammar::binary_precedence(BinaryOp::ResultFallback);
+const PREC_EQ: u8 = grammar::binary_precedence(BinaryOp::Eq);
+const PREC_CMP: u8 = grammar::binary_precedence(BinaryOp::Lt);
+const PREC_TERM: u8 = grammar::binary_precedence(BinaryOp::Add);
+const PREC_UNARY: u8 = grammar::PREFIX;
+const PREC_POSTFIX: u8 = grammar::PREFIX_OPERAND;
 
-fn binop_prec(op: BinOp) -> u8 {
-    match op {
-        BinOp::Or => PREC_OR,
-        BinOp::And => PREC_AND,
-        BinOp::Eq | BinOp::Ne => PREC_EQ,
-        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::In | BinOp::NotIn => PREC_CMP,
-        BinOp::Add | BinOp::Sub => PREC_TERM,
-        BinOp::Mul | BinOp::Div | BinOp::Rem => PREC_FACTOR,
+impl BinOp {
+    const fn grammar_op(self) -> BinaryOp {
+        match self {
+            BinOp::Add => BinaryOp::Add,
+            BinOp::Sub => BinaryOp::Sub,
+            BinOp::Mul => BinaryOp::Mul,
+            BinOp::Div => BinaryOp::Div,
+            BinOp::Rem => BinaryOp::Rem,
+            BinOp::Eq => BinaryOp::Eq,
+            BinOp::Ne => BinaryOp::Ne,
+            BinOp::Lt => BinaryOp::Lt,
+            BinOp::Le => BinaryOp::Le,
+            BinOp::Gt => BinaryOp::Gt,
+            BinOp::Ge => BinaryOp::Ge,
+            BinOp::And => BinaryOp::And,
+            BinOp::Or => BinaryOp::Or,
+            BinOp::In => BinaryOp::In,
+            BinOp::NotIn => BinaryOp::NotIn,
+        }
     }
 }
 
+fn binop_prec(op: BinOp) -> u8 {
+    grammar::binary_precedence(op.grammar_op())
+}
+
 fn binop_text(op: BinOp) -> &'static str {
-    match op {
-        BinOp::Add => "+",
-        BinOp::Sub => "-",
-        BinOp::Mul => "*",
-        BinOp::Div => "/",
-        BinOp::Rem => "%",
-        BinOp::Eq => "==",
-        BinOp::Ne => "!=",
-        BinOp::Lt => "<",
-        BinOp::Le => "<=",
-        BinOp::Gt => ">",
-        BinOp::Ge => ">=",
-        BinOp::And => "and",
-        BinOp::Or => "or",
-        BinOp::In => "in",
-        BinOp::NotIn => "not in",
-    }
+    grammar::binary_operator(op.grammar_op()).spelling
 }
 
 /// The binding strength of an expression's outermost operator.
@@ -448,7 +448,7 @@ fn expr_prec(expr: &Expr) -> u8 {
         // Keyword-introduced expressions extend as far as their braces; they
         // need grouping before a postfix operator or a following operand.
         Expr::If(..) | Expr::Match(..) | Expr::Try(..) | Expr::BlockValue(_) | Expr::Pipeline { .. } | Expr::Retry(_) | Expr::Ctx(..) => 0,
-        Expr::Is(..) => PREC_EQ,
+        Expr::Is(..) => grammar::PATTERN_TEST,
         _ => PREC_POSTFIX,
     }
 }
@@ -792,8 +792,9 @@ impl Printer<'_> {
         let prec = binop_prec(op);
         let operand_prec = expr_prec(operand);
         let needs = match operand {
-            // Mixing `and` with `or` always needs explicit grouping.
+            // Mixing `and`, `or`, and `??` always needs explicit grouping.
             Expr::Binary(inner, ..) if matches!(op, BinOp::And | BinOp::Or) && matches!(inner, BinOp::And | BinOp::Or) && *inner != op => true,
+            Expr::Fallback(..) | Expr::FallbackBlock(..) if matches!(op, BinOp::And | BinOp::Or) => true,
             // Comparisons and equality never chain implicitly here.
             Expr::Binary(inner, ..) if (PREC_EQ..=PREC_CMP).contains(&prec) && (PREC_EQ..=PREC_CMP).contains(&binop_prec(*inner)) => true,
             _ if right => operand_prec <= prec,

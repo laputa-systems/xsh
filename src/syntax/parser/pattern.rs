@@ -64,10 +64,9 @@ impl<'a> Parser<'a> {
                 self.peek_tag(field + 1) == Some(TokenTag::Colon)
             }
             Some(TokenTag::Dot) => self.peek_tag(field + 1) == Some(TokenTag::Dot),
-            Some(TokenTag::RBrace) => matches!(
-                self.peek_tag(field + 1),
-                Some(TokenTag::LBrace | TokenTag::RParen | TokenTag::RBracket | TokenTag::Comma)
-            ),
+            // `{}` is the payload when a body block or the next `with`
+            // binding follows it.
+            Some(TokenTag::RBrace) => matches!(self.peek_tag(field + 1), Some(TokenTag::LBrace | TokenTag::Comma)),
             _ => false,
         }
     }

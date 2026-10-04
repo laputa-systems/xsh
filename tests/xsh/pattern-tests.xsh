@@ -357,6 +357,21 @@ test test_pattern_predicates_leave_control_body_braces {
   assert label == "missing"
 }
 
+test test_pattern_predicates_inside_a_condition_group_read_their_payload {
+  let failures: List[PredicateError] = [PredicateError.Missing(message: "missing")]
+  var branches = 0
+  if failures |> any { |failure| failure is PredicateError.Missing {} } {
+    branches += 1
+  }
+  if !(failures[0] is PredicateError.Missing {}) {
+    test.fail("a grouped pattern test lost its payload")?
+  }
+  if [failures[0] is PredicateError.Missing {}] == [true] {
+    branches += 1
+  }
+  assert branches == 2
+}
+
 test test_pattern_predicates_keep_following_type_pattern_match_arms { |ctx|
   let output = test.run_script(
     ctx,

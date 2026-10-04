@@ -17,7 +17,13 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         let (arena_command, command_propagate) = if self.at_keyword(Keyword::Run) {
-            let (run_id, _span) = self.parse_run_form_arena_only(arena)?;
+            let (run_id, run_span) = self.parse_run_form_arena_only(arena)?;
+            if self.at_run_pipeline() {
+                let pipeline = self.parse_run_pipeline_arena_only(run_id, run_span, arena)?;
+                let end = self.expect_terminator();
+                arena.push_expr_statement(pipeline.id, self.span(start, end));
+                return Some(());
+            }
             let propagate = self.consume(TokenKindMatch::Question).is_some();
             if propagate {
                 arena.set_run_form_propagate(run_id, true);
@@ -671,7 +677,7 @@ impl<'a> Parser<'a> {
                 return Some(arena.splice_expr_command_arg(expr_id, self.span(start, span.end())));
             }
             self.expect(TokenKindMatch::LParen, "expected splice name or expression");
-            let expr_id = self.parse_expr_id_arena_only(arena)?;
+            let expr_id = self.in_nested_group(|parser| parser.parse_expr_id_arena_only(arena))?;
             self.expect(
                 TokenKindMatch::RParen,
                 "expected `)` after splice expression",
@@ -682,7 +688,7 @@ impl<'a> Parser<'a> {
 
         if self.consume(TokenKindMatch::LParen).is_some() {
             let start = self.previous_start();
-            let expr_id = self.parse_expr_id_arena_only(arena)?;
+            let expr_id = self.in_nested_group(|parser| parser.parse_expr_id_arena_only(arena))?;
             self.expect(
                 TokenKindMatch::RParen,
                 "expected `)` after typed command argument",
@@ -744,7 +750,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenTag::DollarLBrace => {
                     self.bump();
-                    let expr_id = self.parse_expr_id_arena_only(arena)?;
+                    let expr_id = self.in_nested_group(|parser| parser.parse_expr_id_arena_only(arena))?;
                     self.expect(TokenKindMatch::RBrace, "expected `}` after interpolation");
                     end = self.previous_end();
                     arena.push_interpolation_word_part_expr(expr_id);

@@ -7,9 +7,9 @@ use super::{
 };
 use crate::syntax::arena::{
     ArenaCompQualifier, ArenaCallArgInput, ArenaListElementInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
-    ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId,
+    ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId, RunFormId,
 };
-use crate::syntax::grammar::{self, PrimaryForm};
+use crate::syntax::grammar::{self, LineContinuation, PrimaryForm};
 use crate::syntax::grouping;
 use std::sync::Arc;
 
@@ -414,16 +414,19 @@ impl<'a> Parser<'a> {
     /// enclosing construct changed about where an expression ends stops at
     /// the delimiter: inside it a `|>` adds a stage even within a pipeline
     /// stage, a spaced `?` before the closer tries the expression even
-    /// within a command argument, and `,` does not end a statement even
-    /// within a `match` arm or `with` binding.
+    /// within a command argument, `,` does not end a statement even within a
+    /// `match` arm or `with` binding, and a brace after a qualified pattern
+    /// test is its payload even within a condition.
     pub(super) fn in_nested_group<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) -> T {
         let pipe_is_boundary = std::mem::replace(&mut self.pipe_is_boundary, false);
         let trailing_statement_try = std::mem::replace(&mut self.trailing_statement_try, true);
         let comma_is_terminator = std::mem::replace(&mut self.comma_is_terminator, false);
+        let condition_expr = std::mem::replace(&mut self.condition_expr, false);
         let result = parse(self);
         self.pipe_is_boundary = pipe_is_boundary;
         self.trailing_statement_try = trailing_statement_try;
         self.comma_is_terminator = comma_is_terminator;
+        self.condition_expr = condition_expr;
         result
     }
 
@@ -532,7 +535,54 @@ impl<'a> Parser<'a> {
         if command_arg_root {
             self.command_arg_expr = false;
         }
-        let mut left = self.parse_prefix_arena_only(arena)?;
+        let left = self.parse_prefix_arena_only(arena)?;
+        self.parse_operators_after_arena_only(left, min_prec, command_arg_root, arena)
+    }
+
+    /// Whether a run form that just ended heads a pipeline: `|>` follows it,
+    /// directly or on the next line, after an optional `?` that propagates
+    /// the run form's failure.
+    pub(super) fn at_run_pipeline(&self) -> bool {
+        let after_try = self.index + usize::from(self.current_tag() == TokenTag::Question);
+        self.token_table.tag_at(after_try) == Some(TokenTag::PipeGt)
+            || matches!(self.line_continuation_at(after_try), Some((LineContinuation::Pipeline, _)))
+    }
+
+    /// The pipeline that a run form heads in statement or initializer
+    /// position, where a run form is otherwise a command: the run form is the
+    /// pipeline's first value, and the rest reads as any expression does.
+    pub(super) fn parse_run_pipeline_arena_only(
+        &mut self,
+        run_id: RunFormId,
+        run_span: Span,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        let head = self.run_value_arena_only(run_id, run_span, arena);
+        self.parse_operators_after_arena_only(head, 0, false, arena)
+    }
+
+    /// A run form as a value. The `?` before a pipeline belongs to the run
+    /// form, as a trailing `?` always does; elsewhere a `?` is left for the
+    /// operator loop.
+    fn run_value_arena_only(&mut self, run_id: RunFormId, run_span: Span, arena: &mut ArenaProgramBuilder<'_>) -> ArenaOnlyExpr {
+        let value = ArenaOnlyExpr { id: arena.push_run_expr_id(run_id, run_span), span: run_span, bare_ident: None };
+        if !(self.at(TokenKindMatch::Question) && self.at_run_pipeline()) {
+            return value;
+        }
+        self.bump();
+        let span = self.span(run_span.start(), self.previous_end());
+        ArenaOnlyExpr { id: arena.push_try_expr(value.id, span), span, bare_ident: None }
+    }
+
+    /// Applies the postfix forms, binary operators, pattern tests, and
+    /// pipeline stages that follow `left`, down to `min_prec`.
+    fn parse_operators_after_arena_only(
+        &mut self,
+        mut left: ArenaOnlyExpr,
+        min_prec: u8,
+        command_arg_root: bool,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
         let mut pending_pipeline: Option<ArenaPendingPipeline> = None;
         loop {
             self.skip_postfix_newlines();
@@ -856,7 +906,7 @@ impl<'a> Parser<'a> {
         let kind = if self.current_name()? == "cd" { crate::syntax::arena::ContextScopeKind::Cwd } else { crate::syntax::arena::ContextScopeKind::Env };
         self.bump();
         self.expect(TokenKindMatch::LParen, "expected `(` before scoped context input")?;
-        let input = self.parse_expr_id_arena_only(arena)?;
+        let input = self.in_nested_group(|parser| parser.parse_expr_id_arena_only(arena))?;
         self.expect(TokenKindMatch::RParen, "expected `)` after scoped context input")?;
         self.skip_separators();
         let block = self.parse_block_arena_only(arena)?;
@@ -926,11 +976,7 @@ impl<'a> Parser<'a> {
             PrimaryForm::Run => {
                 let (run_id, _run_span) = self.parse_run_form_arena_only(arena)?;
                 let span = self.span(span.start(), self.previous_end());
-                Some(ArenaOnlyExpr {
-                    id: arena.push_run_expr_id(run_id, span),
-                    span,
-                    bare_ident: None,
-                })
+                Some(self.run_value_arena_only(run_id, span, arena))
             }
             PrimaryForm::Spawn => {
                 self.parse_spawn_expr_arena_only(span.start(), arena)
@@ -1314,8 +1360,16 @@ impl<'a> Parser<'a> {
         self.bump();
         self.skip_comp_layout();
         arena.begin_record_fields();
+        // The start of the first entry, once an entry has been read: a
+        // comprehension after it would otherwise replace those entries.
+        let mut first_entry: Option<usize> = None;
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
             let field_start = self.current_start();
+            let leading_entries = first_entry.map(|first| {
+                let written = self.source[first..field_start].trim_end().trim_end_matches(',').trim_end();
+                self.span(first, first + written.len())
+            });
+            first_entry.get_or_insert(field_start);
             if self.at(TokenKindMatch::Dot)
                 && self.peek_tag(1) == Some(TokenTag::Dot)
                 && self.peek_tag(2) == Some(TokenTag::Dot)
@@ -1352,19 +1406,13 @@ impl<'a> Parser<'a> {
                 self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
                     arena.discard_record_fields();
+                    self.report_map_comprehension_entries(leading_entries);
                     return self.parse_map_comp_tail_arena_only(arena, start, key.id, value.id);
                 }
                 arena.push_record_field_input(ArenaRecordFieldInput::Computed {
                     key: key.id, value: value.id, span: self.span(field_start, value.span.end()),
                 });
                 self.skip_comp_layout();
-                if self.at_keyword(Keyword::For) {
-                    self.diagnostics.push(Diagnostic::error("computed entries are only valid in ordinary Map literals")
-                        .with_code("parse.computed-map-comprehension")
-                        .with_label(Label::primary(self.current_span(), "use an unbracketed key in a Map comprehension")));
-                    arena.discard_record_fields();
-                    return None;
-                }
                 if self.consume(TokenKindMatch::Comma).is_none() { break; }
                 self.skip_comp_layout();
                 continue;
@@ -1404,6 +1452,7 @@ impl<'a> Parser<'a> {
                 self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
                     arena.discard_record_fields();
+                    self.report_map_comprehension_entries(leading_entries);
                     return self.parse_map_comp_tail_arena_only(arena, start, key_id, value.id);
                 }
                 if dotted_key {
@@ -1450,6 +1499,20 @@ impl<'a> Parser<'a> {
             span,
             bare_ident: None,
         })
+    }
+
+    /// A map comprehension is the only entry of its braces. Entries before
+    /// it are an error rather than silently dropped; the comprehension still
+    /// parses so later diagnostics stay accurate.
+    fn report_map_comprehension_entries(&mut self, leading_entries: Option<Span>) {
+        let Some(leading_entries) = leading_entries else { return };
+        self.diagnostics.push(
+            Diagnostic::error("a map comprehension must be the only entry in its braces")
+                .with_code("parse.map-comprehension-entries")
+                .with_label(Label::primary(leading_entries, "these entries come before the comprehension"))
+                .with_label(Label::secondary(self.current_span(), "its `for` clause"))
+                .with_note("build the comprehension on its own and add the other entries with `.set(key, value)`"),
+        );
     }
 
     fn parse_map_comp_tail_arena_only(
@@ -1667,7 +1730,7 @@ impl<'a> Parser<'a> {
             let value = if self.consume(TokenKindMatch::Equals).is_some() {
                 if self.consume(TokenKindMatch::DollarLBrace).is_some() {
                     let value_start = self.current_start();
-                    let Some(value) = self.parse_expr_id_arena_only(arena) else {
+                    let Some(value) = self.in_nested_group(|parser| parser.parse_expr_id_arena_only(arena)) else {
                         let _ = arena.finish_call_args();
                         return None;
                     };
@@ -1891,7 +1954,7 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
         arena.begin_expr_ids();
         while !self.at(TokenKindMatch::RBracket) && !self.at(TokenKindMatch::Eof) {
-            let Some(delay) = self.parse_precedence_arena_only(0, arena) else {
+            let Some(delay) = self.in_nested_group(|parser| parser.parse_precedence_arena_only(0, arena)) else {
                 arena.discard_expr_ids();
                 return None;
             };

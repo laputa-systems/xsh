@@ -233,6 +233,7 @@ fn grammar_rejects_sources_the_parser_rejects() {
         "on TERM { }\n",
         "enum Empty { }\n",
         "f (x\n",
+        "guard x is E.V {} else { }\n",
     ] {
         assert!(!Parser::parse_source_arena_only(SourceId::new(0), source).diagnostics.is_empty(), "the parser accepts {source:?}");
         let tokens = lex_grammar_tokens(source).expect("lexes");

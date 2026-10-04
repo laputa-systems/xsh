@@ -91,6 +91,14 @@ these tokens, none of which can begin a statement (the item expression
 
 A line that starts with `-` (negation) or `/` (an absolute path) starts a new
 statement; to split around them, end the first line with the operator.
+
+## Expressions before a block
+
+A condition, `for` iterable, `match` subject, `with` value, or `ctx` message
+is followed by a block, so the `condition_` rules read it: there a brace after
+a qualified pattern test (`x is E.V`) is the test's payload only when it looks
+like one (`{name: P}`, `{..}`), and any other brace opens the block. Inside a
+bracket, brace, or parenthesis the general rules apply again.
 {{range .grammar.sections}}
 ## {{.title}}
 

@@ -832,7 +832,8 @@ projection runs once per surviving combination. Sources may be lists, streams
 (pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), or
 `Bytes` (byte values); a `Result`-wrapped source propagates its failure. Filters
 are `Bool` values, never assertions. A failed comprehension exposes no partial
-result.
+result. A map comprehension is the only entry in its braces; an entry or
+spread before it is an error (`parse.map-comprehension-entries`).
 
 ### 6.6 Indexing and slicing
 
@@ -1413,6 +1414,10 @@ call and never searches `PATH`.
 | `run.stream --bytes cmd ...` | `Result[Stream[Bytes], ProcessError]` | |
 
 A trailing `?` applies to the whole run form: `run.text git rev-parse HEAD ?`.
+A run form followed by `|>` heads a value pipeline wherever it is written,
+including at the start of a statement or initializer, and a `?` before the
+`|>` propagates the run form's failure:
+`let rows = run.stream --text git log ? |> take(5)`.
 The target is resolved as follows: a bare word with no `/` is looked up in
 `PATH`; a target containing `/` is a relative or absolute path; a `Path` value
 uses its native bytes; a `Str` value is UTF-8 and may not contain NUL. Failure
