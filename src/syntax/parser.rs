@@ -1,6 +1,7 @@
 pub(in crate::syntax::parser) use crate::diagnostic::{Diagnostic, FixHint, Label, Severity};
 pub(in crate::syntax::parser) use crate::source::{SourceId, Span};
 pub(in crate::syntax::parser) use crate::symbol::Name;
+use crate::diagnostic::{DiagnosticCode, DiagnosticFamily};
 use crate::syntax::arena::{ArenaProgram, ArenaProgramBuilder, ArenaRange, TypeExprId};
 use crate::syntax::cst::LazyCst;
 use crate::syntax::grammar::{self, LineContinuation};
@@ -536,7 +537,7 @@ impl<'a> Parser<'a> {
             self.recover_statement();
             end
         } else {
-            self.diagnostic_here("expected statement terminator", "parse.expected-terminator");
+            self.diagnostic_here("expected statement terminator", DiagnosticCode::ParseExpectedTerminator);
             self.current_start()
         }
     }
@@ -550,7 +551,7 @@ impl<'a> Parser<'a> {
         if previous == TokenTag::RBrace && self.current_name().is_some_and(|name| name == "catch" || name == "except") {
             return Some(
                 Diagnostic::error("XSH has no `catch`: `try { ... }` produces a Result")
-                    .with_code("parse.foreign-syntax")
+                    .with_code(DiagnosticCode::ParseForeignSyntax)
                     .with_label(Label::primary(self.current_span(), "handle the Result with `??`, `match`, or `if let Err(error) = ...`")),
             );
         }
@@ -565,7 +566,7 @@ impl<'a> Parser<'a> {
         };
         ternary.then(|| {
             Diagnostic::error("XSH has no `? :` conditional operator")
-                .with_code("parse.foreign-syntax")
+                .with_code(DiagnosticCode::ParseForeignSyntax)
                 .with_label(Label::primary(if at_question { self.current_span() } else { self.previous_span() }, "write `if condition { a } else { b }`"))
         })
     }
@@ -603,7 +604,7 @@ impl<'a> Parser<'a> {
 
     pub(in crate::syntax::parser) fn expect_ident(&mut self, message: &str) -> Option<Name> {
         if self.current_tag() != TokenTag::Ident {
-            self.diagnostic_here(message, "parse.expected-ident");
+            self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         }
         let name = self
@@ -624,7 +625,7 @@ impl<'a> Parser<'a> {
 
     pub(in crate::syntax::parser) fn expect_label_name(&mut self, message: &str) -> Option<Name> {
         let Some(name) = self.current_label_name() else {
-            self.diagnostic_here(message, "parse.expected-label");
+            self.diagnostic_here(message, DiagnosticCode::ParseExpectedLabel);
             return None;
         };
         self.bump();
@@ -634,14 +635,14 @@ impl<'a> Parser<'a> {
     pub(in crate::syntax::parser) fn require_label_binding_name(&mut self, tag: TokenTag, span: Span) -> bool {
         if tag == TokenTag::Ident { return true; }
         self.diagnostics.push(Diagnostic::error("field labels cannot declare a keyword binding")
-            .with_code("parse.keyword-label-binding")
+            .with_code(DiagnosticCode::ParseKeywordLabelBinding)
             .with_label(Label::primary(span, "supply an explicit value or rename this field to a legal binding name")));
         false
     }
 
     pub(in crate::syntax::parser) fn expect_member_name(&mut self, message: &str) -> Option<Name> {
         let Some(name) = self.current_member_name() else {
-            self.diagnostic_here(message, "parse.expected-ident");
+            self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         };
         self.bump();
@@ -655,7 +656,7 @@ impl<'a> Parser<'a> {
 
     pub(in crate::syntax::parser) fn expect_proc_ident(&mut self, message: &str) -> Option<Name> {
         if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
-            self.diagnostic_here(message, "parse.expected-ident");
+            self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         }
         let name = self
@@ -670,7 +671,7 @@ impl<'a> Parser<'a> {
         message: &str,
     ) -> Option<Name> {
         if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
-            self.diagnostic_here(message, "parse.expected-ident");
+            self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         }
         let name = self
@@ -688,7 +689,7 @@ impl<'a> Parser<'a> {
         if self.at_keyword(keyword) {
             Some(self.bump())
         } else {
-            self.diagnostic_here(message, "parse.expected-keyword");
+            self.diagnostic_here(message, DiagnosticCode::ParseExpectedKeyword);
             None
         }
     }
@@ -718,7 +719,7 @@ impl<'a> Parser<'a> {
         if self.at(kind) {
             Some(self.bump())
         } else {
-            self.diagnostic_here(message, "parse.expected-token");
+            self.diagnostic_here(message, DiagnosticCode::ParseExpectedToken);
             None
         }
     }
@@ -831,7 +832,7 @@ impl<'a> Parser<'a> {
         span
     }
 
-    pub(in crate::syntax::parser) fn diagnostic_here(&mut self, message: &str, code: &str) {
+    pub(in crate::syntax::parser) fn diagnostic_here(&mut self, message: &str, code: DiagnosticCode) {
         if self.follows_invalid_source() {
             return;
         }
@@ -849,12 +850,12 @@ impl<'a> Parser<'a> {
         let gap_start = if self.index == 0 { 0 } else { self.previous_end() };
         let gap_end = self.current_start();
         self.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code.as_deref().is_some_and(|code| code.starts_with("lex."))
+            diagnostic.code.is_some_and(|code| code.family() == DiagnosticFamily::Lex)
                 && diagnostic.labels.first().is_some_and(|label| label.span.start() >= gap_start && label.span.end() <= gap_end)
         })
     }
 
-    pub(in crate::syntax::parser) fn diagnostic_previous(&mut self, message: &str, code: &str) {
+    pub(in crate::syntax::parser) fn diagnostic_previous(&mut self, message: &str, code: DiagnosticCode) {
         self.diagnostics.push(
             Diagnostic::error(message)
                 .with_code(code)
@@ -866,7 +867,7 @@ impl<'a> Parser<'a> {
         &mut self,
         span: Span,
         message: &str,
-        code: &str,
+        code: DiagnosticCode,
     ) {
         self.diagnostics.push(
             Diagnostic::error(message)
@@ -945,6 +946,7 @@ impl TokenKindMatch {
 #[cfg(test)]
 mod tests {
     use super::{Parser, SourceId};
+    use crate::diagnostic::DiagnosticCode;
     use crate::syntax::arena::{ArenaCommand, ArenaCommandArgKind, ArenaStmtKind};
 
     #[test]
@@ -996,7 +998,7 @@ mod tests {
             output
                 .diagnostics
                 .iter()
-                .any(|diag| diag.code.as_deref() == Some("parse.required-signature"))
+                .any(|diag| diag.code == Some(DiagnosticCode::ParseRequiredSignature))
         );
     }
 
@@ -1023,7 +1025,7 @@ proc main(args: List[Str]) -> Result[Unit] {
         let diagnostic = output
             .diagnostics
             .iter()
-            .find(|diag| diag.code.as_deref() == Some("parse.expr-string-interpolation"))
+            .find(|diag| diag.code == Some(DiagnosticCode::ParseExprStringInterpolation))
             .expect("expected interpolation diagnostic");
         assert!(diagnostic.message.contains("raw strings"));
         assert!(diagnostic.notes.iter().any(|note| note.contains("r\"\"\"")));
@@ -1036,7 +1038,7 @@ proc main(args: List[Str]) -> Result[Unit] {
         let diagnostic = output
             .diagnostics
             .iter()
-            .find(|diag| diag.code.as_deref() == Some("parse.path-string-interpolation"))
+            .find(|diag| diag.code == Some(DiagnosticCode::ParsePathStringInterpolation))
             .expect("expected p-string interpolation diagnostic");
         assert!(diagnostic.message.contains("do not interpolate"));
         assert!(diagnostic.notes.iter().any(|note| note.contains("literal")));
@@ -1057,7 +1059,7 @@ proc main(args: List[Str]) -> Result[Unit] {
         let diagnostic = output
             .diagnostics
             .iter()
-            .find(|diag| diag.code.as_deref() == Some("parse.expected-expression"))
+            .find(|diag| diag.code == Some(DiagnosticCode::ParseExpectedExpression))
             .expect("expected expression diagnostic");
         assert!(diagnostic.message.contains("command-word syntax"));
         assert!(diagnostic.message.contains("use `name` directly"));

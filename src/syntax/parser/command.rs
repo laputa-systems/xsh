@@ -3,6 +3,7 @@ use super::{
     RedirectionKind, RunKind, Severity, Span, TokenKindMatch, TokenTag,
     decode_interpolation_text_for, parse_interpolation_expr_arena_only_for,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::grammar;
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaEnvAssignmentValue, ArenaProgramBuilder, ArenaRange,
@@ -81,7 +82,7 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
-                self.diagnostic_here("expected command", "parse.expected-command");
+                self.diagnostic_here("expected command", DiagnosticCode::ParseExpectedCommand);
                 None
             }
         }
@@ -144,12 +145,12 @@ impl<'a> Parser<'a> {
                     self.parse_command_args_arena_only_limit(true, 1, arena);
                 args = parsed_args;
                 if parsed_count > 1 {
-                    self.diagnostic_previous("`cd` accepts one path argument", "parse.cd-arity");
+                    self.diagnostic_previous("`cd` accepts one path argument", DiagnosticCode::ParseCdArity);
                 }
                 if !self.at(TokenKindMatch::LBrace) {
                     self.diagnostics.push(
                         Diagnostic::error("`cd` changes the directory only for its block: write `cd PATH { ... }`")
-                            .with_code("parse.expected-token")
+                            .with_code(DiagnosticCode::ParseExpectedToken)
                             .with_label(Label::primary(self.current_span(), "expected `{` to start the `cd` block"))
                             .with_note("a script never changes its own working directory; commands inside the block run there"),
                     );
@@ -165,7 +166,7 @@ impl<'a> Parser<'a> {
                         if self.parse_env_assignment_arena_only(arena).is_none() {
                             self.diagnostic_here(
                                 "`env` blocks accept NAME=value assignments",
-                                "parse.env-assignment",
+                                DiagnosticCode::ParseEnvAssignment,
                             );
                             break;
                         }
@@ -202,7 +203,7 @@ impl<'a> Parser<'a> {
             if !self.at_keyword(Keyword::Run) {
                 self.diagnostic_here(
                     "byte pipeline segments must start with `run`",
-                    "parse.pipeline-run",
+                    DiagnosticCode::ParsePipelineRun,
                 );
                 break;
             }
@@ -232,7 +233,7 @@ impl<'a> Parser<'a> {
                 let alias_span = self.span(start + 3, self.previous_end());
                 self.diagnostics.push(
                     Diagnostic::error("`run.builtin` was removed; use the corresponding `run` form")
-                        .with_code("parse.compatibility-vocabulary")
+                        .with_code(DiagnosticCode::ParseCompatibilityVocabulary)
                         .with_label(Label::primary(alias_span, "redundant run qualifier"))
                         .with_fix_hint(FixHint::replacement(alias_span, "remove the qualifier", "")),
                 );
@@ -298,7 +299,7 @@ impl<'a> Parser<'a> {
         if !grammar::run_form_takes_mode(name) {
             return Some(grammar::run_form(name, None).map_or_else(
                 || {
-                    self.diagnostic_previous("unknown run form", "parse.unknown-run-form");
+                    self.diagnostic_previous("unknown run form", DiagnosticCode::ParseUnknownRunForm);
                     RunKind::Plain
                 },
                 |form| form.kind,
@@ -309,9 +310,9 @@ impl<'a> Parser<'a> {
         Some(form.map_or_else(
             || {
                 let (message, code) = if name == "stream" {
-                    ("expected `--text` or `--bytes` stream mode", "parse.stream-mode")
+                    ("expected `--text` or `--bytes` stream mode", DiagnosticCode::ParseStreamMode)
                 } else {
-                    ("expected `--text` or `--bytes` capture mode", "parse.capture-mode")
+                    ("expected `--text` or `--bytes` capture mode", DiagnosticCode::ParseCaptureMode)
                 };
                 self.diagnostic_previous(message, code);
                 grammar::run_form(name, Some("text")).expect("every mode-taking run form has a text mode").kind
@@ -365,7 +366,7 @@ impl<'a> Parser<'a> {
                 grammar::RunOption::Accept => &mut accept_id,
             };
             if slot.is_some() {
-                self.diagnostic_previous(&format!("duplicate `--{}` option", option.name()), "parse.run-option");
+                self.diagnostic_previous(&format!("duplicate `--{}` option", option.name()), DiagnosticCode::ParseRunOption);
             }
             if let Some(id) = self.parse_run_option_expr_arena_only(arena) {
                 *slot = Some(id);
@@ -454,7 +455,7 @@ impl<'a> Parser<'a> {
         self.bump();
         let opening = self.expect(TokenKindMatch::LBrace, "expected environment assignments")?;
         let mut diagnostic = Diagnostic::error("expression environment assignments require an explicit overlay")
-            .with_code("parse.env-scope-migration")
+            .with_code(DiagnosticCode::ParseEnvScopeMigration)
             .with_label(Label::primary(introducer, "use `env ({NAME: value}) { body }`"))
             .with_fix_hint(FixHint::replacement(introducer, "open explicit overlay", "env ("));
         self.skip_separators();
@@ -548,7 +549,7 @@ impl<'a> Parser<'a> {
             let replacement = if append { "2>>" } else { "2>" };
             self.diagnostic_previous(
                 &format!("stderr redirection uses `{replacement}`"),
-                "parse.legacy-stderr-redirection",
+                DiagnosticCode::ParseLegacyStderrRedirection,
             );
         }
         matched
@@ -767,7 +768,7 @@ impl<'a> Parser<'a> {
 
         if first {
             arena.discard_word_parts();
-            self.diagnostic_here("expected command argument", "parse.expected-command-arg");
+            self.diagnostic_here("expected command argument", DiagnosticCode::ParseExpectedCommandArg);
             return None;
         }
 
@@ -802,7 +803,7 @@ impl<'a> Parser<'a> {
             let fix = format!("${bare_text}{call_text}");
             self.diagnostics.push(
                 Diagnostic::new(Severity::Error, &message)
-                    .with_code("parse.command-call-expr")
+                    .with_code(DiagnosticCode::ParseCommandCallExpr)
                     .with_label(Label::primary(diag_span, &message))
                     .with_fix_hint(FixHint::replacement(fix_span, "use `$` shorthand", fix)),
             );
@@ -878,7 +879,7 @@ impl<'a> Parser<'a> {
                 if raw.contains('$') {
                     self.diagnostics.push(
                         Diagnostic::error("capture mode cannot be interpolated")
-                            .with_code("parse.capture-mode-interpolation")
+                            .with_code(DiagnosticCode::ParseCaptureModeInterpolation)
                             .with_label(Label::primary(span, "expected literal capture mode")),
                     );
                 }
@@ -887,7 +888,7 @@ impl<'a> Parser<'a> {
             _ => {
                 self.diagnostics.push(
                     Diagnostic::error("expected literal command word")
-                        .with_code("parse.expected-word")
+                        .with_code(DiagnosticCode::ParseExpectedWord)
                         .with_label(Label::primary(span, "expected word")),
                 );
                 return None;

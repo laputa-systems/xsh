@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use xsh::diagnostic::{Diagnostic, FixHint, Label};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{CheckOutput, Checker, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
@@ -65,7 +65,7 @@ pub(super) fn lint_try_capture_helpers(program: &ArenaProgram, source: &str) -> 
         let edits = CaptureEdits { definition: definition.span, call: call_span, body: body_span, replacement_len: replacement.len() };
         if !same_checked_facts(program, &parsed.arena, &before, &after, edits, helper.name) { continue; }
         diagnostics.push(Diagnostic::warning("use a local Result capture for this single-use closed helper")
-            .with_code("lint.prefer-try-capture")
+            .with_code(DiagnosticCode::LintPreferTryCapture)
             .with_label(Label::secondary(definition.span, "the body stays at its eager fallback use; the helper trace and traceback frame are removed"))
             .with_fix_hint(FixHint::replacement(call_span, "capture the fallible body locally", replacement))
             .with_fix_hint(FixHint::replacement(definition.span, "remove the private helper with no remaining references", String::new())));

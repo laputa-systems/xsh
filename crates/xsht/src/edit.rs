@@ -1,5 +1,5 @@
 use crate::xsht::format::Formatter;
-use xsh::diagnostic::DiagnosticRenderer;
+use xsh::diagnostic::{DiagnosticCode, DiagnosticRenderer};
 use xsh::frontend::source::{SourceMap, Span};
 use xsh::frontend::syntax::parser::Parser;
 
@@ -10,14 +10,16 @@ pub(crate) struct SourceEdit {
     pub replacement: String,
 }
 
-pub(crate) fn migration_lint_code(code: Option<&str>) -> Option<&'static str> {
-    match code {
-        Some("parse.block-header-migration") => Some("lint.block-header"),
-        Some("parse.stream-option-migration") => Some("lint.stream-options"),
-        Some("parse.enum-migration") => Some("lint.enum-declaration"),
-        Some("check.removed-record-require") => Some("lint.removed-record-require"),
-        Some("parse.compatibility-vocabulary" | "check.compatibility-vocabulary") => Some("lint.compatibility-vocabulary"),
-        Some("parse.env-scope-migration") => Some("lint.env-scope"),
+/// The lint code that reports a parser or checker migration diagnostic, whose
+/// fix `xsht lint` applies as an ordinary lint fix.
+pub(crate) fn migration_lint_code(code: Option<DiagnosticCode>) -> Option<DiagnosticCode> {
+    match code? {
+        DiagnosticCode::ParseBlockHeaderMigration => Some(DiagnosticCode::LintBlockHeader),
+        DiagnosticCode::ParseStreamOptionMigration => Some(DiagnosticCode::LintStreamOptions),
+        DiagnosticCode::ParseEnumMigration => Some(DiagnosticCode::LintEnumDeclaration),
+        DiagnosticCode::CheckRemovedRecordRequire => Some(DiagnosticCode::LintRemovedRecordRequire),
+        DiagnosticCode::ParseCompatibilityVocabulary | DiagnosticCode::CheckCompatibilityVocabulary => Some(DiagnosticCode::LintCompatibilityVocabulary),
+        DiagnosticCode::ParseEnvScopeMigration => Some(DiagnosticCode::LintEnvScope),
         _ => None,
     }
 }
@@ -55,7 +57,7 @@ fn apply_cst_edits(
     // other parser failures remain errors, and rewritten source parses normally.
     let migrating_syntax = !parsed.diagnostics.is_empty()
         && parsed.diagnostics.iter().all(|diagnostic| {
-            migration_lint_code(diagnostic.code.as_deref()).is_some()
+            migration_lint_code(diagnostic.code).is_some()
                 && diagnostic.fix_hints.iter().any(|hint| {
                     hint.span.is_some_and(|span| edits.iter().any(|edit| {
                         edit.start == span.start() && edit.end == span.end()

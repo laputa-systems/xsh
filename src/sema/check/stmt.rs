@@ -8,6 +8,7 @@ use super::{
     expr_ty_auto_propagates, normalize_hook_signal, signal_rejection_message,
 };
 use super::{Binding, TypeDefBody, tail_type_matches_expected};
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef,
     ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, AssignTargetId, BindingTargetId,
@@ -232,7 +233,7 @@ impl Checker {
                     return;
                 }
                 if self.current_scope().contains_key(name) || self.tag_variants.contains_key(name) {
-                    self.error(span, "duplicate name in scope", "check.duplicate-name");
+                    self.error(span, "duplicate name in scope", DiagnosticCode::CheckDuplicateName);
                 }
                 self.define(
                     *name,
@@ -252,7 +253,7 @@ impl Checker {
                         self.error(
                             span,
                             "record destructuring requires a record value",
-                            "check.destructure-type",
+                            DiagnosticCode::CheckDestructureType,
                         );
                         None
                     }
@@ -264,7 +265,7 @@ impl Checker {
                         self.error(
                             field_span,
                             "duplicate destructured field",
-                            "check.destructure-field",
+                            DiagnosticCode::CheckDestructureField,
                         );
                     }
                     let field_ty = record_fields
@@ -278,7 +279,7 @@ impl Checker {
                         self.error(
                             field_span,
                             "unknown destructured field",
-                            "check.destructure-field",
+                            DiagnosticCode::CheckDestructureField,
                         );
                     }
                     self.define_binding_target_arena(arena, field.target, &field_ty, mutable, field_span);
@@ -298,7 +299,7 @@ impl Checker {
         if left == &Type::Duration {
             let valid = matches!((op, right), (AssignOp::Add | AssignOp::Sub, Type::Duration)
                 | (AssignOp::Mul | AssignOp::Div, Type::Int));
-            if !valid { self.error(rhs_span, "invalid Duration compound assignment dimensions", "check.operator-type"); }
+            if !valid { self.error(rhs_span, "invalid Duration compound assignment dimensions", DiagnosticCode::CheckOperatorType); }
             return Type::Duration;
         }
         if op == AssignOp::Add && matches!(left, Type::List(_) | Type::Str) {
@@ -310,7 +311,7 @@ impl Checker {
                 self.error(
                     rhs_span,
                     "compound assignment requires Float operands",
-                    "check.operator-type",
+                    DiagnosticCode::CheckOperatorType,
                 );
             }
             return Type::Float;
@@ -320,7 +321,7 @@ impl Checker {
             // mistake: neither the operand nor the result is reported again.
             let symbol = match op { AssignOp::Add => "+=", AssignOp::Sub => "-=", AssignOp::Mul => "*=", AssignOp::Div => "/=", _ => "%=" };
             let mut diagnostic = Diagnostic::error(format!("`{symbol}` is not defined for {left}"))
-                .with_code("check.operator-type")
+                .with_code(DiagnosticCode::CheckOperatorType)
                 .with_label(Label::primary(op_span, "compound assignment requires Int or Float operands"));
             if *left == Type::Path {
                 diagnostic = diagnostic.with_note("operators never join paths; build the path with an `fp\"...\"` literal");
@@ -332,7 +333,7 @@ impl Checker {
             self.error(
                 rhs_span,
                 "compound assignment requires Int operands",
-                "check.operator-type",
+                DiagnosticCode::CheckOperatorType,
             );
         }
         Type::Int
@@ -358,7 +359,7 @@ impl Checker {
             return;
         }
         if self.in_defer_block {
-            self.error(span, "loop control cannot leave a deferred cleanup block", "check.defer-control-flow");
+            self.error(span, "loop control cannot leave a deferred cleanup block", DiagnosticCode::CheckDeferControlFlow);
             return;
         }
         let message = if self.stream_item_types.is_empty() {
@@ -372,7 +373,7 @@ impl Checker {
         } else {
             "`continue` cannot target a structured stream stage"
         };
-        self.error(span, message, "check.loop-control");
+        self.error(span, message, DiagnosticCode::CheckLoopControl);
     }
 
     /// Assertion is explicit, so a Bool in statement position is rejected
@@ -383,7 +384,7 @@ impl Checker {
             return false;
         }
         let mut diagnostic = Diagnostic::error("Bool expression statement is not an assertion")
-            .with_code("check.bool-statement")
+            .with_code(DiagnosticCode::CheckBoolStatement)
             .with_label(Label::primary(statement, "use `assert <expr>` to assert it, or `let _ = <expr>` to discard it"));
         if let Some(fix) = bool_statement_assert_fix(source, statement) { diagnostic = diagnostic.with_fix_hint(fix); }
         self.diagnostics.push(diagnostic);
@@ -425,14 +426,14 @@ impl Checker {
                 diagnostic.with_fix_hint(FixHint::replacement(Span::at(statement.source_id, statement.start()), "discard with `let _ =`", "let _ = "))
             } else { diagnostic }
         };
-        self.diagnostics.push(diagnostic.with_code("check.ignored-result"));
+        self.diagnostics.push(diagnostic.with_code(DiagnosticCode::CheckIgnoredResult));
     }
 
     /// XSH has no truthiness, so a condition names the type it found. A
     /// fallible Bool or Status (`fs.exists(path)`) is the usual cause, and
     /// the hint offers `?`, which propagates the failure instead of guessing.
     /// It changes failure behavior, so `lint --fix` never applies it.
-    pub(super) fn report_non_bool_condition(&mut self, ty: &Type, span: Span, message: &str, code: &str) {
+    pub(super) fn report_non_bool_condition(&mut self, ty: &Type, span: Span, message: &str, code: DiagnosticCode) {
         let mut diagnostic = Diagnostic::error(message)
             .with_code(code)
             .with_label(Label::primary(span, format!("found {ty}")));
@@ -467,19 +468,19 @@ impl Checker {
             self.error(
                 stmt.span,
                 "declarations are allowed only at the top level of a script or module",
-                "check.nested-declaration",
+                DiagnosticCode::CheckNestedDeclaration,
             );
         }
         match stmt.kind {
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
-                let narrowings = self.check_condition_arena(arena, source, condition, "check.guard-condition");
+                let narrowings = self.check_condition_arena(arena, source, condition, DiagnosticCode::CheckGuardCondition);
                 let success_scopes = self.scopes.clone();
                 self.push_scope();
                 self.apply_narrowings(&narrowings.when_false);
                 self.check_block_arena(arena, source, else_block);
                 self.pop_scope();
                 if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(else_block).span)) {
-                    self.error(arena.arena.span(arena.arena.block(else_block).span), "guard failure branch must leave the enclosing continuation on every reachable path", "check.guard-fallthrough");
+                    self.error(arena.arena.span(arena.arena.block(else_block).span), "guard failure branch must leave the enclosing continuation on every reachable path", DiagnosticCode::CheckGuardFallthrough);
                 }
                 self.scopes = success_scopes;
                 self.apply_narrowings(&narrowings.when_true);
@@ -505,7 +506,7 @@ impl Checker {
                     self.error(
                         inner.span,
                         "destructured exports are not supported",
-                        "check.export-destructure",
+                        DiagnosticCode::CheckExportDestructure,
                     );
                 }
                 let previous_exported = self.current_exported;
@@ -574,7 +575,7 @@ impl Checker {
                     self.error(
                         stmt.span,
                         "`break` is not allowed in signal hooks",
-                        "check.signal-hook",
+                        DiagnosticCode::CheckSignalHook,
                     );
                 }
                 self.check_loop_control(stmt.span, true);
@@ -587,7 +588,7 @@ impl Checker {
                     self.error(
                         stmt.span,
                         "`continue` is not allowed in signal hooks",
-                        "check.signal-hook",
+                        DiagnosticCode::CheckSignalHook,
                     );
                 }
                 self.check_loop_control(stmt.span, false);
@@ -599,12 +600,12 @@ impl Checker {
                 if condition_ty == Type::Any {
                     self.expect_type(&Type::Bool, &condition_ty, arena.arena.expr(condition).span);
                 } else if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
-                    self.report_non_bool_condition(&condition_ty, arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
+                    self.report_non_bool_condition(&condition_ty, arena.arena.expr(condition).span, "assert condition requires Bool", DiagnosticCode::CheckAssertCondition);
                 }
                 if let Some(message) = message {
                     let message_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(message), Some(&Type::Str), None);
                     if message_ty != Type::Str && !matches!(message_ty, Type::Unknown | Type::Invalid) {
-                        self.error(arena.arena.expr(message).span, "assert message requires Str", "check.assert-message");
+                        self.error(arena.arena.expr(message).span, "assert message requires Str", DiagnosticCode::CheckAssertMessage);
                     }
                 }
                 let facts = self.infer_condition_narrowings_arena(arena, condition);
@@ -654,7 +655,7 @@ impl Checker {
                     self.error(
                         stmt.span,
                         "`loop` has no `break` — will run forever",
-                        "check.loop-no-break",
+                        DiagnosticCode::CheckLoopNoBreak,
                     );
                 }
             }
@@ -692,7 +693,7 @@ impl Checker {
                     arena,
                     source,
                     condition,
-                    "check.guarded-stmt-condition",
+                    DiagnosticCode::CheckGuardedStmtCondition,
                 );
                 let continuing_scopes = self.stmt_definitely_exits_arena(arena, inner).then(|| self.scopes.clone());
                 self.push_scope();
@@ -739,7 +740,7 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         condition: ExprId,
-        code: &'static str,
+        code: DiagnosticCode,
     ) -> ConditionNarrowings {
         let condition_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(condition), Some(&Type::Bool), None);
         let condition_span = arena.arena.expr(condition).span;
@@ -919,7 +920,7 @@ impl Checker {
         for branch in branch_list {
             self.push_scope();
             self.apply_narrowings(&previous_failure);
-            let facts = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
+            let facts = self.check_condition_arena(arena, source, branch.condition, DiagnosticCode::CheckIfCondition);
             let failure_scopes = self.scopes.clone();
             self.apply_narrowings(&facts.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
@@ -976,7 +977,7 @@ impl Checker {
         block: BlockId,
     ) {
         let narrowings =
-            self.check_condition_arena(arena, source, condition, "check.while-condition");
+            self.check_condition_arena(arena, source, condition, DiagnosticCode::CheckWhileCondition);
         self.push_scope();
         self.apply_narrowings(&narrowings.when_true);
         self.bind_pattern_condition_arena(arena, source, condition);
@@ -1003,7 +1004,7 @@ impl Checker {
             Type::Any => Type::Any,
             Type::Unknown => Type::Unknown,
             _ => {
-                self.error(arena.arena.expr(iter).span, "`for` iterates over List, Stream, Map, Str, or Bytes values", "check.for-iterator");
+                self.error(arena.arena.expr(iter).span, "`for` iterates over List, Stream, Map, Str, or Bytes values", DiagnosticCode::CheckForIterator);
                 Type::Unknown
             }
         });
@@ -1079,7 +1080,7 @@ impl Checker {
             let value_ty = match ty { Type::Result(ok, _) => *ok, other => other };
             let binding_span = arena.arena.span(binding.span);
             if self.current_scope().contains_key(&binding.name) {
-                self.error(binding_span, "duplicate name in scope", "check.duplicate-name");
+                self.error(binding_span, "duplicate name in scope", DiagnosticCode::CheckDuplicateName);
             }
             if binding.name.as_str() != "_" {
                 self.define(binding.name, Binding::new(value_ty, false), binding_span);
@@ -1110,12 +1111,12 @@ impl Checker {
             Type::Result(ok, error) => (*ok, *error),
             Type::Unknown => (Type::Unknown, Type::Unknown),
             other => {
-                self.error(span, "`guard let` binding must produce a Result value", "check.guard-binding");
+                self.error(span, "`guard let` binding must produce a Result value", DiagnosticCode::CheckGuardBinding);
                 (other, Type::Error)
             }
         };
         if record_target_requires_schema_check(arena, target, &ok_ty) {
-            self.error(span, "record destructuring of Any requires an explicit schema check", "check.destructure-type");
+            self.error(span, "record destructuring of Any requires an explicit schema check", DiagnosticCode::CheckDestructureType);
         }
         let bind_ty = if let Some(ty_id) = ty {
             let ann = self.type_from_arena(arena, ty_id);
@@ -1136,13 +1137,13 @@ impl Checker {
         let params = arena.arena.block_params(arena.arena.block(block).params);
         self.push_scope();
         if params.len() > 1 {
-            self.error(arena.arena.span(params[1].span), "an error handler accepts at most one parameter", "check.handler-block-params");
+            self.error(arena.arena.span(params[1].span), "an error handler accepts at most one parameter", DiagnosticCode::CheckHandlerBlockParams);
         }
         for param in params {
             if param.name.as_str() == "_" { continue; }
             let span = arena.arena.span(param.span);
             if self.current_scope().contains_key(&param.name) {
-                self.error(span, "duplicate name in scope", "check.duplicate-name");
+                self.error(span, "duplicate name in scope", DiagnosticCode::CheckDuplicateName);
             }
             self.define(param.name, Binding::new(error_ty.clone(), false), span);
         }
@@ -1163,7 +1164,7 @@ impl Checker {
             self.error(
                 param_span,
                 "this block does not receive parameters",
-                "check.block-params",
+                DiagnosticCode::CheckBlockParams,
             );
         }
         self.check_value_block_contents_arena(arena, source, block_id, expected);
@@ -1206,14 +1207,14 @@ impl Checker {
                 self.error(
                     block_span,
                     "function can fall through without returning its declared type",
-                    "check.missing-return",
+                    DiagnosticCode::CheckMissingReturn,
                 );
             }
         } else if expected != &Type::Unit && !expected.is_result_unit() {
             self.error(
                 block_span,
                 "function can fall through without returning its declared type",
-                "check.missing-return",
+                DiagnosticCode::CheckMissingReturn,
             );
         }
         self.block_depth -= 1;
@@ -1245,10 +1246,10 @@ impl Checker {
         let body_span = arena.arena.span(arena.arena.block(def.body).span);
         if def.test_declaration {
             if self.current_exported {
-                self.error(body_span, "test declarations cannot be exported", "check.test-export");
+                self.error(body_span, "test declarations cannot be exported", DiagnosticCode::CheckTestExport);
             }
             if self.block_depth != 0 || self.current_return.is_some() {
-                self.error(body_span, "test declarations must be top-level", "check.test-nested");
+                self.error(body_span, "test declarations must be top-level", DiagnosticCode::CheckTestNested);
             }
         }
         if pure && def.return_ty_defaulted && self.inferred_returns.is_none()
@@ -1298,14 +1299,14 @@ impl Checker {
                 self.error(
                     param_span,
                     "duplicate name in scope",
-                    "check.duplicate-name",
+                    DiagnosticCode::CheckDuplicateName,
                 );
             }
             if param.rest && index + 1 != params.len() {
                 self.error(
                     param_span,
                     "rest parameters must be last",
-                    "check.rest-position",
+                    DiagnosticCode::CheckRestPosition,
                 );
             }
             let param_ty = self.infer_checked_parameter(arena, source, param);
@@ -1313,7 +1314,7 @@ impl Checker {
                 self.error(
                     arena.arena.type_expr_span(param.ty),
                     "rest parameters require a List type",
-                    "check.rest-type",
+                    DiagnosticCode::CheckRestType,
                 );
             }
             if param.default.is_some() {
@@ -1322,7 +1323,7 @@ impl Checker {
                 self.error(
                     param_span,
                     "required parameters cannot follow defaulted parameters",
-                    "check.default-param",
+                    DiagnosticCode::CheckDefaultParam,
                 );
             }
             if let Some(default) = param.default {
@@ -1356,7 +1357,7 @@ impl Checker {
         } else {
             if def.test_declaration {
                 if !cfg!(feature = "native-tests") {
-                    self.error(body_span, "test declarations require native-test support; use an xsht build with the native-tests feature", "check.test-feature-disabled");
+                    self.error(body_span, "test declarations require native-test support; use an xsht build with the native-tests feature", DiagnosticCode::CheckTestFeatureDisabled);
                 }
                 self.check_value_block_contents_arena(arena, source, def.body, &return_ty);
             } else {
@@ -1417,7 +1418,7 @@ impl Checker {
                 self.error(
                     arena.arena.type_expr_span(def.return_ty),
                     "stream producer must return Stream[T]",
-                    "check.stream-return",
+                    DiagnosticCode::CheckStreamReturn,
                 );
                 Type::Unknown
             }
@@ -1439,14 +1440,14 @@ impl Checker {
                 self.error(
                     param_span,
                     "duplicate name in scope",
-                    "check.duplicate-name",
+                    DiagnosticCode::CheckDuplicateName,
                 );
             }
             if param.rest && index + 1 != params.len() {
                 self.error(
                     param_span,
                     "rest parameters must be last",
-                    "check.rest-position",
+                    DiagnosticCode::CheckRestPosition,
                 );
             }
             let param_ty = self.infer_checked_parameter(arena, source, param);
@@ -1454,7 +1455,7 @@ impl Checker {
                 self.error(
                     arena.arena.type_expr_span(param.ty),
                     "rest parameters require a List type",
-                    "check.rest-type",
+                    DiagnosticCode::CheckRestType,
                 );
             }
             if param.default.is_some() {
@@ -1463,7 +1464,7 @@ impl Checker {
                 self.error(
                     param_span,
                     "required parameters cannot follow defaulted parameters",
-                    "check.default-param",
+                    DiagnosticCode::CheckDefaultParam,
                 );
             }
             if let Some(default) = param.default {
@@ -1506,23 +1507,23 @@ impl Checker {
             self.error(
                 span,
                 "signal hooks are not supported in interactive input",
-                "check.signal-hook",
+                DiagnosticCode::CheckSignalHook,
             );
         }
         if self.current_exported {
-            self.error(span, "signal hooks are not exported", "check.signal-hook");
+            self.error(span, "signal hooks are not exported", DiagnosticCode::CheckSignalHook);
         }
         if self.module_depth > 0 {
             self.error(
                 span,
                 "signal hooks are entry-script-only in v1",
-                "check.signal-hook-module",
+                DiagnosticCode::CheckSignalHookModule,
             );
         } else if self.block_depth > 0 || self.current_return.is_some() {
             self.error(
                 span,
                 "signal hooks are allowed only at the entry script top level",
-                "check.signal-hook",
+                DiagnosticCode::CheckSignalHook,
             );
         }
 
@@ -1535,7 +1536,7 @@ impl Checker {
                 {
                     self.diagnostics.push(
                         crate::diagnostic::Diagnostic::error("duplicate signal hook")
-                            .with_code("check.duplicate-signal-hook")
+                            .with_code(DiagnosticCode::CheckDuplicateSignalHook)
                             .with_label(crate::diagnostic::Label::primary(
                                 span,
                                 format!("duplicate hook for `{}`", info.name),
@@ -1550,7 +1551,7 @@ impl Checker {
             Err(rejection) => self.error(
                 span,
                 &signal_rejection_message(&hook.signal.as_str(), rejection),
-                "check.signal-hook",
+                DiagnosticCode::CheckSignalHook,
             ),
         }
 
@@ -1560,7 +1561,7 @@ impl Checker {
             self.error(
                 span,
                 "`--pre-cancel` expects a duration literal",
-                "check.signal-hook",
+                DiagnosticCode::CheckSignalHook,
             );
         }
         let body = arena.arena.block(hook.body);
@@ -1569,7 +1570,7 @@ impl Checker {
             self.error(
                 param_span,
                 "signal hook blocks do not accept parameters",
-                "check.signal-hook",
+                DiagnosticCode::CheckSignalHook,
             );
         }
 
@@ -1601,7 +1602,7 @@ impl Checker {
                 self.error(
                     body_span,
                     "signal hook body must produce Unit, Status, or Result[Unit]",
-                    "check.signal-hook",
+                    DiagnosticCode::CheckSignalHook,
                 );
             }
         }
@@ -1635,7 +1636,7 @@ impl Checker {
             self.expect_type(expected, &actual, init_span);
         }
         if record_target_requires_schema_check(arena, target, &actual) {
-            self.error(span, "record destructuring of Any requires an explicit schema check", "check.destructure-type");
+            self.error(span, "record destructuring of Any requires an explicit schema check", DiagnosticCode::CheckDestructureType);
         }
         let final_ty = if ty.is_none() { self.infer_local_binding(arena, target, initializer, mutable, span, actual) } else { expected.unwrap_or(actual) };
         if ty.is_none()
@@ -1673,7 +1674,7 @@ impl Checker {
         if let Some(alias) = callable_alias
             && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
             if self.current_exported && (alias.signature.definition.is_none() || !alias.signature.explicit_return || (!alias.pure && (alias.signature.inferred_effects || alias.signature.effects.is_none()))) {
-                self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", "check.callable-alias-export");
+                self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", DiagnosticCode::CheckCallableAliasExport);
             }
             self.attach_callable_alias(name, alias, expr_or_run_span_arena(arena, initializer));
         }
@@ -1711,7 +1712,7 @@ impl Checker {
     ) {
         let name = assign_target_root_name_arena(arena, target);
         let mut diagnostic = Diagnostic::error(format!("assignment to undefined name `{name}`; declare it with `let` or `var`"))
-            .with_code("check.undefined-name")
+            .with_code(DiagnosticCode::CheckUndefinedName)
             .with_label(Label::primary(span, "assignment to undefined name"));
         if op == AssignOp::Set && matches!(arena.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(_)) {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(Span::at(span.source_id, span.start()), "declare it with `let`", "let ").dangerous());
@@ -1741,14 +1742,14 @@ impl Checker {
             self.error(
                 span,
                 "pure functions can assign only to local `var` bindings declared inside the same pure function",
-                "check.pure-assignment",
+                DiagnosticCode::CheckPureAssignment,
             );
         }
         if !binding.mutable {
             self.error(
                 span,
                 &format!("cannot assign to `{name}`: it is not a `var`; declare with `var` to allow reassignment"),
-                "check.assign-let",
+                DiagnosticCode::CheckAssignLet,
             );
         }
         let target_ty = self.assignment_target_type_arena(arena, source, target, binding.unrefined_ty.as_ref().unwrap_or(&binding.ty), span);
@@ -1757,7 +1758,7 @@ impl Checker {
             let value_span = expr_or_run_span_arena(arena, value);
             if !actual.can_escape_context_scope()
                 && self.context_scope_depths.last().is_some_and(|depth| self.scopes.iter().rposition(|scope| scope.contains_key(&name)).is_some_and(|owner| owner < *depth)) {
-                self.error(value_span, "a live producer or host handle cannot escape through an outer assignment", "check.context-scope-escape");
+                self.error(value_span, "a live producer or host handle cannot escape through an outer assignment", DiagnosticCode::CheckContextScopeEscape);
             }
             self.expect_type(&target_ty, &actual, value_span);
             self.invalidate_binding_projection_arena(arena, target, name);
@@ -1820,7 +1821,7 @@ impl Checker {
                         self.error(
                             span,
                             &format!("unknown record field `{name}`"),
-                            "check.unknown-field",
+                            DiagnosticCode::CheckUnknownField,
                         );
                         Type::Unknown
                     }),
@@ -1829,7 +1830,7 @@ impl Checker {
                         self.error(
                             span,
                             "field assignment requires a record value",
-                            "check.assign-target",
+                            DiagnosticCode::CheckAssignTarget,
                         );
                         Type::Unknown
                     }
@@ -1854,7 +1855,7 @@ impl Checker {
                         self.error(
                             span,
                             "indexed assignment requires List or Map values",
-                            "check.assign-target",
+                            DiagnosticCode::CheckAssignTarget,
                         );
                         Type::Unknown
                     }
@@ -1873,16 +1874,16 @@ impl Checker {
         // Scripts select an exit status with a final top-level `Int` or
         // `abort`; top-level code has no callable to return from.
         if self.current_return.is_none() {
-            self.error(span, "`return` is valid only inside a callable body", "check.return-outside-callable");
+            self.error(span, "`return` is valid only inside a callable body", DiagnosticCode::CheckReturnOutsideCallable);
         }
         if self.in_defer_block {
-            self.error(span, "`return` cannot leave a deferred cleanup block", "check.defer-control-flow");
+            self.error(span, "`return` cannot leave a deferred cleanup block", DiagnosticCode::CheckDeferControlFlow);
         }
         if self.in_signal_hook {
             self.error(
                 span,
                 "`return` is not allowed in signal hooks",
-                "check.signal-hook",
+                DiagnosticCode::CheckSignalHook,
             );
         }
         if self.current_yield.is_some() && value.is_some() {
@@ -1890,7 +1891,7 @@ impl Checker {
             self.error(
                 value_span,
                 "stream producer return cannot include a value",
-                "check.stream-return",
+                DiagnosticCode::CheckStreamReturn,
             );
         }
         let expected = self.current_return.clone().unwrap_or(Type::Unit);
@@ -1913,7 +1914,7 @@ impl Checker {
             .unwrap_or(Type::Unit);
         let actual = self.resolve_local_tail_type(actual, Some(&expected), span);
         if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
-            self.error(span, "a live producer or host handle cannot escape through a lexical return", "check.context-scope-escape");
+            self.error(span, "a live producer or host handle cannot escape through a lexical return", DiagnosticCode::CheckContextScopeEscape);
         }
         if self.inference_reachable && let Some(returns) = &mut self.inferred_returns {
             returns.push((actual.clone(), span));
@@ -1932,12 +1933,12 @@ impl Checker {
         span: Span,
     ) {
         if self.in_defer_block {
-            self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
+            self.error(span, "`yield` is not allowed in a deferred cleanup block", DiagnosticCode::CheckDeferControlFlow);
         }
         self.reject_yield_in_retry(span);
         let expected = self.current_yield.clone();
         if expected.is_none() {
-            self.error(span, "`yield` is valid only in stream producers", "check.yield");
+            self.error(span, "`yield` is valid only in stream producers", DiagnosticCode::CheckYield);
         }
         // Fresh list syntax receives an item context for empty and nested
         // literals. Callable sources retain their declared List or Stream kind.
@@ -1952,7 +1953,7 @@ impl Checker {
         match actual {
             Type::List(item) | Type::Stream(item) => {
                 if !self.context_scope_depths.is_empty() && !item.can_escape_context_scope() {
-                    self.error(value_span, "a delegated live producer or host handle cannot escape a context", "check.context-scope-escape");
+                    self.error(value_span, "a delegated live producer or host handle cannot escape a context", DiagnosticCode::CheckContextScopeEscape);
                 }
                 if let Some(expected) = expected {
                     self.expect_type(&expected, &item, value_span);
@@ -1962,7 +1963,7 @@ impl Checker {
             _ => self.error(
                 value_span,
                 "yield delegation requires a List or Stream; handle Results explicitly",
-                "check.yield-delegation",
+                DiagnosticCode::CheckYieldDelegation,
             ),
         }
     }
@@ -1971,7 +1972,7 @@ impl Checker {
     /// used to check and then fail at runtime.
     fn reject_yield_in_retry(&mut self, span: Span) {
         if self.retry_block_depth > 0 {
-            self.error(span, "`yield` is not allowed inside a retry attempt", "check.yield");
+            self.error(span, "`yield` is not allowed inside a retry attempt", DiagnosticCode::CheckYield);
         }
     }
 
@@ -1983,7 +1984,7 @@ impl Checker {
         span: Span,
     ) {
         if self.in_defer_block {
-            self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
+            self.error(span, "`yield` is not allowed in a deferred cleanup block", DiagnosticCode::CheckDeferControlFlow);
         }
         self.reject_yield_in_retry(span);
         let expected = match self.current_yield.clone() {
@@ -1992,7 +1993,7 @@ impl Checker {
                 self.error(
                     span,
                     "`yield` is valid only in stream producers",
-                    "check.yield",
+                    DiagnosticCode::CheckYield,
                 );
                 self.check_expr_or_run_arena(arena, source, value, None);
                 return;
@@ -2004,12 +2005,12 @@ impl Checker {
             self.error(
                 value_span,
                 "`yield` does not accept a stream; use `yield @stream`",
-                "check.yield-stream",
+                DiagnosticCode::CheckYieldStream,
             );
             return;
         }
         if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
-            self.error(value_span, "a live producer or host handle cannot escape through yield", "check.context-scope-escape");
+            self.error(value_span, "a live producer or host handle cannot escape through yield", DiagnosticCode::CheckContextScopeEscape);
         }
         self.expect_type(&expected, &actual, value_span);
     }
@@ -2025,7 +2026,7 @@ impl Checker {
             self.error(
                 span,
                 "`defer` is not allowed in pure functions",
-                "check.pure-defer",
+                DiagnosticCode::CheckPureDefer,
             );
         }
         if let ArenaExprOrRun::Expr(expr) = value
@@ -2051,7 +2052,7 @@ impl Checker {
             self.current_scope_mut().extend(captures);
             let body = arena.arena.block(block);
             if let Some(param) = arena.arena.block_params(body.params).first() {
-                self.error(arena.arena.span(param.span), "deferred cleanup blocks have no parameters", "check.block-params");
+                self.error(arena.arena.span(param.span), "deferred cleanup blocks have no parameters", DiagnosticCode::CheckBlockParams);
             }
             self.push_scope();
             self.block_depth += 1;
@@ -2060,7 +2061,7 @@ impl Checker {
                 if let ArenaStmtKind::TailBareIdent(name) = arena.arena.stmt(statement).kind {
                     let ty = self.lookup(name).map(|binding| binding.ty.clone()).unwrap_or(Type::Unknown);
                     if !expr_ty_auto_propagates(&ty) && !ty.matches_expected(&Type::Unit) && ty != Type::Bool {
-                        self.error(arena.arena.stmt(statement).span, "cleanup statement must produce Unit; use `let _ = ...` to discard a value", "check.defer-type");
+                        self.error(arena.arena.stmt(statement).span, "cleanup statement must produce Unit; use `let _ = ...` to discard a value", DiagnosticCode::CheckDeferType);
                     }
                 }
             }
@@ -2084,7 +2085,7 @@ impl Checker {
                 self.error(
                     value_span,
                     "deferred cleanup must produce Unit, Status, or Result[Unit]",
-                    "check.defer-type",
+                    DiagnosticCode::CheckDeferType,
                 );
             }
         }
@@ -2102,7 +2103,7 @@ impl Checker {
             self.error(
                 param_span,
                 "this block does not receive parameters",
-                "check.block-params",
+                DiagnosticCode::CheckBlockParams,
             );
         }
         self.push_scope();
@@ -2187,7 +2188,7 @@ impl Checker {
             self.error(
                 param_span,
                 "this block does not receive parameters",
-                "check.block-params",
+                DiagnosticCode::CheckBlockParams,
             );
         }
         self.check_tail_block_contents_arena(arena, source, block_id, expected)
@@ -2391,7 +2392,7 @@ impl Checker {
                     self.error(
                         stmt.span,
                         "commands are not allowed in pure functions",
-                        "check.pure-command",
+                        DiagnosticCode::CheckPureCommand,
                     );
                 }
                 let ty = self.check_command_arena(arena, source, &command_stmt.command, stmt.span);
@@ -2416,7 +2417,7 @@ impl Checker {
                 let infer_branches = self.inferred_returns.is_some() && expected.is_none();
                 let mut inferred = None;
                 for branch in arena.arena.if_branches(branches) {
-                    let narrowings = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
+                    let narrowings = self.check_condition_arena(arena, source, branch.condition, DiagnosticCode::CheckIfCondition);
                     self.push_scope();
                     self.apply_narrowings(&narrowings.when_true);
                     self.bind_pattern_condition_arena(arena, source, branch.condition);
@@ -2444,7 +2445,7 @@ impl Checker {
                         } else { inferred.unwrap_or(actual) });
                     }
                 } else {
-                    self.error(stmt.span, "value-producing if requires an else branch", "check.if-value-else");
+                    self.error(stmt.span, "value-producing if requires an else branch", DiagnosticCode::CheckIfValueElse);
                 }
                 inferred.unwrap_or(Type::Unknown)
             }

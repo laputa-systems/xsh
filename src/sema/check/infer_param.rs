@@ -1,4 +1,5 @@
 use super::{Checker, Type};
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, StmtId};
 
 impl Checker {
@@ -83,7 +84,7 @@ impl Checker {
             }
         }
         if self.inferred_returns.is_none() {
-            self.error(span, "default does not establish a concrete parameter type; declare an annotation (including in cyclic declaration dependencies)", "check.infer-param");
+            self.error(span, "default does not establish a concrete parameter type; declare an annotation (including in cyclic declaration dependencies)", DiagnosticCode::CheckInferParam);
         }
         Type::Invalid
     }

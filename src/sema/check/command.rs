@@ -4,6 +4,7 @@ use super::{
     BTreeMap, Checker, CoreCommand, Diagnostic, Effect, FixHint, FxHashSet, Label, ModuleFnSig,
     Name, RunKind, Span, Type, UnaryOp, api_spec,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRedirection,
@@ -101,7 +102,7 @@ impl Checker {
                 "signal" => Type::Optional(Box::new(Type::Str)),
                 "message" => Type::Str,
                 _ => {
-                    self.error(span, "unknown Status field", "check.unknown-field");
+                    self.error(span, "unknown Status field", DiagnosticCode::CheckUnknownField);
                     Type::Unknown
                 }
             },
@@ -111,7 +112,7 @@ impl Checker {
                 self.error(
                     span,
                     "field access requires a record-like value",
-                    "check.field-access",
+                    DiagnosticCode::CheckFieldAccess,
                 );
                 Type::Unknown
             }
@@ -124,7 +125,7 @@ impl Checker {
             Type::Any => Type::Any,
             Type::Record(_) | Type::Unknown => Type::Unknown,
             _ => {
-                self.error(span, "indexing requires List or Record", "check.index-type");
+                self.error(span, "indexing requires List or Record", DiagnosticCode::CheckIndexType);
                 Type::Unknown
             }
         }
@@ -163,13 +164,13 @@ impl Checker {
             Type::List(_) => self.error(
                 span,
                 "splice item cannot convert to argv",
-                "check.argv-conversion",
+                DiagnosticCode::CheckArgvConversion,
             ),
             Type::Unknown => {}
             _ => self.error(
                 span,
                 "`@` splices require List values",
-                "check.splice-target",
+                DiagnosticCode::CheckSpliceTarget,
             ),
         }
     }
@@ -206,7 +207,7 @@ impl Checker {
             self.error(
                 span,
                 "commands are not allowed in pure functions",
-                "check.pure-command",
+                DiagnosticCode::CheckPureCommand,
             );
         }
         let ty = self.check_command_arena(arena, source, &stmt.command, span);
@@ -249,7 +250,7 @@ impl Checker {
                     self.error(
                         run_span,
                         "`run` requires the `process` effect",
-                        "check.effect-violation",
+                        DiagnosticCode::CheckEffectViolation,
                     );
                 }
                 self.check_run_arena(arena, source, *run_id)
@@ -265,7 +266,7 @@ impl Checker {
         span: Span,
     ) -> Type {
         if name == "_" {
-            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", DiagnosticCode::CheckPipelineHole);
             return Type::Invalid;
         }
 
@@ -280,7 +281,7 @@ impl Checker {
                 self.error(
                     span,
                     "commands are not allowed in pure functions",
-                    "check.pure-command",
+                    DiagnosticCode::CheckPureCommand,
                 );
             }
             return self.check_proc_command_arena(
@@ -327,7 +328,7 @@ impl Checker {
             self.error(
                 span,
                 "pure functions cannot be called with command syntax",
-                "check.command-pure",
+                DiagnosticCode::CheckCommandPure,
             );
             return Type::Unknown;
         }
@@ -335,7 +336,7 @@ impl Checker {
             self.error(
                 span,
                 "procs must be called with expression-call syntax",
-                "check.proc-command-syntax",
+                DiagnosticCode::CheckProcCommandSyntax,
             );
             return Type::Unknown;
         }
@@ -350,7 +351,7 @@ impl Checker {
     fn report_unresolved_proc_command(&mut self, name: &str, span: Span) {
         let name_span = Span::new(span.source_id, span.start(), (span.start() + name.len()).min(span.end()));
         let mut diagnostic = Diagnostic::error(format!("unresolved proc command `{name}`"))
-            .with_code("check.unresolved-proc-command")
+            .with_code(DiagnosticCode::CheckUnresolvedProcCommand)
             .with_label(Label::primary(span, "unresolved proc command"));
         diagnostic = match name {
             "echo" | "printf" => diagnostic
@@ -369,7 +370,7 @@ impl Checker {
 
     /// Conversion errors name the type that cannot convert. A Unit value is
     /// almost always a statement-like call interpolated by mistake.
-    pub(super) fn report_conversion(&mut self, span: Span, ty: &Type, failure: &str, code: &str) {
+    pub(super) fn report_conversion(&mut self, span: Span, ty: &Type, failure: &str, code: DiagnosticCode) {
         let mut diagnostic = Diagnostic::error(format!("value of type `{ty}` {failure}"))
             .with_code(code)
             .with_label(Label::primary(span, format!("this value is `{ty}`")));
@@ -392,7 +393,7 @@ impl Checker {
             self.require_effect(required, span, &format!("`{module}.{name}`"));
         }
         let Some(module_sig) = api_spec().module(module) else {
-            self.error(span, "unknown module", "check.unknown-module");
+            self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);
             return Type::Unknown;
         };
         let Some(overloads) = module_sig.function_overloads(name) else {
@@ -408,7 +409,7 @@ impl Checker {
             self.error(
                 span,
                 "module command syntax is only for effectful Result[Unit] APIs",
-                "check.module-command-value",
+                DiagnosticCode::CheckModuleCommandValue,
             );
             return Type::Unknown;
         }
@@ -416,7 +417,7 @@ impl Checker {
             self.error(
                 span,
                 "effectful module API is not allowed in pure functions",
-                "check.pure-effect",
+                DiagnosticCode::CheckPureEffect,
             );
         }
         let command_args = arena.arena.command_args(args);
@@ -475,7 +476,7 @@ impl Checker {
                                     Diagnostic::error(
                                         "bare identifiers in print are ambiguous; use `$ident` to dereference or `\"text\"` for a literal",
                                     )
-                                    .with_code("check.bare-print-ident")
+                                    .with_code(DiagnosticCode::CheckBarePrintIdent)
                                     .with_label(Label::primary(
                                         arg_span,
                                         "bare identifiers in print are ambiguous; use `$ident` to dereference or `\"text\"` for a literal",
@@ -491,7 +492,7 @@ impl Checker {
                                     Diagnostic::error(
                                         "bare words in print should be quoted string literals",
                                     )
-                                    .with_code("check.bare-print-ident")
+                                    .with_code(DiagnosticCode::CheckBarePrintIdent)
                                     .with_label(Label::primary(
                                         arg_span,
                                         "hyphenated bare words in print are ambiguous; use `\"text\"` for a literal",
@@ -512,7 +513,7 @@ impl Checker {
                                     Diagnostic::error(
                                         "field access and indexing in print require `$`; use `$ident.field` or `${expr}`",
                                     )
-                                    .with_code("check.bare-print-ident")
+                                    .with_code(DiagnosticCode::CheckBarePrintIdent)
                                     .with_label(Label::primary(
                                         arg_span,
                                         "field access and indexing in print require `$`; use `$ident.field` or `${expr}`",
@@ -538,7 +539,7 @@ impl Checker {
                     self.error(
                         span,
                         "`cd` expects one path argument",
-                        "check.core-cd-arity",
+                        DiagnosticCode::CheckCoreCdArity,
                     );
                 }
                 if let Some(arg) = arena.arena.command_args(args).first() {
@@ -552,7 +553,7 @@ impl Checker {
             CoreCommand::Env => {
                 self.require_effect(Effect::Env, span, "`env`");
                 if !args.is_empty() {
-                    self.error(span, "`env` accepts assignments", "check.core-env-arity");
+                    self.error(span, "`env` accepts assignments", DiagnosticCode::CheckCoreEnvArity);
                 }
                 for assignment in arena.arena.env_assignments(env) {
                     self.check_env_assignment_arena(arena, source, assignment);
@@ -577,7 +578,7 @@ impl Checker {
         if self.reject_dynamic_word(&ty, arena.arena.span(arg.span)) {
         } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
             let arg_span = arena.arena.span(arg.span);
-            self.report_conversion(arg_span, &ty, "cannot be displayed by print", "check.display-conversion");
+            self.report_conversion(arg_span, &ty, "cannot be displayed by print", DiagnosticCode::CheckDisplayConversion);
         }
     }
 
@@ -599,7 +600,7 @@ impl Checker {
         let is_pipeline = segments.len() > 1;
         if segments.iter().skip(1).any(|segment| arena.arena.redirections(segment.redirections).iter().any(|item|
             matches!(item.kind, crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup))) {
-            self.error(run_span, "stdin redirection is only valid on the first byte pipeline segment", "check.pipeline-stdin");
+            self.error(run_span, "stdin redirection is only valid on the first byte pipeline segment", DiagnosticCode::CheckPipelineStdin);
         }
         if is_pipeline {
             // The head segment chooses the form for the whole pipeline: a
@@ -622,7 +623,7 @@ impl Checker {
                     .then_some("segments after a capturing pipeline head must be plain `run`")
             };
             if let Some(message) = message {
-                self.error(run_span, message, "check.pipeline-capture");
+                self.error(run_span, message, DiagnosticCode::CheckPipelineCapture);
             }
         }
         if is_pipeline
@@ -634,7 +635,7 @@ impl Checker {
             self.error(
                 run_span,
                 "`--cpumax` is only valid on the first byte pipeline segment",
-                "check.pipeline-cpumax",
+                DiagnosticCode::CheckPipelineCpumax,
             );
         }
         self.last_status_available = true;
@@ -681,7 +682,7 @@ impl Checker {
                 arena,
                 cpu_max,
                 "`--cpumax` must be positive",
-                "check.cpumax",
+                DiagnosticCode::CheckCpumax,
             );
         }
         if let Some(accept) = segment.accept {
@@ -701,7 +702,7 @@ impl Checker {
             self.error(
                 target_span,
                 "run target must be one argv item",
-                "check.run-target",
+                DiagnosticCode::CheckRunTarget,
             );
         }
         self.check_external_arg_arena(arena, source, &segment.target);
@@ -719,7 +720,7 @@ impl Checker {
             bytes_input |= self.check_redirection_arena(arena, source, redirection);
         }
         if bytes_input && stdin_sources > 1 {
-            self.error(arena.arena.span(segment.span), "Bytes input cannot compete with another stdin source", "check.stdin-source");
+            self.error(arena.arena.span(segment.span), "Bytes input cannot compete with another stdin source", DiagnosticCode::CheckStdinSource);
         }
     }
 
@@ -734,7 +735,7 @@ impl Checker {
             _ => None,
         }).collect::<Option<Vec<_>>>();
         if let Some(codes) = codes && let Err(error) = crate::runtime::process::AcceptedExitCodes::new(&codes) {
-            self.error(arena.arena.expr(expr).span, &error.message, "check.accept-policy");
+            self.error(arena.arena.expr(expr).span, &error.message, DiagnosticCode::CheckAcceptPolicy);
         }
     }
 
@@ -743,7 +744,7 @@ impl Checker {
         arena: &ArenaProgram,
         expr_id: ExprId,
         message: &str,
-        code: &str,
+        code: DiagnosticCode,
     ) {
         let expr = arena.arena.expr(expr_id);
         match &expr.kind {
@@ -777,7 +778,7 @@ impl Checker {
             self.error(
                 assignment_span,
                 "environment names must be identifiers",
-                "check.env-name",
+                DiagnosticCode::CheckEnvName,
             );
         }
         match &assignment.value {
@@ -790,7 +791,7 @@ impl Checker {
                     self.error(
                         arg_span,
                         "environment values must be one value",
-                        "check.env-value",
+                        DiagnosticCode::CheckEnvValue,
                     );
                     return;
                 }
@@ -804,7 +805,7 @@ impl Checker {
                     self.error(
                         expr_span,
                         "environment value cannot convert to one value",
-                        "check.env-value",
+                        DiagnosticCode::CheckEnvValue,
                     );
                 }
             }
@@ -876,7 +877,7 @@ impl Checker {
                         if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
                         } else if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
                             let expr_span = arena.arena.expr(*expr_id).span;
-                            self.report_conversion(expr_span, &ty, "cannot convert to one command word", "check.argv-conversion");
+                            self.report_conversion(expr_span, &ty, "cannot convert to one command word", DiagnosticCode::CheckArgvConversion);
                         }
                     }
                 }
@@ -885,7 +886,7 @@ impl Checker {
                         self.error(
                             arg_span,
                             "command word cannot convert to declared parameter type",
-                            "check.command-word-conversion",
+                            DiagnosticCode::CheckCommandWordConversion,
                         );
                     }
                     expected.clone()
@@ -937,7 +938,7 @@ impl Checker {
                         };
                         if !valid && !matches!(ty, Type::Unknown) {
                             let expr_span = arena.arena.expr(*expr_id).span;
-                            self.report_conversion(expr_span, &ty, "cannot be a command argument", "check.argv-conversion");
+                            self.report_conversion(expr_span, &ty, "cannot be a command argument", DiagnosticCode::CheckArgvConversion);
                         }
                     }
                 }
@@ -947,7 +948,7 @@ impl Checker {
                 if self.reject_dynamic_word(&ty, arena.arena.expr(*expr_id).span) {
                 } else if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
-                    self.report_conversion(expr_span, &ty, "cannot be a command argument", "check.argv-conversion");
+                    self.report_conversion(expr_span, &ty, "cannot be a command argument", DiagnosticCode::CheckArgvConversion);
                 }
             }
             ArenaCommandArgKind::SpliceName(name) => {

@@ -1,5 +1,5 @@
 use super::lint_try_capture_helpers;
-use xsh::diagnostic::Diagnostic;
+use xsh::diagnostic::{Diagnostic, DiagnosticCode};
 use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
@@ -25,7 +25,7 @@ fn single_use_read_port_helper_becomes_a_checked_local_capture() {
     let source = "proc read_port() [fs, error] -> Result[Int] {\n  let content = p\"port\".read_text()?\n  content.trim().parse_int()?\n}\nlet port = read_port() ?? 8080\nprint $port\n";
     let diagnostics = migration(source);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-    assert_eq!(diagnostics[0].code.as_deref(), Some("lint.prefer-try-capture"));
+    assert_eq!(diagnostics[0].code, Some(DiagnosticCode::LintPreferTryCapture));
     let fixed = apply(&diagnostics, source);
     assert_eq!(fixed, "\nlet port = try {\n  let content = p\"port\".read_text()?\n  content.trim().parse_int()?\n} ?? 8080\nprint $port\n");
     assert!(migration(&fixed).is_empty());
@@ -114,7 +114,7 @@ fn checked_local_capture_rule_is_exposed_by_the_linter_library() {
     let source = "proc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\nprint $port\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     let output = super::super::Linter::lint(&parsed.arena, source, super::super::LintOptions::default());
-    let diagnostics = output.diagnostics.into_iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-try-capture")).collect::<Vec<_>>();
+    let diagnostics = output.diagnostics.into_iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTryCapture)).collect::<Vec<_>>();
     assert_eq!(diagnostics.len(), 1);
     let fixed = apply(&diagnostics, source);
     assert!(fixed.contains("let port = try { \"7\".parse_int()? } ?? 8080"));

@@ -1,4 +1,4 @@
-use xsh::diagnostic::{Diagnostic, FixHint, Label};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::Checker;
 use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, FunctionDefId};
 use xsh::frontend::syntax::parser::Parser;
@@ -65,7 +65,7 @@ fn lint_callable_aliases_with_check(
         if !before.diagnostics.is_empty() { return Vec::new(); }
         if !same_signature(program, source, &before.prepared_constants, definition, target) { continue; }
         let mut diagnostic = Diagnostic::warning("an exact forwarding callable can preserve its signature through an immutable alias")
-            .with_code("lint.prefer-callable-alias")
+            .with_code(DiagnosticCode::LintPreferCallableAlias)
             .with_label(Label::secondary(inner.span, "the alias executes the original callable without a wrapper traceback frame"));
         let text = source.get(outer.span.range()).unwrap_or_default();
         if !text.contains('#') {

@@ -6,6 +6,7 @@ use super::{
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
     call_arg_expr_id_arena, call_arg_span_arena,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange,
     ExprId,
@@ -71,7 +72,7 @@ impl Checker {
         if name != "message" || !matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == failure) { return; }
         self.warning(arena.arena.expr(value).span,
             &format!("error translation retains only `{failure}.message`; consider `cause: {failure}` to preserve its typed diagnostic chain (no automatic fix)"),
-            "check.error-cause");
+            DiagnosticCode::CheckErrorCause);
     }
 
     fn check_module_callable_effects(
@@ -90,7 +91,7 @@ impl Checker {
             self.error(
                 span,
                 "value is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly",
-                "check.json-compatible",
+                DiagnosticCode::CheckJsonCompatible,
             );
         }
     }
@@ -124,7 +125,7 @@ impl Checker {
                 self.static_callable_aliases.get_mut(&arena.arena.expr(callee).span).unwrap().method_call = true;
             }
             if !alias.pure {
-                if self.in_pure { self.error(span, "effectful proc is not allowed in pure functions", "check.pure-effect"); }
+                if self.in_pure { self.error(span, "effectful proc is not allowed in pure functions", DiagnosticCode::CheckPureEffect); }
                 else { self.check_resolved_callable_effects(&alias.signature, &alias.name.to_string(), span); }
             }
             self.check_function_arg_list_arena(arena, source, args, &alias.signature.params, span);
@@ -153,7 +154,7 @@ impl Checker {
                 self.error(
                     span,
                     &format!("local `{name}` of type {ty} shadows the function `{name}` and cannot be called"),
-                    "check.call-target",
+                    DiagnosticCode::CheckCallTarget,
                 );
                 for arg in args {
                     self.check_call_arg_arena(arena, source, &arg.kind, None);
@@ -165,7 +166,7 @@ impl Checker {
                     self.error(
                         span,
                         "effectful proc is not allowed in pure functions",
-                        "check.pure-effect",
+                        DiagnosticCode::CheckPureEffect,
                     );
                 } else {
                     self.check_resolved_callable_effects(&sig, &name.as_str(), span);
@@ -186,7 +187,7 @@ impl Checker {
                     self.error(
                         span,
                         "stream producer is not allowed in pure functions",
-                        "check.pure-effect",
+                        DiagnosticCode::CheckPureEffect,
                     );
                 } else {
                     self.check_resolved_callable_effects(&sig, &name.as_str(), span);
@@ -251,7 +252,7 @@ impl Checker {
                         self.error(
                             span,
                             "effectful proc is not allowed in pure functions",
-                            "check.pure-effect",
+                            DiagnosticCode::CheckPureEffect,
                         );
                     } else {
                         self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
@@ -265,7 +266,7 @@ impl Checker {
                         self.error(
                             span,
                             "stream producer is not allowed in pure functions",
-                            "check.pure-effect",
+                            DiagnosticCode::CheckPureEffect,
                         );
                     } else {
                         self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
@@ -283,7 +284,7 @@ impl Checker {
                         args,
                         span,
                         &Type::Path,
-                        "check.unknown-module-api",
+                        DiagnosticCode::CheckUnknownModuleApi,
                         expected_context,
                         None,
                     );
@@ -303,7 +304,7 @@ impl Checker {
                         Name::intern("children")
                     } else { name };
                     if module == "process" && name == "command" {
-                        self.error(span, "`process.command` requires a builder block with one `run` entry", "check.builder-call");
+                        self.error(span, "`process.command` requires a builder block with one `run` entry", DiagnosticCode::CheckBuilderCall);
                     }
                     if let Some(required) = api_spec().module_required_effect(&module.as_str(), &canonical_name.as_str()) {
                         self.require_effect(required, span, &format!("`{module}.{name}`"));
@@ -328,7 +329,7 @@ impl Checker {
                 _ => false,
             };
             if guarded_base && matches!(base_ty, Type::Optional(_)) {
-                self.error(span, "a nullable postfix result needs its own `?.` method hop", "check.optional-method");
+                self.error(span, "a nullable postfix result needs its own `?.` method hop", DiagnosticCode::CheckOptionalMethod);
                 return Type::Unknown;
             }
 
@@ -342,7 +343,7 @@ impl Checker {
                             self.error(
                                 span,
                                 "effectful proc is not allowed in pure functions",
-                                "check.pure-effect",
+                                DiagnosticCode::CheckPureEffect,
                             );
                         } else if let Some(caller_effs) = self.current_effects.clone() {
                             self.check_module_callable_effects(
@@ -405,13 +406,13 @@ impl Checker {
                     self.error(
                         span,
                         "`?.` requires an Optional or Result value",
-                        "check.null-safe-field",
+                        DiagnosticCode::CheckNullSafeField,
                     );
                     return Type::Unknown;
                 }
             };
             if matches!(inner_ty, Type::Optional(_)) {
-                self.error(span, "Result propagation leaves an Optional receiver; guard the next hop explicitly", "check.optional-method");
+                self.error(span, "Result propagation leaves an Optional receiver; guard the next hop explicitly", DiagnosticCode::CheckOptionalMethod);
                 return Type::Unknown;
             }
             let canonical_name = if inner_ty == Type::Str && name == "count_bytes" {
@@ -443,7 +444,7 @@ impl Checker {
         }
 
         self.record_effect_contract(&None, "unresolved call target");
-        self.error(span, "unsupported call target", "check.call-target");
+        self.error(span, "unsupported call target", DiagnosticCode::CheckCallTarget);
         Type::Unknown
     }
 
@@ -455,14 +456,14 @@ impl Checker {
         span: Span,
     ) -> Type {
         if args.len() != 1 {
-            self.error(span, "incorrect function arity", "check.arity");
+            self.error(span, "incorrect function arity", DiagnosticCode::CheckArity);
         }
         for arg in args {
             if matches!(arg.kind, ArenaCallArgKind::Named { .. }) {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "unexpected named parameter",
-                    "check.named-arg",
+                    DiagnosticCode::CheckNamedArg,
                 );
             }
         }
@@ -484,7 +485,7 @@ impl Checker {
             self.error(
                 span,
                 "`reveal_type` is available only through `xsht check`",
-                "check.reveal-type",
+                DiagnosticCode::CheckRevealType,
             );
         }
         Type::Unit
@@ -555,7 +556,7 @@ impl Checker {
         }
         let expanded = match expand_named_arguments(arena, args, |id| checked.get(&id).cloned()) {
             Ok(expanded) => expanded,
-            Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return Type::Invalid; }
+            Err(error) => { self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread); return Type::Invalid; }
         };
         let statically_named = self.resolve_callable_alias_call(arena, callee).is_some() || match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) => name == "Err" || self.procs.contains_key(&name) || self.pures.contains_key(&name)
@@ -576,7 +577,7 @@ impl Checker {
             _ => false,
         };
         if !statically_named {
-            self.error(span, "named argument spreading requires a statically checked callable signature", "check.named-spread");
+            self.error(span, "named argument spreading requires a statically checked callable signature", DiagnosticCode::CheckNamedSpread);
             return Type::Invalid;
         }
         let mut temporary = arena.clone();
@@ -586,7 +587,7 @@ impl Checker {
         let mut checked_entries = super::FxHashSet::default();
         for arg in expanded {
             if let Some(name) = arg.name && !supplied.insert(name) {
-                self.error(arg.span, &format!("parameter `{name}` supplied more than once"), "check.named-arg");
+                self.error(arg.span, &format!("parameter `{name}` supplied more than once"), DiagnosticCode::CheckNamedArg);
             }
             let value = match arg.value {
                 ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => value,
@@ -660,18 +661,18 @@ impl Checker {
         for arg in args {
             let ArenaCallArgKind::Named { name, .. } = arg.kind else {
                 self.error(call_arg_span_arena(arena, &arg.kind),
-                    "record constructors require named fields", "check.record-constructor");
+                    "record constructors require named fields", DiagnosticCode::CheckRecordConstructor);
                 self.check_call_arg_arena(arena, source, &arg.kind, None);
                 continue;
             };
             if !supplied.insert(name) {
                 self.error(call_arg_span_arena(arena, &arg.kind),
-                    "duplicate constructor field", "check.record-constructor");
+                    "duplicate constructor field", DiagnosticCode::CheckRecordConstructor);
             }
             let field_type = fields.get(&name);
             if field_type.is_none() {
                 self.error(call_arg_span_arena(arena, &arg.kind),
-                    "unknown constructor field", "check.record-constructor");
+                    "unknown constructor field", DiagnosticCode::CheckRecordConstructor);
             }
             let context = schema.and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Field(name))).cloned();
             let previous = std::mem::replace(&mut self.expected_schema, context);
@@ -684,7 +685,7 @@ impl Checker {
         for name in fields.keys() {
             if !supplied.contains(name) && !defaults.contains_key(name) {
                 self.error(span, &format!("missing required constructor field `{name}`"),
-                    "check.record-constructor");
+                    DiagnosticCode::CheckRecordConstructor);
             }
         }
         expected
@@ -708,7 +709,7 @@ impl Checker {
                         info.field_count,
                         args.len()
                     ),
-                    "check.arity",
+                    DiagnosticCode::CheckArity,
                 );
             }
             for (arg, expected_ty) in args.iter().zip(info.field_types.iter()) {
@@ -750,7 +751,7 @@ impl Checker {
                     self.argument_bindings.insert(span, super::CheckedArguments { callable_entry: None, argument_slots: binding.argument_slots.clone() });
                 }) {
                     Ok(binding) => binding,
-                    Err(error) => { self.error(error.span, &error.message, "check.err-arguments"); return Type::Invalid; }
+                    Err(error) => { self.error(error.span, &error.message, DiagnosticCode::CheckErrArguments); return Type::Invalid; }
                 };
                 let mut outer = Type::Error;
                 let has_cause = binding.argument_slots.contains(&1);
@@ -764,7 +765,7 @@ impl Checker {
                 self.error(
                     span,
                     "`Error(kind: ...)` was removed; construct a declared error variant such as `FsError.NotFound(...)`",
-                    "check.error-removed",
+                    DiagnosticCode::CheckErrorRemoved,
                 );
                 for arg in args {
                     self.check_call_arg_arena(arena, source, &arg.kind, None);
@@ -776,7 +777,7 @@ impl Checker {
                     self.warning(
                         span,
                         "`ProcessError(...)` is produced by process APIs and is not a source constructor",
-                        "check.migration-error",
+                        DiagnosticCode::CheckMigrationError,
                     );
                 }
                 for arg in args {
@@ -810,7 +811,7 @@ impl Checker {
     /// sizes are methods, so both get the XSH spelling.
     fn report_unresolved_call(&mut self, arena: &ArenaProgram, source: &str, name: &str, args: &[ArenaCallArg], span: Span) {
         let mut diagnostic = Diagnostic::error(format!("unresolved pure function call `{name}`"))
-            .with_code("check.unresolved-call")
+            .with_code(DiagnosticCode::CheckUnresolvedCall)
             .with_label(Label::primary(span, "unresolved pure function call"));
         let argument = match args {
             [arg] if !matches!(arg.kind, ArenaCallArgKind::Named { .. }) => {
@@ -848,7 +849,7 @@ impl Checker {
     /// A misspelled standard API names the nearest function of its module.
     pub(super) fn report_unknown_module_api(&mut self, module: &str, name: &str, span: Span) {
         let mut diagnostic = Diagnostic::error(format!("unknown module API `{module}.{name}`"))
-            .with_code("check.unknown-module-api")
+            .with_code(DiagnosticCode::CheckUnknownModuleApi)
             .with_label(Label::primary(span, "unknown module API"));
         let nearby = api_spec().module(module)
             .and_then(|signature| super::method::nearest_name(name, signature.functions.iter().map(|function| function.name)));
@@ -870,7 +871,7 @@ impl Checker {
             self.error(
                 span,
                 "abort expects status and optional force",
-                "check.arity",
+                DiagnosticCode::CheckArity,
             );
         }
         if let Some(arg) = args.first() {
@@ -884,7 +885,7 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "unexpected named parameter",
-                    "check.named-arg",
+                    DiagnosticCode::CheckNamedArg,
                 );
             }
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Bool));
@@ -907,7 +908,7 @@ impl Checker {
             .and_then(|family| family.variants.get(&variant))
             .cloned()
         else {
-            self.error(span, "unknown error variant", "check.error-constructor");
+            self.error(span, "unknown error variant", DiagnosticCode::CheckErrorConstructor);
             for arg in args {
                 self.check_call_arg_arena(arena, source, &arg.kind, None);
             }
@@ -924,7 +925,7 @@ impl Checker {
                         self.error(
                             call_arg_span_arena(arena, &arg.kind),
                             "unknown error payload field",
-                            "check.error-constructor",
+                            DiagnosticCode::CheckErrorConstructor,
                         );
                         self.check_call_arg_arena(arena, source, &arg.kind, None);
                         continue;
@@ -936,7 +937,7 @@ impl Checker {
                         self.error(
                             call_arg_span_arena(arena, &arg.kind),
                             "too many error constructor arguments",
-                            "check.arity",
+                            DiagnosticCode::CheckArity,
                         );
                         self.check_call_arg_arena(arena, source, &arg.kind, None);
                         continue;
@@ -949,7 +950,7 @@ impl Checker {
                     self.error(
                         call_arg_span_arena(arena, &arg.kind),
                         "error constructors do not accept argument splices",
-                        "check.splice-target",
+                        DiagnosticCode::CheckSpliceTarget,
                     );
                     self.check_call_arg_arena(arena, source, &arg.kind, None);
                     continue;
@@ -959,7 +960,7 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "duplicate error payload field",
-                    "check.error-constructor",
+                    DiagnosticCode::CheckErrorConstructor,
                 );
             }
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
@@ -970,7 +971,7 @@ impl Checker {
                 self.error(
                     span,
                     "missing error payload field",
-                    "check.error-constructor",
+                    DiagnosticCode::CheckErrorConstructor,
                 );
             }
         }
@@ -988,14 +989,14 @@ impl Checker {
         expected_context: Option<&Type>,
     ) -> Type {
         let Some(module_sig) = api_spec().module(module) else {
-            self.error(span, "unknown module", "check.unknown-module");
+            self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);
             return Type::Unknown;
         };
         if module == "env" && name == "get_path" {
             self.error(
                 span,
                 "`env.get_path` is not supported; use `env.Path.NAME`",
-                "check.unsupported-api",
+                DiagnosticCode::CheckUnsupportedApi,
             );
             return Type::Result(Box::new(Type::Path), Box::new(Type::Error));
         }
@@ -1003,7 +1004,7 @@ impl Checker {
             self.error(
                 span,
                 "`path.display` is not supported; use `path_value.display()`",
-                "check.unsupported-api",
+                DiagnosticCode::CheckUnsupportedApi,
             );
             return Type::Str;
         }
@@ -1012,7 +1013,7 @@ impl Checker {
         {
             self.membership_migration_spans.insert(span);
             self.standard_call_spans.insert(span, (module.to_string(), name.to_string()));
-            self.error(span, "standard membership API was removed; use `in` or `not in`", "check.removed-membership");
+            self.error(span, "standard membership API was removed; use `in` or `not in`", DiagnosticCode::CheckRemovedMembership);
             for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
             return if module == "test" {
                 Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily(Name::intern("AssertionError"))))
@@ -1021,7 +1022,7 @@ impl Checker {
         self.standard_call_spans.insert(span, (module.to_string(), name.to_string()));
         let migration = if module == "fs" {
             xsh_registry::signature::legacy_fs_root_method(name).map(|method| {
-                self.error(span, &format!("`fs.{name}` was removed; use an FsRoot receiver's `{method}` method"), "check.unsupported-api");
+                self.error(span, &format!("`fs.{name}` was removed; use an FsRoot receiver's `{method}` method"), DiagnosticCode::CheckUnsupportedApi);
                 api_spec().method_overloads(MethodReceiver::FsRoot, method).expect("root receiver registry")
                     .iter().map(|method| {
                         let mut sig = method.sig.clone();
@@ -1062,7 +1063,7 @@ impl Checker {
             self.error(
                 span,
                 "effectful module API is not allowed in pure functions",
-                "check.pure-effect",
+                DiagnosticCode::CheckPureEffect,
             );
         }
         match sig.arg_check {
@@ -1094,7 +1095,7 @@ impl Checker {
                 })).and_then(|(commands, fallback)| self.prepared_constants.cli_commands_plan(&arena.arena, commands, fallback));
             match plan {
                 Some(Ok(plan)) => plan.return_type(false),
-                Some(Err(error)) => { self.error(error.span.unwrap_or(span), &error.message, "check.cli-descriptor"); sig.return_ty.clone() }
+                Some(Err(error)) => { self.error(error.span.unwrap_or(span), &error.message, DiagnosticCode::CheckCliDescriptor); sig.return_ty.clone() }
                 None => sig.return_ty.clone(),
             }
         } else if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
@@ -1121,7 +1122,7 @@ impl Checker {
             Ok(plan) => Some(plan.return_type(op == xsh_registry::RuntimeOp::CliParseFull)),
             Err(error) => {
                 let span = error.span.unwrap_or(arena.arena.expr(schema).span);
-                self.error(span, &error.message, "check.cli-descriptor");
+                self.error(span, &error.message, DiagnosticCode::CheckCliDescriptor);
                 None
             }
         }
@@ -1152,7 +1153,7 @@ impl Checker {
             "accept",
         ];
         if !(2..=names.len()).contains(&args.len()) {
-            self.error(span, "incorrect standard API arity", "check.arity");
+            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
         }
         let mut slots: [Option<&ArenaCallArgKind>; 15] = [None; 15];
         let mut next_positional = 0;
@@ -1164,7 +1165,7 @@ impl Checker {
                         self.error(
                             call_arg_span_arena(arena, &arg.kind),
                             "unexpected named parameter",
-                            "check.named-arg",
+                            DiagnosticCode::CheckNamedArg,
                         );
                         continue;
                     };
@@ -1172,7 +1173,7 @@ impl Checker {
                         self.error(
                             call_arg_span_arena(arena, &arg.kind),
                             "duplicate named parameter",
-                            "check.named-arg",
+                            DiagnosticCode::CheckNamedArg,
                         );
                     }
                     slots[index] = Some(&arg.kind);
@@ -1185,7 +1186,7 @@ impl Checker {
                         self.error(
                             call_arg_span_arena(arena, &arg.kind),
                             "unexpected positional argument",
-                            "check.arity",
+                            DiagnosticCode::CheckArity,
                         );
                     } else {
                         slots[next_positional] = Some(&arg.kind);
@@ -1196,14 +1197,14 @@ impl Checker {
                     self.error(
                         call_arg_span_arena(arena, &arg.kind),
                         "invalid argument splice",
-                        "check.splice-target",
+                        DiagnosticCode::CheckSpliceTarget,
                     );
                 }
             }
         }
 
         if slots[0].is_none() || slots[1].is_none() {
-            self.error(span, "incorrect standard API arity", "check.arity");
+            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
         }
 
         let target_ty = self.check_optional_api_arg_arena(arena, source, slots[0], None);
@@ -1216,7 +1217,7 @@ impl Checker {
                     .map(|k| call_arg_span_arena(arena, k))
                     .unwrap_or(span),
                 "expected Str or Path",
-                "check.type-mismatch",
+                DiagnosticCode::CheckTypeMismatch,
             );
         }
         self.check_process_command_argv_argv_arena(arena, source, slots[1], span);
@@ -1264,7 +1265,7 @@ impl Checker {
         span: Span,
     ) {
         let Some(arg) = arg else {
-            self.error(span, "incorrect standard API arity", "check.arity");
+            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
             return;
         };
 
@@ -1277,7 +1278,7 @@ impl Checker {
                     Diagnostic::error(
                         "process.command_argv argv must include argv[0], the child program name",
                     )
-                    .with_code("check.process-argv-empty")
+                    .with_code(DiagnosticCode::CheckProcessArgvEmpty)
                     .with_label(Label::primary(expr.span, "argv is empty"))
                     .with_note("include the child program name as the first argv item"),
                 );
@@ -1290,13 +1291,13 @@ impl Checker {
                     match actual {
                         Type::List(ty) => *ty,
                         _ => {
-                            self.error(arena.arena.span(splice_span), "list literal splice requires List", "check.list-splice-type");
+                            self.error(arena.arena.span(splice_span), "list literal splice requires List", DiagnosticCode::CheckListSpliceType);
                             Type::Unknown
                         }
                     }
                 } else { actual };
                 if !process_command_argv_item_type_is_valid(&item_ty) {
-                    self.error(arena.arena.expr(item.value).span, "process.command_argv argv items must be Str or Path", "check.type-mismatch");
+                    self.error(arena.arena.expr(item.value).span, "process.command_argv argv items must be Str or Path", DiagnosticCode::CheckTypeMismatch);
                 }
             }
             return;
@@ -1309,12 +1310,12 @@ impl Checker {
             Type::List(_) => self.error(
                 call_arg_span_arena(arena, arg),
                 "process.command_argv argv must contain Str or Path items",
-                "check.type-mismatch",
+                DiagnosticCode::CheckTypeMismatch,
             ),
             _ => self.error(
                 call_arg_span_arena(arena, arg),
                 "process.command_argv argv must be a List",
-                "check.type-mismatch",
+                DiagnosticCode::CheckTypeMismatch,
             ),
         }
     }
@@ -1334,13 +1335,13 @@ impl Checker {
                     .value()
                     .is_some_and(|value| value <= 0) =>
             {
-                self.error(expr.span, message, "check.named-arg");
+                self.error(expr.span, message, DiagnosticCode::CheckNamedArg);
             }
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr: inner,
             } if matches!(arena.arena.expr(*inner).kind, ArenaExprKind::Int(_)) => {
-                self.error(expr.span, message, "check.named-arg");
+                self.error(expr.span, message, DiagnosticCode::CheckNamedArg);
             }
             _ => {}
         }
@@ -1357,7 +1358,7 @@ impl Checker {
             self.error(
                 span,
                 "verify_file requires path and checksum",
-                "check.arity",
+                DiagnosticCode::CheckArity,
             );
             return;
         }
@@ -1380,7 +1381,7 @@ impl Checker {
             self.error(
                 call_arg_span_arena(arena, &checksum_arg.kind),
                 "checksum argument must be named",
-                "check.named-arg",
+                DiagnosticCode::CheckNamedArg,
             );
             self.check_call_arg_arena(arena, source, &checksum_arg.kind, Some(&Type::Str));
             return;
@@ -1389,7 +1390,7 @@ impl Checker {
             self.error(
                 call_arg_span_arena(arena, &checksum_arg.kind),
                 "unsupported checksum algorithm",
-                "check.named-arg",
+                DiagnosticCode::CheckNamedArg,
             );
         }
         let actual = self.check_call_arg_arena(arena, source, &checksum_arg.kind, Some(&Type::Str));
@@ -1411,7 +1412,7 @@ impl Checker {
         match name {
             "encode" => {
                 if !(1..=2).contains(&args.len()) {
-                    self.error(span, "incorrect standard API arity", "check.arity");
+                    self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
                     return;
                 }
                 self.check_named_arg_arena(arena, &args[0].kind, "value");
@@ -1426,7 +1427,7 @@ impl Checker {
             }
             "encode_lines" => {
                 if args.len() != 1 {
-                    self.error(span, "incorrect standard API arity", "check.arity");
+                    self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
                     return;
                 }
                 self.check_named_arg_arena(arena, &args[0].kind, "values");
@@ -1442,7 +1443,7 @@ impl Checker {
             }
             "write" => {
                 if !(2..=3).contains(&args.len()) {
-                    self.error(span, "incorrect standard API arity", "check.arity");
+                    self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
                     return;
                 }
                 self.check_named_arg_arena(arena, &args[0].kind, "path");
@@ -1469,7 +1470,7 @@ impl Checker {
             }
             "write_lines" => {
                 if args.len() != 2 {
-                    self.error(span, "incorrect standard API arity", "check.arity");
+                    self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
                     return;
                 }
                 self.check_named_arg_arena(arena, &args[0].kind, "path");
@@ -1501,7 +1502,7 @@ impl Checker {
             }
             "set" => {
                 if args.len() != 3 {
-                    self.error(span, "incorrect standard API arity", "check.arity");
+                    self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
                     return;
                 }
                 self.check_named_arg_arena(arena, &args[0].kind, "value");
@@ -1542,7 +1543,7 @@ impl Checker {
             self.error(
                 call_arg_span_arena(arena, arg),
                 "unexpected named parameter",
-                "check.named-arg",
+                DiagnosticCode::CheckNamedArg,
             );
         }
     }

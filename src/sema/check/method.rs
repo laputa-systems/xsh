@@ -5,6 +5,7 @@ use super::{
     common_module_overload_expected_arena, module_overload_matches_arena, module_sig_accepts_arg_name_at_arena,
     module_sig_accepts_arity, module_sig_accepts_names_arena,
 };
+use crate::diagnostic::DiagnosticCode;
 use crate::sema::check::{ApiArgCheck, MethodSig, ModuleFnSig};
 use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaProgram};
 
@@ -32,7 +33,7 @@ impl Checker {
             })
         {
             self.membership_migration_spans.insert(span);
-            self.error(span, "standard membership method was removed; use `in` or `not in`", "check.removed-membership");
+            self.error(span, "standard membership method was removed; use `in` or `not in`", DiagnosticCode::CheckRemovedMembership);
             let key_ty = match &base_ty { Type::Map(key, _) => Some(key.as_ref()), _ => None };
             for index in 0..args.len() {
                 self.check_api_arg_arena(arena, source, args, index, if index == 0 { key_ty } else { None });
@@ -46,7 +47,7 @@ impl Checker {
                 self.error(
                     span,
                     &format!("named arguments to `{name}` need a checked receiver; validate the value with `.require(T)` first"),
-                    "check.dynamic-boundary",
+                    DiagnosticCode::CheckDynamicBoundary,
                 );
             }
             self.check_opaque_callable_effects(&format!("Any.{name}"), span);
@@ -64,7 +65,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -83,7 +84,7 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     &format!("env.PATH.{name} requires Path; write a path literal such as p\"/opt/bin\""),
-                    "check.type-mismatch",
+                    DiagnosticCode::CheckTypeMismatch,
                 );
             }
             return self.check_registered_method_arena(
@@ -94,7 +95,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -108,7 +109,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -122,7 +123,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -136,7 +137,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -144,7 +145,7 @@ impl Checker {
         if matches!(base_ty, Type::Stream(_)) {
             return self.check_registered_method_arena(
                 arena, source, MethodReceiver::Stream, name, args, span, &base_ty,
-                "check.unknown-method", expected, self.schema_expectation_for_expr(arena, base),
+                DiagnosticCode::CheckUnknownMethod, expected, self.schema_expectation_for_expr(arena, base),
             );
         }
         if matches!(base_ty, Type::List(_)) {
@@ -156,7 +157,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -170,7 +171,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -183,7 +184,7 @@ impl Checker {
                 ));
             let result = self.check_registered_method_arena(
                 arena, source, MethodReceiver::Record, name, args, span,
-                &if matches!(base_ty, Type::Module(_)) { Type::ErasedRecord } else { base_ty.clone() }, "check.unknown-method",
+                &if matches!(base_ty, Type::Module(_)) { Type::ErasedRecord } else { base_ty.clone() }, DiagnosticCode::CheckUnknownMethod,
                 if projection.is_some() { None } else { expected }, self.schema_expectation_for_expr(arena, base),
             );
             if let Type::Result(_, error) = &result && let Some(projection) = projection {
@@ -203,7 +204,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -217,7 +218,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -231,7 +232,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -245,7 +246,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -259,7 +260,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -273,7 +274,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -287,7 +288,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -301,7 +302,7 @@ impl Checker {
                 args,
                 span,
                 &base_ty,
-                "check.unknown-method",
+                DiagnosticCode::CheckUnknownMethod,
                 expected,
                 self.schema_expectation_for_expr(arena, base),
             );
@@ -323,11 +324,11 @@ impl Checker {
         }
         let diagnostic = if let Type::Optional(inner) = &base_ty {
             Diagnostic::error(format!("method `{name}` needs a present value, found {base_ty}"))
-                .with_code("check.optional-method")
+                .with_code(DiagnosticCode::CheckOptionalMethod)
                 .with_label(Label::primary(span, format!("use `?.{name}(...)` or test for null before calling a {inner} method")))
         } else {
             Diagnostic::error(format!("unknown method `{name}` on {base_ty}"))
-                .with_code("check.unknown-method")
+                .with_code(DiagnosticCode::CheckUnknownMethod)
                 .with_label(Label::primary(span, format!("{base_ty} has no methods")))
         };
         self.diagnostics.push(diagnostic);
@@ -343,14 +344,14 @@ impl Checker {
         span: Span,
     ) -> Type {
         if name != "call" {
-            self.error(span, "unknown method", "check.unknown-method");
+            self.error(span, "unknown method", DiagnosticCode::CheckUnknownMethod);
             return Type::Unknown;
         }
         if self.in_pure {
             self.error(
                 span,
                 "effectful method is not allowed in pure functions",
-                "check.pure-effect",
+                DiagnosticCode::CheckPureEffect,
             );
         }
         self.check_opaque_callable_effects("Proc.call", span);
@@ -369,7 +370,7 @@ impl Checker {
         span: Span,
     ) -> Type {
         if name != "call" {
-            self.error(span, "unknown method", "check.unknown-method");
+            self.error(span, "unknown method", DiagnosticCode::CheckUnknownMethod);
             return Type::Unknown;
         }
         self.check_opaque_callable_effects("Pure.call", span);
@@ -388,7 +389,7 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
         receiver_ty: &Type,
-        unknown_code: &str,
+        unknown_code: DiagnosticCode,
         expected: Option<&Type>,
         receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
     ) -> Type {
@@ -402,7 +403,7 @@ impl Checker {
         ) {
             Ok(instance) => instance,
             Err(conflict) => {
-                self.error(span, &format!("method `{name}` requires {}; found {}", conflict.expected, conflict.actual), "check.type-mismatch");
+                self.error(span, &format!("method `{name}` requires {}; found {}", conflict.expected, conflict.actual), DiagnosticCode::CheckTypeMismatch);
                 for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
                 return Type::Invalid;
             }
@@ -421,7 +422,7 @@ impl Checker {
             self.error(
                 span,
                 "effectful method is not allowed in pure functions",
-                "check.pure-effect",
+                DiagnosticCode::CheckPureEffect,
             );
         }
         if let Some(required) = method.sig.effect.clone() {
@@ -433,7 +434,7 @@ impl Checker {
         self.check_method_args_arena(arena, source, args, &concrete, false, span, &schemas);
         instance.resolve(&self.type_constraints);
         if let Some(key) = instance.invalid_map_key() {
-            self.error(span, &format!("unsupported Map key type {key}"), "check.map-key");
+            self.error(span, &format!("unsupported Map key type {key}"), DiagnosticCode::CheckMapKey);
             return Type::Invalid;
         }
         if receiver != MethodReceiver::PathConstructor {
@@ -461,7 +462,7 @@ impl Checker {
         receiver_ty: &Type,
         name: &str,
         span: Span,
-        code: &str,
+        code: DiagnosticCode,
     ) {
         let mut diagnostic = Diagnostic::error(format!("unknown method `{name}` on {receiver_ty}"))
             .with_code(code)
@@ -529,7 +530,7 @@ impl Checker {
                 self.error(
                     span,
                     "ambiguous standard API overload",
-                    "check.ambiguous-overload",
+                    DiagnosticCode::CheckAmbiguousOverload,
                 );
             }
             return (method, true);
@@ -540,7 +541,7 @@ impl Checker {
             .filter(|method| module_sig_accepts_arity(args.len(), &method.sig))
             .collect::<Vec<_>>();
         if arity_matches.is_empty() {
-            self.error(span, "incorrect standard API arity", "check.arity");
+            self.error(span, "incorrect standard API arity", DiagnosticCode::CheckArity);
             return (&overloads[0], true);
         }
         if arity_matches
@@ -555,10 +556,10 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "unexpected named parameter",
-                    "check.named-arg",
+                    DiagnosticCode::CheckNamedArg,
                 );
             } else {
-                self.error(span, "unexpected named parameter", "check.named-arg");
+                self.error(span, "unexpected named parameter", DiagnosticCode::CheckNamedArg);
             }
             return (arity_matches[0], true);
         }
@@ -579,7 +580,7 @@ impl Checker {
         self.error(
             span,
             "no standard API overload matches argument types",
-            "check.type-mismatch",
+            DiagnosticCode::CheckTypeMismatch,
         );
         (arity_matches[0], true)
     }
@@ -602,7 +603,7 @@ impl Checker {
             }
             ApiArgCheck::PathLikeSingle => {
                 if args.len() != 1 {
-                    self.error(span, "incorrect function arity", "check.arity");
+                    self.error(span, "incorrect function arity", DiagnosticCode::CheckArity);
                 }
                 if let Some(arg) = args.first() {
                     self.check_path_like_arg_arena(arena, source, Some(&arg.kind), span);
@@ -627,7 +628,7 @@ impl Checker {
         span: Span,
     ) {
         if args.is_empty() {
-            self.error(span, "context requires a kind", "check.arity");
+            self.error(span, "context requires a kind", DiagnosticCode::CheckArity);
         }
         if let Some(arg) = args.first() {
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Str));
@@ -645,7 +646,7 @@ impl Checker {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "context values must be displayable",
-                    "check.display-conversion",
+                    DiagnosticCode::CheckDisplayConversion,
                 );
             }
         }
@@ -656,7 +657,7 @@ impl Checker {
 /// a plausible typo; ties keep the alphabetically first spelling. Names
 /// shorter than three characters are near almost everything, so they get no
 /// suggestion.
-pub(super) fn nearest_name<S: AsRef<str>>(unknown: &str, candidates: impl Iterator<Item = S>) -> Option<String> {
+pub(crate) fn nearest_name<S: AsRef<str>>(unknown: &str, candidates: impl Iterator<Item = S>) -> Option<String> {
     if unknown.chars().count() < 3 {
         return None;
     }

@@ -1,5 +1,6 @@
 use super::Diagnostic;
 use super::{Binding, Checker, FxHashSet, Name, Span, Type, TypeDefBody, result_types};
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaPatternKind, ArenaProgram, PatternId};
 
 fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
@@ -27,12 +28,12 @@ impl Checker {
         match &node.kind {
             ArenaPatternKind::Binding(name) if self.tag_variants.get(name).is_some_and(|info| info.field_count == 0) => {}
             ArenaPatternKind::Binding(_) | ArenaPatternKind::Type { binding: Some(_), .. } => {
-                self.error(span, "pattern tests cannot bind names; use `_` or a non-binding pattern", "check.pattern-test-binding");
+                self.error(span, "pattern tests cannot bind names; use `_` or a non-binding pattern", DiagnosticCode::CheckPatternTestBinding);
             }
-            ArenaPatternKind::Alias { .. } => self.error(span, "pattern tests cannot contain aliases", "check.pattern-test-binding"),
+            ArenaPatternKind::Alias { .. } => self.error(span, "pattern tests cannot contain aliases", DiagnosticCode::CheckPatternTestBinding),
             ArenaPatternKind::Group(child) => self.reject_pattern_test_bindings(arena, *child, true),
             ArenaPatternKind::Alternation(children) => {
-                if !grouped { self.error(span, "group alternatives in a pattern test", "check.pattern-test-alternation"); }
+                if !grouped { self.error(span, "group alternatives in a pattern test", DiagnosticCode::CheckPatternTestAlternation); }
                 for child in arena.arena.pattern_ids(*children) { self.reject_pattern_test_bindings(arena, child, false); }
             }
             ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.reject_pattern_test_bindings(arena, *arg, false),
@@ -72,7 +73,7 @@ impl Checker {
 
     fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) {
         if self.current_scope().contains_key(&name) {
-            self.error(span, "duplicate name in pattern", "check.pattern-binding");
+            self.error(span, "duplicate name in pattern", DiagnosticCode::CheckPatternBinding);
             return;
         }
         self.define(name, Binding::new(ty, false), span);
@@ -86,7 +87,7 @@ impl Checker {
             Type::ErrorVariant { family, variant } => self.error_families.get(family).and_then(|family| family.variants.get(variant)).is_none_or(|variant| variant.facets.contains(&facet)),
             _ => true,
         };
-        if !applicable { self.error(span, "error facet pattern does not match value type", "check.pattern-type"); }
+        if !applicable { self.error(span, "error facet pattern does not match value type", DiagnosticCode::CheckPatternType); }
     }
 
     /// Facets are the built-in vocabulary plus the ones visible `error`
@@ -95,7 +96,7 @@ impl Checker {
         let unknown = facet.as_str();
         let unknown: &str = unknown.as_ref();
         let mut diagnostic = Diagnostic::error(format!("unknown error facet `{unknown}`"))
-            .with_code("check.pattern-constructor")
+            .with_code(DiagnosticCode::CheckPatternConstructor)
             .with_label(super::Label::primary(span, "unknown error facet"));
         if let Some(nearby) = super::method::nearest_name(unknown, self.error_facets.iter().map(|known| known.as_str().to_string())) {
             diagnostic = diagnostic.with_note(format!("did you mean `{nearby}`?"));
@@ -110,7 +111,7 @@ impl Checker {
             Type::ProcessError => Some(Name::PROCESS_ERROR),
             Type::Error => None,
             _ => {
-                self.error(span, "type patterns require a dynamic value", "check.pattern-type");
+                self.error(span, "type patterns require a dynamic value", DiagnosticCode::CheckPatternType);
                 return;
             }
         };
@@ -124,7 +125,7 @@ impl Checker {
             _ => false,
         };
         if !applicable {
-            self.error(span, "error type pattern does not match value type", "check.pattern-type");
+            self.error(span, "error type pattern does not match value type", DiagnosticCode::CheckPatternType);
         }
     }
 
@@ -147,15 +148,15 @@ impl Checker {
             ArenaPatternKind::TestName { name, ty } => {
                 if name == "Ok" || name == "Err" {
                     if self.type_defs.contains_key(name) || self.error_facets.contains(name) || self.tag_variants.contains_key(name) {
-                        self.error(span, "ambiguous pattern test name; qualify the type or constructor", "check.pattern-test-ambiguous");
+                        self.error(span, "ambiguous pattern test name; qualify the type or constructor", DiagnosticCode::CheckPatternTestAmbiguous);
                     }
                     if let Some((ok, err)) = result_types(value_ty) {
                         let target = if name == "Ok" { ok } else { err };
                         if !matches!(target, Type::Unit | Type::Unknown) {
-                            self.error(span, "constructor pattern needs an argument for this Result type", "check.pattern-arity");
+                            self.error(span, "constructor pattern needs an argument for this Result type", DiagnosticCode::CheckPatternArity);
                         }
                     } else if !matches!(value_ty, Type::Any | Type::Unknown) {
-                        self.error(span, "constructor patterns require a Result value", "check.pattern-type");
+                        self.error(span, "constructor patterns require a Result value", DiagnosticCode::CheckPatternType);
                     }
                     return;
                 }
@@ -167,7 +168,7 @@ impl Checker {
                         if self.tag_variants.contains_key(name) || self.error_facets.contains(name)
                             || self.type_namespaces.get(&family).is_some_and(|types| types.contains_key(&variant))
                         {
-                            self.error(span, "ambiguous pattern test name; qualify the type or constructor", "check.pattern-test-ambiguous");
+                            self.error(span, "ambiguous pattern test name; qualify the type or constructor", DiagnosticCode::CheckPatternTestAmbiguous);
                         }
                         self.pattern_test_types.insert(pattern_id, Type::ErrorVariant { family, variant });
                         let applicable = match value_ty {
@@ -177,7 +178,7 @@ impl Checker {
                             _ => false,
                         };
                         if !applicable {
-                            self.error(span, "error variant pattern does not match value type", "check.pattern-type");
+                            self.error(span, "error variant pattern does not match value type", DiagnosticCode::CheckPatternType);
                         }
                         return;
                     }
@@ -189,13 +190,13 @@ impl Checker {
                 let is_facet = self.error_facets.contains(name);
                 let constructor = self.tag_variants.get(name).cloned();
                 if usize::from(is_type) + usize::from(is_facet) + usize::from(constructor.is_some()) > 1 {
-                    self.error(span, "ambiguous pattern test name; use a qualified type, facet, or constructor", "check.pattern-test-ambiguous");
+                    self.error(span, "ambiguous pattern test name; use a qualified type, facet, or constructor", DiagnosticCode::CheckPatternTestAmbiguous);
                 } else if let Some(info) = constructor {
                     if info.field_count != 0 {
-                        self.error(span, "constructor pattern needs arguments; use `_` for payloads", "check.pattern-arity");
+                        self.error(span, "constructor pattern needs arguments; use `_` for payloads", DiagnosticCode::CheckPatternArity);
                     }
                     if !matches!(value_ty, Type::Any | Type::Unknown) && !matches!(value_ty, Type::Tag(t) if t == &info.type_name) {
-                        self.error(span, "constructor does not match subject type", "check.pattern-type");
+                        self.error(span, "constructor does not match subject type", DiagnosticCode::CheckPatternType);
                     }
                 } else {
                     let tested = self.type_from_arena(arena, *ty);
@@ -205,7 +206,7 @@ impl Checker {
                         self.check_type_pattern_applicability(&tested, value_ty, span);
                     }
                     if matches!(tested, Type::ErrorFacet(_)) && !matches!(value_ty, Type::Any | Type::Unknown | Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_)) {
-                        self.error(span, "error facet patterns require an error value", "check.pattern-type");
+                        self.error(span, "error facet patterns require an error value", DiagnosticCode::CheckPatternType);
                     }
                 }
             }
@@ -223,7 +224,7 @@ impl Checker {
                                 "tag pattern `{name}` is for type `{}`, but value has type `{value_ty}`",
                                 info.type_name
                             ),
-                            "check.pattern-type",
+                            DiagnosticCode::CheckPatternType,
                         );
                     }
                     return;
@@ -237,7 +238,7 @@ impl Checker {
                         &format!(
                             "`{name}` would bind a new name that matches anything; write `is {name}` for an error facet, `Family.{name}` for a variant, or a lowercase name to bind"
                         ),
-                        "check.pattern-capitalized-binding",
+                        DiagnosticCode::CheckPatternCapitalizedBinding,
                     );
                     return;
                 }
@@ -262,7 +263,7 @@ impl Checker {
                     Type::Any => Type::Any,
                     Type::Unknown | Type::Invalid => Type::Unknown,
                     _ => {
-                        self.error(span, "list patterns require a List value", "check.pattern-type");
+                        self.error(span, "list patterns require a List value", DiagnosticCode::CheckPatternType);
                         Type::Unknown
                     }
                 };
@@ -271,7 +272,7 @@ impl Checker {
                 }
                 if let Some(rest) = rest {
                     if !matches!(arena.arena.pattern(*rest).kind, ArenaPatternKind::Wildcard | ArenaPatternKind::Binding(_)) {
-                        self.error(arena.arena.span(arena.arena.pattern(*rest).span), "list rest must be a wildcard or name", "check.pattern-rest");
+                        self.error(arena.arena.span(arena.arena.pattern(*rest).span), "list rest must be a wildcard or name", DiagnosticCode::CheckPatternRest);
                     }
                     self.check_pattern_arena(arena, source, *rest, &Type::List(Box::new(element_ty)));
                 }
@@ -284,7 +285,7 @@ impl Checker {
                         self.error(
                             span,
                             "record matching on error fields was removed; match exact variants or facets instead",
-                            "check.error-removed",
+                            DiagnosticCode::CheckErrorRemoved,
                         );
                         None
                     }
@@ -294,7 +295,7 @@ impl Checker {
                         self.error(
                             span,
                             "record patterns require a record-like value",
-                            "check.pattern-type",
+                            DiagnosticCode::CheckPatternType,
                         );
                         None
                     }
@@ -303,7 +304,7 @@ impl Checker {
                 for field in arena.arena.pattern_fields(*fields) {
                     let field_span = arena.arena.span(field.span);
                     if !names.insert(field.name) {
-                        self.error(field_span, "duplicate pattern field", "check.pattern-field");
+                        self.error(field_span, "duplicate pattern field", DiagnosticCode::CheckPatternField);
                     }
                     let field_ty = record_fields
                         .and_then(|fields| fields.get(&field.name))
@@ -312,7 +313,7 @@ impl Checker {
                     if let Some(fields) = record_fields
                         && !fields.contains_key(&field.name)
                     {
-                        self.error(field_span, "unknown pattern field", "check.pattern-field");
+                        self.error(field_span, "unknown pattern field", DiagnosticCode::CheckPatternField);
                     }
                     self.check_pattern_arena(arena, source, field.pattern, &field_ty);
                 }
@@ -328,7 +329,7 @@ impl Checker {
                     self.pop_scope();
                     if let Some(common) = &common {
                         if common.len() != captures.len() || common.iter().any(|(name, binding)| !captures.get(name).is_some_and(|other| binding.ty == other.ty)) {
-                            self.error(arena.arena.span(arena.arena.pattern(sub_id).span), "pattern alternatives must bind the same names with identical resolved types", "check.pattern-alternative-binding");
+                            self.error(arena.arena.span(arena.arena.pattern(sub_id).span), "pattern alternatives must bind the same names with identical resolved types", DiagnosticCode::CheckPatternAlternativeBinding);
                         }
                     } else { common = Some(captures); }
                 }
@@ -350,7 +351,7 @@ impl Checker {
                                 "tag pattern `{name}` is for type `{}`, but value has type `{value_ty}`",
                                 info.type_name
                             ),
-                            "check.pattern-type",
+                            DiagnosticCode::CheckPatternType,
                         );
                     }
                     if info.field_count == 0 {
@@ -358,7 +359,7 @@ impl Checker {
                             self.error(
                                 span,
                                 &format!("tag variant `{name}` has no fields"),
-                                "check.pattern-arity",
+                                DiagnosticCode::CheckPatternArity,
                             );
                         }
                     } else if let Some(arg) = arg {
@@ -389,7 +390,7 @@ impl Checker {
                                 "tag variant `{name}` has {} field(s) — provide a binding",
                                 info.field_count
                             ),
-                            "check.pattern-arity",
+                            DiagnosticCode::CheckPatternArity,
                         );
                     }
                     return;
@@ -399,7 +400,7 @@ impl Checker {
                         self.error(
                             span,
                             "constructor patterns require a Result value",
-                            "check.pattern-type",
+                            DiagnosticCode::CheckPatternType,
                         );
                     }
                     return;
@@ -411,7 +412,7 @@ impl Checker {
                         self.error(
                             span,
                             "unknown constructor pattern",
-                            "check.pattern-constructor",
+                            DiagnosticCode::CheckPatternConstructor,
                         );
                         Type::Unknown
                     }
@@ -422,7 +423,7 @@ impl Checker {
                     self.error(
                         span,
                         "constructor pattern needs an argument for this Result type",
-                        "check.pattern-arity",
+                        DiagnosticCode::CheckPatternArity,
                     );
                 }
             }
@@ -434,10 +435,10 @@ impl Checker {
                 let qualified = Name::intern(format!("{family}.{variant}"));
                 if fields.len == 0 && let Some(info) = self.tag_variants.get(&qualified).cloned() {
                     if info.field_count != 0 {
-                        self.error(span, "constructor pattern needs arguments", "check.pattern-arity");
+                        self.error(span, "constructor pattern needs arguments", DiagnosticCode::CheckPatternArity);
                     }
                     if !matches!(value_ty, Type::Any | Type::Unknown) && !matches!(value_ty, Type::Tag(name) if *name == info.type_name) {
-                        self.error(span, "constructor does not match subject type", "check.pattern-type");
+                        self.error(span, "constructor does not match subject type", DiagnosticCode::CheckPatternType);
                     }
                     return;
                 }
@@ -450,7 +451,7 @@ impl Checker {
                     self.error(
                         span,
                         "unknown error variant pattern",
-                        "check.pattern-constructor",
+                        DiagnosticCode::CheckPatternConstructor,
                     );
                     return;
                 };
@@ -467,20 +468,20 @@ impl Checker {
                     self.error(
                         span,
                         "error variant pattern does not match value type",
-                        "check.pattern-type",
+                        DiagnosticCode::CheckPatternType,
                     );
                 }
                 let mut names = FxHashSet::default();
                 for field in arena.arena.pattern_fields(*fields) {
                     let field_span = arena.arena.span(field.span);
                     if !names.insert(field.name) {
-                        self.error(field_span, "duplicate pattern field", "check.pattern-field");
+                        self.error(field_span, "duplicate pattern field", DiagnosticCode::CheckPatternField);
                     }
                     let Some(field_ty) = variant_info.fields.get(&field.name).cloned() else {
                         self.error(
                             field_span,
                             "unknown error payload field",
-                            "check.pattern-field",
+                            DiagnosticCode::CheckPatternField,
                         );
                         self.check_pattern_arena(arena, source, field.pattern, &Type::Unknown);
                         continue;
@@ -506,7 +507,7 @@ impl Checker {
                     self.error(
                         span,
                         "error facet patterns require an error value",
-                        "check.pattern-type",
+                        DiagnosticCode::CheckPatternType,
                     );
                 }
             }
@@ -521,13 +522,13 @@ impl Checker {
         for (pattern, arm_span, guarded) in arms {
             if super::stmt::patterns_are_exhaustive_arena(arena, value_ty, patterns.iter().copied(), &self.type_defs, &self.tag_variants) {
                 self.diagnostics.push(Diagnostic::new(crate::diagnostic::Severity::Warning, "unreachable match arm")
-                    .with_code("check.unreachable-match-arm")
+                    .with_code(DiagnosticCode::CheckUnreachableMatchArm)
                     .with_label(crate::diagnostic::Label::secondary(arm_span, "earlier unguarded patterns cover every subject")));
             }
             if !guarded { patterns.push(pattern); }
         }
         if matches!(value_ty, Type::List(_)) && !super::stmt::patterns_are_exhaustive_arena(arena, value_ty, patterns.into_iter(), &self.type_defs, &self.tag_variants) {
-            self.error(span, "list match requires a catchall or complete length partition", "check.non-exhaustive-match");
+            self.error(span, "list match requires a catchall or complete length partition", DiagnosticCode::CheckNonExhaustiveMatch);
         }
     }
 
@@ -550,7 +551,7 @@ impl Checker {
                 crate::diagnostic::Severity::Warning,
                 format!("non-exhaustive match: missing variant(s) `{missing_list}`"),
             )
-            .with_code("check.non-exhaustive-match")
+            .with_code(DiagnosticCode::CheckNonExhaustiveMatch)
             .with_label(crate::diagnostic::Label::secondary(
                 span,
                 "not all variants of this tag union are handled",
@@ -610,7 +611,7 @@ impl Checker {
             Some(missing) => format!("value-producing match must be exhaustive: missing variant(s) `{missing}`"),
             None => "value-producing match must be exhaustive".to_string(),
         };
-        self.error(span, &message, "check.match-value-exhaustive");
+        self.error(span, &message, DiagnosticCode::CheckMatchValueExhaustive);
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::diagnostic::DiagnosticCode;
 use super::{Keyword, Parser, TokenKindMatch, TokenTag};
 
 impl<'a> Parser<'a> {
@@ -8,7 +9,7 @@ impl<'a> Parser<'a> {
         let (pattern, span) = self.parse_pattern_test_rhs_arena_only(arena)?;
         if matches!(arena.ast_arena().pattern(pattern).kind, crate::syntax::arena::ArenaPatternKind::Alternation(_)) {
             self.diagnostics.push(crate::diagnostic::Diagnostic::error("group alternatives in a pattern test")
-                .with_code("parse.pattern-test-alternation")
+                .with_code(DiagnosticCode::ParsePatternTestAlternation)
                 .with_label(crate::diagnostic::Label::primary(span, "write `(P | Q)`")));
         }
         Some((self.normalize_pattern_test_names(arena, pattern), span))
@@ -102,7 +103,7 @@ impl<'a> Parser<'a> {
             let name = self.expect_ident("expected a name after pattern alias `as`")?;
             if name == "_" {
                 self.diagnostics.push(crate::diagnostic::Diagnostic::error("pattern alias requires a non-discard name")
-                    .with_code("parse.pattern-alias-name")
+                    .with_code(DiagnosticCode::ParsePatternAliasName)
                     .with_label(crate::diagnostic::Label::primary(name_span, "choose a binding name")));
                 return None;
             }
@@ -314,7 +315,7 @@ impl<'a> Parser<'a> {
                 let mut rest = None;
                 while !self.at(TokenKindMatch::RBracket) && !self.at(TokenKindMatch::Eof) {
                     if rest.is_some() {
-                        self.diagnostic_here("list rest must occur once, at the end", "parse.list-pattern-rest");
+                        self.diagnostic_here("list rest must occur once, at the end", DiagnosticCode::ParseListPatternRest);
                         return None;
                     }
                     if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot) {
@@ -345,7 +346,7 @@ impl<'a> Parser<'a> {
                 Some((arena.push_pattern_record(&fields, rest, span), span, None))
             }
             _ => {
-                self.diagnostic_here("expected pattern", "parse.expected-pattern");
+                self.diagnostic_here("expected pattern", DiagnosticCode::ParseExpectedPattern);
                 None
             }
         }

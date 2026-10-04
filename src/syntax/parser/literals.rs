@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{Diagnostic, EscapeIssueKind, InterpolationChunk, Label, Lexer, Parser, Span, literal};
-use crate::diagnostic::FixHint;
+use crate::diagnostic::{DiagnosticCode, FixHint};
 use crate::syntax::literal::FmtIssueKind;
 use crate::syntax::node::{FormatSpec, FormatSpecKind};
 use crate::syntax::token::TokenTag;
@@ -22,7 +22,7 @@ impl<'a> Parser<'a> {
         if has_interpolation {
             self.diagnostics.push(
                 Diagnostic::error("p-strings do not interpolate")
-                    .with_code("parse.path-string-interpolation")
+                    .with_code(DiagnosticCode::ParsePathStringInterpolation)
                     .with_label(Label::primary(
                         span,
                         "use `fp\"...\"` for an interpolated path",
@@ -133,7 +133,7 @@ impl<'a> Parser<'a> {
             // A quoted command word interpolates `${expr}` and `$name`.
             literal::interpolation_chunks(raw, quoted.content_start).unwrap_or_else(|| {
                 diagnostics.push(Diagnostic::error("unterminated string interpolation")
-                    .with_code("parse.unterminated-interpolation")
+                    .with_code(DiagnosticCode::ParseUnterminatedInterpolation)
                     .with_label(Label::primary(span, "interpolation starts in this string")));
                 vec![InterpolationChunk::Text { source: raw, offset: quoted.content_start }]
             })
@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
         let (chunks, issues) = literal::block_string_chunks(self.source, quoted, chunks);
         for issue in issues {
             diagnostics.push(Diagnostic::error("block string line does not start with the closing delimiter's exact indentation")
-                .with_code("parse.block-string-margin")
+                .with_code(DiagnosticCode::ParseBlockStringMargin)
                 .with_label(Label::primary(Span::new(self.source_id, issue.start, issue.end), "required space/tab prefix is missing")));
         }
         (chunks, diagnostics)
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
         match issue.kind {
             FmtIssueKind::LoneCloseBrace => {
                 let diagnostic = Diagnostic::error("unmatched `}` in f-string")
-                    .with_code("parse.fmt-lone-brace")
+                    .with_code(DiagnosticCode::ParseFmtLoneBrace)
                     .with_label(Label::primary(span, "a literal brace is written `}}`"))
                     .with_fix_hint(FixHint::replacement(span, "write `}}`", "}}"));
                 // `{{` is always an escape, so `f"{{a: 1}.a}"` reaches here.
@@ -163,22 +163,22 @@ impl<'a> Parser<'a> {
                 }
             }
             FmtIssueKind::Unclosed => Diagnostic::error("unclosed `{` in f-string")
-                .with_code("parse.unterminated-interpolation")
+                .with_code(DiagnosticCode::ParseUnterminatedInterpolation)
                 .with_label(Label::primary(span, "this `{` has no matching `}`"))
                 .with_note("a literal brace is written `{{`"),
             FmtIssueKind::Comment => Diagnostic::error("comments are not allowed inside an f-string interpolation")
-                .with_code("parse.fmt-interpolation-comment")
+                .with_code(DiagnosticCode::ParseFmtInterpolationComment)
                 .with_label(Label::primary(span, "comment inside `{...}`")),
             FmtIssueKind::LineBreak => Diagnostic::error("line break inside an interpolation of a single-line f-string")
-                .with_code("parse.fmt-interpolation-line-break")
+                .with_code(DiagnosticCode::ParseFmtInterpolationLineBreak)
                 .with_label(Label::primary(span, "the interpolation continues on the next line"))
                 .with_note("bind the value first, or use a block `f\"\"\"...\"\"\"` string"),
             FmtIssueKind::Empty => Diagnostic::error("empty interpolation in f-string")
-                .with_code("parse.fmt-empty-interpolation")
+                .with_code(DiagnosticCode::ParseFmtEmptyInterpolation)
                 .with_label(Label::primary(span, "expected an expression inside `{}`"))
                 .with_note("literal braces are written `{{}}`"),
             FmtIssueKind::DollarBrace => Diagnostic::error("f-strings interpolate with `{expr}`, not `${expr}`")
-                .with_code("parse.fmt-dollar-interpolation")
+                .with_code(DiagnosticCode::ParseFmtDollarInterpolation)
                 .with_label(Label::primary(span, "`${` is command-word interpolation"))
                 .with_fix_hint(FixHint::replacement(span, "write `{`", "{"))
                 .with_note("a literal `$` before a brace is written `${{`"),
@@ -222,7 +222,7 @@ pub(in crate::syntax::parser) fn decode_interpolation_text_for(
         };
         diagnostics.push(
             Diagnostic::error(message)
-                .with_code("parse.invalid-string-escape")
+                .with_code(DiagnosticCode::ParseInvalidStringEscape)
                 .with_label(Label::primary(
                     Span::new(source_id, issue.start, issue.end.max(issue.start + 1)),
                     label,
@@ -234,7 +234,7 @@ pub(in crate::syntax::parser) fn decode_interpolation_text_for(
         Err(err) => {
             diagnostics.push(
                 Diagnostic::error("string literal is not valid UTF-8")
-                    .with_code("parse.invalid-string")
+                    .with_code(DiagnosticCode::ParseInvalidString)
                     .with_label(Label::primary(span, "invalid string literal")),
             );
             String::from_utf8_lossy(err.as_bytes()).into_owned()
@@ -261,7 +261,7 @@ pub(in crate::syntax::parser) fn decode_bytes_literal_for(
         };
         diagnostics.push(
             Diagnostic::error(message)
-                .with_code("parse.invalid-string-escape")
+                .with_code(DiagnosticCode::ParseInvalidStringEscape)
                 .with_label(Label::primary(
                     Span::new(source_id, issue.start, issue.end.max(issue.start + 1)),
                     label,
@@ -324,7 +324,7 @@ pub(in crate::syntax::parser) fn parse_fmt_interpolation_for(
                     if spec.is_none() {
                         parser.diagnostics.push(
                             Diagnostic::error("invalid f-string format spec")
-                                .with_code("parse.fmt-spec")
+                                .with_code(DiagnosticCode::ParseFmtSpec)
                                 .with_label(Label::primary(
                                     Span::new(source_id, expression_end, expression_end + 1 + text.len()),
                                     "expected `:>N`, `:<N`, or `:0N` with a width of at least 1",
@@ -336,7 +336,7 @@ pub(in crate::syntax::parser) fn parse_fmt_interpolation_for(
                     let span = parser.current_span();
                     parser.diagnostics.push(
                         Diagnostic::error("unexpected token in f-string interpolation")
-                            .with_code("parse.fmt-interpolation-trailing")
+                            .with_code(DiagnosticCode::ParseFmtInterpolationTrailing)
                             .with_label(Label::primary(span, "expected `}` or a `:` width spec")),
                     );
                 }

@@ -8,7 +8,7 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, LabelStyle};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{
     AnnotationFact, AnnotationFactKind, CheckOptions, Checker,
@@ -312,7 +312,7 @@ pub fn check_paths_with_summary_options(
                             let offset = error.offset.min(sources.get(sid).map_or(0, |s| s.len()));
                             let diagnostics = vec![
                                 Diagnostic::error("source file is not valid UTF-8")
-                                    .with_code("source.invalid-utf8")
+                                    .with_code(DiagnosticCode::SourceInvalidUtf8)
                                     .with_label(Label::primary(
                                         Span::new(sid, offset, offset),
                                         "invalid UTF-8 starts here",
@@ -514,8 +514,7 @@ impl CheckSummary {
         for diagnostic in diagnostics {
             let code = diagnostic
                 .code
-                .as_deref()
-                .unwrap_or("diagnostic.uncoded")
+                .map_or("diagnostic.uncoded", DiagnosticCode::name)
                 .to_string();
             let first = diagnostic_summary_location(diagnostic, sources);
             self.by_code
@@ -767,7 +766,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
         Some((span, loc)) => format!(
             "{:?}:{}:{}:{}:{}:{}",
             diagnostic.severity,
-            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.code.map_or("", DiagnosticCode::name),
             diagnostic.message,
             loc.file,
             span.start(),
@@ -776,7 +775,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
         None => format!(
             "{:?}:{}:{}",
             diagnostic.severity,
-            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.code.map_or("", DiagnosticCode::name),
             diagnostic.message
         ),
     }

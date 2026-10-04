@@ -1,5 +1,5 @@
 use super::{Checker, Diagnostic, Label, Name, QualifiedName, Span, Type};
-use crate::diagnostic::FixHint;
+use crate::diagnostic::{DiagnosticCode, FixHint};
 use crate::sema::constants::LiteralConstant;
 use crate::syntax::grouping;
 use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaTypeDefBody, ArenaTypeExprTag, ExprId};
@@ -22,7 +22,7 @@ impl Checker {
             self.check_call_arg_arena(arena, source, &arg.kind, None)).collect::<Vec<_>>();
         let mut diagnostic = Diagnostic::error(
             "`record.require` was removed; declare a named schema and use `.require(Schema)`; optional keys, callable contracts, and dynamic policies need explicit application validation",
-        ).with_code("check.removed-record-require")
+        ).with_code(DiagnosticCode::CheckRemovedRecordRequire)
             .with_label(Label::primary(span, "removed string contract API"));
         if let Some(replacement) = self.record_require_identity_migration(arena, source, args, &types, span) {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(

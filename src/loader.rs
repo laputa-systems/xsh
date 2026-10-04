@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label};
 use crate::modules::api_spec;
 use crate::sema::check::{
     CheckOptions, CheckOutput, Checker, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
@@ -350,7 +350,7 @@ pub fn entry_source_from_bytes(file: &str, bytes: Vec<u8>) -> EntrySource {
         source_id,
         diagnostics: vec![
             Diagnostic::error("source file is not valid UTF-8")
-                .with_code("source.invalid-utf8")
+                .with_code(DiagnosticCode::SourceInvalidUtf8)
                 .with_label(Label::primary(
                     Span::new(source_id, offset, offset),
                     "invalid UTF-8 starts here",
@@ -496,7 +496,7 @@ fn sort_diagnostics_by_source(diagnostics: &mut [Diagnostic]) {
                 .unwrap_or_else(|| SourceId::new(u32::MAX as usize)),
             span.map(|span| span.start()).unwrap_or(usize::MAX),
             span.map(|span| span.end()).unwrap_or(usize::MAX),
-            diagnostic.code.clone(),
+            diagnostic.code.map(DiagnosticCode::name),
             diagnostic.message.clone(),
         )
     });
@@ -769,7 +769,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
         let Some(module) = crate::stdlib::find(identity) else {
             self.diagnostics.push(
                 Diagnostic::error("embedded standard-library module is missing")
-                    .with_code("parse.stdlib-catalog")
+                    .with_code(DiagnosticCode::ParseStdlibCatalog)
                     .with_label(Label::primary(
                         span,
                         format!("the implementation catalog has no `{identity}` module"),
@@ -786,7 +786,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             Err(error) => {
                 self.diagnostics.push(
                     Diagnostic::error("embedded standard-library source is not valid UTF-8")
-                        .with_code("source.invalid-utf8")
+                        .with_code(DiagnosticCode::SourceInvalidUtf8)
                         .with_label(Label::primary(
                             Span::new(span.source_id, error.offset, error.offset),
                             module.label,
@@ -822,7 +822,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
                 Err(message) => {
                     self.diagnostics.push(
                         Diagnostic::error("failed to read module")
-                            .with_code("parse.module-read")
+                            .with_code(DiagnosticCode::ParseModuleRead)
                             .with_label(Label::primary(span, message)),
                     );
                     return None;
@@ -841,7 +841,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
         if self.stack.contains(&key) {
             self.diagnostics.push(
                 Diagnostic::error("cyclic module import")
-                    .with_code("parse.module-cycle")
+                    .with_code(DiagnosticCode::ParseModuleCycle)
                     .with_label(Label::primary(span, "module import cycle starts here")),
             );
             return None;
@@ -865,7 +865,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
                 );
                 self.diagnostics.push(
                     Diagnostic::error("source file is not valid UTF-8")
-                        .with_code("source.invalid-utf8")
+                        .with_code(DiagnosticCode::SourceInvalidUtf8)
                         .with_label(Label::primary(
                             Span::new(source_id, offset, offset),
                             "invalid UTF-8 starts here",
@@ -883,7 +883,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
         if !parsed.diagnostics.is_empty() {
             self.diagnostics.push(
                 Diagnostic::error("failed to load module")
-                    .with_code("parse.module-load")
+                    .with_code(DiagnosticCode::ParseModuleLoad)
                     .with_label(Label::primary(
                         span,
                         format!("`{}` has parse errors", module_path.display()),
@@ -1092,7 +1092,7 @@ proc main() [io] {
         assert_eq!(unit.source_id(), SourceId::new(0));
         assert_eq!(unit.parse_diagnostics().len(), 1);
         assert_eq!(
-            unit.parse_diagnostics()[0].code.as_deref(),
+            unit.parse_diagnostics()[0].code.map(DiagnosticCode::name),
             Some("source.invalid-utf8")
         );
         assert_eq!(unit.program().statement_ids().count(), 0);

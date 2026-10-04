@@ -1,4 +1,5 @@
 use super::{LintOptions, Linter};
+use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::check::{Checker, LiteralConstant};
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{ArenaExprOrRun, ArenaStmtKind};
@@ -35,7 +36,7 @@ fn prepared_path_literals_and_exported_data_preserve_comments_and_converge() {
             ..LintOptions::default()
         });
         let fixes = output.diagnostics.iter()
-            .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-const"))
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferConst))
             .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
         assert_eq!(fixes.len(), 1, "{source}");
         let fix = fixes[0];
@@ -53,7 +54,7 @@ fn prepared_path_literals_and_exported_data_preserve_comments_and_converge() {
             function_effect_facts_checked: true,
             ..LintOptions::default()
         });
-        assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-const")));
+        assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferConst)));
     }
 }
 
@@ -70,10 +71,10 @@ fn literal_migrations_retain_runtime_initialization_and_computed_arguments() {
         ..LintOptions::default()
     });
     assert!(!output.diagnostics.iter().any(|diagnostic|
-        diagnostic.code.as_deref() == Some("lint.prefer-const")
+        diagnostic.code == Some(DiagnosticCode::LintPreferConst)
     ));
     assert!(!output.diagnostics.iter().any(|diagnostic|
-        diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")
+        diagnostic.code == Some(DiagnosticCode::LintPreferListCompoundAssignment)
             && !diagnostic.fix_hints.is_empty()
     ));
 }
@@ -91,7 +92,7 @@ fn list_duration_literal_updates_preserve_the_checked_element_domain() {
         ..LintOptions::default()
     });
     let fixes = output.diagnostics.iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment"))
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferListCompoundAssignment))
         .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 1);
     let fix = fixes[0];
@@ -107,7 +108,7 @@ fn list_duration_literal_updates_preserve_the_checked_element_domain() {
         function_effect_facts_checked: true,
         ..LintOptions::default()
     });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferListCompoundAssignment)));
 }
 
 #[test]
@@ -123,7 +124,7 @@ fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
         ..LintOptions::default()
     });
     let fixes = output.diagnostics.iter()
-        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice"))
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferSlice))
         .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
     assert_eq!(fixes.len(), 6);
     let mut fixed = source.to_owned();
@@ -145,7 +146,7 @@ fn literal_origin_byte_suffixes_preserve_bounds_and_converge() {
         function_effect_facts_checked: true,
         ..LintOptions::default()
     });
-    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")));
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferSlice)));
 }
 
 #[test]
@@ -169,7 +170,7 @@ fn byte_suffix_migration_retains_unknown_mutable_and_distinct_receivers() {
             ..LintOptions::default()
         });
         let slices = output.diagnostics.iter().filter(|diagnostic|
-            diagnostic.code.as_deref() == Some("lint.prefer-slice")
+            diagnostic.code == Some(DiagnosticCode::LintPreferSlice)
         ).collect::<Vec<_>>();
         assert_eq!(slices.len(), 1, "{source}");
         assert!(slices[0].fix_hints.is_empty(), "{source}");
@@ -189,7 +190,7 @@ fn path_literal_promotion_prepares_each_changed_source_without_extra_lint_checks
         let checked = loaded.checked.expect("a clean parse is checked");
         assert_eq!(checked.diagnostics.len(), usize::from(round == 0), "{:?}", checked.diagnostics);
         if round == 0 {
-            assert_eq!(checked.diagnostics[0].code.as_deref(), Some("check.bare-print-ident"));
+            assert_eq!(checked.diagnostics[0].code, Some(DiagnosticCode::CheckBarePrintIdent));
         }
         let mut edits = checked.diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints)
             .map(|fix| (fix.span.unwrap(), fix.replacement.as_deref().unwrap().to_owned()))
@@ -205,11 +206,11 @@ fn path_literal_promotion_prepares_each_changed_source_without_extra_lint_checks
         assert_eq!(xsh::frontend::stdlib_preparation::parsed_modules(), round + 1,
             "literal rules do not prepare the already checked source again");
         let fixes = output.diagnostics.iter().filter(|diagnostic|
-            matches!(diagnostic.code.as_deref(), Some("lint.path-constructor" | "lint.prefer-const"))
+            matches!(diagnostic.code, Some(DiagnosticCode::LintPathConstructor | DiagnosticCode::LintPreferConst))
         ).collect::<Vec<_>>();
         if let Some(code) = code {
             assert_eq!(fixes.len(), 1);
-            assert_eq!(fixes[0].code.as_deref(), Some(code));
+            assert_eq!(fixes[0].code.map(DiagnosticCode::name), Some(code));
             let [fix] = fixes[0].fix_hints.as_slice() else { panic!("one source edit exposes the next rule"); };
             edits.push((fix.span.unwrap(), fix.replacement.as_deref().unwrap().to_owned()));
             edits.sort_by_key(|(span, _)| span.start());

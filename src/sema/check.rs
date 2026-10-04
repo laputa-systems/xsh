@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use crate::diagnostic::Severity;
+use crate::diagnostic::{DiagnosticCode, Severity};
 pub(crate) use crate::diagnostic::{Diagnostic, FixHint, Label};
 pub(crate) use crate::modules::{ApiArgCheck, MethodReceiver, MethodSig, ModuleFnSig, api_spec};
 use crate::runtime::signal::{normalize_hook_signal, signal_rejection_message};
@@ -47,6 +47,7 @@ mod infer_param;
 mod local_inference;
 #[path = "check/method.rs"]
 mod method;
+pub(crate) use method::nearest_name;
 #[path = "check/pattern.rs"]
 mod pattern;
 #[path = "check/proof.rs"]
@@ -468,7 +469,7 @@ impl Checker {
         program.arena.regex_literals.iter().filter_map(|literal| {
             crate::modules::regex::prepare_literal(literal).as_ref().err().map(|message| {
                 Diagnostic::error(format!("invalid regex literal: {message}"))
-                    .with_code("check.regex-literal")
+                    .with_code(DiagnosticCode::CheckRegexLiteral)
                     .with_label(Label::primary(literal.span, "invalid regular expression"))
             })
         }).collect()
@@ -798,7 +799,7 @@ impl Checker {
     pub(super) fn removed_compatibility_name(&mut self, span: Span, old: &str, canonical: &str, fix: bool) {
         let message = format!("`{old}` was removed; use `{canonical}`");
         let mut diagnostic = Diagnostic::error(&message)
-            .with_code("check.compatibility-vocabulary")
+            .with_code(DiagnosticCode::CheckCompatibilityVocabulary)
             .with_label(Label::primary(span, &message));
         if fix {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use the canonical spelling", canonical));
@@ -911,7 +912,7 @@ impl Checker {
             self.error(
                 program.arena.stmt(first_export).span,
                 "exported modules require a preceding ##! module doc comment",
-                "check.missing-module-doc",
+                DiagnosticCode::CheckMissingModuleDoc,
             );
         }
         for doc in docs
@@ -922,7 +923,7 @@ impl Checker {
             self.error(
                 *doc,
                 "modules may declare only one ##! module doc comment",
-                "check.duplicate-module-doc",
+                DiagnosticCode::CheckDuplicateModuleDoc,
             );
         }
         for doc in docs
@@ -933,7 +934,7 @@ impl Checker {
             self.error(
                 *doc,
                 "doc comments must immediately precede an export or appear as the module ##! doc",
-                "check.orphan-doc-comment",
+                DiagnosticCode::CheckOrphanDocComment,
             );
         }
         for export in exports {
@@ -945,7 +946,7 @@ impl Checker {
                 self.error(
                     program.arena.stmt(export).span,
                     "exported declarations require preceding ## doc comments",
-                    "check.missing-public-doc",
+                    DiagnosticCode::CheckMissingPublicDoc,
                 );
             }
         }
@@ -994,7 +995,7 @@ impl Checker {
                     &format!(
                         "callable `{callee_name}` has an unknown or unrestricted effect contract; use a named callable with checked effects or establish an explicit checked contract at its declaration",
                     ),
-                    "check.effect-violation",
+                    DiagnosticCode::CheckEffectViolation,
                 );
             }
             Some(callee_effs) => {
@@ -1009,7 +1010,7 @@ impl Checker {
                                 "effect `{}` required by `{callee_name}` is not in caller's declared effects",
                                 eff.as_str()
                             ),
-                            "check.effect-violation",
+                            DiagnosticCode::CheckEffectViolation,
                         );
                     }
                 }
@@ -1036,14 +1037,14 @@ impl Checker {
                 self.error(
                     span,
                     "name `args` shadows the built-in script-arguments binding",
-                    "check.standard-module-shadow",
+                    DiagnosticCode::CheckStandardModuleShadow,
                 );
             }
             return;
         }
         if name != "error" && api_spec().is_standard_module(name) {
             let message = format!("name `{name}` shadows the standard module `{name}`");
-            self.error(span, &message, "check.standard-module-shadow");
+            self.error(span, &message, DiagnosticCode::CheckStandardModuleShadow);
         }
     }
 
@@ -1051,7 +1052,7 @@ impl Checker {
         let message = format!("revealed type: {ty}");
         self.reveal_types.push(
             Diagnostic::new(Severity::Note, message)
-                .with_code("check.reveal-type")
+                .with_code(DiagnosticCode::CheckRevealType)
                 .with_label(Label::primary(span, "expression has this type")),
         );
     }
@@ -1072,7 +1073,7 @@ impl Checker {
         self.scopes.pop();
     }
 
-    pub(crate) fn error(&mut self, span: Span, message: &str, code: &str) {
+    pub(crate) fn error(&mut self, span: Span, message: &str, code: DiagnosticCode) {
         self.diagnostics.push(
             Diagnostic::error(message)
                 .with_code(code)
@@ -1080,7 +1081,7 @@ impl Checker {
         );
     }
 
-    pub(crate) fn warning(&mut self, span: Span, message: &str, code: &str) {
+    pub(crate) fn warning(&mut self, span: Span, message: &str, code: DiagnosticCode) {
         self.diagnostics.push(
             Diagnostic::warning(message)
                 .with_code(code)

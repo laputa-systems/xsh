@@ -2,7 +2,7 @@
 //! requires, run through the real parser, printer, and redundancy check.
 
 use super::{Formatter, Parser, SourceId, format_equivalence};
-use xsh::diagnostic::Diagnostic;
+use xsh::diagnostic::{Diagnostic, DiagnosticCode};
 use xsh::frontend::syntax::grouping::grouping_diagnostics;
 
 const OPERATORS: [&str; 16] = ["??", "or", "and", "==", "!=", "<", "<=", ">", ">=", "in", "not in", "+", "-", "*", "/", "%"];
@@ -75,7 +75,7 @@ fn remove_redundant_parens(source: &str) -> String {
     for _ in 0..16 {
         let mut fixes: Vec<(usize, usize, String)> = grouping(&text)
             .iter()
-            .filter(|diagnostic| diagnostic.code.as_deref() == Some("check.redundant-parens"))
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckRedundantParens))
             .flat_map(|diagnostic| &diagnostic.fix_hints)
             .map(|hint| (hint.span.unwrap().start(), hint.span.unwrap().end(), hint.replacement.clone().unwrap()))
             .collect();
@@ -114,16 +114,16 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
             assert!(grouping(&formatted).is_empty(), "{formatted}\n{:?}", grouping(&formatted));
             let group_end = hole + child.len() + 2;
             let reported = grouping(&grouped).iter().any(|diagnostic| {
-                diagnostic.code.as_deref() == Some("check.redundant-parens")
+                diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
                     && diagnostic.labels[0].span.start() == hole
                     && diagnostic.labels[0].span.end() == group_end
             });
             let bare = parent.replacen('H', child, 1);
             let same_tree = canonical(&bare).as_ref() == Some(&tree);
             let bare_grouping = grouping(&bare);
-            let removable = same_tree && bare_grouping.iter().all(|d| !matches!(d.code.as_deref(), Some("check.mixed-logical" | "check.ambiguous-grouping")));
+            let removable = same_tree && bare_grouping.iter().all(|d| !matches!(d.code, Some(DiagnosticCode::CheckMixedLogical | DiagnosticCode::CheckAmbiguousGrouping)));
             // The ambiguous-grouping fix restores exactly these parentheses.
-            if same_tree && let Some(fix) = bare_grouping.iter().find(|d| d.code.as_deref() == Some("check.ambiguous-grouping")) {
+            if same_tree && let Some(fix) = bare_grouping.iter().find(|d| d.code == Some(DiagnosticCode::CheckAmbiguousGrouping)) {
                 let hint = &fix.fix_hints[0];
                 let mut fixed = bare.clone();
                 fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());

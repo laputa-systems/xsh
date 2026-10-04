@@ -53,12 +53,15 @@ command error.
 ## Lint
 
 Lints analyze the checked program and its published facts; they never re-derive
-types or effects from syntax. Every code and its one-line summary are in
-`lint::LINT_CODES`; fix-bearing checker codes are in
-`lint::FIXABLE_CHECK_CODES` with summaries in `lint::FIXABLE_CHECK_SUMMARIES`.
+types or effects from syntax. Every diagnostic code, from any stage, is a
+variant of `xsh::diagnostic::DiagnosticCode`, declared once with its stable
+name, family, default severity, one-line summary, and whether a non-lint
+code's fix is safe for `xsht lint --fix` (`fixable`). `--only` accepts every lint code plus the fixable codes of other
+stages (`DiagnosticCode::lint_selectable`), and
 `xsht lint --list [--format text|jsonl]` prints that catalog, which
 `make docs` renders into `docs/reference/lints.md`. `--only` restricts both
-reports and fixes; an unknown code is a usage error. A scoped fix splices its
+reports and fixes; an unknown code is a usage error that suggests the nearest
+selectable code. A scoped fix splices its
 exact edits with no formatting pass (`apply_cst_fixes`), while unrestricted
 `--fix` formats the rewritten file.
 

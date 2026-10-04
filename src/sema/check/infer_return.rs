@@ -1,4 +1,5 @@
 use super::{AnnotationFact, AnnotationFactKind, Checker, FxHashMap, FxHashSet, Name, Span, Type};
+use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaBindingTargetKind, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId, PatternId, StmtId};
 
 struct ReturnDeclaration {
@@ -233,7 +234,7 @@ impl Checker {
                 } else {
                     format!("recursive pure `{}` requires an explicit return annotation", decl.name)
                 };
-                self.error(decl.span, &message, "check.required-return");
+                self.error(decl.span, &message, DiagnosticCode::CheckRequiredReturn);
                 self.function_return_types.insert(body_span, Type::Invalid);
                 if let Some(sig) = self.pures.get_mut(&decl.name) { sig.return_ty = Type::Invalid; }
                 continue;
@@ -262,7 +263,7 @@ impl Checker {
             }
             let ty = inferred.unwrap_or(Type::Unknown);
             let ty = if return_type_is_concrete(&ty) { ty } else {
-                self.error(decl.span, &format!("pure `{}` needs a return annotation: its return shape is underdetermined", decl.name), "check.infer-return");
+                self.error(decl.span, &format!("pure `{}` needs a return annotation: its return shape is underdetermined", decl.name), DiagnosticCode::CheckInferReturn);
                 Type::Invalid
             };
             let mut ty = ty;
@@ -270,11 +271,11 @@ impl Checker {
                 match &ty {
                     Type::Result(_, expected) if error.matches_expected(expected) => {}
                     Type::Result(_, _) => {
-                        self.error(span, "propagated error does not match the inferred Result; declare its return type", "check.try-error");
+                        self.error(span, "propagated error does not match the inferred Result; declare its return type", DiagnosticCode::CheckTryError);
                         ty = Type::Invalid;
                     }
                     _ => {
-                        self.error(span, "`?` requires a Result return determined by the body; declare a return annotation", "check.try-context");
+                        self.error(span, "`?` requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext);
                         ty = Type::Invalid;
                     }
                 }
@@ -327,7 +328,7 @@ impl Checker {
         if let Some((left, right, span)) = conflicts.into_iter().next() {
             let (left, right) = if produces_value(&left) { (left, right) } else { (right, left) };
             let message = format!("completions of proc `{}` produce `{left}` and `{right}`", decl.name);
-            self.diagnostics.push(crate::diagnostic::Diagnostic::error(&message).with_code("check.type-mismatch")
+            self.diagnostics.push(crate::diagnostic::Diagnostic::error(&message).with_code(DiagnosticCode::CheckTypeMismatch)
                 .with_label(crate::diagnostic::Label::primary(span, &message))
                 .with_note(format!("make every completion produce one type, or declare the return explicitly, for example `-> Result[{left}]`")));
             self.function_return_types.insert(body_span, Type::Invalid);
@@ -336,13 +337,13 @@ impl Checker {
         }
         if !clean { return; }
         let ty = if let Some(boundary) = boundary {
-            self.error(decl.span, &format!("{boundary} proc `{}` returns a value and requires an explicit return annotation", decl.name), "check.required-return");
+            self.error(decl.span, &format!("{boundary} proc `{}` returns a value and requires an explicit return annotation", decl.name), DiagnosticCode::CheckRequiredReturn);
             Type::Invalid
         } else {
             match inferred.unwrap_or(Type::Invalid) {
                 Type::Invalid => Type::Invalid,
                 ty if !return_type_is_concrete(&ty) => {
-                    self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), "check.infer-return");
+                    self.error(decl.span, &format!("proc `{}` needs a return annotation: its return shape is underdetermined", decl.name), DiagnosticCode::CheckInferReturn);
                     Type::Invalid
                 }
                 // Every `?` in the body propagates through the inferred error
@@ -364,7 +365,7 @@ impl Checker {
                     conflicts.push((left, right, span));
                     return Type::Invalid;
                 }
-                self.error(span, &format!("incompatible inferred return paths `{left}` and `{right}`; declare a return type"), "check.infer-return");
+                self.error(span, &format!("incompatible inferred return paths `{left}` and `{right}`; declare a return type"), DiagnosticCode::CheckInferReturn);
                 Type::Invalid
             }
         }

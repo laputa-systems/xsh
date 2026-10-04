@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, Severity};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticFamily, DiagnosticRenderer, Label, Severity};
 use xsh::frontend::check::CheckOptions;
 use xsh::frontend::load::{module_key, parse_load_check_text, resolve_user_module};
 use xsh::frontend::source::{SourceId, SourceMap, Span};
@@ -21,7 +21,7 @@ use xsh::frontend::syntax::arena::{
 };
 use xsh::frontend::syntax::grouping::grouping_diagnostics;
 use xsh::frontend::syntax::parser::Parser;
-pub fn lint_files(files: &[String], fix: bool, runless: bool, only: Option<Vec<String>>) -> CliOutput {
+pub fn lint_files(files: &[String], fix: bool, runless: bool, only: Option<Vec<DiagnosticCode>>) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
     }
@@ -149,7 +149,7 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool, only: Option<Vec<S
 struct LintDiscovery {
     files: Vec<String>,
     explicit_roots: FxHashSet<String>,
-    only: Option<Vec<String>>,
+    only: Option<Vec<DiagnosticCode>>,
 }
 
 fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDiscovery, String> {
@@ -362,7 +362,7 @@ impl WorkspaceLoader {
                 let source_id = self.sources.add_file(display_path, text.clone());
                 let offset = error.offset.min(text.len());
                 let diagnostic = Diagnostic::error("source file is not valid UTF-8")
-                    .with_code("source.invalid-utf8")
+                    .with_code(DiagnosticCode::SourceInvalidUtf8)
                     .with_label(Label::primary(
                         Span::new(source_id, offset, offset),
                         "invalid UTF-8 starts here",
@@ -441,7 +441,7 @@ impl WorkspaceLoader {
                                 if cycle {
                                     module.diagnostics.push(
                                         Diagnostic::error("cyclic module import")
-                                            .with_code("parse.module-cycle")
+                                            .with_code(DiagnosticCode::ParseModuleCycle)
                                             .with_label(Label::primary(
                                                 span,
                                                 "module import cycle starts here",
@@ -454,7 +454,7 @@ impl WorkspaceLoader {
                             if let Some(module) = self.modules.get_mut(&key) {
                                 module.diagnostics.push(
                                     Diagnostic::error("failed to load module")
-                                        .with_code("parse.module-load")
+                                        .with_code(DiagnosticCode::ParseModuleLoad)
                                         .with_label(Label::primary(span, message)),
                                 );
                             }
@@ -465,7 +465,7 @@ impl WorkspaceLoader {
                     if let Some(module) = self.modules.get_mut(&key) {
                         module.diagnostics.push(
                             Diagnostic::error("failed to read module")
-                                .with_code("parse.module-read")
+                                .with_code(DiagnosticCode::ParseModuleRead)
                                 .with_label(Label::primary(span, message)),
                         );
                     }
@@ -674,7 +674,7 @@ fn lint_workspace_root(
             relevant_diagnostics.extend(module.diagnostics.iter().cloned());
         }
     }
-    if relevant_diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_none()) {
+    if relevant_diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code).is_none()) {
         return vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
@@ -696,8 +696,8 @@ fn lint_workspace_root(
         )
     });
     let unrelated_check_error = checked.diagnostics.iter().any(|diagnostic|
-        migration_lint_code(diagnostic.code.as_deref()).is_none()
-            && diagnostic.code.as_deref() != Some("check.removed-membership")
+        migration_lint_code(diagnostic.code).is_none()
+            && diagnostic.code != Some(DiagnosticCode::CheckRemovedMembership)
             && !spelling_only(diagnostic));
     if !checked.diagnostics.is_empty() && unrelated_check_error && (!fix || !relevant_diagnostics.is_empty()) {
         relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
@@ -712,7 +712,7 @@ fn lint_workspace_root(
 
     let only = root_module.config.lint_options.only.as_deref();
     if fix && relevant_diagnostics.iter().chain(&checked.diagnostics).any(|diagnostic|
-        migration_lint_code(diagnostic.code.as_deref()).is_some_and(|code| lint_code_selected(only, Some(code)))) {
+        migration_lint_code(diagnostic.code).is_some_and(|code| lint_code_selected(only, Some(code)))) {
         return migrate_workspace_syntax(workspace, root, &reachable, linted_modules, &checked.diagnostics);
     }
 
@@ -752,19 +752,19 @@ fn lint_workspace_root(
             linted.diagnostics.clear();
         }
         for diagnostic in &module.diagnostics {
-            if let Some(code) = migration_lint_code(diagnostic.code.as_deref()) {
+            if let Some(code) = migration_lint_code(diagnostic.code) {
                 let mut diagnostic = diagnostic.clone();
                 diagnostic.severity = Severity::Warning;
-                diagnostic.code = Some(code.to_string());
+                diagnostic.code = Some(code);
                 linted.diagnostics.push(diagnostic);
             }
         }
         for diagnostic in checked.diagnostics.iter().filter(|diagnostic|
             diagnostic_mentions_source(diagnostic, module.source_id)) {
-            if let Some(code) = migration_lint_code(diagnostic.code.as_deref()) {
+            if let Some(code) = migration_lint_code(diagnostic.code) {
                 let mut diagnostic = diagnostic.clone();
                 diagnostic.severity = Severity::Warning;
-                diagnostic.code = Some(code.to_string());
+                diagnostic.code = Some(code);
                 linted.diagnostics.push(diagnostic);
             }
         }
@@ -776,13 +776,13 @@ fn lint_workspace_root(
                 spelling_only(diagnostic) && diagnostic_mentions_source(diagnostic, module.source_id)).cloned());
             linted.diagnostics.extend(module_grouping.iter().cloned());
         }
-        linted.diagnostics.retain(|diagnostic| lint_code_selected(only, diagnostic.code.as_deref()));
+        linted.diagnostics.retain(|diagnostic| lint_code_selected(only, diagnostic.code));
         let check_diagnostics = checked
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
             .chain(&module_grouping)
-            .filter(|diagnostic| lint_code_selected(only, diagnostic.code.as_deref()))
+            .filter(|diagnostic| lint_code_selected(only, diagnostic.code))
             .cloned()
             .collect::<Vec<_>>();
         let result = if fix {
@@ -803,7 +803,7 @@ fn lint_workspace_root(
             LintResult {
                 index: results.len(),
                 kind: LintResultKind::Diagnostics {
-                    status: if linted.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check."))) { 2 } else { lint_diagnostics_status(&linted.diagnostics) },
+                    status: if linted.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error && diagnostic.code.is_some_and(|code| code.family() == DiagnosticFamily::Check)) { 2 } else { lint_diagnostics_status(&linted.diagnostics) },
                     diagnostics: render_diagnostics_with_keys(
                         &linted.diagnostics,
                         &workspace.sources,
@@ -836,7 +836,7 @@ fn migrate_workspace_syntax(
         let mut migration_diagnostics = module.diagnostics.clone();
         migration_diagnostics.extend(checked_diagnostics.iter().filter(|diagnostic|
             diagnostic_mentions_source(diagnostic, module.source_id)
-                && migration_lint_code(diagnostic.code.as_deref()).is_some()).cloned());
+                && migration_lint_code(diagnostic.code).is_some()).cloned());
         let text = if migration_diagnostics.is_empty() {
             module.text.clone()
         } else {
@@ -848,7 +848,7 @@ fn migrate_workspace_syntax(
                     let mut diagnostics = migration_diagnostics;
                     for diagnostic in &mut diagnostics {
                         diagnostic.severity = Severity::Warning;
-                        diagnostic.code = migration_lint_code(diagnostic.code.as_deref()).map(str::to_string);
+                        diagnostic.code = migration_lint_code(diagnostic.code);
                     }
                     return failure(render_diagnostics_with_keys(&diagnostics, &workspace.sources), String::new(), 1);
                 }
@@ -1113,7 +1113,7 @@ fn order_modules_depth_first(
 /// Source parentheses that do not change the parse leave every checked fact
 /// intact, so they never hide lint diagnostics.
 fn spelling_only(diagnostic: &Diagnostic) -> bool {
-    diagnostic.code.as_deref() == Some("check.redundant-parens")
+    diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
 }
 
 fn diagnostic_mentions_source(diagnostic: &Diagnostic, source_id: SourceId) -> bool {
@@ -1493,7 +1493,7 @@ fn apply_cst_fixes(
     is_module: bool,
 ) -> Result<Option<ValidatedFixedText>, String> {
     let migrating_syntax = Parser::parse_source_arena_only(SourceId::new(0), text)
-        .diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_some());
+        .diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code).is_some());
     // An `--only` selection applies exactly the selected edits; formatting the
     // whole file would rewrite unrelated code.
     let only = config.lint_options.only.as_deref();
@@ -1576,7 +1576,7 @@ fn apply_cst_fixes(
         };
         fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
         let selected_checks = checked.diagnostics.iter()
-            .filter(|diagnostic| lint_code_selected(only, diagnostic.code.as_deref()))
+            .filter(|diagnostic| lint_code_selected(only, diagnostic.code))
             .cloned()
             .collect::<Vec<_>>();
         fixes.extend(collect_fix_spans_for_source(&selected_checks, SourceId::new(0)));
@@ -1666,7 +1666,7 @@ fn collect_fix_spans_filtered(
 fn lint_diagnostics_status(diagnostics: &[Diagnostic]) -> u8 {
     if diagnostics.iter().all(|diagnostic| {
         diagnostic.severity == Severity::Warning
-            && diagnostic.code.as_deref() == Some("lint.path-constructor")
+            && diagnostic.code == Some(DiagnosticCode::LintPathConstructor)
     }) {
         0
     } else {
@@ -1678,7 +1678,7 @@ fn check_diagnostic_signature(diagnostic: &Diagnostic) -> String {
     format!(
         "{:?}:{}:{}",
         diagnostic.severity,
-        diagnostic.code.as_deref().unwrap_or(""),
+        diagnostic.code.map_or("", DiagnosticCode::name),
         diagnostic.message
     )
 }
@@ -1692,7 +1692,7 @@ fn check_diagnostics_are_preserved(original: &[Diagnostic], current: &[Diagnosti
     }
     // Removing a pair of parentheses lets the pairs inside it be judged on the
     // next round, so their count may grow while the fixes converge.
-    for diagnostic in current.iter().filter(|diagnostic| diagnostic.code.as_deref() != Some("check.redundant-parens")) {
+    for diagnostic in current.iter().filter(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckRedundantParens)) {
         let Some(count) = remaining.get_mut(&check_diagnostic_signature(diagnostic)) else {
             return false;
         };
@@ -1720,7 +1720,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
         Some((span, loc)) => format!(
             "{:?}:{}:{}:{}:{}:{}",
             diagnostic.severity,
-            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.code.map_or("", DiagnosticCode::name),
             diagnostic.message,
             loc.file,
             span.start(),
@@ -1729,7 +1729,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
         None => format!(
             "{:?}:{}:{}",
             diagnostic.severity,
-            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.code.map_or("", DiagnosticCode::name),
             diagnostic.message
         ),
     }
@@ -1747,7 +1747,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
-    use xsh::diagnostic::{Diagnostic, FixHint, Severity};
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Severity};
     use xsh::frontend::source::{SourceId, Span};
     use xsh::frontend::symbols::SymbolOwner;
 
@@ -2204,7 +2204,7 @@ print ${name}
         );
         assert!(checked.parsed.diagnostics.is_empty());
         assert!(checked.checked.unwrap().diagnostics.iter().any(|diagnostic|
-            diagnostic.code.as_deref() == Some("check.type-mismatch")));
+            diagnostic.code == Some(DiagnosticCode::CheckTypeMismatch)));
         let config = crate::xsht::cli::XshConfig::default();
         let discovery = discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
         let results = lint_workspace(&discovery, false, false, &config, &ConfigCache::default());

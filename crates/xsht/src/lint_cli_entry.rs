@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use rustc_hash::FxHashMap;
-use xsh::diagnostic::{Diagnostic, FixHint, Label, Severity};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::{Checker, LiteralConstant, Type};
 use xsh::frontend::syntax::arena::{ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind,
     ArenaExprOrRun, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind};
@@ -75,7 +75,7 @@ fn signature_cli_migration_inner(program: &ArenaProgram, source: &str) -> Vec<Di
         if close < open { continue; }
         let replacement = format!("cli main({}){}{}", parameters.values().cloned().collect::<Vec<_>>().join(", "), header[close + 1..].trim_end(), tail);
         let mut diagnostic = Diagnostic::new(Severity::Warning, "this literal CLI schema can be represented by its entry signature")
-            .with_code("lint.prefer-signature-cli")
+            .with_code(DiagnosticCode::LintPreferSignatureCli)
             .with_label(Label::secondary(declaration.span, "parameter defaults and generated help match the strict option schema"));
         if source.get(declaration.span.range()).is_some_and(|text| text.contains('#'))
             || source.get(..declaration.span.start()).and_then(|text| text.trim_end().lines().last()).is_some_and(|line| line.trim_start().starts_with("##")) {

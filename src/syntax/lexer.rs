@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, FixHint, Label};
+use crate::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::grammar;
@@ -259,7 +259,7 @@ impl<'a> Lexer<'a> {
                                 + self.source.get(start..).and_then(|rest| rest.chars().next()).map_or(1, char::len_utf8);
                             self.diagnostics.push(
                                 Diagnostic::error("unexpected character")
-                                    .with_code("lex.unexpected-character")
+                                    .with_code(DiagnosticCode::LexUnexpectedCharacter)
                                     .with_label(Label::primary(
                                         self.span(start, self.offset),
                                         "not valid in source",
@@ -324,7 +324,7 @@ impl<'a> Lexer<'a> {
                 }
                 self.diagnostics.push(
                     Diagnostic::error("invalid octal integer literal")
-                        .with_code("lex.invalid-octal")
+                        .with_code(DiagnosticCode::LexInvalidOctal)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "octal literals use digits 0 through 7",
@@ -334,7 +334,7 @@ impl<'a> Lexer<'a> {
             if self.offset == digits_start {
                 self.diagnostics.push(
                     Diagnostic::error("invalid octal integer literal")
-                        .with_code("lex.invalid-octal")
+                        .with_code(DiagnosticCode::LexInvalidOctal)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "expected octal digits after 0o",
@@ -371,7 +371,7 @@ impl<'a> Lexer<'a> {
             if self.offset == digits_start {
                 self.diagnostics.push(
                     Diagnostic::error("invalid float literal")
-                        .with_code("lex.invalid-float")
+                        .with_code(DiagnosticCode::LexInvalidFloat)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "expected exponent digits",
@@ -408,7 +408,7 @@ impl<'a> Lexer<'a> {
                 self.offset = end;
                 self.diagnostics.push(
                     Diagnostic::error("unterminated fmt string literal")
-                        .with_code("lex.unterminated-fmt-string")
+                        .with_code(DiagnosticCode::LexUnterminatedFmtString)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "fmt string literal starts here",
@@ -418,7 +418,7 @@ impl<'a> Lexer<'a> {
             None => {
                 self.diagnostics.push(
                     Diagnostic::error("unterminated fmt string literal")
-                        .with_code("lex.unterminated-fmt-string")
+                        .with_code(DiagnosticCode::LexUnterminatedFmtString)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "fmt string literal starts here",
@@ -429,7 +429,7 @@ impl<'a> Lexer<'a> {
                 self.offset += 1;
                 self.diagnostics.push(
                     Diagnostic::error("unterminated fmt string literal")
-                        .with_code("lex.unterminated-fmt-string")
+                        .with_code(DiagnosticCode::LexUnterminatedFmtString)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "fmt string literal starts here",
@@ -450,7 +450,7 @@ impl<'a> Lexer<'a> {
                 self.offset = end;
                 self.diagnostics.push(
                     Diagnostic::error("unterminated path fmt string literal")
-                        .with_code("lex.unterminated-path-fmt-string")
+                        .with_code(DiagnosticCode::LexUnterminatedPathFmtString)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "path fmt string literal starts here",
@@ -461,7 +461,7 @@ impl<'a> Lexer<'a> {
                 self.offset += 1;
                 self.diagnostics.push(
                     Diagnostic::error("unterminated path fmt string literal")
-                        .with_code("lex.unterminated-path-fmt-string")
+                        .with_code(DiagnosticCode::LexUnterminatedPathFmtString)
                         .with_label(Label::primary(
                             self.span(start, self.offset),
                             "path fmt string literal starts here",
@@ -484,7 +484,7 @@ impl<'a> Lexer<'a> {
         self.offset = start + 1 + close + 1;
         let span = self.span(start, self.offset);
         let mut diagnostic = Diagnostic::error("single quotes do not delimit strings in XSH")
-            .with_code("lex.unexpected-character")
+            .with_code(DiagnosticCode::LexUnexpectedCharacter)
             .with_label(Label::primary(span, "XSH strings use double quotes"));
         if !text.contains(['"', '\\', '$', '{', '}']) {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use double quotes", format!("\"{text}\"")));
@@ -518,7 +518,7 @@ impl<'a> Lexer<'a> {
         self.offset = end.unwrap_or(start + 1);
         self.diagnostics.push(
             Diagnostic::error("`$(...)` command substitution is shell syntax")
-                .with_code("lex.unexpected-character")
+                .with_code(DiagnosticCode::LexUnexpectedCharacter)
                 .with_label(Label::primary(self.span(start, self.offset), "capture a command's output with `run.text COMMAND ?`")),
         );
         true
@@ -533,9 +533,9 @@ impl<'a> Lexer<'a> {
                 self.diagnostics.push(
                     Diagnostic::error("unterminated string literal")
                         .with_code(if kind == StringLiteralKind::Bytes {
-                            "lex.unterminated-bytes"
+                            DiagnosticCode::LexUnterminatedBytes
                         } else {
-                            "lex.unterminated-string"
+                            DiagnosticCode::LexUnterminatedString
                         })
                         .with_label(Label::primary(
                             self.span(literal_start.min(quote_start), self.offset),
@@ -548,7 +548,7 @@ impl<'a> Lexer<'a> {
                 self.offset = quote_start;
                 self.diagnostics.push(
                     Diagnostic::error("unterminated string literal")
-                        .with_code("lex.unterminated-string")
+                        .with_code(DiagnosticCode::LexUnterminatedString)
                         .with_label(Label::primary(
                             self.span(literal_start.min(quote_start), self.offset),
                             "string literal starts here",
@@ -626,7 +626,7 @@ impl<'a> Lexer<'a> {
                 },
                 Err(_) => self.diagnostics.push(
                     Diagnostic::error("string literal is not valid UTF-8")
-                        .with_code("lex.invalid-string")
+                        .with_code(DiagnosticCode::LexInvalidString)
                         .with_label(Label::primary(
                             self.span(literal_start, self.offset),
                             "invalid string literal",
@@ -683,7 +683,7 @@ impl<'a> Lexer<'a> {
             }
             b'u' if bytes => self.diagnostics.push(
                 Diagnostic::error("unicode escapes are not valid in bytes literals")
-                    .with_code("lex.invalid-bytes-escape")
+                    .with_code(DiagnosticCode::LexInvalidBytesEscape)
                     .with_label(Label::primary(
                         self.span(escape_start, self.offset),
                         "bytes literals use byte escapes only",
@@ -696,7 +696,7 @@ impl<'a> Lexer<'a> {
     fn invalid_escape(&mut self, start: usize, end: usize) {
         self.diagnostics.push(
             Diagnostic::error("invalid escape sequence")
-                .with_code("lex.invalid-escape")
+                .with_code(DiagnosticCode::LexInvalidEscape)
                 .with_label(Label::primary(
                     self.span(start, end.max(start + 1)),
                     "unsupported escape sequence",
@@ -812,6 +812,7 @@ fn is_ident_continue(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::diagnostic::DiagnosticCode;
     use super::{Keyword, Lexer, SourceId, TokenTag};
 
     #[test]
@@ -882,7 +883,7 @@ mod tests {
 
         assert_eq!(output.diagnostics.len(), 1);
         assert_eq!(
-            output.diagnostics[0].code.as_deref(),
+            output.diagnostics[0].code.map(DiagnosticCode::name),
             Some("lex.invalid-bytes-escape")
         );
     }
