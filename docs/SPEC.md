@@ -655,15 +655,48 @@ is expected. Incompatible contributions are errors; inference never widens to
 
 `Any` is the type of data whose shape is unknown: decoded JSON, untyped host
 records, results of dynamic callables. A concrete value can always become
-`Any`, but `Any` never becomes concrete implicitly. Field access, indexing, and
-method calls on `Any` are checked at runtime and produce `Any`. Using an `Any`
-where a concrete type is required is `check.dynamic-boundary`:
+`Any`, but `Any` never becomes concrete implicitly. Without validation, an
+`Any` value may only:
+
+- be navigated: `.name`, `?.name`, `[key]`, `?[key]`, `[a..b]`, `?`, method
+  calls with positional arguments, and `for` iteration are checked at runtime
+  and produce `Any`;
+- flow where `Any` is expected: an `Any` binding, parameter, return, record
+  field, or `List[Any]` or `Map[Any]` element, including APIs such as
+  `json.encode` that accept `Any`;
+- be compared with `==` or `!=`, tested with `in`/`not in` against a `List`,
+  or used as a `group-by` or `unique-by` key, which compare by equality and are
+  defined for every pair of values;
+- be validated by `.require(T)` or a type pattern.
+
+Every other use needs a concrete type that the data may not have, and is
+`check.dynamic-boundary`: a typed binding, parameter, return, or field; an
+arithmetic, ordering, or logical operand, including a `sort-by` key and
+`min`/`max` items; a condition; any other membership operand; an index into a
+concrete container; f-string interpolation, a command word, a `print`
+argument, or a `count` key; and named arguments to a dynamic method. `??`
+applies only to `Optional` and `Result`, so a possibly-null field is validated
+as `T?` first.
 
 ```xsh
 let doc = json.decode(text)?
+let service = doc.service.name              # Any
 let n: Int = doc.count                      # error: check.dynamic-boundary
+let next = doc.count + 1                    # error: check.dynamic-boundary
+print f"{doc.service.name}"                 # error: check.dynamic-boundary
 let count = doc.count.require(Int)?         # Int
+let label = doc.label.require(Str?)? ?? "none"
 ```
+
+When the context names the target type (an annotated binding, return, or
+field; a concrete parameter; the concrete other operand of an arithmetic or
+ordering operator or `in`; or `Bool` for a condition or logical operand), the
+diagnostic carries a fix that appends `.require(T)?` to the `Any` expression,
+grouping it if needed, wherever `?` may propagate an `Error`. The fix writes
+`.require()?` where that infers the same target. `xsht lint --only
+check.dynamic-boundary --fix` applies only those edits. Interpolation, unary
+`-`, stream keys, and operators between two `Any` values name no single type
+and are validated by hand.
 
 Two forms establish a concrete type:
 

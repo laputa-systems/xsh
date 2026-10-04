@@ -583,7 +583,9 @@ impl Checker {
                 if self.retry_attempt_depth == 0 { self.assertion_effect_spans.insert(stmt.span); }
                 self.check_propagation(&Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily(Name::intern("AssertionError")))), stmt.span);
                 let condition_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(condition), Some(&Type::Bool), None);
-                if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
+                if condition_ty == Type::Any {
+                    self.expect_type(&Type::Bool, &condition_ty, arena.arena.expr(condition).span);
+                } else if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
                     self.report_non_bool_condition(&condition_ty, arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
                 }
                 if let Some(message) = message {
@@ -731,13 +733,14 @@ impl Checker {
         code: &'static str,
     ) -> ConditionNarrowings {
         let condition_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(condition), Some(&Type::Bool), None);
-        if matches!(
-            condition_ty,
-            Type::Bool | Type::Status | Type::Any | Type::Unknown
-        ) {
+        let condition_span = arena.arena.expr(condition).span;
+        if condition_ty == Type::Any {
+            self.expect_type(&Type::Bool, &condition_ty, condition_span);
+            return ConditionNarrowings::default();
+        }
+        if matches!(condition_ty, Type::Bool | Type::Status | Type::Unknown) {
             return self.infer_condition_narrowings_arena(arena, condition);
         }
-        let condition_span = arena.arena.expr(condition).span;
         self.report_non_bool_condition(&condition_ty, condition_span, "condition must be Bool or Status", code);
         ConditionNarrowings::default()
     }

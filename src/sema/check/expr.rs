@@ -271,7 +271,28 @@ impl Checker {
         let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
         let actual = self.check_expr_arena_inner(arena, source, id, resolved.as_ref().or(expected));
         self.expected_schema = previous;
+        if actual == Type::Any { self.record_dynamic_require_receiver(arena, source, id, expected); }
         actual
+    }
+
+    /// Records how a `.require(T)?` fix on this `Any` expression is written:
+    /// whether it must be grouped, and the target a bare `.require()` would
+    /// infer in its place. The fix inserts text around the span and never
+    /// copies it, because linked modules are checked with the entry's source
+    /// text. A `$name` command shorthand takes no suffix.
+    fn record_dynamic_require_receiver(&mut self, arena: &ArenaProgram, source: &str, id: ExprId, expected: Option<&Type>) {
+        let expr = arena.arena.expr(id);
+        if let ArenaExprKind::Ident(name) = expr.kind && expr.span.end() - expr.span.start() != name.as_str().len() { return; }
+        // The `.require(` follow never consults the source text.
+        let context = crate::syntax::grouping::Context {
+            slot: crate::syntax::grouping::Slot::Postfix { dotted: false },
+            ..crate::syntax::grouping::Context::open(crate::syntax::grouping::Follow::adjacent(crate::syntax::grouping::FollowToken::Require))
+        };
+        let grouped = crate::syntax::grouping::needs_parens(&arena.arena, source, id, context);
+        let schema = expected.and(self.expected_schema.as_ref());
+        let inferred = super::expected::infer_requirement_target(&arena.arena, expected, schema, &self.type_constraints)
+            .map(|target| target.ty);
+        self.dynamic_require_receivers.insert(expr.span, super::DynamicRequireReceiver { grouped, inferred });
     }
 
     fn check_expr_arena_inner(
@@ -578,7 +599,9 @@ impl Checker {
         for part in arena.arena.fmt_parts(range) {
             if let ArenaFmtPart::Expr(expr_id, _) = part {
                 let ty = self.check_expr_arena(arena, source, expr_id, None);
-                if !ty.can_display() && !matches!(ty, Type::Any | Type::Unknown) {
+                if ty == Type::Any {
+                    self.reject_dynamic_use("an interpolation", None, arena.arena.expr(expr_id).span);
+                } else if !ty.can_display() && !matches!(ty, Type::Unknown) {
                     let span = arena.arena.expr(expr_id).span;
                     self.report_conversion(span, &ty, "cannot be displayed in fmt string", "check.display-conversion");
                 }
@@ -998,7 +1021,9 @@ impl Checker {
                 }
                 ArenaCompQualifier::If { condition, .. } => {
                     let ty = self.check_expr_arena(arena, source, condition, None);
-                    if !matches!(ty, Type::Bool | Type::Status | Type::Any | Type::Unknown) {
+                    if ty == Type::Any {
+                        self.expect_type(&Type::Bool, &ty, arena.arena.expr(condition).span);
+                    } else if !matches!(ty, Type::Bool | Type::Status | Type::Unknown) {
                         self.error(arena.arena.expr(condition).span, "comprehension condition must be Bool or Status", if map { "check.mapcomp-condition" } else { "check.listcomp-condition" });
                     }
                 }
@@ -1321,13 +1346,16 @@ impl Checker {
         let span = arena.arena.expr(inner).span;
         match op {
             UnaryOp::Not => {
-                if !matches!(ty, Type::Bool | Type::Status | Type::Any | Type::Unknown) {
+                if !matches!(ty, Type::Bool | Type::Status | Type::Unknown) {
                     self.expect_type(&Type::Bool, &ty, span);
                 }
                 Type::Bool
             }
             UnaryOp::Neg => {
-                if ty == Type::Any { return Type::Any; }
+                if ty == Type::Any {
+                    self.reject_dynamic_use("a negation operand", None, span);
+                    return Type::Any;
+                }
                 if matches!(ty, Type::Float) {
                     Type::Float
                 } else {
@@ -1442,8 +1470,8 @@ impl Checker {
                     );
                     return Type::Bool;
                 }
-                if left_ty != Type::Any { self.expect_type(&Type::Bool, &left_ty, left_span); }
-                if right_ty != Type::Any { self.expect_type(&Type::Bool, &right_ty, right_span); }
+                self.expect_type(&Type::Bool, &left_ty, left_span);
+                self.expect_type(&Type::Bool, &right_ty, right_span);
                 Type::Bool
             }
             BinaryOp::And => {
@@ -1453,8 +1481,8 @@ impl Checker {
                 self.apply_narrowings(&facts.when_true);
                 let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&Type::Bool), None);
                 self.pop_scope();
-                if left_ty != Type::Any { self.expect_type(&Type::Bool, &left_ty, left_span); }
-                if right_ty != Type::Any { self.expect_type(&Type::Bool, &right_ty, right_span); }
+                self.expect_type(&Type::Bool, &left_ty, left_span);
+                self.expect_type(&Type::Bool, &right_ty, right_span);
                 Type::Bool
             }
             BinaryOp::Eq | BinaryOp::Ne => {
@@ -1469,35 +1497,38 @@ impl Checker {
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
                 let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&left_ty), None);
-                if !matches!(
-                    left_ty,
-                    Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown
-                ) {
+                let ordered = |ty: &Type| matches!(ty, Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str);
+                if left_ty == Type::Any || right_ty == Type::Any {
+                    for (ty, other, span) in [(&left_ty, &right_ty, left_span), (&right_ty, &left_ty, right_span)] {
+                        if *ty == Type::Any { self.reject_dynamic_use("an ordering operand", ordered(other).then_some(other), span); }
+                    }
+                    return Type::Bool;
+                }
+                if !ordered(&left_ty) && !left_ty.is_recovery() {
                     self.error(
                         left_span,
                         "comparison requires Int, Float, Str, or Duration",
                         "check.operator-type",
                     );
                 }
-                if left_ty != Type::Any && right_ty != Type::Any {
-                    self.expect_type(&left_ty, &right_ty, right_span);
-                }
+                self.expect_type(&left_ty, &right_ty, right_span);
                 Type::Bool
             }
             BinaryOp::In | BinaryOp::NotIn => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
                 let right_ty = self.check_expr_arena(arena, source, right, None);
+                if left_ty == Type::Any && matches!(right_ty, Type::Path | Type::Any) {
+                    self.reject_dynamic_use("a membership operand", None, left_span);
+                }
                 match &right_ty {
                     Type::Map(key, _) => { self.expect_type(key, &left_ty, left_span); }
+                    // List membership is equality with each element, which
+                    // is defined for every pair of values, as `==` is.
                     Type::List(item) => {
                         if left_ty != Type::Any { self.expect_type(item, &left_ty, left_span); }
                     }
-                    Type::Str => {
-                        if left_ty != Type::Any { self.expect_type(&Type::Str, &left_ty, left_span); }
-                    }
-                    Type::Bytes => {
-                        if left_ty != Type::Any { self.expect_type(&Type::Bytes, &left_ty, left_span); }
-                    }
+                    Type::Str => { self.expect_type(&Type::Str, &left_ty, left_span); }
+                    Type::Bytes => { self.expect_type(&Type::Bytes, &left_ty, left_span); }
                     Type::ErasedRecord | Type::Record(_) => {
                         self.expect_type(&Type::Str, &left_ty, left_span);
                     }
@@ -1514,7 +1545,9 @@ impl Checker {
                     // not promoted here, so `"/bin" in env.PATH` is rejected
                     // instead of silently comparing Str against Path.
                     Type::EnvPathList => {
-                        if !matches!(left_ty, Type::Path | Type::Any | Type::Unknown) {
+                        if left_ty == Type::Any {
+                            self.expect_type(&Type::Path, &left_ty, left_span);
+                        } else if !matches!(left_ty, Type::Path | Type::Unknown) {
                             self.error(
                                 left_span,
                                 "env.PATH membership requires Path; write a path literal such as p\"/opt/bin\"",
@@ -1522,7 +1555,8 @@ impl Checker {
                             );
                         }
                     }
-                    Type::Any | Type::Unknown => {}
+                    Type::Any => self.reject_dynamic_use("a membership container", None, right_span),
+                    Type::Unknown => {}
                     _ => self.error(
                         right_span,
                         "membership requires List, Map, Record, Str, Bytes, Path, or env.PATH",
@@ -1545,7 +1579,9 @@ impl Checker {
                     _ => Some(&left_ty),
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
-                if left_ty == Type::Any || right_ty == Type::Any { return Type::Any; }
+                if left_ty == Type::Any || right_ty == Type::Any {
+                    return self.reject_dynamic_arithmetic(op, &left_ty, &right_ty, left_span, right_span);
+                }
                 if left_ty == Type::Duration || right_ty == Type::Duration {
                     return match (op, &left_ty, &right_ty) {
                         (BinaryOp::Add | BinaryOp::Sub, Type::Duration, Type::Duration)
@@ -1600,6 +1636,27 @@ impl Checker {
                 }
             }
         }
+    }
+
+    /// An `Any` arithmetic operand must be validated first. When the other
+    /// operand is a concrete type that the operator combines with itself, that
+    /// type is the target, and the operation takes it as its result so the
+    /// rejection does not cascade.
+    fn reject_dynamic_arithmetic(&mut self, op: BinaryOp, left_ty: &Type, right_ty: &Type, left_span: Span, right_span: Span) -> Type {
+        let homogeneous = |ty: &Type| match ty {
+            Type::Int | Type::UInt => true,
+            Type::Float => op != BinaryOp::Rem,
+            Type::Str => op == BinaryOp::Add,
+            _ => false,
+        };
+        let mut result = Type::Any;
+        for (ty, other, span) in [(left_ty, right_ty, left_span), (right_ty, left_ty, right_span)] {
+            if *ty != Type::Any { continue; }
+            let target = homogeneous(other).then_some(other);
+            if let Some(target) = target { result = target.clone(); }
+            self.reject_dynamic_use("an arithmetic operand", target, span);
+        }
+        result
     }
 
     fn check_field_arena(
@@ -1676,14 +1733,16 @@ impl Checker {
             receiver if Self::fixed_field_type(&receiver, name).is_some() => {
                 self.checked_fixed_field(&receiver, name, span)
             }
+            // A dynamic field is checked at runtime and stays dynamic; it
+            // used to type as Unknown, which let it reach any concrete use.
+            Type::Any => Type::Any,
+            Type::Unknown => Type::Unknown,
             _ => {
-                if !matches!(base_ty, Type::Any | Type::Unknown) {
-                    self.error(
-                        span,
-                        "field access requires a record-like value",
-                        "check.field-access",
-                    );
-                }
+                self.error(
+                    span,
+                    "field access requires a record-like value",
+                    "check.field-access",
+                );
                 Type::Unknown
             }
         }

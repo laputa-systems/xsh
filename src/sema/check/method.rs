@@ -639,7 +639,9 @@ impl Checker {
         }
         for arg in args.iter().skip(2) {
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, None);
-            if !actual.can_display() && !matches!(actual, Type::Unknown) {
+            if actual == Type::Any {
+                self.reject_dynamic_use("a context value", None, call_arg_span_arena(arena, &arg.kind));
+            } else if !actual.can_display() && !matches!(actual, Type::Unknown) {
                 self.error(
                     call_arg_span_arena(arena, &arg.kind),
                     "context values must be displayable",

@@ -7561,10 +7561,10 @@ export proc replay_cpu_set_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cp
   }
 
   require_capture_metadata_unchanged(bundle, capture_metadata)?
-  let possible = compare_cpu_id_sets(candidate.cpu.possible, reference.possible)?
-  let present = compare_cpu_id_sets(candidate.cpu.present, reference.present)?
-  let online = compare_cpu_id_sets(candidate.cpu.online, reference.online)?
-  let offline = compare_cpu_id_sets(candidate.cpu.offline, reference.offline)?
+  let possible = compare_cpu_id_sets(candidate.cpu.possible.require()?, reference.possible)?
+  let present = compare_cpu_id_sets(candidate.cpu.present.require()?, reference.present)?
+  let online = compare_cpu_id_sets(candidate.cpu.online.require()?, reference.online)?
+  let offline = compare_cpu_id_sets(candidate.cpu.offline.require()?, reference.offline)?
   {
     possible: possible,
     present: present,

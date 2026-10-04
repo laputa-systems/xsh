@@ -144,8 +144,8 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
   match outcome {
     Ok(value) => {
       match value {
-        Ok(inner) => Ok(inner.message)
-        Err(failure) => Ok(failure.message)
+        Ok(inner) => Ok(inner.message.require()?)
+        Err(failure) => Ok(failure.message.require()?)
         _ => Ok("no rejection")
       }
     }

@@ -181,7 +181,7 @@ test test_typed_map_path_and_bytes_keep_native_identity {
 test test_typed_map_erased_updates_reject_mixed_domains { |ctx|
   for source in [
     """let values: Any = {[1]: 2}
-print (values.set("one", 3))
+let _ = values.set("one", 3)
 """,
   ] {
     let output = test.run_script(ctx, source)?

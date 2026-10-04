@@ -1165,7 +1165,8 @@ print $total
     fn compact_indexed_runner_attempt_covers_json_log_rollup_shape() {
         let path = temp_script(
             "compact-json-rollup",
-            r#"let root = fp"{args[0]}"
+            r#"type LogLine = {service: Str, level: Str, duration_ms: Int}
+let root = fp"{args[0]}"
 let logs = fp"{root}/logs"
 
 let log_texts = fs.walk(logs, gitignore: false)
@@ -1177,6 +1178,7 @@ let log_texts = fs.walk(logs, gitignore: false)
 
 let rows = log_texts.join()
   |> json.lines
+  |> map { |line| line.require(LogLine)? }
   |> where .level != "debug"
   |> group-by f"{.service}:{.level}"
   |> map { |bucket|

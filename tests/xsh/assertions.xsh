@@ -22,7 +22,7 @@ proc wrapped_any() -> Result[Any] { false }
 let _ = predicate()
 let value = predicate()
 let retried = retry [] { false }?
-print f"{value} {dynamic()} {wrapped()?} {wrapped_any()?} {retried}"
+print f"{value} {dynamic().require(Bool)?} {wrapped()?} {wrapped_any()?.require(Bool)?} {retried}"
 """,
   )?
   assert output.success, output.stderr

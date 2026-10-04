@@ -12,7 +12,7 @@ beta
 {"name":"beta","size":1}
 """
   |> json.lines
-  |> sort-by .size
+  |> sort-by .size.require(Int)?
 
   assert json_lines[0].name == "beta"
 
@@ -1941,7 +1941,7 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
 {"name":"b","size":2}
 """
   |> json.lines
-  |> sort-by .size
+  |> sort-by .size.require(Int)?
 
   let streamed = """{"name":"c","size":3}
 """ |> json.stream
@@ -2262,8 +2262,8 @@ for r in out { print \${r.name} }
 }
 
 test test_sort_by_map_accumulator_any_typed_fields {
-  # The explicit dynamic value domain survives integer additions. Sorting
-  # still validates each actual key as an orderable scalar at runtime.
+  # The explicit dynamic value domain survives integer additions, and it
+  # sorts only by a validated key.
   let counts: Map[Str, Any] = {}
   let keys = ["b", "a"]
   let acc = counts.set("a", 2).set("b", 1)
@@ -2272,12 +2272,12 @@ test test_sort_by_map_accumulator_any_typed_fields {
     |> map { |k|
       {count: acc.get(k) ?? 0, ext: k}
     }
-    |> sort-by .count
+    |> sort-by .count.require(Int)?
   assert [row.ext for row in by_count] == ["b", "a"]
   assert [row.count.require(Int)? for row in by_count] == [1, 2]
 
   # The list-comprehension equivalent accepts and sorts identically.
-  let by_count_comp = [{count: acc.get(k) ?? 0, ext: k} for k in keys] |> sort-by .count
+  let by_count_comp = [{count: acc.get(k) ?? 0, ext: k} for k in keys] |> sort-by .count.require(Int)?
   assert by_count_comp == by_count
 }
 

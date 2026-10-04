@@ -270,6 +270,16 @@ impl TypeAnnRef {
     }
 }
 
+/// An `Any` expression a `.require(T)?` fix may follow.
+#[derive(Clone, Debug)]
+pub(super) struct DynamicRequireReceiver {
+    /// The expression must be parenthesized before the suffix.
+    grouped: bool,
+    /// The target a bare `.require()` infers at this position, which the
+    /// fix leaves implicit, as `lint.inferred-require-target` asks.
+    inferred: Option<Type>,
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum TypeDefBody {
     Parameterized(usize),
@@ -373,6 +383,9 @@ pub struct Checker {
     condition_proofs: FxHashMap<crate::syntax::arena::ExprId, Arc<proof::ConditionNarrowings>>,
     block_exit_bindings: FxHashMap<crate::syntax::arena::BlockId, FxHashMap<Name, Binding>>,
     proven_nonnull_fallback_receivers: BTreeSet<Span>,
+    /// How a `check.dynamic-boundary` fix appends `.require(T)?` to each
+    /// checked `Any` expression.
+    dynamic_require_receivers: FxHashMap<Span, DynamicRequireReceiver>,
     current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
     context_scope_depths: Vec<usize>,
@@ -679,6 +692,7 @@ impl Checker {
             condition_proofs: FxHashMap::default(),
             block_exit_bindings: FxHashMap::default(),
             proven_nonnull_fallback_receivers: BTreeSet::default(),
+            dynamic_require_receivers: FxHashMap::default(),
             current_namespace: None,
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),

@@ -1,13 +1,30 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, CallableParamType, CallableType, Checker, ContractParam, Diagnostic, Effect, Label,
+    BTreeMap, CallableParamType, CallableType, Checker, ContractParam, Diagnostic, Effect, FixHint, Label,
     ModuleContractEntryKind, ModuleExportType, Span, Type, TypeAnnRef, TypeDefBody,
 };
 use crate::sema::records::standard_record_type;
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{ArenaProgram, ArenaTypeExprTag, TypeExprId};
 use xsh_registry::types::BuiltinTypeName;
+
+/// The `.require(T)` spelling of a target type a dynamic-boundary fix can
+/// name. Structural records, nominal errors, handles, and callables have no
+/// spelling that is independent of the declaration in scope, so they get none.
+fn require_target_spelling(target: &Type) -> Option<String> {
+    let spelled = match target {
+        Type::Bool | Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Bytes | Type::Path => target.to_string(),
+        Type::Tag(name) if !name.as_str().contains('.') => name.to_string(),
+        Type::List(item) => format!("List[{}]", require_target_spelling(item)?),
+        Type::Map(key, value) if **key == Type::Str => format!("Map[{}]", require_target_spelling(value)?),
+        Type::Map(key, value) => format!("Map[{}, {}]", require_target_spelling(key)?, require_target_spelling(value)?),
+        Type::Optional(inner) if !matches!(**inner, Type::Optional(_)) => format!("{}?", require_target_spelling(inner)?),
+        Type::Any => "Any".to_owned(),
+        _ => return None,
+    };
+    Some(spelled)
+}
 
 impl Checker {
     pub(super) fn check_propagation(&mut self, ty: &Type, span: Span) -> Type {
@@ -169,10 +186,11 @@ impl Checker {
             return;
         }
         if actual.any_flows_to_concrete(expected) {
-            self.error(
+            let target = (*actual == Type::Any).then_some(expected);
+            self.report_dynamic_boundary(
+                format!("unchecked {actual} cannot establish {expected}; validate with `.require(Type)` or use a checked type pattern"),
+                target,
                 span,
-                &format!("unchecked {actual} cannot establish {expected}; validate with `.require(Type)` or use a checked type pattern"),
-                "check.dynamic-boundary",
             );
             return;
         }
@@ -187,6 +205,58 @@ impl Checker {
                     )),
             );
         }
+    }
+
+    /// Rejects an `Any` value used by an operation that interprets it: an
+    /// operand, a condition, a display, or a command word. `target` is the
+    /// one type the operation accepts here, when the context names one.
+    pub(super) fn reject_dynamic_use(&mut self, use_site: &str, target: Option<&Type>, span: Span) {
+        let message = match target {
+            Some(target) => format!("unchecked Any used as {use_site} must be validated as {target}; validate with `.require({target})` or use a checked type pattern"),
+            None => format!("unchecked Any used as {use_site} must be validated; validate with `.require(Type)` or use a checked type pattern"),
+        };
+        self.report_dynamic_boundary(message, target, span);
+    }
+
+    /// Reports `check.dynamic-boundary`. When the `Any` expression at `span`
+    /// was recorded and `target` has a source spelling, the fix appends
+    /// `.require(T)?`; it is offered only where that `?` may propagate an
+    /// `Error`, so applying it never introduces an effect or error mismatch.
+    fn report_dynamic_boundary(&mut self, message: String, target: Option<&Type>, span: Span) {
+        let mut diagnostic = Diagnostic::error(message.clone())
+            .with_code("check.dynamic-boundary")
+            .with_label(Label::primary(span, message));
+        if let Some(target) = target
+            && self.may_propagate_error()
+            && let Some(receiver) = self.dynamic_require_receivers.get(&span)
+            && let Some(spelled) = if receiver.inferred.as_ref() == Some(target) { Some(String::new()) } else { require_target_spelling(target) }
+        {
+            let message = format!("validate the dynamic value as {target}");
+            let grouped = receiver.grouped;
+            if grouped {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(Span::at(span.source_id, span.start()), message.clone(), "("));
+            }
+            let suffix = format!("{}.require({spelled})?", if grouped { ")" } else { "" });
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(Span::at(span.source_id, span.end()), message, suffix));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    /// Whether `?` on a `Result[_, Error]` checks here without a new
+    /// diagnostic; mirrors the context rules of `check_propagation`.
+    fn may_propagate_error(&self) -> bool {
+        if self.retry_attempt_depth > 0 { return true; }
+        let effects = self.current_effects.as_ref();
+        if effects.is_some_and(|effects| !effects.contains(&Effect::Error)) { return false; }
+        let context = effects.is_some()
+            || self.current_return.as_ref().is_none_or(Type::is_result)
+            || self.current_yield.is_some()
+            || (self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown));
+        let error_fits = match &self.current_return {
+            Some(Type::Result(_, error)) => Type::Error.matches_expected(error),
+            _ => true,
+        };
+        context && error_fits
     }
 
     /// `Record` alone cannot explain a mismatch between two records, so
