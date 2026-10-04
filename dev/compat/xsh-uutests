@@ -39,4 +39,10 @@ if [ ! -x "$applet" ] || [ -d "$applet" ]; then
 	exit 127
 fi
 
+# A runaway applet must fail its own test rather than exhaust the host: the
+# address-space cap is read from the stage (written by stage.py from
+# XSH_COMPAT_MEM_KB, default 3 GiB; "unlimited" disables it).
+limit=$(cat "$stage/mem-limit-kb" 2>/dev/null || echo 3145728)
+[ "$limit" = unlimited ] || ulimit -v "$limit" 2>/dev/null || true
+
 exec "$applet" "$@"

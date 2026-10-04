@@ -18,6 +18,9 @@
 #   uutils binary itself and do not apply.
 # - The framework clears the child environment, so the adapter is installed
 #   inside the stage and locates the stage from its own path.
+# - Each applet runs under an address-space cap (XSH_COMPAT_MEM_KB, default 3 GiB)
+#   and nextest runs UUTESTS_THREADS (default 3) tests at once: the host shares
+#   one memory cgroup with builds, and an unbounded applet gets the suite killed.
 # - Cross-utility calls (`scene.ccmd("touch")`) also dispatch to XSH. Tests that
 #   spawn host programs directly are listed in dev/compat/host-deps.json.
 set -eu
@@ -31,6 +34,12 @@ if [ "$want" != "$have" ]; then
 	echo "UUTILS_ROOT is at $have; dev/compat/upstream.lock.json pins $want" >&2
 	exit 2
 fi
+
+# uutils' build.rs declares docs/tldr.zip (a gitignored docs input for uudoc) as a
+# rerun trigger. While the file is missing cargo treats the test crate as dirty
+# on every invocation, which costs five minutes per run. An empty placeholder
+# keeps the fingerprint stable and changes no test behavior.
+[ -e "$uutils/docs/tldr.zip" ] || : >"$uutils/docs/tldr.zip"
 
 stage=${XSH_COMPAT_STAGE:-$repo/target/compat-stage}
 results=$repo/dev/compat/results
@@ -75,6 +84,12 @@ store-success-output = false
 store-failure-output = true
 EOF
 
+# Never convert a report this run did not produce: a killed nextest (the host's
+# memory cgroup OOM-kills it) would otherwise leave the previous run's JUnit in
+# place and publish its numbers as this run's.
+junit=$target/nextest/xsh/xsh-junit.xml
+rm -f "$junit"
+
 set +e
 (cd "$uutils" && \
 	UUTESTS_BINARY_PATH=$stage/xsh-uutests \
@@ -82,11 +97,16 @@ set +e
 	CARGO_TARGET_DIR=$target \
 	cargo nextest run --release --features feat_os_unix --test tests \
 		--config-file "$profile_dir/nextest-xsh.toml" --profile xsh \
-		--no-fail-fast -E "$filter")
+		--no-fail-fast --test-threads "${UUTESTS_THREADS:-3}" -E "$filter")
 status=$?
 set -e
 
-junit=$target/nextest/xsh/xsh-junit.xml
+# nextest exits 0 when every test passed and 100 when some failed; anything else
+# (137 after a kill, 101 for a build error) is a harness failure, not a result.
+if { [ "$status" -ne 0 ] && [ "$status" -ne 100 ]; } || [ ! -s "$junit" ]; then
+	echo "nextest exit status $status without a usable JUnit report; not updating results" >&2
+	exit 1
+fi
 cp "$junit" "$results/uutils-integration.junit.xml"
 python3 "$repo/dev/compat/results.py" uutils "$junit" "$results/uutils-integration.json" ${1+"$@"}
 echo "nextest exit status $status (failures are expected until parity; see the JSON summary)"

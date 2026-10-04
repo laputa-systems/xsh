@@ -38,6 +38,8 @@ want=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["uutils"]
 uu_build=${CARGO_TARGET_DIR:-$uutils/target}/release
 
 prepare() {
+	# See run-uutils.sh: a missing docs/tldr.zip makes cargo rebuild every time.
+	[ -e "$uutils/docs/tldr.zip" ] || : >"$uutils/docs/tldr.zip"
 	if [ ! -f "$gnu/configure" ]; then
 		mkdir -p "$gnu"
 		(cd "$gnu" && bash "$uutils/util/fetch-gnu.sh")

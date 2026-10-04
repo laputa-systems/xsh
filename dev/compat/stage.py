@@ -6,6 +6,7 @@ Layout written to STAGE (default: target/compat-stage):
     STAGE/bin/<applet>      core/<applet>.xsh with its shebang pointing at XSH_BIN
     STAGE/bin/lib/*.xsh     core/lib modules, adjacent so `use lib.x` resolves
     STAGE/bin/<alias>       symlink to its target applet (aliases.json)
+    STAGE/mem-limit-kb      address-space cap (KiB) the adapter applies to each applet
     STAGE/applets.json      the deterministic applet manifest for this stage
     STAGE/xsh-uutests       the uutils multicall adapter; it finds the stage from its own
                             path because the uutils framework clears the environment
@@ -94,6 +95,7 @@ def main() -> int:
     adapter = stage / "xsh-uutests"
     shutil.copy(REPO / "dev" / "compat" / "xsh-uutests", adapter)
     adapter.chmod(0o755)
+    (stage / "mem-limit-kb").write_text(os.environ.get("XSH_COMPAT_MEM_KB", "3145728") + "\n")
     (stage / "applets.json").write_text(json.dumps(manifest(names, aliases), indent=2) + "\n")
 
     if args.gnu_programs:
