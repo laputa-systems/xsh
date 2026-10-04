@@ -4,6 +4,8 @@ pub mod api;
 pub mod app;
 #[path = "cli/mod.rs"]
 pub mod cli;
+#[path = "commands.rs"]
+pub(crate) mod commands;
 #[path = "config.rs"]
 pub(crate) mod config;
 #[path = "edit.rs"]

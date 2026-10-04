@@ -4,6 +4,7 @@ use crate::xsht::cli::{
     ast_script, check_paths_with_summary_options, format_files, grep_scripts, lint_files,
     refactor_scripts, trace_script,
 };
+use crate::xsht::commands::{self, ParsedArgs};
 use crate::xsht::help::{command_help as generated_command_help, root_help};
 use crate::xsht::test::{TestOptions, install_test_cancellation_signal_handlers, test_scripts};
 use std::process::ExitCode;
@@ -244,35 +245,35 @@ fn command_help_text(command: &str) -> String {
     help_for_command(command).expect("help metadata must cover every parsed command")
 }
 
-fn parse_check(args: &[String]) -> Result<Command, String> {
-    let mut summary = false;
-    let mut annotation_selection = None;
-    let mut paths = Vec::new();
-    for arg in args {
-        match arg.as_str() {
-            "--strict" => return Err("`xsht check --strict` was removed; dynamic boundaries are checked by default; remove `--strict`".to_string()),
-            "--summary" => summary = true,
-            "--annotate" => annotation_selection = Some(AnnotationSelection::Configured),
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("check"))),
-            other if other.starts_with("--annotate=") => {
-                let value = other
-                    .strip_prefix("--annotate=")
-                    .expect("checked annotation prefix");
-                annotation_selection = Some(AnnotationSelection::Policy(
-                    AnnotationPolicy::from_arg(value)
-                        .map_err(|message| format!("invalid `xsht check --annotate`: {message}"))?,
-                ));
-            }
-            other if other.starts_with('-') => {
-                return Err(format!("unknown `xsht check` option '{other}'"));
-            }
-            _ => paths.push(arg.clone()),
-        }
+/// Sorts the command's arguments through its declared options; `build`
+/// interprets them. `-h` and `--help` produce the command's help instead.
+fn parse_command(
+    name: &str,
+    args: &[String],
+    build: impl FnOnce(ParsedArgs) -> Result<Command, String>,
+) -> Result<Command, String> {
+    let spec = commands::find(name).expect("every parsed command is declared in the table");
+    match commands::parse_command_args(spec, args)? {
+        commands::Parsed::Help => Ok(Command::Help(command_help_text(name))),
+        commands::Parsed::Args(parsed) => build(parsed),
     }
-    Ok(Command::Check {
-        paths,
-        annotation_selection,
-        summary,
+}
+
+fn parse_check(args: &[String]) -> Result<Command, String> {
+    parse_command("check", args, |parsed| {
+        let annotation_selection = match parsed.occurrences("--annotate").last() {
+            None => None,
+            Some(None) => Some(AnnotationSelection::Configured),
+            Some(Some(value)) => Some(AnnotationSelection::Policy(
+                AnnotationPolicy::from_arg(value)
+                    .map_err(|message| format!("invalid `xsht check --annotate`: {message}"))?,
+            )),
+        };
+        Ok(Command::Check {
+            summary: parsed.flag("--summary"),
+            annotation_selection,
+            paths: parsed.positionals,
+        })
     })
 }
 
@@ -295,189 +296,104 @@ fn parse_test_timeout(value: &str) -> Result<Option<std::time::Duration>, String
 }
 
 fn parse_test(args: &[String]) -> Result<Command, String> {
-    let mut filter = None;
-    let mut list = false;
-    let mut exact = false;
-    let mut coverage = false;
-    let mut jobs = None;
-    let mut timeout = Some(DEFAULT_TEST_TIMEOUT);
-    let mut nocapture = false;
-    let mut fail_fast = false;
-    let mut keep_temp = false;
-    let mut coverage_json_out = None;
-    let mut api = false;
-    let mut iter = args.iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("test"))),
-            "--list" => list = true,
-            "--exact" => exact = true,
-            "--cov" => coverage = true,
-            "--api" => api = true,
-            "--jobs" | "-j" => {
-                let value = iter
-                    .next()
-                    .ok_or_else(|| "`--jobs` requires N".to_string())?;
-                let n = value
-                    .parse::<usize>()
-                    .map_err(|_| "`--jobs` must be a positive integer".to_string())?;
-                if n == 0 {
-                    return Err("`--jobs` must be a positive integer".to_string());
-                }
-                jobs = Some(n);
-            }
-            "--timeout" => {
-                let value = iter
-                    .next()
-                    .ok_or_else(|| "`--timeout` requires DURATION".to_string())?;
-                timeout = parse_test_timeout(value)?;
-            }
-            "--nocapture" => nocapture = true,
-            "--fail-fast" => fail_fast = true,
-            "--keep-temp" => keep_temp = true,
-            "--cov-json" => {
-                coverage_json_out = Some(
-                    iter.next()
-                        .ok_or_else(|| "`--cov-json` requires FILE".to_string())?
-                        .clone(),
-                );
-            }
-            other if other.starts_with('-') => {
-                return Err(format!("unknown `xsht test` option '{other}'"));
-            }
-            other => {
-                if filter.is_some() {
-                    return Err("`xsht test` accepts at most one FILTER".to_string());
-                }
-                filter = Some(other.to_string());
-            }
+    parse_command("test", args, |parsed| {
+        let jobs = parsed
+            .value("--jobs")
+            .map(|value| match value.parse::<usize>() {
+                Ok(n) if n > 0 => Ok(n),
+                _ => Err("`--jobs` must be a positive integer".to_string()),
+            })
+            .transpose()?;
+        let timeout = match parsed.value("--timeout") {
+            Some(value) => parse_test_timeout(value)?,
+            None => Some(DEFAULT_TEST_TIMEOUT),
+        };
+        let coverage = parsed.flag("--cov");
+        let api = parsed.flag("--api");
+        if api && !coverage {
+            return Err("`--api` requires `--cov`".to_string());
         }
-    }
-
-    if api && !coverage {
-        return Err("`--api` requires `--cov`".to_string());
-    }
-
-    Ok(Command::Test {
-        options: TestOptions {
-            filter,
-            list,
-            exact,
-            nocapture,
-            fail_fast,
-            keep_temp,
-            jobs,
-            timeout,
-            coverage,
-            api,
-            coverage_json_out,
-        },
+        let mut positionals = parsed.positionals.iter();
+        let filter = positionals.next().cloned();
+        if positionals.next().is_some() {
+            return Err("`xsht test` accepts at most one FILTER".to_string());
+        }
+        Ok(Command::Test {
+            options: TestOptions {
+                filter,
+                list: parsed.flag("--list"),
+                exact: parsed.flag("--exact"),
+                nocapture: parsed.flag("--nocapture"),
+                fail_fast: parsed.flag("--fail-fast"),
+                keep_temp: parsed.flag("--keep-temp"),
+                jobs,
+                timeout,
+                coverage,
+                api,
+                coverage_json_out: parsed.value("--cov-json").map(str::to_string),
+            },
+        })
     })
 }
 
 fn parse_ast(args: &[String]) -> Result<Command, String> {
-    if matches!(args.first().map(String::as_str), Some("--help" | "-h")) {
-        return Ok(Command::Help(command_help_text("ast")));
-    }
-    let script = args
-        .first()
-        .ok_or_else(|| "`xsht ast` requires SCRIPT".to_string())?;
-    if args.len() > 1 {
-        return Err("`xsht ast` accepts exactly one SCRIPT".to_string());
-    }
-    Ok(Command::Ast {
-        script: script.clone(),
+    parse_command("ast", args, |parsed| match parsed.positionals.as_slice() {
+        [] => Err("`xsht ast` requires SCRIPT".to_string()),
+        [script] => Ok(Command::Ast {
+            script: script.clone(),
+        }),
+        _ => Err("`xsht ast` accepts exactly one SCRIPT".to_string()),
     })
 }
 
 fn parse_api(args: &[String]) -> Result<Command, String> {
-    let mut queries = Vec::new();
-    let mut summary = false;
-    let mut query_files = Vec::new();
-    let mut read_stdin = false;
-    let mut format = ApiFormat::Text;
-    let mut strict = false;
-    let mut details = None;
-    let mut index = 0;
-
-    while let Some(arg) = args.get(index) {
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("api"))),
-            "summary" => {
-                if summary {
-                    return Err("`xsht api` accepts `summary` at most once".to_string());
-                }
+    parse_command("api", args, |parsed| {
+        let mut queries = Vec::new();
+        let mut summary = false;
+        for positional in &parsed.positionals {
+            if positional != "summary" {
+                queries.push(positional.clone());
+            } else if summary {
+                return Err("`xsht api` accepts `summary` at most once".to_string());
+            } else {
                 summary = true;
             }
-            "--strict" => strict = true,
-            "--stdin" => read_stdin = true,
-            "--format" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| "`xsht api --format` requires text or jsonl".to_string())?;
-                format = parse_api_format(value)?;
-                index += 1;
-            }
-            option if option.starts_with("--format=") => {
-                let value = option
-                    .strip_prefix("--format=")
-                    .expect("checked format prefix");
-                format = parse_api_format(value)?;
-            }
-            "--details" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| "`xsht api --details` requires basic or full".to_string())?;
-                details = Some(parse_api_details(value)?);
-                index += 1;
-            }
-            option if option.starts_with("--details=") => {
-                let value = option
-                    .strip_prefix("--details=")
-                    .expect("checked details prefix");
-                details = Some(parse_api_details(value)?);
-            }
-            "--query-file" => {
-                let path = args
-                    .get(index + 1)
-                    .ok_or_else(|| "`xsht api --query-file` requires PATH".to_string())?;
-                query_files.push(path.clone());
-                index += 1;
-            }
-            option if option.starts_with("--query-file=") => {
-                let path = option
-                    .strip_prefix("--query-file=")
-                    .expect("checked query-file prefix");
-                if path.is_empty() {
-                    return Err("`xsht api --query-file` requires PATH".to_string());
-                }
-                query_files.push(path.to_string());
-            }
-            option if option.starts_with('-') => {
-                return Err(format!("unknown `xsht api` option '{option}'"));
-            }
-            _ => queries.push(arg.clone()),
         }
-        index += 1;
-    }
+        let format = match parsed.value("--format") {
+            Some(value) => parse_api_format(value)?,
+            None => ApiFormat::Text,
+        };
+        let details = parsed
+            .value("--details")
+            .map(parse_api_details)
+            .transpose()?;
+        let query_files: Vec<String> = parsed
+            .values("--query-file")
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        if query_files.iter().any(String::is_empty) {
+            return Err("`xsht api --query-file` requires PATH".to_string());
+        }
+        let read_stdin = parsed.flag("--stdin");
 
-    if summary && (!queries.is_empty() || !query_files.is_empty() || read_stdin) {
-        return Err(
-            "`xsht api summary` cannot be combined with selectors or query inputs".to_string(),
-        );
-    }
+        if summary && (!queries.is_empty() || !query_files.is_empty() || read_stdin) {
+            return Err(
+                "`xsht api summary` cannot be combined with selectors or query inputs".to_string(),
+            );
+        }
 
-    Ok(Command::Api {
-        options: ApiOptions {
-            summary,
-            queries,
-            query_files,
-            read_stdin,
-            format,
-            strict,
-            details,
-        },
+        Ok(Command::Api {
+            options: ApiOptions {
+                summary,
+                queries,
+                query_files,
+                read_stdin,
+                format,
+                strict: parsed.flag("--strict"),
+                details,
+            },
+        })
     })
 }
 
@@ -498,153 +414,74 @@ fn parse_api_details(value: &str) -> Result<ApiDetails, String> {
 }
 
 fn parse_trace(args: &[String]) -> Result<Command, String> {
-    let mut index = 0;
-    let mut raw = false;
-    let mut format = TraceFormat::Text;
-    let mut file = None;
-    let mut syscalls = false;
-    let mut top_syscalls = 8usize;
-
-    while let Some(arg) = args.get(index) {
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("trace"))),
-            "--raw" => {
-                raw = true;
-                index += 1;
+    parse_command("trace", args, |parsed| {
+        let format = match parsed.value("--trace-format") {
+            None | Some("text") => TraceFormat::Text,
+            Some("jsonl") => TraceFormat::Jsonl,
+            Some("flamegraph") => TraceFormat::Flamegraph,
+            Some(_) => {
+                return Err("`--trace-format` must be `text`, `jsonl`, or `flamegraph`".to_string());
             }
-            "--trace-format" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| "`--trace-format` requires a value".to_string())?;
-                format = match value.as_str() {
-                    "text" => TraceFormat::Text,
-                    "jsonl" => TraceFormat::Jsonl,
-                    "flamegraph" => TraceFormat::Flamegraph,
-                    _ => {
-                        return Err(
-                            "`--trace-format` must be `text`, `jsonl`, or `flamegraph`".to_string()
-                        );
-                    }
-                };
-                index += 2;
-            }
-            "--trace-file" => {
-                file = Some(
-                    args.get(index + 1)
-                        .ok_or_else(|| "`--trace-file` requires PATH".to_string())?
-                        .clone(),
-                );
-                index += 2;
-            }
-            "--syscalls" => {
-                syscalls = true;
-                index += 1;
-            }
-            "--trace-top-syscalls" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| "`--trace-top-syscalls` requires N".to_string())?;
-                top_syscalls = value
-                    .parse::<usize>()
-                    .map_err(|_| "`--trace-top-syscalls` must be a positive integer".to_string())?;
-                if top_syscalls == 0 {
-                    return Err("`--trace-top-syscalls` must be a positive integer".to_string());
-                }
-                index += 2;
-            }
-            other if other.starts_with('-') => {
-                return Err(format!("unknown `xsht trace` option '{other}'"));
-            }
-            _ => break,
-        }
-    }
-
-    let script = args
-        .get(index)
-        .ok_or_else(|| "`xsht trace` requires SCRIPT".to_string())?
-        .clone();
-    index += 1;
-    let script_args = if matches!(args.get(index).map(String::as_str), Some("--")) {
-        args[index + 1..].to_vec()
-    } else {
-        args[index..].to_vec()
-    };
-
-    Ok(Command::Trace {
-        options: TraceOptions {
-            script,
-            args: script_args,
-            raw,
-            format,
-            file,
-            syscalls,
-            top_syscalls,
-        },
+        };
+        let top_syscalls = match parsed.value("--trace-top-syscalls") {
+            None => 8,
+            Some(value) => match value.parse::<usize>() {
+                Ok(n) if n > 0 => n,
+                _ => return Err("`--trace-top-syscalls` must be a positive integer".to_string()),
+            },
+        };
+        let Some((script, script_args)) = parsed.positionals.split_first() else {
+            return Err("`xsht trace` requires SCRIPT".to_string());
+        };
+        let script_args = match script_args {
+            [separator, rest @ ..] if separator == "--" => rest,
+            all => all,
+        };
+        Ok(Command::Trace {
+            options: TraceOptions {
+                script: script.clone(),
+                args: script_args.to_vec(),
+                raw: parsed.flag("--raw"),
+                format,
+                file: parsed.value("--trace-file").map(str::to_string),
+                syscalls: parsed.flag("--syscalls"),
+                top_syscalls,
+            },
+        })
     })
 }
 
 fn parse_lint(args: &[String]) -> Result<Command, String> {
-    let mut files = Vec::new();
-    let mut fix = false;
-    let mut runless = false;
-    let mut only: Option<Vec<String>> = None;
-    let mut list = false;
-    let mut format: Option<String> = None;
-
-    let mut args = args.iter();
-    while let Some(arg) = args.next() {
-        let selection = match arg.as_str() {
-            "--only" => Some(args.next().ok_or("`xsht lint --only` requires RULE[,RULE...]")?.as_str()),
-            other => other.strip_prefix("--only="),
-        };
-        if let Some(selection) = selection {
+    parse_command("lint", args, |parsed| {
+        let mut only: Option<Vec<String>> = None;
+        for selection in parsed.values("--only") {
             for code in selection.split(',') {
                 if !crate::xsht::lint::lint_code_known(code) {
                     return Err(format!("unknown lint rule '{code}' for `xsht lint --only`"));
                 }
                 only.get_or_insert_with(Vec::new).push(code.to_owned());
             }
-            continue;
         }
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("lint"))),
-            "--fix" => fix = true,
-            "--runless" => runless = true,
-            "--list" => list = true,
-            "--format" => {
-                format = Some(
-                    args.next()
-                        .ok_or("`xsht lint --format` requires text or jsonl")?
-                        .clone(),
-                )
-            }
-            other if other.starts_with("--format=") => {
-                format = Some(other["--format=".len()..].to_owned())
-            }
-            other if other.starts_with('-') => {
-                return Err(format!("unknown `xsht lint` option '{other}'"));
-            }
-            _ => files.push(arg.clone()),
-        }
-    }
+        let fix = parsed.flag("--fix");
+        let runless = parsed.flag("--runless");
+        let format = parsed.value("--format");
 
-    if list {
-        if fix || runless || only.is_some() || !files.is_empty() {
-            return Err("`xsht lint --list` accepts only --format".to_string());
+        if parsed.flag("--list") {
+            if fix || runless || only.is_some() || !parsed.positionals.is_empty() {
+                return Err("`xsht lint --list` accepts only --format".to_string());
+            }
+            return Ok(Command::Text(lint_code_list(format.unwrap_or("text"))?));
         }
-        return Ok(Command::Text(lint_code_list(
-            format.as_deref().unwrap_or("text"),
-        )?));
-    }
-    if format.is_some() {
-        return Err("`xsht lint --format` requires --list".to_string());
-    }
+        if format.is_some() {
+            return Err("`xsht lint --format` requires --list".to_string());
+        }
 
-    Ok(Command::Lint {
-        files,
-        fix,
-        runless,
-        only,
+        Ok(Command::Lint {
+            files: parsed.positionals,
+            fix,
+            runless,
+            only,
+        })
     })
 }
 
@@ -680,77 +517,43 @@ fn lint_code_list(format: &str) -> Result<String, String> {
 }
 
 fn parse_fmt(args: &[String]) -> Result<Command, String> {
-    let mut check = false;
-    let mut files = Vec::new();
-
-    for arg in args {
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("fmt"))),
-            "--check" => check = true,
-            other if other.starts_with('-') => {
-                return Err(format!("unknown `xsht fmt` option '{other}'"));
-            }
-            _ => files.push(arg.clone()),
-        }
-    }
-
-    Ok(Command::Fmt { files, check })
+    parse_command("fmt", args, |parsed| {
+        Ok(Command::Fmt {
+            check: parsed.flag("--check"),
+            files: parsed.positionals,
+        })
+    })
 }
 
 fn parse_grep(args: &[String]) -> Result<Command, String> {
-    let mut files = Vec::new();
-    let mut pattern: Option<String> = None;
-
-    for arg in args {
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("grep"))),
-            other if other.starts_with('-') => {
-                return Err(format!("unknown `xsht grep` option '{other}'"));
-            }
-            _ => {
-                if pattern.is_none() {
-                    pattern = Some(arg.clone());
-                } else {
-                    files.push(arg.clone());
-                }
-            }
-        }
-    }
-
-    let pattern = pattern.ok_or_else(|| "`xsht grep` requires PATTERN".to_string())?;
-    Ok(Command::Grep { pattern, files })
+    parse_command("grep", args, |parsed| {
+        let mut positionals = parsed.positionals.into_iter();
+        let pattern = positionals
+            .next()
+            .ok_or_else(|| "`xsht grep` requires PATTERN".to_string())?;
+        Ok(Command::Grep {
+            pattern,
+            files: positionals.collect(),
+        })
+    })
 }
 
 fn parse_refactor(args: &[String]) -> Result<Command, String> {
-    let mut positional: Vec<String> = Vec::new();
-    let mut dry_run = false;
-
-    for arg in args {
-        match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(command_help_text("refactor"))),
-            "--dry-run" => dry_run = true,
-            other if other.starts_with('-') => {
-                return Err(format!("unknown `xsht refactor` option '{other}'"));
-            }
-            _ => positional.push(arg.clone()),
-        }
-    }
-
-    let pattern = positional
-        .first()
-        .ok_or_else(|| "`xsht refactor` requires PATTERN".to_string())?
-        .clone();
-    let replacement = positional
-        .get(1)
-        .ok_or_else(|| "`xsht refactor` requires REPLACEMENT".to_string())?
-        .clone();
-    let files = positional.into_iter().skip(2).collect();
-
-    Ok(Command::Refactor {
-        pattern,
-        replacement,
-        files,
-        dry_run,
+    parse_command("refactor", args, |parsed| {
+        let dry_run = parsed.flag("--dry-run");
+        let mut positionals = parsed.positionals.into_iter();
+        let pattern = positionals
+            .next()
+            .ok_or_else(|| "`xsht refactor` requires PATTERN".to_string())?;
+        let replacement = positionals
+            .next()
+            .ok_or_else(|| "`xsht refactor` requires REPLACEMENT".to_string())?;
+        Ok(Command::Refactor {
+            pattern,
+            replacement,
+            files: positionals.collect(),
+            dry_run,
+        })
     })
 }
 
@@ -767,4 +570,21 @@ fn finish(output: CliOutput) -> ExitCode {
         eprint!("{}", output.trace_text);
     }
     ExitCode::from(output.status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_declared_command_is_dispatched_to_its_own_parser() {
+        for command in commands::COMMANDS {
+            let parsed = parse_tool(vec![command.name.to_string(), "--help".to_string()])
+                .unwrap_or_else(|error| panic!("`xsht {} --help`: {error}", command.name));
+            let Command::Help(text) = parsed else {
+                panic!("`xsht {} --help` did not print help", command.name);
+            };
+            assert_eq!(Some(text), generated_command_help(command.name));
+        }
+    }
 }
