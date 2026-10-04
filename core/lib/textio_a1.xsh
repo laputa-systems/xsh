@@ -135,3 +135,96 @@ export proc is_unsafe_overwrite(source: Source, out: Str, written: Int) [fs, err
 
   Ok(if output.append { position < size } else { position < output.pos + written })
 }
+
+## The largest count GNU `head` and `tail` clamp an overflowing number to.
+export const MAX_COUNT = 9223372036854775807
+
+## Parse an unsigned count with a GNU size suffix (`b`, `K`, `KiB`, `kB`, `M`,
+## ..., `Q`); an overflowing value clamps to `MAX_COUNT`. Returns null for
+## text that is not a count.
+export pure parse_count(text: Str) -> Int? {
+  let parts = rx"^([0-9]*)(.*)$".captures(text)
+  let digits = parts[1]
+  let suffix = parts[2]
+
+  return null when digits == "" and suffix == ""
+
+  let number = if digits == "" { 1 } else if digits.byte_len() > 18 { MAX_COUNT } else { digits.parse_int() ?? 0 }
+  var factor = 1
+
+  if suffix == "b" {
+    factor = 512
+  } else if suffix != "" {
+    let lead = suffix[0..1]
+    let rest = suffix[1..]
+    let known = lead in ["K", "k", "M", "m", "G", "T", "P", "E", "Z", "Y", "R", "Q"] and rest in ["", "iB", "B", "D"]
+
+    return null when ! known
+
+    let exponent = ("KMGTPEZYRQ".find(lead.upper()) ?? 0) + 1
+    let base = if rest == "B" or rest == "D" { 1000 } else { 1024 }
+
+    return MAX_COUNT when number > 0 and exponent > 6
+
+    for _ in range(exponent) {
+      factor *= base
+    }
+  }
+
+  return MAX_COUNT when number > MAX_COUNT / factor
+
+  number * factor
+}
+
+## Offsets just past each line separator in `data`: newline by default, NUL
+## with `zero`. `lines()` drops the CR of a CRLF, so a newline is recognized
+## from the bytes after each line.
+export pure line_ends(data: Bytes, zero: Bool) -> List[Int] {
+  var ends: List[Int] = []
+
+  if zero {
+    for index in range(data.len()) {
+      if data.byte_at(index) == 0 {
+        ends += [index + 1]
+      }
+    }
+
+    return ends
+  }
+
+  var position = 0
+
+  for item in data.lines() {
+    let end = position + item.len()
+    let after = data.byte_at(end) ?? -1
+    let crlf = after == 13 and (data.byte_at(end + 1) ?? -1) == 10
+
+    if after == 10 or crlf {
+      ends += [if crlf { end + 2 } else { end + 1 }]
+    }
+
+    position = end + (if crlf { 2 } else { 1 })
+  }
+
+  ends
+}
+
+## Drop GNU's undocumented `---presume-input-pipe` (it only selects the
+## algorithm for seekable input, never the result); the cli grammar cannot
+## declare an option name that starts with a dash.
+export pure without_presume_pipe(argv: List[Str]) -> List[Str] {
+  var kept: List[Str] = []
+  var options = true
+
+  for item in argv {
+    if item == "--" {
+      options = false
+    }
+
+    if ! (options and item == "---presume-input-pipe") {
+      kept += [item]
+    }
+  }
+
+  kept
+}
