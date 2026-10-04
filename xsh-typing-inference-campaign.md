@@ -26,7 +26,7 @@ is in git; see `git log -- xsh-typing-inference-campaign.md`.
 
 ## Remaining items
 
-Done and removed from this list: `Any` validation (`.require`), discarded values are errors everywhere, the mistake corpus, `{expr}` f-strings, the xsht CLI command table, tail mismatch, the soundness fuzzer (`make fuzz`; fuzzing is wound down), lowering drift, the provable formatter and grouping rules, the docs pipeline (`make docs`, the `template` module, the templated tour), regex anchors, parser bugs, test speed and release-only test binaries.
+Done and removed from this list: grammar derivation (`src/syntax/grammar.rs`), parser leftovers, `par-map` `?` propagation, handled-error tracebacks, `module.load` reloads, `Any` validation (`.require`), discarded values are errors everywhere, the mistake corpus, `{expr}` f-strings, the xsht CLI command table, tail mismatch, the soundness fuzzer (`make fuzz`; fuzzing is wound down), lowering drift, the provable formatter and grouping rules, the docs pipeline (`make docs`, the `template` module, the templated tour), regex anchors, parser bugs, test speed and release-only test binaries.
 
 ## Diagnostics and grouping (remaining)
 
@@ -42,28 +42,6 @@ Done and removed from this list: `Any` validation (`.require`), discarded values
 
 - **Small fixes found by the fuzz lane.**
   - The formatter is not idempotent on `fn2(...{p0: if … })`.
-
-## Grammar derivation (running)
-
-There is one typed grammar definition, `src/syntax/grammar.rs`, and nothing
-else is maintained by hand. Today the EBNF in SPEC Appendix A is
-documentation only; no code reads it.
-
-- **Grammar as data:** productions, terminals, keyword and operator sets,
-  precedence and associativity, continuation tokens, literal prefixes and
-  stage kinds.
-- **The parser reads those tables** (binding powers, keyword dispatch,
-  continuation, literal kinds) from the grammar data. It stops keeping its
-  own copies.
-- **Generated docs:** `make docs` renders `docs/reference/grammar.md`, SPEC
-  Appendix A becomes a link to it, and `docs-check` fails on drift.
-- **Structural productions are proven equal in both directions on every
-  test run:**
-  - every sentence generated from the grammar parses without diagnostics;
-  - every corpus file and every fuzz-generated program, lexed with the real
-    lexer, is recognized by an Earley recognizer over the same grammar data.
-- **The hand-written parser stays,** with its error recovery and its
-  diagnostics.
 
 ## Single sources of truth (queued)
 
