@@ -328,6 +328,62 @@ For subcommands, dynamic schemas, or other advanced policies, use `cli.parse`,
 at the top level prints usage and exits `2` (or `0` for help) without a
 traceback.
 
+**GNU mode.** A schema for `cli.applet`, `cli.parse`, or `cli.parse_full` that
+contains a `gnu` record selects GNU `getopt_long` behavior; without it nothing
+changes. The `gnu` field is configuration, not an option, and does not appear
+in the result.
+
+```xsh
+{{.spec.cli_gnu.source}}
+```
+
+- `gnu` fields: `prog: Str` (diagnostic prefix; defaults to the basename of the
+  command name, which is the script path as invoked, so symlinked aliases name
+  themselves), `status: Int` (exit status for usage errors, `0..=255`, default
+  `1`; `ls`, `cmp`, `diff`, and `grep` use `2`, and `env`, `nice`, `nohup`,
+  `timeout`, `stdbuf`, and `chroot` use `125`), `permute: Bool` (default
+  `true`), and `unsupported: Record`. Unknown fields are rejected.
+- Short options bundle (`-abc`) and take attached or separate values (`-n5`,
+  `-n 5`). A required value is always the next argument, even when it starts
+  with `-` (`nice -n -5`). An optional value attaches only: `--color[=WHEN]`,
+  or `-x[ARG]` declared with `optional_value: true`; an option declared
+  `flag: true` with a non-`Bool` kind accepts an attached value the same way. `--opt=value`, `--opt value`, and `--`
+  follow `getopt_long`; a lone `-` is an operand.
+- A long option may be abbreviated to any unambiguous prefix; an exact name
+  always wins over a longer candidate, and aliases of one option never conflict.
+  An ambiguous prefix is an error that lists the candidates in alphabetical
+  order. A long name matches as written after `--`; `_` in a declared name is
+  spelled `-`.
+- Repeating an option is legal: the last value of a scalar wins, switches stay
+  `true`, and an option declared `repeated: true` or with a `List[T]` kind
+  collects every occurrence. `conflicts` resets the earlier option, so the last
+  of two conflicting options wins.
+- Options and operands may interleave. The first operand ends option parsing
+  when the environment defines `POSIXLY_CORRECT` or the `gnu` record sets
+  `permute: false`.
+- `numeric: true` on a value option makes digit runs in a short cluster set
+  it: `-5` and `-12v` give the option the value `5` and `12`. A declared short
+  option with the same digit takes precedence.
+- `stop: true` ends parsing successfully right after the option, before later
+  arguments are read or required operands are checked. Declare `--help` and
+  `--version` this way: GNU mode has no automatic `-h` or `--help`, and both
+  are ordinary options the applet reads from the record.
+- `unsupported` maps `"--name"` or `"-x"` to a reason. Meeting that option
+  fails with `option '--name' is not supported: REASON`; it is never ignored
+  and takes part in abbreviation.
+- Errors stop at the first problem in command-line order. Each prints the
+  `getopt_long` wording on stderr, prefixed `PROG: `, then
+  `Try 'PHRASE --help' for more information.`, and exits with `status` without
+  a traceback. `PHRASE` is `XSH_EXECUTION_PHRASE` when set, otherwise `PROG`.
+  The wordings are `invalid option -- 'x'`, `unrecognized option '--foo'`,
+  `option requires an argument -- 'n'`, `option '--foo' requires an argument`,
+  `option '--foo' doesn't allow an argument`, and
+  `option '--al' is ambiguous; possibilities: '--all' '--almost-all'`. After
+  option parsing, a surplus operand is `extra operand 'X'`, a missing required
+  operand is `missing operand`, and a value that does not convert or fails its
+  descriptor checks is `invalid argument 'V' for '--opt'`. Applets that need
+  utility-specific value wording declare `Str` options and validate them.
+
 ### 3.3 Modules
 
 `use name` imports a module and binds exactly one namespace, `name`;

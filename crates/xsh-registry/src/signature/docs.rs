@@ -360,7 +360,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("cli", "applet") => Some((
             "Parses BusyBox-style applet arguments and compact option forms.",
-            "Use for shipped command scripts that need compatibility flags rather than inventing local argv parsing.",
+            "Use for shipped command scripts that need compatibility flags rather than inventing local argv parsing. A `gnu` record in the schema selects GNU getopt_long grammar and diagnostics (bundling, abbreviations, permutation, `numeric`, `stop`, `unsupported`, per-utility exit status); see the CLI section of the specification.",
             &["cli", "applet", "argv"],
         )),
         ("cli", "commands") => Some((
