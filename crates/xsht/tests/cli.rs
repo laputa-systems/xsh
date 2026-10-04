@@ -24,7 +24,7 @@ fn cli_workers_check_and_lint_nested_schema_constructors_without_stack_environme
     source.push_str(&format!("pure build() -> {previous} {{ {constructor} }}\nlet value = build()\nlet _ = value\n"));
     fs::write(&script, &source).expect("write nested constructors");
     for command in ["check", "lint"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(release_bin!("xsht"))
             .args([command, "nested.xsh"])
             .current_dir(root.path())
             .env_remove("RUST_MIN_STACK")
@@ -46,7 +46,7 @@ fn mixed_enum_and_record_require_migration_rechecks_import_graph_and_converges_i
     let module = root.path().join("choice.xsh");
     fs::write(&module, "##! Choices.\n## A nominal choice.\nexport type Choice = Selected(Int) | Empty # retained café\n").unwrap();
     fs::write(&entry, "use choice as c\n## A name.\nexport type Name = {name: Str}\nlet _ = record.require({name: \"café\"}, {name: \"Str\"})? # retained receiver\nlet choice: c.Choice = c.Selected(7)\nprint \"café\"\nmatch choice { c.Selected(number) => print $number; c.Empty => print \"empty\" }\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
         .args(arguments).current_dir(root.path()).output().unwrap();
     let before = run(&["check", "entry.xsh"]);
     assert!(!before.status.success());
@@ -88,7 +88,7 @@ fn mixed_enum_and_record_require_migration_refuses_unproved_identity() {
     let entry_source = "use choice as c\ntype Name = {name: Str}\nlet _ = record.require({name: 7}, {name: \"Str\"})?\nlet choice: c.Choice = c.Selected(7)\n";
     fs::write(&entry, entry_source).unwrap();
     fs::write(&module, module_source).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(!output.status.success());
     let diagnostic_text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
@@ -118,7 +118,7 @@ fn mixed_enum_and_record_require_migration_refuses_unrelated_import_graph_errors
         };
         fs::write(&entry, &entry_source).unwrap();
         fs::write(&module, &module_source).unwrap();
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(release_bin!("xsht"))
             .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
         assert!(!output.status.success());
         assert!(String::from_utf8_lossy(&output.stderr).contains(expected_code), "{}", String::from_utf8_lossy(&output.stderr));
@@ -132,7 +132,7 @@ fn removed_record_require_cli_fix_rechecks_and_converges_in_stages() {
     let root = TempDir::new().expect("record migration fixture");
     let entry = root.path().join("entry.xsh");
     fs::write(&entry, "export type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint $value.name\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
         .args(arguments).current_dir(root.path()).output().unwrap();
     let before = run(&["check", "entry.xsh"]);
     assert_eq!(before.status.code(), Some(2));
@@ -167,7 +167,7 @@ fn removed_record_require_cli_fix_preserves_unrelated_errors_and_comments() {
         let root = TempDir::new().unwrap();
         let entry = root.path().join("entry.xsh");
         fs::write(&entry, source).unwrap();
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(release_bin!("xsht"))
             .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
         assert!(!output.status.success());
         assert_eq!(source, fs::read_to_string(&entry).unwrap());
@@ -177,7 +177,7 @@ fn removed_record_require_cli_fix_preserves_unrelated_errors_and_comments() {
 #[test]
 fn check_strict_option_reports_default_dynamic_policy_before_loading() {
     let root = TempDir::new().expect("temporary option fixture");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "--strict", "missing.xsh"])
         .current_dir(root.path())
         .output()
@@ -189,7 +189,7 @@ fn check_strict_option_reports_default_dynamic_policy_before_loading() {
     assert!(stderr.contains("dynamic boundaries are checked by default"), "{stderr}");
     assert!(!stderr.contains("failed to read"), "{stderr}");
 
-    let help = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let help = Command::new(release_bin!("xsht"))
         .args(["check", "--help"])
         .output()
         .expect("run check help");
@@ -203,7 +203,7 @@ fn check_dynamic_boundary_rejects_disk_fixture_without_annotation_writes() {
     let source = include_str!("../../../tests/fixtures/sema/invalid/unchecked-json-boundary.xsh");
     let fixture = root.path().join("boundary.xsh");
     fs::write(&fixture, source).expect("copy boundary fixture");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "--annotate", "boundary.xsh"])
         .current_dir(root.path())
         .output()
@@ -220,7 +220,7 @@ fn lint_fix_converges_when_tail_edits_contain_named_argument_edits() {
     let fixture = root.path().join("fixture.xsh");
     fs::write(&fixture, include_str!("../../../tests/fixtures/syntax/valid/ergonomics-fix-convergence.xsh"))
         .expect("write lint fixture");
-    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
         .args(arguments)
         .current_dir(root.path())
         .output()
@@ -242,7 +242,7 @@ fn lint_fix_converges_when_tail_edits_contain_named_argument_edits() {
 #[test]
 fn xsht_reports_non_utf8_argument_without_panicking() {
     let raw_path = std::ffi::OsString::from_vec(b"raw\xffpath.xsh".to_vec());
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .arg("check")
         .arg(raw_path)
         .output()
@@ -258,7 +258,7 @@ fn xsht_reports_non_utf8_argument_without_panicking() {
 
 #[test]
 fn xsht_top_level_help_is_a_complete_hybrid_reference() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .arg("-h")
         .output()
         .expect("run xsht help");
@@ -292,7 +292,7 @@ fn xsht_top_level_help_is_a_complete_hybrid_reference() {
 
 #[test]
 fn xsht_lint_help_is_subcommand_specific() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "--help"])
         .output()
         .expect("run xsht lint help");
@@ -308,7 +308,7 @@ fn xsht_lint_help_is_subcommand_specific() {
 
 #[test]
 fn xsht_grep_help_keeps_examples_with_grep() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["grep", "--help"])
         .output()
         .expect("run xsht grep help");
@@ -323,7 +323,7 @@ fn xsht_grep_help_keeps_examples_with_grep() {
 
 #[test]
 fn xsht_help_topic_uses_the_generated_command_catalog() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["help", "grep"])
         .output()
         .expect("run xsht help grep");
@@ -337,7 +337,7 @@ fn xsht_help_topic_uses_the_generated_command_catalog() {
 
 #[test]
 fn xsht_test_help_lists_parallelism_option() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["test", "--help"])
         .output()
         .expect("run xsht test help");
@@ -353,7 +353,7 @@ fn xsht_test_help_lists_parallelism_option() {
 
 #[test]
 fn xsht_lint_short_help_is_accepted() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "-h"])
         .output()
         .expect("run xsht lint short help");
@@ -388,7 +388,7 @@ fn fmt_uses_nearest_xsht_config_line_width() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["fmt", script.to_str().unwrap()])
         .current_dir(root.path())
         .output()
@@ -417,7 +417,7 @@ fn lint_accepts_a_cli_main_entry_beside_other_entry_files() {
     .expect("write cli entry");
     fs::write(root.path().join("other.xsh"), "print \"other\"\n").expect("write other entry");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "."])
         .current_dir(root.path())
         .output()
@@ -432,7 +432,7 @@ fn lint_accepts_a_cli_main_entry_beside_other_entry_files() {
 
 #[test]
 fn lint_list_jsonl_names_every_selectable_code_with_a_summary() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "--list", "--format", "jsonl"])
         .output()
         .expect("run xsht lint --list");
@@ -448,7 +448,7 @@ fn lint_list_jsonl_names_every_selectable_code_with_a_summary() {
     assert!(stdout.contains("{\"code\":\"lint.prefer-guard\",\"summary\":"));
     assert!(stdout.contains("{\"code\":\"check.bool-statement\",\"summary\":"));
 
-    let rejected = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let rejected = Command::new(release_bin!("xsht"))
         .args(["lint", "--list", "--fix"])
         .output()
         .expect("run xsht lint --list --fix");
@@ -470,7 +470,7 @@ fn fmt_discovery_skips_format_excludes_but_formats_named_files() {
     fs::write(&snippet, unformatted).expect("write snippet");
     fs::write(root.path().join("main.xsh"), unformatted).expect("write main");
 
-    let discovered = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let discovered = Command::new(release_bin!("xsht"))
         .args(["fmt", "--check"])
         .current_dir(root.path())
         .output()
@@ -483,7 +483,7 @@ fn fmt_discovery_skips_format_excludes_but_formats_named_files() {
     );
     assert!(!stdout.contains("one.xsh"), "stdout: {stdout}");
 
-    let named = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let named = Command::new(release_bin!("xsht"))
         .args(["fmt", "--check", "snippets/one.xsh"])
         .current_dir(root.path())
         .output()
@@ -504,7 +504,7 @@ fn fmt_explicit_directory_formats_xsh_files() {
     )
     .expect("write nested script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["fmt", project.to_str().unwrap()])
         .current_dir(root.path())
         .output()
@@ -540,7 +540,7 @@ fn fmt_checks_imported_modules() {
     )
     .expect("write main script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["fmt", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -556,7 +556,7 @@ fn fmt_checks_imported_modules() {
 fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules() {
     let root = TempDir::new().expect("create isolated source root");
     let xsht = root.path().join("xsht");
-    fs::copy(env!("CARGO_BIN_EXE_xsht"), &xsht).expect("copy xsht");
+    fs::copy(release_bin!("xsht"), &xsht).expect("copy xsht");
     fs::write(
         root.path().join("helper.xsh"),
         "##! Static helper.\n## Return a terminal sequence.\nexport pure color() -> Str { tui.red() }\n",
@@ -616,7 +616,7 @@ fn fmt_deduplicates_diagnostics_from_imported_modules() {
     )
     .expect("write second script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["fmt", "."])
         .current_dir(root.path())
         .output()
@@ -640,7 +640,7 @@ fn lint_explicit_directory_lints_xsh_files() {
     fs::write(project.join("nested").join("helper.xsh"), "const value = 2\n")
         .expect("write helper script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", project.to_str().unwrap()])
         .current_dir(root.path())
         .output()
@@ -673,7 +673,7 @@ fn lint_fix_deduplicates_diagnostics_from_imported_modules() {
     )
     .expect("write second script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "--fix", "first.xsh", "second.xsh"])
         .current_dir(root.path())
         .output()
@@ -702,7 +702,7 @@ fn lint_directory_uses_import_graph_roots() {
     )
     .expect("write entry script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "."])
         .current_dir(root.path())
         .output()
@@ -731,7 +731,7 @@ fn lint_directory_cycle_selects_one_component_root() {
     )
     .expect("write module b");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "."])
         .current_dir(root.path())
         .output()
@@ -752,7 +752,7 @@ fn lint_only_restricts_diagnostics_and_fixes_to_named_codes() {
     let script = root.path().join("main.xsh");
     let source = "let name: Str = \"x\"\nprint ${name.byte_len()}\n";
     fs::write(&script, source).expect("write script");
-    let lint = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let lint = |args: &[&str]| Command::new(release_bin!("xsht"))
         .arg("lint").args(args).arg("main.xsh")
         .current_dir(root.path()).output().expect("run xsht lint");
     let codes = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).lines()
@@ -777,7 +777,7 @@ fn lint_fix_applies_the_bool_statement_assert_fix() {
     let script = root.path().join("main.xsh");
     let source = "let xs = [1, 2]\nxs == [1, 2] # comment stays\nproc note(value: Int) -> Int {\n    print \"eval ${value}\"\n    value\n}\nproc check(n: Int) {\n    match n {\n        1 => note(0) < note(n),\n        _ => {},\n    }\n    note(0) < note(n) < note(3)\n}\ncheck(1)?\ncheck(5)?\n";
     fs::write(&script, source).expect("write script");
-    let xsht = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let xsht = |args: &[&str]| Command::new(release_bin!("xsht"))
         .args(args).current_dir(root.path()).output().expect("run xsht");
 
     let listed = xsht(&["lint", "main.xsh"]);
@@ -808,7 +808,7 @@ fn lint_only_bool_statement_applies_only_its_assert_fix() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(&script, "let name: Str = \"x\"\nname == \"x\"\n").expect("write script");
-    let fixed = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let fixed = Command::new(release_bin!("xsht"))
         .args(["lint", "--only", "check.bool-statement", "--fix", "main.xsh"])
         .current_dir(root.path()).output().expect("run xsht lint");
     assert_eq!(fixed.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&fixed.stderr));
@@ -818,12 +818,12 @@ fn lint_only_bool_statement_applies_only_its_assert_fix() {
 #[test]
 fn lint_only_rejects_unknown_codes() {
     for args in [&["lint", "--only", "lint.prefer-const,lint.no-such-rule", "."][..], &["lint", "--only"][..]] {
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(args).output().expect("run xsht lint");
+        let output = Command::new(release_bin!("xsht")).args(args).output().expect("run xsht lint");
         assert_eq!(output.status.code(), Some(2));
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("--only"), "{stderr}");
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "--only", "check.unresolved-name", "."]).output().expect("run xsht lint");
     assert!(String::from_utf8_lossy(&output.stderr).contains("unknown lint rule 'check.unresolved-name'"));
 }
@@ -842,7 +842,7 @@ fn lint_fix_applies_an_imported_module_edit_once() {
     )
     .expect("write entry script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "--fix", "."])
         .current_dir(root.path())
         .output()
@@ -874,7 +874,7 @@ fn lint_entry_reachability_sees_imported_module_callables() {
     )
     .expect("write entry script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "."])
         .current_dir(root.path())
         .output()
@@ -900,7 +900,7 @@ fn fmt_reports_invalid_xsht_config_line_width() {
     let script = root.path().join("main.xsh");
     fs::write(&script, "let value = 1\n").expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["fmt", "--check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -929,7 +929,7 @@ fn fmt_ignores_legacy_config_ini() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["fmt", "--check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -958,7 +958,7 @@ fn check_annotate_uses_xsht_config_line_width() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "--annotate", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -999,7 +999,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1026,7 +1026,7 @@ fn test_reports_lazy_default_runtime_failure_without_panicking() {
     .expect("write test script");
 
     for filter in ["tests/lowering.xsh", "test_lowering"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(release_bin!("xsht"))
             .args(["test", filter])
             .current_dir(root.path())
             .output()
@@ -1060,7 +1060,7 @@ fn check_attributes_imported_parse_error_to_its_source() {
     )
     .expect("write imported module");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1088,7 +1088,7 @@ fn check_accepts_imported_lazy_default_with_embedded_module_loaded() {
     )
     .expect("write imported module");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1105,7 +1105,7 @@ fn check_reports_public_standard_call_name_at_user_source() {
     let root = TempDir::new().expect("create temp root");
     fs::write(root.path().join("main.xsh"), "print tui.red(1)\n").expect("write main script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1132,7 +1132,7 @@ fn check_explicit_directory_uses_directory_config() {
     fs::write(project.join("xsht-config.ini"), "").expect("write project config");
     fs::write(project.join("bad.xsh"), "let value =\n").expect("write bad script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "project"])
         .current_dir(root.path())
         .output()
@@ -1163,7 +1163,7 @@ fn check_explicit_directory_does_not_expand_parent_config_includes() {
         .expect("write project script");
     fs::write(root.path().join("extra/bad.xsh"), "let value =\n").expect("write excluded script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "project"])
         .current_dir(root.path())
         .output()
@@ -1201,7 +1201,7 @@ proc fallible() [error] -> Result[Str] {
     )
     .expect("write lowerability script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "--summary", "project"])
         .current_dir(root.path())
         .output()
@@ -1250,7 +1250,7 @@ proc fallible() [error] -> Result[Str] {
     )
     .expect("write bad script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "project"])
         .current_dir(root.path())
         .output()
@@ -1295,7 +1295,7 @@ use PKGBUILD-shared as PKGBUILD_shared
     )
     .expect("write main script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "project/main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1327,7 +1327,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1358,7 +1358,7 @@ let report = {corpus: scan_corpus()}
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1397,7 +1397,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1434,7 +1434,7 @@ fn check_for_line_item_type_allows_lowered_str_methods() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1473,7 +1473,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1512,7 +1512,7 @@ proc main(...argv: List[Str]) [fs, error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1541,7 +1541,7 @@ fn check_run_text_binding_type_allows_lowered_str_methods() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1571,7 +1571,7 @@ fn check_explicit_list_annotation_validates_any_result_binding() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1607,7 +1607,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1649,7 +1649,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1680,7 +1680,7 @@ fn check_where_pipeline_preserves_item_type_for_loop() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1736,7 +1736,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1766,7 +1766,7 @@ fn check_path_property_field_type_flows_to_method_call() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1799,7 +1799,7 @@ fn check_dynamic_record_get_requires_explicit_validation() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1837,7 +1837,7 @@ fn check_fs_walk_map_path_result_type_flows_to_for_loop() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1869,7 +1869,7 @@ fn check_compact_lowerability_accepts_lowered_record_methods() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()
@@ -1893,7 +1893,7 @@ fn check_rejects_main_without_spread_parameter_but_accepts_spread() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "nonspread.xsh"])
         .current_dir(root.path())
         .output()
@@ -1922,7 +1922,7 @@ fn check_rejects_main_without_spread_parameter_but_accepts_spread() {
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "spread.xsh"])
         .current_dir(root.path())
         .output()
@@ -1965,14 +1965,14 @@ fn membership_migration_after_removal_fixes_shared_import_once_and_is_idempotent
     for entry in ["first.xsh", "second.xsh"] {
         fs::write(root.path().join(entry), "use helper\nassert helper.present(\"needle\")\n").unwrap();
     }
-    let removed = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "first.xsh"]).current_dir(root.path()).output().unwrap();
+    let removed = Command::new(release_bin!("xsht")).args(["check", "first.xsh"]).current_dir(root.path()).output().unwrap();
     assert_eq!(removed.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&removed.stderr).contains("check.removed-membership"));
-    let fixed = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
+    let fixed = Command::new(release_bin!("xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(fixed.status.success(), "{}", String::from_utf8_lossy(&fixed.stderr));
     let text = fs::read_to_string(&helper).unwrap();
     assert!(text.contains("\"needle\" in text"), "{text}");
-    let second = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
+    let second = Command::new(release_bin!("xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
     assert_eq!(fs::read_to_string(helper).unwrap(), text);
 }
@@ -1982,7 +1982,7 @@ fn membership_migration_does_not_suppress_unrelated_checker_failure() {
     let root = TempDir::new().expect("create migration project");
     let script = root.path().join("main.xsh");
     fs::write(&script, "let result: Int = \"abc\".contains(\"a\")\nlet count: Int = \"invalid\"\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    let output = Command::new(release_bin!("xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
     assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
     assert!(String::from_utf8_lossy(&output.stderr).contains("check.type-mismatch"));
 }
@@ -1991,7 +1991,7 @@ fn membership_migration_does_not_suppress_unrelated_checker_failure() {
 fn check_rejects_unreachable_invalid_regex_literals_without_execution() {
     let root = TempDir::new().unwrap();
     fs::write(root.path().join("invalid.xsh"), "print \"must not execute\"\npure unused() -> Regex { rx\"(\" }\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "invalid.xsh"]).current_dir(root.path()).output().unwrap();
+    let output = Command::new(release_bin!("xsht")).args(["check", "invalid.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(!output.status.success());
     assert!(!String::from_utf8_lossy(&output.stdout).contains("must not execute"));
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2004,7 +2004,7 @@ fn regex_literal_lint_fixture_preserves_execution_and_is_idempotent() {
     let root = TempDir::new().unwrap();
     let fixture = root.path().join("regex.xsh");
     fs::write(&fixture, "let assignment = regex.compile(\"^([A-Z]+)=([0-9]+)$\")? # keep\nprint ${assignment.matches(\"COUNT=42\")} ${assignment.captures(\"COUNT=42\")[2]} ${assignment.replace(\"COUNT=42\", \"$2\")}\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht")).args(arguments).current_dir(root.path()).output().unwrap();
+    let run = |arguments: &[&str]| Command::new(release_bin!("xsht")).args(arguments).current_dir(root.path()).output().unwrap();
     let before = run(&["trace", "regex.xsh"]);
     assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
     let first = run(&["lint", "--fix", "regex.xsh"]);
@@ -2024,7 +2024,7 @@ fn check_validates_regex_literals_in_unused_imported_functions() {
     let root = TempDir::new().unwrap();
     fs::write(root.path().join("main.xsh"), "use broken\nprint \"must not execute\"\n").unwrap();
     fs::write(root.path().join("broken.xsh"), "pure never_called() -> Regex { rx\"[\" }\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    let output = Command::new(release_bin!("xsht")).args(["check", "main.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("check.regex-literal"), "{stderr}");
@@ -2037,11 +2037,11 @@ fn private_pure_return_annotation_mode_and_lint_policy_preserve_each_other() {
     let script = root.path().join("main.xsh");
     fs::write(&script, "pure label(name: Str) { name.trim() }\nprint label(\"ready\")\n").unwrap();
     fs::write(root.path().join("xsht-config.ini"), "[check]\nannotate = returns\n[lint]\nprefer-inferred-pure-returns = true\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "--annotate", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    let output = Command::new(release_bin!("xsht")).args(["check", "--annotate", "main.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let annotated = fs::read_to_string(&script).unwrap();
     assert!(annotated.contains("-> Str"), "{annotated}");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    let output = Command::new(release_bin!("xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(fs::read_to_string(&script).unwrap(), annotated);
 }
@@ -2052,7 +2052,7 @@ fn private_pure_return_annotation_removal_cli_is_opt_in_and_idempotent() {
     let script = root.path().join("main.xsh");
     let source = "pure label(name: Str) -> Str { name.trim() }\nprint label(\"ready\")\n";
     fs::write(&script, source).unwrap();
-    let run = || Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    let run = || Command::new(release_bin!("xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
     assert!(run().status.success());
     assert_eq!(fs::read_to_string(&script).unwrap(), source);
     fs::write(root.path().join("xsht-config.ini"), "[lint]\nprefer-inferred-pure-returns = true\n").unwrap();
@@ -2069,7 +2069,7 @@ fn value_pipeline_hole_lint_cli_converges_without_changing_execution() {
     let root = TempDir::new().unwrap();
     let script = root.path().join("main.xsh");
     fs::write(&script, "pure first(value: Int) -> Int { value + 1 }\npure second(prefix: Int, value: Int) -> Int { prefix + value }\npure third(value: Int) -> Int { value * 2 }\nlet initial = first(2)\nlet next = second(10, value: initial)\nlet final_value = third(next)\nprint $final_value\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht")).args(arguments).current_dir(root.path()).output().unwrap();
+    let run = |arguments: &[&str]| Command::new(release_bin!("xsht")).args(arguments).current_dir(root.path()).output().unwrap();
     let before = run(&["trace", "main.xsh"]);
     assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
     let output = run(&["lint", "--fix", "main.xsh"]);
@@ -2103,7 +2103,7 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
   assert output.success
 }}
 ")).expect("write descendant fixture");
-        let mut runner = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let mut runner = Command::new(release_bin!("xsht"))
             .args(["test", "--jobs", "1"])
             .current_dir(root.path())
             .stdout(std::process::Stdio::null())
@@ -2172,7 +2172,7 @@ test passes {{ |ctx|
 }}
 ")).expect("write timeout fixture");
     let started = std::time::Instant::now();
-    let mut runner = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let mut runner = Command::new(release_bin!("xsht"))
         .args(["test", "--jobs", "2", "--timeout", "1s"])
         .current_dir(root.path())
         .stdout(std::process::Stdio::piped())
@@ -2204,7 +2204,7 @@ test passes {{ |ctx|
     assert!(stdout.contains("test result: FAILED. 2 passed; 4 failed; 0 skipped"), "{stdout}");
     assert_eq!(processes_with_marker(&marker), Vec::<String>::new());
 
-    let invalid = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let invalid = Command::new(release_bin!("xsht"))
         .args(["test", "--timeout", "soon"])
         .current_dir(root.path())
         .output()
@@ -2225,11 +2225,11 @@ test test_old_name { assert test_named_helper(helper()) == 2 }
 test no_prefix { |ctx| assert \"no_prefix\" in ctx.name }
 test discarded { |_| }
 ").expect("write native declaration fixture");
-    let list = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let list = Command::new(release_bin!("xsht"))
         .args(["test", "--list"]).current_dir(root.path()).output().expect("list declarations");
     assert!(list.status.success());
     assert_eq!(String::from_utf8(list.stdout).unwrap(), "tests/explicit.xsh::discarded\ntests/explicit.xsh::no_prefix\ntests/explicit.xsh::test_old_name\n");
-    let run = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let run = Command::new(release_bin!("xsht"))
         .args(["test", "--jobs", "1"]).current_dir(root.path()).output().expect("run declarations");
     assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stdout));
     assert!(String::from_utf8_lossy(&run.stdout).contains("3 passed; 0 failed"));
@@ -2241,14 +2241,14 @@ fn native_test_declaration_legacy_proc_has_actionable_failure() {
     fs::create_dir(root.path().join("tests")).expect("create test root");
     fs::write(root.path().join("tests/legacy.xsh"), "proc test_old(ctx: TestContext) -> Result[Unit] {}\n")
         .expect("write legacy fixture");
-    let run = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let run = Command::new(release_bin!("xsht"))
         .args(["test", "--jobs", "1"]).current_dir(root.path()).output().expect("run legacy fixture");
     assert_eq!(run.status.code(), Some(1));
     let output = String::from_utf8_lossy(&run.stdout);
     assert!(output.contains("check.legacy-test-proc"), "{output}");
     assert!(output.contains("keep the exact declared name"), "{output}");
     assert!(!output.contains("0 passed; 0 failed"), "{output}");
-    let filtered = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let filtered = Command::new(release_bin!("xsht"))
         .args(["test", "--exact", "tests/legacy.xsh::test_old"])
         .current_dir(root.path()).output().expect("run exact legacy filter");
     assert_eq!(filtered.status.code(), Some(1));
@@ -2263,7 +2263,7 @@ fn native_test_declaration_import_registers_without_execution_or_discovery() {
         .expect("write imported module");
     fs::write(root.path().join("tests/entry.xsh"), "use helper\ntest entry { assert helper.value() == 7 }\n")
         .expect("write entry fixture");
-    let run = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let run = Command::new(release_bin!("xsht"))
         .args(["test", "--jobs", "1", "tests/entry.xsh"]).current_dir(root.path()).output().expect("run imported fixture");
     assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stdout));
     let output = String::from_utf8_lossy(&run.stdout);
@@ -2277,7 +2277,7 @@ fn native_test_declaration_duplicate_and_callable_collision_are_rejected() {
     let source = root.path().join("collision.xsh");
     for text in ["test same {}\ntest same {}", "pure same() -> Int { 1 }\ntest same {}", "let same = 1\ntest same {}", "test same {}\nlet {same} = {same: 1}", "use env as same\ntest same {}"] {
         fs::write(&source, text).expect("write collision fixture");
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(release_bin!("xsht"))
             .arg("check").arg(&source).output().expect("check collision");
         assert_eq!(output.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&output.stderr).contains("check.duplicate-name"));
@@ -2285,7 +2285,7 @@ fn native_test_declaration_duplicate_and_callable_collision_are_rejected() {
     fs::write(&source, "use helper\ntest entry {}\n").expect("write importing collision fixture");
     for text in ["test same {}\ntest same {}", "test same {}\npure same() -> Int { 1 }", "let same = 1\ntest same {}"] {
         fs::write(root.path().join("helper.xsh"), text).expect("write module collision fixture");
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(release_bin!("xsht"))
             .arg("check").arg(&source).output().expect("check module collision");
         assert_eq!(output.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&output.stderr).contains("check.duplicate-name"));
@@ -2299,7 +2299,7 @@ fn enum_migration_fix_preserves_comments_aliases_and_imports() {
     fs::write(&module, "##! Nominal choices.\n## A choice.\nexport type Choice =\n  Selected(Int) # selected café\n  | Empty # absent\n## Same nominal identity.\nexport type Alias = Choice\n").expect("write legacy enum module");
     let entry = root.path().join("entry.xsh");
     fs::write(&entry, "use choice as c\nlet value: c.Alias = c.Selected(7)\nmatch value { c.Selected(number) => print $number; c.Empty => print \"empty\" }\n").expect("write enum entry");
-    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let run = |arguments: &[&str]| Command::new(release_bin!("xsht"))
         .args(arguments).current_dir(root.path()).output().expect("run enum fixture");
     let rejected = run(&["check", "entry.xsh"]);
     assert!(!rejected.status.success());
@@ -2323,7 +2323,7 @@ fn enum_migration_fix_retains_unrelated_checker_errors() {
     let entry = root.path().join("entry.xsh");
     let source = "type Choice = Selected(Int) | Empty\nlet value = Selected(\"wrong\")\n";
     fs::write(&entry, source).expect("write invalid enum use");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().expect("check migration candidate");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2336,7 +2336,7 @@ fn signature_cli_safe_fix_preserves_process_results_and_is_idempotent() {
     let root = TempDir::new().unwrap();
     let fixture = root.path().join("entry.xsh");
     fs::write(&fixture, "type Options = {jobs: Int, verbose: Bool}\nproc main(...argv: List[Str]) [error] {\n  let {jobs, verbose}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}, verbose: {kind: \"Bool\", default: false, help: \"Bool, default: false\"}})?\n  let shown = Options(jobs:, verbose:)\n  print $shown.jobs $shown.verbose\n}\n").unwrap();
-    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht")).args(arguments)
+    let run = |arguments: &[&str]| Command::new(release_bin!("xsht")).args(arguments)
         .current_dir(root.path()).output().unwrap();
     let cases = [vec![], vec!["--jobs=8", "--verbose"], vec!["--help"], vec!["--jobs=invalid"], vec!["--jobs=2", "--jobs=3"]];
     let invoke = |arguments: &Vec<&str>| {
@@ -2365,7 +2365,7 @@ fn check_imported_error_annotation_retains_constructor_identity() {
     fs::write(root.path().join("main.xsh"),
         "use helper\nlet failure: helper.HelperError = helper.HelperError.Failed(detail: \"failed\")\n")
         .expect("write qualified annotation");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["check", "main.xsh"])
         .current_dir(root.path())
         .output()

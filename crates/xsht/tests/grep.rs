@@ -46,7 +46,7 @@ fn grep_without_paths_uses_configured_includes() {
     )
     .expect("write release script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args(["grep", "list.len(EXPR)"])
         .current_dir(root.path())
         .output()
@@ -232,7 +232,7 @@ fn guarded_postfix_structural_matching_retains_each_guard() {
         ("EXPR?[1..]", "value?[1..]", "value[1..]"),
         ("EXPR?.trim()", "value?.trim()", "value.trim()"),
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["grep", pattern]).arg(&path).output().unwrap();
+        let output = Command::new(release_bin!("xsht")).args(["grep", pattern]).arg(&path).output().unwrap();
         let stdout = output_text(&output.stdout);
         assert_eq!(output.status.code(), Some(0), "{}", output_text(&output.stderr));
         assert!(stdout.contains(expected), "{stdout}");

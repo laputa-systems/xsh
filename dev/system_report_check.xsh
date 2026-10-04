@@ -25306,6 +25306,7 @@ export pure rust_fixture_argv_for_target(cargo_bin: Str, test_name: Str, target:
       [
         cargo_bin,
         "test",
+        "--release",
         "--offline",
         "-p",
         "xsh",

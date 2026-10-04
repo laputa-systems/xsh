@@ -10,7 +10,7 @@ fn xsh_passes_script_args_without_separator() {
         "xsh-argv-no-separator",
         "for arg in args {\n  print ${arg}\n}\n",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(release_bin!("xsh"))
         .args([path.to_str().unwrap(), "-f", "needle"])
         .output()
         .expect("run xsh script");
@@ -25,7 +25,7 @@ fn xsh_keeps_separator_compatibility_for_script_args() {
         "xsh-argv-with-separator",
         "for arg in args {\n  print ${arg}\n}\n",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(release_bin!("xsh"))
         .args([path.to_str().unwrap(), "--", "-f", "needle"])
         .output()
         .expect("run xsh script");
@@ -38,7 +38,7 @@ fn xsh_keeps_separator_compatibility_for_script_args() {
 fn xsh_reports_non_utf8_script_argument_without_panicking() {
     let path = temp_script("xsh-non-utf8-argv", "print \"ready\"\n");
     let raw_arg = std::ffi::OsString::from_vec(b"raw\xffarg".to_vec());
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(release_bin!("xsh"))
         .arg(path)
         .arg(raw_arg)
         .output()
@@ -55,7 +55,7 @@ fn xsh_reports_non_utf8_script_argument_without_panicking() {
 #[test]
 fn xsh_runs_dynamic_record_methods_by_default() {
     let path = temp_script("xsh-dynamic-lower-default", dynamic_lowerability_script());
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(release_bin!("xsh"))
         .arg(path.to_str().unwrap())
         .output()
         .expect("run xsh script");
@@ -71,7 +71,7 @@ fn xsh_runs_dynamic_record_methods_by_default() {
 
 #[test]
 fn xsh_rejects_removed_strict_lower_option() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(release_bin!("xsh"))
         .arg("--strict-lower")
         .output()
         .expect("run xsh");
@@ -124,14 +124,14 @@ fn signature_cli_preflight_precedes_imported_and_entry_initializers() {
     let script = root.join("entry.xsh");
     fs::write(&script, source).unwrap();
     for (arguments, expected_status) in [(vec!["--help"], 0), (vec![], 2), (vec!["operand", "--jobs=nope"], 2), (vec!["operand", "--jobs=-1"], 2)] {
-        let output = Command::new(env!("CARGO_BIN_EXE_xsh")).arg(&script).args(arguments).output().unwrap();
+        let output = Command::new(release_bin!("xsh")).arg(&script).args(arguments).output().unwrap();
         assert_eq!(output.status.code(), Some(expected_status), "{}", String::from_utf8_lossy(&output.stderr));
         assert!(!imported_marker.exists());
         assert!(!entry_marker.exists());
         let usage = if expected_status == 0 { &output.stdout } else { &output.stderr };
         assert!(String::from_utf8_lossy(usage).contains("usage:"));
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh")).arg(&script).args(["missing-path-is-allowed", "--jobs=8"]).output().unwrap();
+    let output = Command::new(release_bin!("xsh")).arg(&script).args(["missing-path-is-allowed", "--jobs=8"]).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(output.stdout, b"1 1 8\n");
     assert!(imported_marker.exists());
@@ -143,7 +143,7 @@ fn signature_cli_preflight_precedes_imported_and_entry_initializers() {
 fn signature_cli_preserves_entry_exit_status_and_errors() {
     for (body, effects, expected_status) in [("abort(7)", "error", 7), ("error.fail(\"entry failed\")?", "error", 3)] {
         let script = temp_script(&format!("xsh-signature-status-{expected_status}"), &format!("cli main() [{effects}] {{ {body} }}\n"));
-        let output = Command::new(env!("CARGO_BIN_EXE_xsh")).arg(&script).output().unwrap();
+        let output = Command::new(release_bin!("xsh")).arg(&script).output().unwrap();
         assert_eq!(output.status.code(), Some(expected_status), "{}", String::from_utf8_lossy(&output.stderr));
         fs::remove_file(script).unwrap();
     }

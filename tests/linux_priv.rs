@@ -1,5 +1,9 @@
 #![cfg(target_os = "linux")]
 
+#[macro_use]
+#[path = "release_binary.rs"]
+mod release_binary;
+
 // Tests for Linux-specific XSH module functions that require elevated capabilities.
 // Run with root and the capabilities needed for loop devices and mount namespaces.
 // Cases report a missing capability when invoked without it.
@@ -122,7 +126,7 @@ fn run_script(source: &str) -> std::process::Output {
         .expect("create linux priv script root");
     let path = root.path().join("script.xsh");
     std::fs::write(&path, source).expect("write linux priv script");
-    Command::new(env!("CARGO_BIN_EXE_xsh"))
+    Command::new(release_bin!("xsh"))
         .arg(&path)
         .output()
         .expect("run xsh")
@@ -135,7 +139,7 @@ fn run_script_in_private_mount_namespace(
 ) -> std::io::Result<std::process::Output> {
     let script = root.join("mount.xsh");
     std::fs::write(&script, source)?;
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
+    let mut command = Command::new(release_bin!("xsh"));
     command.arg(script);
     let fstab_source = fstab.map(|path| {
         std::ffi::CString::new(path.as_os_str().as_bytes()).expect("fstab fixture path is cstr")
@@ -530,7 +534,7 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
         .expect("create kill_all fixture root");
     let marker = root.path().join("ready");
     let mut child = unsafe {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xsh-test-os-probe"));
+        let mut command = Command::new(release_bin!("xsh-test-os-probe"));
         command
             .arg("ready-sleep")
             .arg(&marker)
@@ -633,7 +637,7 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
         .args(["-f", "-qq", "-s", "4096", "-e", "trace=process", "-o"])
         .arg(&trace)
         .arg("--")
-        .arg(env!("CARGO_BIN_EXE_xsh"))
+        .arg(release_bin!("xsh"))
         .arg(&script)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .uid(65534)
@@ -719,7 +723,7 @@ fn system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper() {
         .args(["-f", "-qq", "-s", "4096", "-e", "trace=process,file", "-o"])
         .arg(&trace)
         .arg("--")
-        .arg(env!("CARGO_BIN_EXE_xsh"))
+        .arg(release_bin!("xsh"))
         .arg(&script)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .env_clear()

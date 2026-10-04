@@ -41,7 +41,7 @@ adjacent comment explaining why a native test cannot express it.
   directory (`core/tests/test-pstree.xsh`).
 - `xsht grep` and ordinary text search over `tests/` find existing coverage for a
   symbol or diagnostic code. Rust test names are filterable substrings, for
-  example `cargo test --test integration runtime::process::`.
+  example `cargo test --release --test integration runtime::process::`.
 
 ## Gates
 
@@ -55,34 +55,44 @@ target/release/xsht test --exact tests/xsh/retry.xsh::test_retry_repeats_until_a
 target/release/xsht test                                 # full native suite
 ```
 
-Use debug builds for Rust gates and compile checks, and build only the package
-you need (`cargo build -p xsht --bin xsht`, not a bare workspace build).
+Tests never run debug binaries. Every Rust test target that spawns `xsh`,
+`xsht`, `xshi`, `xsh-fuzz`, or a `xsh-test-*` helper resolves it through
+`release_bin!` (`tests/release_binary.rs`), which fails with the release command
+when Cargo built the test, and so the binary, in the debug profile. Run those
+targets with `cargo test --release`; Cargo then builds their binaries fresh in
+`target/release`. Unit tests (`--lib`) spawn nothing and run in debug, which
+also compiles the checks that exist only under debug assertions; the root
+package's unit-test target currently also crashes LLVM (unbounded
+`ScalarEvolution` recursion) when built with `--release`, so name the root
+integration targets with `--test` instead of a bare `cargo test --release`. Use
+debug builds for compile checks, and build only the package you need
+(`cargo build --release -p xsht --bin xsht`, not a bare workspace build).
 
 | Change | Narrow | Broader |
 |---|---|---|
-| parser, CST, formatter | `cargo test --test integration syntax::NAME` | `cargo test --test integration syntax::`; `tests/xsh/formatter.xsh` |
-| checker | `cargo test --test integration sema::NAME` | `cargo test --test integration sema::` |
+| parser, CST, formatter | `cargo test --release --test integration syntax::NAME` | `cargo test --release --test integration syntax::`; `tests/xsh/formatter.xsh` |
+| checker | `cargo test --release --test integration sema::NAME` | `cargo test --release --test integration sema::` |
 | lowering, verifier | `cargo test -p xsh --lib runtime::eval::indexed::full::tests::NAME` | `cargo test -p xsh --lib runtime::eval` |
 | lowering vs checker types | `cargo test -p xsh --lib corpus_lowering_agrees_with_checked_types` (lowers the corpus and embedded stdlib; debug builds report any disagreement with the checker) | `tests/xsh/lowering-coverage.xsh`; full native suite |
-| runtime | native module, then `cargo test --test integration runtime::NAME` | `cargo test --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |
-| frames, stack depth | `cargo test --test integration runtime::stack_depth` | runtime gate |
-| lint, tooling | `cargo test -p xsht --test integration lint::NAME` | `cargo test -p xsht --test integration` |
-| API, registry, docs | `cargo test -p xsht --test api` | API gate below |
+| runtime | native module, then `cargo test --release --test integration runtime::NAME` | `cargo test --release --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |
+| frames, stack depth | `cargo test --release --test integration runtime::stack_depth` | runtime gate |
+| lint, tooling | `cargo test --release -p xsht --test integration lint::NAME` | `cargo test --release -p xsht` |
+| API, registry, docs | `cargo test --release -p xsht --test api` | API gate below |
 | standard modules | `target/release/xsht test tests/xsh/stdlib/NAME.xsh` | `target/release/xsht test tests/xsh/stdlib` |
 | retained frontend memory | `cargo test -p xsh --lib frontend_stats::tests` | `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` |
 
-API gate: `cargo test --test integration libxsh_api`,
+API gate: `cargo test --release --test integration libxsh_api`,
 `cargo test -p xsh-registry`, `cargo test -p xsh --lib modules::signature`,
-`cargo test -p xsht --test api`, and `target/release/xsht check docs/snippets/api`.
+`cargo test --release -p xsht --test api`, and `target/release/xsht check docs/snippets/api`.
 
 Repository gates (owner-run unless the task asks for them):
 
 | Command | Runs |
 |---|---|
-| `cargo dev check` | product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `xsht check`, `xsht fmt --check`, `xsht lint`, the runnable-corpus test, `check-docs` (with debug binaries), `git diff --check` |
+| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the runnable-corpus test, `check-docs` (with release binaries), `git diff --check` |
 | `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), then `check-docs` with release binaries |
-| `make test` (`cargo dev test`) | debug `cargo test` |
-| `cargo dev test xsh` | the native suite through `cargo run -p xsht` |
+| `make test` (`cargo dev test`) | the root integration targets with `cargo test --release`, then the unit tests with debug `cargo test --lib` |
+| `cargo dev test xsh` | build release `xsh` and `xsht`, then the native suite through `target/release/xsht test` |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
 | `make docs` (`cargo dev docs`) | build release `xsh` and `xsht`, then regenerate every file rendered from `docs/templates/` |
 | `make docs-check` (`cargo dev docs check`) | the same render into memory, failing with the list of stale files; then `xsht check docs/snippets/tour` and `xsht test` in `docs/snippets/tour/project` |
@@ -96,15 +106,19 @@ cover the snippets; `[format] exclude` in `xsht-config.ini` keeps them out of
 `xsht fmt --check` until the formatter keeps short blocks on one line, and
 deleting that line enables it. `dev/tests/test-docs.xsh` covers the generator.
 
-`cargo test -p xsht --test integration lint_format_invariance::` checks that
-lint diagnostics are identical before and after formatting on the repository
-corpus, layout perturbations of it, and `../packages` (or
-`XSH_PACKAGE_CORPUS`) when present; it formats only temporary copies.
+`cargo test --release -p xsht --test integration lint_format_invariance::`
+checks that lint diagnostics are identical before and after formatting on the
+repository corpus, layout perturbations of it, and `../packages` (or
+`XSH_PACKAGE_CORPUS`) when present; it formats only temporary copies. The
+repository baseline is linted once per run and shared, each baseline lint
+overlaps the rewritten copy's, and perturbation spreads files over a bounded
+thread pool; the largest file (`dev/system_report_check.xsh`) sets its floor
+of about 16 s.
 
 ## Soundness fuzzing
 
-Well-typed programs must not go wrong. `cargo test -p xsh-fuzz --test
-soundness` checks this at a fixed seed set. Generated programs must check, run
+Well-typed programs must not go wrong. `cargo test --release -p xsh-fuzz
+--test soundness` checks this at a fixed seed set. Generated programs must check, run
 without a runtime or internal error, and print exactly what the reference
 evaluator (`xsh_fuzz::eval`) predicts. Registry probes the checker accepts must
 run without internal errors, and mutants of generated and corpus programs must
@@ -128,9 +142,8 @@ All Linux building and testing runs in the image defined by `Dockerfile.test`
 `make test-linux`) or `cargo dev test linux --ci`. CI (`.github/workflows/`)
 runs the same image. A build outside that image is not evidence about Linux.
 The driver passes `--init` so orphaned stopped jobs are reaped. For a native
-gate inside the image, bind the container-built
-`target/aarch64-unknown-linux-musl/debug/xsh` over `target/debug/xsh`, since
-`dev/tests/test-lifecycle.xsh` uses that path as a shebang.
+gate inside the image, run the container-built
+`target/aarch64-unknown-linux-musl/release/xsht`.
 
 ## Interactive parity
 
@@ -150,9 +163,11 @@ Behavior `ish` lacks is tested in `tests/runtime/interactive.rs`.
   `cargo dev lint --fix` (`make lint`), `xsht fmt`, `xsht lint --fix`. They
   rewrite unrelated files; formatting is the owner's responsibility. Check-only
   forms are fine.
-- Unfiltered `cargo test` in agent work: `runtime::coverage` and two
-  `runtime::examples` cases launch `xsht fmt`/`xsht lint`. Use the filtered
-  runtime gate.
+- Unfiltered `cargo test --release` in agent work: `runtime::coverage` and
+  two `runtime::examples` cases launch `xsht fmt`/`xsht lint`. Use the
+  filtered runtime gate.
+- Debug `cargo test` of a target that spawns binaries: each such test fails
+  with the `cargo test --release` instruction instead of running.
 - The `dist` profile, bare `cargo build --release`, and more than one full
   native suite at a time. Never leave test processes running.
 

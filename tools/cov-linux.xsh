@@ -118,11 +118,15 @@ proc main() [fs, process, env, error, io] {
   let objects_file = fp"${out_dir}/objects.txt"
   let report_file = fp"${out_dir}/llvm-report.txt"
   let lcov_file = fp"${out_dir}/lcov.info"
+
+  # Tests spawn release binaries only, so the integration targets and products
+  # are instrumented in the release profile; unit tests spawn nothing and stay
+  # in debug, as `cargo dev test` runs them.
+  let release_dir = fp"${target_dir}/release"
   let debug_dir = fp"${target_dir}/debug"
-  let deps_dir = fp"${debug_dir}/deps"
-  let xsh = fp"${debug_dir}/xsh"
-  let xsht = fp"${debug_dir}/xsht"
-  let xshi = fp"${debug_dir}/xshi"
+  let xsh = fp"${release_dir}/xsh"
+  let xsht = fp"${release_dir}/xsht"
+  let xshi = fp"${release_dir}/xshi"
   let llvm_profdata = find_llvm_tool("llvm-profdata")?
   let llvm_cov = find_llvm_tool("llvm-cov")?
   let cargo_bin = cargo_bin_dir(root)?
@@ -147,20 +151,30 @@ proc main() [fs, process, env, error, io] {
   let child_path = join_path([shim_dir, cargo_bin, /root/.cargo/bin, /bin, /usr/bin, /usr/local/bin, /sbin])
 
   env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"${raw_dir}/%m-%p.profraw" PATH=$child_path RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
-    run cargo test -- --test-threads=1 ?
-    run cargo test --features linux-priv-tests --test linux_priv -- --test-threads=1 ?
-    run cargo build --bin xsh ?
-    run cargo build -p xsht ?
-    run cargo build -p xshi ?
+    run cargo test --release --test integration --test ambient_fs_policy --test symbol_plateau -- --test-threads=1 ?
+    run cargo test --lib -- --test-threads=1 ?
+    run cargo test --release --features linux-priv-tests --test linux_priv -- --test-threads=1 ?
+    run cargo build --release --bin xsh ?
+    run cargo build --release -p xsht ?
+    run cargo build --release -p xshi ?
     run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"${api_dir}/coverage.json" XSH_COV_REPORT=fp"${api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh ?
   } ?
 
   let profraws = collect_profraw(raw_dir)?
   run $llvm_profdata merge -sparse -o $profdata @profraws ?
-  let objects = collect_objects(debug_dir)?.extend(collect_objects(deps_dir)?) |> sort
+  var objects = []
+  for dir in [release_dir, fp"${release_dir}/deps", debug_dir, fp"${debug_dir}/deps"] {
+    objects = objects.extend(collect_objects(dir)?)
+  }
+
+  objects = objects |> sort
 
   if objects.len() == 0 {
-    return Err(CoverageError.Failed(f"coverage: no instrumented objects found under ${debug_dir.display()}"))
+    return Err(
+      CoverageError.Failed(
+        f"coverage: no instrumented objects found under ${release_dir.display()} or ${debug_dir.display()}",
+      ),
+    )
   }
 
   fs.write(

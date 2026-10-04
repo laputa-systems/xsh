@@ -415,8 +415,8 @@ prompt marker.
 | Layer | Where | Runs |
 | --- | --- | --- |
 | units: line buffer, input, render math, completion, prompt, listing, denv, aliases, config, history store | `crates/xshi/src/**` (`ported_tests.rs`, `history/tests.rs`) | `cargo test -p xshi` |
-| CLI boundary | `crates/xshi/tests/cli.rs` | `cargo test -p xshi` |
-| differential PTY scenarios | `tests/runtime/interactive/parity/{scenarios,extended}.rs`, goldens in `tests/fixtures/interactive-parity/<os>/` | `cargo test --test integration runtime::interactive::` |
+| CLI boundary | `crates/xshi/tests/cli.rs` | `cargo test --release -p xshi` |
+| differential PTY scenarios | `tests/runtime/interactive/parity/{scenarios,extended}.rs`, goldens in `tests/fixtures/interactive-parity/<os>/` | `cargo test --release --test integration runtime::interactive::` |
 | `xshi`-only behavior and the piped session | `tests/runtime/interactive.rs` | same |
 
 A scenario drives a real shell through a PTY (`laputa-ptytest`: a `vt100` screen

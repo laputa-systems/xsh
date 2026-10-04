@@ -470,7 +470,7 @@ fn dynamic_catalog_size() -> usize {
 fn copied_binary_runs_migrated_apis_without_repository_files() {
     let dir = temp_dir("copied-binary");
     let binary = dir.join("xsh-copy");
-    std::fs::copy(env!("CARGO_BIN_EXE_xsh"), &binary).expect("copy the xsh binary");
+    std::fs::copy(release_bin!("xsh"), &binary).expect("copy the xsh binary");
     let script = write_script(
         &dir,
         "smoke.xsh",
@@ -531,7 +531,7 @@ fn standard_implementations_cannot_be_replaced() {
             "}\n",
         ),
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .env("XSH_MODULE_PATH", &hostile)
@@ -556,7 +556,7 @@ fn standard_implementations_cannot_be_replaced() {
         "shadow.xsh",
         "type Hostile = module {\n  export pure quote(value: Str) -> Str\n}\n\nproc main() [io, error] {\n  let loaded = module.load(p\"hostile/shlex.xsh\")?.require(Hostile)?\n  print loaded.quote(\"plain\")\n}\n",
     );
-    let shadowed = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let shadowed = std::process::Command::new(release_bin!("xsh"))
         .arg(&shadow)
         .current_dir(&dir)
         .env("XSH_MODULE_PATH", &hostile)
@@ -591,7 +591,7 @@ fn private_implementation_helpers_are_not_nameable() {
         "private.xsh",
         "proc main() [io] {\n  print lines_error(\"nope\")\n}\n",
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()
@@ -624,7 +624,7 @@ fn same_spelled_user_helpers_cannot_capture_implementation_helpers() {
             "}\n",
         ),
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()
@@ -666,7 +666,7 @@ fn copied_embedded_source_grants_no_private_access() {
             "}\n",
         ),
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()
@@ -708,7 +708,7 @@ fn implementation_namespace_is_unspellable_and_reserved_names_still_work() {
         ),
     ] {
         let script = write_script(&dir, name, source);
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+        let output = std::process::Command::new(release_bin!("xsh"))
             .arg(&script)
             .current_dir(&dir)
             .output()
@@ -742,7 +742,7 @@ fn prepared_implementations_read_context_at_invocation_time() {
             "}\n",
         ),
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .env_remove("XSH_PORT_PROBE")
@@ -784,7 +784,7 @@ fn user_functions_cannot_impersonate_a_representation_bridge() {
             "}\n",
         ),
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()
@@ -815,7 +815,7 @@ fn pure_user_functions_still_cannot_perform_io() {
         "impure.xsh",
         "pure read_it(target: Path) -> Str {\n  return fs.read_text(target)?\n}\n\nproc main() [io] {\n  print read_it(p\"x\")\n}\n",
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()
@@ -848,7 +848,7 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
         "entry.xsh",
         "use left\n\nproc main() [io] {\n  print shlex.quote(left.from_left(\"a b\"))\n}\n",
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&entry)
         .current_dir(&dir)
         .output()
@@ -876,7 +876,7 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
         "cyclic.xsh",
         "use alpha\n\nproc main() [io] {\n  print alpha.a()\n}\n",
     );
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&cyclic)
         .current_dir(&dir)
         .output()
@@ -970,7 +970,7 @@ fn linux_text_entries_answer_from_the_host() {
         ),
     );
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()
@@ -1036,7 +1036,7 @@ fn os_release_entry_reads_the_fixed_paths() {
         ),
     );
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = std::process::Command::new(release_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()

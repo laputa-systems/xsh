@@ -30,7 +30,7 @@ fn run_lint(root: &Path, budget: Duration) -> Result<LintRun, String> {
     let stdout = File::create(&stdout_path).expect("lint stdout capture");
     let stderr = File::create(&stderr_path).expect("lint stderr capture");
     let started = Instant::now();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let mut child = Command::new(release_bin!("xsht"))
         .arg("lint")
         .current_dir(root)
         .env_remove("XSH_MODULE_PATH")

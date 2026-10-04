@@ -111,7 +111,7 @@ fn run_with_input(command: &mut Command, input: &str) -> Output {
 }
 
 fn applet_command(name: &str) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
+    let mut command = Command::new(release_bin!("xsh"));
     command
         .arg(
             Path::new(env!("CARGO_MANIFEST_DIR"))

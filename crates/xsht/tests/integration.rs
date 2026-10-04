@@ -1,3 +1,7 @@
+#[macro_use]
+#[path = "../../../tests/release_binary.rs"]
+mod release_binary;
+
 #[path = "cli.rs"]
 mod cli;
 #[path = "grep.rs"]

@@ -5,8 +5,11 @@ macro_rules! cargo_env {
     ("CARGO_BIN_EXE_xshi") => {
         crate::runtime::common::workspace_binary("xshi")
     };
+    ("CARGO_MANIFEST_DIR") => {
+        env!("CARGO_MANIFEST_DIR")
+    };
     ($name:literal) => {
-        env!($name)
+        crate::release_binary::checked(env!($name))
     };
 }
 

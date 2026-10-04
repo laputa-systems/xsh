@@ -32,7 +32,8 @@ export proc container_dist(ctx: context.Context) [fs, process, env, error, io] -
   dist.native_dist(ctx, "DIST_DOCKER_BUILD_STD_FLAGS")?
 }
 
-## Runs the privileged developer Linux test sequence inside the container.
+## Runs the privileged developer Linux test sequence inside the container on
+## release binaries, as every test does.
 export proc linux_developer_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
@@ -52,6 +53,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       [
         "cargo",
         "build",
+        "--release",
         "-p",
         "xsh",
         "-p",
@@ -68,19 +70,43 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
     ),
   )?
   fs.remove(/bin/xsh, missing_ok: true)?
-  fs.symlink(fp"${ctx.target_dir}/debug/xsh", /bin/xsh)?
+  fs.symlink(fp"${ctx.target_dir}/release/xsh", /bin/xsh)?
   let stress_repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?.trim()
   stages.execute(
     stages.command(
       "linux-rust-tests",
       ctx.target.triple,
       "cargo",
-      ["cargo", "test", "--features", "linux-priv-tests"],
+      [
+        "cargo",
+        "test",
+        "--release",
+        "--features",
+        "linux-priv-tests",
+        "--test",
+        "integration",
+        "--test",
+        "ambient_fs_policy",
+        "--test",
+        "symbol_plateau",
+        "--test",
+        "linux_priv",
+      ],
       ctx.root,
       {XSH_OS_STRESS_REPEAT: if stress_repeat == "" { "25" } else { stress_repeat }},
     ),
   )?
-  let xsht = fp"${ctx.target_dir}/debug/xsht"
+  stages.execute(
+    stages.command(
+      "linux-rust-unit-tests",
+      ctx.target.triple,
+      "cargo",
+      ["cargo", "test", "--features", "linux-priv-tests", "--lib"],
+      ctx.root,
+      {},
+    ),
+  )?
+  let xsht = fp"${ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
       "linux-native-tests",
@@ -88,7 +114,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       xsht.display(),
       [xsht.display(), "test"],
       ctx.root,
-      {CARGO_BIN_EXE_xsh_test_sleeper: fp"${ctx.target_dir}/debug/xsh-test-sleeper".display()},
+      {CARGO_BIN_EXE_xsh_test_sleeper: fp"${ctx.target_dir}/release/xsh-test-sleeper".display()},
     ),
   )?
 }

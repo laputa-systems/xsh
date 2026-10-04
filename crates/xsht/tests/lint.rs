@@ -2082,7 +2082,7 @@ fn redundant_require_retains_unsigned_validation() {
         assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")), "{source}: {diagnostics:?}");
         let path = temp.path().join(format!("unsigned-{index}.xsh"));
         fs::write(&path, source).unwrap();
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = std::process::Command::new(release_bin!("xsht"))
             .arg("trace").arg(&path).output().unwrap();
         assert!(!output.status.success(), "{source}");
         assert!(String::from_utf8_lossy(&output.stderr).contains("schema"), "{}", String::from_utf8_lossy(&output.stderr));
@@ -2275,7 +2275,7 @@ proc main() {{
         let fixed = membership_fixed(&source);
         let path = temp.path().join(format!("membership-{needle}.xsh"));
         fs::write(&path, &fixed).unwrap();
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = std::process::Command::new(release_bin!("xsht"))
             .arg("trace").arg(&path).output().unwrap();
         assert_eq!(output.status.success(), succeeds, "{fixed}\n{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(output.stdout, if succeeds { b"1\n2\n3\n4\n".as_slice() } else { b"1\n2\n3\n".as_slice() }, "{fixed}");
@@ -2305,7 +2305,7 @@ fn linter_named_assertion_snapshots_preserve_runtime_source_order() {
         let source = format!("proc left() [io] -> Int {{ print 1; 7 }}\nproc right() [io] -> Int {{ print 2; {right_value} }}\nproc main() {{ test.{operation}(right: right(), left: left())? }}\n");
         let original = temp.path().join(format!("{operation}-original.xsh"));
         fs::write(&original, &source).unwrap();
-        let before = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let before = std::process::Command::new(release_bin!("xsht"))
             .arg("trace").arg(&original).output().unwrap();
         assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
         assert_eq!(before.stdout, b"2\n1\n", "{source}");
@@ -2313,7 +2313,7 @@ fn linter_named_assertion_snapshots_preserve_runtime_source_order() {
         assert!(fixed.contains("membership_argument_0_"), "{fixed}");
         let rewritten = temp.path().join(format!("{operation}-fixed.xsh"));
         fs::write(&rewritten, &fixed).unwrap();
-        let after = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let after = std::process::Command::new(release_bin!("xsht"))
             .arg("trace").arg(&rewritten).output().unwrap();
         assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
         assert_eq!(after.stdout, before.stdout, "{fixed}");
@@ -3460,7 +3460,7 @@ fn linter_map_entry_iteration_preserves_mutation_inside_value_blocks() {
     for (name, script, expected) in [("original", source, b"a=1\nb=9\n".as_slice()), ("snapshot", snapshot.as_str(), b"a=1\nb=2\n".as_slice())] {
         let path = temp.path().join(format!("{name}.xsh"));
         fs::write(&path, script).unwrap();
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = std::process::Command::new(release_bin!("xsht"))
             .arg("trace").arg(&path).output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(output.stdout, expected, "{name}");

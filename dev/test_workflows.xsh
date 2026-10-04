@@ -3,37 +3,77 @@ use context
 use docker
 use stage as stages
 
-## Runs the repository's ordinary debug Rust test contract.
+## Runs the repository's Rust test contract. Tests spawn release binaries
+## only, so the integration targets build in the release profile. The unit
+## tests spawn nothing and run in debug, where the checks compiled only under
+## debug assertions (such as lowering's agreement with the checker) exist.
 export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
       "test-rust",
       ctx.target.triple,
       "cargo",
-      ["cargo", "test", "--", "-Zunstable-options", "--report-time"],
+      [
+        "cargo",
+        "test",
+        "--release",
+        "--test",
+        "integration",
+        "--test",
+        "ambient_fs_policy",
+        "--test",
+        "symbol_plateau",
+        "--",
+        "-Zunstable-options",
+        "--report-time",
+      ],
+      ctx.root,
+      {},
+    ),
+  )?
+  stages.execute(
+    stages.command(
+      "test-rust-debug-assertions",
+      ctx.target.triple,
+      "cargo",
+      ["cargo", "test", "--lib", "--", "-Zunstable-options", "--report-time"],
       ctx.root,
       {},
     ),
   )?
 }
 
-## Runs only the native XSH test corpus through its owning `xsht` package and binary.
+## Runs only the native XSH test corpus through the release `xsht`, which
+## spawns its sibling release `xsh`.
 export proc xsh(ctx: context.Context) [process, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
-      "test-xsh",
+      "test-xsh-build",
       ctx.target.triple,
       "cargo",
       [
         "cargo",
-        "run",
+        "build",
+        "--release",
+        "-p",
+        "xsh",
+        "--bins",
         "-p",
         "xsht",
         "--bin",
         "xsht",
-        "--",
-        "test",
       ],
+      ctx.root,
+      {},
+    ),
+  )?
+  let xsht = fp"${ctx.target_dir}/release/xsht"
+  stages.execute(
+    stages.command(
+      "test-xsh",
+      ctx.target.triple,
+      xsht.display(),
+      [xsht.display(), "test"],
       ctx.root,
       {},
     ),

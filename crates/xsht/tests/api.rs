@@ -1,3 +1,7 @@
+#[macro_use]
+#[path = "../../../tests/release_binary.rs"]
+mod release_binary;
+
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -59,7 +63,7 @@ fn api_boolean_guards_explains_exits_refinements_and_no_error_input() {
 }
 
 fn xsht(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_xsht"))
+    Command::new(release_bin!("xsht"))
         .args(args)
         .current_dir(workspace_root())
         .output()
@@ -137,7 +141,7 @@ fn api_onboarding_script_passes_xsht_check() {
     let script = root.path().join("hello.xsh");
     std::fs::write(&script, &stdout[start..end]).expect("write onboarding script");
 
-    let checked = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let checked = Command::new(release_bin!("xsht"))
         .args(["check", script.to_str().expect("script path")])
         .current_dir(workspace_root())
         .output()
@@ -404,7 +408,7 @@ fn api_combines_query_file_and_argv_queries() {
     let query_file = root.path().join("queries.txt");
     std::fs::write(&query_file, "api:json.read\nlanguage:effect.fs\n").expect("write query file");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(release_bin!("xsht"))
         .args([
             "api",
             "--query-file",
@@ -461,7 +465,7 @@ fn assert_documented(id: &str, docs: &xsh_registry::api_docs::ApiDocs) {
 
 #[test]
 fn api_stdin_queries_join_argv_batch_in_request_order() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let mut child = Command::new(release_bin!("xsht"))
         .args(["api", "record:FsEntry", "--stdin"])
         .current_dir(workspace_root())
         .stdin(Stdio::piped())
