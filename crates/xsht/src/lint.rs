@@ -207,6 +207,7 @@ pub const LINT_CODES: &[(&str, &str)] = &[
     ("lint.lookup-absence", "Compare a lookup against `null` for absence, not the `-1` numeric sentinel"),
     ("lint.lookup-fallback", "Remove the fallback argument from lookup calls, which no longer accept one"),
     ("lint.missing-effects", "Flag a proc whose declared effects are incomplete and suggest the full effect list"),
+    ("lint.missing-f-prefix", "Add the `f` prefix to a string whose `{name}` names a binding in scope"),
     ("lint.needless-annotation", "Remove a type annotation that the initializer or checked constraints already fix"),
     ("lint.organize-top-level-consts", "Group safe immutable top-level constants after imports and before functions"),
     ("lint.path-constructor", "Prefer a `p` string literal or path interpolation over `Path(...)`"),
@@ -881,7 +882,8 @@ impl<'a> Linter<'a> {
             let stmt = self.arena.stmt(statement);
             let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } = stmt.kind else { continue; };
             if !matches!(self.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name.as_str() != "_")
-                || !inert_constant_initializer(self.arena, value) { continue; }
+                || !inert_constant_initializer(self.arena, value)
+                || self.holds_missing_f_prefix(value) { continue; }
             let Some(expected) = self.expr_types.get(&self.arena.expr(value).span) else { continue; };
             let Some(constant) = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default()) else { continue; };
             if !constant.in_type(expected).matches_data_type(expected) { continue; }
@@ -1952,7 +1954,7 @@ impl<'a> Linter<'a> {
                                 .with_label(Label::primary(
                                     dollar_span,
                                     format!(
-                                        "use an f-string or `+` concatenation to interpolate `{name}`"
+                                        "use `f\"...{{{name}}}...\"` or `+` concatenation to interpolate `{name}`"
                                     ),
                                 ))
                                 .with_note(
@@ -1967,6 +1969,73 @@ impl<'a> Linter<'a> {
                 }
                 _ => index += 1,
             }
+        }
+    }
+
+    /// `"{name}"` without an `f` prefix is literal text, the most common
+    /// f-string mistake. Fires only when every `{...}` is a dotted name and
+    /// the literal would be a valid f-string, so the fix changes nothing else.
+    fn lint_missing_f_prefix(&mut self, expr: ExprId) {
+        let Some((label, first, replacement)) = self.missing_f_prefix(expr) else { return };
+        let span = self.arena.expr(expr).span;
+        let path = replacement.starts_with("fp");
+        self.diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!("`{{{first}}}` is literal text without the `f` prefix"),
+            )
+            .with_code("lint.missing-f-prefix")
+            .with_label(Label::primary(label, format!("`{first}` is a binding in scope")))
+            .with_fix_hint(FixHint::replacement(
+                span,
+                if path { "use `fp\"...\"` to interpolate" } else { "use `f\"...\"` to interpolate" },
+                replacement,
+            )),
+        );
+    }
+
+    /// The `{name}` label span, the name, and the prefixed literal for a
+    /// plain or path string literal that is missing its `f` prefix.
+    fn missing_f_prefix(&self, expr: ExprId) -> Option<(Span, String, String)> {
+        let arena_expr = self.arena.expr(expr);
+        let path = match arena_expr.kind {
+            ArenaExprKind::Str(_) => false,
+            ArenaExprKind::PathStr(_) => true,
+            _ => return None,
+        };
+        let span = arena_expr.span;
+        let source = self.source.get(span.range())?;
+        // A string holding XSH source, such as a generated script, uses its
+        // braces as code.
+        if source.contains("f\\\"") || source.contains("f\"") && source.starts_with("\"\"\"") {
+            return None;
+        }
+        let names = xsh::frontend::syntax::literal::dotted_names_if_formatted(source)?;
+        if !names.iter().all(|(name, _)| self.is_binding_in_scope_or_assigned(name)) {
+            return None;
+        }
+        let (first, range) = names[0].clone();
+        let label = Span::new(span.source_id, span.start() + range.start - 1, span.start() + range.end + 1);
+        let replacement = if path { format!("fp{}", &source[1..]) } else { format!("f{source}") };
+        Some((label, first.to_string(), replacement))
+    }
+
+    /// Whether inert data holds a string that `lint.missing-f-prefix` may
+    /// turn into an f-string, which a `const` cannot hold. Module scopes are
+    /// not built yet when constants are judged, so any `{name}` counts.
+    fn holds_missing_f_prefix(&self, value: ExprId) -> bool {
+        match self.arena.expr(value).kind {
+            ArenaExprKind::Str(_) | ArenaExprKind::PathStr(_) => self
+                .source
+                .get(self.arena.expr(value).span.range())
+                .and_then(xsh::frontend::syntax::literal::dotted_names_if_formatted)
+                .is_some(),
+            ArenaExprKind::List(items) => self.arena.list_elements(items).any(|item| self.holds_missing_f_prefix(item.value)),
+            ArenaExprKind::Record(fields) => self.arena.record_fields(fields).iter().any(|field| match field.kind {
+                ArenaRecordFieldKind::Named { value, .. } => self.holds_missing_f_prefix(value),
+                _ => false,
+            }),
+            _ => false,
         }
     }
 
@@ -2773,7 +2842,7 @@ impl<'a> Linter<'a> {
     }
 
     /// `Path(...)` rewritten as path syntax. Text pieces that display a Path,
-    /// spelled `${p}` or `${p.display()}`, become native path pieces: the
+    /// spelled `{p}` or `{p.display()}`, become native path pieces: the
     /// rewrite keeps every UTF-8 path and stops replacing other bytes.
     fn path_constructor_replacement(&self, arg: ExprId) -> Option<String> {
         let arg_span = self.arena.expr(arg).span;
@@ -2784,7 +2853,7 @@ impl<'a> Linter<'a> {
         match self.arena.expr(arg).kind {
             ArenaExprKind::Str(_) => Some(format!("p{arg_text}")),
             ArenaExprKind::FmtString(parts) => self.path_fmt_from_text_fmt(arg_span, parts),
-            _ => Some(format!("fp\"${{{arg_text}}}\"")),
+            _ => single_line_interpolation(arg_text).map(|interpolation| format!("fp\"{interpolation}\"")),
         }
     }
 
@@ -6367,6 +6436,16 @@ fn tail_type_matches_lint_expected(return_ty: &Type, value_ty: &Type) -> bool {
         || matches!(return_ty, Type::Result(ok, _) if value_ty.matches_expected(ok))
 }
 
+/// `{source}` as an interpolation in a single-line f-string: an expression
+/// that begins with `{` is set off by spaces, and one that spans lines has
+/// no single-line spelling.
+fn single_line_interpolation(source: &str) -> Option<String> {
+    if source.contains(['\n', '\r']) {
+        return None;
+    }
+    Some(if source.starts_with('{') { format!("{{ {source} }}") } else { format!("{{{source}}}") })
+}
+
 fn single_interpolation_expr(arena: &AstArena, parts: ArenaRange) -> Option<ExprId> {
     let parts: Vec<ArenaFmtPart> = arena.fmt_parts(parts).collect();
     match parts.as_slice() {
@@ -7990,16 +8069,17 @@ impl LintExprVisitor<'_, '_> {
             }
             ArenaExprKind::Str(_) => {
                 self.linter.lint_dollar_in_expression_string(expr);
+                self.linter.lint_missing_f_prefix(expr);
                 if !self.suppress_expr_autofixes {
                     self.linter.lint_redundant_newline_triple_string(expr);
                 }
             }
+            ArenaExprKind::PathStr(_) => self.linter.lint_missing_f_prefix(expr),
             ArenaExprKind::Null
             | ArenaExprKind::Bool(_)
             | ArenaExprKind::Int(_)
             | ArenaExprKind::Float(_)
             | ArenaExprKind::Duration(_)
-            | ArenaExprKind::PathStr(_)
             | ArenaExprKind::GlobStr(_)
             | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)

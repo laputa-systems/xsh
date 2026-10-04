@@ -1063,7 +1063,10 @@ fn removal_merges_tokens(source: &str, group: Span, inner: Span) -> bool {
         .first()
         .zip(inner_tokens.last())
         .is_some_and(|((_, next), (_, last))| !tokens_stay_separate(last, next));
-    first_merges || last_merges
+    // In f-string text `{{` is a brace escape, so an interpolation whose
+    // expression begins with `{` keeps the parentheses that separate them.
+    let brace_escape = before.ends_with('{') && source[inner.range()].starts_with('{');
+    first_merges || last_merges || brace_escape
 }
 
 fn redundant_parens(span: Span, source: &str) -> Diagnostic {

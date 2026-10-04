@@ -8,6 +8,8 @@ use crate::syntax::arena::{
     ArenaCompQualifier, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
     ArenaSpawnForm, ArenaSpawnTarget, ArenaWaitForm, BlockId, ExprId, PatternId, RunFormId,
 };
+use crate::diagnostic::FixHint;
+use crate::syntax::literal;
 use crate::syntax::node::EnvGetKind;
 
 pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
@@ -285,9 +287,9 @@ impl Checker {
                 }
                 Type::List(Box::new(Type::Path))
             }
-            ArenaExprKind::FmtString(parts) => self.check_fmt_string_arena(arena, source, *parts),
+            ArenaExprKind::FmtString(parts) => self.check_fmt_string_arena(arena, source, *parts, expr.span),
             ArenaExprKind::PathFmtString(parts) => {
-                self.check_fmt_string_arena(arena, source, *parts);
+                self.check_fmt_string_arena(arena, source, *parts, expr.span);
                 Type::Path
             }
             ArenaExprKind::Bytes(_) => Type::Bytes,
@@ -526,7 +528,9 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         range: ArenaRange,
+        span: Span,
     ) -> Type {
+        self.check_fmt_dollar_names(source, span);
         for part in arena.arena.fmt_parts(range) {
             if let ArenaFmtPart::Expr(expr_id, _) = part {
                 let ty = self.check_expr_arena(arena, source, expr_id, None);
@@ -541,6 +545,34 @@ impl Checker {
             }
         }
         Type::Str
+    }
+
+    /// `$` is plain text in an f-string, so a shell habit such as
+    /// `f"$name"` would print `$` before the value's name instead of the
+    /// value. When the name is a binding in scope, that is an error.
+    fn check_fmt_dollar_names(&mut self, source: &str, span: Span) {
+        let Some(literal::QuotedScan::Terminated(quoted)) =
+            source.get(span.range()).and_then(|_| literal::scan_quoted_literal(source, span.start(), true))
+        else {
+            return;
+        };
+        if quoted.raw || quoted.end != span.end() {
+            return;
+        }
+        for range in literal::fmt_text_dollar_names(source, quoted) {
+            let name = &source[range.start + 1..range.end];
+            if self.lookup(Name::intern(name)).is_none() {
+                continue;
+            }
+            let dollar = Span::new(span.source_id, range.start, range.end);
+            self.diagnostics.push(
+                Diagnostic::error(format!("f-strings interpolate with `{{{name}}}`; `${name}` is literal text"))
+                    .with_code("check.fmt-dollar-name")
+                    .with_label(Label::primary(dollar, format!("`{name}` is a binding in scope")))
+                    .with_fix_hint(FixHint::replacement(dollar, format!("interpolate with `{{{name}}}`"), format!("{{{name}}}")))
+                    .with_note("write `\\$` for a literal dollar sign"),
+            );
+        }
     }
 
     fn check_list_arena(

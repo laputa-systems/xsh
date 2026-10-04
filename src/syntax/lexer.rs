@@ -18,6 +18,56 @@ pub struct Lexer<'a> {
     token_builder: TokenTableBuilder,
     diagnostics: Vec<Diagnostic>,
     symbols: SymbolOwner,
+    // A scanner only walks token boundaries: it records no tokens and interns
+    // no names, so it can run without a symbol owner.
+    scan_only: bool,
+}
+
+/// How the tokens after an f-string `{` end.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InterpolationEnd {
+    /// The offset of the `}` that closes the interpolation.
+    Close(usize),
+    /// A `#` comment starts at this offset before the closing `}`.
+    Comment(usize),
+    Unclosed,
+}
+
+/// Finds the end of the f-string interpolation whose expression starts at
+/// `start`, just after its `{`, by lexing real tokens: the closing `}` is the
+/// first one outside every bracket, string, and nested f-string the lexer
+/// sees, so the expression parser and this boundary always agree.
+pub(crate) fn interpolation_end(source: &str, start: usize) -> InterpolationEnd {
+    let mut lexer = Lexer {
+        source_id: SourceId::new(0),
+        source,
+        offset: start,
+        token_builder: TokenTableBuilder::default(),
+        diagnostics: Vec::new(),
+        symbols: SymbolOwner::new(),
+        scan_only: true,
+    };
+    let mut depth = 0usize;
+    loop {
+        lexer.lex_whitespace();
+        let token_start = lexer.offset;
+        match lexer.peek_byte() {
+            None => return InterpolationEnd::Unclosed,
+            Some(b'#') => return InterpolationEnd::Comment(token_start),
+            _ => {}
+        }
+        lexer.lex_token();
+        if lexer.offset == token_start {
+            lexer.offset += 1;
+        }
+        match &source[token_start..lexer.offset] {
+            "(" | "[" | "{" | "${" => depth += 1,
+            ")" | "]" => depth = depth.saturating_sub(1),
+            "}" if depth == 0 => return InterpolationEnd::Close(token_start),
+            "}" => depth -= 1,
+            _ => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,6 +96,7 @@ impl<'a> Lexer<'a> {
             token_builder: TokenTableBuilder::with_capacity(estimated_tokens),
             diagnostics: Vec::new(),
             symbols,
+            scan_only: false,
         }
     }
 
@@ -61,6 +112,14 @@ impl<'a> Lexer<'a> {
 
     fn lex_source(&mut self) {
         while !self.is_eof() {
+            self.lex_token();
+        }
+
+        self.push(TokenKind::Eof, self.offset, self.offset);
+    }
+
+    fn lex_token(&mut self) {
+        {
             let start = self.offset;
             match self.peek_byte() {
                 Some(b' ' | b'\t') => self.lex_whitespace(),
@@ -127,6 +186,9 @@ impl<'a> Lexer<'a> {
                     self.offset += 2;
                     while matches!(self.peek_byte(), Some(byte) if is_ident_continue(byte)) {
                         self.offset += 1;
+                    }
+                    if self.scan_only {
+                        return;
                     }
                     self.push(
                         TokenKind::DollarIdent(Name::intern(&self.source[start + 1..self.offset])),
@@ -213,11 +275,9 @@ impl<'a> Lexer<'a> {
                         }
                     }
                 }
-                None => break,
+                None => {}
             }
         }
-
-        self.push(TokenKind::Eof, self.offset, self.offset);
     }
 
     fn lex_whitespace(&mut self) {
@@ -242,6 +302,9 @@ impl<'a> Lexer<'a> {
             self.offset += 1;
         }
         let text = &self.source[start..self.offset];
+        if self.scan_only {
+            return;
+        }
         if let Some(keyword) = Keyword::from_ident(text) {
             self.push(TokenKind::Keyword(keyword), start, self.offset);
         } else if text.contains('-') {
@@ -601,6 +664,9 @@ impl<'a> Lexer<'a> {
     }
 
     fn push(&mut self, kind: TokenKind, start: usize, _end: usize) {
+        if self.scan_only {
+            return;
+        }
         self.token_builder.push_kind(&kind, start);
     }
 

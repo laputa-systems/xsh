@@ -266,6 +266,8 @@ pub enum Arg {
 pub enum FmtPart {
     Lit(String),
     Interp(Expr),
+    /// `{expr:>N}`, `{expr:<N}`, or `{expr:0N}`, with the alignment byte.
+    Width(Expr, char, usize),
 }
 
 #[derive(Clone, Debug)]
@@ -459,11 +461,41 @@ pub fn quote_str(text: &str) -> String {
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
             '\t' => out.push_str("\\t"),
+            // `${` in an expression string is an error; `\$` is always text.
+            '$' => out.push_str("\\$"),
             _ => out.push(ch),
         }
     }
     out.push('"');
     out
+}
+
+/// Literal f-string text: braces doubled, and `\$` wherever a bare `$`
+/// would start `${` or a `$name` that may name a binding. `next` is the
+/// first character written after the text.
+fn fmt_text(text: &str, next: Option<char>) -> String {
+    let mut out = String::new();
+    let chars: Vec<char> = text.chars().collect();
+    for (index, ch) in chars.iter().enumerate() {
+        let following = chars.get(index + 1).copied().or(next);
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '{' => out.push_str("{{"),
+            '}' => out.push_str("}}"),
+            '$' if following.is_some_and(|c| c == '{' || c == '_' || c.is_ascii_alphabetic()) => out.push_str("\\$"),
+            _ => out.push(*ch),
+        }
+    }
+    out
+}
+
+/// `{expr}` with an optional `:spec`; `{{` is a brace escape, so an
+/// expression that begins with `{` is set off by spaces.
+fn interpolation(expr: &str, spec: &str) -> String {
+    if expr.starts_with('{') { format!("{{ {expr}{spec} }}") } else { format!("{{{expr}{spec}}}") }
 }
 
 pub fn float_literal(value: f64) -> String {
@@ -922,20 +954,27 @@ impl Printer<'_> {
             ),
             Expr::Propagate(inner) => format!("{}?", self.expr_text(inner, PREC_POSTFIX)),
             Expr::Fmt(parts) => {
-                let mut out = String::from("f\"");
-                for part in parts {
+                let mut out = String::new();
+                for (index, part) in parts.iter().enumerate() {
                     match part {
                         FmtPart::Lit(text) => {
-                            let quoted = quote_str(text);
-                            out.push_str(&quoted[1..quoted.len() - 1]);
+                            let next = match parts.get(index + 1) {
+                                Some(FmtPart::Lit(text)) => text.chars().next(),
+                                Some(_) => Some('{'),
+                                None => None,
+                            };
+                            out.push_str(&fmt_text(text, next));
                         }
-                        FmtPart::Interp(value) => {
-                            let _ = write!(out, "${{{}}}", self.expr_text(value, 0));
+                        FmtPart::Interp(value) => out.push_str(&interpolation(&self.expr_text(value, 0), "")),
+                        FmtPart::Width(value, align, width) => {
+                            out.push_str(&interpolation(&self.expr_text(value, 0), &format!(":{align}{width}")));
                         }
                     }
                 }
-                out.push('"');
-                out
+                // Only a triple-quoted f-string may break lines inside `{...}`;
+                // text never starts with a raw line break, so no block layout
+                // applies.
+                if out.contains('\n') { format!("f\"\"\"{out}\"\"\"") } else { format!("f\"{out}\"") }
             }
             Expr::BlockValue(block) => self.block_inline(block),
             Expr::Duration(millis) => {

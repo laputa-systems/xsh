@@ -1000,12 +1000,12 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "display-strings" => (
             "Defines display-string interpolation.",
-            "Display strings are presentation text: they interpolate with `${expr}` and do not become command argv or filesystem paths implicitly. Ordinary expression string literals never interpolate, so `$name` inside `\"...\"` is literal text; `lint.dollar-in-expression-string` warns when it names an in-scope binding, and raw strings keep `$` literal.",
+            "Display strings are presentation text: they interpolate with `{expr}` and do not become command argv or filesystem paths implicitly. `{{` and `}}` write literal braces, `{expr:>N}`, `{expr:<N}`, and `{expr:0N}` pad to a width, and `$` is ordinary text except that `${` and `$name` naming an in-scope binding are errors. Ordinary expression string literals never interpolate, so `$name` and `{name}` inside `\"...\"` are literal text; `lint.dollar-in-expression-string` and `lint.missing-f-prefix` warn when they name an in-scope binding, and raw strings keep `$` literal.",
         ),
         "print" => {
             return reference_doc_full(
                 "Prints values to standard output.",
-                "`print` writes its arguments separated by a single space and appends a newline to stdout; `eprint` does the same on stderr. `--flush` is recognized only as the first argument and writes to the inherited stream immediately instead of the captured script-output buffer. Both return Unit and require no declared effect. Accepted values are human-facing scalars: Str, Int, Bool, and Path; Path uses display conversion without canonicalizing. Command-word position interpolates with `$name` or `${expr}`, while expression string literals such as `\"$name\"` never interpolate; use `f\"${expr}\"` for expression-string interpolation.",
+                "`print` writes its arguments separated by a single space and appends a newline to stdout; `eprint` does the same on stderr. `--flush` is recognized only as the first argument and writes to the inherited stream immediately instead of the captured script-output buffer. Both return Unit and require no declared effect. Accepted values are human-facing scalars: Str, Int, Bool, and Path; Path uses display conversion without canonicalizing. Command-word position interpolates with `$name` or `${expr}`, while expression string literals such as `\"$name\"` never interpolate; use `f\"{expr}\"` for expression-string interpolation.",
                 &["language", "print", "output", "builtin"],
                 "print [--flush] ARG...",
                 &[],

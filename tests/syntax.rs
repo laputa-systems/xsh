@@ -168,7 +168,7 @@ let report = "# Manager\n\n## North-star impact\n\nfixture\n\n## task-tags\n"
 fn arena_accessors_decode_compact_frontend_shapes() {
     let source = r#"
 proc main(name: Str) [fs, error] -> Result[Unit] {
-  let greeting = f"hi ${name}"
+  let greeting = f"hi {name}"
   let nums = [1, 2, 3]
   print "hi ${greeting}" tail
 }
@@ -620,7 +620,7 @@ fn run_command_fixture_preserves_argv_boundary() {
 
 #[test]
 fn parser_accepts_grouped_multiline_run_invocation() {
-    let source = "run (\n  $make\n  \"ARCH=arm64\"\n  f\"CC=${cc}\"\n  \"Image\"\n) ?\n";
+    let source = "run (\n  $make\n  \"ARCH=arm64\"\n  f\"CC={cc}\"\n  \"Image\"\n) ?\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
@@ -641,13 +641,13 @@ fn parser_accepts_grouped_multiline_run_invocation() {
 
 #[test]
 fn formatter_preserves_grouped_run_invocation_shape() {
-    let source = "run (\n$make\n\"ARCH=arm64\"\nf\"CC=${cc}\"\n\"Image\"\n)?\n";
+    let source = "run (\n$make\n\"ARCH=arm64\"\nf\"CC={cc}\"\n\"Image\"\n)?\n";
     let output = xsht::format::Formatter::new().format_source(SourceId::new(0), source);
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert_eq!(
         output.formatted,
-        "run (\n  $make\n  \"ARCH=arm64\"\n  f\"CC=${cc}\"\n  \"Image\"\n) ?\n"
+        "run (\n  $make\n  \"ARCH=arm64\"\n  f\"CC={cc}\"\n  \"Image\"\n) ?\n"
     );
 }
 
@@ -863,9 +863,9 @@ fn parser_accepts_raw_triple_and_nested_fmt_strings() {
 let raw = r"\n ${literal}"
 let multi = """alpha
 beta"""
-let label = f"""${{name: "demo"}.name}:${if true { "x}" } else { "y" }}:${f"${1}"}"""
-let literal = f"\${name}:${name}"
-let path = fp"${Path("root")}/bin/tool"
+let label = f"""{ {name: "demo"}.name }:{if true { "x}" } else { "y" }}:{f"{1}"}"""
+let literal = f"${{name}}:{name}"
+let path = fp"{Path("root")}/bin/tool"
 run echo "${{name: "demo"}.name}"
 "#;
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -888,7 +888,7 @@ run echo "${{name: "demo"}.name}"
 fn parser_accepts_display_string_shorthand_interpolation() {
     let source = r#"
 let name = "world"
-let label = f"hello $name"
+let label = f"hello {name}"
 "#;
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
 
@@ -903,8 +903,8 @@ let label = f"hello $name"
 #[test]
 fn parser_accepts_nested_interpolation_boundaries_from_shared_scanner() {
     let source = r#"
-let label = f"${{raw: r"}", triple: """}""", nested: f"${{brace: "}"} .brace}"}.nested}"
-run echo "${{name: f"${1}", text: "}"} .name}"
+let label = f"{ {raw: r"}", triple: """}""", nested: f"{ {brace: "}"} .brace }"}.nested }"
+run echo "${{name: f"{1}", text: "}"} .name}"
 "#;
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
 
@@ -1176,7 +1176,7 @@ fn parser_accepts_foundation_shapes() {
         r###"
 let mode = 0o755
 let timeout = 30s
-let message = f"mode ${mode}"
+let message = f"mode {mode}"
 defer run true ?
 let command = process.command {
   cwd = Path("src")
@@ -1819,8 +1819,8 @@ count+=2
 var stats={code:0,comments:0}
 stats.code+=1
 stats["comments"]=2
-let label=f"count ${count}"
-let tool=fp"${Path("root")}/bin/tool"
+let label=f"count {count}"
+let tool=fp"{Path("root")}/bin/tool"
 let text=run.text printf "%s" ${label} ?
 let bytes=run.bytes printf "%s" raw ?
 let files=g"src/*.rs"
@@ -1842,8 +1842,8 @@ count += 2
 var stats = {code: 0, comments: 0}
 stats.code += 1
 stats["comments"] = 2
-let label = f"count ${count}"
-let tool = fp"${Path("root")}/bin/tool"
+let label = f"count {count}"
+let tool = fp"{Path("root")}/bin/tool"
 let text = run.text printf "%s" ${label} ?
 let bytes = run.bytes printf "%s" raw ?
 let files = g"src/*.rs"
@@ -2022,11 +2022,11 @@ fn parser_treats_old_schema_helper_name_as_plain_call() {
 fn formatter_escapes_literal_dollar_interpolation_markers() {
     let source = r#"
 let plain = r"${name}"
-let label = f"\${name}:${name}"
+let label = f"${{name}}:{name}"
 run echo "\$name" "\${name}"
 "#;
     let expected = r#"let plain = r"${name}"
-let label = f"\${name}:${name}"
+let label = f"${{name}}:{name}"
 run echo "\$name" "\${name}"
 "#;
 
@@ -2160,7 +2160,7 @@ let doubled = [1, 2, 3]
 fn formatter_wraps_long_constructs_at_default_width() {
     let source = r#"
 type Package = {dir: Path, exports: Record, name: Str, ver: Str, rel: Str, deps: List[Str], mkdeps: List[Str], sources: List[Path], checksums: List[Str], nostrip: Bool}
-let paths = [fp"${root}/bin", fp"${root}/dev", fp"${root}/etc/rc.d", fp"${root}/proc", fp"${root}/root", fp"${root}/run", fp"${root}/sys", fp"${root}/tmp", fp"${root}/usr/lib/services"]
+let paths = [fp"{root}/bin", fp"{root}/dev", fp"{root}/etc/rc.d", fp"{root}/proc", fp"{root}/root", fp"{root}/run", fp"{root}/sys", fp"{root}/tmp", fp"{root}/usr/lib/services"]
 let metadata = {name: pkg.name, version: pkg.ver, release: pkg.rel, tarball: tarball.display(), manifest_count: manifest.len(), checksum: checksums[source_index], installed_root: root.display(), work_dir: work.display()}
 let command = process.command_argv(service_target, argv_prefix.extend([proof_log.display(), "heartbeat"]), cwd: root, timeout: 5s, detach: true, new_session: true, ignore_hup: true)
 proc main(root: Path = Path("target/xsh-rootfs"), xsh_bin: Path = Path("target/debug/xsh"), auth_bin_dir: Path = Path("target/debug")) -> Result[Unit] {
@@ -2182,15 +2182,15 @@ type Package = {
 }
 
 let paths = [
-  fp\"${root}/bin\",
-  fp\"${root}/dev\",
-  fp\"${root}/etc/rc.d\",
-  fp\"${root}/proc\",
-  fp\"${root}/root\",
-  fp\"${root}/run\",
-  fp\"${root}/sys\",
-  fp\"${root}/tmp\",
-  fp\"${root}/usr/lib/services\",
+  fp\"{root}/bin\",
+  fp\"{root}/dev\",
+  fp\"{root}/etc/rc.d\",
+  fp\"{root}/proc\",
+  fp\"{root}/root\",
+  fp\"{root}/run\",
+  fp\"{root}/sys\",
+  fp\"{root}/tmp\",
+  fp\"{root}/usr/lib/services\",
 ]
 let metadata = {
   name: pkg.name,
@@ -2261,7 +2261,7 @@ let target = make.c_program({
   deps: [],
 })
 let value = path_value.display().replace(\"/\", \"_\").replace(\".cxx\", ext).replace(\".cpp\", ext).replace(\".cc\", ext).replace(\".c\", ext).replace(\".S\", ext).replace(\".s\", ext)
-let script = r\"\"\"print f\"${value}\"
+let script = r\"\"\"print f\"{value}\"
 \"\"\"
 ";
     let expected = "export type CMultiTarget = {
@@ -2293,7 +2293,7 @@ let value = path_value.display()
   .replace(\".c\", ext)
   .replace(\".S\", ext)
   .replace(\".s\", ext)
-let script = r\"\"\"print f\"${value}\"
+let script = r\"\"\"print f\"{value}\"
 \"\"\"
 ";
 
@@ -2349,12 +2349,12 @@ fn formatter_keeps_expanded_single_record_call_stable() {
 #[test]
 fn formatter_preserves_indented_multiline_format_strings() {
     let source = "proc write_line(text: Str, name: Str) [fs, error] {
-  text.write_atomic(f\"\"\"hello ${name}
+  text.write_atomic(f\"\"\"hello {name}
 \"\"\")?
 }
 
 proc write_path(text: Str, name: Str) [fs, error] {
-  text.write_atomic(fp\"\"\"hello ${name}
+  text.write_atomic(fp\"\"\"hello {name}
 \"\"\")?
 }
 ";
@@ -2747,7 +2747,7 @@ print \"done\"
 fn parser_formatter_roundtrip_property_over_baseline_snippets() {
     let snippets = [
         "let value = 1 + 2 * 3\n",
-        "let tmp_path = fp\"${Path(\"tmp\")}/space name\"\n",
+        "let tmp_path = fp\"{Path(\"tmp\")}/space name\"\n",
         "let raw_bytes = b\"a\\xff\\n\"\n",
         "run printf \"%s\\n\" \"hello world\" ?\n",
         "run make -j${cpu.count()} ?\n",
@@ -2880,7 +2880,7 @@ let nested = [
 ]
 let filtered = [item.name for item in items if item.enabled]
 let by_name = {
-  item.name: f\"${item.name}\"
+  item.name: f\"{item.name}\"
   for item in items
   if item.enabled
 }
@@ -3926,7 +3926,7 @@ fn selective_retry_requires_parenthesized_clause_and_retains_on_names() {
 // interpolation source that a native value assertion cannot inspect.
 #[test]
 fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
-    let source = "let name = \"café\"\nlet value = f\"\"\"\n  ${if true {\n# } inside comment\n  r\"\"\"nested\n exact\"\"\"\n} else { \"\" }}\n  $name\n  \"\"\"\n";
+    let source = "let name = \"café\"\nlet value = f\"\"\"\n  {if true {\nlet _ = \"}\"\n  r\"\"\"nested\n exact\"\"\"\n} else { \"\" }}\n  {name}\n  \"\"\"\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(19), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     assert_eq!(parsed.cst.get().exact_text(), source);
@@ -3942,7 +3942,7 @@ fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
     assert_parse_and_check(SourceId::new(19), &formatted.formatted);
     assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(19), &formatted.formatted).formatted);
 
-    let invalid = "let name = \"café\"\nlet value = f\"\"\"\n  ${@}\n  \"\"\"\n";
+    let invalid = "let name = \"café\"\nlet value = f\"\"\"\n  {@}\n  \"\"\"\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(19), invalid);
     assert!(parsed.diagnostics.iter().flat_map(|diagnostic| &diagnostic.labels).any(|label| &invalid[label.span.range()] == "@"), "{:?}", parsed.diagnostics);
     let invalid = "let name = \"café\"\nlet value = \"\"\"\n  good\n wrong\n  \"\"\"\n";
@@ -4071,4 +4071,26 @@ fn default_parameter_parser_retains_omission_without_synthesizing_source_types()
     assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
     assert!(Checker::check_arena(&reparsed.arena, &formatted).diagnostics.is_empty());
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted).formatted, formatted);
+}
+
+// Interpolation expressions are parsed from slices of the literal, so these
+// assertions own the byte offsets that map them back across `{{` escapes,
+// multibyte text, and width specs.
+#[test]
+fn fmt_interpolation_spans_index_the_original_source() {
+    let source = "let x = 1\nlet v = f\"é {{ {x}}} {{{ {a: x}.a :>3}!\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(4), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let ArenaExprKind::FmtString(parts) = arena.expr(root_let_init_expr(&parsed, 1)).kind else { panic!("f-string") };
+    let parts = arena.fmt_parts(parts).collect::<Vec<_>>();
+    let texts = parts.iter().filter_map(|part| match part { ArenaFmtPart::Text(text) => arena.text_value(text, source).map(str::to_owned), _ => None }).collect::<Vec<_>>();
+    assert_eq!(texts, ["é { ", "} {", "!"]);
+    let expressions = parts.iter().filter_map(|part| match part { ArenaFmtPart::Expr(expr, spec) => Some((&source[arena.expr(*expr).span.range()], spec.as_ref().map(|spec| spec.width))), _ => None }).collect::<Vec<_>>();
+    assert_eq!(expressions, [("x", None), ("{a: x}.a", Some(3))]);
+
+    let invalid = "let v = f\"é {{ {1 +}\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(4), invalid);
+    let label = parsed.diagnostics.iter().flat_map(|diagnostic| &diagnostic.labels).next().expect("diagnostic label");
+    assert_eq!(label.span.start(), invalid.find("}\"").unwrap(), "{:?}", parsed.diagnostics);
 }

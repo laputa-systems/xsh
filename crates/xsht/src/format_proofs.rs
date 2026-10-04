@@ -10,13 +10,13 @@ const OPERATORS: [&str; 16] = ["??", "or", "and", "==", "!=", "<", "<=", ">", ">
 /// One spelling of every expression form, by fixity and how it ends.
 fn children() -> Vec<String> {
     let mut children: Vec<String> = [
-        "a", "1", "\"s\"", "[a]", "{k: a}", "$?", "/tmp/x", "env.Str.HOME", ".", ".f", "f\"x${a}\"",
+        "a", "1", "\"s\"", "[a]", "{k: a}", "$?", "/tmp/x", "env.Str.HOME", ".", ".f", "f\"x{a}\"",
         "-b", "! b", "b is Int", "b < c < d",
         "b.f", "b?.f", "b[0]", "b?[0]", "b[0..1]", "b(c)", "b?", "b.require(Int)",
         "if b { c } else { d }", "match b { _ => c }", "loop { break }", "try { c }", "retry [1s] { c }", "{|e| c}",
         "cd (b) { c }", "ctx \"m\" { c }",
         "run foo", "run foo -x", "run cat < b\"\"", "spawn run foo", "spawn f()", "wait c",
-        "b |> lines()", "b |> f(.)", "b |> map(c)", "b |> sort", "b |> take(1)", "b |> sum", "b |> map .f", "b |> where . > c", "{k: b for k in c}", "{[f\"${k}\"]: b for k in c}", "{k}", "{}",
+        "b |> lines()", "b |> f(.)", "b |> map(c)", "b |> sort", "b |> take(1)", "b |> sum", "b |> map .f", "b |> where . > c", "{k: b for k in c}", "{[f\"{k}\"]: b for k in c}", "{k}", "{}",
     ]
     .map(str::to_string)
     .to_vec();
@@ -38,7 +38,7 @@ fn parents() -> Vec<String> {
         "H", "f()\nH", "let w = 1\nH", "if c {\n  w()\n}\nH", "proc p() {\n  H\n}",
         "let v = match a { _ => H }", "match a {\n  _ => H\n}", "let v = if c { H } else { 1 }",
         "f(H, 1)", "f(1, H)", "f(H?.f, 1)", "f(H?.f(), 1)", "[H, 1]", "{k: H}", "if H {\n  w()\n}", "while H {\n  w()\n}", "for x in H {\n  w()\n}",
-        "print f\"${H}\"", "assert H, \"m\"", "assert H",
+        "print f\"{H}\"", "assert H, \"m\"", "assert H",
     ]
     .map(str::to_string)
     .to_vec();
@@ -142,7 +142,7 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
         }
     }
     assert_eq!((parents.len(), children.len()), (75, 65));
-    assert_eq!((cases, required, redundant, kept, ambiguous), (4875, 1385, 3480, 10, 156));
+    assert_eq!((cases, required, redundant, kept, ambiguous), (4875, 1391, 3474, 10, 156));
 }
 
 struct Generator(u64);

@@ -149,8 +149,7 @@ Every value has a type, and the checker infers most of them: `Str`, `Int`,
 `Float`, `Duration`, `Path`, `List[Str]`, a record `{cpu: Int, memory_mb: Int}`,
 and an optional `Str?`. `const` is data fixed when the script is checked, `let`
 is an immutable runtime binding, and `var` is mutable. `f"..."`
-interpolates; plain `"..."` never does, so a stray `$` in a string literal is
-just a dollar sign.
+interpolates `{expr}`; plain `"..."` never interpolates.
 
 There are no implicit conversions. `"8080" + 1` is a check error, and
 `"8080".parse_int()` returns `Result[Int]` because parsing can fail. You will
