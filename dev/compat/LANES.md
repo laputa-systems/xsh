@@ -79,10 +79,12 @@ several GB of target directory and most of the RAM while linking.
   `CARGO_TARGET_DIR=/home/claude/targets/<lane>` and serialize compilation
   through one lock so two links never run at once:
   `flock /home/claude/targets/cargo.lock cargo build --release -p xsh --bin xsh`.
-- **Suite runs** (uutils, GNU) are integrator-only, one at a time, through
-  the same lock. Lanes run their utilities' slice with
-  `dev/compat/run-uutils.sh UTIL...` only when the integrator says the
-  suite binary is built and idle.
+- **Suite runs.** Full uutils and GNU runs are integrator-only, one at a time.
+  Lanes run their own utilities' slice with `dev/compat/run-uutils.sh UTIL...`
+  whenever they like: invocations serialize on `UUTILS_SUITE_LOCK`, and a lane
+  sets `COMPAT_RESULTS_DIR` to scratch space (results/ is integrator-owned and
+  must not appear in a lane commit) and `XSH_BIN` to the shared release
+  `xsh`. The uutils test crate is already built, so a slice costs seconds.
 - **Caps on the reference VM**: at most 4 lanes active, at most 1 native lane
   compiling at a time. On a larger host scale to roughly one active lane per
   2 cores and one concurrent cargo link per 8 GB of RAM.

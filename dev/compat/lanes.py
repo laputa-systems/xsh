@@ -107,9 +107,14 @@ Use: core/lib/gnu.xsh diagnostics and the cli GNU mode (`gnu` record: prog, stat
      unsupported; numeric and stop option fields); the pinned uutils source at
      /home/user/ref/uutils-coreutils/src/uu/<util> and tests/by-util/test_<util>.rs are the behavior spec
      (read-only reference: never copy wholesale, never a dependency). GNU wording wins over clap wording.
-Verify: target/release/xsht test core/tests/test-<util>.xsh for each owned utility;
-        dev/compat/run-uutils.sh <utils> only when told the suite is idle;
-        python3 dev/compat/check_ignored_options.py and check_kernel_reads.py.
+Verify: {shared}/xsht test core/tests/test-<util>.xsh for each owned utility;
+        your uutils slice, any time (it serializes on a lock):
+          UUTILS_ROOT=/home/user/ref/uutils-coreutils XSH_BIN={shared}/xsh \\
+          COMPAT_RESULTS_DIR=<scratch dir outside the repo> dev/compat/run-uutils.sh <utils>
+        then read <scratch>/uutils-integration.json (per-utility pass/fail and failing test IDs);
+        failure output is in <scratch>/uutils-integration.junit.xml. Never commit anything under
+        dev/compat/results/ or target/. Also: python3 dev/compat/check_ignored_options.py,
+        check_kernel_reads.py and check_exclusions.py.
 Budget: stop and report at twice the size the integrator states.
 Commit on lane/{name} when green (never push, merge, or rebase others), ending the message with:
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>

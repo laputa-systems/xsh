@@ -6,6 +6,10 @@
 # With no utilities, runs every in-scope utility. Writes the raw JUnit report
 # and dev/compat/results/uutils-integration.json.
 #
+# Environment: UUTILS_ROOT (required), XSH_BIN (interpreter for the stage; default
+# target/release/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
+# UUTESTS_THREADS (default 3), UUTILS_SUITE_LOCK.
+#
 # Build notes:
 # - The uutils test crate needs `env!("CARGO_BIN_EXE_coreutils")` and gates each
 #   test module on its utility feature, so the minimum build is
@@ -33,6 +37,12 @@ set -eu
 PATH="${CARGO_HOME:-$HOME/.cargo}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 
+# Concurrent invocations (several lanes running their slices) share the uutils
+# build directory and nextest's JUnit path, so they serialize on one lock.
+lock=${UUTILS_SUITE_LOCK:-/tmp/uutils-suite.lock}
+exec 9>"$lock"
+flock 9
+
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 uutils=${UUTILS_ROOT:?set UUTILS_ROOT to the pinned uutils checkout}
 uutils=$(cd "$uutils" && pwd)
@@ -50,7 +60,8 @@ fi
 [ -e "$uutils/docs/tldr.zip" ] || : >"$uutils/docs/tldr.zip"
 
 stage=${XSH_COMPAT_STAGE:-$repo/target/compat-stage}
-results=$repo/dev/compat/results
+# Lanes point COMPAT_RESULTS_DIR at scratch space: results/ is integrator-owned.
+results=${COMPAT_RESULTS_DIR:-$repo/dev/compat/results}
 mkdir -p "$results"
 
 python3 "$repo/dev/compat/stage.py" --stage "$stage"
