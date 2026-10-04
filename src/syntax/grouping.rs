@@ -13,7 +13,7 @@ use crate::syntax::arena::{
 };
 use crate::syntax::grammar::{self, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence, binary_right_operand_precedence};
 use crate::syntax::lexer::{lex_spellings, tokens_stay_separate};
-use crate::syntax::node::{BinaryOp, RunKind};
+use crate::syntax::node::BinaryOp;
 use crate::syntax::token::{Keyword, TokenTag};
 use rustc_hash::FxHashMap;
 
@@ -543,12 +543,8 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         ArenaExprKind::Record(_) | ArenaExprKind::MapComp { .. } if lead != Lead::Initializer => !brace_reads_as_record(arena, kind),
         // A statement-position scope has no value body.
         ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::ContextScope { value_body: true, .. } => statement,
-        ArenaExprKind::Run(run) => {
-            lead != Lead::ArmBody
-                && !arena.run_segments(arena.run_form(*run).segments).first().is_some_and(|segment| {
-                    matches!(segment.kind, RunKind::StreamText | RunKind::StreamBytes)
-                })
-        }
+        // A run form that heads a pipeline reads as a value at any lead.
+        ArenaExprKind::Run(_) => lead != Lead::ArmBody && !matches!(context.slot, Slot::PipelineInput { .. }),
         ArenaExprKind::Field { base, .. } if matches!(arena.expr(*base).kind, ArenaExprKind::Item) => lead == Lead::Statement { after_expression: true },
         // A name alone is a command; a `.name` chain followed by a word is a
         // dotted command (`Parser::lookahead_is_dotted_command`).

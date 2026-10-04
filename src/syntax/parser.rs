@@ -410,13 +410,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub(in crate::syntax::parser) fn lookahead_is_run_stream(&self) -> bool {
-        self.peek_tag(1) == Some(TokenTag::Dot)
-            && self
-                .peek_name(2)
-                .is_some_and(|name| self.peek_tag(2) == Some(TokenTag::Ident) && name == "stream")
-    }
-
     pub(in crate::syntax::parser) fn lookahead_is_env_expr_assignment_block(&self) -> bool {
         if self.current_tag() != TokenTag::LBrace {
             return false;

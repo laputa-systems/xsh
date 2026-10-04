@@ -142,7 +142,7 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
         }
     }
     assert_eq!((parents.len(), children.len()), (75, 65));
-    assert_eq!((cases, required, redundant, kept, ambiguous), (4875, 1391, 3474, 10, 156));
+    assert_eq!((cases, required, redundant, kept, ambiguous), (4875, 1385, 3480, 10, 156));
 }
 
 struct Generator(u64);

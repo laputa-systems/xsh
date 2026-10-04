@@ -21,10 +21,6 @@ impl<'a> Parser<'a> {
         if let Some(form) = self.current_keyword().and_then(grammar::statement_form) {
             return match form {
                 StatementForm::Binding => self.parse_binding_arena_only(start, !self.at_keyword(Keyword::Var), arena),
-                // `run.stream` was meant to read as an expression, so a stream
-                // could feed a pipeline, but `stream` lexes as a keyword and the
-                // lookahead never matches.
-                StatementForm::Run if self.lookahead_is_run_stream() => self.parse_expr_statement_arena_only(start, arena),
                 StatementForm::Run => self.parse_command_statement_arena_only(start, arena),
                 StatementForm::Assert => self.parse_assert_arena_only(start, arena),
                 StatementForm::If => self.parse_if_arena_only(start, arena),
@@ -695,12 +691,11 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaExprOrRun> {
-        if self.at_keyword(Keyword::Run) && self.lookahead_is_run_stream() {
-            let expr_id = self.parse_expr_id_arena_only(arena)?;
-            return Some(ArenaExprOrRun::Expr(expr_id));
-        }
         if self.at_keyword(Keyword::Run) {
-            let (run_id, _span) = self.parse_run_form_arena_only(arena)?;
+            let (run_id, span) = self.parse_run_form_arena_only(arena)?;
+            if self.at_run_pipeline() {
+                return Some(ArenaExprOrRun::Expr(self.parse_run_pipeline_arena_only(run_id, span, arena)?.id));
+            }
             let propagate = self.consume(TokenKindMatch::Question).is_some();
             if propagate {
                 arena.set_run_form_propagate(run_id, true);
@@ -1795,12 +1790,14 @@ impl<'a> Parser<'a> {
         )?;
         arena.begin_builder_entries();
         self.skip_separators();
-        while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
-            if self.parse_builder_entry_arena_only(arena).is_none() {
-                self.recover_statement();
+        self.in_nested_group(|parser| {
+            while !parser.at(TokenKindMatch::RBrace) && !parser.at(TokenKindMatch::Eof) {
+                if parser.parse_builder_entry_arena_only(arena).is_none() {
+                    parser.recover_statement();
+                }
+                parser.skip_separators();
             }
-            self.skip_separators();
-        }
+        });
         let end = self
             .expect(
                 TokenKindMatch::RBrace,
