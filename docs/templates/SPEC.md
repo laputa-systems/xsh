@@ -1739,6 +1739,10 @@ The adapters `text.lines()`, `bytes.chunks(size)`, `json.lines()`, and
 
 ### 13.4 Callbacks and errors
 
+Callback parameters may shadow enclosing bindings; names within one parameter
+list must be distinct (`check.duplicate-name`). A fold or reduce initializer
+uses the enclosing scope before the callback parameters are bound.
+
 - `where`, `any`, and `all` require a `Bool` callback result, `sort-by` a
   sortable key, and keyed `count` a `Str`, `Int`, or `Bool` key. A
   `Result` there is a type error: add `?` to propagate.
