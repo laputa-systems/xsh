@@ -23,7 +23,7 @@ GNU runs also need a C toolchain, autotools, perl and `quilt` (uutils'
 | `python3 dev/compat/parity.py` | regenerate `dev/coreutils-parity.json` from the pinned uutils tree and any results |
 | `python3 dev/compat/parity.py --check` | fail if the manifest is stale |
 | `python3 dev/compat/stage.py [--stage DIR]` | install `core/` in release shape with shebangs at the built `xsh`; writes `applets.json` |
-| `dev/compat/xsh-uutests UTIL ARGS...` | uutils multicall contract over the stage (`XSH_COMPAT_STAGE`) |
+| `dev/compat/xsh-uutests UTIL ARGS...` | uutils multicall contract; `stage.py` installs a copy in the stage that finds the stage from its own path (the uutils framework clears the environment) |
 | `dev/compat/run-uutils.sh [UTIL...]` | Gate 3: uutils `tests/by-util` against XSH; writes `results/uutils-integration.json` |
 | `dev/compat/run-gnu.sh prepare` | fetch GNU 9.12 and prepare its tests with uutils' `build-gnu.sh` |
 | `dev/compat/run-gnu.sh uutils [TEST...]` | GNU tests against pinned uutils (cached baseline) |

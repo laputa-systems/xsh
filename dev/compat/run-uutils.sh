@@ -16,6 +16,8 @@
 #   instead of passing on uutils' behavior. It is restored on exit.
 # - Only the `tests` target runs; `test_util_name` and `test_uudoc` exercise the
 #   uutils binary itself and do not apply.
+# - The framework clears the child environment, so the adapter is installed
+#   inside the stage and locates the stage from its own path.
 # - Cross-utility calls (`scene.ccmd("touch")`) also dispatch to XSH. Tests that
 #   spawn host programs directly are listed in dev/compat/host-deps.json.
 set -eu
@@ -75,8 +77,7 @@ EOF
 
 set +e
 (cd "$uutils" && \
-	XSH_COMPAT_STAGE=$stage \
-	UUTESTS_BINARY_PATH=$repo/dev/compat/xsh-uutests \
+	UUTESTS_BINARY_PATH=$stage/xsh-uutests \
 	LC_ALL=C TZ=UTC \
 	CARGO_TARGET_DIR=$target \
 	cargo nextest run --release --features feat_os_unix --test tests \

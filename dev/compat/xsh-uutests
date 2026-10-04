@@ -6,10 +6,18 @@
 # <utility> with argv, stdio, cwd, environment and signals untouched; it is a
 # dispatcher, not a second implementation, so it never rewrites arguments.
 #
-# XSH_COMPAT_STAGE names the stage written by dev/compat/stage.py. A utility
-# with no staged applet exits 127 with a diagnostic, so a missing command is a
-# visible failure rather than a fall-through to a host binary.
-stage=${XSH_COMPAT_STAGE:?set XSH_COMPAT_STAGE to the dev/compat/stage.py output}
+# The uutils test framework runs every command with a cleared environment (only
+# LC_ALL, TZ, PATH and LD_PRELOAD survive), so the stage cannot be passed by
+# variable. stage.py installs a copy of this script at STAGE/xsh-uutests and the
+# copy resolves the stage from its own location; XSH_COMPAT_STAGE overrides that
+# for manual runs of the in-tree script. A utility with no staged applet exits
+# 127 with a diagnostic, so a missing command is a visible failure rather than a
+# fall-through to a host binary.
+stage=${XSH_COMPAT_STAGE:-$(cd "$(dirname "$0")" && pwd)}
+if [ ! -d "$stage/bin" ]; then
+	echo "xsh-uutests: no stage at $stage; run dev/compat/stage.py and use the copy it installs" >&2
+	exit 2
+fi
 
 if [ "$#" -eq 0 ]; then
 	echo "usage: xsh-uutests UTILITY [ARG...]" >&2

@@ -7,6 +7,8 @@ Layout written to STAGE (default: target/compat-stage):
     STAGE/bin/lib/*.xsh     core/lib modules, adjacent so `use lib.x` resolves
     STAGE/bin/<alias>       symlink to its target applet (aliases.json)
     STAGE/applets.json      the deterministic applet manifest for this stage
+    STAGE/xsh-uutests       the uutils multicall adapter; it finds the stage from its own
+                            path because the uutils framework clears the environment
     STAGE/gnu-bin/          (with --gnu-programs) every GNU program name: a
                             symlink into bin/ when XSH provides it, otherwise a
                             copy of `false`, so a missing command fails instead
@@ -89,6 +91,9 @@ def main() -> int:
             return 1
         (bin_dir / alias).symlink_to(target)
 
+    adapter = stage / "xsh-uutests"
+    shutil.copy(REPO / "dev" / "compat" / "xsh-uutests", adapter)
+    adapter.chmod(0o755)
     (stage / "applets.json").write_text(json.dumps(manifest(names, aliases), indent=2) + "\n")
 
     if args.gnu_programs:
