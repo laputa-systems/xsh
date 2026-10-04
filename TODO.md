@@ -236,3 +236,28 @@ Rejected, with reasons:
 - `$`-interpolated or hash-delimited (`f#"""..."""#`) code-generation strings
   (recorded above).
 - `/` as path join: keep `fp"..."`.
+
+## Accepted and specified, not started (first batch)
+
+- **Lint the redundant `}?` on statement scopes** and make `fs.write(p, x, mode: M)`
+  create the file with its final mode, merging `write` + `chmod` pairs by
+  autofix. Statement scopes already propagate (SPEC 8.1).
+- **Dotted `use a.b` binds `b`**; lint + autofix the redundant `as b`.
+- **`for i, x in xs`** with an index binding; lint + autofix counter
+  `while i < xs.len()` loops into it or into a slice.
+- **Existing lints under-report on Laputa**: `x = x.push(...)` appears
+  ~2,858 times but `prefer-list-compound-assignment` flags ~37; three-line
+  `if c { return Err(..) }` guards ~445 vs 96 flagged. Find why and fix.
+
+## Defects found while migrating Laputa
+
+- `module.load(p)?.require(C)?.build()` fails to check ("unknown method
+  `build` on Record") while binding the required module with `let` first
+  works.
+- A failed `.require(Contract)` on a module reports "schema check failed at
+  $: expected Module, found Module", naming neither the missing or
+  mismatched export nor the reason, and missing exports are not
+  distinguishable from signature mismatches by facet.
+- `xsht fmt` is not idempotent on Laputa's `packages/terminfo/proof.xsh`
+  (a map comprehension with an `if`); `syntax::formatter_is_idempotent_on_laputa_corpus`
+  fails on the host.
