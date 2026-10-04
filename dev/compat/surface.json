@@ -1,0 +1,880 @@
+{
+  "comment": "Commands in the expanded campaign scope beyond the uutils coreutils set (dev/coreutils-parity.json owns that denominator). Integrator-owned; entries are only ever added: `reference` is a test/oracle dependency, never a runtime one, and parity.py fails if the count drops below the denominator pinned in upstream.lock.json. `optional` marks commands CAMPAIGN.md scopes as 'if cheap/worthwhile'; they still count.",
+  "commands": [
+    {
+      "command": "lscpu",
+      "phase": "3A",
+      "domain": "linux.device",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "rfkill",
+      "phase": "3A",
+      "domain": "linux.device",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "lspci",
+      "phase": "3A",
+      "domain": "linux.pci",
+      "reference": "pciutils",
+      "optional": false
+    },
+    {
+      "command": "lsusb",
+      "phase": "3A",
+      "domain": "linux.usb",
+      "reference": "usbutils",
+      "optional": false
+    },
+    {
+      "command": "sensors",
+      "phase": "3A",
+      "domain": "linux.sensor",
+      "reference": "lm-sensors",
+      "optional": false
+    },
+    {
+      "command": "swapon",
+      "phase": "3B",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "swapoff",
+      "phase": "3B",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "mkswap",
+      "phase": "3B",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "dmesg",
+      "phase": "3B",
+      "domain": "linux.device",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "sysctl",
+      "phase": "3B",
+      "domain": "linux.sysctl",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "hwclock",
+      "phase": "3B",
+      "domain": "linux.clock",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "flock",
+      "phase": "3B",
+      "domain": "linux.process",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "setsid",
+      "phase": "3B",
+      "domain": "linux.process",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "pivot_root",
+      "phase": "3B",
+      "domain": "linux.mount",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "switch_root",
+      "phase": "3B",
+      "domain": "linux.mount",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "reboot",
+      "phase": "3B",
+      "domain": "linux.power",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "poweroff",
+      "phase": "3B",
+      "domain": "linux.power",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "halt",
+      "phase": "3B",
+      "domain": "linux.power",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "lsmod",
+      "phase": "3C",
+      "domain": "linux.module",
+      "reference": "kmod",
+      "optional": false
+    },
+    {
+      "command": "modinfo",
+      "phase": "3C",
+      "domain": "linux.module",
+      "reference": "kmod",
+      "optional": false
+    },
+    {
+      "command": "modprobe",
+      "phase": "3C",
+      "domain": "linux.module",
+      "reference": "kmod",
+      "optional": false
+    },
+    {
+      "command": "insmod",
+      "phase": "3C",
+      "domain": "linux.module",
+      "reference": "kmod",
+      "optional": false
+    },
+    {
+      "command": "rmmod",
+      "phase": "3C",
+      "domain": "linux.module",
+      "reference": "kmod",
+      "optional": false
+    },
+    {
+      "command": "depmod",
+      "phase": "3C",
+      "domain": "linux.module",
+      "reference": "kmod",
+      "optional": false
+    },
+    {
+      "command": "ps",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "pgrep",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "pkill",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "pidof",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "free",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "top",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "watch",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "vmstat",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "procps-ng",
+      "optional": false
+    },
+    {
+      "command": "killall",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "psmisc",
+      "optional": false
+    },
+    {
+      "command": "pstree",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "psmisc",
+      "optional": false
+    },
+    {
+      "command": "fuser",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "psmisc",
+      "optional": false
+    },
+    {
+      "command": "lsof",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "lsof",
+      "optional": false
+    },
+    {
+      "command": "iostat",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "sysstat",
+      "optional": true
+    },
+    {
+      "command": "pidstat",
+      "phase": "3D",
+      "domain": "linux.process",
+      "reference": "sysstat",
+      "optional": true
+    },
+    {
+      "command": "ip",
+      "phase": "3E",
+      "domain": "linux.net",
+      "reference": "iproute2",
+      "optional": false
+    },
+    {
+      "command": "ss",
+      "phase": "3E",
+      "domain": "linux.net",
+      "reference": "iproute2",
+      "optional": false
+    },
+    {
+      "command": "ping",
+      "phase": "3E",
+      "domain": "linux.net",
+      "reference": "iputils",
+      "optional": false
+    },
+    {
+      "command": "ping6",
+      "phase": "3E",
+      "domain": "linux.net",
+      "reference": "iputils",
+      "optional": false
+    },
+    {
+      "command": "ifconfig",
+      "phase": "3E",
+      "domain": "linux.net",
+      "reference": "net-tools",
+      "optional": true
+    },
+    {
+      "command": "route",
+      "phase": "3E",
+      "domain": "linux.net",
+      "reference": "net-tools",
+      "optional": true
+    },
+    {
+      "command": "arp",
+      "phase": "3E",
+      "domain": "linux.net",
+      "reference": "net-tools",
+      "optional": true
+    },
+    {
+      "command": "udevadm",
+      "phase": "3F",
+      "domain": "linux.device",
+      "reference": "eudev",
+      "optional": false
+    },
+    {
+      "command": "login",
+      "phase": "3G",
+      "domain": "linux.accounts",
+      "reference": "shadow",
+      "optional": false
+    },
+    {
+      "command": "getent",
+      "phase": "3G",
+      "domain": "linux.accounts",
+      "reference": "glibc",
+      "optional": false
+    },
+    {
+      "command": "grep",
+      "phase": "4",
+      "domain": "xsh.search",
+      "reference": "gnu-grep",
+      "optional": false
+    },
+    {
+      "command": "egrep",
+      "phase": "4",
+      "domain": "xsh.search",
+      "reference": "gnu-grep",
+      "optional": false
+    },
+    {
+      "command": "fgrep",
+      "phase": "4",
+      "domain": "xsh.search",
+      "reference": "gnu-grep",
+      "optional": false
+    },
+    {
+      "command": "find",
+      "phase": "4",
+      "domain": "xsh.search",
+      "reference": "findutils",
+      "optional": false
+    },
+    {
+      "command": "xargs",
+      "phase": "4",
+      "domain": "xsh.search",
+      "reference": "findutils",
+      "optional": false
+    },
+    {
+      "command": "sed",
+      "phase": "4",
+      "domain": "xsh.text",
+      "reference": "gnu-sed",
+      "optional": false
+    },
+    {
+      "command": "awk",
+      "phase": "4",
+      "domain": "xsh.text",
+      "reference": "gawk",
+      "optional": false
+    },
+    {
+      "command": "cmp",
+      "phase": "4",
+      "domain": "xsh.text",
+      "reference": "diffutils",
+      "optional": false
+    },
+    {
+      "command": "diff",
+      "phase": "4",
+      "domain": "xsh.text",
+      "reference": "diffutils",
+      "optional": false
+    },
+    {
+      "command": "patch",
+      "phase": "4",
+      "domain": "xsh.text",
+      "reference": "patch",
+      "optional": false
+    },
+    {
+      "command": "gzip",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "gzip",
+      "optional": false
+    },
+    {
+      "command": "gunzip",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "gzip",
+      "optional": false
+    },
+    {
+      "command": "zcat",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "gzip",
+      "optional": false
+    },
+    {
+      "command": "bzip2",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "bzip2",
+      "optional": false
+    },
+    {
+      "command": "bunzip2",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "bzip2",
+      "optional": false
+    },
+    {
+      "command": "bzcat",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "bzip2",
+      "optional": false
+    },
+    {
+      "command": "xz",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "xz",
+      "optional": false
+    },
+    {
+      "command": "unxz",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "xz",
+      "optional": false
+    },
+    {
+      "command": "xzcat",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "xz",
+      "optional": false
+    },
+    {
+      "command": "lzma",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "xz",
+      "optional": false
+    },
+    {
+      "command": "unlzma",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "xz",
+      "optional": false
+    },
+    {
+      "command": "lzcat",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "xz",
+      "optional": false
+    },
+    {
+      "command": "zstd",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "zstd",
+      "optional": false
+    },
+    {
+      "command": "unzstd",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "zstd",
+      "optional": false
+    },
+    {
+      "command": "zstdcat",
+      "phase": "5",
+      "domain": "compression",
+      "reference": "zstd",
+      "optional": false
+    },
+    {
+      "command": "file",
+      "phase": "6",
+      "domain": "xsh.misc",
+      "reference": "file",
+      "optional": false
+    },
+    {
+      "command": "ldd",
+      "phase": "6",
+      "domain": "xsh.misc",
+      "reference": "glibc",
+      "optional": false
+    },
+    {
+      "command": "clear",
+      "phase": "6",
+      "domain": "xsh.misc",
+      "reference": "ncurses",
+      "optional": false
+    },
+    {
+      "command": "reset",
+      "phase": "6",
+      "domain": "xsh.misc",
+      "reference": "ncurses",
+      "optional": false
+    },
+    {
+      "command": "lsblk",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "blkid",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "findmnt",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "mount",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "umount",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "losetup",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "blockdev",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "wipefs",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "partx",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "partprobe",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "fstrim",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "fsfreeze",
+      "phase": "7A",
+      "domain": "linux.block",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "sfdisk",
+      "phase": "7A",
+      "domain": "linux.partition",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "fdisk",
+      "phase": "7A",
+      "domain": "linux.partition",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "mkfs.fat",
+      "phase": "7B",
+      "domain": "linux.fs",
+      "reference": "dosfstools",
+      "optional": false
+    },
+    {
+      "command": "mkfs.vfat",
+      "phase": "7B",
+      "domain": "linux.fs",
+      "reference": "dosfstools",
+      "optional": false
+    },
+    {
+      "command": "fsck.fat",
+      "phase": "7B",
+      "domain": "linux.fs",
+      "reference": "dosfstools",
+      "optional": false
+    },
+    {
+      "command": "fsck.vfat",
+      "phase": "7B",
+      "domain": "linux.fs",
+      "reference": "dosfstools",
+      "optional": false
+    },
+    {
+      "command": "fatlabel",
+      "phase": "7B",
+      "domain": "linux.fs",
+      "reference": "dosfstools",
+      "optional": false
+    },
+    {
+      "command": "lsattr",
+      "phase": "7C",
+      "domain": "linux.fs",
+      "reference": "e2fsprogs",
+      "optional": false
+    },
+    {
+      "command": "chattr",
+      "phase": "7C",
+      "domain": "linux.fs",
+      "reference": "e2fsprogs",
+      "optional": false
+    },
+    {
+      "command": "getfattr",
+      "phase": "7C",
+      "domain": "linux.xattr",
+      "reference": "attr",
+      "optional": false
+    },
+    {
+      "command": "setfattr",
+      "phase": "7C",
+      "domain": "linux.xattr",
+      "reference": "attr",
+      "optional": false
+    },
+    {
+      "command": "getfacl",
+      "phase": "7C",
+      "domain": "linux.acl",
+      "reference": "acl",
+      "optional": false
+    },
+    {
+      "command": "setfacl",
+      "phase": "7C",
+      "domain": "linux.acl",
+      "reference": "acl",
+      "optional": false
+    },
+    {
+      "command": "getcap",
+      "phase": "7C",
+      "domain": "linux.capability",
+      "reference": "libcap",
+      "optional": false
+    },
+    {
+      "command": "setcap",
+      "phase": "7C",
+      "domain": "linux.capability",
+      "reference": "libcap",
+      "optional": false
+    },
+    {
+      "command": "smartctl",
+      "phase": "8",
+      "domain": "linux.storage_health",
+      "reference": "smartmontools",
+      "optional": false
+    },
+    {
+      "command": "nvme",
+      "phase": "8",
+      "domain": "linux.nvme",
+      "reference": "nvme-cli",
+      "optional": false
+    },
+    {
+      "command": "nsenter",
+      "phase": "9",
+      "domain": "linux.namespace",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "unshare",
+      "phase": "9",
+      "domain": "linux.namespace",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "lsns",
+      "phase": "9",
+      "domain": "linux.namespace",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "taskset",
+      "phase": "9",
+      "domain": "linux.process",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "chrt",
+      "phase": "9",
+      "domain": "linux.process",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "ionice",
+      "phase": "9",
+      "domain": "linux.process",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "prlimit",
+      "phase": "9",
+      "domain": "linux.process",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "setpriv",
+      "phase": "9",
+      "domain": "linux.capability",
+      "reference": "util-linux",
+      "optional": false
+    },
+    {
+      "command": "ethtool",
+      "phase": "10",
+      "domain": "linux.net",
+      "reference": "ethtool",
+      "optional": false
+    },
+    {
+      "command": "iw",
+      "phase": "10",
+      "domain": "linux.wifi",
+      "reference": "iw",
+      "optional": false
+    },
+    {
+      "command": "traceroute",
+      "phase": "10",
+      "domain": "linux.net",
+      "reference": "traceroute",
+      "optional": false
+    },
+    {
+      "command": "tracepath",
+      "phase": "10",
+      "domain": "linux.net",
+      "reference": "iputils",
+      "optional": false
+    },
+    {
+      "command": "dig",
+      "phase": "10",
+      "domain": "linux.net",
+      "reference": "bind",
+      "optional": false
+    },
+    {
+      "command": "nslookup",
+      "phase": "10",
+      "domain": "linux.net",
+      "reference": "bind",
+      "optional": false
+    },
+    {
+      "command": "nc",
+      "phase": "10",
+      "domain": "linux.net",
+      "reference": "netcat-openbsd",
+      "optional": false
+    },
+    {
+      "command": "curl",
+      "phase": "10",
+      "domain": "xsh.net",
+      "reference": "curl",
+      "optional": false
+    },
+    {
+      "command": "wget",
+      "phase": "10",
+      "domain": "xsh.net",
+      "reference": "curl",
+      "optional": true
+    },
+    {
+      "command": "cpio",
+      "phase": "11",
+      "domain": "archive",
+      "reference": "cpio",
+      "optional": false
+    },
+    {
+      "command": "efibootmgr",
+      "phase": "11",
+      "domain": "linux.efi",
+      "reference": "efibootmgr",
+      "optional": false
+    }
+  ]
+}

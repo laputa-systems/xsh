@@ -106,7 +106,7 @@ match build.check_lint(ctx) {{
   assert cargo_marker.read_text()? == "test|--release|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
-test test_check_compat_runs_both_ratchets_and_stops_at_the_first_failure { |ctx|
+test test_check_compat_runs_every_ratchet_and_stops_at_the_first_failure { |ctx|
   let root = test.temp_dir(ctx, name: "check-compat")?
   let tools = fp"{root}/tools"
   tools.mkdir()?
@@ -140,7 +140,7 @@ match build.check_compat(ctx) {{
   )?
   assert result.success, result.stderr
   assert "StageError.Failed" in result.stdout, result.stdout
-  assert log.read_text()? == "dev/compat/check_ignored_options.py\ndev/compat/parity.py|--check\n"
+  assert log.read_text()? == "dev/compat/check_ignored_options.py\ndev/compat/check_kernel_reads.py\ndev/compat/parity.py|--check\n"
 }
 
 test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|

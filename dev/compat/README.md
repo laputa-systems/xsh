@@ -30,6 +30,7 @@ GNU runs also need a C toolchain, autotools, perl and `quilt` (uutils'
 | `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
+| `python3 dev/compat/check_kernel_reads.py` | Gate 9 ratchet: no `/proc`/`/sys` literal in a top-level applet |
 
 ## Data files
 
@@ -37,7 +38,9 @@ GNU runs also need a C toolchain, autotools, perl and `quilt` (uutils'
 |---|---|---|
 | `upstream.lock.json` | integrator | pinned uutils commit and GNU version |
 | `../coreutils-parity.json` | generated | per-utility parity manifest |
-| `aliases.json` | integrator | alias executable → shared applet |
+| `aliases.json` | integrator | alias executable → shared applet, as `{name, target}` entries |
+| `surface.json` | integrator | commands in the expanded scope beyond uutils, with phase, domain and test-only reference tool; the count is pinned in `upstream.lock.json` and can only grow |
+| `kernel-reads-baseline.json` | integrator | applets still reading `/proc`/`/sys` directly (shrink-only; empty today) |
 | `exclusions.json` | integrator | per-test-ID uutils exclusions with category and reason |
 | `gaps.json` | lanes (own utilities) | known semantic gaps |
 | `host-deps.json` | generated once | uutils tests that spawn host programs or use host oracles |

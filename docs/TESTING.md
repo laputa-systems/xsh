@@ -90,7 +90,10 @@ API gate: `cargo test --release --test integration libxsh_api`,
 Repository gates (owner-run unless the task asks for them):
 
 The compatibility ratchets are `python3 dev/compat/check_ignored_options.py`
-(no new or grown discard bucket in `core/*.xsh`) and
+(no new or grown discard bucket in `core/*.xsh`),
+`python3 dev/compat/check_kernel_reads.py` (no `/proc` or `/sys` literal in a
+top-level applet: kernel state is read through one typed domain API per ABI),
+and
 `python3 dev/compat/parity.py --check` (the committed parity manifest matches
 the repository and the denominator pinned in `dev/compat/upstream.lock.json`;
 offline unless `UUTILS_ROOT` is set). Harness usage is in

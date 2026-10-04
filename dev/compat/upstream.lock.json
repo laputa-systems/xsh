@@ -15,6 +15,7 @@
   "denominator": {
     "upstream_utilities": 108,
     "in_scope": 106,
-    "capability_gated": 2
+    "capability_gated": 2,
+    "surface_commands": 125
   }
 }

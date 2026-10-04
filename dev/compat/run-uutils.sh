@@ -18,12 +18,20 @@
 #   uutils binary itself and do not apply.
 # - The framework clears the child environment, so the adapter is installed
 #   inside the stage and locates the stage from its own path.
-# - Each applet runs under an address-space cap (XSH_COMPAT_MEM_KB, default 3 GiB)
+# - Each test process (nextest wrapper) and each applet (adapter) runs under an
+#   address-space cap, because a buggy applet can emit gigabytes that the test
+#   process then buffers (XSH `date +%99999999999c` wrote 2 GiB). Applet cap (XSH_COMPAT_MEM_KB, default 3 GiB)
 #   and nextest runs UUTESTS_THREADS (default 3) tests at once: the host shares
 #   one memory cgroup with builds, and an unbounded applet gets the suite killed.
 # - Cross-utility calls (`scene.ccmd("touch")`) also dispatch to XSH. Tests that
 #   spawn host programs directly are listed in dev/compat/host-deps.json.
 set -eu
+
+# The uutils test crate embeds the build-time PATH (`env!("PATH")`), so a different
+# PATH between invocations makes cargo recompile the whole test crate (five
+# minutes). Pin it: rustup shims first, then the standard system directories.
+PATH="${CARGO_HOME:-$HOME/.cargo}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 uutils=${UUTILS_ROOT:?set UUTILS_ROOT to the pinned uutils checkout}
@@ -73,7 +81,16 @@ fi
 
 profile_dir=$uutils/.config
 mkdir -p "$profile_dir"
-cat >"$profile_dir/nextest-xsh.toml" <<EOF
+cat >"$profile_dir/nextest-xsh.toml" <<'EOF'
+experimental = ["wrapper-scripts"]
+
+[scripts.wrapper.xsh-memcap]
+command = ["sh", "-c", "ulimit -v @TEST_MEM_KB@; exec \"$@\"", "sh"]
+
+[[profile.xsh.scripts]]
+filter = "all()"
+run-wrapper = "xsh-memcap"
+
 [profile.xsh]
 fail-fast = false
 retries = 0
@@ -83,6 +100,7 @@ path = "xsh-junit.xml"
 store-success-output = false
 store-failure-output = true
 EOF
+sed -i "s/@TEST_MEM_KB@/${UUTESTS_TEST_MEM_KB:-4194304}/" "$profile_dir/nextest-xsh.toml"
 
 # Never convert a report this run did not produce: a killed nextest (the host's
 # memory cgroup OOM-kills it) would otherwise leave the previous run's JUnit in

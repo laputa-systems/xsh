@@ -18,7 +18,8 @@ Usage:
 `UUTILS_ROOT` it runs offline, which is what `make check` does: the utility
 list, capability gates and upstream test counts come from the committed
 manifest, and every XSH-side field (presence, aliases, native tests, suite
-results, exclusions, gaps) is still recomputed and compared. Both modes also
+results, exclusions, gaps, and the `linux_surface` section built from
+`surface.json`) is still recomputed and compared. Both modes also
 fail when the totals differ from the denominator pinned in
 `upstream.lock.json`, so the denominator cannot shrink without a deliberate
 lock change.
@@ -39,6 +40,7 @@ CORE = REPO / "core"
 COMPAT = REPO / "dev" / "compat"
 LOCK = COMPAT / "upstream.lock.json"
 ALIASES = COMPAT / "aliases.json"
+SURFACE = COMPAT / "surface.json"
 EXCLUSIONS = COMPAT / "exclusions.json"
 RESULTS = COMPAT / "results"
 MANIFEST = REPO / "dev" / "coreutils-parity.json"
@@ -132,6 +134,26 @@ def upstream_from_manifest(manifest: dict) -> tuple[list[str], dict[str, str], d
     return base, gated, counts
 
 
+def surface_rows(aliases: dict[str, str]) -> list[dict]:
+    """Per-command status for the expanded scope in surface.json (no upstream tree needed)."""
+    rows = []
+    for entry in load_json(SURFACE, {"commands": []})["commands"]:
+        impl = xsh_implementation(entry["command"], aliases)
+        rows.append(
+            {
+                "command": entry["command"],
+                "phase": entry["phase"],
+                "domain": entry["domain"],
+                "reference": entry["reference"],
+                "optional": entry["optional"],
+                "xsh_implementation": impl,
+                "present": impl is not None,
+                "native_tests": native_tests(entry["command"], impl),
+            }
+        )
+    return rows
+
+
 def build(root: Path | None, committed: dict | None = None) -> dict:
     lock = load_json(LOCK, {})
     aliases = {e["name"]: e["target"] for e in load_json(ALIASES, {}).get("aliases", [])}
@@ -187,6 +209,19 @@ def build(root: Path | None, committed: dict | None = None) -> dict:
             "missing_in_scope": sorted(r["utility"] for r in in_scope if not r["present"]),
         },
         "utilities": rows,
+        "linux_surface": surface_summary(surface_rows(aliases)),
+    }
+
+
+def surface_summary(rows: list[dict]) -> dict:
+    return {
+        "totals": {
+            "commands": len(rows),
+            "present": sum(r["present"] for r in rows),
+            "optional": sum(r["optional"] for r in rows),
+            "missing": sorted(r["command"] for r in rows if not r["present"]),
+        },
+        "commands": rows,
     }
 
 
@@ -218,9 +253,16 @@ def main() -> int:
     manifest = build(root, committed)
     pinned = lock.get("denominator")
     if pinned:
-        totals = manifest["totals"]
+        totals = dict(manifest["totals"])
+        totals["surface_commands"] = manifest["linux_surface"]["totals"]["commands"]
         for key, value in pinned.items():
-            if totals[key] != value:
+            if key == "surface_commands":
+                # Additions are scope growth and raise the pin deliberately; a
+                # drop below the pin is a shrunken denominator.
+                if totals[key] < value:
+                    print(f"denominator shrank: surface_commands is {totals[key]}, lock pins {value}", file=sys.stderr)
+                    return 1
+            elif totals[key] != value:
                 print(f"denominator shrank or grew: {key} is {totals[key]}, lock pins {value}", file=sys.stderr)
                 return 1
     text = json.dumps(manifest, indent=2) + "\n"

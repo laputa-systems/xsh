@@ -1,27 +1,63 @@
 # XSH Core Compatibility Campaign
 
-Status: Wave 0 in progress on branch `campaign-utils`. Lane strategy and the
+Status: Wave 0 in progress on branch `campaign-utils`; scope widened on
+2026-10-04 from coreutils parity to the full systems-core surface below. Lane strategy and the
 integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 [`README.md`](README.md).
 
 ## Mission
 
-Make XSH core a credible native Unix/Linux userspace compatibility substrate,
-so a Laputa system with XSH installed has an unusually complete standard
-command environment without shipping GNU coreutils, util-linux, procps-ng,
-kmod, pciutils, usbutils, findutils or grep.
+XSH becomes the software-defined Linux systems core for Laputa: one typed
+language and native substrate that owns the kernel-ABI-facing userland. A
+Laputa system with XSH installed does not carry coreutils, util-linux,
+procps-ng, kmod, pciutils, usbutils, findutils, grep, the compression CLIs,
+dosfstools, smartmontools, nvme-cli, iproute2, ethtool, iw or similar small
+distro packages merely because conventional software expects their executable
+names. Traditional source-package boundaries are packaging history, not an
+architectural constraint.
+
+### Ownership rule
+
+Implement in XSH when the software is primarily
+
+```text
+kernel ABI + sysfs/procfs/netlink/ioctl parsing + conventional CLI presentation
+```
+
+Package externally when it contains a deep independent implementation: kernel
+and firmware; filesystem repair engines (`e2fsck`); GPU drivers and Mesa;
+nftables semantics; ptrace syscall-decoding databases (`strace`); perf's PMU
+and profile machinery; packet protocol decoders (`tcpdump`); Git, Make and
+rsync (protocols and languages). Libraries that third-party binaries link
+against (`libcap`, `libacl`, `libattr`, `libcurl`) may still be packaged later
+as ABI compatibility for external software; that is orthogonal to owning the
+command surface.
+
+Optimize for removing whole categories of traditional distro package
+dependencies through one coherent, typed Linux systems substrate, not for the
+number of command names implemented.
+
+### Objectives
 
 1. Match the complete practical Linux command surface of `uutils/coreutils`
    with comparable behavioral compatibility.
 2. Measure that with uutils' own integration, GNU and BusyBox suites rather
    than a bespoke suite.
-3. Extend to the practical util-linux, procps-ng, kmod, pciutils, usbutils,
-   findutils and grep surface.
+3. Own the rest of the kernel-ABI userland listed in
+   [`surface.json`](surface.json): util-linux, procps, kmod, pciutils,
+   usbutils, findutils, grep, sed/awk/diffutils, the compression family
+   (including zstd), dosfstools, block/mount/partition tools, file
+   attribute/ACL/capability tools, namespace and process control, storage
+   health (`smartctl`, `nvme`), network control and diagnostics (`ip`, `ss`,
+   `ethtool`, `iw`, `dig`, `nc`, `curl`), `cpio` and EFI boot variables.
 4. Implement commands as thin XSH applets over typed native APIs; add Rust
-   primitives where syscalls, byte semantics, performance or kernel
-   interfaces demand it.
+   primitives where syscalls, byte semantics, performance or kernel interfaces
+   demand it.
 5. Never fake a command: an accepted option works, and unsupported behavior
    fails explicitly.
+6. Use canonical tools (dosfstools, smartmontools, nvme-cli, util-linux,
+   ethtool, iw, xz, zstd, ...) only as test references, never as runtime
+   dependencies.
 
 Two constraints govern every decision:
 
@@ -57,6 +93,34 @@ bounded reads, redaction, safety, or capture/replay guarantees. Presentation
 commands may show local detail by default where convention expects it;
 `system-report`'s share-safe redaction stays its own policy.
 
+### One model per kernel ABI
+
+The main architectural risk of this scope is duplicating kernel parsing in
+dozens of applets. Each kernel ABI gets exactly one typed collector or
+controller; applets, `system-report`, Laputa boot and install scripts and user
+programs are renderers over it. Target domains (the split follows the existing
+module architecture; these names are targets, not required spellings):
+
+`block`, `mount`, `partition`, `fs` (FAT first), `device`, `pci`, `usb`,
+`storage_health`, `nvme`, `net`, `wifi`, `process` (including sampling),
+`namespace`, `capability`, `xattr`, `acl`, `efi`, `module`, `power`, `sensor`.
+
+- A command reads `/proc`, `/sys`, netlink or ioctl state only through its
+  domain's API. An applet that needs a field the domain lacks adds it to the
+  domain through the owning lane, never a private reader.
+  [`check_kernel_reads.py`](check_kernel_reads.py) ratchets this for top-level
+  applets.
+- Point-in-time inventory (`system-report`) and time-series sampling (`top`,
+  `vmstat`, `iostat`, `pidstat`, `watch`) are different APIs. Sampling has
+  explicit sample types: stable process identity (pid plus start time), CPU
+  ticks, RSS/VSS, I/O counters, context switches, state, threads, system CPU
+  totals, memory, paging and block-I/O counters. It is not built by abusing
+  the report collector.
+- Mutating operations (partition tables, `wipefs`, `mkfs`, EFI variables,
+  `ethtool`/`iw` set, `setcap`, namespace and privilege transitions) validate
+  explicitly, act only on a target the caller named, and are tested only
+  against loop files, namespaces and synthetic fixtures (Gate 7).
+
 ### Shared applet foundation (revised: Wave 0, before any fan-out)
 
 `core/README.md` currently keeps applets self-contained and usage errors
@@ -91,6 +155,28 @@ applets must not each reinvent them:
 `core/README.md` is updated to describe this shared layer as an audited
 command family, matching its existing rule for `lib/auth.xsh` and
 `lib/text_input.xsh`.
+
+## Decisions
+
+- **Diagnostic wording is GNU's.** uutils builds on clap and about 60 of its
+  roughly 6,000 integration tests assert clap wording (`error: unexpected
+  argument`, `a value is required for`, `invalid value`). XSH follows
+  GNU `getopt_long` and coreutils wording (`invalid option -- 'x'`,
+  `unrecognized option '--foo'`, `cannot access 'X': No such file or
+  directory`). Tests that assert clap wording are excluded per test ID with
+  category `clap-wording`, never per module; the GNU differential covers the
+  GNU wording.
+- **Execution phrase.** Usage errors end with `Try 'PHRASE --help' for more
+  information.` PHRASE is `$XSH_EXECUTION_PHRASE` when set, else the invoked
+  name (the basename of the script path as the kernel passed it; aliases are
+  symlinks, so `dir` sees `dir`). The uutils adapter sets it to
+  `"<adapter path> <util>"`, the multicall form uutils' `usage_error` helper
+  expects.
+- **Alias table shape.** `aliases.json` holds `{name, target}` entries, because
+  XSH decodes a JSON object as a record and cannot schema-check an open map.
+- **Expanded-scope inventory.** [`surface.json`](surface.json) lists every
+  command beyond the uutils set with phase, domain and test-only reference
+  tool. The count is pinned in `upstream.lock.json` and only grows.
 
 ## Phase 0: upstream baseline (done)
 
@@ -246,6 +332,25 @@ Add primitives instead of contorting scripts. Expected areas:
 - **hash**: one native layer for the checksum family; add missing algorithms
   (BLAKE2b with variable length, CRC for `cksum`, BSD/SysV `sum`).
 - **compression**: existing gzip/bzip2/xz/lzma codecs back Phase 5.
+- **block/mount/partition**: `BLKRRPART`, `BLKGETSIZE64`, sector sizes,
+  read-only state, discard, flush, `FITRIM`, `FIFREEZE`/`FITHAW`, signature
+  probing and removal, partition reread (Phase 7A).
+- **fs (FAT)**: typed FAT12/16/32 parse, build and check (Phase 7B).
+- **xattr, acl, capability**: typed representations, including
+  `security.capability` revisions (Phase 7C).
+- **storage_health, nvme**: ATA pass-through, `SG_IO`, NVMe admin commands,
+  identify, SMART and logs, self-test control (Phase 8).
+- **namespace, process control**: `setns`, `unshare`, affinity, scheduler class,
+  I/O priority, rlimits, uid/gid and supplementary groups, capabilities,
+  securebits, `no_new_privs`, parent-death signal, and the structured process
+  and system sampling layer (Phases 3D and 9).
+- **net control**: ethtool netlink, nl80211, rtnetlink mutation, real ICMP
+  (Phase 3E and 10).
+- **efi**: typed efivarfs variables (Phase 11).
+- **compression**: zstd, and streaming reader/writer forms for every codec
+  (Phase 5).
+- **archive**: cpio read/write (Phase 11).
+
 
 ## Phase 3: practical Linux surface beyond coreutils
 
@@ -254,27 +359,30 @@ Required, built over typed collectors and existing `linux.*` APIs:
 - **3A hardware/inventory**: `lscpu`, `lspci` (`-n -nn -k -v -vv -D -t -s -d`;
   numeric output without a database, names from `/usr/share/hwdata/pci.ids`
   when present, never embedded), `lsusb` (`-t -v -d -s -D`, `usb.ids` when
-  present), `lsblk` (`-a -b -d -f -J -l -n -o -p -r`, relationships from typed
-  identity, not names), `blkid`, `findmnt` (mountinfo first: `TARGET`,
-  `--json`, `--types`, `--source`, `--target`; `--fstab` after), `rfkill`,
-  `sensors`.
-- **3B util-linux control**: `mount`, `umount`, `swapon`, `swapoff`, `mkswap`,
-  `losetup`, `dmesg`, `sysctl`, `hwclock`, `flock`, `setsid`, `pivot_root`,
-  `switch_root`, `reboot`, `poweroff`, `halt` over `linux.mount`,
-  `linux.swapon`, `linux.loop_*`, `linux.dmesg`, `linux.sysctl_*`,
-  `linux.hwclock`, `linux.pivot_root`, `linux.switch_root` and friends.
+  present), `rfkill`, `sensors`. Block and mount inventory (`lsblk`, `blkid`,
+  `findmnt`) is Phase 7A.
+- **3B util-linux control**: `swapon`, `swapoff`, `mkswap`, `dmesg`, `sysctl`,
+  `hwclock`, `flock`, `setsid`, `pivot_root`, `switch_root`, `reboot`,
+  `poweroff`, `halt` over `linux.swapon`, `linux.dmesg`, `linux.sysctl_*`,
+  `linux.hwclock`, `linux.pivot_root`, `linux.switch_root` and friends. The
+  mount family and loop devices are Phase 7A.
 - **3C kmod**: `lsmod`, `modinfo`, `modprobe`, `insmod`, `rmmod`, `depmod` over
   `linux.modules`, `linux.modinfo`, `linux.modprobe`, `linux.depmod`,
   `linux.insmod`, `linux.rmmod`, with kmod-compatible argv and output.
-- **3D procps**: `ps` (`-e -f -ef aux -o -p --ppid --sort`, mainstream Linux
-  forms tested comprehensively), `pgrep`/`pkill`/`pidof`/`killall` over one
-  typed selector, `free` (`-h -m -g -s`), `lsof` over `linux.open_files()`
-  grown to files, pipes, sockets, devices, cwd/root/exe; then `watch`.
+- **3D procps and observability**: `ps` (`-e -f -ef aux -o -p --ppid --sort`,
+  mainstream Linux forms tested comprehensively), `pgrep`/`pkill`/`pidof`/
+  `killall` over one typed selector, `pstree`, `free` (`-h -m -g -s`), `lsof`
+  over `linux.open_files()` grown to files, pipes, sockets, devices,
+  cwd/root/exe, `fuser`, and the sampling tools `top`, `watch`, `vmstat`, with
+  `iostat` and `pidstat` if the sampling primitives are shared cleanly. All of
+  them sit on one native structured sampling layer (see "One model per kernel
+  ABI"), never on per-command `/proc` readers.
 - **3E networking**: `ip` grows to `link show/set up/down`, `address
   show/add/del`, `route show/add/del`, `rule show/add/del`, `-4 -6 -j -o`,
   via native rtnetlink mutation APIs next to `linux.network_dump()`; `ss`
   (TCP/UDP/listening/process); `ping`/`ping6` with real ICMP. Legacy
-  `ifconfig`/`route`/`arp` only if cheap. Not `tc` or `bridge`.
+  `ifconfig`/`route`/`arp` only if cheap. Not `tc` or `bridge`. Device control
+  (`ethtool`, `iw`) and diagnostics are Phase 10.
 - **3F udevadm**: honest `info`, `trigger`, `settle`, `monitor` over sysfs and
   XSH's uevent machinery; no operation reports success without effect.
 - **3G accounts**: `login` sharing `lib/auth.xsh` with `passwd`, `su`, `getty`
@@ -296,12 +404,27 @@ modules.
 Revised: `sed` and `awk` share nothing with coreutils and are each multi-week
 efforts, so they start in Wave 1 as long-running lanes.
 
-## Phase 5: compression CLIs
+## Phase 5: compression
 
 `gzip`/`gunzip`/`zcat`, `bzip2`/`bunzip2`/`bzcat`, `xz`/`unxz`/`xzcat`,
-`lzma`/`unlzma`/`lzcat` as one family over native codecs: stdin/stdout,
-replacement semantics, levels, `-k -f -t -c -d`. `zstd` only if native
-support stays lean; otherwise it remains a package.
+`lzma`/`unlzma`/`lzcat` and `zstd`/`unzstd`/`zstdcat` as one family: thin XSH
+presentation layers over a common native streaming implementation. Do not
+package the traditional implementations to get familiar binaries.
+
+- XSH already has native gzip, bzip2, xz and lzma codecs. zstd joins the native
+  compression layer with full frame encode and decode. Prefer a good pure-Rust
+  implementation if it has full frame support and acceptable performance;
+  otherwise a narrowly contained implementation dependency is acceptable.
+  Correctness outranks "pure Rust". The decision is recorded with benchmark
+  evidence in this file before any dependency lands.
+- Required semantics: stdin/stdout streaming, multiple files, file replacement,
+  `-c -d -k -f`, compression levels, integrity testing (`-t`), concatenated
+  streams where the format permits them, original name and timestamp where the
+  format records them, each tool's documented exit codes, and binary-safe
+  operation.
+- `compression.*` is refactored as needed so the CLIs share one streaming
+  reader/writer implementation; no whole file passes through memory.
+  Benchmark large streams against the canonical tools with `bench/`.
 
 ## Phase 6: small high-value commands
 
@@ -310,13 +433,131 @@ encodings, common image/container formats; no libmagic database), `ldd`
 (inspect the ELF interpreter and dependencies on musl without executing
 untrusted binaries), `clear`, `reset`.
 
+## Phase 7: storage and filesystems
+
+### 7A block, mount and partition
+
+Turn `linux.block_devices`, `linux.blkid`, `linux.partition_table`,
+`linux.write_partition_table`, `linux.loop_attach/detach/list` and
+`linux.fsck` into a coherent practical storage environment: `lsblk` (`-a -b -d
+-f -J -l -n -o -p -r`, relationships from typed identity, not names), `blkid`,
+`findmnt` (mountinfo first: `TARGET`, `--json`, `--types`, `--source`,
+`--target`; `--fstab` after), `mount`, `umount`, `losetup`, `blockdev`,
+`wipefs`, `partx`, `partprobe`, `fstrim`, `fsfreeze`, and `sfdisk`/`fdisk`
+with their existing syntax, not a bespoke one (`sfdisk --json` is the machine
+interface). GPT and MBR both, correctly.
+
+New native primitives: `BLKRRPART`, `BLKGETSIZE64`, logical and physical sector
+size, read-only state, discard, block-device flush, `FITRIM`,
+`FIFREEZE`/`FITHAW`, partition reread, signature probing and removal.
+`wipefs` understands and selectively erases known signatures; it is never
+"zero the start of the disk".
+
+### 7B FAT (replaces Laputa's handwritten FAT tooling)
+
+A typed FAT module (parse and manipulate), then `mkfs.fat`/`mkfs.vfat`,
+`fsck.fat`/`fsck.vfat` and `fatlabel`. Real FAT12/FAT16/FAT32 handling, not
+just the geometry the Laputa installer happens to generate.
+
+- `mkfs`: FAT type selection, automatic layout, volume label and ID, sector
+  size, cluster sizing, reserved sectors, number of FATs, regular files and
+  block devices, and reproducible images when explicitly requested.
+- `fsck`: an actual checker, not a header sanity check. Validate and, where
+  appropriate, repair the boot sector and BPB, backup boot sector, FAT copies,
+  cluster chains, loops, cross-links, lost clusters, directory entries, `.` and
+  `..`, invalid cluster references, long-filename chains, free-space
+  accounting, FAT32 FSInfo and dirty/error flags. Conventional noninteractive
+  modes serve installation and recovery workflows; destructive repair is
+  explicitly controlled.
+- `laputa-fs` is migrated onto this module. Only a genuinely Laputa-specific
+  helper (such as `fat-put`) may remain there, or it migrates too.
+
+### 7C attributes, ACLs, capabilities
+
+`lsattr`/`chattr` over the existing native file-attribute support;
+`getfattr`/`setfattr`, `getfacl`/`setfacl` and `getcap`/`setcap` over typed
+xattr, ACL and capability domains. File capabilities understand and validate
+the `security.capability` xattr versions (revision, flags, permitted and
+inheritable sets, root id) rather than treating the payload as opaque bytes.
+
+## Phase 8: storage health
+
+`smartctl` as a serious surface over typed APIs, not a text parser: ATA/SATA
+and NVMe first, SCSI/SAS once the transport abstraction is clean. New native
+Linux functionality: ATA pass-through, `SG_IO`, NVMe admin commands, identify
+data, SMART data and logs, health information, self-test control.
+
+Surface: `smartctl DEVICE`, `-i`, `-H`, `-A`, `-a`, `-x`, `-l error`,
+`-l selftest`, `-t short|long`, `-s on|off`, `-j`. No `smartd`: Laputa needs no
+further background daemon. The read-only inventory is reusable by
+`system-report`, which reports normalized health and identify data while
+`smartctl` exposes the lower-level raw fields.
+
+`nvme` inspection over the same typed NVMe transport: `list`, `id-ctrl`,
+`id-ns`, `smart-log`, `error-log`, `self-test-log`, `fw-log`. Read-only first.
+Mutating admin operations (format, firmware activation) arrive only with
+explicit validation and strong tests, never merely to claim coverage.
+
+## Phase 9: namespaces and process control
+
+`nsenter`, `unshare`, `lsns`, `taskset`, `chrt`, `ionice`, `prlimit`,
+`setpriv` as thin applets over reusable typed XSH APIs: `setns`, `unshare`,
+namespace fd discovery, CPU affinity, scheduler class and priority, I/O
+priority, rlimits, uid/gid transitions, supplementary groups, Linux
+capabilities, securebits, `no_new_privs` and parent-death signals. The logic
+lives in the `process`, `namespace` and `capability` domains, not in the
+applets.
+
+## Phase 10: network device control and diagnostics
+
+- `ethtool`: modern netlink API first, ioctl only where required. `DEV`, `-i`,
+  `-k`, `-K DEV FEATURE on|off`, `-S`, `-g`, `-G`, `-c`, `-C`, `-a`,
+  `--show-eee`; inspection and common controls first.
+- `iw`: a typed nl80211 API and `iw dev`, `dev DEV info|link|scan`, `phy`,
+  `phy PHY info`, `reg get|set CC`. No association or authentication
+  (`wpa_supplicant` stays separate); `wireless-regdb` stays external.
+- Diagnostics over the existing `dns` and `net` modules: `traceroute`,
+  `tracepath`, `dig`, `nslookup`, `nc` (a clean TCP/UDP client and listener,
+  not every historical netcat incompatibility; no `socat` clone). `host`
+  already exists.
+- HTTP transfer: a focused `curl` (`-L -f -s -S -o -O -I -X -H -d
+  --data-binary -u --connect-timeout --max-time --retry --cacert -k`, correct
+  stdin, stdout and file streaming), and a small `wget` over the same
+  implementation if worthwhile. Not every curl feature.
+
+## Phase 11: boot
+
+- `cpio` with `newc` first, then `crc` and `odc`; `-o -i -t -p -d -m -u -v
+  --null`; binary-safe streaming. Reading and writing live in the archive
+  module, not only in the CLI.
+- `efibootmgr` over a typed EFI-variable domain on efivarfs: `efibootmgr`, `-v`,
+  `-c ...`, `-b XXXX -B`, `-o`, `-n`. Writes are extremely careful: synthetic
+  efivarfs fixtures first, then QEMU/OVMF, before any real-host mutation. The
+  Laputa installer is an eventual consumer. No D-Bus firmware stack.
+
+## Phase 12: clock
+
+Laputa's clock model stays deliberately simple: RTC, then `linux.hwclock()`,
+then `linux.set_system_clock()`, or the explicit boot epoch when present. No
+NTP, chrony or ntpd in this campaign. Maintain and complete `date` and
+`hwclock` and their typed APIs.
+
 ## Non-goals
 
-`git`, SSH, `curl` parity, browsers, databases, nftables/iptables semantics,
-Mesa, PipeWire, ALSA playback, `wpa_supplicant`, Tailscale. Rule: command
-veneers and kernel/userspace inspection/control belong in XSH when XSH owns
-the structured capability; independent application or protocol semantics
-stay packages.
+External by design (a deep independent implementation): the kernel and
+firmware, `e2fsck` and other filesystem repair engines, GPU drivers and Mesa,
+nftables semantics, `strace`, `perf`, `tcpdump`, Git, Make, rsync, browsers,
+databases, PipeWire, ALSA playback, `wpa_supplicant`, Tailscale, SSH, full
+`curl` feature parity.
+
+Not introduced merely because conventional distros ship them: systemd, D-Bus,
+elogind, polkit, NetworkManager, a udev daemon, FUSE, chrony, ntpd, smartd,
+udisks, upower, fwupd. A daemon is not added when a direct kernel interface and
+an on-demand XSH command suffice.
+
+Rule: command veneers and kernel/userspace inspection and control belong in
+XSH when XSH owns the structured capability; independent application or
+protocol semantics stay packages.
 
 ## Semantics and style rules
 
@@ -354,15 +595,16 @@ rewriting applets in Rust.
 deterministic applet manifest (applets, aliases, libraries; the shape
 `stage.py` writes as `applets.json`) to the release artifact so Laputa can
 materialize `/usr/bin` links from it instead of its hand-maintained list.
-Aliases (`[`, `dir`, `vdir`, `egrep`, `fgrep`, `gunzip`, `zcat`, ...) come
-from [`aliases.json`](aliases.json) with no duplicated sources. Laputa itself
+Aliases (`[`, `dir`, `vdir`, `egrep`, `fgrep`, `gunzip`, `zcat`, `mkfs.vfat`,
+`fsck.vfat`, ...) come from [`aliases.json`](aliases.json) with no duplicated
+sources. Laputa itself
 changes only if needed to prove the interface.
 
 ## Verification gates
 
 1. **Native**: project Rust tests, `xsht check`, `core/tests` pass.
-2. **Inventory**: every in-scope utility implemented or carrying an accepted
-   capability/platform rationale in the manifest.
+2. **Inventory**: every in-scope uutils utility implemented or carrying an
+   accepted capability/platform rationale in the manifest.
 3. **uutils integration**: all applicable `tests/by-util` tests pass through
    `UUTESTS_BINARY_PATH`; exclusions are per test ID, categorized, explained.
 4. **GNU differential**: zero `uutils pass / xsh fail`, reported globally and
@@ -371,14 +613,30 @@ changes only if needed to prove the interface.
    with XSH's (help-text parsing is one input, not proof of semantics); gaps
    appear in the manifest.
 6. **No ignored semantic options**: ratchet at zero buckets.
-7. **Practical Linux suite**: deterministic tests for every Phase 3–5
-   command; privileged behavior runs in namespaces, temporary loop devices,
-   QEMU or containers, never against the developer host.
+7. **Practical Linux suite**: deterministic tests for every command in
+   [`surface.json`](surface.json). Families with a canonical implementation get
+   a differential harness against it (dosfstools, smartmontools, nvme-cli,
+   util-linux, ethtool, iw, xz, zstd, procps, kmod, ...), used only as a
+   test/reference dependency; where output carries volatile identifiers or
+   counters, compare parsed semantics, not unstable text. Destructive and
+   system operations run only in sandboxes: loop files, mount, user and
+   network namespaces, veth pairs, synthetic sysfs/procfs/efivarfs fixtures,
+   QEMU virtual disks and NVMe devices, QEMU/OVMF for EFI, `scsi_debug` and
+   nvme loop facilities when safe. Never mutate the developer's real block
+   devices, firmware variables, network interfaces or SMART state.
 8. **Clean smoke**: a Linux image with XSH first on `PATH` and no GNU
    coreutils, util-linux, procps, findutils, grep, sed, gawk, diffutils or
    kmod, running real workflows: file manipulation, archives, checksum
    verification, find/xargs, grep/sed/awk pipelines, process, mount/block,
-   network, module and hardware inspection, boot-adjacent commands.
+   network, module and hardware inspection, partitioning, FAT creation and
+   checking, compression round trips, SMART/NVMe inspection against QEMU
+   devices, namespace and process control, boot-adjacent commands.
+9. **One model per kernel ABI**: [`check_kernel_reads.py`](check_kernel_reads.py)
+   ratchet; a new `/proc` or `/sys` reader in an applet fails the build.
+10. **Surface inventory**: `surface.json` entries are only ever added;
+   `parity.py --check` fails when the count drops below the pin in
+   `upstream.lock.json`, and every command is implemented or carries an
+   accepted capability/platform rationale.
 
 ## Deliverables
 
@@ -392,15 +650,17 @@ gaps, extra Linux utilities, new native APIs.
 
 ## Sequence (revised)
 
-Wave 0 is serial and must land before fan-out; Waves 1 and 2 are parallel
-lanes defined in [`LANES.md`](LANES.md).
+Wave 0 is serial and must land before fan-out; later waves are parallel lanes
+defined in [`LANES.md`](LANES.md). Native domain lanes land before the applet
+lanes that consume them.
 
 | Wave | Work |
 |---|---|
 | 0 | parity manifest and adapter (done); toolchain and suite build; baseline uutils run of current XSH; `cli` GNU mode; `lib/gnu` diagnostics; invoked-name access; byte helpers; ratchets wired into `make check`; applet manifest in release |
-| 1 | existing-applet repair (ignored buckets, GNU diagnostics); missing cheap coreutils; native fs and process/tty primitives; text, bytes/checksum families; `system-report` collector extraction; `sed` and `awk` start |
-| 2 | difficult coreutils finish; GNU differential to zero blockers; hardware/storage/kmod/util-linux wrappers; procps; networking; grep/find/xargs; diff/cmp/patch; compression; login/getent/udevadm; Phase 6 |
-| 3 | BusyBox route; Gate 5 option comparison; Gate 8 clean smoke image; performance pass; final report |
+| 1 | existing-applet repair (ignored buckets, GNU diagnostics); missing cheap coreutils; native fs, process/tty and bytes/hash primitives; text and checksum families; `system-report` collector extraction; `sed` and `awk` start |
+| 2 | difficult coreutils finish; GNU differential to zero blockers; native domains for block/partition, process sampling, compression streaming (+zstd), xattr/ACL/capability; compression CLIs; hardware/kmod/util-linux wrappers; procps and sampling tools; `ip`/`ss`/`ping`; grep/find/xargs; diff/cmp/patch; login/getent/udevadm |
+| 3 | block, mount and partition tools; FAT module and dosfstools surface; attributes/ACL/capabilities; namespace and process control; storage health (`smartctl`, `nvme`); `ethtool`, `iw`, diagnostics and HTTP; `cpio`; `efibootmgr`; Phase 6 commands |
+| 4 | BusyBox route; Gate 5 option comparison; Gate 8 clean smoke image; performance pass; final report |
 
 ## Environment notes
 
@@ -412,6 +672,23 @@ lanes defined in [`LANES.md`](LANES.md).
   for the `xsh-test` image, Docker Hub and `dl-cdn.alpinelinux.org`. The
   default **Trusted** environment level covers crates.io, the Rust
   distribution host and Docker Hub; add anything else as a custom domain.
+- The reference host has 4 cores, about 15 GB RAM, a 14.3 GB memory cgroup
+  shared by every process the session starts (builds, lanes and suites), and
+  about 27 GB of disk. First full runs showed what that costs: a runaway
+  applet and a test process buffering gigabytes each got `cargo-nextest`
+  OOM-killed. The uutils runner therefore caps each test process and each
+  applet (address space, 4 GiB and 3 GiB), limits nextest threads, and refuses
+  to publish results from a run nextest did not finish.
+- The uutils test crate embeds the build-time `PATH` (`env!("PATH")`) and its
+  `build.rs` lists the gitignored `docs/tldr.zip` as a rerun trigger; either
+  one changing makes cargo recompile the whole test crate (five minutes).
+  `run-uutils.sh` pins `PATH` and creates an empty placeholder.
+- The uutils framework runs each command with a cleared environment, so the
+  adapter finds its stage from its own path rather than from a variable.
+- Native-lane features need hardware or kernel facilities this VM lacks
+  (QEMU/OVMF, NVMe devices, `scsi_debug`, privileged namespaces): those tests
+  are written against synthetic fixtures here and run for real in the
+  `xsh-test` image or a privileged CI lane.
 - AGENTS.md makes `Dockerfile.test` (`xsh-test`, musl) the authority for Linux
   evidence. Host-glibc runs are fast iteration only; gate results that count
   come from the image.
