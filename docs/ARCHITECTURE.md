@@ -146,17 +146,24 @@ Whether an entry is native or script-backed is decided by measurement;
 ### Generated documentation
 
 `dev/docs.xsh` renders each `docs/templates/REL` into `docs/REL` with the
-`template` module (`make docs`, `cargo dev docs`), so the tour and the
-references come from code instead of copies of it. Tour code blocks are the
-files in `docs/snippets/tour/` (`NN-name.xsh`, plus the `project/` example with
-its own `xsht-config.ini`); a snippet runs, sandboxed in an empty directory
-with only `PATH`, exactly when a template shows its `.output`, and a
+`template` module (`make docs`, `cargo dev docs`), so the SPEC, the tour, and
+the references come from code instead of copies of it. SPEC and tour code
+blocks are the files in `docs/snippets/spec/` and `docs/snippets/tour/`
+(`NN-name.xsh`; the tour also has the `project/` example with its own
+`xsht-config.ini`). A snippet shows either the whole file or its
+`# begin example` ... `# end example` regions, dedented, so a fragment is
+checked inside a wrapper program the document leaves out. Snippets under
+`rejected/` show code that must not check and name each expected diagnostic
+with a `# error: CODE` comment on its line; other files in a snippet directory
+are support modules the snippets import. A snippet runs, sandboxed in an empty
+directory with only `PATH`, exactly when a template shows its `.output`, and a
 `# platform: linux` snippet never runs, so generation is host-independent.
 `docs/reference/stdlib.md`, `cli.md`, and `lints.md` are read from
 `xsht api --format jsonl`, the binaries' help, and `xsht lint --list`.
 `dev/docs.xsh::check` (the `check-docs` stage of `cargo dev check` and
 `make check`, and `make docs-check`) re-renders and fails on any difference,
-then runs `xsht check` on the snippets and `xsht test` in the project.
+then runs `xsht check` on each snippet, requiring no diagnostics or exactly the
+annotated ones, and `xsht test` in the project.
 
 ## Invariants
 
@@ -191,7 +198,8 @@ then runs `xsht check` on the snippets and `xsht test` in the project.
 
 ## Adding a language feature
 
-1. Specify it in `docs/SPEC.md` (first, or in the same change).
+1. Specify it in `docs/templates/SPEC.md`, with examples in
+   `docs/snippets/spec/` (first, or in the same change).
 2. Add arena storage and accessors in `src/syntax/arena.rs`, and parse it in
    `src/syntax/parser/`. Keep CST round-tripping exact.
 3. Check it in `src/sema/check/` and publish whatever later stages need as a

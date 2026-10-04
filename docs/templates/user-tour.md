@@ -98,13 +98,13 @@ read `/proc` or other Linux-only interfaces.
 ## Running a Script
 
 ```xsh
-{{.snippets.hello.source}}
+{{.tour.hello.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.hello.output}}
+{{.tour.hello.output}}
 ```
 
 Two binaries do the work. `xsh` runs scripts; `xsht` is the toolchain:
@@ -126,7 +126,7 @@ positional words, declare the interface instead of parsing it. A `cli main`
 signature is the argument parser, the usage text, and the type conversion:
 
 ```xsh
-{{.snippets.largest_files.source}}
+{{.tour.largest_files.source}}
 ```
 
 Required parameters are positional; defaulted ones become options
@@ -136,13 +136,13 @@ is rejected with usage status 2 before any of your code runs.
 ## Values at a Glance
 
 ```xsh
-{{.snippets.values.source}}
+{{.tour.values.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.values.output}}
+{{.tour.values.output}}
 ```
 
 Every value has a type, and the checker infers most of them: `Str`, `Int`,
@@ -171,13 +171,13 @@ In XSH a value is one argv item. Lists splice only where you write `@`. Words
 are never split, globbed, or expanded:
 
 ```xsh
-{{.snippets.argv.source}}
+{{.tour.argv.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.argv.output}}
+{{.tour.argv.output}}
 ```
 
 `$name` and `${expr}` interpolate into a command word; `"*.log"` stays a
@@ -203,13 +203,13 @@ directory changes are scoped to a block, so they cannot leak into the rest of
 the script:
 
 ```xsh
-{{.snippets.scoped_env.source}}
+{{.tour.scoped_env.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.scoped_env.output}}
+{{.tour.scoped_env.output}}
 ```
 
 ## Paths
@@ -219,13 +219,13 @@ bytes, so a filename that is not valid UTF-8 still round-trips to `run`
 untouched.
 
 ```xsh
-{{.snippets.paths.source}}
+{{.tour.paths.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.paths.output}}
+{{.tour.paths.output}}
 ```
 
 Literals that start with `/`, `./`, or `../` are paths. `p"..."` makes a path
@@ -252,7 +252,7 @@ nonzero fails the script, every time, in every context, with the command that
 failed:
 
 ```xsh
-{{.snippets.backup.source}}
+{{.tour.backup.source}}
 ```
 
 ```text
@@ -272,13 +272,13 @@ When a nonzero exit is an answer rather than a failure, say which codes are
 acceptable. `grep` exits 1 for "no matches":
 
 ```xsh
-{{.snippets.accepted_status.source}}
+{{.tour.accepted_status.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.accepted_status.output}}
+{{.tour.accepted_status.output}}
 ```
 
 Functions that can fail return `Result[T]`. Four tools handle it:
@@ -292,13 +292,13 @@ Expected failures get names. An `error` declaration is a small family of typed
 variants that callers can match on, instead of grepping message strings:
 
 ```xsh
-{{.snippets.typed_errors.source}}
+{{.tour.typed_errors.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.typed_errors.output}}
+{{.tour.typed_errors.output}}
 ```
 
 The `[fs, error]` clause lists the proc's effects; the [Effects](#effects)
@@ -316,13 +316,13 @@ Records are the unit of structure. A `type` names a schema; the checker then
 knows every field and rejects typos.
 
 ```xsh
-{{.snippets.records.source}}
+{{.tour.records.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.records.output}}
+{{.tour.records.output}}
 ```
 
 Values have value semantics: `upgraded` is a new record and `fleet` is
@@ -346,13 +346,13 @@ XSH parses once, at the edge, into records. After that, `|>` passes typed
 values between stages:
 
 ```xsh
-{{.snippets.access_log.source}}
+{{.tour.access_log.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.access_log.output}}
+{{.tour.access_log.output}}
 ```
 
 `stream` declares a lazy producer: nothing is read until a pipeline pulls, and
@@ -387,7 +387,7 @@ ss -ltnp | awk '{print $4}' | grep -o '[0-9]*$'        # depends on ss's column 
 ```
 
 ```xsh
-{{.snippets.host_state.source}}
+{{.tour.host_state.source}}
 ```
 
 Many tools can already emit JSON; take them up on it. Instead of
@@ -396,7 +396,7 @@ the fields you need (the [JSON Boundaries](#json-boundaries) section explains
 `.require`):
 
 ```xsh
-{{.snippets.ip_addresses.source}}
+{{.tour.ip_addresses.source}}
 ```
 
 ```text
@@ -416,7 +416,7 @@ parentheses, and it may itself contain spaces and parentheses, which is why
 `(Web Content)`:
 
 ```xsh
-{{.snippets.top_cpu.source}}
+{{.tour.top_cpu.source}}
 ```
 
 The greedy `(.*)` matches up to the last `)` on the line, so the command name
@@ -430,13 +430,13 @@ is just data, with one rule: decoded JSON has type `Any`, and you must check
 it against a schema before using its values.
 
 ```xsh
-{{.snippets.json_services.source}}
+{{.tour.json_services.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.json_services.output}}
+{{.tour.json_services.output}}
 ```
 
 `.require(T)` validates the whole value, nested lists and records included,
@@ -447,13 +447,13 @@ every field access is checked statically.
 When the shape is genuinely open, match on it with type patterns instead:
 
 ```xsh
-{{.snippets.json_open_shape.source}}
+{{.tour.json_open_shape.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.json_open_shape.output}}
+{{.tour.json_open_shape.output}}
 ```
 
 `json.read(path)` and `json.write path (value)` do the same at file
@@ -466,13 +466,13 @@ JSON lines.
 A proc can declare which kinds of side effects it performs:
 
 ```xsh
-{{.snippets.effects.source}}
+{{.tour.effects.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.effects.output}}
+{{.tour.effects.output}}
 ```
 
 The effects are `fs`, `process`, `net`, `env`, `time`, `io`, and `error`
@@ -497,13 +497,13 @@ that must not touch the network.
 The rule of thumb: annotate parameters, let the checker infer the rest.
 
 ```xsh
-{{.snippets.inference.source}}
+{{.tour.inference.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.inference.output}}
+{{.tour.inference.output}}
 ```
 
 Parameters carry types, or defaults that imply them (`over = 80` is an
@@ -528,13 +528,13 @@ thread or a future. `par-map` runs its block on a bounded worker pool and
 returns results in input order:
 
 ```xsh
-{{.snippets.par_map.source}}
+{{.tour.par_map.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.par_map.output}}
+{{.tour.par_map.output}}
 ```
 
 If a block uses `?` and one item fails, the stage stops scheduling new work
@@ -545,7 +545,7 @@ For long-running processes that should overlap with other work, `spawn`
 returns a handle and `wait` collects one or a list:
 
 ```xsh
-{{.snippets.spawn_wait.source}}
+{{.tour.spawn_wait.source}}
 ```
 
 Handles are owned by the scope that created them. If the script fails or is
@@ -569,13 +569,13 @@ reverse order when the block exits for any reason: normal completion,
 `return`, `?` propagation, or a runtime failure.
 
 ```xsh
-{{.snippets.defer.source}}
+{{.tour.defer.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.defer.output}}
+{{.tour.defer.output}}
 ```
 
 `fs.tempdir()` returns a handle to a private directory; pair it with
@@ -588,13 +588,13 @@ nothing happens at all if the line you expected is missing. Do the edit in a
 `pure` function, write atomically, and keep a backup:
 
 ```xsh
-{{.snippets.edit_config.source}}
+{{.tour.edit_config.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.edit_config.output}}
+{{.tour.edit_config.output}}
 ```
 
 `write_atomic` writes a sibling file and renames it into place, so readers see
@@ -608,13 +608,13 @@ Every `run` form accepts `--timeout`. A timeout is a typed error you can match,
 not exit status 124 that you have to remember:
 
 ```xsh
-{{.snippets.timeout.source}}
+{{.tour.timeout.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.timeout.output}}
+{{.tour.timeout.output}}
 ```
 
 `retry` re-runs a block after each delay until it succeeds, and returns the
@@ -622,20 +622,20 @@ last error when the delays run out. `on (...)` restricts retries to errors
 worth retrying:
 
 ```xsh
-{{.snippets.retry.source}}
+{{.tour.retry.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.retry.output}}
+{{.tour.retry.output}}
 ```
 
 A `Fatal` error would stop immediately without consuming the remaining delays.
 Combine the two for the common case of a flaky network command:
 
 ```xsh
-{{.snippets.retry_curl.source}}
+{{.tour.retry_curl.source}}
 ```
 
 ## Rendering Config from a Template
@@ -645,13 +645,13 @@ target format is a quoting hazard. The `template` module renders Go
 text/template syntax against ordinary XSH data:
 
 ```xsh
-{{.snippets.template.source}}
+{{.tour.template.source}}
 ```
 
 <!-- expected-output -->
 
 ```text
-{{.snippets.template.output}}
+{{.tour.template.output}}
 ```
 
 `{{"{{"}}.field}}` reads a field, `{{"{{"}}range}}` iterates, `{{"{{"}}if}}` branches, and
@@ -667,7 +667,7 @@ checks disk headroom and required files, and prints either a table or a JSON
 report. It exits 1 if anything failed, so it can gate a deploy.
 
 ```xsh
-{{.snippets.preflight.source}}
+{{.tour.preflight.source}}
 ```
 
 ```text
