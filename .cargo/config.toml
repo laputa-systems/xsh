@@ -1,8 +1,10 @@
 [alias]
 dev = "run --quiet -p xsh --bin xsh -- dev/main.xsh --"
 
-[target.aarch64-unknown-linux-musl]
-linker = "rust-lld"
-
-[target.x86_64-unknown-linux-musl]
-linker = "rust-lld"
+# No musl linker is pinned here. On a musl Linux host the host triple is a musl
+# target, so a linker set for it also links proc-macros and build scripts, and
+# a bare rust-lld has no system library search path or CRT objects for those
+# dynamic host artifacts. Rust's default links through the system C compiler
+# driver, which supplies both. The `xsh-test` image selects rust-lld through
+# its own CARGO_TARGET_*_LINKER environment, together with the sysroot
+# symlinks that make that choice work for host artifacts inside the image.
