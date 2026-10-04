@@ -1205,7 +1205,28 @@ impl Checker {
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
                 Type::Path
             }
-            "range" if args.len() == 1 || args.len() == 2 => Type::Stream(Box::new(Type::Int)),
+            "range" => {
+                if args.len() != 1 && args.len() != 2 {
+                    self.error(
+                        span,
+                        "range expects one or two integer bounds",
+                        DiagnosticCode::CheckArity,
+                    );
+                }
+                for arg in args {
+                    if matches!(arg.kind, ArenaCallArgKind::Named { .. }) {
+                        self.error(
+                            call_arg_span_arena(arena, &arg.kind),
+                            "range bounds must be positional arguments",
+                            DiagnosticCode::CheckNamedArg,
+                        );
+                    }
+                    let actual =
+                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
+                    self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
+                }
+                Type::Stream(Box::new(Type::Int))
+            }
             _ => {
                 self.record_effect_contract(&None, name);
                 self.report_unresolved_call(arena, source, name, args, span);

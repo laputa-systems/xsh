@@ -1592,11 +1592,13 @@ declare locals, and entries such as `run` are interpreted by the API. Unknown,
 duplicate, missing, or invalid fields are check-time errors located in the
 block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `stdout`, `stderr`, `stdout_append`, `stderr_append`, `timeout`, `cpu_max`,
-`accept`, `detach`, `new_session`, `ignore_hup`, and exactly one plain `run`
-entry. `process.command_argv(target, argv)` builds the same plan from data; its
+`accept`, `detach`, `new_session`, `ignore_hup`, and exactly one `run` or
+`run.status` entry. Missing or multiple run entries are rejected with
+`check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
 `argv` includes `argv[0]`. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
-Pipelines, captures, and redirection syntax are not plan inputs.
+Pipelines, captures, propagation, and redirection syntax are not plan inputs;
+use the builder fields for redirections.
 
 ## 12. Signals, Cancellation, And Exit Status
 
@@ -1700,6 +1702,10 @@ Live sources produce items on demand: `fs.walk`, `fs.files`, `fs.dirs`,
 and `range(start, n)`, and `stream` producers. `Str.lines()` and
 `Bytes.lines()` split an existing buffer.
 
+Range source bounds must be positional `Int` expressions. The checker validates
+each bound before execution, including bounds inside functions that are never
+called.
+
 `where`, `map`, `flat-map`, `tee`, `enumerate`, `take`, and `drop` process each
 live item before the next is pulled. So do the folding terminals (`count`,
 `sum`, `min`, `max`, `last`, `fold`, `reduce`, `reduce-by`, `each`, keyed
@@ -1732,6 +1738,10 @@ The adapters `text.lines()`, `bytes.chunks(size)`, `json.lines()`, and
 `json.stream()` are valid only as the first stage.
 
 ### 13.4 Callbacks and errors
+
+Callback parameters may shadow enclosing bindings; names within one parameter
+list must be distinct (`check.duplicate-name`). A fold or reduce initializer
+uses the enclosing scope before the callback parameters are bound.
 
 - `where`, `any`, and `all` require a `Bool` callback result, `sort-by` a
   sortable key, and keyed `count` a `Str`, `Int`, or `Bool` key. A

@@ -1,4 +1,4 @@
-use super::{Binding, Checker, Name};
+use super::{Binding, Checker, FxHashSet, Name};
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::Type;
 use crate::syntax::arena::{
@@ -642,7 +642,15 @@ impl Checker {
             );
         }
         self.push_deferred_capture_scope();
+        let mut names = FxHashSet::default();
         for (index, param) in params.iter().take(max_params).enumerate() {
+            if !names.insert(param.name) {
+                self.error(
+                    arena.arena.span(param.span),
+                    "duplicate name in scope",
+                    DiagnosticCode::CheckDuplicateName,
+                );
+            }
             let ty = param_tys.get(index).cloned().unwrap_or(Type::Unknown);
             self.define(
                 param.name,

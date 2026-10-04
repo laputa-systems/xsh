@@ -26,7 +26,7 @@ pub const INTERNAL_MARKERS: &[&str] = &[
     "internal error",
     "evaluator defect",
     "not yet implemented",
-    "unreachable",
+    "entered unreachable code",
     "RUST_BACKTRACE",
     "verified startup IR",
 ];
@@ -515,4 +515,32 @@ pub fn verify_generated(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CheckReport, internal_marker};
+
+    #[test]
+    fn unresolved_unreachable_is_an_ordinary_program_error() {
+        let report = CheckReport {
+            check: vec![
+                "error[check.unresolved-call]: unresolved pure function call `unreachable`"
+                    .into(),
+            ],
+            ..CheckReport::default()
+        };
+        assert!(!report.accepted());
+        assert!(report.internal_error().is_none());
+    }
+
+    #[test]
+    fn unreachable_implementation_panics_are_still_defects() {
+        assert!(internal_marker("internal error: entered unreachable code").is_some());
+        let report = CheckReport {
+            panic: Some("entered unreachable code".into()),
+            ..CheckReport::default()
+        };
+        assert!(report.internal_error().is_some());
+    }
 }

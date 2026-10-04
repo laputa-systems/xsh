@@ -26,7 +26,9 @@ contract stays in `docs/SPEC.md`.
 - A block the author wrote on one line with a single statement stays on one
   line when it fits: `{ return 1 }`, `{ |x| x + 1 }`. The branches of an `if`
   are all flat or all broken, and a `match` arm holds a control-flow statement
-  unbraced only when it stays on the arm's line.
+  unbraced only when it stays on the arm's line. Arm-specific expression
+  grouping applies to the arm's own statement; statements inside a declaration
+  initializer keep ordinary block syntax.
 - Break at semantic boundaries, in this order: between chained calls, call
   arguments, record fields, collection items, comprehension clauses, pipeline
   stages; inside nested expressions only as a last resort.
@@ -48,6 +50,8 @@ contract stays in `docs/SPEC.md`.
 - Strings, paths, comments, and other indivisible tokens are never split;
   they may exceed `format.line-width` (from the nearest `xsht-config.ini`,
   default 120). Multi-line literal contents are never reindented.
+  A path before an interpolation format spec stays quoted so the spec's colon
+  does not become part of the path.
 - Width is measured in characters; there is no display-column policy and no
   second layout-preference setting until a real source case needs one.
 
@@ -65,6 +69,10 @@ contract stays in `docs/SPEC.md`.
 - Formatting is idempotent.
 - Comments are never duplicated or dropped; `fmt: skip` source is preserved.
 - Expression continuations never become separate statements.
+- A comprehension value is grouped against the qualifier's rendered boundary:
+  an inline keyword or a newline in a broken comprehension. Optional pipeline
+  callbacks must not gain redundant parentheses when the qualifier moves to
+  the next line.
 - Lint diagnostics are unchanged by formatting (`docs/XSHT.md`).
 
 ## Tests

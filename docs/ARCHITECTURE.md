@@ -118,6 +118,10 @@ unsupported behavior becomes a diagnostic and never a runnable placeholder.
 slot bounds, IDs, locations, patterns, stages, and literal and semantic pools
 before a `FullProgram` exists. Runtime decoders rely on that contract.
 
+`SlotScope` assigns separate slots to pipeline callback parameters even when
+they shadow enclosing bindings. Lowering restores the enclosing slot and
+checked type after the callback; fold initializers use the enclosing scope.
+
 **Execution.** `indexed_run` executes function blocks and driver ranges from
 borrowed `FullProgram` views. Calls, work, and continuations live in heap-backed
 frames (`CallFrame`, `FrameWork`), so XSH call depth never becomes native

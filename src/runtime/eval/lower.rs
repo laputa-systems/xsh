@@ -12038,6 +12038,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     // The bound initializer type stays on the accumulator slot. Nested pipeline
     // tails resolve their field and stage argument types from that slot, so
     // retaining the checked type is necessary for valid compositions to lower.
+    // Callback parameters have their own lexical scope and may shadow outer names.
     fn lower_pipeline_stage_fold(
         &mut self,
         stage: &ArenaStreamStage,
@@ -12056,7 +12057,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let acc_slot = match params {
             [] => slots.reserve("pipeline.acc"),
             [acc] | [acc, _] => {
-                if slots.is_bound_non_capture(acc.name) {
+                if slots.is_declared_here(acc.name) {
                     slots.exit(saved);
                     return None;
                 }
@@ -12069,7 +12070,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         let item_slot = match params {
             [_, item] => {
-                if slots.is_bound_non_capture(item.name) {
+                if slots.is_declared_here(item.name) {
                     slots.exit(saved);
                     return None;
                 }
@@ -12180,9 +12181,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         match params {
             [] => Some((slots.reserve("pipeline.item"), None)),
             [param] => {
-                if slots.is_bound_non_capture(param.name) {
-                    return None;
-                }
+                // Retirement restores any outer slot and its checked type after
+                // the callback, so this temporary binding may shadow a local.
                 Some((
                     slots.declare_with_type(param.name, item_ty.cloned()),
                     Some(param.name),

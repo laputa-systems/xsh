@@ -93,6 +93,9 @@ blocks `fmt` or hides lint diagnostics, and formatted output has none
 (`lint_format_invariance`). `check.mixed-logical` still blocks `fmt`, which
 never chooses a grouping silently.
 
+`lint.error-fallback-block` retains multiline error expressions inside the lazy
+handler block when replacing an identity-success `Result` match.
+
 ## Native tests
 
 `xsht test` discovers explicit `test NAME { ... }` declarations under

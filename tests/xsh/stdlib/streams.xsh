@@ -1,3 +1,92 @@
+test test_range_checks_integer_bounds_before_execution { |ctx|
+  for case in [
+    {source: "range(missing.end)", code: "check.unresolved-name"},
+    {source: "range(missing.end, 3)", code: "check.unresolved-name"},
+    {source: "range(0, missing.end)", code: "check.unresolved-name"},
+    {source: "range(\"three\")", code: "check.type-mismatch"},
+    {source: "range(false, 3)", code: "check.type-mismatch"},
+    {source: "range(0, 3.5)", code: "check.type-mismatch"},
+    {source: "range(end: 3)", code: "check.named-arg"},
+    {source: "range(@[3])", code: "check.call-splice"},
+    {source: "range()", code: "check.arity"},
+    {source: "range(0, 3, 1)", code: "check.arity"},
+  ] {
+    let output = test.run_script(
+      ctx,
+      "print \"started\"\nproc main() { for _ in " + case.source + " {} }\n",
+    )?
+    assert output.status == 2, output.stderr
+    assert case.code in output.stderr, output.stderr
+    assert "compact.indexed-build" not in output.stderr, output.stderr
+    assert output.stdout == "", output.stdout
+  }
+
+  let valid = test.run_script(
+    ctx,
+    r"""pure count() -> Int { 3 }
+pure start() -> Int { 1 }
+proc main() [io] {
+  for n in range(count()) { print $n }
+  for n in range(start(), count()) { print $n }
+}
+""",
+  )?
+  assert valid.success, valid.stderr
+  assert valid.stdout == "0\n1\n2\n1\n2\n", valid.stdout
+}
+
+test test_pipeline_parameters_shadow_outer_bindings_and_restore_their_types { |ctx|
+  for stage in ["fold", "reduce"] {
+    let source = r"""type Totals = {values: Map[Int], seed: Str, item: Str}
+type ImplicitTotals = {values: Map[Int], seed: Str}
+pure totals(seed: Str, item: Str) -> Totals {
+  let values = [1, 2] |> STAGE({[seed]: 0}) { |seed, item|
+    seed.set("sum", (seed.get("sum") ?? 0) + item)
+  }
+  {values: values, seed: seed, item: item}
+}
+pure implicit(seed: Str) -> ImplicitTotals {
+  let values = [1, 2] |> STAGE({[seed]: 0}) { |seed|
+    seed.set("sum", (seed.get("sum") ?? 0) + .)
+  }
+  {values: values, seed: seed}
+}
+let explicit = totals("initial", "outer")
+let implicit_item = implicit("initial")
+print f"{explicit.values["initial"]}:{explicit.values["sum"]}:{explicit.seed}:{explicit.item}"
+print f"{implicit_item.values["initial"]}:{implicit_item.values["sum"]}:{implicit_item.seed}"
+""".replace("STAGE", stage)
+    let output = test.run_script(ctx, source)?
+    assert output.success, output.stderr
+    assert output.stdout == "0:3:initial:outer\n0:3:initial\n", output.stdout
+  }
+
+  let output = test.run_script(
+    ctx,
+    r"""type Transformed = {values: List[Int], outer: Str, local: Str}
+pure transform(value: Str) -> Transformed {
+  let local = value
+  let values = [1, 2] |> map { |local|
+    let doubled = local * 2
+    doubled
+  } |> where { |value| value > 2 }
+  {values: values, outer: value, local: local}
+}
+let transformed = transform("outer")
+print f"{transformed.values[0]}:{transformed.outer}:{transformed.local}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "4:outer:outer\n", output.stdout
+
+  for stage in ["fold", "reduce"] {
+    let duplicate = test.run_script(ctx, "let value = [1] |> " + stage + "(0) { |same, same| same }\n")?
+    assert duplicate.status == 2, duplicate.stderr
+    assert "check.duplicate-name" in duplicate.stderr, duplicate.stderr
+    assert "compact.indexed-build" not in duplicate.stderr, duplicate.stderr
+  }
+}
+
 test test_stream_adapters_and_transform_stages {
   let lines = """alpha
 beta

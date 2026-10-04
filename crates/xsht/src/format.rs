@@ -15,7 +15,7 @@ use xsh::frontend::syntax::arena::{
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
 use xsh::frontend::syntax::grammar;
-use xsh::frontend::syntax::grouping::{self, Context, Follow};
+use xsh::frontend::syntax::grouping::{self, Context, Follow, FollowToken};
 use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, tokens_stay_separate};
 use xsh::frontend::syntax::literal;
@@ -203,7 +203,7 @@ struct Writer<'a> {
     /// Set before each block statement: the previous statement ends in an
     /// expression that a line starting with `.name` would continue.
     after_expression: bool,
-    /// Set while writing the unbraced statement of a `match` statement arm.
+    /// Set while writing the unbraced expression statement of a `match` arm.
     arm_statement: bool,
 }
 
@@ -1145,7 +1145,9 @@ impl<'a> Writer<'a> {
                         | ArenaStmtKind::With { .. }
                 );
                 let write_arm = |writer: &mut Self, line: &mut String| {
-                    writer.arm_statement = true;
+                    // An initializer's nested statements have ordinary block
+                    // syntax; only the arm's own expression needs arm grouping.
+                    writer.arm_statement = matches!(stmt.kind, ArenaStmtKind::Expr(_));
                     writer.write_stmt_body(stmt_id, indent + 1, line);
                     writer.arm_statement = false;
                 };
@@ -3016,7 +3018,14 @@ impl<'a> Writer<'a> {
                     // `{...}`: write the expression flat, or keep its source.
                     let line_width = self.line_width;
                     self.line_width = usize::MAX / 4;
-                    self.write_expr(*expr, END, output);
+                    // A format spec's adjacent colon must stay outside a
+                    // bare path or command expression.
+                    let context = if spec.is_some() {
+                        Context::open(Follow::adjacent(FollowToken::Colon))
+                    } else {
+                        END
+                    };
+                    self.write_expr(*expr, context, output);
                     self.line_width = line_width;
                     if output[start..].contains(['\n', '\r']) {
                         output.truncate(start);
@@ -3713,7 +3722,7 @@ impl<'a> Writer<'a> {
         output.push_str("[\n");
         self.write_comments_before(self.arena.expr(expr).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
-        self.write_expr_safe_in(expr, Context::open(Follow::WORD), output);
+        self.write_expr_safe_in(expr, END, output);
         self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);
@@ -3754,7 +3763,7 @@ impl<'a> Writer<'a> {
         self.write_indent(indent + 1, output);
         self.write_map_comp_key(key, output);
         output.push_str(": ");
-        self.write_expr_safe_in(value, Context::open(Follow::WORD), output);
+        self.write_expr_safe_in(value, END, output);
         self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);

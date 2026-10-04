@@ -156,14 +156,21 @@ run without internal errors, and mutants of generated and corpus programs must
 get ordinary diagnostics with valid spans. A failure prints a minimized
 program.
 
-`make fuzz` explores fresh seeds. Generated programs run under
+`make fuzz` explores fresh seeds, starting each campaign from the clock's
+nanoseconds so consecutive campaigns do not replay overlapping seed ranges.
+Generated programs run under
 `proc fuzz_main() []`, so the checker proves them free of host effects, and
 each runs in a child with a cleared environment, a temp directory, a timeout,
 and an output cap. Memory is bounded: at most `--jobs` workers (default half
 the CPUs, at most 4) each handle 500 seeds and exit. A worker above 384 MiB or
 a program above 256 MiB of sampled physical footprint is killed and reported
 (macOS enforces no data rlimit). Failures are written to
-`target/fuzz/failures/<seed>.xsh`; `xsh-fuzz reduce FILE` minimizes one.
+`target/fuzz/<sha256>/failures/<seed>.xsh` by `make fuzz`, where `<sha256>`
+hashes the tested `xsh-fuzz` executable (including its linked XSH frontend,
+runtime, and tooling). Repeated runs of the same binary share reproducers;
+changed binaries get separate directories, preserving earlier evidence.
+Direct `xsh-fuzz` campaigns default to `target/fuzz/failures` and accept
+`--out DIR`; `xsh-fuzz reduce FILE` minimizes a frontend failure.
 
 ## Linux
 

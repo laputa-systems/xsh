@@ -20,9 +20,9 @@ build:
 
 FUZZ_DURATION ?= 120
 
-# Soundness fuzzing over fresh seeds (see docs/TEST-MAP.md); not part of `check`.
+# Soundness fuzzing over fresh seeds; failures are grouped by the tested binary.
 fuzz:
-	cargo run --release -p xsh-fuzz -- all --duration $(FUZZ_DURATION)
+	cargo run --release -p xsh --bin xsh -- dev/fuzz.xsh -- $(FUZZ_DURATION)
 
 check:
 	$(DEV) check lint

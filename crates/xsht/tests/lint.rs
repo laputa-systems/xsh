@@ -5191,6 +5191,36 @@ fn error_fallback_fix_refuses_success_transforms_guards_and_error_patterns() {
 }
 
 #[test]
+fn error_fallback_fix_preserves_multiline_handler_edits() {
+    // Exact byte spans and replacement text are a host API that native tests
+    // cannot inspect directly.
+    let source = "enum Choice { Text(Str), Count(Int) }\npure recover(outcome: Result[Choice]) -> Str {\n  match match outcome { Ok(value) => value, Err(failure) => Text(\n    \"fallback\",\n  ) } {\n    Text(text) => text,\n    Count(count) => f\"{count}\",\n  }\n}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let diagnostic = output
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintErrorFallbackBlock))
+        .expect("multiline handler fallback fix");
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_owned();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("outcome ?? { |failure|"), "{fixed}");
+    assert!(fixed.contains("Text(\n    \"fallback\",\n  )"), "{fixed}");
+    assert_parse_check_standalone("multiline error fallback", &fixed);
+}
+
+#[test]
 fn error_fallback_flow_keeps_success_path_reachable() {
     let source = "pure choose(outcome: Result[Int]) -> Int {\n  let selected = outcome ?? { |_| return 7 }\n  selected\n}\n";
     let parsed = parse_lint_source(source);
@@ -7358,7 +7388,7 @@ fn scalar_iteration_fixes_refuse_used_adapters_offsets_mutation_and_partial_rang
         "let payload = b\"ab\"\nfor index in range(payload.len()) {\n  let octet = payload.byte_at(index)\n  print $index\n  let _ = octet\n}\n",
         "var payload = b\"ab\"\nfor index in range(payload.len()) {\n  let octet = payload.byte_at(index)\n  payload = b\"xy\"\n  let _ = octet\n}\n",
         "let payload = b\"ab\"\nfor index in range(1, payload.len()) {\n  let octet = payload.byte_at(index)\n  let _ = octet\n}\n",
-        "let text = \"é\"\nfor index in range(text.count_bytes()) {\n  let octet = text.byte_at(index)\n  let _ = octet\n}\n",
+        "let text = \"é\"\nfor index in range(text.byte_len()) {\n  let octet = text.byte_at(index)\n  let _ = octet\n}\n",
         "let payload = b\"ab\"\nfor index in range(payload.len()) {\n  let octet = payload.byte_at(index) # preserve extraction\n  let _ = octet\n}\n",
     ] {
         let parsed = parse_lint_source(source);
