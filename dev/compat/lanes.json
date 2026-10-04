@@ -182,10 +182,12 @@
       "kind": "rust",
       "utilities": [],
       "extra_files": [
-        "src/modules/fs.rs"
+        "src/modules/fs.rs",
+        "src/modules/fs/",
+        "tests/xsh/stdlib/fs_*.xsh"
       ],
       "depends": [],
-      "note": "nofollow metadata, ns timestamps, mknod/mkfifo, sparse seeks, copy_file_range/reflink, statvfs, no-clobber rename, xattrs if cp -a needs them. New fs submodules allowed."
+      "note": "Typed fs primitives the Wave 1 file lanes request: nofollow metadata (lstat-style for every field), ownership and mode preservation, nanosecond timestamps (utimensat, set and get, nofollow variants), hardlink count and identity, FIFOs and device nodes (mkfifo/mknod), sparse files (SEEK_DATA/SEEK_HOLE), efficient copy (copy_file_range, reflink via FICLONE), statvfs and mount identity, no-clobber and atomic operations (RENAME_NOREPLACE, O_EXCL), xattrs only if cp -a needs them. Read the failing categories in dev/compat/results/uutils-integration.json for cp, mv, ln, ls, touch, stat, du, df, mkdir, rm, chmod, chown, mkfifo, mknod, truncate and the uutils tests to decide the API; keep it typed (records, Result), additive, and documented. You may edit the fs module's registry/signature/doc entries and the fs section of docs/templates/SPEC.md with its docs/snippets/spec files (not generated docs; the integrator runs make docs). Merge conflicts in shared registry files are resolved mechanically by the integrator, so keep edits additive."
     },
     "native-proc-tty": {
       "wave": 1,
@@ -283,13 +285,18 @@
       "kind": "script",
       "utilities": [],
       "extra_files": [
-        "core/system-report.xsh",
-        "core/lib/system_report.xsh",
-        "core/lib/system_report_collect.xsh",
-        "core/lib/system_report_live.xsh"
+        "core/SYSTEM-REPORT.md",
+        "core/lib/sys_*.xsh",
+        "dev/system_report_check.xsh",
+        "dev/system_report_cpupower_check.xsh",
+        "dev/system_report_lsusb_check.xsh",
+        "dev/system_report_sensors_check.xsh",
+        "dev/system_report_smbios_check.xsh",
+        "dev/tests/test-system-report*.xsh",
+        "dev/system-report-coverage.json"
       ],
       "depends": [],
-      "note": "Extract typed collector modules under core/lib/ without weakening bounds, redaction, safety or capture/replay; dev/system_report_check.xsh stays green."
+      "note": "Extraction phase 1, one bounded vertical slice: pull the PCI, USB, block-device/partition and mount collectors out of core/lib/system_report_*.xsh into reusable typed modules named core/lib/sys_pci.xsh, sys_usb.xsh, sys_block.xsh, sys_mount.xsh (exported record types and collectors, bounded reads, no output formatting), and make system-report consume them with byte-identical output. Keep bounded reads, redaction, safety and capture/replay guarantees; dev/system_report_check.xsh (including --run-fixtures) and dev/tests/test-system-report*.xsh stay green. These modules become the substrate for lspci, lsusb, lsblk, findmnt later; design the records for those consumers (typed identity, not names), and never make one command parse another's text output. Stop after this slice and report what remains."
     },
     "text-a1": {
       "wave": 1,
@@ -390,7 +397,7 @@
       "depends": [
         "w0"
       ],
-      "note": "First lane; proves the lane process. `[` and `test` share one applet through aliases.json (integrator adds the alias). Small utilities, many of them new applets."
+      "note": "First lane; proves the lane process. `[` and `test` share one applet through aliases.json (integrator adds the alias). Small utilities, many of them new applets. Size: about 1,500 changed lines."
     },
     "tty-misc": {
       "wave": 1,
