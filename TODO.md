@@ -152,3 +152,38 @@ autofix where one exists, and tests.
 - **Optionals instead of `""` sentinels.** Lint `?? ""` (~475 Laputa sites)
   whose binding is later compared with `""`, and suggest optional binding:
   collapsing "unset" into "empty" makes the two indistinguishable.
+
+## Accepted ergonomics backlog, third batch
+
+- **Conditions propagate `Result[Bool]`.** In a fallible function,
+  `if ! fs.exists(p) { ... }` propagates the error, like statement position
+  (about 880 condition lines carry `)?` today).
+- **Value-position `run.*` forms propagate.** `let v = run.text git describe`
+  propagates; `try run.text ...` captures. Removes the detached trailing ` ?`
+  that reads like an argv word (361 Laputa lines).
+- **`Set[T]` with `{"a", "b"}` literals**, `in`, `|`, `&`, `-`, `.add`.
+  Replaces `Map[Bool]` sets and their meaningless `true` values (about 500
+  `Map[Bool]`/`set.empty()` sites).
+- **Negative single-element indexes.** Slices already count negative bounds
+  from the end, but `xs[-1]` fails at run time with `index-out-of-range`
+  (verified) and there is no `.last()`. Make `xs[-1]` index from the end;
+  lint + autofix `xs[xs.len() - N]` (about 71 sites). A literal negative
+  index on a too-short literal list should be a check error.
+- **Filter loops become comprehensions.** Rejected: a `for x in xs if c`
+  statement form. Instead `lint.prefer-list-comp` must also rewrite loops whose
+  first statement is `continue unless c` / `continue when c` (83 sites) when
+  the body only accumulates.
+- **Backslash continuation for command words.** `run muon setup \` continues
+  argv on the next line (a trailing `\` is a lexer error today, so the syntax
+  is free). 51 Laputa command lines exceed 120 characters.
+- **`xsh` reads the project module path like `xsht`.** `xsht` resolves
+  `use pm.proof` from the nearest `xsht-config.ini` `module_path`; `xsh` only
+  honors `XSH_MODULE_PATH`, so code can pass `xsht check` and fail to load at
+  run time. Laputa sets the variable by hand in its Makefile and reads it in
+  11 modules.
+- **`Path.glob(pattern)` / `Path.rglob(pattern)`** returning `Path`s, no
+  implicit expansion anywhere else (about 23 walk-then-filter sites).
+- **Size literals** `KiB MiB GiB KB MB GB` producing `UInt` bytes, like
+  Duration literals (about 79 `64 * 1024 * 1024`-style sites).
+
+Rejected this round: `/` as path join (keep `fp"..."`).
