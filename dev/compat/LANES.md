@@ -293,3 +293,14 @@ Report (<200 words): behavior changed, before/after counts, tests run, decisions
 Keep a running log in the integration branch commit messages: lane merged,
 before/after suite totals, requests applied, lanes started. The parity
 manifest and results JSON are the scoreboard; regenerate them on every merge.
+
+Sequencing directive (2026-10-04): after the first four Wave 1 lanes (`trivial`,
+`native-fs`, `text-a1`, `sysreport-extract`) are merged, merge fresh
+`origin/master` into `campaign-utils` (a merge, not a rebase: the branch is
+shared) before any further lane starts. Resolve conflicts in the registry, `eval.rs`
+and `lower.rs` by hand, regenerate docs with `make docs`, rebuild, run the full suite
+against the last committed results, and only then continue Wave 1 from the new base.
+At the time of writing master is 10 commits ahead of the merge base (nicer
+tracebacks, module-constant splicing in `run`, doc-block comment handling, tar hard
+link names) and overlaps `signature/docs.rs`, `eval.rs`, `lower.rs` and the generated
+docs.
