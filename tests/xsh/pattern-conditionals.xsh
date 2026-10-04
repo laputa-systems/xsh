@@ -371,6 +371,21 @@ test test_pattern_conditionals_preserve_sibling_match_capture_reuse {
   assert pattern_sibling_label(SiblingNumber(7)) == "7"
 }
 
+test test_pattern_conditions_over_comprehensions_fall_through_cleanly {
+  var labels = []
+  if let Ok(value) = {["a"]: word for word in ["b"]}.get("missing") {
+    labels += [value]
+  } else if let Ok(value) = [word for word in ["c"]].get(0) {
+    labels += [value]
+  }
+
+  while let Ok(value) = {["a"]: word for word in ["b"]}.get("missing") {
+    labels += [value]
+  }
+
+  assert labels == ["c"]
+}
+
 test test_pattern_conditionals_yield_from_stream_producers { |ctx|
   let output = test.run_script(
     ctx,
