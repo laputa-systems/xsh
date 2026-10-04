@@ -9,7 +9,7 @@ silently. A survey of this repo plus `../packages` found ~1,160 lines that call
 
 | Share | Use | Possible fix |
 |---|---|---|
-| ~1/3 | inside interpolation (`f"..."`, `fp"..."`, command words, `print`) | lint autofix that drops `.display()` (`lint.redundant-path-display`); bytes are kept exactly in `fp"..."` and command words |
+| ~1/3 | inside interpolation (`f"..."`, `fp"..."`, command words, `print`) | done: `lint.redundant-path-display` and `lint.path-constructor` autofixes, applied to all three repos |
 | ~80 | comparison with a literal, e.g. `p.display() == "/repo/x"` | let a string literal take the `Path` type when the other side of `==` or `!=` is a `Path`, so you write `p == "/repo/x"`. This is the same rule as typed bindings and parameters, and it is lossless. |
 | dozens | OS byte sinks: `process.command_argv(exe.display(), ...)`, `bytes.from_text(p.display())` | accept `Path` in argv, env, and process APIs, which carry OS bytes anyway; add a lossless `p.bytes()` |
 | ~30 | text queries: `.display().starts_with/ends_with/split/replace` | Path methods: component-wise `starts_with`/`ends_with` and `ext`/`stem`/`name` coverage, so path logic stays on paths |

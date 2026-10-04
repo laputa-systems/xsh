@@ -125,7 +125,12 @@ Lowering still computes representation-level types (37 `infer_*` uses in
   binaries; every spawned `xsh`/`xsht` is the release build, with a loud
   failure when it is missing or stale.
 
-## Syntax (queued, after the Path-display lane)
+- **Small fixes found by the fuzz lane.**
+  - The formatter is not idempotent on `fn2(...{p0: if … })`.
+  - `unix` module errors lack the NotFound/PermissionDenied facets that fs
+    errors now carry.
+
+## Syntax (running)
 
 ### f-strings interpolate with `{expr}`
 
