@@ -341,7 +341,9 @@ test test_net_runtime_descriptors_do_not_survive_exec { |ctx|
   let inherited = output.read_text()?
   let job = net.start({method: "GET", url: url + "/hello"})?
   run ${helper} > output ?
-  job.cancel()?
+  # Wait instead of cancelling: the harness asserts the fixture server saw the
+  # request, and a cancel can win before the request is sent.
+  assert job.wait()?.status == 200
   assert output.read_text()? == inherited
 }
 
