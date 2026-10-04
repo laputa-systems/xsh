@@ -131,8 +131,52 @@ impl Checker {
             self.removed_compatibility_name(span, "ARGV", "args", !shadowed_args);
             return Type::List(Box::new(Type::Str));
         }
-        self.error(span, "unresolved name", "check.unresolved-name");
+        self.report_unresolved_name(name, span);
         Type::Unknown
+    }
+
+    /// Spellings of `null`, `true`, and `false` from other languages get a
+    /// fix, an all-caps name is usually an environment variable, and any
+    /// other name gets the nearest visible binding or callable.
+    fn report_unresolved_name(&mut self, name: Name, span: Span) {
+        let text = name.as_str();
+        let text: &str = text.as_ref();
+        let mut diagnostic = Diagnostic::error(format!("unresolved name `{text}`"))
+            .with_code("check.unresolved-name")
+            .with_label(Label::primary(span, "unresolved name"));
+        let literal = match text {
+            "None" | "Null" | "NULL" | "nil" | "undefined" => Some("null"),
+            "True" | "TRUE" => Some("true"),
+            "False" | "FALSE" => Some("false"),
+            _ => None,
+        };
+        if let Some(literal) = literal {
+            diagnostic = diagnostic.with_fix_hint(super::FixHint::replacement(span, format!("XSH spells it `{literal}`"), literal));
+        } else if text.len() > 1 && text.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_') {
+            diagnostic = diagnostic.with_note(format!("environment variables are not names in XSH; read this one with `env.Str.{text}?`"));
+        } else if let Some(nearby) = self.nearby_visible_name(text) {
+            diagnostic = diagnostic.with_note(format!("did you mean `{nearby}`?"));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    pub(super) fn nearby_visible_name(&self, unknown: &str) -> Option<String> {
+        let scoped = self.scopes.iter().flat_map(|scope| scope.keys().copied());
+        let callables = self.procs.keys().chain(self.pures.keys()).copied();
+        super::method::nearest_name(unknown, scoped.chain(callables).map(|name| name.as_str().to_string()))
+    }
+
+    /// A typo of a known record field names the nearest field.
+    pub(super) fn report_unknown_field<'n>(&mut self, span: Span, name: Name, fields: impl Iterator<Item = &'n Name>) {
+        let unknown = name.as_str();
+        let unknown: &str = unknown.as_ref();
+        let mut diagnostic = Diagnostic::error(format!("unknown field `{unknown}` on known record type"))
+            .with_code("check.unknown-field")
+            .with_label(Label::primary(span, "unknown field on known record type"));
+        if let Some(nearby) = super::method::nearest_name(unknown, fields.map(|field| field.as_str().to_string())) {
+            diagnostic = diagnostic.with_note(format!("did you mean `{nearby}`?"));
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     fn lookup_record_shorthand(&mut self, name: Name, span: Span) -> Type {
@@ -532,11 +576,7 @@ impl Checker {
                 let ty = self.check_expr_arena(arena, source, expr_id, None);
                 if !ty.can_display() && !matches!(ty, Type::Any | Type::Unknown) {
                     let span = arena.arena.expr(expr_id).span;
-                    self.error(
-                        span,
-                        "value cannot be displayed in fmt string",
-                        "check.display-conversion",
-                    );
+                    self.report_conversion(span, &ty, "cannot be displayed in fmt string", "check.display-conversion");
                 }
             }
         }
@@ -1230,20 +1270,11 @@ impl Checker {
             }
             self.pop_scope();
         }
-        if !super::stmt::patterns_are_exhaustive_arena(arena, &value_ty, arm_list.iter().filter(|arm| arm.guard.is_none()).map(|arm| arm.pattern), &self.type_defs, &self.tag_variants) {
-            self.error(span, "value-producing match must be exhaustive", "check.match-value-exhaustive");
+        let unguarded = arm_list.iter().filter(|arm| arm.guard.is_none()).map(|arm| (arm.pattern, arena.arena.span(arm.span))).collect::<Vec<_>>();
+        if !super::stmt::patterns_are_exhaustive_arena(arena, &value_ty, unguarded.iter().map(|(pattern, _)| *pattern), &self.type_defs, &self.tag_variants) {
+            self.report_value_match_not_exhaustive(arena, &value_ty, &unguarded, span);
         }
         self.check_list_match_coverage_arena(arena, &value_ty, arm_list.iter().map(|arm| (arm.pattern, arena.arena.span(arm.span), arm.guard.is_some())), span);
-        self.check_tag_exhaustiveness_arena(
-            arena,
-            &value_ty,
-            arm_list
-                .iter()
-                .filter(|arm| arm.guard.is_none())
-                .map(|a| (a.pattern, arena.arena.span(a.span)))
-                .collect(),
-            span,
-        );
         expected.cloned().or(inferred).unwrap_or(Type::Unknown)
     }
 
@@ -1513,6 +1544,22 @@ impl Checker {
                             item.as_ref().clone()
                         }))
                     }
+                    Type::Path | Type::Bool | Type::Bytes | Type::Str | Type::List(_) | Type::Map(_, _)
+                    | Type::Record(_) | Type::Optional(_) | Type::Result(_, _) | Type::Status => {
+                        let symbol = match op { BinaryOp::Add => "+", BinaryOp::Sub => "-", BinaryOp::Mul => "*", BinaryOp::Div => "/", _ => "%" };
+                        let mut diagnostic = Diagnostic::error(format!("`{symbol}` is not defined for {left_ty}"))
+                            .with_code("check.operator-type")
+                            .with_label(Label::primary(left_span, format!("this operand is {left_ty}")));
+                        let note = match left_ty {
+                            Type::Path => Some("operators never join paths; build the path with an `fp\"...\"` literal"),
+                            Type::Result(_, _) => Some("unwrap the Result with `?` or `??` before using its value"),
+                            Type::Optional(_) => Some("handle `null` with `??` or a null test before using the value"),
+                            _ => None,
+                        };
+                        if let Some(note) = note { diagnostic = diagnostic.with_note(note); }
+                        self.diagnostics.push(diagnostic);
+                        Type::Unknown
+                    }
                     _ => {
                         self.expect_type(&Type::Int, &left_ty, left_span);
                         self.expect_type(&Type::Int, &right_ty, right_span);
@@ -1579,11 +1626,7 @@ impl Checker {
             Type::Record(fields) => match fields.get(&name) {
                 Some(ty) => ty.clone(),
                 None => {
-                    self.error(
-                        span,
-                        "unknown field on known record type",
-                        "check.unknown-field",
-                    );
+                    self.report_unknown_field(span, name, fields.keys());
                     Type::Unknown
                 }
             },
@@ -1704,11 +1747,7 @@ impl Checker {
             Type::Record(fields) => match fields.get(&name) {
                 Some(ty) => ty.clone(),
                 None => {
-                    self.error(
-                        span,
-                        "unknown field on known record type",
-                        "check.unknown-field",
-                    );
+                    self.report_unknown_field(span, name, fields.keys());
                     Type::Unknown
                 }
             },

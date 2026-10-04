@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Label};
+use crate::diagnostic::{Diagnostic, FixHint, Label};
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::literal::{self, QuotedLiteralKind, QuotedScan};
@@ -196,6 +196,8 @@ impl<'a> Lexer<'a> {
                         b'%' => self.push(TokenKind::Percent, start, self.offset),
                         b'|' => self.push(TokenKind::Pipe, start, self.offset),
                         b'&' => self.push(TokenKind::Amp, start, self.offset),
+                        b'\'' if self.report_single_quoted_text(start) => {}
+                        b'$' if self.report_command_substitution(start) => {}
                         _ => {
                             // Skip the whole character so the span stays on a
                             // character boundary and a multi-byte character is
@@ -418,6 +420,59 @@ impl<'a> Lexer<'a> {
                 );
             }
         }
+    }
+
+    /// Shell and Python habit: `'text'`. The whole quoted run on one line is
+    /// skipped as one invalid region with a double-quote fix, when the text
+    /// means the same inside `"..."`. A lone apostrophe is left to the
+    /// generic unexpected-character report.
+    fn report_single_quoted_text(&mut self, start: usize) -> bool {
+        let rest = &self.source[start + 1..];
+        let Some(close) = rest.find(['\'', '\n']).filter(|&index| rest.as_bytes()[index] == b'\'') else {
+            return false;
+        };
+        let text = &rest[..close];
+        self.offset = start + 1 + close + 1;
+        let span = self.span(start, self.offset);
+        let mut diagnostic = Diagnostic::error("single quotes do not delimit strings in XSH")
+            .with_code("lex.unexpected-character")
+            .with_label(Label::primary(span, "XSH strings use double quotes"));
+        if !text.contains(['"', '\\', '$', '{', '}']) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use double quotes", format!("\"{text}\"")));
+        }
+        self.diagnostics.push(diagnostic);
+        true
+    }
+
+    /// Shell habit: `$(command)`. XSH runs commands with `run`, so the whole
+    /// substitution on one line is skipped as one invalid region.
+    fn report_command_substitution(&mut self, start: usize) -> bool {
+        if self.source.as_bytes().get(start + 1) != Some(&b'(') {
+            return false;
+        }
+        let mut depth = 0usize;
+        let mut end = None;
+        for (index, byte) in self.source.as_bytes()[start + 1..].iter().enumerate() {
+            match byte {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(start + 1 + index + 1);
+                        break;
+                    }
+                }
+                b'\n' => break,
+                _ => {}
+            }
+        }
+        self.offset = end.unwrap_or(start + 1);
+        self.diagnostics.push(
+            Diagnostic::error("`$(...)` command substitution is shell syntax")
+                .with_code("lex.unexpected-character")
+                .with_label(Label::primary(self.span(start, self.offset), "capture a command's output with `run.text COMMAND ?`")),
+        );
+        true
     }
 
     fn lex_string(&mut self, kind: StringLiteralKind, raw_literal: bool, literal_start: usize) {

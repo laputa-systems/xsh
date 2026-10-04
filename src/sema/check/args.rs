@@ -243,7 +243,14 @@ impl Checker {
             params.len()
         };
         if !has_splice && (args.len() < required || args.len() > max) {
-            self.error(span, "incorrect function arity", "check.arity");
+            let expected = if required == max {
+                format!("{required} argument{}", if required == 1 { "" } else { "s" })
+            } else if max == usize::MAX {
+                format!("at least {required} arguments")
+            } else {
+                format!("{required} to {max} arguments")
+            };
+            self.error(span, &format!("incorrect function arity: expected {expected}, found {}", args.len()), "check.arity");
         }
 
         let mut index = 0;

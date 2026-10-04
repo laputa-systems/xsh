@@ -113,12 +113,34 @@ impl<'a> Parser<'a> {
                     && self.lookahead_is_signal_hook()
                 {
                     self.parse_signal_hook_arena_only(start, arena)
+                } else if let Some(operator) = self.lookahead_increment() {
+                    let operator_span = self.span(self.peek_start(1)?, self.peek_end(2)?);
+                    let replacement = if operator == "++" { " += 1" } else { " -= 1" };
+                    self.diagnostics.push(
+                        Diagnostic::error(format!("XSH has no `{operator}` operator"))
+                            .with_code("parse.foreign-syntax")
+                            .with_label(Label::primary(operator_span, format!("write `{}{replacement}`", self.current_name()?)))
+                            .with_fix_hint(FixHint::replacement(operator_span, format!("use `{}`", replacement.trim()), replacement)),
+                    );
+                    None
+                } else if let Some(spelling) = self.shell_declaration_keyword() {
+                    let span = self.current_span();
+                    self.diagnostics.push(
+                        Diagnostic::error(format!("XSH declares variables with `let` or `var`, not `{spelling}`"))
+                            .with_code("parse.foreign-syntax")
+                            .with_label(Label::primary(span, "write `let name = value`, or `var` to allow reassignment"))
+                            .with_fix_hint(FixHint::replacement(span, "replace with `let`", "let")),
+                    );
+                    self.parse_binding_arena_only(start, true, arena)
+                } else if let Some(spelling) = self.foreign_function_keyword() {
+                    self.report_foreign_function_keyword(spelling);
+                    None
                 } else if self.lookahead_is_assignment() {
                     self.parse_assignment_arena_only(start, arena)
                 } else if self.lookahead_is_dotted_command()
                     // `cd /tmp { ... }`: a bare path before the block is the
                     // scope's directory, not a division.
-                    || (self.current_name().is_some_and(|name| name == "cd") && self.command_line_has_block())
+                    || (self.current_name().is_some_and(|name| name == "cd") && (self.command_line_has_block() || self.lookahead_is_blockless_cd()))
                 {
                     self.parse_command_statement_arena_only(start, arena)
                 } else if self.lookahead_is_expr_call_or_postfix()
@@ -215,10 +237,14 @@ impl<'a> Parser<'a> {
                 self.parse_error_def_arena_only(start, arena)?
             }
             _ => {
-                self.diagnostic_here(
-                    "`export` applies only to const, let, proc, pure, stream, type, enum, or error definitions",
-                    "parse.export-target",
-                );
+                let message = "`export` applies only to const, let, proc, pure, stream, type, enum, or error definitions";
+                let mut diagnostic = Diagnostic::error(message)
+                    .with_code("parse.export-target")
+                    .with_label(Label::primary(self.current_span(), message));
+                if matches!(self.current_tag(), TokenTag::Ident) && self.peek_tag(1) == Some(TokenTag::Equals) {
+                    diagnostic = diagnostic.with_note("XSH `export` publishes module definitions; set an environment variable for commands with `env NAME=value { ... }`");
+                }
+                self.diagnostics.push(diagnostic);
                 return None;
             }
         };
@@ -782,6 +808,7 @@ impl<'a> Parser<'a> {
         crate::source::Span,
     )> {
         let mut params = Vec::new();
+        let mut reported_untyped = false;
         self.skip_newlines();
         while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
             let start = self.current_start();
@@ -823,6 +850,20 @@ impl<'a> Parser<'a> {
                     let default_span = self.span(default_start, self.previous_end());
                     let ty_id = unknown_type_expr(arena, default_span);
                     (ty_id, true, Some(default_id), default_span.end())
+                } else if matches!(self.current_tag(), TokenTag::Comma | TokenTag::RParen) {
+                    // An untyped parameter list (`proc add(a, b)`) is one
+                    // mistake: report its first parameter and keep parsing
+                    // the signature and body.
+                    let name_span = self.previous_span();
+                    if !reported_untyped {
+                        reported_untyped = true;
+                        self.diagnostics.push(
+                            Diagnostic::error("expected `:` or default value after parameter name")
+                                .with_code("parse.expected-param-type")
+                                .with_label(Label::primary(name_span, format!("parameters declare their types: write `{name}: Type`"))),
+                        );
+                    }
+                    (unknown_type_expr(arena, name_span), false, None, name_span.end())
                 } else {
                     self.diagnostic_here(
                         "expected `:` or default value after parameter name",
@@ -1245,6 +1286,55 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
+    /// `name++` or `name--` as a whole statement.
+    fn lookahead_increment(&self) -> Option<&'static str> {
+        let operator = match (self.peek_tag(1)?, self.peek_tag(2)?) {
+            (TokenTag::Plus, TokenTag::Plus) => "++",
+            (TokenTag::Minus, TokenTag::Minus) => "--",
+            _ => return None,
+        };
+        let adjacent = self.peek_start(1)? == self.current_end() && self.peek_start(2)? == self.peek_end(1)?;
+        (adjacent && matches!(self.peek_tag(3), Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof | TokenTag::Comment)))
+            .then_some(operator)
+    }
+
+    /// Shell `cd DIR` on its own line. The command form reports the missing
+    /// block instead of reading `cd /tmp` as a division of two names.
+    fn lookahead_is_blockless_cd(&self) -> bool {
+        matches!(self.peek_tag(1), Some(TokenTag::Slash | TokenTag::Dot | TokenTag::PathString | TokenTag::String | TokenTag::DollarIdent))
+            && !matches!(self.peek_tag(2), Some(TokenTag::Equals))
+    }
+
+    /// `local x=1` and friends declare a shell variable; parsing continues
+    /// as the binding they stand for, so later uses of the name resolve.
+    fn shell_declaration_keyword(&self) -> Option<&'static str> {
+        let name = self.current_name()?;
+        let spelling = ["local", "declare", "readonly", "typeset"].into_iter().find(|spelling| name == *spelling)?;
+        (self.peek_tag(1) == Some(TokenTag::Ident) && self.peek_tag(2) == Some(TokenTag::Equals)).then_some(spelling)
+    }
+
+    /// `function name() {` (shell) and `def name(` (Python) at the start of a
+    /// statement. Neither word is reserved, so only the declaration shape,
+    /// a name followed by `(` or `{`, is treated as the foreign keyword.
+    fn foreign_function_keyword(&self) -> Option<&'static str> {
+        let name = self.current_name()?;
+        let spelling = ["function", "def", "fn", "func"].into_iter().find(|spelling| name == *spelling)?;
+        let named = matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent));
+        (named && matches!(self.peek_tag(2), Some(TokenTag::LParen | TokenTag::LBrace))).then_some(spelling)
+    }
+
+    /// The statement is reported once and skipped with its body by statement
+    /// recovery; its parameters would need XSH types anyway.
+    fn report_foreign_function_keyword(&mut self, spelling: &str) {
+        let span = self.current_span();
+        self.diagnostics.push(
+            Diagnostic::error(format!("XSH declares functions with `proc` (or `pure`), not `{spelling}`"))
+                .with_code("parse.foreign-syntax")
+                .with_label(Label::primary(span, "write `proc name(param: Type) { ... }`"))
+                .with_fix_hint(FixHint::replacement(span, "replace with `proc`", "proc")),
+        );
+    }
+
     fn parse_if_arena_only(
         &mut self,
         start: usize,
@@ -1255,8 +1345,8 @@ impl<'a> Parser<'a> {
         let block_id = self.parse_block_arena_only(arena)?;
         let mut branch_ids = vec![(condition, block_id)];
         let mut else_block_id = None;
-        while self.consume_keyword(Keyword::Else).is_some() {
-            if self.consume_keyword(Keyword::If).is_some() {
+        while let Some(implied_if) = self.consume_else() {
+            if implied_if || self.consume_keyword(Keyword::If).is_some() {
                 let condition = self.parse_condition_arena_only(arena)?.id;
                 let block_id = self.parse_block_arena_only(arena)?;
                 branch_ids.push((condition, block_id));
@@ -1268,6 +1358,50 @@ impl<'a> Parser<'a> {
         let span = self.span(start, self.previous_end());
         arena.push_if(&branch_ids, else_block_id, span);
         Some(())
+    }
+
+    /// Consume the `else` that continues an `if`, returning whether it also
+    /// stands for `if` (a misspelled `elif`). A statement never starts with
+    /// `else`, so an `else` on the line after the closing `}` can only belong
+    /// to this `if`: it is reported with a fix that joins the lines, and the
+    /// parse continues as if it were written there.
+    pub(super) fn consume_else(&mut self) -> Option<bool> {
+        let mut offset = 0;
+        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) {
+            offset += 1;
+        }
+        let is_else = self.peek_tag(offset) == Some(TokenTag::Keyword) && self.peek_keyword(offset) == Some(Keyword::Else);
+        let is_elif = self.peek_tag(offset) == Some(TokenTag::Ident)
+            && self.peek_label_name(offset).is_some_and(|name| name == "elif")
+            && !matches!(self.peek_tag(offset + 1), Some(TokenTag::Equals | TokenTag::FatArrow | TokenTag::Newline | TokenTag::Eof));
+        if !is_else && !is_elif {
+            return None;
+        }
+        if offset > 0 {
+            let gap = self.span(self.previous_end(), self.peek_start(offset)?);
+            let keyword = self.span(self.peek_start(offset)?, self.peek_end(offset)?);
+            let mut diagnostic = Diagnostic::error("`else` must be on the same line as the `}` that closes the `if` block")
+                .with_code("parse.detached-else")
+                .with_label(Label::primary(keyword, "a newline before `else` ends the `if` statement"));
+            if self.source[gap.range()].trim().is_empty() {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(gap, "join `else` to the closing `}`", " "));
+            }
+            self.diagnostics.push(diagnostic);
+            for _ in 0..offset {
+                self.bump();
+            }
+        }
+        if is_elif {
+            let span = self.current_span();
+            self.diagnostics.push(
+                Diagnostic::error("XSH spells `elif` as `else if`")
+                    .with_code("parse.foreign-syntax")
+                    .with_label(Label::primary(span, "write `else if`"))
+                    .with_fix_hint(FixHint::replacement(span, "replace with `else if`", "else if")),
+            );
+        }
+        self.bump();
+        Some(is_elif)
     }
 
     pub(super) fn parse_binding_target_arena_only(

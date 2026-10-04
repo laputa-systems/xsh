@@ -520,6 +520,10 @@ impl Checker {
         }
     }
 
+    /// A statement `match` over an enum that misses variants is a warning.
+    /// A value-producing `match` reports the same gap through
+    /// `check.match-value-exhaustive` instead, so it calls
+    /// `missing_tag_variants_arena` directly and never gets both.
     pub(super) fn check_tag_exhaustiveness_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -527,40 +531,9 @@ impl Checker {
         arm_patterns: Vec<(PatternId, Span)>,
         span: Span,
     ) {
-        let Type::Tag(type_name) = value_ty else {
+        let Some(missing_list) = self.missing_tag_variants_arena(arena, value_ty, &arm_patterns) else {
             return;
         };
-        let Some(body) = self.type_defs.get(type_name).or_else(|| self.type_defs.values().find(|body|
-            matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *type_name)))).cloned() else {
-            return;
-        };
-        let TypeDefBody::TagUnion(variants) = body else {
-            return;
-        };
-        if super::stmt::patterns_are_exhaustive_arena(arena, value_ty, arm_patterns.iter().map(|(pattern, _)| *pattern), &self.type_defs, &self.tag_variants) { return; }
-        let has_catch_all = arm_patterns.iter().any(|(pattern_id, _)| {
-            match &arena.arena.pattern(*pattern_id).kind {
-                ArenaPatternKind::Wildcard => true,
-                ArenaPatternKind::Binding(name) => !self.tag_variants.contains_key(name),
-                _ => false,
-            }
-        });
-        if has_catch_all {
-            return;
-        }
-        let mut covered: FxHashSet<Name> = FxHashSet::default();
-        for (pattern_id, _) in &arm_patterns {
-            collect_covered_constructors_arena(arena, *pattern_id, &mut covered);
-        }
-        let missing: Vec<String> = variants
-            .iter()
-            .filter(|v| !covered.contains(&v.name))
-            .map(|v| v.name.as_str().to_string())
-            .collect();
-        if missing.is_empty() {
-            return;
-        }
-        let missing_list = missing.join(", ");
         self.diagnostics.push(
             Diagnostic::new(
                 crate::diagnostic::Severity::Warning,
@@ -572,6 +545,61 @@ impl Checker {
                 "not all variants of this tag union are handled",
             )),
         );
+    }
+
+    /// The comma-separated enum variants that no unguarded arm covers, or
+    /// `None` when the value is not an enum or a catch-all arm exists.
+    pub(super) fn missing_tag_variants_arena(
+        &self,
+        arena: &ArenaProgram,
+        value_ty: &Type,
+        arm_patterns: &[(PatternId, Span)],
+    ) -> Option<String> {
+        let Type::Tag(type_name) = value_ty else {
+            return None;
+        };
+        let body = self.type_defs.get(type_name).or_else(|| self.type_defs.values().find(|body|
+            matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *type_name))))?;
+        let TypeDefBody::TagUnion(variants) = body else {
+            return None;
+        };
+        if super::stmt::patterns_are_exhaustive_arena(arena, value_ty, arm_patterns.iter().map(|(pattern, _)| *pattern), &self.type_defs, &self.tag_variants) { return None; }
+        let has_catch_all = arm_patterns.iter().any(|(pattern_id, _)| {
+            match &arena.arena.pattern(*pattern_id).kind {
+                ArenaPatternKind::Wildcard => true,
+                ArenaPatternKind::Binding(name) => !self.tag_variants.contains_key(name),
+                _ => false,
+            }
+        });
+        if has_catch_all {
+            return None;
+        }
+        let mut covered: FxHashSet<Name> = FxHashSet::default();
+        for (pattern_id, _) in arm_patterns {
+            collect_covered_constructors_arena(arena, *pattern_id, &mut covered);
+        }
+        let missing: Vec<String> = variants
+            .iter()
+            .filter(|v| !covered.contains(&v.name))
+            .map(|v| v.name.as_str().to_string())
+            .collect();
+        (!missing.is_empty()).then(|| missing.join(", "))
+    }
+
+    /// A value-producing `match` has no value for an uncovered case, so the
+    /// gap is an error; it names the missing enum variants when it can.
+    pub(super) fn report_value_match_not_exhaustive(
+        &mut self,
+        arena: &ArenaProgram,
+        value_ty: &Type,
+        arm_patterns: &[(PatternId, Span)],
+        span: Span,
+    ) {
+        let message = match self.missing_tag_variants_arena(arena, value_ty, arm_patterns) {
+            Some(missing) => format!("value-producing match must be exhaustive: missing variant(s) `{missing}`"),
+            None => "value-producing match must be exhaustive".to_string(),
+        };
+        self.error(span, &message, "check.match-value-exhaustive");
     }
 }
 

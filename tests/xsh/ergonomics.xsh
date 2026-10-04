@@ -189,6 +189,7 @@ table += {y: 2}
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source
-    assert "check.type-mismatch" in output.stderr
+    assert "check.operator-type" in output.stderr, output.stderr
+    assert "is not defined for Map[Int]" in output.stderr, output.stderr
   }
 }

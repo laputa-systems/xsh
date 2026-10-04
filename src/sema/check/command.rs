@@ -325,12 +325,44 @@ impl Checker {
             );
             return Type::Unknown;
         }
-        self.error(
-            span,
-            "unresolved proc command",
-            "check.unresolved-proc-command",
-        );
+        self.report_unresolved_proc_command(name, span);
         Type::Unknown
+    }
+
+    /// A command statement names a core command, a standard API, or `run`.
+    /// Shell builtins are the usual unresolved names, so they get the XSH
+    /// spelling; anything else is most likely an external program. The
+    /// `print` fix is not auto-applied, since `echo` flags differ.
+    fn report_unresolved_proc_command(&mut self, name: &str, span: Span) {
+        let name_span = Span::new(span.source_id, span.start(), (span.start() + name.len()).min(span.end()));
+        let mut diagnostic = Diagnostic::error(format!("unresolved proc command `{name}`"))
+            .with_code("check.unresolved-proc-command")
+            .with_label(Label::primary(span, "unresolved proc command"));
+        diagnostic = match name {
+            "echo" | "printf" => diagnostic
+                .with_note(format!("print text with `print`, or run the external program with `run {name} ...`"))
+                .with_fix_hint(FixHint::replacement(name_span, "use `print`", "print").dangerous()),
+            "source" | "." => diagnostic
+                .with_note("XSH does not source shell scripts; import an XSH module with `use`, or run a shell script with `run sh FILE`"),
+            "set" | "unset" | "declare" | "typeset" | "readonly" | "local" => diagnostic
+                .with_note("declare variables with `let` or `var`; set a child's environment with `env NAME=value { ... }`"),
+            "env" => diagnostic
+                .with_note("an `env` scope needs a block: `env NAME=value { ... }`; for one command write `run NAME=value COMMAND`"),
+            _ => diagnostic.with_note(format!("XSH never looks up commands on PATH implicitly; run an external program with `run {name} ...`")),
+        };
+        self.diagnostics.push(diagnostic);
+    }
+
+    /// Conversion errors name the type that cannot convert. A Unit value is
+    /// almost always a statement-like call interpolated by mistake.
+    pub(super) fn report_conversion(&mut self, span: Span, ty: &Type, failure: &str, code: &str) {
+        let mut diagnostic = Diagnostic::error(format!("value of type `{ty}` {failure}"))
+            .with_code(code)
+            .with_label(Label::primary(span, format!("this value is `{ty}`")));
+        if *ty == Type::Unit {
+            diagnostic = diagnostic.with_note("this expression produces no value; run it as its own statement");
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     pub(super) fn check_module_command_arena(
@@ -350,7 +382,7 @@ impl Checker {
             return Type::Unknown;
         };
         let Some(overloads) = module_sig.function_overloads(name) else {
-            self.error(span, "unknown module API", "check.unknown-module-api");
+            self.report_unknown_module_api(module, name, span);
             return Type::Unknown;
         };
         let command_overloads = overloads
@@ -530,11 +562,7 @@ impl Checker {
         let ty = self.check_command_arg_arena(arena, source, arg, None);
         if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
             let arg_span = arena.arena.span(arg.span);
-            self.error(
-                arg_span,
-                "value cannot be displayed by print",
-                "check.display-conversion",
-            );
+            self.report_conversion(arg_span, &ty, "cannot be displayed by print", "check.display-conversion");
         }
     }
 
@@ -827,11 +855,7 @@ impl Checker {
                         let ty = self.check_expr_arena(arena, source, *expr_id, None);
                         if !ty.can_display() && !matches!(ty, Type::Unknown | Type::Invalid) {
                             let expr_span = arena.arena.expr(*expr_id).span;
-                            self.error(
-                                expr_span,
-                                "interpolation cannot convert to one command word",
-                                "check.argv-conversion",
-                            );
+                            self.report_conversion(expr_span, &ty, "cannot convert to one command word", "check.argv-conversion");
                         }
                     }
                 }
@@ -891,11 +915,7 @@ impl Checker {
                         };
                         if !valid && !matches!(ty, Type::Unknown) {
                             let expr_span = arena.arena.expr(*expr_id).span;
-                            self.error(
-                                expr_span,
-                                "invalid argv interpolation conversion",
-                                "check.argv-conversion",
-                            );
+                            self.report_conversion(expr_span, &ty, "cannot be a command argument", "check.argv-conversion");
                         }
                     }
                 }
@@ -904,11 +924,7 @@ impl Checker {
                 let ty = self.check_expr_arena(arena, source, *expr_id, None);
                 if !ty.can_be_argv_item() && !matches!(ty, Type::Unknown) {
                     let expr_span = arena.arena.expr(*expr_id).span;
-                    self.error(
-                        expr_span,
-                        "value cannot convert to argv item",
-                        "check.argv-conversion",
-                    );
+                    self.report_conversion(expr_span, &ty, "cannot be a command argument", "check.argv-conversion");
                 }
             }
             ArenaCommandArgKind::SpliceName(name) => {
