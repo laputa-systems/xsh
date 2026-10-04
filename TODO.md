@@ -50,3 +50,20 @@ first.
   the host and overwrites `target/release` with Linux binaries.
 - Cargo's `unused_dependencies` lint flags `mimalloc` in xsht and xshi.
   This is a false positive: the binaries use it, the libraries do not.
+
+## Literal braces in interpolating strings that generate code
+
+Recipes and proofs generate C, XSH, and config text with `f"""..."""`, and
+every literal brace in that text must be doubled (`{{`, `}}`); the Laputa
+corpus has ~320 such escapes. The generated code then no longer reads as
+itself. Raw strings (`r"..."`) do not help: they decode no escapes but do not
+interpolate either.
+
+Rejected so far:
+- `$`-interpolated block strings (`${expr}`): `$` is already overloaded by
+  command words.
+- Swift-style hash delimiters (`f#"""...#{expr}..."""#`): too noisy.
+
+Open decision: a delimiter or prefix that makes `{` literal while still
+allowing interpolation, or none (keep `{{` and use `template.render` for
+large generated files).
