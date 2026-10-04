@@ -239,6 +239,11 @@ Rejected, with reasons:
 
 ## Accepted and specified, not started (first batch)
 
+- **`collect { ... }` blocks**: the block's `yield`s (including
+  `yield x when c` and yields inside loops) append to a List that is its
+  value; lint + autofix for local lists built only by `xs = xs.push(..)` /
+  `xs += [..]` (~2,858 `x = x.push(` lines in Laputa).
+
 - **Lint the redundant `}?` on statement scopes** and make `fs.write(p, x, mode: M)`
   create the file with its final mode, merging `write` + `chmod` pairs by
   autofix. Statement scopes already propagate (SPEC 8.1).
